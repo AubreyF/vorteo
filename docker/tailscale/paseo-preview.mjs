@@ -7,7 +7,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -73,22 +72,20 @@ function atomic(file, value, mode = 0o600) {
 function save(state) {
   atomic(stateFile, JSON.stringify(state, null, 2) + "\n");
 }
-function processIdentity(pid) {
-  const boot = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
-  const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-  return `${boot}:${pid}:${stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]}`;
-}
 function daemonIdentity() {
-  for (const pid of readdirSync("/proc").filter((value) => /^\d+$/.test(value))) {
-    try {
-      const status = readFileSync(`/proc/${pid}/status`, "utf8");
-      if (!/^Name:\s+Paseo Daemon$/m.test(status)) continue;
-      return processIdentity(pid);
-    } catch (error) {
-      if (!["ENOENT", "EACCES", "ESRCH"].includes(error.code)) throw error;
-    }
-  }
-  throw new Error("Vorteo daemon is not ready");
+  // Use the broker's pinned worker contract, including supervisor and PID reuse checks.
+  return execFileSync(
+    process.execPath,
+    [
+      "-e",
+      "\nconst fs=require('node:fs');const path=require('node:path');const found=[];\nconst home=process.env.PASEO_HOME||path.join(require('node:os').homedir(),'.paseo');\nconst ownerFile=path.join(home,'paseo.pid');\nconst ownerText=fs.readFileSync(ownerFile,'utf8');\nconst owner=JSON.parse(ownerText).pid;\nif(!Number.isSafeInteger(owner)||owner<=0)process.exit(1);\nconst boot=fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();\nconst start=pid=>{const stat=fs.readFileSync(`/proc/${pid}/stat`,'utf8');return stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];};\nconst owned=status=>{const ids=status.match(/^Uid:\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)$/m);return ids&&ids.slice(1).every(id=>Number(id)===process.getuid());};\nconst ownerStart=start(owner);\nif(!owned(fs.readFileSync(`/proc/${owner}/status`,'utf8')))process.exit(1);\nconst markerFile=path.join(home,'managed-supervisor.json');\nlet markerText,selected,entry,node,marker;\nif(fs.existsSync(markerFile)){\n  markerText=fs.readFileSync(markerFile,'utf8');marker=JSON.parse(markerText);\n  if(marker.version!==1||marker.pid!==owner||!path.isAbsolute(marker.root)||!path.isAbsolute(marker.link)||path.dirname(marker.link)!==marker.root||fs.realpathSync(marker.root)!==marker.root)process.exit(1);\n  const env=fs.readFileSync(`/proc/${owner}/environ`,'utf8').split('\\0');\n  if(!env.includes(`PASEO_MANAGED_RELEASE_LINK=${marker.link}`)||!env.includes(`PASEO_MANAGED_RELEASE_ROOT=${marker.root}`))process.exit(1);\n  selected=fs.realpathSync(marker.link);\n  if(!selected.startsWith(marker.root+path.sep))process.exit(1);\n  entry=path.join(selected,'packages/server/dist/server/server/daemon-worker.js');\n  if(fs.realpathSync(entry)!==entry)process.exit(1);\n  node=fs.realpathSync(`/proc/${owner}/exe`);\n}\nfor(const pid of fs.readdirSync('/proc').filter(p=>/^\\d+$/.test(p))){\n  try{\n    const ticks=start(pid);\n    if(!/^\\d+$/.test(ticks))process.exit(1);\n    const status=fs.readFileSync(`/proc/${pid}/status`,'utf8');\n    if(!owned(status))continue;\n    const parent=Number(status.match(/^PPid:\\s+(\\d+)$/m)?.[1]);\n    if(marker){\n      if(parent!==owner)continue;\n      const argv=fs.readFileSync(`/proc/${pid}/cmdline`,'utf8').split('\\0');\n      if(argv.pop()!==''||argv.length!==2||argv[1]!==entry||fs.realpathSync(argv[0])!==node||fs.realpathSync(`/proc/${pid}/exe`)!==node)continue;\n    }else if(!/^Name:\\s+Paseo Daemon$/m.test(status)||(Number(pid)!==owner&&parent!==owner))continue;\n    found.push({pid,ticks,value:`${boot}:${pid}:${ticks}`});\n  }catch(e){if(!['ENOENT','EACCES','ESRCH'].includes(e.code))throw e;}\n}\nif(found.length!==1)process.exit(1);\nif(fs.readFileSync(ownerFile,'utf8')!==ownerText||start(owner)!==ownerStart||start(found[0].pid)!==found[0].ticks||fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()!==boot)process.exit(1);\nif(marker&&(fs.readFileSync(markerFile,'utf8')!==markerText||fs.realpathSync(marker.link)!==selected))process.exit(1);\nprocess.stdout.write(found[0].value);\n",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 10000,
+      maxBuffer: 4096,
+    },
+  ).trim();
 }
 function config(entry) {
   const file = join(entry.cwd, "paseo.json");

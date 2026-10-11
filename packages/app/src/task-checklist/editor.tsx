@@ -21,18 +21,20 @@ interface ChecklistEditorProps {
   tasks: AgentTaskItem[];
   canMutate: boolean;
   supportsBlocked: boolean;
+  supportsReview: boolean;
   pending: boolean;
   error: string | null;
   mutate: (mutation: ChecklistMutation) => Promise<unknown>;
   onClose: () => void;
 }
 
-const statuses = ["pending", "in_progress", "blocked", "completed"] as const;
+const statuses = ["pending", "in_progress", "review", "blocked", "completed"] as const;
 const statusLabels = {
   pending: "Pending",
   in_progress: "In progress",
   completed: "Completed",
   blocked: "Blocked",
+  review: "Review",
 };
 
 export function ChecklistEditor({
@@ -40,6 +42,7 @@ export function ChecklistEditor({
   tasks,
   canMutate,
   supportsBlocked,
+  supportsReview,
   pending,
   error,
   mutate,
@@ -154,7 +157,11 @@ export function ChecklistEditor({
           <Field label="Status">
             <View style={styles.actions}>
               {statusChoices
-                .filter(({ status }) => status !== "blocked" || supportsBlocked)
+                .filter(
+                  ({ status }) =>
+                    (status !== "blocked" || supportsBlocked) &&
+                    (status !== "review" || supportsReview),
+                )
                 .map(({ status, onPress }) => (
                   <Button
                     key={status}

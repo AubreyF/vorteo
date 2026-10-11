@@ -1,3 +1,4 @@
+import { PreviewMonitorConfigurationSchema } from "@getpaseo/protocol/preview-monitor-maintenance";
 import { NativeHelperConfigurationSchema } from "@getpaseo/protocol/native-helper-maintenance";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -31,6 +32,7 @@ export type ContainerSourceUpdates = z.infer<typeof ContainerSourceUpdatesSchema
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
   nativeHelper: NativeHelperConfigurationSchema.optional(),
+  previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
   sourceUpdates: z

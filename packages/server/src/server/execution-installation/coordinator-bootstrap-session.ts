@@ -57,12 +57,21 @@ export async function handleBootstrapReview(
         throw new BootstrapRequestConflict(
           "Reload the client to review the compatible recovery executable before approval.",
         );
+      if (
+        message.input.decision === "approve" &&
+        request?.plan.previewMonitorConfiguration !== undefined &&
+        message.previewMonitor !== true
+      )
+        throw new BootstrapRequestConflict(
+          "Reload the client to review this preview monitor configuration before approval.",
+        );
       await service.decide(message.input, message.ownerPassword);
     }
     const requests = service
       .list()
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
-      .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true));
+      .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
+      .map((request) => previewMonitorReply(request, message.previewMonitor === true));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -105,5 +114,21 @@ function compatibleRecoveryReply(
     plan,
     reason:
       "Reload the client to review the compatible recovery executable. Cancellation remains available.",
+  };
+}
+
+// COMPAT(bootstrapPreviewMonitor): added 2026-10-11; remove after 2027-04-11
+// once all supported clients negotiate monitor configuration review.
+function previewMonitorReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.previewMonitorConfiguration === undefined) return request;
+  const { previewMonitorConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this preview monitor configuration. Cancellation remains available.",
   };
 }

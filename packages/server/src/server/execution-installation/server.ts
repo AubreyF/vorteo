@@ -370,40 +370,52 @@ export function createInstallationServer(
       executor.releaseCurrentTurns &&
       executor.restartWhenIdle,
     );
-    void Promise.all(
-      (["host", "container-daemon"] as const).map(async (target) => ({
-        target,
-        restart: true,
-        sourceUpdate: await updateCapability(target),
-      })),
-    ).then(
-      (targets) =>
-        res.json({
-          version: 1,
-          targets,
-          ownerApprovalRequired: !host || !automaticHost,
-          hostAutomaticRestarts: automaticHost,
-          nativeHelper: {
-            available: Boolean(
-              host &&
-              executor.validateHelperPlan &&
-              executor.installHelper &&
-              executor.verifyHelperRecovery,
-            ),
-            ownerApprovalRequired: true,
-          },
-          supervisorMaintenance: {
-            available: Boolean(supervisorPlan && executor.restartSupervisor),
-            ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
-          },
-          factoryRuntimeAdoption: {
-            available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-            ownerApprovalRequired: true,
-            ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-          },
-        }),
-      next,
-    );
+    void (async () => {
+      const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
+      return Promise.all(
+        (["host", "container-daemon"] as const).map(async (target) => ({
+          target,
+          restart: true,
+          sourceUpdate: await updateCapability(target),
+        })),
+      ).then(
+        (targets) =>
+          res.json({
+            version: 1,
+            targets,
+            ownerApprovalRequired: !host || !automaticHost,
+            hostAutomaticRestarts: automaticHost,
+            previewMonitor: {
+              available: Boolean(
+                host &&
+                executor.validateMonitorPlan &&
+                executor.installMonitor &&
+                monitorCompatible,
+              ),
+              ownerApprovalRequired: true,
+            },
+            nativeHelper: {
+              available: Boolean(
+                host &&
+                executor.validateHelperPlan &&
+                executor.installHelper &&
+                executor.verifyHelperRecovery,
+              ),
+              ownerApprovalRequired: true,
+            },
+            supervisorMaintenance: {
+              available: Boolean(supervisorPlan && executor.restartSupervisor),
+              ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
+            },
+            factoryRuntimeAdoption: {
+              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
+              ownerApprovalRequired: true,
+              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
+            },
+          }),
+        next,
+      );
+    })().then(undefined, next);
   });
   const updateTarget = (req: Request) => RestartTargetSchema.parse(req.query.target ?? "host");
   function requireUpdate(req: Request, res: Response, next: NextFunction) {
@@ -565,7 +577,18 @@ export function createInstallationServer(
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
     const helpers = restarts.listHelpers();
+    const monitors = restarts.listMonitors();
     res.json({
+      ...(monitors.length
+        ? {
+            previewMonitor: {
+              requested: monitors.filter((j) => j.status === "pending").length,
+              queued: monitors.filter((j) => j.status === "approved").length,
+              running: monitors.filter((j) => j.status === "running").length,
+              recovery: monitors.filter((j) => j.stage === "recovery_required").length,
+            },
+          }
+        : {}),
       ...(helpers.length
         ? {
             nativeHelper: {
@@ -630,6 +653,48 @@ export function createInstallationServer(
     });
   });
 
+  app.get("/api/installation/monitor-selection", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.inspectMonitor) {
+      res.status(503).json({ error: "Monitor preparation inspection unavailable" });
+      return;
+    }
+    void executor.inspectMonitor().then((state) => res.json(state), next);
+  });
+  app.get("/api/installation/monitor-requests/:id", (req, res) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    const job = restarts.listMonitors().find((j) => j.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(job);
+  });
+  app.post("/api/installation/monitor-requests", (req, res, next) => {
+    if (
+      !matchesToken(extractHttpBearerToken(req.header("authorization")), config.hostAgentTokenHash)
+    ) {
+      res.sendStatus(401);
+      return;
+    }
+    if (!executor.validateMonitorPlan || !executor.installMonitor || !executor.monitorCompatible) {
+      res.status(503).json({ error: "Preview monitor maintenance unavailable" });
+      return;
+    }
+    void restarts
+      .prepareMonitor(req.body, "host-agent")
+      .then((job) => res.status(201).json(job), next);
+  });
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
   app.get("/api/installation/helper-requests/:id", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
@@ -782,6 +847,14 @@ export function createInstallationServer(
         next(error);
       }
     })();
+  });
+  app.post("/api/installation/owner/monitors/query", (_req, res) =>
+    res.json({ jobs: restarts.listMonitors() }),
+  );
+  app.post("/api/installation/owner/monitors/decision", (req, res) => {
+    const job = restarts.decideMonitor(req.body);
+    res.json(job);
+    void restarts.drain().catch(() => logger.error("Monitor lifecycle journal failed"));
   });
   app.post("/api/installation/owner/helpers/query", (_req, res) => {
     res.json({ jobs: restarts.listHelpers() });

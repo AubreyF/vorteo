@@ -78,6 +78,27 @@ switch (positionals[0]) {
   case "capabilities":
     resource = "/api/installation/capabilities";
     break;
+  case "monitor-inspect":
+    if (config.kind !== "host-agent")
+      throw new Error("Monitor inspection requires trusted Host client");
+    resource = "/api/installation/monitor-selection";
+    break;
+  case "request-monitor": {
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor maintenance requires the trusted Host client");
+    if (!values["request-file"])
+      throw new Error("Use --request-file with the exact prepared monitor plan and request ID");
+    const capabilityResponse = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!capabilityResponse.ok || !(await capabilityResponse.json()).previewMonitor?.available)
+      throw new Error("Preview monitor maintenance is unavailable. No installation requested.");
+    resource = "/api/installation/monitor-requests";
+    body = JSON.parse(readFileSync(values["request-file"], "utf8"));
+    break;
+  }
   case "request-helper": {
     if (config.kind !== "host-agent")
       throw new Error("Native helper maintenance requires the trusted Host client");
@@ -94,6 +115,12 @@ switch (positionals[0]) {
     body = JSON.parse(readFileSync(values["request-file"], "utf8"));
     break;
   }
+  case "monitor-status":
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor inspection requires the trusted Host client");
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/monitor-requests/${positionals[1]}`;
+    break;
   case "helper-status":
     if (config.kind !== "host-agent")
       throw new Error("Native helper inspection requires the trusted Host client");
@@ -251,6 +278,8 @@ if (!response.ok) {
 }
 const result = await response.json();
 if (
+  positionals[0] === "request-monitor" ||
+  positionals[0] === "monitor-status" ||
   positionals[0] === "request-helper" ||
   positionals[0] === "helper-status" ||
   positionals[0] === "request-restart" ||

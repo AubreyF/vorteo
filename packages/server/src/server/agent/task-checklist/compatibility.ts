@@ -7,14 +7,23 @@ import type {
 
 // COMPAT(checklistBlockedStatus): added in v0.11.0-beta.3.vorteo.254,
 // remove after 2027-04-09 once the supported client floor accepts blocked tasks.
+// COMPAT(checklistReviewStatus): added in v0.11.0-beta.3.vorteo.303,
+// remove after 2027-04-11 once the supported client floor accepts Review tasks.
 // Select actual checklist objects, never arbitrary tool results or plugin data.
 export function serializeLegacyChecklistMessage(
   envelope: WSOutboundMessage,
   serialized?: string,
+  supported: { blocked: boolean; review: boolean } = { blocked: false, review: false },
 ): string {
-  const blocked = new Set<AgentTaskItem>();
+  const projected = new Set<AgentTaskItem>();
   function tasks(items: readonly AgentTaskItem[] | null | undefined): void {
-    for (const task of items ?? []) if (task.status === "blocked") blocked.add(task);
+    for (const task of items ?? []) {
+      if (
+        (task.status === "blocked" && !supported.blocked) ||
+        (task.status === "review" && !supported.review)
+      )
+        projected.add(task);
+    }
   }
   function agent(snapshot: AgentSnapshotPayload | null | undefined): void {
     tasks(snapshot?.tasks);
@@ -96,8 +105,8 @@ export function serializeLegacyChecklistMessage(
     lifecycle(envelope.message);
     checklists(envelope.message);
   }
-  if (blocked.size === 0) return serialized ?? JSON.stringify(envelope);
+  if (projected.size === 0) return serialized ?? JSON.stringify(envelope);
   return JSON.stringify(envelope, (_key, value) =>
-    blocked.has(value) ? { ...value, status: "pending", completed: false } : value,
+    projected.has(value) ? { ...value, status: "pending", completed: false } : value,
   );
 }

@@ -64,4 +64,6 @@ Host and container setup, trust boundaries, restart requests and removal: [Host 
 
 Factory worker retention and deferred configurable cleanup: [Factory follow-on updates](factory-future-updates.md).
 
+- [Managed preview monitor replacement](preview-monitor-maintenance.md): exact review, retained bytes and uncertain-outcome handling.
+
 - [Nova integration](nova-integration.md): private bridge source, operation and event contracts, and live acceptance requirements.

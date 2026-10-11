@@ -9,7 +9,6 @@ import { useWorkspaceScheduleState } from "./scheduled";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import type { Theme } from "@/styles/theme";
 import { FACTORY_MANAGED_EXPLANATION, useFactoryMembership } from "./factory-membership";
-import { hasFactoryTag } from "./factory-tag";
 
 const Shield = withUnistyles(LockKeyhole);
 const Repeat = withUnistyles(Repeat2);
@@ -18,12 +17,12 @@ const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const shield = <Shield size={12} uniProps={muted} />;
 const repeat = <Repeat size={12} uniProps={muted} />;
-function FactoryIndicator({ managed, workspaceId }: { managed: boolean; workspaceId: string }) {
+function FactoryIndicator({ workspaceId }: { workspaceId: string }) {
   return (
     <View
       style={styles.badgeSlot}
       accessible
-      accessibilityLabel={managed ? FACTORY_MANAGED_EXPLANATION : "Factory workspace"}
+      accessibilityLabel={FACTORY_MANAGED_EXPLANATION}
       testID={`workspace-factory-${workspaceId}`}
     >
       <FactoryIcon size={14} uniProps={muted} />
@@ -35,7 +34,7 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
   const touch = useVortonTouch();
   const scheduled = useWorkspaceScheduleState(workspace.serverId, workspace.workspaceId);
   const membership = useFactoryMembership(workspace.serverId, workspace.workspaceId);
-  const factory = Boolean(membership) || hasFactoryTag(workspace.labels);
+  const factory = Boolean(membership);
   const label = scheduled === "paused" ? "Paused" : "Scheduled";
   const openSchedules = useCallback(
     (event: GestureResponderEvent) => {
@@ -53,9 +52,7 @@ export function WorkspaceLifecycleIndicators({ workspace }: { workspace: Sidebar
   if (!scheduled && !workspace.protected && !factory) return null;
   return (
     <>
-      {factory ? (
-        <FactoryIndicator managed={Boolean(membership)} workspaceId={workspace.workspaceId} />
-      ) : null}
+      {factory ? <FactoryIndicator workspaceId={workspace.workspaceId} /> : null}
       {workspace.protected && !factory ? (
         <View
           style={styles.badgeSlot}
