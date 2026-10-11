@@ -194,7 +194,12 @@ it("keeps Factory shortcuts in rendered order and respects its collapsed section
   const input = twoProjectInput("project");
   const factory = makeWorkspace("factory");
   factory.entry.standing = true;
-  factory.entry.labels = ["Factory"];
+  factory.entry.factoryMembership = {
+    installationId: "installation",
+    serverId: "srv",
+    projectId: "project",
+    role: "factory",
+  };
   const standing = makeWorkspace("standing");
   standing.entry.standing = true;
   for (const item of [standing, factory]) {
@@ -202,10 +207,16 @@ it("keeps Factory shortcuts in rendered order and respects its collapsed section
     input.projects[0].workspaces.unshift(item.placement);
   }
   expect(
-    buildSidebarProjection(input).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
+    buildSidebarProjection({
+      ...input,
+      factorySupportedHosts: new Map([["srv", true]]),
+    }).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
   ).toEqual(["first", "factory", "standing", "second"]);
   input.collapsedWorkspaceGroupKeys.add("factory:project");
   expect(
-    buildSidebarProjection(input).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
+    buildSidebarProjection({
+      ...input,
+      factorySupportedHosts: new Map([["srv", true]]),
+    }).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
   ).toEqual(["first", "standing", "second"]);
 });

@@ -366,6 +366,6 @@ October 11, 2026: Reviewed optional project icon persistence during startup. Cac
 
 October 11, 2026: Integration review retained the installed Host update and both v294 release entries. The cache startup behavior and validation remain unchanged.
 
-Factory workspace presentation uses its own collapsible sidebar section. An explicit Factory label also places a workspace there before runtime adoption. Rows show a factory icon without a text badge. Labeling changes presentation only; native membership and archive protection keep their existing authority checks.
+Native Factory workspaces appear in their own collapsible Factory section. Each row shows only a factory icon, with no Factory text or separate Protected badge. Factory membership enforces protection. Custom labels do not grant membership or change Factory grouping.
 
 Conversation layout delivery review (2026-10-11): retain the published Factory sidebar grouping while integrating composer alignment and full-height cards. README overview and onboarding are unchanged.
