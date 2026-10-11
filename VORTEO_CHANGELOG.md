@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Maintenance
+
+- Update sidebar drag acceptance coverage to use the current row layout without relying on removed scrim elements or opening branch popovers. Disconnect the test WebSocket explicitly to verify offline recovery.
+
 ## 0.11.0-beta.3.vorteo.295 - 2026-10-11
 
 ### Added
