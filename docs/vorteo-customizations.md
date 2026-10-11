@@ -127,6 +127,8 @@ Sidebar update and maintenance notices share a single scroll area capped at 33% 
 
 Installation review copy assigns source repairs to the requesting agent and distinguishes waiting from canceling an unwanted update. Compact sidebar actions retain exact review navigation and all approval guards.
 
+October 11, 2026: Review is a native checklist state for work awaiting review or approval. It remains incomplete and inactive, with an eye icon and Review badge in both task surfaces. The editor offers Review on updated daemons. Older clients receive pending task projections without changing stored state, and stale projected edits remain rejected. Agent guidance asks for short descriptions such as “Waiting for your approval.”
+
 October 9, 2026: Added discretionary blocked checklist status, durable and cached state support, agent guidance, editor controls, and row badges. Focused checks cover transitions, dependencies, persistence, progress counts and older-client delivery. Explicit Node timer overloads also keep login service types valid when Expo route generation includes server-backed browser fixtures. README overview and onboarding are unchanged; this refines existing task controls.
 
 October 8, 2026: Complete bootstrap plan validation now combines configuration, source receipts, release digests, captured launcher parsing and repeated process and mount observations. Isolated fixtures accept matching plans and reject runtime or mount changes during collection. Production wiring, lifecycle execution and live activation remain unfinished.

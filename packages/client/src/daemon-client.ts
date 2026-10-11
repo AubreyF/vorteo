@@ -3767,6 +3767,13 @@ export class DaemonClient {
     ) {
       throw new Error("Update the daemon before using blocked checklist status.");
     }
+    if (
+      ((mutation.operation === "update" && mutation.status === "review") ||
+        ("expectedTask" in mutation && mutation.expectedTask?.status === "review")) &&
+      this.lastServerInfoMessage?.features?.checklistReviewStatus !== true
+    ) {
+      throw new Error("Update the daemon before using Review checklist status.");
+    }
     const result =
       await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
         message: { type: "agent.checklist.mutate.request", agentId, mutation },

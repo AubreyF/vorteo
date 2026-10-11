@@ -2,7 +2,7 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, CircleAlert, Pencil, Plus } from "lucide-react-native";
+import { Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -12,6 +12,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
 import { StatusRing } from "@/components/status-ring";
+import { ReviewTaskBadge } from "@/task-checklist/review-badge";
 import { BlockedTaskBadge } from "@/task-checklist/blocked-badge";
 import { Button } from "@/components/ui/button";
 import { CountBadge } from "@/components/ui/count-badge";
@@ -39,6 +40,11 @@ interface ChecklistCardProps {
 type EditorState = { open: false } | { open: true; task: AgentTaskItem | null };
 const EMPTY_TASKS: AgentTaskItem[] = [];
 const TASK_RUNNING_ICON = <StatusRing variant="task" />;
+function inactiveTaskIcon(status: AgentTaskItem["status"]) {
+  if (status === "blocked") return CircleAlert;
+  if (status === "review") return Eye;
+  return Circle;
+}
 const taskKey = (task: AgentTaskItem, index: number) =>
   `${task.source ?? "provider"}:${task.id ?? index}`;
 
@@ -49,13 +55,14 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const [expanded, setExpanded] = useState(true);
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
   const [editor, setEditor] = useState<EditorState>({ open: false });
-  const { supported, supportsBlocked, readOnly } = useSessionStore(
+  const { supported, supportsBlocked, supportsReview, readOnly } = useSessionStore(
     useShallow((state) => {
       const session = state.sessions[serverId];
       const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
       return {
         supported: session?.serverInfo?.features?.agentChecklistMutations === true,
         supportsBlocked: session?.serverInfo?.features?.checklistBlockedStatus === true,
+        supportsReview: session?.serverInfo?.features?.checklistReviewStatus === true,
         readOnly: !agent || agent.archivedAt != null,
       };
     }),
@@ -169,6 +176,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       {editor.open ? (
         <ChecklistEditor
           supportsBlocked={supportsBlocked}
+          supportsReview={supportsReview}
           task={editor.task}
           tasks={tasks}
           canMutate={canMutate}
@@ -305,6 +313,7 @@ function ChecklistRow({
   const touch = useVortonTouch();
   const completed = task.completed || task.status === "completed";
   const blocked = !completed && task.status === "blocked";
+  const review = !completed && task.status === "review";
   const running = !completed && task.status === "in_progress";
   const title = running && task.activeForm ? task.activeForm : task.text;
   const managed = task.source === "vorteo" && Boolean(task.id);
@@ -319,7 +328,7 @@ function ChecklistRow({
   }, [task, completed, mutate]);
   const details = useCallback(() => open(task), [open, task]);
   const iconStyle = [taskCardStyles.iconAction, touch && taskCardStyles.touchAction];
-  const inactiveIcon = blocked ? CircleAlert : Circle;
+  const inactiveIcon = inactiveTaskIcon(task.status);
   const incompleteIcon = running ? TASK_RUNNING_ICON : inactiveIcon;
   const checkboxState = useMemo(
     () => ({ checked: completed, disabled: !managed || !canMutate }),
@@ -358,6 +367,7 @@ function ChecklistRow({
         {title}
       </Text>
       {blocked ? <BlockedTaskBadge task={task} /> : null}
+      {review ? <ReviewTaskBadge task={task} /> : null}
       <Button
         variant="ghost"
         size="sm"

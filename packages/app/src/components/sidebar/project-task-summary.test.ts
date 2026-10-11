@@ -125,6 +125,11 @@ describe("workspace checklist completion", () => {
       active: 0,
       total: 1,
     });
+    expect(checklistProgress([{ text: "Approval", completed: false, status: "review" }])).toEqual({
+      completed: 0,
+      active: 0,
+      total: 1,
+    });
     expect(checklistProgress([])).toEqual({ completed: 0, active: 0, total: 0 });
     expect(workspaceChecklistProgress([{ id: "new", workspaceId: "w" }], "w", new Set())).toEqual({
       active: 0,
