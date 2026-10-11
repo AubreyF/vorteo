@@ -1,7 +1,10 @@
+import { bootstrapReviewFeatures } from "./coordinator-bootstrap-session.js";
 import {
   createManagedBootstrapReview,
   createConfiguredBootstrapReview,
+  deferBootstrapReview,
 } from "./coordinator-bootstrap-launch.js";
+import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
 import { afterEach, test, expect, vi } from "vitest";
 import nativeFs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -27,6 +30,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { waitForBootstrapWatchdog } from "./coordinator-bootstrap-runner.js";
 import { readBootstrapHealth } from "./coordinator-bootstrap-runtime.js";
+
 import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
 import {
@@ -1068,7 +1072,16 @@ test.runIf(process.platform === "darwin")(
     await expect(createConfiguredBootstrapReview("host-id", environment)).resolves.toBeUndefined();
     const setup = path.join(root, "coordinator-bootstrap-runner.json");
     writeFileSync(setup, "{}", { mode: 0o600 });
-    await expect(createConfiguredBootstrapReview("host-id", environment)).rejects.toThrow();
+    const unavailable = await createConfiguredBootstrapReview("host-id", environment);
+    expect(() => unavailable!.list()).toThrow("maintenance is unavailable");
+    expect(bootstrapReviewFeatures(unavailable)).toEqual({
+      coordinatorBootstrapReview: false,
+      coordinatorBootstrapFactoryAdoption: false,
+      coordinatorBootstrapCompatibleRecovery: false,
+      coordinatorBootstrapPreviewMonitor: false,
+      coordinatorBootstrapUnavailableReason: unavailable!.unavailableReason,
+    });
+    expect(unavailable!.unavailableReason).toContain("maintenance is unavailable");
     writeFileSync(client, JSON.stringify({ kind: "container-agent" }));
     await expect(createConfiguredBootstrapReview("host-id", environment)).resolves.toBeUndefined();
     writeFileSync(client, JSON.stringify({ kind: "host-agent" }));
@@ -1665,4 +1678,53 @@ test
   ]);
   expect(readFileSync(launcherFile)).toEqual(readFileSync(recovery.launcher.path));
   await verifyBootstrapState({ request: result, writableMountRoots: [] });
+});
+
+test("Host readiness does not await maintenance validation and all operations remain fenced", async () => {
+  const validation = Promise.withResolvers<BootstrapReviewService | undefined>();
+  const initialize = vi.fn(() => validation.promise);
+  const service = deferBootstrapReview(initialize);
+  const changed = vi.fn();
+  const removed = vi.fn();
+  service.subscribeAvailability!(() => {
+    throw new Error("isolated notification failure");
+  });
+  service.subscribeAvailability!(changed);
+  service.subscribeAvailability!(removed)();
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: false,
+    coordinatorBootstrapUnavailableReason: expect.stringContaining("Checking"),
+  });
+  expect(() => service.list()).toThrow("Checking");
+  await expect(service.prepare({} as never)).rejects.toThrow("Checking");
+  await expect(service.decide({} as never, "fixture")).rejects.toThrow("Checking");
+  expect(initialize).toHaveBeenCalledTimes(1);
+  const list = vi.fn(() => []);
+  validation.resolve({ list, prepare: vi.fn(), decide: vi.fn() });
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+  expect(removed).not.toHaveBeenCalled();
+  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: true });
+  expect(bootstrapReviewFeatures(service).coordinatorBootstrapUnavailableReason).toBeUndefined();
+  expect(service.list()).toEqual([]);
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+test("background maintenance failure stays unavailable without leaking private errors", async () => {
+  const validation = Promise.withResolvers<BootstrapReviewService | undefined>();
+  const service = deferBootstrapReview(() => validation.promise);
+  const changed = vi.fn();
+  service.subscribeAvailability!(changed);
+  validation.reject(new Error("private configuration bytes"));
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: false });
+  expect(service.unavailableReason).toContain("could not validate");
+  expect(service.unavailableReason).not.toContain("private configuration bytes");
+  expect(() => service.list()).toThrow("could not validate");
+});
+
+test("absent background maintenance remains unadvertised after verification", async () => {
+  const service = deferBootstrapReview(async () => undefined);
+  await vi.waitFor(() => expect(service.unavailableReason).toBeUndefined());
+  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: false });
+  expect(() => service.list()).toThrow("not configured");
 });

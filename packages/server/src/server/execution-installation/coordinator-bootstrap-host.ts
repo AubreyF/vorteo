@@ -77,13 +77,18 @@ export const BootstrapAdmissionSetupSchema = z.strictObject({
 export async function createBootstrapReviewService(
   setupFile: string,
   daemonId: string,
+  renewal?: {
+    setup: z.infer<typeof BootstrapAdmissionSetupSchema>;
+    verify(plan: CoordinatorBootstrapPlan): Promise<void>;
+  },
 ): Promise<CoordinatorBootstrapRequests> {
   if (process.platform !== "darwin" || !process.getuid)
     throw new BootstrapRequestConflict("Coordinator bootstrap requires native macOS Host");
   const uid = process.getuid();
   const readSetup = () =>
     BootstrapAdmissionSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
-  const setup = readSetup();
+  const original = readSetup();
+  const setup = renewal?.setup ?? original;
   const host = { ...setup, daemonId };
   const initial = readBootstrapHostBinding(setup.configurationFile, daemonId);
   const roots = await inspectBootstrapWritableMountRoots(host);
@@ -100,7 +105,7 @@ export async function createBootstrapReviewService(
     roots,
   );
   const readBinding = () => {
-    if (!isDeepStrictEqual(setup, readSetup()))
+    if (!isDeepStrictEqual(original, readSetup()))
       throw new BootstrapRequestConflict("Bootstrap Host setup changed. Reload its service.");
     const current = readBootstrapHostBinding(setup.configurationFile, daemonId);
     if (current.stateDirectory !== initial.stateDirectory)
@@ -111,6 +116,7 @@ export async function createBootstrapReviewService(
     new FileBootstrapRequestJournal(initial.stateDirectory),
     readBinding,
     async (plan) => {
+      await renewal?.verify(plan);
       const currentRoots = await inspectBootstrapWritableMountRoots(host);
       await assertBootstrapPathsProtected(
         [setupFile, setup.helperPath, setup.docker, setup.socket],

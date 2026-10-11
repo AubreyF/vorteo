@@ -24,6 +24,7 @@ export interface IsolatedHostDaemonOptions {
   paseoHome?: string;
   preserveHome?: boolean;
   publishedVersion?: string;
+  compiled?: boolean;
 }
 
 async function getAvailablePort(): Promise<number> {
@@ -172,9 +173,10 @@ export async function startIsolatedHostDaemon(
       stdio: ["ignore", "ignore", "pipe"],
       detached: false,
     };
-    const child = publishedPackageRoot
-      ? spawn(process.execPath, ["dist/scripts/supervisor-entrypoint.js"], spawnOptions)
-      : spawnTsx("scripts/supervisor-entrypoint.ts", ["--dev"], spawnOptions);
+    const child =
+      publishedPackageRoot || options.compiled
+        ? spawn(process.execPath, ["dist/scripts/supervisor-entrypoint.js"], spawnOptions)
+        : spawnTsx("scripts/supervisor-entrypoint.ts", ["--dev"], spawnOptions);
 
     let stderr = "";
     child.stderr?.on("data", (chunk: Buffer) => {

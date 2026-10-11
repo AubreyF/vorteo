@@ -12,7 +12,25 @@ import {
 export type BootstrapReviewService = Pick<
   CoordinatorBootstrapRequests,
   "list" | "prepare" | "decide"
->;
+> & {
+  available?: boolean;
+  unavailableReason?: string;
+  subscribeAvailability?(listener: () => void): () => void;
+};
+
+export function bootstrapReviewFeatures(service: BootstrapReviewService | undefined) {
+  const available =
+    service !== undefined && service.available !== false && service.unavailableReason === undefined;
+  return {
+    coordinatorBootstrapReview: available,
+    coordinatorBootstrapFactoryAdoption: available,
+    coordinatorBootstrapCompatibleRecovery: available,
+    coordinatorBootstrapPreviewMonitor: available,
+    ...(service?.unavailableReason
+      ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
+      : {}),
+  };
+}
 
 /** Called only after the session's daemon.manage permission check. An absent
  * Host service refuses all operations, including forged direct RPCs on Dev. */

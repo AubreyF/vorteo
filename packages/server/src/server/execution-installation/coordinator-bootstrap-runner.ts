@@ -29,6 +29,13 @@ import {
 import { executeCoordinatorBootstrap } from "./coordinator-bootstrap-executor.js";
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
+import {
+  BootstrapRenewalSchema,
+  deriveBootstrapRenewal,
+  retainRenewalGeneration,
+  verifyRenewalPlan,
+  verifyRetainedRenewal,
+} from "./coordinator-bootstrap-renewal.js";
 
 function watchdogRecoveryArguments(request: CoordinatorBootstrapRequest): string[] {
   return request.plan.automaticRecovery !== undefined ? ["automatic-recovery"] : [];
@@ -57,6 +64,7 @@ export const BootstrapRunnerSetupSchema = z.strictObject({
   ownershipVerifier: FileSchema,
   runtimeDirectory: z.string().startsWith("/"),
   runtimeSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  renewal: BootstrapRenewalSchema.optional(),
 });
 
 /** The watchdog acknowledges its pre-lock wait; the executor acknowledges a
@@ -102,6 +110,86 @@ function nativeRunnerUid(): number {
   return uid;
 }
 
+type RunnerSetup = z.infer<typeof BootstrapRunnerSetupSchema>;
+function runnerRenewal(
+  setup: RunnerSetup,
+  setupFile: string,
+  role: "executor" | "watchdog",
+  admission: z.infer<typeof BootstrapAdmissionSetupSchema>,
+) {
+  const uid = process.getuid!();
+  const effectiveAdmission = setup.renewal
+    ? { ...admission, configurationFile: setup.renewal.configuration.path }
+    : admission;
+  let armed = role === "watchdog";
+  let dispatched: CoordinatorBootstrapRequest | undefined;
+  const verifyRenewal = async () => {
+    if (!setup.renewal) return;
+    await verifyRetainedRenewal(setup, undefined, role === "watchdog");
+    if (dispatched)
+      await retainRenewalGeneration({ setup, setupFile, request: dispatched, watchdog: true });
+    if (!armed) {
+      const original = BootstrapRunnerSetupSchema.parse(
+        readPrivateBootstrapConfiguration(setup.renewal.originalSetup.path, uid),
+      );
+      const reconstructed = await deriveBootstrapRenewal({
+        setupFile: setup.renewal.originalSetup.path,
+        setup: original,
+        moduleFile: fileURLToPath(import.meta.url),
+        dispatchedRequest: setup.renewal.request,
+      });
+      const expected = { ...setup.renewal, request: undefined };
+      if (
+        !reconstructed?.renewal ||
+        !isDeepStrictEqual({ ...reconstructed.renewal, request: undefined }, expected)
+      )
+        throw new BootstrapRequestConflict("Renewal changed before dispatch fence");
+    }
+  };
+  return {
+    admission: effectiveAdmission,
+    verify: verifyRenewal,
+    markDispatched: (request: CoordinatorBootstrapRequest) => {
+      dispatched = request;
+      armed = true;
+    },
+    options: setup.renewal
+      ? {
+          setup: effectiveAdmission,
+          verify: async (plan: CoordinatorBootstrapRequest["plan"]) => {
+            await verifyRenewal();
+            await verifyRenewalPlan(setup, plan);
+          },
+        }
+      : undefined,
+    async verifyApproval(request: CoordinatorBootstrapRequest) {
+      await verifyRetainedRenewal(setup, request, role === "watchdog");
+      if (!setup.renewal) return;
+      if (role === "executor" && setup.renewal.request?.revision !== request.revision)
+        throw new BootstrapRequestConflict(
+          "Renewal approval revision changed before executor admission",
+        );
+      if (role === "watchdog") {
+        await retainRenewalGeneration({ setup, setupFile, request, watchdog: true });
+        dispatched = request;
+      }
+    },
+    verifyExecutorRecord(
+      record: z.infer<typeof BootstrapExecutorRecordSchema>,
+      request: CoordinatorBootstrapRequest,
+    ) {
+      if (!setup.renewal) return;
+      if (
+        record.planSha256 !== request.planSha256 ||
+        record.process?.pid !== record.pid ||
+        record.auditToken?.[1] !== uid ||
+        record.auditToken[5] !== record.pid
+      )
+        throw new BootstrapRequestConflict("Renewal watchdog generation receipt changed");
+    },
+  };
+}
+
 /** Only the fixed protected Host launcher invokes this entrypoint. Browser input
  * supplies neither setup paths nor commands. An existing execution is never replayed. */
 export async function runNativeBootstrap(
@@ -125,7 +213,8 @@ export async function runNativeBootstrap(
   const admission = BootstrapAdmissionSetupSchema.parse(
     readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
   );
-  const host = { ...admission, daemonId: setup.daemonId };
+  const renewal = runnerRenewal(setup, setupFile, role, admission);
+  const host = { ...renewal.admission, daemonId: setup.daemonId };
   const roots = await inspectBootstrapWritableMountRoots(host);
   await assertBootstrapPathsProtected(
     [setupFile, setup.admissionSetupFile, setup.runtimeDirectory],
@@ -136,10 +225,15 @@ export async function runNativeBootstrap(
     throw new BootstrapRequestConflict("Runner is outside its prepared runtime");
   for (const file of [setup.entrypoint, setup.ownerLauncher, setup.ownershipVerifier])
     await readBootstrapPreparedFile(file, roots);
-  const requests = await createBootstrapReviewService(setup.admissionSetupFile, setup.daemonId);
+  const requests = await createBootstrapReviewService(
+    setup.admissionSetupFile,
+    setup.daemonId,
+    renewal.options,
+  );
   const request = findRunnerRequest(requests.list(), role, identifier);
   if (!request || request.status !== "approved")
     throw new BootstrapRequestConflict("Exact bootstrap approval is unavailable");
+  await renewal.verifyApproval(request);
   if (
     request.plan.candidate.directory !== setup.runtimeDirectory ||
     request.plan.candidate.artifactSha256 !== setup.runtimeSha256 ||
@@ -160,6 +254,7 @@ export async function runNativeBootstrap(
       )
     )
       throw new BootstrapRequestConflict("Bootstrap runner setup changed");
+    await renewal.verify();
   };
   const requireOwnership = async () => {
     await verifySetup();
@@ -180,6 +275,7 @@ export async function runNativeBootstrap(
     );
     if (record.id !== request.id || record.generation !== identifier)
       throw new BootstrapRequestConflict("Watchdog executor identity changed");
+    renewal.verifyExecutorRecord(record, request);
     const native = createBootstrapNativeLifecycle({
       requests,
       reader,
@@ -252,6 +348,8 @@ export async function runNativeBootstrap(
     } finally {
       await directory.close();
     }
+    if (setup.renewal)
+      await retainRenewalGeneration({ setup, setupFile, request: claimed, watchdog: false });
     const source = await readBootstrapPreparedFile(
       setup.ownerLauncher,
       await inspectBootstrapWritableMountRoots(host),
@@ -278,6 +376,7 @@ export async function runNativeBootstrap(
     child.on("error", () => {});
     try {
       await waitForBootstrapWatchdog(child);
+      renewal.markDispatched(claimed);
     } finally {
       child.stdout?.destroy();
       child.unref();

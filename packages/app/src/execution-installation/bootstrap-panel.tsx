@@ -29,12 +29,21 @@ export function getBootstrapPanel(): BootstrapPanelModel | null {
   const key = `${installation.installationId}:${host.serverId}`;
   let model = models.get(key);
   if (!model) {
-    model = new BootstrapPanelModel(() => {
-      const client = getHostRuntimeStore().getClient(host.serverId);
-      return client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapReview === true
-        ? client
-        : null;
-    });
+    model = new BootstrapPanelModel(
+      () => {
+        const client = getHostRuntimeStore().getClient(host.serverId);
+        return client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapReview === true
+          ? client
+          : null;
+      },
+      () => {
+        const client = getHostRuntimeStore().getClient(host.serverId);
+        return (
+          client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapUnavailableReason ??
+          null
+        );
+      },
+    );
     models.set(key, model);
   }
   return model;

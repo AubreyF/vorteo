@@ -188,6 +188,20 @@ A trusted governed-runtime module can export `quotaGovernorDirectory` to select 
 
 ## Reviewed source updates
 
+### Bootstrap runner renewal
+
+A Host source update can install a new coordinator bootstrap runner without rewriting the installed runner setup or admission files. Renewal uses the existing coordinator preparation and exact owner decision controls. Installing the capability does not approve or dispatch coordinator maintenance.
+
+Release verification runs in the background so it cannot delay the Host listener past its managed readiness deadline. Maintenance controls remain unavailable while checking. Existing connections receive a capability update after verification succeeds or fails; no approval is inferred from readiness.
+
+The Host reconstructs renewal from its canonical selected release, protected source receipt and native worker identity. It resolves the terminal coordinator outcome from the protected request journal, including recovery and rollback chains, then verifies the selected launcher, configuration, process and durable generation receipts. A standalone release receipt or a request-selected runtime cannot authorize renewal. A retained claimed sidecar is reconciled with its promotion evidence; its presence alone does not mean a transfer remains active.
+
+Renewal binds both the candidate and compatible recovery reader to the verified Host release and preserves the complete current installation configuration. This includes credentials, Docker identity, restart policy and Factory binding. Preparation and approval recheck the evidence. The executor independently reconstructs it before claiming dispatch and under native execution ownership. A private, immutable snapshot binds the approved request ID, revision and plan digest; a durable generation record binds the dispatched executor and watchdog to that snapshot.
+
+After dispatch, the watchdog validates its retained runtime and generation. It does not require the original Host PID to survive, follow a newer Host release selection, or walk a failed candidate tree before recovery. Unsupported lifecycle history, ambiguous or nonterminal coordinator outcomes, changed snapshots and stale Host identities make maintenance unavailable with a diagnosis. They never authorize replay, journal rewriting or fallback to legacy execution. Legacy admission remains available only when renewal evidence is absent and the original path independently validates.
+
+The first Host installation still needs the existing supported source-update route, genuine contribution provenance and its exact owner approval. Runner renewal does not remove that delivery gate. Source validation alone does not establish installation acceptance.
+
 The installed maintenance client exposes `capabilities` for target readiness and bootstrap blockers. Dev can submit committed source for either available target:
 
 ```text

@@ -12,7 +12,17 @@ import {
 import { sidebarProjectForWorkspace } from "../support/helpers/workspace-ui";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile, rm, rename } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  writeFile,
+  rm,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -92,7 +102,7 @@ async function request(route: string, token: string, body: unknown) {
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  root = await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-"));
+  root = await realpath(await mkdtemp(path.join(tmpdir(), "vorteo-installation-browser-")));
   listener = await new Promise((resolve) => {
     const server = createServer();
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -136,6 +146,7 @@ test.beforeAll(async () => {
     daemons.push(
       await startIsolatedHostDaemon(`installation-${kind}-${randomUUID()}`, {
         paseoHome: home,
+        compiled: kind === "host",
         environment: {
           NODE_ENV: "development",
           HOME: home,
@@ -421,6 +432,88 @@ test("welcome signs in with the owner password and restores both environments", 
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/general?installation=1`);
   await expect(page.getByTestId("installation-lock")).toBeVisible();
+});
+
+test("unavailable coordinator maintenance shows its diagnosis without approval controls", async ({
+  page,
+}, info) => {
+  test.skip(process.platform !== "darwin", "Coordinator maintenance requires native macOS Host");
+  const hostId = config.public.environments.find((item) => item.kind === "host")!.serverId;
+  const host = daemons.find((daemon) => daemon.serverId === hostId)!;
+  const setupFile = path.join(root, "coordinator-bootstrap-runner.json");
+  await writeFile(setupFile, "{}", { mode: 0o600 });
+  try {
+    await host.restart();
+    const client = await connectReadyInstallationDaemon("host");
+    try {
+      const pid = (await client.getDaemonStatus()).pid;
+      const sourceRoot = await realpath(path.resolve(__dirname, "../../../.."));
+      const observed = JSON.parse(
+        execFileSync(
+          "/usr/bin/python3",
+          [path.join(sourceRoot, "scripts/inspect-coordinator-process.py"), String(pid)],
+          { encoding: "utf8" },
+        ),
+      );
+      expect(
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+          import { readFileSync } from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const input = JSON.parse(readFileSync(0, "utf8"));
+          const { verifyRenewalHostProcess } = await import(pathToFileURL(input.module).href);
+          console.log(JSON.stringify(verifyRenewalHostProcess(input.identity)));
+        `,
+            ],
+            {
+              encoding: "utf8",
+              input: JSON.stringify({
+                module: path.join(
+                  sourceRoot,
+                  "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-renewal.js",
+                ),
+                identity: {
+                  observed,
+                  pid,
+                  node: await realpath(process.execPath),
+                  root: sourceRoot,
+                  uid: process.getuid!(),
+                },
+              }),
+            },
+          ),
+        ),
+      ).toEqual(observed);
+      const features = client.getLastServerInfoMessage()!.features!;
+      expect(features.coordinatorBootstrapReview).toBe(false);
+      expect(features.coordinatorBootstrapUnavailableReason).toContain(
+        "maintenance is unavailable",
+      );
+    } finally {
+      await client.close();
+    }
+    await page.goto(origin);
+    await page.getByRole("textbox", { name: "Owner password" }).fill(ownerPassword);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page).not.toHaveURL(/welcome/);
+    await page.goto(`${origin}/settings/general?installation=1`);
+    const review = page.getByTestId("coordinator-bootstrap-review");
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await expect(review.getByRole("button", { name: "Refresh status" })).toBeVisible();
+    await expect(review.getByRole("textbox")).toHaveCount(0);
+    await expect(review.getByRole("button")).toHaveCount(1);
+    await review.getByRole("button", { name: "Refresh status" }).click();
+    await expect(review.getByRole("alert")).toContainText("maintenance is unavailable");
+    await page.screenshot({ path: info.outputPath("maintenance-unavailable.png"), fullPage: true });
+  } finally {
+    await rm(setupFile);
+    await host.restart();
+  }
 });
 
 test("owner connects two environments, prepares host drafts, and approves a verified container restart", async ({

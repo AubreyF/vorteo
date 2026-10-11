@@ -3950,6 +3950,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
+        // Optional diagnostic for clients that can explain unavailable maintenance.
+        coordinatorBootstrapUnavailableReason: z.string().optional(),
         // COMPAT(factoryRuntimeAdoption): v0.11.0-beta.3.vorteo.285 request review opt-in.
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
