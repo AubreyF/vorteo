@@ -39,6 +39,13 @@ for (const width of [1400, 390]) {
       await expect(row.getByText("Blocked", { exact: true })).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       await row.scrollIntoViewIfNeeded();
+      const reviewBadge = row.getByText("Review", { exact: true });
+      const checkbox = row.getByRole("checkbox", { name: "Complete Approve installation" });
+      const badgeBox = (await reviewBadge.boundingBox())!;
+      const checkboxBox = (await checkbox.boundingBox())!;
+      expect(
+        Math.abs(badgeBox.y + badgeBox.height / 2 - checkboxBox.y - checkboxBox.height / 2),
+      ).toBeLessThan(2);
       await page.screenshot({ path: info.outputPath(`review-${width}.png`) });
       await row.getByRole("checkbox", { name: "Complete Approve installation" }).click();
       await expect(row.getByText("Review", { exact: true })).not.toBeAttached();

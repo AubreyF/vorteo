@@ -376,4 +376,4 @@ Compact card header review (2026-10-11): headers meet the card boundary without 
 
 Compact header integration review (2026-10-11): retained the published workspace profile defaults and both release histories. Card geometry and ghost controls are unchanged. README overview and onboarding are unchanged.
 
-Checklist maintenance: browser coverage verifies Review editing, reload persistence and incomplete counts at desktop and phone widths, preserving the published compact journal layout.
+Checklist maintenance: browser coverage verifies Review editing, reload persistence and incomplete counts at desktop and phone widths, preserving the published compact journal layout. Review badges remain centered within touch targets, and scrolling fixtures exceed the full-height desktop card.

@@ -1313,7 +1313,7 @@ for (const width of [1400, 390]) {
       await page.reload();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await client.mutateAgentChecklist(agent.agentId, { operation: "delete", id: "active" });
-      for (let index = 0; index < 16; index++) {
+      for (let index = 0; index < 32; index++) {
         await client.mutateAgentChecklist(agent.agentId, {
           operation: "create",
           id: `scroll-${index}`,
@@ -1321,7 +1321,7 @@ for (const width of [1400, 390]) {
         });
       }
       const card = page.getByTestId("agent-task-progress-card");
-      const lastTask = page.getByTestId("checklist-row-scroll-15");
+      const lastTask = page.getByTestId("checklist-row-scroll-31");
       await expect(lastTask).toBeAttached();
       await expect(
         page.getByTestId("checklist-progress").locator("svg path[fill]:not([fill='none'])"),

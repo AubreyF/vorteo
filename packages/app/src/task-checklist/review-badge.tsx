@@ -8,7 +8,11 @@ export function ReviewTaskBadge({ task }: { task: AgentTaskItem }) {
   const reason = task.description?.trim() || "Waiting for review.";
   return (
     <Tooltip enabledOnMobile>
-      <TooltipTrigger accessibilityRole="button" accessibilityLabel={`Review: ${reason}`}>
+      <TooltipTrigger
+        style={styles.trigger}
+        accessibilityRole="button"
+        accessibilityLabel={`Review: ${reason}`}
+      >
         <StatusBadge label="Review" size="xs" />
       </TooltipTrigger>
       <TooltipContent maxWidth={360}>
@@ -19,5 +23,6 @@ export function ReviewTaskBadge({ task }: { task: AgentTaskItem }) {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  trigger: { alignItems: "center", justifyContent: "center" },
   reason: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
 }));
