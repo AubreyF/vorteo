@@ -62,7 +62,7 @@ for (const width of [1400, 390]) {
                 entryId: id,
                 text:
                   `Journal observation ${index + 1}. ` +
-                  "Verified the change and retained the decision history. ".repeat(3),
+                  "Verified the change and retained the decision history. ".repeat(6),
               },
             })
           ).isError,
