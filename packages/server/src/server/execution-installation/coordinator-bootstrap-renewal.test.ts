@@ -593,8 +593,65 @@ test.runIf(process.platform === "darwin")(
       const other = f.save(path.join(f.root, "other-config.json"), changed);
       await expect(
         verifyRenewalPlan(setup, { ...plan, candidate: { ...f.host, configuration: other } }),
-      ).rejects.toThrow("complete current");
+      ).rejects.toThrow("outside its approved policy");
     }
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "renewal admits only the declared Factory plan and retains the previous plan for rollback",
+  async () => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const adoption = { ...f.config.container.factoryRuntimeAdoption, sha256: "d".repeat(64) };
+    const candidateConfig = f.save(path.join(f.root, "factory-recovery-config.json"), {
+      ...f.config,
+      container: { ...f.config.container, factoryRuntimeAdoption: adoption },
+    });
+    const plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: { ...f.host, configuration: candidateConfig },
+      automaticRecovery: "restore-compatible" as const,
+      compatibleRecovery: f.host,
+      factoryRuntimeAdoptionConfiguration: adoption,
+    };
+    await expect(verifyRenewalPlan(setup, plan)).resolves.toBeUndefined();
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, factoryRuntimeAdoptionConfiguration: undefined }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        factoryRuntimeAdoptionConfiguration: {
+          ...adoption,
+          sha256: "e".repeat(64),
+        },
+      }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, compatibleRecovery: plan.candidate }),
+    ).rejects.toThrow("Recovery must preserve");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, hostRequestsAfter: "2026-10-11T00:00:00.000Z" }),
+    ).rejects.toThrow("only supports reviewed Factory");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, previewMonitorConfiguration: null }),
+    ).rejects.toThrow("only supports reviewed Factory");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
+    ).rejects.toThrow("only supports reviewed Factory");
+    const removed = f.save(path.join(f.root, "factory-disabled.json"), {
+      ...f.config,
+      container: { ...f.config.container, factoryRuntimeAdoption: undefined },
+    });
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: removed },
+        factoryRuntimeAdoptionConfiguration: null,
+      }),
+    ).resolves.toBeUndefined();
   },
 );
 

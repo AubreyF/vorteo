@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.322 - 2026-10-11
+
+### Fixed
+
+- Allow a renewed coordinator runner to review an explicit Factory adoption or recovery plan change through the existing configuration validator and exact approval button.
+- Keep candidate and compatible recovery on the selected Host code, preserve the previous configuration for rollback, and reject unrelated policy, helper, monitor or credential changes.
+- Test declared and mismatched plan digests, omitted changes, retained rollback and refusal of unrelated configuration changes.
+
 ## 0.11.0-beta.3.vorteo.321 - 2026-10-11
 
 ### Fixed
