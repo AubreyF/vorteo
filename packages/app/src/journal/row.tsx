@@ -35,13 +35,17 @@ export function JournalRow({
     <View testID={`journal-entry-${entry.id}`} style={styles.row}>
       {!first ? <View style={styles.lineAbove} /> : null}
       {!last ? <View style={styles.lineBelow} /> : null}
-      <View ref={register} collapsable={false} style={styles.timestampGroup}>
+      <View style={styles.marker}>
         {ready ? (
           <JournalSpark seen={seen} entryId={entry.id} animate={animate} />
         ) : (
           <View style={styles.markerPlaceholder} />
         )}
+      </View>
+      <View style={styles.content}>
         <View
+          ref={register}
+          collapsable={false}
           testID="journal-timestamp"
           style={styles.timestamp}
           accessibilityLabel={timestamp.toLocaleString()}
@@ -53,20 +57,16 @@ export function JournalRow({
             {timestamp.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
           </Text>
         </View>
+        <Text testID="journal-text" selectable style={styles.text}>
+          {entry.text}
+        </Text>
       </View>
-      <Text testID="journal-text" selectable style={styles.text}>
-        {entry.text}
-      </Text>
     </View>
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  timestampGroup: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spacing[2],
-    flexShrink: 0,
-  },
+  marker: { flexShrink: 0 },
+  content: { flex: 1, minWidth: 0, gap: theme.spacing[1] },
   markerPlaceholder: { width: 20, height: 20 },
   lineAbove: {
     position: "absolute",
@@ -87,11 +87,17 @@ const styles = StyleSheet.create((theme) => ({
   row: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: theme.spacing[3],
+    gap: theme.spacing[2],
     paddingVertical: theme.spacing[2],
     paddingLeft: theme.spacing[2],
   },
-  timestamp: { width: 64, flexShrink: 0, gap: theme.spacing[1] },
+  timestamp: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minHeight: 20,
+  },
   date: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm - 2 },
   time: {
     color: theme.colors.foregroundMuted,
@@ -99,11 +105,7 @@ const styles = StyleSheet.create((theme) => ({
     fontVariant: ["tabular-nums"],
   },
   text: {
-    flex: 1,
-    minWidth: 0,
     color: theme.colors.foreground,
-    // Compensate for the prose line leading without tightening paragraph spacing.
-    marginTop: -Math.round(theme.fontSize.sm / 6),
     fontSize: theme.fontSize.sm,
     lineHeight: Math.round(theme.fontSize.sm * 1.5),
   },

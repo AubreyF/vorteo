@@ -332,7 +332,8 @@ function deriveBootstrapTailTimelinePolicy({
 
   return {
     replace: true,
-    catchUpCursor: endCursor ? { epoch, endSeq: endCursor.seq } : null,
+    // An empty snapshot can race with the first response chunks too.
+    catchUpCursor: { epoch, endSeq: endCursor?.seq ?? 0 },
   };
 }
 
@@ -531,7 +532,7 @@ function applyTimelineReplacePath(args: {
       endSeq: payload.endCursor?.seq ?? null,
     },
   });
-  const cursor: TimelineCursor | null =
+  let cursor: TimelineCursor | null =
     payload.startCursor && payload.endCursor
       ? {
           epoch: payload.epoch,
@@ -539,6 +540,11 @@ function applyTimelineReplacePath(args: {
           endSeq: payload.endCursor.seq,
         }
       : null;
+  if (!cursor && bootstrapPolicy.catchUpCursor) {
+    // Retain the empty baseline's frontier. A later chunk must not become the
+    // starting cursor and prevent catch-up from recovering the missing prefix.
+    cursor = { epoch: payload.epoch, startSeq: 0, endSeq: 0 };
+  }
   const sideEffects: TimelineReducerSideEffect[] = [];
   if (bootstrapPolicy.catchUpCursor) {
     sideEffects.push({ type: "catch_up", cursor: bootstrapPolicy.catchUpCursor });

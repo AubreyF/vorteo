@@ -2219,7 +2219,7 @@ function automaticFixture() {
         webCommit: "b".repeat(40),
         contributions: contributions.map((item) => ({
           ...item,
-          status: "included",
+          status: item.status === "superseded" ? "superseded" : "included",
           detail: "Included",
         })),
       },
@@ -2432,6 +2432,23 @@ test("bootstrap startup fence preserves journal and prevents reconciliation and 
   expect(() => queue.request({ target: "host", reason: "Disallowed" }, "host-agent")).toThrow(
     "fenced",
   );
+  // New durable fields must never reach a journal an unresolved bootstrap may restore
+  // to an older strict reader, including through pending-request sharing.
+  const reviewed = { target: "host" as const, reason: "Review", requireOwnerApproval: true };
+  expect(() => queue.request(reviewed, "host-agent")).toThrow("fenced");
+  expect(() =>
+    queue.contribute(
+      reviewed,
+      "host-agent",
+      {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 1,
+      },
+      "11111111-1111-4111-8111-111111111111",
+    ),
+  ).toThrow("fenced");
   expect(() => queue.decide(request.id, before[0]!.revision, "cancel")).toThrow("fenced");
   expect(journal.read()).toEqual(before);
   expect(write).not.toHaveBeenCalled();
@@ -2464,4 +2481,305 @@ test("bootstrap startup refuses release after external journal change or failed 
   external.request({ target: "host", reason: "External change" }, "container-agent");
   expect(() => queue.activate()).toThrow("changed while startup was fenced");
   expect(journal.jobs).toHaveLength(1);
+});
+
+test("pending plain sharing ORs durable owner review without changing Host provenance", async () => {
+  const f = automaticFixture();
+  const input = { target: "host" as const, reason: "Review explicitly" };
+  const first = f.queue.request(input, "host-agent");
+  const reviewed = f.queue.request({ ...input, requireOwnerApproval: true }, "host-agent");
+  expect(reviewed).toMatchObject({
+    id: first.id,
+    requestedBy: "host-agent",
+    requireOwnerApproval: true,
+  });
+  expect(reviewed.revision).not.toBe(first.revision);
+  expect(() => f.queue.decide(first.id, first.revision, "approve")).toThrow("changed");
+  expect(f.queue.request(input, "container-agent")).toEqual(reviewed);
+  expect(f.queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toEqual(reviewed);
+  for (let i = 0; i < 3; i++) {
+    const recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await recovered.drain();
+    expect(recovered.list()[0]).toMatchObject({ status: "pending", requireOwnerApproval: true });
+    expect(recovered.list()[0]).not.toHaveProperty("automaticApproval");
+  }
+  expect(f.events).toEqual([]);
+  f.queue.decide(reviewed.id, reviewed.revision, "reject");
+  await f.queue.drain();
+  expect(f.queue.list()[0]?.status).toBe("rejected");
+  expect(f.events).toEqual([]);
+  expect(() =>
+    f.queue.request({ ...input, requireOwnerApproval: true }, "container-agent"),
+  ).toThrow("Host provenance");
+  for (const plan of [
+    { supervisorPlanSha256: "d".repeat(64) },
+    { factoryRuntimePlanSha256: "d".repeat(64) },
+  ]) {
+    expect(() =>
+      f.queue.request({ ...input, ...plan, requireOwnerApproval: true }, "host-agent"),
+    ).toThrow("limited to plain restarts and source updates");
+  }
+});
+
+test("manual review never silently joins an automatically approved request", async () => {
+  const f = automaticFixture();
+  const input = { target: "host" as const, reason: "Automatic wait" };
+  const request = f.queue.request(input, "host-agent");
+  await f.queue.drain();
+  const approved = f.queue.list()[0]!;
+  expect(approved.automaticApproval).toBeDefined();
+  expect(() => f.queue.request({ ...input, requireOwnerApproval: true }, "host-agent")).toThrow(
+    "approved request",
+  );
+  expect(f.queue.list()[0]).toEqual(approved);
+  expect(f.events).toEqual(["hold"]);
+  f.queue.decide(request.id, approved.revision, "cancel");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("explicit Host plain review still accepts the exact manual decision", async () => {
+  const f = automaticFixture();
+  const request = f.queue.request(
+    { target: "host", reason: "Explicit review", requireOwnerApproval: true },
+    "host-agent",
+  );
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  f.queue.decide(request.id, request.revision, "finish-current-turns");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(
+    f.queue.request({ target: "host", reason: "Join", requireOwnerApproval: true }, "host-agent")
+      .id,
+  ).toBe(request.id);
+  f.idle();
+  await f.queue.drain();
+  await f.queue.drain();
+  expect(f.events.filter((event) => event === "restart")).toHaveLength(1);
+  expect(f.events.filter((event) => event === "release")).toHaveLength(1);
+  expect(f.queue.list()[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+});
+
+test("active batch requirements OR across contributions, retries and recovery until exact review", async () => {
+  const f = automaticFixture();
+  const input = { target: "host" as const, reason: "Source" };
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  const first = f.queue.contribute(input, "host-agent", update, crypto.randomUUID());
+  const id = crypto.randomUUID();
+  const manual = { ...input, requireOwnerApproval: true };
+  f.queue.contribute(manual, "host-agent", update, id);
+  const third = f.queue.contribute(input, "host-agent", update, crypto.randomUUID());
+  expect(third.batch).toMatchObject({
+    id: first.batch.id,
+    requireOwnerApproval: true,
+    requestedBy: "host-agent",
+  });
+  expect(f.queue.contribute(manual, "host-agent", update, id).contribution).toMatchObject({
+    id,
+    requireOwnerApproval: true,
+    requestedBy: "host-agent",
+  });
+  expect(() => f.queue.contribute(input, "host-agent", update, id)).toThrow("different submission");
+  let recovered = f.queue;
+  for (let i = 0; i < 3; i++) {
+    recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await recovered.prepareBatches();
+    await recovered.drain();
+    expect(recovered.contribution(id)!.batch).toMatchObject({
+      status: "pending",
+      requireOwnerApproval: true,
+    });
+    expect(recovered.contribution(id)!.batch.automaticApproval).toBeUndefined();
+  }
+  expect(f.events).toEqual([]);
+  const ready = recovered.contribution(id)!.batch;
+  expect(() => recovered.decide(ready.id, ready.revision, "approve", "d".repeat(64))).toThrow(
+    "exact source",
+  );
+  recovered.decide(ready.id, ready.revision, "approve", update.sha256);
+  await recovered.drain();
+  expect(f.events).toEqual(["install"]);
+  expect(
+    recovered.contribute(manual, "host-agent", update, id).contribution.requireOwnerApproval,
+  ).toBe(true);
+});
+
+test.each([
+  [undefined, false],
+  [false, undefined],
+])(
+  "owner review survives replacement chains with omitted/false repairs %j",
+  async (...requirements) => {
+    const f = automaticFixture();
+    const input = { target: "host" as const, reason: "Source repair", requester: "same-task" };
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 12,
+    };
+    const original = f.queue.contribute(
+      { ...input, requireOwnerApproval: true },
+      "host-agent",
+      update,
+      crypto.randomUUID(),
+    );
+    const unrelated = f.queue.contribute(input, "host-agent", update, crypto.randomUUID());
+    let queue = f.queue;
+    let predecessor = original.contribution.id;
+    const repairs: Array<{
+      id: string;
+      replaces: string;
+      requireOwnerApproval: boolean | undefined;
+    }> = [];
+    for (const requireOwnerApproval of requirements) {
+      const batch = f.journal.jobs.find((job) => job.id === original.batch.id)!;
+      batch.sourceBatch!.status = "conflict";
+      batch.sourceBatch!.contributions.find((item) => item.id === predecessor)!.status = "conflict";
+      queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+      const id = crypto.randomUUID();
+      const repairInput = {
+        ...input,
+        ...(requireOwnerApproval === undefined ? {} : { requireOwnerApproval }),
+      };
+      const receipt = queue.contribute(repairInput, "host-agent", update, id, predecessor);
+      expect(receipt.contribution).toMatchObject({
+        id,
+        replaces: predecessor,
+        requireOwnerApproval: true,
+        requestedBy: "host-agent",
+        requester: input.requester,
+      });
+      expect(receipt.batch).toMatchObject({ status: "pending", requireOwnerApproval: true });
+      expect(queue.contribute(repairInput, "host-agent", update, id, predecessor)).toEqual(receipt);
+      repairs.push({ id, replaces: predecessor, requireOwnerApproval });
+      predecessor = id;
+      await queue.prepareBatches();
+      await queue.drain();
+      expect(queue.contribution(id)!.batch.automaticApproval).toBeUndefined();
+      expect(f.events).toEqual([]);
+    }
+    for (let i = 0; i < 3; i++) {
+      queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+      await queue.prepareBatches();
+      await queue.drain();
+      expect(queue.contribution(predecessor)!.batch).toMatchObject({
+        status: "pending",
+        requireOwnerApproval: true,
+      });
+      expect(queue.contribution(predecessor)!.batch.automaticApproval).toBeUndefined();
+      for (const repair of repairs) {
+        const retry = {
+          ...input,
+          ...(repair.requireOwnerApproval === undefined
+            ? {}
+            : { requireOwnerApproval: repair.requireOwnerApproval }),
+        };
+        expect(queue.contribute(retry, "host-agent", update, repair.id, repair.replaces)).toEqual(
+          queue.contribution(repair.id),
+        );
+        expect(() =>
+          queue.contribute(
+            { ...retry, reason: "Changed" },
+            "host-agent",
+            update,
+            repair.id,
+            repair.replaces,
+          ),
+        ).toThrow("different submission");
+        expect(() =>
+          queue.contribute(
+            { ...retry, requester: "other-task" },
+            "host-agent",
+            update,
+            repair.id,
+            repair.replaces,
+          ),
+        ).toThrow("different submission");
+        expect(() =>
+          queue.contribute(
+            retry,
+            "host-agent",
+            { ...update, bytes: 13 },
+            repair.id,
+            repair.replaces,
+          ),
+        ).toThrow("different submission");
+        expect(() => queue.contribute(retry, "host-agent", update, repair.id)).toThrow(
+          "different submission",
+        );
+      }
+    }
+    expect(f.events).toEqual([]);
+    expect(queue.contribution(original.contribution.id)!.contribution).toMatchObject({
+      status: "superseded",
+      requireOwnerApproval: true,
+    });
+    expect(queue.contribution(repairs[0]!.id)!.contribution).toMatchObject({
+      status: "superseded",
+      requireOwnerApproval: true,
+    });
+    expect(
+      queue.contribution(unrelated.contribution.id)!.contribution.requireOwnerApproval,
+    ).toBeUndefined();
+    const ready = queue.contribution(predecessor)!.batch;
+    expect(() => queue.decide(ready.id, original.batch.revision, "approve", update.sha256)).toThrow(
+      "changed",
+    );
+    expect(() => queue.decide(ready.id, ready.revision, "approve", "d".repeat(64))).toThrow(
+      "exact source",
+    );
+    queue.decide(ready.id, ready.revision, "approve", update.sha256);
+    await queue.drain();
+    await queue.drain();
+    expect(f.events).toEqual(["install"]);
+    expect(queue.contribution(predecessor)!.batch.status).toBe("succeeded");
+    for (const repair of repairs) {
+      const retry = {
+        ...input,
+        ...(repair.requireOwnerApproval === undefined
+          ? {}
+          : { requireOwnerApproval: repair.requireOwnerApproval }),
+      };
+      expect(queue.contribute(retry, "host-agent", update, repair.id, repair.replaces)).toEqual(
+        queue.contribution(repair.id),
+      );
+    }
+  },
+);
+
+test("manual source contributions never reuse an automatically approved batch", async () => {
+  const f = automaticFixture();
+  const input = { target: "host" as const, reason: "Source" };
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  const first = f.queue.contribute(input, "host-agent", update, crypto.randomUUID());
+  await f.queue.prepareBatches();
+  await f.queue.drain();
+  const approved = f.queue.contribution(first.contribution.id)!.batch;
+  expect(approved.automaticApproval).toBeDefined();
+  const manual = f.queue.contribute(
+    { ...input, requireOwnerApproval: true },
+    "host-agent",
+    update,
+    crypto.randomUUID(),
+  );
+  expect(manual.batch.id).not.toBe(approved.id);
+  await f.queue.prepareBatches();
+  expect(f.queue.contribution(manual.contribution.id)!.batch).toMatchObject({
+    status: "pending",
+    requireOwnerApproval: true,
+    sourceBatch: { status: "waiting" },
+  });
+  expect(f.queue.contribution(first.contribution.id)!.batch).toEqual(approved);
 });

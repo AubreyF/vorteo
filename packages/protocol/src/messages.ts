@@ -3932,6 +3932,7 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(factoryRuntimeAdoption): v0.11.0-beta.3.vorteo.285 request review opt-in.
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
+        coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -3948,6 +3949,7 @@ export const ServerInfoStatusPayloadSchema = z
         agentTaskSnapshots: z.boolean().optional(),
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
+        checklistReviewStatus: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
@@ -7927,6 +7929,7 @@ export const WSHelloMessageSchema = z.object({
       voice: z.boolean().optional(),
       [CLIENT_CAPS.helloRejection]: z.boolean().optional(),
       [CLIENT_CAPS.checklistBlockedStatus]: z.boolean().optional(),
+      [CLIENT_CAPS.checklistReviewStatus]: z.boolean().optional(),
       pushNotifications: z.boolean().optional(),
       [CLIENT_CAPS.explicitEventSubscriptions]: z.boolean().optional(),
       [CLIENT_CAPS.allProviders]: z.boolean().optional(),

@@ -4,6 +4,163 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.314 - 2026-10-11
+
+### Maintenance
+
+- Reconcile workspace menu parity with public main through a merge that retains both source histories and release notes.
+- Preserve the Nova bridge workspace, Review checklist behavior and current Factory grouping without changing installation validators or activating runtime updates.
+
+## 0.11.0-beta.3.vorteo.313 - 2026-10-11
+
+### Fixed
+
+- Keep canceled Nova subscriptions canceled when callback verification finishes late, including cached refreshes and concurrent attempts.
+- Bound callback verification caching, signing-key overlap and complete UTF-8 webhook bodies; send factual event data without behavioral instructions.
+- Add subscription, signing and delivery boundary regressions. Live account connection and runtime activation remain separate.
+
+## 0.11.0-beta.3.vorteo.312 - 2026-10-11
+
+### Fixes
+
+- Forward exact launch profiles through Host-to-Dev task creation, retaining account checks and retry identity while rejecting model overrides.
+
+## 0.11.0-beta.3.vorteo.311 - 2026-10-11
+
+### Fixes
+
+- Let trusted Host requests require owner review and preserve that requirement through source repairs, retries and recovery. Refuse unsupported clients before submission.
+
+## 0.11.0-beta.3.vorteo.310 - 2026-10-11
+
+### Maintenance
+
+- Integrate workspace chooser geometry with shared-profile compatibility and timeline recovery, preserving both complete release histories.
+
+## 0.11.0-beta.3.vorteo.309 - 2026-10-11
+
+### Maintenance
+
+- Integrate isolated goal and checklist RPC setup while retaining the newer Review compatibility assertions and complete source history.
+
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Integrate validated shared-model compatibility and timeline catch-up with the published interface, monitor workflow and private bridge, preserving every historical release entry.
+
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Give the profile column a distinct browser test identifier so workspace geometry checks preserve existing profile-card checks
+
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published Factory and Review interface alongside tracked monitor maintenance, the private Nova bridge and both source histories.
+
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Changed
+
+- Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
+
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Prepare and review exact preview-monitor replacements through the installation coordinator, retaining displaced bytes and fencing uncertain outcomes.
+- Negotiate monitor configuration review with older clients while preserving cancellation and exact approval checks.
+
+### Fixed
+
+- Recognize managed supervisor and Node worker identity when the preview monitor checks the Dev daemon.
+
+## 0.11.0-beta.3.vorteo.305 - 2026-10-11
+
+### Fixed
+
+- Center the Review badge within its phone touch target. Exercise checklist scrolling with enough rows to exceed the full-height desktop card.
+
+## 0.11.0-beta.3.vorteo.304 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published compact journal alongside native Factory grouping and Review tasks. Verify Review editing, persistence and completion at desktop and phone widths.
+
+## 0.11.0-beta.3.vorteo.303 - 2026-10-11
+
+### Added
+
+- Add Review for checklist tasks awaiting review or approval, with an editor choice, eye icon and badge. Review stays incomplete and inactive.
+
+### Fixed
+
+- Keep older clients compatible with Review tasks and preserve release-note ordering across merged histories.
+
+## 0.11.0-beta.3.vorteo.302 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published compact conversation headers alongside native Factory sidebar grouping and both release histories.
+
+## 0.11.0-beta.3.vorteo.302 - 2026-10-11
+
+### Maintenance
+
+- Verify compact journal row geometry directly in the desktop and phone visibility checks.
+
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Fixed
+
+- Use native Factory membership for the Factory sidebar section and protected icon-only marker. Custom labels no longer determine Factory membership or grouping.
+
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Maintenance
+
+- Keep journal visibility test entries outside the viewport after widening the text area.
+
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Added
+
+- Add a private Nova bridge package for scoped Host and Dev tools, durable operation receipts and proactive event delivery. Runtime activation and account acceptance remain separate.
+
+### Fixed
+
+- Record top-level agent-tool prompts with canonical machine origin and message IDs while preserving owner-authored message evidence.
+
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Fixed
+
+- Choose a shared profile default supported by every included environment, preserving saved models and aliases with compatibility warnings.
+- Catch up missing response chunks after an empty timeline bootstrap instead of accepting a later chunk as the beginning.
+
+- Resolve saved model aliases consistently in shared profile lists and Host/Dev account pickers without rewriting the saved reference.
+
+## 0.11.0-beta.3.vorteo.300 - 2026-10-11
+
+### Maintenance
+
+- Preserve the installed conversation layout and complete release histories alongside accurate legacy update outcomes.
+
+## 0.11.0-beta.3.vorteo.300 - 2026-10-11
+
+### Changed
+
+- Move journal timestamps above entry text and narrow the left gutter to the timeline and markers.
+
+## 0.11.0-beta.3.vorteo.299 - 2026-10-11
+
+### Maintenance
+
+- Preserve installed workspace profile defaults while integrating compact card headers.
+
 ## 0.11.0-beta.3.vorteo.299 - 2026-10-11
 
 ### Changed
@@ -24,6 +181,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Add General preferences for the default workspace environment and account, with a separate default profile for each account
 - Preserve the installed Factory sidebar and full-height conversation layout while integrating workspace preferences
 
+## 0.11.0-beta.3.vorteo.298 - 2026-10-11
+
+### Changed
+
+- Compact conversation card headers with flush ghost buttons, shared card corner radii and preserved touch targets.
+
 ## 0.11.0-beta.3.vorteo.297 - 2026-10-11
 
 ### Maintenance
@@ -40,17 +203,49 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Record the current preference to deliver Vorteo changes to the existing instance for reload and owner review.
 
+## 0.11.0-beta.3.vorteo.299 - 2026-10-11
+
+### Tests
+
+- Await the completed source-batch query directly in legacy outcome regressions, avoiding a polling deadline around owner authentication.
+
+## 0.11.0-beta.3.vorteo.298 - 2026-10-11
+
+### Maintenance
+
+- Integrate accurate legacy update outcomes with workspace defaults and the installed Factory sidebar, preserving both release histories.
+
+## 0.11.0-beta.3.vorteo.297 - 2026-10-11
+
+### Changed
+
+- Show a compact profile chooser above the new workspace message field and apply draft selections without a separate activation button
+- Add General preferences for the default workspace environment and account, with a separate default profile for each account
+- Preserve the installed Factory sidebar update when integrating workspace preferences
+
 ## 0.11.0-beta.3.vorteo.296 - 2026-10-11
 
 ### Changed
 
 - Group explicitly tagged Factory workspaces in Factory before runtime adoption and show an icon-only Factory marker. Preserve lifecycle protection and match keyboard navigation to section order.
 
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Fixed
+
+- Preserve source-update outcomes for older clients instead of describing successful, failed or running updates as pending approval.
+
 ## 0.11.0-beta.3.vorteo.295 - 2026-10-11
 
 ### Maintenance
 
 - Preserve the installed Host update and both release histories while integrating the optional icon-cache startup fix.
+
+## 0.11.0-beta.3.vorteo.295 - 2026-10-11
+
+### Maintenance
+
+- Isolate fresh-home checklist and goal RPC tests from inherited installation launcher configuration, restoring standalone test admission without changing production guards. All three RPC tests pass; reconnect coverage does not establish daemon restart continuity.
 
 ## 0.11.0-beta.3.vorteo.294 - 2026-10-11
 

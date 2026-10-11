@@ -1289,24 +1289,25 @@ export class VoiceAssistantWebSocketServer {
     }
 
     const payloadBytes = outboundFrameByteLength(payload);
-    let legacyPayload: string | undefined;
-    let legacyBytes = 0;
+    const projections = new Map<string, { payload: string; bytes: number }>();
     for (const ws of writableSockets) {
-      const supportsBlocked =
-        this.sessions.get(ws)?.session.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) ===
-        true;
-      if (!supportsBlocked && legacyPayload === undefined) {
-        legacyPayload = serializeLegacyChecklistMessage(message, payload);
-        legacyBytes = outboundFrameByteLength(legacyPayload);
+      const session = this.sessions.get(ws)?.session;
+      const blocked = session?.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) === true;
+      const review = session?.supportsForSource(CLIENT_CAPS.checklistReviewStatus, ws) === true;
+      const key = `${blocked}:${review}`;
+      let frame = { payload, bytes: payloadBytes };
+      if (!blocked || !review) {
+        const cached = projections.get(key);
+        if (cached) frame = cached;
+        else {
+          const projected = serializeLegacyChecklistMessage(message, payload, { blocked, review });
+          frame = { payload: projected, bytes: outboundFrameByteLength(projected) };
+          projections.set(key, frame);
+        }
       }
-      this.sendFrameToClient(
-        ws,
-        supportsBlocked ? payload : legacyPayload!,
-        supportsBlocked ? payloadBytes : legacyBytes,
-        () => {
-          this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
-        },
-      );
+      this.sendFrameToClient(ws, frame.payload, frame.bytes, () => {
+        this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
+      });
     }
   }
 
@@ -2046,6 +2047,7 @@ export class VoiceAssistantWebSocketServer {
               coordinatorBootstrapReview: true,
               coordinatorBootstrapFactoryAdoption: true,
               coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
             }
           : {}),
         durableMessageQueue: true,
@@ -2064,6 +2066,7 @@ export class VoiceAssistantWebSocketServer {
         agentTaskSnapshots: true,
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
+        checklistReviewStatus: true,
         agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,

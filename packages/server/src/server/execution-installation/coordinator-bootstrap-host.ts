@@ -121,6 +121,35 @@ export async function createBootstrapReviewService(
   );
 }
 
+function verifyMonitorBootstrapBinding(
+  plan: CoordinatorBootstrapPlan,
+  host: BootstrapAdmissionHost,
+): void {
+  if (
+    plan.previewMonitorConfiguration &&
+    (plan.previewMonitorConfiguration.docker !== host.docker ||
+      plan.previewMonitorConfiguration.socket !== host.socket ||
+      plan.previewMonitorConfiguration.containerId !== host.containerId ||
+      plan.previewMonitorConfiguration.recovery.node.path !==
+        bootstrapRecoveryRelease(plan).node.path ||
+      plan.previewMonitorConfiguration.recovery.node.sha256 !==
+        bootstrapRecoveryRelease(plan).node.sha256 ||
+      plan.previewMonitorConfiguration.recovery.journal.path !==
+        path.join(
+          bootstrapRecoveryRelease(plan).directory,
+          "packages/server/dist/server/server/execution-installation/lifecycle-journal.js",
+        ) ||
+      plan.previewMonitorConfiguration.recovery.queue.path !==
+        path.join(
+          bootstrapRecoveryRelease(plan).directory,
+          "packages/server/dist/server/server/execution-installation/restarts.js",
+        ))
+  )
+    throw new BootstrapRequestConflict(
+      "Monitor configuration must bind paired container and exact retained coordinator reader",
+    );
+}
+
 /** Host setup supplies this context. Review requests cannot choose collectors,
  * Docker endpoints, the installed launcher or their own daemon identity. */
 export async function verifyBootstrapPlan(
@@ -138,6 +167,7 @@ export async function verifyBootstrapPlan(
     throw new BootstrapRequestConflict(
       "Helper configuration must retain the paired Host Docker identity",
     );
+  verifyMonitorBootstrapBinding(plan, host);
   const roots = await inspectBootstrapWritableMountRoots(host);
   await assertBootstrapPathsProtected(
     [host.configurationFile, host.launcherFile, initial.stateDirectory],
@@ -246,6 +276,9 @@ export function verifyBootstrapConfiguration(input: {
     delete expected.container.factoryRuntimeAdoption;
   else if (input.plan.factoryRuntimeAdoptionConfiguration !== undefined)
     expected.container.factoryRuntimeAdoption = input.plan.factoryRuntimeAdoptionConfiguration;
+  if (input.plan.previewMonitorConfiguration === null) delete expected.previewMonitor;
+  else if (input.plan.previewMonitorConfiguration !== undefined)
+    expected.previewMonitor = input.plan.previewMonitorConfiguration;
   if (input.plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (input.plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = input.plan.nativeHelperConfiguration;
