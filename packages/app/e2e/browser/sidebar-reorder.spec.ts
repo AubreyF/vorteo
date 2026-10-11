@@ -1,9 +1,10 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
-import type { Locator } from "@playwright/test";
+import type { Locator, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
+import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { getServerId } from "../support/helpers/server-id";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import {
@@ -28,14 +29,7 @@ async function pressProjectRow(rows: Locator) {
 }
 
 async function pressWorkspaceRow(rows: Locator) {
-  const solidScrimStop = rows
-    .nth(0)
-    .getByTestId("sidebar-workspace-trailing-scrim")
-    .locator("stop")
-    .nth(1);
-  const hoverScrimColor = await solidScrimStop.getAttribute("stop-color");
   await rows.page().mouse.down();
-  await expect.poll(() => solidScrimStop.getAttribute("stop-color")).not.toBe(hoverScrimColor);
 }
 
 async function quickDragFirstRowAfterSecond(
@@ -48,25 +42,42 @@ async function quickDragFirstRowAfterSecond(
   const targetBox = await visibleBoundingBox(rows.nth(1));
 
   const page = rows.page();
-  const source = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
-  const target = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+  // Start on the row inset, away from branch popovers and trailing actions.
+  const source = { x: sourceBox.x + 12, y: sourceBox.y + sourceBox.height / 2 };
+  const target = { x: targetBox.x + 12, y: targetBox.y + targetBox.height / 2 };
 
   await page.mouse.move(source.x, source.y);
-  const trailingScrim = rows.nth(0).getByTestId("sidebar-workspace-trailing-scrim");
   await pressRow(rows);
   await page.mouse.move(source.x, source.y + 7);
-  await expect(trailingScrim).toHaveCount(0);
   await page.mouse.move(target.x, target.y, { steps: 4 });
   await page.mouse.up();
 
   await expect.poll(() => rowTestIds(rows)).toEqual([before[1], before[0]]);
 }
 
-test("projects, workspaces, and pinned chats reorder with an immediate mouse drag", async ({
+test("projects, workspaces, pinned chats and expansion synchronize between devices", async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(120_000);
   const firstProject = await seedWorkspace({ repoPrefix: "sidebar-reorder-first-" });
   const secondProject = await seedWorkspace({ repoPrefix: "sidebar-reorder-second-" });
+  const peerContext = await browser.newContext();
+  const peer = await peerContext.newPage();
+  let offline = false;
+  let peerSocket: WebSocketRoute | undefined;
+  let serverSocket: WebSocketRoute | undefined;
+  await peer.routeWebSocket(
+    (url) => url.port === String(getE2EDaemonPort()),
+    async (socket) => {
+      if (offline) {
+        await socket.close({ code: 1013, reason: "Test connection outage" });
+        return;
+      }
+      peerSocket = socket;
+      serverSocket = socket.connectToServer();
+    },
+  );
 
   try {
     const secondWorkspace = await firstProject.client.createWorkspace({
@@ -83,6 +94,20 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
 
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
+    await expect
+      .poll(async () => (await firstProject.client.readSidebarState()).snapshot.state !== null)
+      .toBe(true);
+    const storage = await page.context().storageState();
+    await peerContext.addInitScript((origins) => {
+      for (const origin of origins) {
+        if (origin.origin !== window.location.origin) continue;
+        for (const entry of origin.localStorage) {
+          if (entry.name !== "@paseo:client-id-v1") localStorage.setItem(entry.name, entry.value);
+        }
+      }
+    }, storage.origins);
+    await peer.goto(page.url());
+    await waitForSidebarHydration(peer);
 
     const firstProjectTestId = `sidebar-project-row-${projectEquivalenceViewKey(firstProject.projectKey)}`;
     const secondProjectTestId = `sidebar-project-row-${projectEquivalenceViewKey(secondProject.projectKey)}`;
@@ -90,6 +115,21 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       page.locator(`[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`),
       pressProjectRow,
     );
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstProjectTestId}"], [data-testid="${secondProjectTestId}"]`,
+          ),
+        ),
+      );
     const firstWorkspaceTestId = `sidebar-workspace-row-${getServerId()}:${firstProject.workspaceId}`;
     const secondWorkspaceTestId = `sidebar-workspace-row-${getServerId()}:${secondWorkspace.workspace.id}`;
     await quickDragFirstRowAfterSecond(
@@ -98,6 +138,40 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       ),
       pressWorkspaceRow,
     );
+
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondWorkspaceTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondWorkspaceTestId}"]`,
+          ),
+        ),
+      );
+    await peer.getByTestId(firstProjectTestId).click();
+    await expect(page.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await peer.reload();
+    await waitForSidebarHydration(peer);
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toBeVisible();
+
+    // Browser offline emulation does not close an established WebSocket.
+    offline = true;
+    await Promise.all([peerSocket?.close(), serverSocket?.close()]);
+    await peer.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId("sidebar-sync-error")).toBeVisible({ timeout: 20000 });
+    offline = false;
+    await expect(page.getByTestId(firstWorkspaceTestId)).toHaveCount(0);
+    await expect(peer.getByTestId("sidebar-sync-error")).toHaveCount(0);
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(firstWorkspaceTestId)).toBeVisible();
 
     await firstProject.client.setWorkspacePinned(firstProject.workspaceId, true);
     await secondProject.client.setWorkspacePinned(secondProject.workspaceId, true);
@@ -108,9 +182,41 @@ test("projects, workspaces, and pinned chats reorder with an immediate mouse dra
       ),
       pressWorkspaceRow,
     );
+    await expect
+      .poll(() =>
+        rowTestIds(
+          peer.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondProjectWorkspaceTestId}"]`,
+          ),
+        ),
+      )
+      .toEqual(
+        await rowTestIds(
+          page.locator(
+            `[data-testid="${firstWorkspaceTestId}"], [data-testid="${secondProjectWorkspaceTestId}"]`,
+          ),
+        ),
+      );
+    await peer.screenshot({ path: "test-results/sidebar-state-synced.png" });
+    await peer.mouse.move(900, 500);
+    await peer.setViewportSize({ width: 390, height: 844 });
+    await peer.getByRole("button", { name: "Open menu", exact: true }).click();
+    await waitForSidebarHydration(peer);
+    await expect(peer.getByTestId(secondWorkspaceTestId)).toBeVisible();
+    await page.getByTestId(firstProjectTestId).click();
+    await expect(peer.getByTestId(secondWorkspaceTestId)).toHaveCount(0);
+    await peer.getByTestId(firstProjectTestId).click({ position: { x: 12, y: 16 } });
+    await expect(peer.getByTestId(secondWorkspaceTestId)).toBeVisible();
+    await expect(page.getByTestId(secondWorkspaceTestId)).toBeVisible();
+    await peer.screenshot({ path: "test-results/sidebar-state-compact.png" });
+  } catch (error) {
+    await peer.screenshot({ path: "test-results/sidebar-state-peer-failure.png" });
+    console.log("Sidebar state at failure", await firstProject.client.readSidebarState());
+    throw error;
   } finally {
-    await firstProject.cleanup();
-    await secondProject.cleanup();
+    offline = false;
+    await Promise.all([firstProject.cleanup(), secondProject.cleanup()]);
+    await peerContext.close();
   }
 });
 

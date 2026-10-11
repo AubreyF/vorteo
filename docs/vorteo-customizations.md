@@ -6,6 +6,8 @@ This inventory describes the reviewed source. Availability depends on the instal
 
 Worker visibility maintenance: retained worker conversations remain available in their native execution workspaces as well as the parent presentation. Explicit execution-workspace tabs stay there. Focused coverage includes both workspace descriptors, archived workers, parent grouping and automatic opening from an empty workspace. Factory worker archival remains an owner action; configurable automatic cleanup is deferred.
 
+Source integration review: shared sidebar state retains published Nova subscription safeguards, exact-profile delegation and Review checklist behavior. This source merge does not activate the bridge or install a runtime.
+
 ## Accounts and reusable workflows
 
 - **Multiple isolated subscription accounts.** Connect separate Codex and Claude accounts, choose an account per task, and run tasks across accounts concurrently. Browser sign-in, reconnect, rename, disable and removal are account-scoped. Claude uses the official CLI setup-token flow; managed installations deliver one subscription credential to Host and Dev, subject to explicit exclusions. Account configuration, session discovery and resumed history remain isolated. Setup-token usage and reset credits are unavailable; reconnect renews the process credential without a private refresh API. Activation requires compatible Host, Dev and coordinator releases. See [Claude subscription connections](providers.md#claude-subscription-connections). Connection controls honor its account-scoped CLI authentication check even when macOS saved credentials are unavailable to usage reporting; explicit authentication rejection still offers Reconnect. This does not combine subscription allowances or automatically fail over between accounts. See [accounts and profiles](agent-presets.md) and [account isolation tests](../packages/server/src/server/agent/providers/claude/account-isolation.test.ts).
@@ -71,6 +73,10 @@ October 9, 2026: Integrated shared action footers with queue recovery containmen
 
 ## Projects, devices and interface
 
+Sidebar integration review: shared state is integrated with the published Nova bridge workspace, native Factory grouping and Review checklist capability. Workspace membership and dependency declarations retain the published source; synchronization remains additive.
+
+- **Shared sidebar state.** Connected devices share project order, workspace order within each project, pinned order, expanded project and group sections, grouping, and host, project and label filters. The Host daemon owns the installation copy; standalone clients use the first capable daemon by stable server ID. The first client initializes an empty shared copy from its saved sidebar. Later clients load that copy without uploading stale local state. Changes address individual fields and projects, so unrelated edits survive. Offline edits persist locally until reconnect. Outbox reads and writes are serialized by storage key across synchronizer remounts, and stopped instances cannot clear newer edits after a late network acknowledgement. Clients refresh once per second while active and show pending synchronization failures with Retry. Sidebar width and selected workspace remain local. This requires a daemon advertising `sidebarState`. Browser acceptance uses row insets for dragging so branch popovers do not intercept the gesture.
+
 - **Consistent collapsible cards.** Messages and Goals fold from their headings, preserving mounted draft and row state while leaving header actions visible. Tasks, Messages, Goals and sub-agents share title, arrow, count ordering. Folding a card does not pause its agent, queue or goal.
 
 - **Stable card status.** Queue control operations and edits report pending progress in the Messages heading, ahead of its action buttons, instead of adding temporary rows. Provider order, shared provider/plugin settings and host setting saves use heading status slots; compaction copy/export feedback stays in its action heading. Persistent errors and local recovery controls remain visible in the body.
@@ -122,7 +128,11 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 11, 2026: Integrated workspace menu parity with shared sidebar state, outbox lifetime protection and creation fixture isolation. Both release histories and existing Review and Nova source remain intact. This source integration does not establish installed runtime acceptance.
+
 October 11, 2026: Merged public main into workspace menu source while retaining the Nova bridge package, Review checklist coverage, native Factory grouping and both release histories. This is source reconciliation only; replacement submission and installation remain separate. README overview and onboarding are unchanged.
+
+Creation fixture review: fake-client callbacks expose session config so creation counters and readiness gating exclude internal metadata helpers. Exact-one, replay and conflict assertions remain; production workspace naming is unchanged.
 
 October 11, 2026: Delegated container creation accepts an exact profile reference and retains destination account checks, workspace resolution, idempotency and agent provenance. Focused disposable-daemon tests cover the resolved profile, conflicting retries and invalid targets. Installation acceptance remains separate. README overview and onboarding are unchanged.
 

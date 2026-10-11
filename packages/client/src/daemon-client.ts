@@ -1,3 +1,4 @@
+import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
 import type {
   CoordinatorBootstrapPreparation,
   CoordinatorBootstrapDecision,
@@ -5635,6 +5636,28 @@ export class DaemonClient {
       this.lastServerInfoMessage?.features?.skillLibrary !== true
     )
       throw new Error("Update this environment before saving profile skill policies.");
+  }
+
+  async readSidebarState() {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.read.request" },
+      responseType: "sidebar.state.read.response",
+    });
+  }
+
+  async changeSidebarState(change: SidebarStateChange) {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.change.request", change },
+      responseType: "sidebar.state.change.response",
+    });
+  }
+
+  private requireSidebarState(): void {
+    if (this.lastServerInfoMessage?.features?.sidebarState !== true) {
+      throw new Error("Update the host to synchronize sidebar state.");
+    }
   }
 
   async patchDaemonConfig(

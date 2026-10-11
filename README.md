@@ -19,6 +19,8 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 ## Power Tools to Manage Your Fleet
 
+- **Keep your sidebar across devices.** Project and workspace order, expanded sections, grouping and filters follow you between connected devices. Offline edits sync after reconnection. Requires the updated Host daemon.
+
 - **Track a build across threads.** Each thread keeps its checklist beside the conversation when space allows, or below it in narrower layouts. The workspace flower combines task progress across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. Blocked tasks explain their blocker, and eligible idle threads periodically check whether they can proceed. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
 
 - **Keep a decision journal.** Agents can record critical decisions and verified progress in a timestamped journal card. Entries are append-only and stay in their original order. Requires an updated daemon. See [thread journals](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).

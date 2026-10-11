@@ -1,3 +1,4 @@
+import type { SidebarStateStore } from "./sidebar-state/store.js";
 import {
   handleBootstrapReview,
   type BootstrapReviewService,
@@ -515,6 +516,7 @@ export interface SessionOptions {
   renameCurrentBranch?: typeof renameCurrentBranchDefault;
   workspaceGitService: WorkspaceGitService;
   workspaceAutoName: WorkspaceAutoName;
+  sidebarState?: SidebarStateStore;
   daemonConfigStore: DaemonConfigStore;
   pluginRuntime?: {
     before: import("./plugins/lifecycle/index.js").PluginLifecycle["before"];
@@ -791,6 +793,7 @@ export class Session {
   private readonly gitMutation: GitMutationService;
   private readonly workspaceProvisioning: WorkspaceProvisioningService;
   private readonly workspaceRecovery: WorkspaceRecoveryService;
+  private readonly sidebarState: SidebarStateStore | undefined;
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushNotifications: PushNotifications;
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
@@ -867,6 +870,7 @@ export class Session {
   private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
 
   constructor(options: SessionOptions) {
+    this.sidebarState = options.sidebarState;
     this.coordinatorBootstrap = options.coordinatorBootstrap;
     const {
       clientId,
@@ -2421,8 +2425,34 @@ export class Session {
     if (promise) await promise;
   }
 
+  private dispatchSidebarStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "sidebar.state.read.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.read().then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.read.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      case "sidebar.state.change.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.change(msg.change).then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.change.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchWorkspaceLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     return (
+      this.dispatchSidebarStateMessage(msg) ??
       this.dispatchWorkspaceStateMessage(msg) ??
       this.dispatchWorkspaceLabelMessage(msg) ??
       this.dispatchWorkspaceSetupMessage(msg) ??

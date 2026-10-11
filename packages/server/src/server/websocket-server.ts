@@ -1,3 +1,4 @@
+import { SidebarStateStore } from "./sidebar-state/store.js";
 import { serializeLegacyChecklistMessage } from "./agent/task-checklist/compatibility.js";
 import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
@@ -568,6 +569,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
+  private readonly sidebarState: SidebarStateStore;
   private readonly paseoHome: string;
   private readonly passwordHash: string | undefined;
   private readonly credentialSource: DaemonAuthConfig | undefined;
@@ -732,6 +734,7 @@ export class VoiceAssistantWebSocketServer {
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
+    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"));
     this.passwordHash = auth?.password;
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
@@ -1574,8 +1577,16 @@ export class VoiceAssistantWebSocketServer {
     return connection;
   }
 
+  private supportsSidebarState(): boolean {
+    return (
+      this.daemonConfigStore.get().sharedProviderPreferences?.installation?.environment !==
+      "container"
+    );
+  }
+
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
       coordinatorBootstrap: this.coordinatorBootstrap,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
@@ -2066,6 +2077,7 @@ export class VoiceAssistantWebSocketServer {
         agentTaskSnapshots: true,
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
+        sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
         agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
