@@ -2,7 +2,19 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { EnvironmentSchema } from "./config.js";
 import { BridgeStore, canonicalJson } from "./store.js";
-import { callbackUrl, signingHeaders, type WebhookTransport } from "./webhook.js";
+import {
+  callbackUrl,
+  signingHeaders,
+  assertWebhookBodySize,
+  MAX_WEBHOOK_BODY_BYTES,
+  type WebhookTransport,
+} from "./webhook.js";
+
+// Local policy: the OpenAI guide requires bounded caching and short overlap,
+// but does not prescribe durations. Neither window slides on unchanged refresh.
+const CALLBACK_CACHE_MS = 5 * 60 * 1000;
+const SIGNING_OVERLAP_MS = 5 * 60 * 1000;
+const PRINCIPAL = "installation-owner-integration";
 
 const Filters = z
   .object({
@@ -54,11 +66,27 @@ const SubscriptionRow = z.object({ id: z.string(), filters: z.string() });
 
 function subscriptionId(url: string, filters: unknown): string {
   return createHash("sha256")
-    .update(canonicalJson({ principal: "installation-owner-integration", url, filters }))
+    .update(canonicalJson({ principal: PRINCIPAL, url, filters }))
     .digest("hex");
 }
 
+interface SubscriptionGeneration {
+  pending: number;
+  canceled: boolean;
+}
+
+class SubscriptionCanceledError extends Error {
+  constructor() {
+    super("Subscription canceled");
+    this.name = "SubscriptionCanceledError";
+  }
+}
+
 export class BridgeEvents {
+  // Only pending attempts retain a generation. Unsubscribe detaches it so a
+  // later explicit subscribe can proceed while canceled callbacks finish.
+  private readonly subscriptionGenerations = new Map<string, SubscriptionGeneration>();
+
   constructor(
     private readonly store: BridgeStore,
     private readonly transport: WebhookTransport,
@@ -66,6 +94,8 @@ export class BridgeEvents {
   ) {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS subscriptions (id TEXT PRIMARY KEY, url TEXT NOT NULL, secret TEXT NOT NULL, filters TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS callback_verifications (principal TEXT NOT NULL, url TEXT NOT NULL, secret_hash TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (principal, url));
+      CREATE TABLE IF NOT EXISTS subscription_signing_keys (subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE, secret TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (subscription_id, secret));
       CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deliveries (subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE, event_id TEXT NOT NULL REFERENCES events(id), attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', PRIMARY KEY (subscription_id, event_id));
     `);
@@ -94,10 +124,43 @@ export class BridgeEvents {
       workspaceIds: [...new Set(input.arguments.workspaceIds)].sort(),
     };
     const id = subscriptionId(url, filters);
+    const generation = this.subscriptionGenerations.get(id) ?? { pending: 0, canceled: false };
+    this.subscriptionGenerations.set(id, generation);
+    generation.pending++;
+    try {
+      await this.verifyCallback({ url, secret: input.delivery.secret, id }, generation);
+      const ttl = input.ttlMs ?? 24 * 60 * 60 * 1000;
+      const expires = this.now() + Math.min(ttl, 7 * 24 * 60 * 60 * 1000);
+      // Even cached verification yields. Cancellation must win before this save.
+      if (generation.canceled) throw new SubscriptionCanceledError();
+      this.saveSubscription({ id, url, secret: input.delivery.secret, filters, expires });
+      // Events persist for tool-driven catch-up; replay cursors are not advertised until
+      // retention and subscription-boundary ordering can guarantee no skipped deliveries.
+      return { id, refreshBefore: new Date(expires).toISOString(), cursor: null, truncated: false };
+    } finally {
+      generation.pending--;
+      const current = this.subscriptionGenerations.get(id) === generation;
+      if (current && generation.pending === 0) this.subscriptionGenerations.delete(id);
+    }
+  }
+
+  private async verifyCallback(
+    input: { url: string; secret: string; id: string },
+    generation: SubscriptionGeneration,
+  ): Promise<void> {
+    const { url, secret, id } = input;
+    const secretHash = createHash("sha256").update(secret).digest("hex");
+    this.store.db.prepare("DELETE FROM callback_verifications WHERE expires <= ?").run(this.now());
+    const cached = this.store.db
+      .prepare(
+        "SELECT 1 FROM callback_verifications WHERE principal=? AND url=? AND secret_hash=? AND expires>?",
+      )
+      .get(PRINCIPAL, url, secretHash, this.now());
+    if (cached) return;
     const challenge = randomUUID();
     const body = JSON.stringify({ type: "verification", challenge });
     const headers = signingHeaders({
-      secret: input.delivery.secret,
+      secret,
       id: `verification_${randomUUID()}`,
       subscriptionId: id,
       body,
@@ -111,15 +174,56 @@ export class BridgeEvents {
     const actual = Buffer.from(echo.challenge);
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
       throw new Error("Callback challenge did not match");
-    const ttl = input.ttlMs ?? 24 * 60 * 60 * 1000;
-    const expires = this.now() + Math.min(ttl, 7 * 24 * 60 * 60 * 1000);
+
+    if (generation.canceled) throw new SubscriptionCanceledError();
     this.store.db
-      .prepare(`INSERT INTO subscriptions (id, url, secret, filters, expires) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET secret=excluded.secret, expires=excluded.expires`)
-      .run(id, url, input.delivery.secret, canonicalJson(filters), expires);
-    // Events persist for tool-driven catch-up; replay cursors are not advertised until
-    // retention and subscription-boundary ordering can guarantee no skipped deliveries.
-    return { id, refreshBefore: new Date(expires).toISOString(), cursor: null, truncated: false };
+      .prepare(
+        "INSERT INTO callback_verifications (principal, url, secret_hash, expires) VALUES (?, ?, ?, ?) ON CONFLICT(principal, url) DO UPDATE SET secret_hash=excluded.secret_hash, expires=excluded.expires",
+      )
+      .run(PRINCIPAL, url, secretHash, this.now() + CALLBACK_CACHE_MS);
+  }
+
+  private saveSubscription(input: {
+    id: string;
+    url: string;
+    secret: string;
+    filters: z.infer<typeof Filters>;
+    expires: number;
+  }): void {
+    const { id, url, secret, filters, expires } = input;
+    const now = this.now();
+    this.store.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.store.db.prepare("DELETE FROM subscription_signing_keys WHERE expires <= ?").run(now);
+      const previous = this.store.db
+        .prepare("SELECT secret, expires FROM subscriptions WHERE id=?")
+        .get(id);
+      if (previous) {
+        const active = z.object({ secret: z.string(), expires: z.number() }).parse(previous);
+        if (active.secret !== secret && active.expires > now) {
+          this.store.db
+            .prepare(
+              "INSERT INTO subscription_signing_keys (subscription_id, secret, expires) VALUES (?, ?, ?) ON CONFLICT(subscription_id, secret) DO NOTHING",
+            )
+            .run(id, active.secret, Math.min(active.expires, now + SIGNING_OVERLAP_MS));
+        }
+        if (active.expires <= now)
+          this.store.db
+            .prepare("DELETE FROM subscription_signing_keys WHERE subscription_id=?")
+            .run(id);
+      }
+      this.store.db
+        .prepare(`INSERT INTO subscriptions (id, url, secret, filters, expires) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET secret=excluded.secret, expires=excluded.expires`)
+        .run(id, url, secret, canonicalJson(filters), expires);
+      this.store.db
+        .prepare("DELETE FROM subscription_signing_keys WHERE subscription_id=? AND secret=?")
+        .run(id, secret);
+      this.store.db.exec("COMMIT");
+    } catch (error) {
+      this.store.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   unsubscribe(raw: unknown): void {
@@ -128,9 +232,17 @@ export class BridgeEvents {
       environments: [...new Set(input.arguments.environments)].sort(),
       workspaceIds: [...new Set(input.arguments.workspaceIds)].sort(),
     };
+    const url = callbackUrl(input.delivery.url).toString();
+    const id = subscriptionId(url, filters);
+    const generation = this.subscriptionGenerations.get(id);
+    if (generation) {
+      generation.canceled = true;
+      this.subscriptionGenerations.delete(id);
+    }
     this.store.db
-      .prepare("DELETE FROM subscriptions WHERE id = ?")
-      .run(subscriptionId(callbackUrl(input.delivery.url).toString(), filters));
+      .prepare("DELETE FROM callback_verifications WHERE principal=? AND url=?")
+      .run(PRINCIPAL, url);
+    this.store.db.prepare("DELETE FROM subscriptions WHERE id = ?").run(id);
   }
 
   publish(id: string, raw: Attention): void {
@@ -163,6 +275,7 @@ export class BridgeEvents {
       data,
       cursor: null,
     });
+    assertWebhookBodySize(body);
     const inserted = this.store.db
       .prepare("INSERT OR IGNORE INTO events (id, body) VALUES (?, ?)")
       .run(id, body);
@@ -187,6 +300,9 @@ export class BridgeEvents {
   }
 
   async flush(): Promise<void> {
+    this.store.db
+      .prepare("DELETE FROM subscription_signing_keys WHERE expires <= ?")
+      .run(this.now());
     const rows = this.store.db
       .prepare(`SELECT d.subscription_id, d.event_id, d.attempts, s.url, s.secret, e.body
       FROM deliveries d JOIN subscriptions s ON d.subscription_id=s.id JOIN events e ON e.id=d.event_id
@@ -200,7 +316,22 @@ export class BridgeEvents {
         .prepare("SELECT secret FROM subscriptions WHERE id=? AND expires>?")
         .get(row.subscription_id, this.now());
       if (!active) continue;
+      // Retained rows from older builds may exceed today's delivery contract.
+      // Mark them terminal locally rather than contacting the callback or looping.
+      if (Buffer.byteLength(row.body, "utf8") > MAX_WEBHOOK_BODY_BYTES) {
+        this.store.db
+          .prepare("UPDATE deliveries SET status='failed' WHERE subscription_id=? AND event_id=?")
+          .run(row.subscription_id, row.event_id);
+        continue;
+      }
+      const previousSecrets = this.store.db
+        .prepare(
+          "SELECT secret FROM subscription_signing_keys WHERE subscription_id=? AND expires>? ORDER BY secret",
+        )
+        .all(row.subscription_id, this.now())
+        .map((keyRow) => z.object({ secret: z.string() }).parse(keyRow).secret);
       const headers = signingHeaders({
+        previousSecrets,
         secret: z.object({ secret: z.string() }).parse(active).secret,
         id: row.event_id,
         subscriptionId: row.subscription_id,

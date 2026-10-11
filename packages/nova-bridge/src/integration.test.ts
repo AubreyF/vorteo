@@ -294,3 +294,44 @@ it("catches settled timeline work beyond the live window without replaying it", 
   await test.observer.reconcile();
   expect(test.activity().filter((event) => event.data.threadId === "204")).toHaveLength(1);
 });
+
+it("delivers factual evidence summaries without behavioral instructions", async () => {
+  const test = fixture();
+  await test.events.subscribe(subscription);
+  test.source.agents = [
+    thread("complete", {
+      updatedAt: later,
+      attentionReason: "finished",
+      attentionTimestamp: later,
+    }),
+    thread("permission", {
+      updatedAt: later,
+      attentionReason: "permission",
+      attentionTimestamp: later,
+    }),
+    thread("error", { updatedAt: later }),
+    thread("gap", { updatedAt: later }),
+  ];
+  test.source.historyRows("error", ["error"]);
+  test.source.histories.set("gap", {
+    entries: [],
+    endCursor: { epoch: "new", seq: 3 },
+    hasNewer: false,
+    gap: true,
+    staleCursor: true,
+    reset: true,
+  });
+  await test.observer.reconcile();
+  await test.events.flush();
+  const summaries = test.requests.map((request) => JSON.parse(request.body).data.summary);
+  expect(summaries).toEqual(
+    expect.arrayContaining([
+      "Thread has completed activity.",
+      "Thread has permission activity.",
+      "Retained timeline contains an error. Current task state may have changed.",
+      "Retained timeline has a gap or reset. Missed transitions are unknown.",
+    ]),
+  );
+  for (const summary of summaries)
+    expect(summary).not.toMatch(/\b(read|inspect|use|act|follow|deduplicate)\b/i);
+});

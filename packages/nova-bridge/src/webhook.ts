@@ -3,6 +3,13 @@ import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import ipaddr from "ipaddr.js";
 
+// OpenAI MCP Events limits the complete UTF-8 request body, not individual fields.
+export const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
+export function assertWebhookBodySize(body: string): void {
+  if (Buffer.byteLength(body, "utf8") > MAX_WEBHOOK_BODY_BYTES)
+    throw new RangeError("Event payload exceeds 256 KiB");
+}
+
 export interface WebhookResponse {
   status: number;
   body: string;
@@ -44,26 +51,32 @@ export function callbackUrl(value: string): URL {
 
 export function signingHeaders(input: {
   secret: string;
+  previousSecrets?: string[];
   id: string;
   subscriptionId: string;
   body: string;
   timestamp: number;
 }): Record<string, string> {
-  const key = Buffer.from(input.secret.slice(6), "base64");
-  const signature = createHmac("sha256", key)
-    .update(`${input.id}.${input.timestamp}.${input.body}`)
-    .digest("base64");
+  const secrets = new Set([input.secret, ...(input.previousSecrets ?? [])]);
+  const signatures = [...secrets].map((secret) => {
+    const key = Buffer.from(secret.slice(6), "base64");
+    const signature = createHmac("sha256", key)
+      .update(`${input.id}.${input.timestamp}.${input.body}`)
+      .digest("base64");
+    return `v1,${signature}`;
+  });
   return {
     "content-type": "application/json",
     "webhook-id": input.id,
     "webhook-timestamp": String(input.timestamp),
-    "webhook-signature": `v1,${signature}`,
+    "webhook-signature": signatures.join(" "),
     "X-MCP-Subscription-Id": input.subscriptionId,
   };
 }
 
 /** Pin the validated address for this connection; a second DNS lookup would allow rebinding. */
 export const deliverWebhook: WebhookTransport = async (input) => {
+  assertWebhookBodySize(input.body);
   const url = callbackUrl(input.url);
   const addresses = await lookup(url.hostname.replace(/^\[|\]$/g, ""), { all: true });
   if (addresses.length === 0 || addresses.some((entry) => !publicAddress(entry.address)))

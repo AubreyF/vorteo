@@ -6,6 +6,8 @@ This inventory describes the reviewed source. Availability depends on the instal
 
 Worker visibility maintenance: retained worker conversations remain available in their native execution workspaces as well as the parent presentation. Explicit execution-workspace tabs stay there. Focused coverage includes both workspace descriptors, archived workers, parent grouping and automatic opening from an empty workspace. Factory worker archival remains an owner action; configurable automatic cleanup is deferred.
 
+Source integration review: shared sidebar state retains published Nova subscription safeguards, exact-profile delegation and Review checklist behavior. This source merge does not activate the bridge or install a runtime.
+
 ## Accounts and reusable workflows
 
 - **Multiple isolated subscription accounts.** Connect separate Codex and Claude accounts, choose an account per task, and run tasks across accounts concurrently. Browser sign-in, reconnect, rename, disable and removal are account-scoped. Claude uses the official CLI setup-token flow; managed installations deliver one subscription credential to Host and Dev, subject to explicit exclusions. Account configuration, session discovery and resumed history remain isolated. Setup-token usage and reset credits are unavailable; reconnect renews the process credential without a private refresh API. Activation requires compatible Host, Dev and coordinator releases. See [Claude subscription connections](providers.md#claude-subscription-connections). Connection controls honor its account-scoped CLI authentication check even when macOS saved credentials are unavailable to usage reporting; explicit authentication rejection still offers Reconnect. This does not combine subscription allowances or automatically fail over between accounts. See [accounts and profiles](agent-presets.md) and [account isolation tests](../packages/server/src/server/agent/providers/claude/account-isolation.test.ts).
@@ -125,6 +127,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 11, 2026: Delegated container creation accepts an exact profile reference and retains destination account checks, workspace resolution, idempotency and agent provenance. Focused disposable-daemon tests cover the resolved profile, conflicting retries and invalid targets. Installation acceptance remains separate. README overview and onboarding are unchanged.
 
 October 11, 2026: Integrated workspace chooser geometry with shared-model alias compatibility and timeline catch-up. Both source histories and all release entries are retained; README overview and onboarding are unchanged.
 
@@ -393,7 +397,7 @@ Checklist maintenance: browser coverage verifies Review editing, reload persiste
 
 Preview monitor maintenance review (2026-10-11): integrated the reviewed monitor workflow with native Factory grouping and checklist Review, preserving the legacy terminal-outcome correction. Independent filesystem, queue and compatibility regressions pass. A previously timing-out source-batching fixture passed unchanged; its intermittent cause remains unresolved. README overview and onboarding are unchanged.
 
-Maintenance review: registered the private Nova bridge workspace and build, reviewed its operation and event boundaries, and verified top-level MCP provenance separately from owner WebSocket messages. Live account and managed service acceptance remain pending.
+Maintenance review: registered the private Nova bridge workspace and build, reviewed its operation and event boundaries, and verified top-level MCP provenance separately from owner WebSocket messages. Callback verification caching and signing-key overlap are bounded, complete UTF-8 webhook bodies are size-checked, and event data contains facts rather than behavioral instructions. Cancellation invalidates pending subscription generations before cache or subscription writes, including cached refreshes. Focused race tests, full typecheck and lint pass. Live account and managed service acceptance remain pending; README overview and onboarding are unchanged.
 
 Maintenance review: combined monitor and Nova source with the published Factory and Review interface. Both source histories and all historical release entries remain intact; runtime activation remains separate.
 

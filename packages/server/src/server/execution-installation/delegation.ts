@@ -19,15 +19,25 @@ export const DelegationRequestSchema = z.discriminatedUnion("operation", [
     messageId: z.string().uuid(),
     text: z.string().min(1).max(12000),
   }),
-  z.strictObject({
-    operation: z.literal("create"),
-    idempotencyKey: z.string().uuid(),
-    provider: z.string().min(1),
-    workspaceId: z.string().min(1),
-    title: z.string().min(1).max(200),
-    initialPrompt: z.string().min(1).max(12000),
-    model: z.string().optional(),
-  }),
+  z
+    .strictObject({
+      operation: z.literal("create"),
+      idempotencyKey: z.string().uuid(),
+      provider: z.string().min(1),
+      workspaceId: z.string().min(1),
+      title: z.string().min(1).max(200),
+      initialPrompt: z.string().min(1).max(12000),
+      model: z.string().optional(),
+      profileId: z
+        .string()
+        .min(1)
+        .refine((id) => id.trim().length > 0)
+        .optional(),
+    })
+    .refine((request) => request.profileId === undefined || request.model === undefined, {
+      message: "Exact-profile creation cannot override the model",
+      path: ["model"],
+    }),
 ]);
 
 export type DelegationRequest = z.infer<typeof DelegationRequestSchema>;
@@ -90,6 +100,7 @@ export async function delegateToContainer(
         origin: "agent",
         idempotencyKey: request.idempotencyKey,
         model: request.model,
+        ...(request.profileId !== undefined ? { profileId: request.profileId } : {}),
       });
     }
   }

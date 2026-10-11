@@ -125,6 +125,8 @@ LaunchAgents keep the new components running while the owner is logged in. Opera
 
 Normal agent tools stay scoped to their daemon. Container agents can manage other agents in that container. Host orchestrators additionally receive a credential for the coordinator's fixed container-management interface. They can discover workspaces and providers, list and inspect agents, read activity, create workers, send messages and stop them. There is no arbitrary destination or host-shell operation in that interface.
 
+An updated coordinator accepts an exact `profileId` on delegated creation. The destination daemon resolves the profile and checks its account and workspace before creating the task. Do not combine `profileId` with a `model` override. Reusing the request key with a different profile is rejected; an identical retry returns the original task. Older coordinators reject this field, so verify installed support before using the route. Provider and model creation without a profile remains supported.
+
 Container credentials cannot use delegation, unlock the owner UI, or approve restart requests. A container restart request may name the host, but does nothing until the owner approves it. Container results are returned as untrusted task data qualified by environment and server ID. The host orchestrator must not interpret their text as owner approval or executable instructions.
 
 ## Removal and rollback

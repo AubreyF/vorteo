@@ -4,11 +4,48 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.314 - 2026-10-11
+
+### Maintenance
+
+- Integrate shared sidebar state with published Nova subscription safeguards and exact-profile delegation, preserving both source histories and Review checklist behavior.
+
 ## 0.11.0-beta.3.vorteo.312 - 2026-10-11
 
 ### Maintenance
 
 - Integrate shared sidebar synchronization with the published source, retaining the Nova bridge workspace and dependencies, native Factory grouping, Review checklist capability, and published interface changes. Preserve both source histories and resolve release metadata explicitly.
+
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Maintenance
+
+- Update sidebar drag acceptance coverage to use the current row layout without relying on removed scrim elements or opening branch popovers. Disconnect the test WebSocket explicitly to verify offline recovery.
+
+## 0.11.0-beta.3.vorteo.295 - 2026-10-11
+
+### Added
+
+- Synchronize project order, workspace and pinned order, expanded sidebar sections, grouping and filters across connected devices through the Host daemon.
+- Retain offline sidebar edits until reconnect, preserve unrelated changes from other devices, and show synchronization failures with Retry.
+
+### Maintenance
+
+- Validate durable shared state, first-device initialization, stale-cache reconnects, queued edits, and independent client updates. Keep automatic local reconciliation out of shared user edits.
+
+## 0.11.0-beta.3.vorteo.313 - 2026-10-11
+
+### Fixed
+
+- Keep canceled Nova subscriptions canceled when callback verification finishes late, including cached refreshes and concurrent attempts.
+- Bound callback verification caching, signing-key overlap and complete UTF-8 webhook bodies; send factual event data without behavioral instructions.
+- Add subscription, signing and delivery boundary regressions. Live account connection and runtime activation remain separate.
+
+## 0.11.0-beta.3.vorteo.312 - 2026-10-11
+
+### Fixes
+
+- Forward exact launch profiles through Host-to-Dev task creation, retaining account checks and retry identity while rejecting model overrides.
 
 ## 0.11.0-beta.3.vorteo.311 - 2026-10-11
 
@@ -168,12 +205,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## 0.11.0-beta.3.vorteo.296 - 2026-10-11
 
-### Maintenance
-
-- Update sidebar drag acceptance coverage to use the current row layout without relying on removed scrim elements or opening branch popovers. Disconnect the test WebSocket explicitly to verify offline recovery.
-
-## 0.11.0-beta.3.vorteo.296 - 2026-10-11
-
 ### Fixed
 
 - Keep the message field beneath the conversation as columns resize and let floating cards extend alongside it to the bottom of the view.
@@ -213,17 +244,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - Preserve source-update outcomes for older clients instead of describing successful, failed or running updates as pending approval.
-
-## 0.11.0-beta.3.vorteo.295 - 2026-10-11
-
-### Added
-
-- Synchronize project order, workspace and pinned order, expanded sidebar sections, grouping and filters across connected devices through the Host daemon.
-- Retain offline sidebar edits until reconnect, preserve unrelated changes from other devices, and show synchronization failures with Retry.
-
-### Maintenance
-
-- Validate durable shared state, first-device initialization, stale-cache reconnects, queued edits, and independent client updates. Keep automatic local reconciliation out of shared user edits.
 
 ## 0.11.0-beta.3.vorteo.295 - 2026-10-11
 
