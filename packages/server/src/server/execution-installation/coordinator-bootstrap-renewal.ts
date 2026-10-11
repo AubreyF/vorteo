@@ -593,8 +593,8 @@ async function observeExecutable(file: string, roots: readonly string[]) {
   return identity;
 }
 
-/** Renewed runners retain the selected Host reader. Only an explicitly reviewed
- * Factory plan change may alter configuration; compatible rollback retains the old plan. */
+/** Renewed runners retain the selected Host reader and validate declared configuration
+ * changes through the maintenance validator. Compatible rollback retains the old configuration. */
 export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBootstrapPlan) {
   if (!setup.renewal) return;
   const renewal = setup.renewal;
@@ -619,7 +619,7 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
     plan.hostRequestsAfter !== null
   )
     throw new BootstrapRequestConflict(
-      "Runner renewal only supports reviewed Factory plan changes",
+      "Runner renewal cannot change policy, helper or monitor configuration",
     );
   verifyBootstrapConfiguration({
     plan,

@@ -8533,3 +8533,81 @@ test.each(["enable", "remove"] as const)(
     await expect(preparing).resolves.toEqual([]);
   },
 );
+
+test("source tooling preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing source update tooling",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("source tooling advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapSourceUpdateTooling: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
+});

@@ -3956,6 +3956,8 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
+        coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.

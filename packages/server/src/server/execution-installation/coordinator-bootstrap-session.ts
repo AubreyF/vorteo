@@ -26,6 +26,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapFactoryAdoption: available,
     coordinatorBootstrapCompatibleRecovery: available,
     coordinatorBootstrapPreviewMonitor: available,
+    coordinatorBootstrapSourceUpdateTooling: available,
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
       : {}),
@@ -59,6 +60,7 @@ export async function handleBootstrapReview(
       await service.prepare(message.input);
     if (message.type === "installation.bootstrap.decide.request") {
       const request = service.list().find((item) => item.id === message.input.id);
+      assertSourceUpdateToolingReview(message, request);
       if (
         message.input.decision === "approve" &&
         request?.plan.factoryRuntimeAdoptionConfiguration !== undefined &&
@@ -89,7 +91,8 @@ export async function handleBootstrapReview(
       .list()
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
       .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
-      .map((request) => previewMonitorReply(request, message.previewMonitor === true));
+      .map((request) => previewMonitorReply(request, message.previewMonitor === true))
+      .map((request) => sourceUpdateToolingReply(request, message.sourceUpdateTooling === true));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -148,5 +151,35 @@ function previewMonitorReply(
     plan,
     reason:
       "Reload the client to review this preview monitor configuration. Cancellation remains available.",
+  };
+}
+
+function assertSourceUpdateToolingReview(
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.decide.request" }>,
+  request: CoordinatorBootstrapRequest | undefined,
+): void {
+  if (
+    message.input.decision === "approve" &&
+    request?.plan.sourceUpdateTooling === true &&
+    message.sourceUpdateTooling !== true
+  )
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this source update tooling selection before approval.",
+    );
+}
+
+// COMPAT(sourceUpdateTooling): added 2026-10-11; retain until 2027-04-11.
+// Keep strict legacy readers and cancellation working without approving a hidden selection.
+function sourceUpdateToolingReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.sourceUpdateTooling === undefined) return request;
+  const { sourceUpdateTooling: _selection, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this source update tooling selection. Cancellation remains available.",
   };
 }

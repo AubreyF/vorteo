@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.323 - 2026-10-11
+
+### Added
+
+- Review an explicit source update tooling selection from the exact candidate release through coordinator maintenance. Omission preserves the current tooling.
+- Require compatible clients to display the selection before approval, and reject unsupported preparation before sending it.
+- Validate protected tooling files without executing them. Cover combined Factory and tooling admission, exact claims, successful selection and recovery of the complete previous configuration.
+
+### Fixed
+
+- Describe renewed configuration validation accurately when Factory and tooling selections are composed. Policy, helper and monitor changes remain unavailable through renewal.
+
 ## 0.11.0-beta.3.vorteo.322 - 2026-10-11
 
 ### Fixed

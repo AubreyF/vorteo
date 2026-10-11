@@ -129,6 +129,16 @@ function MonitorConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["pla
   );
 }
 
+function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  if (plan.sourceUpdateTooling !== true) return null;
+  return (
+    <Text selectable style={styles.text}>
+      Select Host source update tooling from {plan.candidate.directory}/scripts. Binding setup
+      remains separate.
+    </Text>
+  );
+}
+
 function BootstrapRequestCard({
   request,
   model,
@@ -190,6 +200,7 @@ function BootstrapRequestCard({
             </Text>
           ) : null}
           <CompatibleRecoveryConfiguration plan={request.plan} />
+          <SourceUpdateToolingConfiguration plan={request.plan} />
           {request.plan.nativeHelperConfiguration !== undefined ? (
             <Text style={styles.text}>
               {request.plan.nativeHelperConfiguration === null

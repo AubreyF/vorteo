@@ -3799,6 +3799,7 @@ export class DaemonClient {
     factoryRuntimeAdoption?: true;
     compatibleRecovery?: true;
     previewMonitor?: true;
+    sourceUpdateTooling?: true;
   } {
     const features = this.lastServerInfoMessage?.features;
     return {
@@ -3810,6 +3811,9 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapPreviewMonitor === true
         ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapSourceUpdateTooling === true
+        ? { sourceUpdateTooling: true as const }
         : {}),
     };
   }
@@ -3834,6 +3838,11 @@ export class DaemonClient {
     input: CoordinatorBootstrapPreparation,
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
+    if (
+      input.plan.sourceUpdateTooling === true &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
+    )
+      throw new Error("Update the Host before preparing source update tooling selection.");
     if (
       input.plan.previewMonitorConfiguration !== undefined &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapPreviewMonitor !== true

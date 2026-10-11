@@ -634,13 +634,13 @@ test.runIf(process.platform === "darwin")(
     ).rejects.toThrow("Recovery must preserve");
     await expect(
       verifyRenewalPlan(setup, { ...plan, hostRequestsAfter: "2026-10-11T00:00:00.000Z" }),
-    ).rejects.toThrow("only supports reviewed Factory");
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     await expect(
       verifyRenewalPlan(setup, { ...plan, previewMonitorConfiguration: null }),
-    ).rejects.toThrow("only supports reviewed Factory");
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     await expect(
       verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
-    ).rejects.toThrow("only supports reviewed Factory");
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {
       ...f.config,
       container: { ...f.config.container, factoryRuntimeAdoption: undefined },

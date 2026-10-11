@@ -19,6 +19,7 @@ import {
   writeFileSync,
   rmSync,
   chmodSync,
+  linkSync,
   symlinkSync,
   readFileSync,
 } from "node:fs";
@@ -1079,6 +1080,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapFactoryAdoption: false,
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
+      coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapUnavailableReason: unavailable!.unavailableReason,
     });
     expect(unavailable!.unavailableReason).toContain("maintenance is unavailable");
@@ -1693,6 +1695,7 @@ test("Host readiness does not await maintenance validation and all operations re
   service.subscribeAvailability!(removed)();
   expect(bootstrapReviewFeatures(service)).toMatchObject({
     coordinatorBootstrapReview: false,
+    coordinatorBootstrapSourceUpdateTooling: false,
     coordinatorBootstrapUnavailableReason: expect.stringContaining("Checking"),
   });
   expect(() => service.list()).toThrow("Checking");
@@ -1703,7 +1706,10 @@ test("Host readiness does not await maintenance validation and all operations re
   validation.resolve({ list, prepare: vi.fn(), decide: vi.fn() });
   await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
   expect(removed).not.toHaveBeenCalled();
-  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: true });
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: true,
+    coordinatorBootstrapSourceUpdateTooling: true,
+  });
   expect(bootstrapReviewFeatures(service).coordinatorBootstrapUnavailableReason).toBeUndefined();
   expect(service.list()).toEqual([]);
   expect(list).toHaveBeenCalledTimes(1);
@@ -1716,7 +1722,10 @@ test("background maintenance failure stays unavailable without leaking private e
   service.subscribeAvailability!(changed);
   validation.reject(new Error("private configuration bytes"));
   await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
-  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: false });
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: false,
+    coordinatorBootstrapSourceUpdateTooling: false,
+  });
   expect(service.unavailableReason).toContain("could not validate");
   expect(service.unavailableReason).not.toContain("private configuration bytes");
   expect(() => service.list()).toThrow("could not validate");
@@ -1725,6 +1734,276 @@ test("background maintenance failure stays unavailable without leaking private e
 test("absent background maintenance remains unadvertised after verification", async () => {
   const service = deferBootstrapReview(async () => undefined);
   await vi.waitFor(() => expect(service.unavailableReason).toBeUndefined());
-  expect(bootstrapReviewFeatures(service)).toMatchObject({ coordinatorBootstrapReview: false });
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: false,
+    coordinatorBootstrapSourceUpdateTooling: false,
+  });
   expect(() => service.list()).toThrow("not configured");
 });
+
+async function sourceToolingAdmissionFixture() {
+  const f = fixture();
+  const hash = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
+  const save = (file: string, value: unknown) => {
+    const bytes = JSON.stringify(value);
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: hash(bytes) };
+  };
+  const sourceUpdates = {
+    sourceRepository: path.join(f.root, "repository"),
+    releaseRoot: path.join(f.root, "releases"),
+    currentReleaseLink: path.join(f.root, "current"),
+    webDirectory: path.join(f.root, "web"),
+    toolingDirectory: path.join(f.root, "old-scripts"),
+    integrationRef: "refs/heads/protected-integration",
+  };
+  const config = {
+    ...f.config,
+    sourceUpdates,
+    restartApprovalPolicy: { hostRequestsAfter: "2026-10-11T12:00:00Z" },
+    container: {
+      ...f.config.container,
+      factoryRuntimeAdoption: {
+        node: path.join(f.root, "factory-node"),
+        script: path.join(f.root, "factory-plan.mjs"),
+        sha256: "d".repeat(64),
+      },
+    },
+  };
+  save(f.file, config);
+  const node = path.join(f.root, "node");
+  writeFileSync(node, "fixture executable", { mode: 0o700 });
+  const service = f.config.host.launchdService.replace(/\.host$/, ".installation");
+  const makeRelease = async (name: string, configurationFile: string) => {
+    const directory = path.join(f.root, name);
+    mkdirSync(directory, { mode: 0o700 });
+    const entrypoint = path.join(directory, "entry.js");
+    writeFileSync(entrypoint, "export {};", { mode: 0o600 });
+    save(path.join(directory, ".installation-source.json"), {
+      sourceCommit: "a".repeat(40),
+    });
+    const configuration = save(path.join(f.root, name + ".json"), config);
+    const launcher = save(path.join(f.root, name + ".plist"), {
+      Label: service.split("/").slice(2).join("/"),
+      ProgramArguments: [node, entrypoint, configurationFile || configuration.path],
+      KeepAlive: true,
+    });
+    return {
+      directory,
+      sourceCommit: "a".repeat(40),
+      artifactSha256: await digestBootstrapArtifact(directory),
+      node: { path: node, sha256: hash("fixture executable") },
+      entrypoint: { path: entrypoint, sha256: hash("export {};") },
+      configuration,
+      launcher,
+    };
+  };
+  const previous = await makeRelease("previous", f.file);
+  const candidate = await makeRelease("candidate", "");
+  const scripts = path.join(candidate.directory, "scripts");
+  mkdirSync(scripts, { mode: 0o700 });
+  const toolingFiles = [
+    "prepare-installation-update.mjs",
+    "publish-instance-web.mjs",
+    "instance-web-artifact.mjs",
+  ].map((name) => path.join(scripts, name));
+  for (const file of toolingFiles)
+    writeFileSync(file, "throw new Error('must never execute');", { mode: 0o600 });
+  candidate.artifactSha256 = await digestBootstrapArtifact(candidate.directory);
+  candidate.configuration = save(candidate.configuration.path, {
+    ...config,
+    sourceUpdates: { ...sourceUpdates, toolingDirectory: scripts },
+  });
+  const expectedProcess = {
+    pid: 123,
+    bootId: randomUUID(),
+    startIdentity: "1234:5678",
+    argumentsSha256: hash(JSON.stringify([node, previous.entrypoint.path, f.file])),
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service,
+    expectedProcess,
+    previous,
+    candidate,
+    hostRequestsAfter: null,
+    sourceUpdateTooling: true,
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restart-jobs.json"),
+      ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
+    },
+  });
+  const docker = path.join(f.root, "docker-fixture");
+  const mounts = path.join(f.root, "mounts.json");
+  save(mounts, { Id: "a".repeat(64), State: { Running: true }, Mounts: [] });
+  writeFileSync(docker, '#!/bin/sh\nexec /bin/cat "' + mounts + '"\n', {
+    mode: 0o700,
+  });
+  const host = {
+    daemonId: "host-id",
+    configurationFile: f.file,
+    launcherFile: previous.launcher.path,
+    docker,
+    socket: path.join(f.root, "fixture.sock"),
+    containerId: "a".repeat(64),
+    helperPath: path.join(f.root, "unused-inspector"),
+    helperSha256: "a".repeat(64),
+  };
+  const duringInspection = { run: () => {} };
+  const inspectProcess = vi.fn(async () => {
+    duringInspection.run();
+    return {
+      ...expectedProcess,
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: node,
+    };
+  });
+  vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
+    readService: async () => `${service} = {\n\tpid = 123\n}`,
+    inspectProcess,
+  });
+  return {
+    f,
+    config,
+    sourceUpdates,
+    plan,
+    host,
+    scripts,
+    toolingFiles,
+    save,
+    duringInspection,
+    inspectProcess,
+  };
+}
+
+test.runIf(process.platform === "darwin")(
+  "source tooling opt-in preserves exact config and recovery, including Factory and policy",
+  async () => {
+    const { f, config, sourceUpdates, plan, host, scripts, save } =
+      await sourceToolingAdmissionFixture();
+    const verify = () => verifyBootstrapConfiguration({ plan, ...host });
+    expect(verify).not.toThrow();
+    delete plan.sourceUpdateTooling;
+    expect(verify).toThrow("outside its approved policy");
+    save(plan.candidate.configuration.path, config);
+    expect(verify).not.toThrow();
+    plan.sourceUpdateTooling = true;
+    expect(verify).toThrow("outside its approved policy");
+    const candidate = { ...config, sourceUpdates: { ...sourceUpdates, toolingDirectory: scripts } };
+    save(plan.candidate.configuration.path, candidate);
+    expect(verify).not.toThrow();
+    for (const field of Object.keys(sourceUpdates)) {
+      save(plan.candidate.configuration.path, {
+        ...candidate,
+        sourceUpdates: {
+          ...candidate.sourceUpdates,
+          [field]: field === "integrationRef" ? "refs/heads/escape" : path.join(f.root, "escape"),
+        },
+      });
+      expect(verify, field).toThrow("outside its approved policy");
+    }
+    for (const change of [
+      { hostAgentTokenHash: "e".repeat(64) },
+      {
+        container: {
+          ...config.container,
+          factoryRuntimeAdoption: {
+            ...config.container.factoryRuntimeAdoption,
+            sha256: "e".repeat(64),
+          },
+        },
+      },
+      { restartApprovalPolicy: { hostRequestsAfter: "2026-10-12T12:00:00Z" } },
+      { stateDir: path.join(f.root, "other-state") },
+      { host: { ...config.host, endpoint: "127.0.0.1:9999" } },
+    ]) {
+      save(plan.candidate.configuration.path, { ...candidate, ...change });
+      expect(verify).toThrow("outside its approved policy");
+    }
+    save(plan.candidate.configuration.path, candidate);
+    save(plan.previous.configuration.path, candidate);
+    expect(verify).toThrow("Previous coordinator configuration");
+    save(plan.previous.configuration.path, config);
+    const recovery = {
+      ...plan.previous,
+      configuration: save(path.join(f.root, "recovery.json"), candidate),
+    };
+    plan.compatibleRecovery = recovery;
+    plan.automaticRecovery = "restore-compatible";
+    expect(verify).toThrow("Recovery must preserve");
+    save(recovery.configuration.path, config);
+    expect(verify).not.toThrow();
+    const withoutSource = { ...config, sourceUpdates: undefined };
+    save(f.file, withoutSource);
+    save(plan.previous.configuration.path, withoutSource);
+    expect(verify).toThrow("requires existing source updates");
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "source tooling admission rejects missing, alias, linked, writable and changed prepared paths without executing scripts",
+  async () => {
+    const { f, plan, host, scripts, toolingFiles, duringInspection, inspectProcess, save } =
+      await sourceToolingAdmissionFixture();
+    await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
+    expect(inspectProcess).toHaveBeenCalledTimes(4);
+    const file = toolingFiles[0]!;
+    const bytes = readFileSync(file);
+    const restore = () => {
+      rmSync(file, { force: true });
+      writeFileSync(file, bytes, { mode: 0o600 });
+    };
+    for (const required of toolingFiles) {
+      const original = readFileSync(required);
+      rmSync(required);
+      await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("ENOENT");
+      writeFileSync(required, original, { mode: 0o600 });
+    }
+    rmSync(file);
+    symlinkSync(toolingFiles[1]!, file);
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("canonical");
+    rmSync(file);
+    linkSync(toolingFiles[1]!, file);
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("bounded regular file");
+    restore();
+    chmodSync(file, 0o622);
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow();
+    chmodSync(file, 0o600);
+    const moved = scripts + "-real";
+    nativeFs.renameSync(scripts, moved);
+    symlinkSync(moved, scripts);
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("canonical directory");
+    rmSync(scripts);
+    nativeFs.renameSync(moved, scripts);
+    save(path.join(f.root, "mounts.json"), {
+      Id: host.containerId,
+      State: { Running: true },
+      Mounts: [{ Type: "bind", Source: scripts, RW: true }],
+    });
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow(
+      "overlaps a writable container mount",
+    );
+    save(path.join(f.root, "mounts.json"), {
+      Id: host.containerId,
+      State: { Running: true },
+      Mounts: [],
+    });
+    duringInspection.run = () => writeFileSync(file, "changed prepared tooling");
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow(
+      "Prepared release artifact changed",
+    );
+    restore();
+    duringInspection.run = () => {
+      rmSync(file, { force: true });
+      symlinkSync(toolingFiles[1]!, file);
+    };
+    await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow("canonical");
+    duringInspection.run = () => {};
+    restore();
+    await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
+  },
+);
