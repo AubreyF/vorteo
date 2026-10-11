@@ -73,7 +73,14 @@ export { DEFAULT_CONTENT_MAX_WIDTH };
 export const MIN_CONTENT_MAX_WIDTH = 600;
 export const MAX_CONTENT_MAX_WIDTH = 4000;
 
+export interface WorkspaceDefaults {
+  environment: string | null;
+  account: string | null;
+  profilesByAccount: Record<string, string>;
+}
+
 export interface AppSettings {
+  workspaceDefaults: WorkspaceDefaults;
   theme: ThemePreference;
   /** Which contributed theme `theme: "plugin"` selects. */
   pluginThemeId: string | null;
@@ -140,6 +147,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: DEFAULT_THEME_PREFERENCE,
   pluginThemeId: null,
   language: "system",
+  workspaceDefaults: { environment: null, account: null, profilesByAccount: {} },
   sendBehavior: "steer",
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
@@ -221,6 +229,13 @@ const StoredAppSettingsSchema = z
     language: z
       .enum(["system", "ar", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-CN"])
       .catch("system"),
+    workspaceDefaults: z
+      .object({
+        environment: z.string().nullable().catch(null),
+        account: z.string().nullable().catch(null),
+        profilesByAccount: z.record(z.string(), z.string()).catch({}),
+      })
+      .catch({ environment: null, account: null, profilesByAccount: {} }),
     sendBehavior: z.enum(["interrupt", "steer", "queue"]).catch("steer"),
     serviceUrlBehavior: z.enum(["ask", "in-app", "external"]).catch("ask"),
     terminalScrollbackLines: clampedNumber(

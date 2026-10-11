@@ -1,3 +1,8 @@
+import { useAppSettings } from "@/hooks/use-settings";
+import {
+  installationProviderReference,
+  localInstallationProvider,
+} from "@getpaseo/protocol/installation-settings";
 import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { defaultProfile } from "@/agent-profiles/internal/default-profile";
@@ -1950,24 +1955,36 @@ export function DraftAgentControls({
     supported: supportsLaunch,
     picker: agentProfiles,
   });
+  const { settings, isLoading: settingsLoading } = useAppSettings();
   const appliedDefaultRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!presetPicker || selectedProfileId || isModelLoading) return;
+    if (!presetPicker || selectedProfileId || isModelLoading || settingsLoading) return;
+    const defaults = settings.workspaceDefaults;
+    const providers = profileConfig?.providers ?? {};
+    const preferred = defaults.account
+      ? localInstallationProvider(defaults.account, providers)
+      : null;
+    const provider =
+      preferred && profileProviders.includes(preferred) ? preferred : selectedProvider;
     const available = savedProfiles?.filter(
       (entry) =>
-        (!selectedProvider ||
-          entry.provider === selectedProvider ||
-          entry.provider ===
-            resolveProviderType(selectedProvider, profileConfig?.providers ?? {})) &&
+        (!provider ||
+          entry.provider === provider ||
+          entry.provider === resolveProviderType(provider, providers)) &&
         presetPicker.rows.some((row) => row.id === entry.id),
     );
-    const profile = defaultProfile(available);
+    const account = provider ? installationProviderReference(provider, providers) : "";
+    const preferredProfile = defaults.profilesByAccount[account];
+    const profile = defaultProfile(available, preferredProfile);
     if (!profile || !presetPicker.rows.some((row) => row.id === profile.id)) return;
     const key = `${modelSelectorServerId}:${profile.id}`;
     if (appliedDefaultRef.current === key) return;
     appliedDefaultRef.current = key;
-    presetPicker.applyProfile(profile.id, { provider: selectedProvider ?? undefined });
+    presetPicker.applyProfile(profile.id, { provider: provider ?? undefined });
   }, [
+    settings,
+    settingsLoading,
+    profileProviders,
     modelSelectorServerId,
     presetPicker,
     savedProfiles,
@@ -1998,6 +2015,7 @@ export function DraftAgentControls({
       <AgentProfileOverlays editor={profileEditor} picker={agentProfiles} />
       {presetPicker ? (
         <PresetControls
+          inline
           serverId={modelSelectorServerId}
           currentProvider={selectedProvider ?? undefined}
           currentModel={selectedModel}

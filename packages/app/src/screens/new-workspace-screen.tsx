@@ -1,4 +1,5 @@
 import { useNewWorkspaceProjectDirectory } from "./new-workspace/project-directory";
+import { useAppSettings } from "@/hooks/use-settings";
 import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
@@ -1236,11 +1237,15 @@ function useNewWorkspaceHostSelector(input: {
   hostConnectionStatusByServerId: ReadonlyMap<string, HostRuntimeConnectionStatus>;
   workspaceMultiplicityByServerId: ReadonlyMap<string, boolean>;
 }) {
+  const { settings } = useAppSettings();
+  const preferredServerId =
+    settings.workspaceDefaults.environment ??
+    installationDefaultServerId(readExecutionInstallation());
   const routeServerId = input.initialServerId.trim();
   const defaultServerId = useMemo(
     () =>
       resolveNewWorkspaceInitialServerId({
-        defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+        defaultExecutionServerId: preferredServerId,
         allServerIds: input.allServerIds,
         routeServerId: input.initialServerId,
         lastActiveProject: input.lastActiveProject,
@@ -1249,6 +1254,7 @@ function useNewWorkspaceHostSelector(input: {
         workspaceMultiplicityByServerId: input.workspaceMultiplicityByServerId,
       }),
     [
+      preferredServerId,
       input.allServerIds,
       input.hostConnectionStatusByServerId,
       input.initialServerId,
@@ -1272,7 +1278,7 @@ function useNewWorkspaceHostSelector(input: {
       const nextServerId =
         current.routeServerId === routeServerId
           ? resolveNewWorkspaceAutomaticServerId({
-              defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+              defaultExecutionServerId: preferredServerId,
               allServerIds: input.allServerIds,
               routeServerId: input.initialServerId,
               lastActiveProject: input.lastActiveProject,
@@ -1291,6 +1297,7 @@ function useNewWorkspaceHostSelector(input: {
       return { routeServerId, serverId: nextServerId };
     });
   }, [
+    preferredServerId,
     defaultServerId,
     input.allServerIds,
     input.hostConnectionStatusByServerId,

@@ -43,6 +43,23 @@ function makeDeps(
 }
 
 describe("loadAppSettingsFromStorage", () => {
+  it("preserves workspace defaults and distinct profiles for each account", async () => {
+    const workspaceDefaults = {
+      environment: "host",
+      account: "installation-account/a",
+      profilesByAccount: {
+        "installation-account/a": "profile-one",
+        "installation-account/b": "profile-two",
+      },
+    };
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ workspaceDefaults }),
+      }),
+    });
+    expect((await loadAppSettingsFromStorage(deps)).workspaceDefaults).toEqual(workspaceDefaults);
+  });
+
   it("preserves a persisted steer send behavior", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({
