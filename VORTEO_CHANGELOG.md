@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Fixed
+
+- Choose a shared profile default supported by every included environment, preserving saved models and aliases with compatibility warnings.
+- Catch up missing response chunks after an empty timeline bootstrap instead of accepting a later chunk as the beginning.
+
+- Resolve saved model aliases consistently in shared profile lists and Host/Dev account pickers without rewriting the saved reference.
+
 ## 0.11.0-beta.3.vorteo.300 - 2026-10-11
 
 ### Maintenance
