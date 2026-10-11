@@ -321,6 +321,7 @@ export interface AgentStreamViewHandle {
 export interface AgentStreamViewProps {
   showTaskCards?: boolean;
   trailingCards?: ReactNode;
+  composer?: ReactNode;
   agentId: string;
   serverId?: string;
   context: AgentScreenAgent;
@@ -379,6 +380,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     {
       showTaskCards,
       trailingCards,
+      composer,
       agentId,
       serverId,
       context,
@@ -1219,7 +1221,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <StreamColumns layout={columns} outline={outline}>
+          <StreamColumns layout={columns} outline={outline} composer={composer}>
             <AssistantSelectionCopySurface style={stylesheet.container}>
               <QueueDragScrollContext.Provider value={queueDragScroll.onDragActive}>
                 <MessageOuterSpacingProvider disableOuterSpacing>
@@ -1366,6 +1368,7 @@ function agentStreamViewPropsEqual(
 ): boolean {
   const reasons: string[] = [];
   if (left.agentId !== right.agentId) reasons.push("agentId");
+  if (left.composer !== right.composer) reasons.push("composer");
   if (left.trailingCards !== right.trailingCards) reasons.push("trailingCards");
   if (left.showTaskCards !== right.showTaskCards) reasons.push("showTaskCards");
   if (left.serverId !== right.serverId) reasons.push("serverId");

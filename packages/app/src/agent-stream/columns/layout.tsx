@@ -102,10 +102,12 @@ export function useStreamColumns(
 export function StreamColumns({
   layout,
   outline,
+  composer,
   children,
 }: {
   layout: ReturnType<typeof useStreamColumns>;
   outline: ReactNode;
+  composer?: ReactNode;
   children: [ReactNode, ReactNode];
 }) {
   const { split, widths, onLayout } = layout;
@@ -113,6 +115,13 @@ export function StreamColumns({
   const textStyle = useMemo(
     () => [
       styles.text,
+      split && inlineUnistylesStyle({ width: widths.text, marginLeft: textOffset }),
+    ],
+    [split, widths.text, textOffset],
+  );
+  const composerStyle = useMemo(
+    () => [
+      styles.composer,
       split && inlineUnistylesStyle({ width: widths.text, marginLeft: textOffset }),
     ],
     [split, widths.text, textOffset],
@@ -133,15 +142,21 @@ export function StreamColumns({
           Could not save column widths. Drag a handle to retry.
         </Text>
       ) : null}
-      <View style={[styles.left, split && styles.leftSplit]} testID="thread-text-region">
-        <View style={textStyle} testID="thread-text-column">
-          <StreamColumnWidthContext.Provider value={columnWidth}>
-            {children[0]}
-          </StreamColumnWidthContext.Provider>
-          {split ? <ColumnResizeHandle column="text" {...layout} /> : null}
-        </View>
-        {outline}
-        {split && isNative ? <ColumnFade /> : null}
+      <View style={styles.left} testID="thread-text-region">
+        <StreamColumnWidthContext.Provider value={columnWidth}>
+          <View
+            style={[styles.transcript, split && styles.leftSplit]}
+            testID="thread-transcript-region"
+          >
+            <View style={textStyle} testID="thread-text-column">
+              {children[0]}
+              {split ? <ColumnResizeHandle column="text" {...layout} /> : null}
+            </View>
+            {outline}
+            {split && isNative ? <ColumnFade /> : null}
+          </View>
+          {composer ? <View style={composerStyle}>{composer}</View> : null}
+        </StreamColumnWidthContext.Provider>
       </View>
       {split ? (
         <View style={cardsStyle} testID="thread-cards-column">
@@ -191,6 +206,8 @@ const styles = StyleSheet.create((theme) => ({
   left: { flex: 1, minWidth: 0, alignItems: "center" },
   leftSplit: { alignItems: "flex-start" },
   text: { flex: 1, width: "100%", minHeight: 0 },
+  transcript: { flex: 1, minHeight: 0, width: "100%", alignItems: "center" },
+  composer: { width: "100%", flexShrink: 1, alignSelf: "flex-start" },
   cards: { flexShrink: 0, minHeight: 0, paddingVertical: COLUMN_MARGIN },
   fade: { position: "absolute", left: 0, right: 0, bottom: 0, height: COLUMN_FADE_HEIGHT },
 }));
