@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   applySidebarStatePatch,
   emptySidebarState,
+  type SidebarStateChange,
   type SidebarStatePatch,
   type SidebarStateSnapshot,
 } from "@getpaseo/protocol/sidebar-state";
@@ -18,6 +19,7 @@ test("reconnect adopts remote state without uploading stale cache and retains of
   let status: SidebarSyncStatus = "loading";
   const writes: SidebarStatePatch[] = [];
   const sync = new SidebarSync({
+    pendingKey: "existing-sync-tests",
     read: async () => {
       if (!online) throw new Error("offline");
       return remote;
@@ -68,6 +70,7 @@ test("reload restores queued edits and a failed local save can be retried", asyn
   let stored: SidebarStatePatch[] = [{ collapsedProjects: { first: true } }];
   const statuses: SidebarSyncStatus[] = [];
   const sync = new SidebarSync({
+    pendingKey: "existing-sync-tests",
     read: async () => ({ revision: 1, state: remote }),
     change: async (change) => {
       if (change.type !== "patch") throw new Error("Unexpected initialize");
@@ -97,4 +100,158 @@ test("reload restores queued edits and a failed local save can be retried", asyn
   expect(local.projectOrder).toEqual(["second", "first"]);
   expect(stored).toEqual([]);
   expect(statuses.at(-1)).toBe("synced");
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+test("a stopped instance's late acknowledgement cannot erase remounted offline edits", async () => {
+  const acknowledgement = deferred<SidebarStateSnapshot>();
+  const sent = deferred<void>();
+  const oldPatch = { projectOrder: ["old"] };
+  const newPatch = { projectOrder: ["new"] };
+  let saved: SidebarStatePatch[] = [];
+  let remote = emptySidebarState();
+  let online = true;
+  const ports = {
+    pendingKey: "late-acknowledgement",
+    read: async () => {
+      if (!online) throw new Error("offline");
+      return { revision: 1, state: remote };
+    },
+    change: async (change: SidebarStateChange) => {
+      if (change.type !== "patch") throw new Error("Unexpected initialize");
+      if (remote.projectOrder.length > 0) {
+        remote = applySidebarStatePatch(remote, change.patch);
+        return { revision: 3, state: remote };
+      }
+      // The request was sent. Stopping the client does not cancel the server's write.
+      remote = applySidebarStatePatch(remote, oldPatch);
+      sent.resolve();
+      return acknowledgement.promise;
+    },
+    readLocal: emptySidebarState,
+    applyLocal: () => {},
+    loadPending: async () => saved,
+    savePending: async (patches: SidebarStatePatch[]) => {
+      saved = patches;
+    },
+    status: () => {},
+  };
+  const old = new SidebarSync(ports);
+  old.record(oldPatch);
+  const oldRefresh = old.refresh();
+  await sent.promise;
+  old.stop();
+  online = false;
+  const replacement = new SidebarSync(ports);
+  replacement.record(newPatch);
+  await replacement.refresh();
+  expect(saved).toEqual([oldPatch, newPatch]);
+  acknowledgement.resolve({ revision: 2, state: remote });
+  await oldRefresh;
+  expect(remote.projectOrder).toEqual(["old"]);
+  expect(saved).toEqual([oldPatch, newPatch]);
+  replacement.stop();
+  const reloaded = new SidebarSync(ports);
+  reloaded.record({ collapsedPinned: true });
+  await reloaded.refresh();
+  expect(saved).toEqual([oldPatch, newPatch, { collapsedPinned: true }]);
+  online = true;
+  await reloaded.refresh();
+  expect(remote.projectOrder).toEqual(["new"]);
+  expect(remote.collapsedPinned).toBe(true);
+  expect(saved).toEqual([]);
+  reloaded.stop();
+});
+
+test("remount loads after both in-flight and queued saves from the stopped instance", async () => {
+  const saving = deferred<void>();
+  const releaseSave = deferred<void>();
+  let saved: SidebarStatePatch[] = [];
+  let writes = 0;
+  let loads = 0;
+  const oldPatch = { projectOrder: ["old"] };
+  const queuedPatch = { collapsedPinned: true };
+  const newPatch = { projectOrder: ["new"] };
+  const ports = {
+    pendingKey: "pending-save-remount",
+    read: async () => {
+      throw new Error("offline");
+    },
+    change: async () => {
+      throw new Error("offline");
+    },
+    readLocal: emptySidebarState,
+    applyLocal: () => {},
+    loadPending: async () => {
+      loads++;
+      return saved;
+    },
+    savePending: async (patches: SidebarStatePatch[]) => {
+      if (++writes === 1) {
+        saving.resolve();
+        await releaseSave.promise;
+      }
+      saved = patches;
+    },
+    status: () => {},
+  };
+  const old = new SidebarSync(ports);
+  old.record(oldPatch);
+  await saving.promise;
+  old.record(queuedPatch);
+  const oldRefresh = old.refresh();
+  old.stop();
+  const replacement = new SidebarSync(ports);
+  replacement.record(newPatch);
+  const replacementRefresh = replacement.refresh();
+  await Promise.resolve();
+  expect(loads).toBe(1);
+  releaseSave.resolve();
+  await Promise.all([oldRefresh, replacementRefresh]);
+  expect(saved).toEqual([oldPatch, queuedPatch, newPatch]);
+  old.record({ projectOrder: ["stopped"] });
+  await old.refresh();
+  expect(saved).toEqual([oldPatch, queuedPatch, newPatch]);
+  replacement.stop();
+});
+
+test("edits recorded before hydration survive stop and load into the next instance", async () => {
+  const hydration = deferred<SidebarStatePatch[]>();
+  const retained = { collapsedPinned: true };
+  const early = { projectOrder: ["early"] };
+  const later = { projectOrder: ["later"] };
+  let saved: SidebarStatePatch[] = [retained];
+  let loads = 0;
+  const ports = {
+    pendingKey: "stop-before-hydration",
+    read: async () => {
+      throw new Error("offline");
+    },
+    change: async () => {
+      throw new Error("offline");
+    },
+    readLocal: emptySidebarState,
+    applyLocal: () => {},
+    loadPending: async () => (++loads === 1 ? hydration.promise : saved),
+    savePending: async (patches: SidebarStatePatch[]) => {
+      saved = patches;
+    },
+    status: () => {},
+  };
+  const old = new SidebarSync(ports);
+  old.record(early);
+  old.stop();
+  const replacement = new SidebarSync(ports);
+  replacement.record(later);
+  hydration.resolve([retained]);
+  await replacement.refresh();
+  expect(saved).toEqual([retained, early, later]);
+  replacement.stop();
 });

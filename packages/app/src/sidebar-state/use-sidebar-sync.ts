@@ -120,6 +120,7 @@ export function useSidebarSync(): void {
     ]).then(() => {
       if (cancelled) return undefined;
       current = new SidebarSync({
+        pendingKey: storageKey,
         read: async () => (await client().readSidebarState()).snapshot,
         change: async (change) => (await client().changeSidebarState(change)).snapshot,
         readLocal: readLocalSidebar,
