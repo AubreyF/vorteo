@@ -22,6 +22,26 @@ async function fixture() {
   return { root, release: path.join(root, "release") };
 }
 
+test("artifact digests preserve chunk boundaries and isolate concurrent scan buffers", async () => {
+  const releases: string[] = [];
+  for (const value of [17, 226]) {
+    const { release } = await fixture();
+    releases.push(release);
+    await writeFile(path.join(release, "a-large.bin"), Buffer.alloc(65543, value), { mode: 0o600 });
+    await writeFile(path.join(release, "b-short.bin"), Buffer.from([value]), { mode: 0o600 });
+    await writeFile(path.join(release, "c-empty.bin"), Buffer.alloc(0), { mode: 0o600 });
+  }
+  // These digests come from the original implementation with a fresh buffer per file.
+  const expected = [
+    "135f9d42968d7943504510bfd14d6c141602b8981354c218f57e729a56863642",
+    "9d9529f25aa872f72ad2c488c8db98522cfb0a5f641a7dc9d749cee29f40e523",
+  ];
+  for (const [index, release] of releases.entries()) {
+    expect(await digestBootstrapArtifact(release)).toBe(expected[index]);
+  }
+  expect(await Promise.all(releases.map(digestBootstrapArtifact))).toEqual(expected);
+});
+
 test("prepared release binds external dependencies and its complete runtime tree", async () => {
   const { root, release } = await fixture();
   const digest = (text: string) => createHash("sha256").update(text).digest("hex");

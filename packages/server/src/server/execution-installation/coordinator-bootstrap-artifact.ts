@@ -96,10 +96,15 @@ function requireOwned(stat: BigIntStats): void {
     throw new BootstrapRequestConflict("Prepared artifact is writable by another account");
 }
 
+interface FileDigestOptions {
+  verifyLinksInTree?: boolean;
+  buffer?: Buffer;
+}
+
 async function digestFile(
   file: string,
   expected: BigIntStats,
-  verifyLinksInTree = false,
+  { verifyLinksInTree = false, buffer = Buffer.alloc(64 * 1024) }: FileDigestOptions = {},
 ): Promise<string> {
   if (!verifyLinksInTree && expected.nlink !== 1n)
     throw new BootstrapRequestConflict("Prepared artifact contains a hard-linked file");
@@ -107,7 +112,6 @@ async function digestFile(
   try {
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     const hash = createHash("sha256");
-    const buffer = Buffer.alloc(64 * 1024);
     for (;;) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
@@ -161,6 +165,9 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
   const observed = new Map<string, BigIntStats>();
 
   const hardLinks = new Map<string, { count: bigint; paths: string[] }>();
+  // Visits are sequential. Keep one scratch buffer per scan, never shared
+  // across concurrent verifications or retained as a cache of file contents.
+  const buffer = Buffer.alloc(64 * 1024);
 
   async function visit(relative: string): Promise<void> {
     const file = path.join(root, relative);
@@ -180,7 +187,7 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
         group.paths.push(relative);
         hardLinks.set(key, group);
       }
-      const digest = await digestFile(file, before, true);
+      const digest = await digestFile(file, before, { verifyLinksInTree: true, buffer });
       hash.update(JSON.stringify(["file", relative, String(before.mode), digest]) + "\n");
     } else if (before.isSymbolicLink()) {
       const target = await readlink(file);
