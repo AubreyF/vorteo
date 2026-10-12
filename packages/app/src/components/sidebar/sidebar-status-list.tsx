@@ -1,3 +1,4 @@
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
   memo,
@@ -973,9 +974,11 @@ function StatusWorkspaceActionSlot({
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
 }) {
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
   const kebab = useOpenKebabMenuVisibility(showKebab);
   return (
     <SidebarWorkspaceTrailingActionSlot>
+      {sessionMenu.sheet}
       <SidebarWorkspaceTrailingActionBase presentation={trailingPresentation}>
         <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
       </SidebarWorkspaceTrailingActionBase>
@@ -983,6 +986,7 @@ function StatusWorkspaceActionSlot({
       <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
         {kebab.showKebab && onArchive ? (
           <SidebarWorkspaceMenu
+            {...sessionMenu}
             {...kebab.menuProps}
             backdrop={backdrop}
             workspaceKey={workspace.workspaceKey}

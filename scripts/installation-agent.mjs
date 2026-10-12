@@ -12,6 +12,7 @@ const { values, positionals } = parseArgs({
     config: { type: "string" },
     target: { type: "string" },
     update: { type: "boolean" },
+    "require-owner-approval": { type: "boolean" },
     "supervisor-plan": { type: "string" },
     "factory-runtime-plan": { type: "string" },
     "factory-runtime-recovery-of": { type: "string" },
@@ -36,6 +37,27 @@ const base = new URL(config.origin);
 const local = base.hostname === "127.0.0.1" || base.hostname === "localhost";
 if (base.protocol !== "https:" && !(base.protocol === "http:" && local))
   throw new Error("TLS is required");
+if (values["require-owner-approval"]) {
+  if (
+    config.kind !== "host-agent" ||
+    positionals[0] !== "request-restart" ||
+    values["supervisor-plan"] ||
+    values["factory-runtime-plan"] ||
+    !["host", "container-daemon"].includes(values.target)
+  )
+    throw new Error(
+      "--require-owner-approval requires a trusted Host plain restart or source update",
+    );
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || (await response.json()).requireOwnerApproval !== true)
+    throw new Error(
+      "Coordinator does not advertise explicit owner approval. No request or upload submitted.",
+    );
+}
 if (values["factory-runtime-plan"]) {
   if (
     config.kind !== "host-agent" ||
@@ -78,6 +100,27 @@ switch (positionals[0]) {
   case "capabilities":
     resource = "/api/installation/capabilities";
     break;
+  case "monitor-inspect":
+    if (config.kind !== "host-agent")
+      throw new Error("Monitor inspection requires trusted Host client");
+    resource = "/api/installation/monitor-selection";
+    break;
+  case "request-monitor": {
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor maintenance requires the trusted Host client");
+    if (!values["request-file"])
+      throw new Error("Use --request-file with the exact prepared monitor plan and request ID");
+    const capabilityResponse = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!capabilityResponse.ok || !(await capabilityResponse.json()).previewMonitor?.available)
+      throw new Error("Preview monitor maintenance is unavailable. No installation requested.");
+    resource = "/api/installation/monitor-requests";
+    body = JSON.parse(readFileSync(values["request-file"], "utf8"));
+    break;
+  }
   case "request-helper": {
     if (config.kind !== "host-agent")
       throw new Error("Native helper maintenance requires the trusted Host client");
@@ -94,6 +137,12 @@ switch (positionals[0]) {
     body = JSON.parse(readFileSync(values["request-file"], "utf8"));
     break;
   }
+  case "monitor-status":
+    if (config.kind !== "host-agent")
+      throw new Error("Preview monitor inspection requires the trusted Host client");
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/monitor-requests/${positionals[1]}`;
+    break;
   case "helper-status":
     if (config.kind !== "host-agent")
       throw new Error("Native helper inspection requires the trusted Host client");
@@ -106,6 +155,7 @@ switch (positionals[0]) {
     resource = "/api/installation/restart-requests";
     body = {
       target: values.target,
+      ...(values["require-owner-approval"] ? { requireOwnerApproval: true } : {}),
       ...(values["supervisor-plan"] ? { supervisorPlanSha256: values["supervisor-plan"] } : {}),
       ...(values["factory-runtime-plan"]
         ? { factoryRuntimePlanSha256: values["factory-runtime-plan"] }
@@ -233,7 +283,10 @@ if (values.update) {
 let requestBody;
 if (upload) requestBody = upload;
 else if (body) requestBody = JSON.stringify(body);
-const response = await fetch(new URL(resource, base), {
+const requestUrl = new URL(resource, base);
+if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0]))
+  requestUrl.searchParams.set("requireOwnerApproval", "1");
+const response = await fetch(requestUrl, {
   method: body ? "POST" : "GET",
   headers: {
     Authorization: `Bearer ${config.token}`,
@@ -251,6 +304,8 @@ if (!response.ok) {
 }
 const result = await response.json();
 if (
+  positionals[0] === "request-monitor" ||
+  positionals[0] === "monitor-status" ||
   positionals[0] === "request-helper" ||
   positionals[0] === "helper-status" ||
   positionals[0] === "request-restart" ||

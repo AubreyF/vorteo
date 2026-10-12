@@ -1,3 +1,9 @@
+import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
+import {
+  monitorActionDisabledReason,
+  monitorReviewSummary,
+  type MonitorAction,
+} from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
 import {
   helperActionDisabledReason,
@@ -228,7 +234,7 @@ function InstallationPanel({
   const missingRequest =
     requestId &&
     state.lastUpdatedAt &&
-    ![...state.jobs, ...state.helperJobs].some((job) => job.id === requestId);
+    ![...state.jobs, ...state.helperJobs, ...state.monitorJobs].some((job) => job.id === requestId);
   const conflicts = Object.values(state.profileSharing?.sources ?? {}).some(
     (source) => source.error || source.conflicts.length,
   );
@@ -253,6 +259,14 @@ function InstallationPanel({
         ) : null}
         {state.unlocked ? (
           <>
+            {state.monitorJobs.map((job) => (
+              <MonitorRequest
+                key={`${job.id}:${job.revision}`}
+                job={job}
+                model={model}
+                busy={state.busy}
+              />
+            ))}
             {state.helperJobs.map((job) => (
               <HelperRequest
                 key={`${job.id}:${job.revision}`}
@@ -618,6 +632,86 @@ function HelperActionError({ model }: { model: InstallationPanelModel }) {
         Dismiss
       </Button>
     </View>
+  );
+}
+
+function MonitorRequest({
+  job,
+  model,
+  busy,
+}: {
+  job: PreviewMonitorJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const size = useVortonTouch() ? "md" : "sm";
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  return (
+    <View style={[styles.cardBody, settingsStyles.rowBorder]} testID={`monitor-request-${job.id}`}>
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Dev preview monitor</Text>
+        <StatusBadge
+          label={job.stage === "recovery_required" ? "Needs inspection" : job.status}
+          variant={job.stage === "recovery_required" ? "warning" : "muted"}
+        />
+      </View>
+      <Text style={styles.text}>{monitorReviewSummary(job)}</Text>
+      <Text style={styles.text}>{job.reason}</Text>
+      <Button variant="ghost" size={size} onPress={toggle} {...disclosureProps(expanded)}>
+        Details
+      </Button>
+      {expanded ? (
+        <View style={styles.details}>
+          <Text selectable style={styles.text}>
+            {job.detail}
+            {"\n"}Container: {job.plan.containerId}
+            {"\n"}Target: {job.plan.destination}
+            {"\n"}Source: {job.plan.sourceCommit}
+            {"\n"}Candidate: {job.plan.candidate.sha256}
+            {"\n"}Retained before: {job.plan.previous.sha256}
+            {"\n"}Ancestry: {job.plan.ancestrySha256}
+            {"\n"}Plan: {job.planSha256}
+            {"\n"}Owner: root:root, mode 0755
+          </Text>
+        </View>
+      ) : null}
+      {["pending", "approved"].includes(job.status) ? (
+        <ActionFooter style={styles.actions}>
+          {(["approve", "cancel"] as MonitorAction[]).map((action) => (
+            <MonitorActionButton key={action} job={job} model={model} action={action} busy={busy} />
+          ))}
+        </ActionFooter>
+      ) : null}
+    </View>
+  );
+}
+
+function MonitorActionButton({
+  job,
+  model,
+  action,
+  busy,
+}: {
+  job: PreviewMonitorJob;
+  model: InstallationPanelModel;
+  action: MonitorAction;
+  busy: boolean;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const onPress = useCallback(() => {
+    void model.decideMonitor(job, action);
+  }, [model, job, action]);
+  return (
+    <RestartActionButton
+      size={size}
+      testID={`monitor-${job.id}-${action}`}
+      variant={action === "approve" ? "destructive" : "outline"}
+      disabledReason={monitorActionDisabledReason(job, action, { busy, unlocked: true })}
+      onPress={onPress}
+    >
+      {action === "approve" ? "Replace preview monitor" : "Cancel"}
+    </RestartActionButton>
   );
 }
 
@@ -1082,7 +1176,11 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     (job) =>
       ["pending", "approved", "running"].includes(job.status) || job.stage === "recovery_required",
   );
-  if (!jobs.length && !helpers.length) return null;
+  const monitors = state.monitorJobs.filter(
+    (job) =>
+      ["pending", "approved", "running"].includes(job.status) || job.stage === "recovery_required",
+  );
+  if (!jobs.length && !helpers.length && !monitors.length) return null;
   return (
     <View testID="installation-restart-banner">
       {state.error ? (
@@ -1090,6 +1188,15 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           {state.error}
         </Text>
       ) : null}
+      {monitors.map((job) => (
+        <View key={job.id}>
+          <SidebarCallout
+            title="Preview monitor maintenance"
+            description={monitorReviewSummary(job)}
+            actions={[{ label: "Review monitor", onPress: open }]}
+          />
+        </View>
+      ))}
       {helpers.map((job) => (
         <View key={job.id}>
           <SidebarCallout

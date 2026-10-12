@@ -1,3 +1,4 @@
+import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useCallback, useMemo, useState } from "react";
 import {
   Platform,
@@ -64,6 +65,7 @@ export function InstallationUpdateToasts() {
       >
         <View onLayout={measureNotices}>
           <FloatingCalloutPresentation>
+            <SidebarSyncNotice />
             <InstallationRestartBanner />
             <SidebarCalloutViewport />
           </FloatingCalloutPresentation>

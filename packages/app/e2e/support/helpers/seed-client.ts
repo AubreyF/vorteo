@@ -33,7 +33,7 @@ interface SeedProjectDescriptor {
  */
 export interface SeedDaemonClient extends Pick<
   DaemonClient,
-  "getProvidersSnapshot" | "setWorkspaceLifecycle"
+  "getProvidersSnapshot" | "setWorkspaceLifecycle" | "readSidebarState"
 > {
   connect(): Promise<void>;
   close(): Promise<void>;

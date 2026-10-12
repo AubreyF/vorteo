@@ -1,15 +1,18 @@
+import { WorkspaceMenuItems } from "@/components/sidebar/sidebar-workspace-menu";
+import { WorkspaceRenameModal } from "@/components/workspace-rename-modal";
+import { createSidebarWorkspaceEntry } from "@/hooks/sidebar-workspaces-view-model";
+import type { SidebarWorkspaceEntry } from "@/hooks/sidebar-workspaces-view-model";
+import { useSidebarWorkspacePinController } from "@/hooks/use-sidebar-workspace-pin";
+import { useHostFeature } from "@/runtime/host-features";
+import { useWorkspace } from "@/stores/session-store-hooks";
+import { useWorkspaceMenuActions } from "@/workspace/use-workspace-menu-actions";
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
+import { useWorkspaceLabelMenuPages } from "@/workspace-labels/picker";
 import React, { createContext, useCallback, useMemo, type ReactNode } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import {
-  Copy,
-  Ellipsis,
-  Globe,
-  Import as ImportIcon,
-  Settings,
-  SquarePen,
-} from "lucide-react-native";
+import { Ellipsis, Globe, SquarePen } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -34,23 +37,33 @@ import {
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
 
-export const WorkspaceOverflowItemsContext = createContext<ReactNode>(null);
+export const WorkspaceOverflowItemsContext = createContext<{
+  items: ReactNode;
+  pages: ReturnType<typeof useWorkspaceLabelMenuPages>;
+} | null>(null);
+
+interface WorkspaceMenuPresentation {
+  children?: ReactNode;
+  overflow?: boolean;
+  enabled?: boolean;
+}
+
+/** Share actions and submenu pages with the existing pane menu, without another trigger. */
+export function WorkspaceOverflowProvider(
+  props: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation,
+) {
+  return <WorkspaceHeaderActionsMenu {...props} overflow />;
+}
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
-const ThemedCopy = withUnistyles(Copy);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedGlobe = withUnistyles(Globe);
-const ThemedImport = withUnistyles(ImportIcon);
-const ThemedSettings = withUnistyles(Settings);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const MENU_NEW_AGENT_ICON = <ThemedSquarePen size={16} uniProps={mutedColorMapping} />;
 const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping} />;
 const MENU_NEW_TERMINAL_ICON = <TerminalProfileIcon iconKey={undefined} size={16} />;
-const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
-const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
-const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
 function WorkspaceHeaderMenuTriggerIcon() {
   return (
     <ThemedEllipsis
@@ -67,71 +80,137 @@ function WorkspaceHeaderMenuTriggerIcon() {
  */
 const COMPACT_HEADER_BUTTON_HIT_SLOP = { top: 8, bottom: 8 } as const;
 
-/**
- * Actions that belong to the workspace itself rather than to a tab. Both header menus render them,
- * from the same callbacks, so the two surfaces can't drift.
- */
 export interface WorkspaceHeaderWorkspaceActions {
-  currentBranchName: string | null;
-  showWorkspaceSetup: boolean;
-  importAgentDisabled: boolean;
-  copyPathDisabled: boolean;
-  onOpenImportSheet: () => void;
-  onCopyWorkspacePath: () => void;
-  onCopyBranchName: () => void;
-  onOpenSetupTab: () => void;
+  normalizedServerId: string;
+  normalizedWorkspaceId: string;
 }
 
-export function WorkspaceHeaderWorkspaceActionItems({
-  currentBranchName,
-  showWorkspaceSetup,
-  importAgentDisabled,
-  copyPathDisabled,
-  onOpenImportSheet,
-  onCopyWorkspacePath,
-  onCopyBranchName,
-  onOpenSetupTab,
-}: WorkspaceHeaderWorkspaceActions) {
+function WorkspaceHeaderActionsMenu({
+  normalizedServerId,
+  normalizedWorkspaceId,
+  children,
+  overflow = false,
+  enabled = true,
+}: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation) {
+  const descriptor = useWorkspace(normalizedServerId, normalizedWorkspaceId);
+  const workspace = useMemo(
+    () =>
+      descriptor
+        ? createSidebarWorkspaceEntry({ serverId: normalizedServerId, workspace: descriptor })
+        : null,
+    [descriptor, normalizedServerId],
+  );
+  if (!workspace)
+    return overflow ? (
+      <WorkspaceOverflowItemsContext.Provider value={null}>
+        {children}
+      </WorkspaceOverflowItemsContext.Provider>
+    ) : null;
+  return (
+    <WorkspaceHeaderActionsMenuLoaded workspace={workspace} overflow={overflow} enabled={enabled}>
+      {children}
+    </WorkspaceHeaderActionsMenuLoaded>
+  );
+}
+
+function WorkspaceHeaderActionsMenuLoaded({
+  workspace,
+  children,
+  overflow,
+  enabled,
+}: WorkspaceMenuPresentation & {
+  workspace: SidebarWorkspaceEntry;
+}) {
   const { t } = useTranslation();
+  const canPin = useHostFeature(workspace.serverId, "workspacePinning");
+  const onToggleWorkspacePin = useSidebarWorkspacePinController();
+  const actions = useWorkspaceMenuActions({
+    workspace,
+    selected: true,
+    canPin,
+    onToggleWorkspacePin,
+  });
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
+  const target = useMemo(
+    () => ({
+      serverId: workspace.serverId,
+      workspaceId: workspace.workspaceId,
+      labels: workspace.labels ?? [],
+    }),
+    [workspace.serverId, workspace.workspaceId, workspace.labels],
+  );
+  const pages = useWorkspaceLabelMenuPages(target);
+  const items = useMemo(
+    () => (
+      <WorkspaceMenuItems
+        surface="dropdown"
+        testIDPrefix="workspace-header"
+        workspaceKey={workspace.workspaceKey}
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        onCopyPath={actions.handleCopyPath}
+        onCopyBranchName={
+          workspace.projectKind === "git" ? actions.handleCopyBranchName : undefined
+        }
+        onRename={actions.handleOpenRename}
+        onMarkAsRead={actions.hasClearableAttention ? actions.handleMarkAsRead : undefined}
+        onMarkAsUnread={actions.canMarkUnread ? actions.handleMarkAsUnread : undefined}
+        onArchive={actions.handleArchive}
+        archiveStatus={actions.isArchiving ? "pending" : "idle"}
+        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+        archiveShortcutKeys={actions.archiveShortcutKeys}
+        isPinned={actions.isPinned}
+        onTogglePin={actions.onTogglePin}
+        openInFileManagerPath={workspace.workspaceDirectory}
+        {...sessionMenu}
+      />
+    ),
+    [actions, sessionMenu, t, workspace],
+  );
+  const sheets = (
+    <>
+      <WorkspaceRenameModal
+        visible={actions.isRenameOpen}
+        workspace={workspace}
+        onClose={actions.handleCloseRename}
+        testID="workspace-header-rename-modal"
+      />
+      {sessionMenu.sheet}
+    </>
+  );
+  const overflowValue = useMemo(() => (enabled ? { items, pages } : null), [enabled, items, pages]);
+  if (overflow) {
+    return (
+      <WorkspaceOverflowItemsContext.Provider value={overflowValue}>
+        {children}
+        {sheets}
+      </WorkspaceOverflowItemsContext.Provider>
+    );
+  }
   return (
     <>
-      <DropdownMenuItem
-        testID="workspace-header-copy-path"
-        leading={MENU_COPY_ICON}
-        disabled={copyPathDisabled}
-        onSelect={onCopyWorkspacePath}
-      >
-        {t("workspace.header.actions.copyPath")}
-      </DropdownMenuItem>
-      {currentBranchName ? (
-        <DropdownMenuItem
-          testID="workspace-header-copy-branch-name"
-          leading={MENU_COPY_ICON}
-          onSelect={onCopyBranchName}
+      <DropdownMenu compactMode="sheet">
+        <DropdownMenuTrigger
+          testID="workspace-header-menu-trigger"
+          style={workspaceHeaderMenuButtonStyle}
+          hitSlop={COMPACT_HEADER_BUTTON_HIT_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.header.actions.workspaceActions")}
         >
-          {t("workspace.header.actions.copyBranchName")}
-        </DropdownMenuItem>
-      ) : null}
-      <DropdownMenuItem
-        testID="workspace-header-import-agent"
-        leading={MENU_IMPORT_ICON}
-        disabled={importAgentDisabled}
-        onSelect={onOpenImportSheet}
-      >
-        {t("workspace.header.actions.importSession")}
-      </DropdownMenuItem>
-      {showWorkspaceSetup ? (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            testID="workspace-header-show-setup"
-            leading={MENU_SETTINGS_ICON}
-            onSelect={onOpenSetupTab}
-          >
-            {t("workspace.header.actions.showSetup")}
-          </DropdownMenuItem>
-        </>
-      ) : null}
+          <WorkspaceHeaderMenuTriggerIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          width={260}
+          testID="workspace-header-menu"
+          pages={pages}
+          sheetTitle={t("workspace.header.actions.workspaceActions")}
+        >
+          {items}
+          {children}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {sheets}
     </>
   );
 }
@@ -152,22 +231,7 @@ function workspaceHeaderMenuButtonStyle({
  * Wide layouts make tabs from the tab strip's `+` menu, so this one carries workspace actions only.
  */
 export function WorkspaceHeaderMenuDesktop(props: WorkspaceHeaderWorkspaceActions) {
-  const { t } = useTranslation();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        testID="workspace-header-menu-trigger"
-        style={workspaceHeaderMenuButtonStyle}
-        accessibilityRole="button"
-        accessibilityLabel={t("workspace.header.actions.workspaceActions")}
-      >
-        <WorkspaceHeaderMenuTriggerIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" width={220} testID="workspace-header-menu">
-        <WorkspaceHeaderWorkspaceActionItems {...props} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  return <WorkspaceHeaderActionsMenu {...props} />;
 }
 
 interface HeaderMenuProfileItemProps {
@@ -202,7 +266,6 @@ function HeaderMenuProfileItem({
 }
 
 export interface WorkspaceHeaderMenuMobileProps extends WorkspaceHeaderWorkspaceActions {
-  normalizedServerId: string;
   showCreateBrowserTab: boolean;
   createTerminalDisabled: boolean;
   onCreateDraftTab: () => void;
@@ -217,13 +280,13 @@ export interface WorkspaceHeaderMenuMobileProps extends WorkspaceHeaderWorkspace
  */
 export function WorkspaceHeaderMenuMobile({
   normalizedServerId,
+  normalizedWorkspaceId,
   showCreateBrowserTab,
   createTerminalDisabled,
   onCreateDraftTab,
   onCreateTerminal,
   onCreateTerminalWithProfile,
   onCreateBrowser,
-  ...workspaceActions
 }: WorkspaceHeaderMenuMobileProps) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -238,66 +301,53 @@ export function WorkspaceHeaderMenuMobile({
   }, [normalizedServerId, router]);
 
   return (
-    <DropdownMenu compactMode="sheet">
-      <DropdownMenuTrigger
-        testID="workspace-header-menu-trigger"
-        style={workspaceHeaderMenuButtonStyle}
-        hitSlop={COMPACT_HEADER_BUTTON_HIT_SLOP}
-        accessibilityRole="button"
-        accessibilityLabel={t("workspace.header.actions.workspaceActions")}
+    <WorkspaceHeaderActionsMenu
+      normalizedServerId={normalizedServerId}
+      normalizedWorkspaceId={normalizedWorkspaceId}
+    >
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        testID="workspace-header-new-agent"
+        leading={MENU_NEW_AGENT_ICON}
+        onSelect={onCreateDraftTab}
       >
-        <WorkspaceHeaderMenuTriggerIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        width={220}
-        testID="workspace-header-menu"
-        sheetTitle={t("workspace.header.actions.workspaceActions")}
-      >
+        {t("workspace.header.actions.newAgent")}
+      </DropdownMenuItem>
+      {showCreateBrowserTab ? (
         <DropdownMenuItem
-          testID="workspace-header-new-agent"
-          leading={MENU_NEW_AGENT_ICON}
-          onSelect={onCreateDraftTab}
+          testID="workspace-header-new-browser"
+          leading={MENU_NEW_BROWSER_ICON}
+          onSelect={onCreateBrowser}
         >
-          {t("workspace.header.actions.newAgent")}
+          {t("workspace.header.actions.newBrowser")}
         </DropdownMenuItem>
-        {showCreateBrowserTab ? (
-          <DropdownMenuItem
-            testID="workspace-header-new-browser"
-            leading={MENU_NEW_BROWSER_ICON}
-            onSelect={onCreateBrowser}
-          >
-            {t("workspace.header.actions.newBrowser")}
-          </DropdownMenuItem>
-        ) : null}
-        <WorkspaceHeaderWorkspaceActionItems {...workspaceActions} />
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
-        <DropdownMenuItem
-          testID="workspace-header-new-terminal"
-          leading={MENU_NEW_TERMINAL_ICON}
+      ) : null}
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
+      <DropdownMenuItem
+        testID="workspace-header-new-terminal"
+        leading={MENU_NEW_TERMINAL_ICON}
+        disabled={createTerminalDisabled}
+        onSelect={onCreateTerminal}
+      >
+        {t("workspace.header.actions.newTerminal")}
+      </DropdownMenuItem>
+      {profiles.map((profile) => (
+        <HeaderMenuProfileItem
+          key={profile.id}
+          profile={profile}
           disabled={createTerminalDisabled}
-          onSelect={onCreateTerminal}
-        >
-          {t("workspace.header.actions.newTerminal")}
-        </DropdownMenuItem>
-        {profiles.map((profile) => (
-          <HeaderMenuProfileItem
-            key={profile.id}
-            profile={profile}
-            disabled={createTerminalDisabled}
-            onCreateTerminalWithProfile={onCreateTerminalWithProfile}
-          />
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          testID="workspace-header-edit-terminal-profiles"
-          onSelect={handleEditProfiles}
-        >
-          {t("workspace.tabs.actions.editTerminalProfiles")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          onCreateTerminalWithProfile={onCreateTerminalWithProfile}
+        />
+      ))}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        testID="workspace-header-edit-terminal-profiles"
+        onSelect={handleEditProfiles}
+      >
+        {t("workspace.tabs.actions.editTerminalProfiles")}
+      </DropdownMenuItem>
+    </WorkspaceHeaderActionsMenu>
   );
 }
 

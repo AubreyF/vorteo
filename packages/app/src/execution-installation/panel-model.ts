@@ -1,3 +1,5 @@
+import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
+import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
@@ -20,6 +22,7 @@ interface InstallationPanelState {
   notice: string | null;
   jobs: RestartJob[];
   helperJobs: NativeHelperJob[];
+  monitorJobs: PreviewMonitorJob[];
   helperError: string | null;
   pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
@@ -40,6 +43,7 @@ export class InstallationPanelModel {
     notice: null,
     jobs: [],
     helperJobs: [],
+    monitorJobs: [],
     helperError: null,
     pendingJobs: [],
     profileSharing: null,
@@ -66,8 +70,12 @@ export class InstallationPanelModel {
       | "lock"
       | "passwordFile"
       | "sessionsSupported"
-    >,
-    private readonly options: { connectionsRegistered: boolean; openRequested?: boolean } = {
+    > &
+      Partial<Pick<InstallationClient, "listMonitors" | "decideMonitor">>,
+    private readonly options: {
+      connectionsRegistered: boolean;
+      openRequested?: boolean;
+    } = {
       connectionsRegistered: false,
     },
   ) {
@@ -106,6 +114,7 @@ export class InstallationPanelModel {
         password: "",
         jobs: [],
         helperJobs: [],
+        monitorJobs: [],
         helperError: null,
         pendingJobs: [],
         profileSharing: null,
@@ -159,10 +168,11 @@ export class InstallationPanelModel {
       const restartSummary = await this.client.restartSummary();
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
-      const [jobs, profileSharing, helperJobs] = await Promise.all([
+      const [jobs, profileSharing, helperJobs, monitorJobs] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
         this.client.listHelpers(),
+        this.client.listMonitors?.() ?? Promise.resolve([]),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
@@ -186,6 +196,7 @@ export class InstallationPanelModel {
       this.publish({
         jobs,
         helperJobs,
+        monitorJobs,
         pendingJobs: pending,
         profileSharing,
         lastUpdatedAt: new Date().toISOString(),
@@ -198,6 +209,43 @@ export class InstallationPanelModel {
     }
   }
 
+  async decideMonitor(job: PreviewMonitorJob, action: MonitorAction): Promise<void> {
+    const current = this.state.monitorJobs.find((item) => item.id === job.id);
+    if (!current || current.revision !== job.revision || current.planSha256 !== job.planSha256) {
+      this.publish({
+        helperError: "Monitor request changed. Refresh and review its current bytes.",
+      });
+      return;
+    }
+    const reason = monitorActionDisabledReason(current, action, this.state);
+    if (reason) {
+      this.publish({ helperError: reason });
+      return;
+    }
+    if (!this.client.decideMonitor) {
+      this.publish({ helperError: "Monitor controls unavailable" });
+      return;
+    }
+    this.publish({ busy: true, helperError: null });
+    try {
+      const result = await this.client.decideMonitor(current, action);
+      this.publish({
+        monitorJobs: this.state.monitorJobs.map((item) => (item.id === result.id ? result : item)),
+      });
+      await this.refresh();
+    } catch (error) {
+      this.fail(error);
+      this.publish({
+        error: null,
+        helperError:
+          error instanceof Error
+            ? error.message
+            : "Monitor decision unconfirmed. Refresh before retrying.",
+      });
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
   dismissHelperError(): void {
     this.publish({ helperError: null });
   }
@@ -288,6 +336,7 @@ export class InstallationPanelModel {
         password: "",
         jobs: [],
         helperJobs: [],
+        monitorJobs: [],
         helperError: null,
         pendingJobs: [],
         profileSharing: null,
@@ -300,7 +349,10 @@ export class InstallationPanelModel {
   }
 }
 
-export function restartExplanation(reason: string): { summary: string; details: string } {
+export function restartExplanation(reason: string): {
+  summary: string;
+  details: string;
+} {
   const text = reason.replace(/^\s*\(AI Generated\)\.?\s*/i, "").trim();
   const [opening, ...details] = text.split(/\n\s*\n/);
   const sentences = opening.split(/(?<=[.!?])\s+(?=[A-Z])/);

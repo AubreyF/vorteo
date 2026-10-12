@@ -1,3 +1,5 @@
+import { SidebarStateStore } from "./sidebar-state/store.js";
+import { bootstrapReviewFeatures } from "./execution-installation/coordinator-bootstrap-session.js";
 import { serializeLegacyChecklistMessage } from "./agent/task-checklist/compatibility.js";
 import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
@@ -568,6 +570,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
+  private readonly sidebarState: SidebarStateStore;
   private readonly paseoHome: string;
   private readonly passwordHash: string | undefined;
   private readonly credentialSource: DaemonAuthConfig | undefined;
@@ -605,6 +608,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly applicationSocketLease = new ApplicationSocketLease<WebSocketLike>();
   private eventLoopDelayMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
+  private unsubscribeBootstrapAvailability: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
   private readonly providerUsageService: ProviderUsageService;
   private readonly providerLoginService: ProviderLoginService;
@@ -732,6 +736,7 @@ export class VoiceAssistantWebSocketServer {
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
+    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"));
     this.passwordHash = auth?.password;
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
@@ -827,6 +832,7 @@ export class VoiceAssistantWebSocketServer {
     });
 
     this.wss = this.createWebSocketServer(server, wsConfig, auth);
+    this.subscribeBootstrapAvailability();
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 
@@ -1169,6 +1175,8 @@ export class VoiceAssistantWebSocketServer {
     this.prepareForShutdown();
     this.unsubscribeSpeechReadiness?.();
     this.unsubscribeSpeechReadiness = null;
+    this.unsubscribeBootstrapAvailability?.();
+    this.unsubscribeBootstrapAvailability = null;
     this.unsubscribeDaemonConfigChange?.();
     this.unsubscribeDaemonConfigChange = null;
     this.unsubscribeTerminalActivity?.();
@@ -1574,8 +1582,16 @@ export class VoiceAssistantWebSocketServer {
     return connection;
   }
 
+  private supportsSidebarState(): boolean {
+    return (
+      this.daemonConfigStore.get().sharedProviderPreferences?.installation?.environment !==
+      "container"
+    );
+  }
+
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
       coordinatorBootstrap: this.coordinatorBootstrap,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
@@ -2042,13 +2058,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         agentGoals: true,
-        ...(this.coordinatorBootstrap
-          ? {
-              coordinatorBootstrapReview: true,
-              coordinatorBootstrapFactoryAdoption: true,
-              coordinatorBootstrapCompatibleRecovery: true,
-            }
-          : {}),
+        ...bootstrapReviewFeatures(this.coordinatorBootstrap),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,
@@ -2065,6 +2075,7 @@ export class VoiceAssistantWebSocketServer {
         agentTaskSnapshots: true,
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
+        sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
         agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
@@ -2151,6 +2162,13 @@ export class VoiceAssistantWebSocketServer {
         config,
       },
     });
+  }
+
+  private subscribeBootstrapAvailability(): void {
+    this.unsubscribeBootstrapAvailability =
+      this.coordinatorBootstrap?.subscribeAvailability?.(() =>
+        this.broadcastCapabilitiesUpdate(),
+      ) ?? null;
   }
 
   private broadcastCapabilitiesUpdate(): void {

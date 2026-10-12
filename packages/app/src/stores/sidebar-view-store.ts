@@ -1,3 +1,4 @@
+import { recordSidebarChange } from "@/sidebar-state/changes";
 import AsyncStorage from "@/storage/app-storage";
 import { create } from "zustand";
 import { persist, type StateStorage } from "zustand/middleware";
@@ -182,22 +183,43 @@ export const useSidebarViewStore = create<SidebarViewStoreState>()(
       hostFilters: [],
       projectFilters: [],
       labelFilter: emptyLabelFilter(),
-      setGroupMode: (mode) => set({ groupMode: mode }),
+      setGroupMode: (mode) => {
+        set({ groupMode: mode });
+        recordSidebarChange({ groupMode: mode });
+      },
       toggleHostFilter: (serverId) =>
-        set((state) => ({ hostFilters: toggleFilterEntry(state.hostFilters, serverId) })),
-      clearHostFilters: () => set({ hostFilters: [] }),
+        set((state) => {
+          const hostFilters = toggleFilterEntry(state.hostFilters, serverId);
+          recordSidebarChange({ hostFilters });
+          return { hostFilters };
+        }),
+      clearHostFilters: () => {
+        set({ hostFilters: [] });
+        recordSidebarChange({ hostFilters: [] });
+      },
       toggleProjectFilter: (viewKey) =>
-        set((state) => ({ projectFilters: toggleFilterEntry(state.projectFilters, viewKey) })),
-      clearProjectFilters: () => set({ projectFilters: [] }),
+        set((state) => {
+          const projectFilters = toggleFilterEntry(state.projectFilters, viewKey);
+          recordSidebarChange({ projectFilters });
+          return { projectFilters };
+        }),
+      clearProjectFilters: () => {
+        set({ projectFilters: [] });
+        recordSidebarChange({ projectFilters: [] });
+      },
       toggleLabelFilter: (name) =>
         set((state) => {
           const key = workspaceLabelKey(name);
           const labels = state.labelFilter.labels.includes(key)
             ? state.labelFilter.labels.filter((label) => label !== key)
             : [...state.labelFilter.labels, key];
+          recordSidebarChange({ labelFilters: labels });
           return { labelFilter: { ...state.labelFilter, labels } };
         }),
-      clearLabelFilter: () => set({ labelFilter: emptyLabelFilter() }),
+      clearLabelFilter: () => {
+        set({ labelFilter: emptyLabelFilter() });
+        recordSidebarChange({ labelFilters: [] });
+      },
       reconcileLabelFilter: (labels) =>
         set((state) => {
           const available = new Set(labels.map(workspaceLabelKey));

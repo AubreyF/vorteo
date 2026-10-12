@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
+import type { AgentProfile, MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import type { AgentSessionConfig } from "../agent/agent-sdk-types.js";
 import { resolveProfileLaunch } from "../agent/create-agent/profile.js";
 import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
@@ -73,4 +73,19 @@ export function captureFactoryWorkerProfile(input: WorkerProfileInput) {
       return sessionConfig;
     },
   };
+}
+
+/** Resolve the retained account through the same shared-profile rules as native launches. */
+export function readFactoryConfiguredProfiles(
+  settings: MutableDaemonConfig,
+  provider: string,
+  profileId: string,
+): AgentProfile[] {
+  const profiles = settings.agentProfiles ?? [];
+  const matches = profiles.filter((profile) => profile.id === profileId);
+  if (matches.length > 1) throw new Error("Factory configured profile is ambiguous.");
+  const launch = resolveProfileLaunch({ provider, profileId, cwd: "/" }, profiles, 0, settings);
+  if (!launch.profileLaunch || launch.provider !== provider)
+    throw new Error("Factory configured profile does not match its retained account.");
+  return [launch.profileLaunch.profile];
 }

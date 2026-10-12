@@ -35,7 +35,7 @@ interface InstallDependencies {
   projects: FileBackedProjectRegistry;
   workspaces: FileBackedWorkspaceRegistry;
   agents: Pick<AgentStorage, "get" | "getLoadedRecord">;
-  readProfiles(): AgentProfile[];
+  readProfiles(provider: string, profileId: string): AgentProfile[];
   provider: string;
   profileId: string;
   runtime: GovernedScheduleRuntime;
@@ -182,7 +182,9 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
       reconciliationHolds.has(captured.runtime)
     )
       return null;
-    const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+    const profiles = captured
+      .readProfiles(captured.provider, captured.profileId)
+      .filter((entry) => entry.id === captured.profileId);
     if (profiles.length !== 1) throw new Error("Factory configured profile is unavailable.");
     const profile = structuredClone(profiles[0]);
     const grant = await captureFactoryCoordinatorAuthority({
@@ -221,7 +223,9 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
       ) {
         const observation = new NativeFactoryObservationService(confirmed, captured);
         await observation.invoke("factory.snapshot", { projectId });
-        const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+        const profiles = captured
+          .readProfiles(captured.provider, captured.profileId)
+          .filter((entry) => entry.id === captured.profileId);
         if (profiles.length !== 1) throw new Error("Factory configured profile is unavailable.");
         await captureFactoryCoordinatorAuthority({
           ...captured,
@@ -312,7 +316,9 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
     const expectedProfile = prepared.profile;
     function assertAttempt(): void {
       assertCurrent();
-      const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+      const profiles = captured
+        .readProfiles(captured.provider, captured.profileId)
+        .filter((entry) => entry.id === captured.profileId);
       if (profiles.length !== 1 || !isDeepStrictEqual(profiles[0], expectedProfile))
         throw new Error("Factory installation configured profile changed.");
     }
@@ -407,7 +413,9 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
       !isDeepStrictEqual(checkpoint.coordinators, binding.coordinators)
     )
       throw new Error("Factory restoration requires the exact completed native installation.");
-    const profiles = captured.readProfiles().filter((entry) => entry.id === captured.profileId);
+    const profiles = captured
+      .readProfiles(captured.provider, captured.profileId)
+      .filter((entry) => entry.id === captured.profileId);
     if (profiles.length !== 1) throw new Error("Factory configured profile is unavailable.");
     const profile = structuredClone(profiles[0]);
     const authorityInput = {
@@ -433,7 +441,9 @@ export function createNativeFactoryInstallAdapter(deps: InstallDependencies) {
         throw new Error("Factory native coordinator changed during restoration.");
       if (
         !isDeepStrictEqual(
-          captured.readProfiles().filter((entry) => entry.id === captured.profileId),
+          captured
+            .readProfiles(captured.provider, captured.profileId)
+            .filter((entry) => entry.id === captured.profileId),
           [profile],
         )
       )

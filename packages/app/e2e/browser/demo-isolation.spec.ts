@@ -22,6 +22,13 @@ for (const width of [1800, 390]) {
     await page.addInitScript(() => {
       if (!localStorage.getItem("demo-isolation-sentinel")) {
         localStorage.setItem("demo-isolation-sentinel", "owner-data");
+        for (const key of [
+          "sidebar-project-workspace-order",
+          "sidebar-view",
+          "sidebar-collapsed-sections",
+          "sidebar-sync-outbox:real-owner",
+        ])
+          localStorage.setItem(key, "owner-sidebar-data");
         localStorage.setItem(
           "@paseo:app-settings",
           JSON.stringify({ theme: "neon", appearanceMode: "dark" }),
@@ -35,6 +42,7 @@ for (const width of [1800, 390]) {
     await composer.fill("Show me the available themes");
     await page.getByRole("button", { name: "Send message", exact: true }).click();
     await expect(page.getByText("Simulated reply", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("sidebar-sync-error")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     if (width === 1800) {
       await page.getByTestId("changes-primary-cta").click();
@@ -72,6 +80,20 @@ for (const width of [1800, 390]) {
       JSON.stringify({ theme: "neon", appearanceMode: "dark" }),
     );
     await page.screenshot({ path: info.outputPath(`demo-exit-${width}.png`), fullPage: true });
+    expect(
+      await page.evaluate(() =>
+        Object.fromEntries(
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith("sidebar-"))
+            .map((key) => [key, localStorage.getItem(key)]),
+        ),
+      ),
+    ).toEqual({
+      "sidebar-project-workspace-order": "owner-sidebar-data",
+      "sidebar-view": "owner-sidebar-data",
+      "sidebar-collapsed-sections": "owner-sidebar-data",
+      "sidebar-sync-outbox:real-owner": "owner-sidebar-data",
+    });
     expect(sockets.filter((url) => !["/hot", "/message"].includes(new URL(url).pathname))).toEqual(
       [],
     );

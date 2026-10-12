@@ -232,3 +232,88 @@ test("rollback outcome is distinct from success and fresh review replaces only i
   next.status = "canceled";
   expect(currentBootstrapRequests([failed, next])).toEqual([failed, next]);
 });
+
+test("unavailable maintenance shows its diagnosis and removes stale approvals until recovery", async () => {
+  const item = request();
+  let reason: string | null = null;
+  let decisions = 0;
+  let reads = 0;
+  const model = new BootstrapPanelModel(
+    () => ({
+      listCoordinatorBootstrapRequests: async () => {
+        reads++;
+        return [item];
+      },
+      decideCoordinatorBootstrap: async () => {
+        decisions++;
+        return [item];
+      },
+    }),
+    () => reason,
+  );
+  await model.refresh();
+  model.setPassword("fixture");
+  reason = "Coordinator maintenance is unavailable: retained history is incompatible.";
+  await model.decide(item, "approve");
+  expect(decisions).toBe(0);
+  expect(reads).toBe(1);
+  expect(model.getState()).toMatchObject({
+    available: true,
+    requests: [],
+    busy: false,
+    hasPassword: false,
+    error: reason,
+  });
+  reason = null;
+  await model.refresh(true);
+  expect(reads).toBe(2);
+  expect(model.getState()).toMatchObject({ requests: [item], error: null, hasPassword: false });
+});
+
+test.each(["success", "error"] as const)(
+  "recovery replaces an unresolved list and ignores its stale %s and finalizer",
+  async (outcome) => {
+    const old = Promise.withResolvers<CoordinatorBootstrapRequest[]>();
+    const next = Promise.withResolvers<CoordinatorBootstrapRequest[]>();
+    const latest = Promise.withResolvers<CoordinatorBootstrapRequest[]>();
+    const recovered = request();
+    const newest = request();
+    let reason: string | null = null;
+    let reads = 0;
+    let list = () => old.promise;
+    const model = new BootstrapPanelModel(
+      () => ({
+        listCoordinatorBootstrapRequests: () => {
+          reads++;
+          return list();
+        },
+        decideCoordinatorBootstrap: async () => [],
+      }),
+      () => reason,
+    );
+    const oldRefresh = model.refresh();
+    reason = "Maintenance unavailable";
+    await model.refresh();
+    reason = null;
+    list = () => next.promise;
+    const nextRefresh = model.refresh();
+    expect(reads).toBe(2);
+    next.resolve([recovered]);
+    await nextRefresh;
+    expect(model.getState()).toMatchObject({ requests: [recovered], error: null });
+    list = () => latest.promise;
+    const latestRefresh = model.refresh();
+    expect(reads).toBe(3);
+    if (outcome === "success") old.resolve([request()]);
+    else old.reject(new Error("stale failure"));
+    await oldRefresh;
+    expect(model.getState()).toMatchObject({ requests: [recovered], error: null });
+    await model.refresh();
+    expect(reads).toBe(3);
+    latest.resolve([newest]);
+    await latestRefresh;
+    expect(model.getState()).toMatchObject({ requests: [newest], error: null });
+    await model.refresh();
+    expect(reads).toBe(4);
+  },
+);

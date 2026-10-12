@@ -73,6 +73,62 @@ import { createWorkspaceProvisioningService } from "../session/workspace-provisi
 
 const REPO_CWD = resolvePath("/tmp/repo");
 
+it.each([false, true])(
+  "records canonical MCP follow-up identity without provider echoes (caller-scoped: %s)",
+  async (scoped) => {
+    const home = await mkdtemp(join(tmpdir(), "mcp-prompt-origin-"));
+    const logger = createTestLogger();
+    const storage = new AgentStorage(join(home, "agents"), logger);
+    const manager = new AgentManager({
+      clients: createTestAgentClients(),
+      registry: storage,
+      logger,
+    });
+    try {
+      const agent = await manager.createAgent({ provider: "codex", cwd: home }, undefined, {
+        workspaceId: "fixture-workspace",
+      });
+      const catalog = createPaseoToolCatalog({
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        paseoHome: home,
+        ...(scoped ? { callerAgentId: agent.id } : {}),
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      });
+      for (const prompt of ["machine instruction", "another machine instruction"]) {
+        const result = await catalog.executeTool("send_agent_prompt", {
+          agentId: agent.id,
+          prompt,
+          background: false,
+        });
+        expect(result.structuredContent).toMatchObject({ success: true });
+      }
+      const messages = manager.getTimeline(agent.id).filter((item) => item.type === "user_message");
+      expect(messages).toMatchObject([
+        { text: "machine instruction", origin: "agent", clientMessageId: expect.any(String) },
+        {
+          text: "another machine instruction",
+          origin: "agent",
+          clientMessageId: expect.any(String),
+        },
+      ]);
+      const ids = messages.map((item) => item.clientMessageId);
+      expect(ids.every((id) => z.uuid().safeParse(id).success)).toBe(true);
+      expect(new Set(ids).size).toBe(2);
+      expect(await new TaskOwnerEvidenceStore(home).list(agent.id)).toEqual([]);
+      expect(catalog.tools.has("read_task_owner_evidence")).toBe(scoped);
+      expect(manager.listAgents()).toHaveLength(1);
+    } finally {
+      manager.prepareForShutdown();
+      await Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
+      await manager.flushForShutdown();
+      await storage.flush();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
 it("retrieves owner evidence through a task-bound tool without exposing another task", async () => {
   const logger = createTestLogger();
   const root = await mkdtemp(join(tmpdir(), "task-evidence-tool-"));

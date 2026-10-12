@@ -10,7 +10,7 @@ import type {
 import type { AgentProfile } from "@getpaseo/protocol/messages";
 import { formatAgentModeLabel, formatThinkingOptionLabel } from "@/agent-controls/labels";
 import { applyFeatureValues, pruneFeatureValues } from "@/hooks/feature-preferences";
-import { filterSelectableModels } from "@/provider-selection/model-catalog";
+import { filterSelectableModels, findModelByReference } from "@/provider-selection/model-catalog";
 
 /**
  * The persisted profile minus the id; the list owns identity.
@@ -54,6 +54,7 @@ export interface AgentProfileSeed {
 
 export interface AgentProfileFormSnapshot {
   mode: "create" | "edit";
+  sharedCatalog?: boolean;
   profile?: AgentProfile;
   seed?: AgentProfileSeed;
 }
@@ -117,8 +118,15 @@ export interface AgentProfileFormState {
   disclosure: AgentProfileFormDisclosure;
   isSubmitting: boolean;
   submitError: string | null;
+  compatibilityWarnings: string[];
   canSubmit: boolean;
   submitValue: AgentProfileValue | null;
+}
+
+export interface ProfileEnvironmentCatalog {
+  kind: InstallationEnvironment["kind"];
+  entries: readonly ProviderSnapshotEntry[] | undefined;
+  provider?: string;
 }
 
 export interface AgentProfileFormModel {
@@ -127,6 +135,10 @@ export interface AgentProfileFormModel {
   close: () => void;
   /** Late input: the host-scoped provider catalog. Never touches selections. */
   applyProviderCatalog: (entries: readonly ProviderSnapshotEntry[]) => void;
+  applySharedProviderCatalog: (input: {
+    entries: readonly ProviderSnapshotEntry[];
+    environments: readonly ProfileEnvironmentCatalog[];
+  }) => void;
   /** Late input: the feature list for one request. Stale keys are ignored. */
   applyFeatures: (requestKey: string, features: readonly AgentFeature[]) => void;
   /** Resolve a request that produced no usable features (provider error). */
@@ -446,9 +458,87 @@ function buildInitialState(snapshot: AgentProfileFormSnapshot): AgentProfileForm
     },
     isSubmitting: false,
     submitError: null,
+    compatibilityWarnings: [],
     canSubmit: false,
     submitValue: null,
   };
+}
+
+interface SharedModelSelectionInput {
+  state: AgentProfileFormState;
+  models: AgentModelDefinition[];
+  environmentCatalogs: readonly ProfileEnvironmentCatalog[] | undefined;
+  hasModelSelection: boolean;
+}
+
+function resolveSharedModelSelection(input: SharedModelSelectionInput) {
+  const { state, models, environmentCatalogs, hasModelSelection } = input;
+  if (environmentCatalogs === undefined) {
+    return { seed: state, models, warnings: [], canSubmit: true };
+  }
+  const catalogs = environmentCatalogs.filter(
+    (catalog) => !state.excludedEnvironments.includes(catalog.kind),
+  );
+  const entries = catalogs.map((catalog) =>
+    catalog.entries?.find((entry) => entry.provider === (catalog.provider ?? state.provider)),
+  );
+  const allKnown =
+    entries.length > 0 &&
+    entries.every((entry) => entry?.status === "ready" && entry.models !== undefined);
+  const commonModels = allKnown
+    ? models.filter((model) =>
+        entries.every(
+          (entry) =>
+            findModelByReference(filterSelectableModels(entry?.models ?? null), model.id) !== null,
+        ),
+      )
+    : [];
+  const commonDefault = defaultModelId(commonModels);
+  const automaticModelChanged = !hasModelSelection && state.modelId !== commonDefault;
+  // Saved and explicit choices survive catalog churn; automatic defaults wait
+  // for verified capabilities in every included environment.
+  const seed = automaticModelChanged
+    ? { ...state, modelId: commonDefault, thinkingOptionId: "", thinkingDisplay: null }
+    : state;
+  const warnings = sharedModelWarnings({
+    catalogs,
+    provider: state.provider,
+    modelId: seed.modelId,
+  });
+  if (!hasModelSelection && allKnown && !commonDefault) {
+    warnings.push("No common model is available. Choose a model explicitly.");
+  }
+  return {
+    seed,
+    models: hasModelSelection ? models : commonModels,
+    warnings,
+    canSubmit: hasModelSelection || Boolean(commonDefault),
+  };
+}
+
+interface SharedModelWarningsInput {
+  catalogs: readonly ProfileEnvironmentCatalog[];
+  provider: string;
+  modelId: string;
+}
+
+function sharedModelWarnings(input: SharedModelWarningsInput): string[] {
+  const warnings: string[] = [];
+  for (const catalog of input.catalogs) {
+    const label = catalog.kind === "host" ? "Host" : "Dev container";
+    const entry = catalog.entries?.find(
+      (item) => item.provider === (catalog.provider ?? input.provider),
+    );
+    if (entry?.status !== "ready" || entry.models === undefined) {
+      warnings.push(`${label} model compatibility is unknown.`);
+    } else if (
+      input.modelId &&
+      findModelByReference(filterSelectableModels(entry.models), input.modelId) === null
+    ) {
+      warnings.push(`${label} does not support this model.`);
+    }
+  }
+  return warnings;
 }
 
 export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentProfileFormModel {
@@ -458,13 +548,23 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
   let resolvedFeatures: AgentFeature[] = [];
   let listeners = new Set<() => void>();
   let closed = false;
+  let environmentCatalogs: readonly ProfileEnvironmentCatalog[] | undefined = snapshot.sharedCatalog
+    ? []
+    : undefined;
+  let hasModelSelection = Boolean(buildInitialState(snapshot).modelId);
 
   function derive(incoming: AgentProfileFormState): AgentProfileFormState {
     const models = resolveModels(entries, incoming.provider);
     const modes = resolveModes(entries, incoming.provider);
-    const next = seedSelections(incoming, {
-      entry: findEntry(entries, incoming.provider),
+    const selection = resolveSharedModelSelection({
+      state: incoming,
       models,
+      environmentCatalogs,
+      hasModelSelection,
+    });
+    const next = seedSelections(selection.seed, {
+      entry: findEntry(entries, incoming.provider),
+      models: selection.models,
       modes,
     });
     const thinking = resolveThinkingOptions(entries, next.provider, next.modelId);
@@ -479,6 +579,7 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
 
     const withOptions: AgentProfileFormState = {
       ...next,
+      compatibilityWarnings: selection.warnings,
       providerOptions: buildProviderOptions(entries),
       modelOptions: buildModelOptions(models),
       modeOptions: buildModeOptions(modes),
@@ -528,6 +629,7 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
     };
     const needsWorkerProfile = Boolean(withOptions.workerAccountId) && !withOptions.workerProfileId;
     const canSubmit =
+      selection.canSubmit &&
       !needsWorkerProfile &&
       withOptions.name.trim().length > 0 &&
       withOptions.provider.length > 0 &&
@@ -543,6 +645,9 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
       return;
     }
     state = derive(mutate(state));
+    // Once selected, including a verified default, a draft model is retained
+    // through later catalog changes instead of silently being substituted.
+    hasModelSelection ||= Boolean(state.modelId);
     for (const listener of listeners) {
       listener();
     }
@@ -562,6 +667,12 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
     },
     applyProviderCatalog: (nextEntries) => {
       entries = [...nextEntries];
+      catalogResolution = "complete";
+      publish((current) => current);
+    },
+    applySharedProviderCatalog: (input) => {
+      entries = [...input.entries];
+      environmentCatalogs = input.environments;
       catalogResolution = "complete";
       publish((current) => current);
     },
@@ -607,6 +718,7 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
         if (current.provider === providerId) {
           return current;
         }
+        hasModelSelection = false;
         // Everything below the provider is provider-scoped: a model id, mode id,
         // thinking id or feature id from the old provider means nothing here.
         // Clearing them is enough — `derive` seeds the new provider's defaults.
@@ -625,6 +737,7 @@ export function openAgentProfileForm(snapshot: AgentProfileFormSnapshot): AgentP
       }),
     setModel: (modelId, display) =>
       publish((current) => {
+        hasModelSelection = true;
         if (current.modelId === modelId) {
           return current;
         }

@@ -4,6 +4,196 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.326 - 2026-10-11
+
+### Changed
+
+- Integrate the six-theme appearance, floating navigation, isolated demo and iOS scene startup with current main, preserving the coordinator and shared sidebar fixes.
+- Keep demo sidebar preferences isolated from installation synchronization. Place synchronization notices in the floating update stack.
+- Preserve shared workspace actions, labels and rename dialogs in the single central overflow menu when the right-hand cards are hidden.
+
+### Maintenance
+
+- Retain both source histories and their release notes. Installed publication and owner visual acceptance remain pending.
+
+## 0.11.0-beta.3.vorteo.325 - 2026-10-11
+
+### Fixed
+
+- Keep a coordinator executor running if its Host observer disconnects before the dispatch acknowledgement. The durable journal remains authoritative.
+- Cover connected and disconnected acknowledgement pipes with real child processes.
+
+## 0.11.0-beta.3.vorteo.324 - 2026-10-11
+
+### Maintenance
+
+- Reuse one read buffer per coordinator artifact scan to reduce allocation overhead while retaining complete file reads and validation.
+- Verify digest compatibility across chunk boundaries, empty files and concurrent scans with different content.
+
+## 0.11.0-beta.3.vorteo.323 - 2026-10-11
+
+### Added
+
+- Review an explicit source update tooling selection from the exact candidate release through coordinator maintenance. Omission preserves the current tooling.
+- Require compatible clients to display the selection before approval, and reject unsupported preparation before sending it.
+- Validate protected tooling files without executing them. Cover combined Factory and tooling admission, exact claims, successful selection and recovery of the complete previous configuration.
+
+### Fixed
+
+- Describe renewed configuration validation accurately when Factory and tooling selections are composed. Policy, helper and monitor changes remain unavailable through renewal.
+
+## 0.11.0-beta.3.vorteo.322 - 2026-10-11
+
+### Fixed
+
+- Allow a renewed coordinator runner to review an explicit Factory adoption or recovery plan change through the existing configuration validator and exact approval button.
+- Keep candidate and compatible recovery on the selected Host code, preserve the previous configuration for rollback, and reject unrelated policy, helper, monitor or credential changes.
+- Test declared and mismatched plan digests, omitted changes, retained rollback and refusal of unrelated configuration changes.
+
+## 0.11.0-beta.3.vorteo.321 - 2026-10-11
+
+### Fixed
+
+- Resolve Factory installation and coordinator binding through native shared-profile selection on the retained account, without requiring local profile copies.
+- Preserve exact coordinator snapshots and reject missing, ambiguous, changed or mismatched profiles. Cover shared-profile installation and restoration with focused regressions.
+
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Added
+
+- Verify protected Nova bridge release manifests against the selected standalone bundle and consumed configuration before startup.
+- Report authenticated release commitments, startup identity and draining status; reject new MCP work while shutting down.
+- Test file substitution, ownership, size bounds, readiness identity and draining. Managed activation and account revocation acceptance remain separate work.
+
+## 0.11.0-beta.3.vorteo.319 - 2026-10-11
+
+### Fixed
+
+- Renew coordinator maintenance preparation from the selected immutable Host release and verified terminal receipt, retaining the original installation authority and exact approval workflow.
+- Bind maintenance execution and recovery to retained release evidence, and refuse ambiguous transfers or incompatible lifecycle history.
+- Keep Host startup available during background maintenance validation and notify connected clients when verification finishes; maintenance actions remain disabled until then.
+- Preserve configured installation workers' process arguments for native identity verification, and isolate availability notifications so one client failure cannot suppress others.
+- Show unavailable maintenance diagnostics without stale approval controls. Allow a recovered connection to refresh while an older request remains unresolved, ignoring its late response and finalizer.
+- Cover renewal, unavailable maintenance and deferred refresh recovery with focused tests and desktop and phone browser checks. Live installation still requires tracked approval and acceptance.
+
+## 0.11.0-beta.3.vorteo.318 - 2026-10-11
+
+### Fixed
+
+- Retain exact interface source history in the configured protected repository before selecting a bound web release, and verify it through an independent reader.
+- Add explicit durable publication binding setup with failure and retry checks. Existing publishers must be upgraded before this protection can be claimed for an installation.
+
+## 0.11.0-beta.3.vorteo.317 - 2026-10-11
+
+### Maintenance
+
+- Integrate shared sidebar state and workspace menu parity while preserving both source histories, offline-edit recovery, Review checklist support and the Nova workspace.
+- Retain creation tests that distinguish requested agents from internal workspace-naming helpers without changing production naming.
+
+## 0.11.0-beta.3.vorteo.314 - 2026-10-11
+
+### Maintenance
+
+- Reconcile workspace menu parity with public main through a merge that retains both source histories and release notes.
+- Preserve the Nova bridge workspace, Review checklist behavior and current Factory grouping without changing installation validators or activating runtime updates.
+
+## 0.11.0-beta.3.vorteo.316 - 2026-10-11
+
+### Maintenance
+
+- Scope creation fixture counters and readiness gating to non-internal sessions. Keep exact-one creation and prompt assertions while allowing production workspace naming helpers to run through the same fake clients.
+
+## 0.11.0-beta.3.vorteo.315 - 2026-10-11
+
+### Fixed
+
+- Preserve pending sidebar edits across synchronizer remounts. Ignore late acknowledgements from stopped instances and serialize outbox reads and writes across instance lifetimes, including saves queued before stop.
+
+## 0.11.0-beta.3.vorteo.314 - 2026-10-11
+
+### Maintenance
+
+- Integrate shared sidebar state with published Nova subscription safeguards and exact-profile delegation, preserving both source histories and Review checklist behavior.
+
+## 0.11.0-beta.3.vorteo.312 - 2026-10-11
+
+### Maintenance
+
+- Integrate shared sidebar synchronization with the published source, retaining the Nova bridge workspace and dependencies, native Factory grouping, Review checklist capability, and published interface changes. Preserve both source histories and resolve release metadata explicitly.
+
+## 0.11.0-beta.3.vorteo.296 - 2026-10-11
+
+### Maintenance
+
+- Update sidebar drag acceptance coverage to use the current row layout without relying on removed scrim elements or opening branch popovers. Disconnect the test WebSocket explicitly to verify offline recovery.
+
+## 0.11.0-beta.3.vorteo.295 - 2026-10-11
+
+### Added
+
+- Synchronize project order, workspace and pinned order, expanded sidebar sections, grouping and filters across connected devices through the Host daemon.
+- Retain offline sidebar edits until reconnect, preserve unrelated changes from other devices, and show synchronization failures with Retry.
+
+### Maintenance
+
+- Validate durable shared state, first-device initialization, stale-cache reconnects, queued edits, and independent client updates. Keep automatic local reconciliation out of shared user edits.
+
+## 0.11.0-beta.3.vorteo.313 - 2026-10-11
+
+### Fixed
+
+- Keep canceled Nova subscriptions canceled when callback verification finishes late, including cached refreshes and concurrent attempts.
+- Bound callback verification caching, signing-key overlap and complete UTF-8 webhook bodies; send factual event data without behavioral instructions.
+- Add subscription, signing and delivery boundary regressions. Live account connection and runtime activation remain separate.
+
+## 0.11.0-beta.3.vorteo.312 - 2026-10-11
+
+### Fixes
+
+- Forward exact launch profiles through Host-to-Dev task creation, retaining account checks and retry identity while rejecting model overrides.
+
+## 0.11.0-beta.3.vorteo.311 - 2026-10-11
+
+### Fixes
+
+- Let trusted Host requests require owner review and preserve that requirement through source repairs, retries and recovery. Refuse unsupported clients before submission.
+
+## 0.11.0-beta.3.vorteo.310 - 2026-10-11
+
+### Maintenance
+
+- Integrate workspace chooser geometry with shared-profile compatibility and timeline recovery, preserving both complete release histories.
+
+## 0.11.0-beta.3.vorteo.309 - 2026-10-11
+
+### Maintenance
+
+- Integrate isolated goal and checklist RPC setup while retaining the newer Review compatibility assertions and complete source history.
+
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Integrate validated shared-model compatibility and timeline catch-up with the published interface, monitor workflow and private bridge, preserving every historical release entry.
+
+## 0.11.0-beta.3.vorteo.308 - 2026-10-11
+
+### Maintenance
+
+- Give the profile column a distinct browser test identifier so workspace geometry checks preserve existing profile-card checks
+
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Maintenance
+
+- Preserve the published Factory and Review interface alongside tracked monitor maintenance, the private Nova bridge and both source histories.
+
+## 0.11.0-beta.3.vorteo.307 - 2026-10-11
+
+### Changed
+
+- Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
+
 ## 0.11.0-beta.3.vorteo.306 - 2026-10-11
 
 ### Added
@@ -30,6 +220,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Document preview isolation, appearance conventions and delivery checks. iOS 27 Debug and Release startup and custom links pass simulator checks; physical-device visual and notification acceptance remain open. Installed goal recovery still needs daemon delivery and verification.
+
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Prepare and review exact preview-monitor replacements through the installation coordinator, retaining displaced bytes and fencing uncertain outcomes.
+- Negotiate monitor configuration review with older clients while preserving cancellation and exact approval checks.
+
+### Fixed
+
+- Recognize managed supervisor and Node worker identity when the preview monitor checks the Dev daemon.
 
 ## 0.11.0-beta.3.vorteo.305 - 2026-10-11
 
@@ -77,6 +278,25 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Keep journal visibility test entries outside the viewport after widening the text area.
 
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Added
+
+- Add a private Nova bridge package for scoped Host and Dev tools, durable operation receipts and proactive event delivery. Runtime activation and account acceptance remain separate.
+
+### Fixed
+
+- Record top-level agent-tool prompts with canonical machine origin and message IDs while preserving owner-authored message evidence.
+
+## 0.11.0-beta.3.vorteo.301 - 2026-10-11
+
+### Fixed
+
+- Choose a shared profile default supported by every included environment, preserving saved models and aliases with compatibility warnings.
+- Catch up missing response chunks after an empty timeline bootstrap instead of accepting a later chunk as the beginning.
+
+- Resolve saved model aliases consistently in shared profile lists and Host/Dev account pickers without rewriting the saved reference.
+
 ## 0.11.0-beta.3.vorteo.300 - 2026-10-11
 
 ### Maintenance
@@ -94,6 +314,18 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Preserve installed workspace profile defaults while integrating compact card headers.
+
+## 0.11.0-beta.3.vorteo.299 - 2026-10-11
+
+### Changed
+
+- Hide workspace row overflow buttons on touch devices and use vertical overflow icons throughout the app.
+- Share workspace management actions between sidebar and title menus, retaining Factory controls, protection, labels, import and setup actions.
+- Explain Dev delivery options in agent instructions and invite owners to move build tasks to Host for live interface previews.
+
+### Maintenance
+
+- Exercise desktop menu parity and compact title actions, and restore pane viewing before the read-state test checks ordinary completion on departure.
 
 ## 0.11.0-beta.3.vorteo.298 - 2026-10-11
 
@@ -162,6 +394,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Preserve the installed Host update and both release histories while integrating the optional icon-cache startup fix.
+
+## 0.11.0-beta.3.vorteo.295 - 2026-10-11
+
+### Maintenance
+
+- Isolate fresh-home checklist and goal RPC tests from inherited installation launcher configuration, restoring standalone test admission without changing production guards. All three RPC tests pass; reconnect coverage does not establish daemon restart continuity.
 
 ## 0.11.0-beta.3.vorteo.294 - 2026-10-11
 

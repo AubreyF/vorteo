@@ -1,3 +1,4 @@
+import { SidebarStateChangeSchema, SidebarStateSnapshotSchema } from "./sidebar-state.js";
 import {
   AgentTaskItemSchema,
   ChecklistGetRequestSchema,
@@ -1785,6 +1786,24 @@ export const AgentSkillsImportLegacySelectionRequestSchema = z
   })
   .strict();
 
+export const SidebarStateReadRequestSchema = z.object({
+  type: z.literal("sidebar.state.read.request"),
+  requestId: z.string(),
+});
+export const SidebarStateChangeRequestSchema = z.object({
+  type: z.literal("sidebar.state.change.request"),
+  requestId: z.string(),
+  change: SidebarStateChangeSchema,
+});
+export const SidebarStateReadResponseSchema = z.object({
+  type: z.literal("sidebar.state.read.response"),
+  payload: z.object({ requestId: z.string(), snapshot: SidebarStateSnapshotSchema }),
+});
+export const SidebarStateChangeResponseSchema = z.object({
+  type: z.literal("sidebar.state.change.response"),
+  payload: z.object({ requestId: z.string(), snapshot: SidebarStateSnapshotSchema }),
+});
+
 export const GetDaemonConfigRequestMessageSchema = z.object({
   type: z.literal("get_daemon_config_request"),
   requestId: z.string(),
@@ -3456,6 +3475,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentSkillsUninstallRequestSchema,
   AgentSkillsSaveSelectionRequestSchema,
   AgentSkillsImportLegacySelectionRequestSchema,
+  SidebarStateReadRequestSchema,
+  SidebarStateChangeRequestSchema,
   GetDaemonConfigRequestMessageSchema,
   SetDaemonConfigRequestMessageSchema,
   ReadProjectConfigRequestMessageSchema,
@@ -3929,9 +3950,14 @@ export const ServerInfoStatusPayloadSchema = z
         agentDetach: z.boolean().optional(),
         agentGoals: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
+        // Optional diagnostic for clients that can explain unavailable maintenance.
+        coordinatorBootstrapUnavailableReason: z.string().optional(),
         // COMPAT(factoryRuntimeAdoption): v0.11.0-beta.3.vorteo.285 request review opt-in.
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
+        coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
+        coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: z.boolean().optional(),
         // COMPAT(daemonDiagnostics): added in v0.1.100, remove gate after 2026-12-25 once daemon floor >= v0.1.100.
@@ -3948,6 +3974,7 @@ export const ServerInfoStatusPayloadSchema = z
         agentTaskSnapshots: z.boolean().optional(),
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
+        sidebarState: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
@@ -7294,6 +7321,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   HubManagementDaemonDisconnectResponseSchema,
   HubManagementDaemonPermissionsUpdateResponseSchema,
   DiagnosticsResponseSchema,
+  SidebarStateReadResponseSchema,
+  SidebarStateChangeResponseSchema,
   GetDaemonConfigResponseMessageSchema,
   SetDaemonConfigResponseMessageSchema,
   ReadProjectConfigResponseMessageSchema,

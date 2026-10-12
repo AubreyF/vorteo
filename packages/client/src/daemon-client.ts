@@ -1,3 +1,4 @@
+import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
 import type {
   CoordinatorBootstrapPreparation,
   CoordinatorBootstrapDecision,
@@ -3797,6 +3798,8 @@ export class DaemonClient {
   private bootstrapReviewCapabilities(): {
     factoryRuntimeAdoption?: true;
     compatibleRecovery?: true;
+    previewMonitor?: true;
+    sourceUpdateTooling?: true;
   } {
     const features = this.lastServerInfoMessage?.features;
     return {
@@ -3805,6 +3808,12 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapCompatibleRecovery === true
         ? { compatibleRecovery: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapPreviewMonitor === true
+        ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapSourceUpdateTooling === true
+        ? { sourceUpdateTooling: true as const }
         : {}),
     };
   }
@@ -3829,6 +3838,16 @@ export class DaemonClient {
     input: CoordinatorBootstrapPreparation,
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
+    if (
+      input.plan.sourceUpdateTooling === true &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
+    )
+      throw new Error("Update the Host before preparing source update tooling selection.");
+    if (
+      input.plan.previewMonitorConfiguration !== undefined &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapPreviewMonitor !== true
+    )
+      throw new Error("Update the Host before preparing preview monitor configuration.");
     if (
       input.plan.compatibleRecovery &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapCompatibleRecovery !== true
@@ -5626,6 +5645,28 @@ export class DaemonClient {
       this.lastServerInfoMessage?.features?.skillLibrary !== true
     )
       throw new Error("Update this environment before saving profile skill policies.");
+  }
+
+  async readSidebarState() {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.read.request" },
+      responseType: "sidebar.state.read.response",
+    });
+  }
+
+  async changeSidebarState(change: SidebarStateChange) {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.change.request", change },
+      responseType: "sidebar.state.change.response",
+    });
+  }
+
+  private requireSidebarState(): void {
+    if (this.lastServerInfoMessage?.features?.sidebarState !== true) {
+      throw new Error("Update the host to synchronize sidebar state.");
+    }
   }
 
   async patchDaemonConfig(

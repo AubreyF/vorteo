@@ -1,5 +1,14 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import {
+  createPublicationBinding,
+  publicationBindingPath,
+  readPublicationBinding,
+  readLiveState,
+  retainPublicationSource,
+  verifyPublicationSource,
+} from "./instance-web-artifact.mjs";
 import { promisify, parseArgs } from "node:util";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import {
@@ -587,6 +596,98 @@ export function assertContainerProfileLauncher({ expected, supervisor, worker })
   }
 }
 
+/** Bind static publication to the existing protected source configuration; no activation. */
+export async function configureWebSource(planFile) {
+  const input = JSON.parse(readFileSync(planFile, "utf8"));
+  if (!path.isAbsolute(input.configFile) || !path.isAbsolute(input.docker))
+    throw new Error("Use absolute protected config and trusted Host Docker executable paths");
+  const configFile = await fs.realpath(input.configFile);
+  const original = await fs.readFile(configFile, "utf8");
+  const config = JSON.parse(original);
+  const settings = config.sourceUpdates;
+  if (!settings)
+    throw new Error("Host source updates must have a prepared protected configuration");
+  const binding = await createPublicationBinding({
+    destination: settings.webDirectory,
+    sourceRepository: settings.sourceRepository,
+    integrationRef: settings.integrationRef,
+  });
+  if ((await fs.realpath(config.webDistDir)) !== binding.webDirectory)
+    throw new Error("Configured interface and source update publication directories disagree");
+  const bindingFile = publicationBindingPath(binding.webDirectory);
+  const parent = path.dirname(bindingFile);
+  const mountRoots = await writableBindRoots(input.docker);
+  assertProtectedPaths(
+    [
+      configFile,
+      binding.webDirectory,
+      parent,
+      binding.sourceRepository,
+      binding.gitDirectory,
+      binding.commonDirectory,
+    ],
+    mountRoots,
+  );
+  for (const file of [configFile, parent]) {
+    const stat = await fs.stat(file);
+    if (stat.mode & 0o022 || stat.uid !== process.getuid())
+      throw new Error("Publication config and binding parent must be protected and Host-owned");
+  }
+  const lock = path.join(binding.webDirectory, ".publish-lock");
+  await fs.mkdir(lock); // Share the publisher lock, including during first binding.
+  const temporary = `${bindingFile}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(
+      path.join(lock, "owner.json"),
+      JSON.stringify({
+        pid: process.pid,
+        host: os.hostname(),
+        startedAt: new Date().toISOString(),
+        operation: "bind-source",
+      }),
+    );
+    const previous = await readPublicationBinding(binding.webDirectory);
+    if (previous && Object.keys(binding).some((key) => previous[key] !== binding[key]))
+      throw new Error("Conflicting protected publication binding; explicit migration required");
+    const live = await readLiveState(binding.webDirectory);
+    if (!live.release?.sourceCommit || live.release.integrationRef !== binding.integrationRef)
+      throw new Error("Adopt and verify the current interface source before binding publication");
+    await verifyPublicationSource({
+      repository: input.repository,
+      sourceCommit: live.release.sourceCommit,
+      requireComplete: true,
+    });
+    await retainPublicationSource({
+      binding,
+      repository: input.repository,
+      sourceCommit: live.release.sourceCommit,
+    });
+    if ((await fs.readFile(configFile, "utf8")) !== original)
+      throw new Error("Protected source configuration changed during publication setup");
+    if (!previous) {
+      const file = await fs.open(temporary, "wx", 0o600);
+      try {
+        await file.writeFile(JSON.stringify(binding, null, 2) + "\n");
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      await fs.link(temporary, bindingFile); // Add only; never overwrite an existing binding.
+    }
+    // Matching retries also reconcile uncertain persistence after an earlier link or sync failure.
+    const directory = await fs.open(parent, "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+    return { bindingFile, sourceCommit: live.release.sourceCommit };
+  } finally {
+    await fs.rm(temporary, { force: true });
+    await fs.rm(lock, { recursive: true, force: true });
+  }
+}
+
 /** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
 export async function configureContainerUpdates(planFile) {
   const input = JSON.parse(readFileSync(planFile, "utf8"));
@@ -825,11 +926,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
     options: { plan: { type: "string" }, root: { type: "string" } },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
+  else if (positionals[0] === "configure-web-source" && values.plan)
+    process.stdout.write(JSON.stringify(await configureWebSource(values.plan)) + "\n");
   else if (positionals[0] === "configure-dev-updates" && values.plan)
     await configureContainerUpdates(values.plan);
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates --plan <private-plan.json> or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json> or status/remove --root <installation-root>",
     );
 }

@@ -11,7 +11,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { usePresetData } from "./use-preset-data";
 import type { AgentProfilePicker } from "./internal/use-agent-profile-picker";
 import { useAgentProfiles } from "./internal/use-agent-profiles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { RemainingRing } from "@/provider-usage/remaining-ring";
 import { useCompactProfileName } from "./use-compact-profile-name";
@@ -253,7 +253,7 @@ export function PresetControls({
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  inline: { height: 260, width: "100%" },
+  inline: { height: NEW_WORKSPACE_CARD_HEIGHT, width: "100%" },
   inlineCompact: { height: 340, width: "100%" },
   touchControls: { flex: 1, flexWrap: "nowrap" },
   centerControls: { justifyContent: "center", marginHorizontal: 8 },

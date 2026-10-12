@@ -6,7 +6,7 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useMutation } from "@tanstack/react-query";
 import type { PluginListItem, PluginLogEntry } from "@getpaseo/protocol/messages";
-import { MoreHorizontal, Trash2 } from "lucide-react-native";
+import { MoreVertical, Trash2 } from "lucide-react-native";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { SettingsCard, SettingsRow } from "@/components/settings";
 import { Alert } from "@/components/ui/alert";
@@ -80,7 +80,7 @@ function PluginActionsMenu({
         hitSlop={8}
         style={styles.menuButton}
       >
-        <MoreHorizontal size={18} color={styles.menuIcon.color} />
+        <MoreVertical size={18} color={styles.menuIcon.color} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" width={220} sheetTitle={menuLabel}>
         <PluginSettingsMenuItems serverId={serverId} pluginId={plugin.id} disabled={pending} />

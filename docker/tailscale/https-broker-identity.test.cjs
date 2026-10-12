@@ -8,6 +8,31 @@ const code = source
   .split("    def daemon_identity(self):")[1]
   .split('code = r"""')[1]
   .split('"""')[0];
+
+test("preview monitor uses the same bounded identity contract as the broker", () => {
+  const monitor = fs.readFileSync(path.join(__dirname, "paseo-preview.mjs"), "utf8");
+  const start = monitor.indexOf("function daemonIdentity() {");
+  const end = monitor.indexOf("function config(entry) {", start);
+  let calls = 0;
+  const context = {
+    process: { execPath: "/reviewed/node" },
+    execFileSync: (executable, args, options) => {
+      calls++;
+      assert.equal(executable, "/reviewed/node");
+      assert.deepEqual(Array.from(args), ["-e", code]);
+      assert.deepEqual(JSON.parse(JSON.stringify(options)), {
+        encoding: "utf8",
+        timeout: 10000,
+        maxBuffer: 4096,
+      });
+      return "boot-fixture:101:1001\n";
+    },
+  };
+  vm.createContext(context);
+  const identity = vm.runInContext(monitor.slice(start, end) + "\ndaemonIdentity()", context);
+  assert.equal(identity, "boot-fixture:101:1001");
+  assert.equal(calls, 1);
+});
 function fixture(managed = true) {
   const home = "/fixture/home",
     root = "/fixture/releases",

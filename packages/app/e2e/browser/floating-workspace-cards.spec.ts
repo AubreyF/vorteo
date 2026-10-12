@@ -75,10 +75,13 @@ test("Files and Changes share the floating conversation card group", async ({ pa
     await expect(group).toBeVisible();
     await expect(group.getByTestId("agent-task-progress-card")).toBeVisible();
     const files = group.getByTestId("supporting-card-files");
+    const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
     if (!(await files.isVisible())) {
-      await page.getByTestId("workspace-explorer-toggle").first().click();
+      // The sidebar toggle controls the whole group; Files/Changes commands reveal cards.
+      await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
     }
     await expect(files).toBeVisible();
+    await page.keyboard.press(mac ? "Meta+Shift+G" : "Control+Shift+G");
     await expect(group.getByTestId("supporting-card-changes_tree")).toBeVisible();
     await expect(page.getByTestId("workspace-explorer-sidebar")).toHaveCount(0);
     const toggle = files.getByTestId("supporting-card-files-toggle");
@@ -98,9 +101,16 @@ test("Files and Changes share the floating conversation card group", async ({ pa
         border: style.borderColor,
       };
     });
-    await expect(group).toHaveCSS("background-color", chrome.background);
-    await expect(group).toHaveCSS("border-radius", chrome.radius);
-    await expect(group).toHaveCSS("border-color", chrome.border);
+    await expect(group).toHaveCSS("border-width", "0px");
+    for (const card of [
+      group.getByTestId("agent-task-progress-card"),
+      files,
+      group.getByTestId("supporting-card-changes_tree"),
+    ]) {
+      await expect(card).toHaveCSS("background-color", chrome.background);
+      await expect(card).toHaveCSS("border-radius", chrome.radius);
+      await expect(card).toHaveCSS("border-color", chrome.border);
+    }
     const bounds = await group.boundingBox();
     expect(bounds).not.toBeNull();
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1892);

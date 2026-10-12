@@ -59,6 +59,15 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).click();
   await expect(page.getByTestId("workspace-header-copy-path")).toBeVisible();
   await expect(page.getByTestId("workspace-split-pane-right")).toBeVisible();
+  await page.getByTestId("workspace-header-labels").click();
+  await expect(page.getByTestId("workspace-label-picker-create")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).click();
+  await page.getByTestId("workspace-header-rename").click();
+  await expect(page.getByTestId("workspace-header-rename-modal-input")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).click();
+  await expect(page.getByTestId("workspace-header-copy-path")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByTestId("workspace-explorer-toggle").click();
   await expect(cards).toBeVisible();
@@ -160,7 +169,8 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
     expect(bounds!.y).toBe(toolbarBounds[0]!.y);
   }
   const tasks = await page.getByTestId("agent-task-progress-card").boundingBox();
-  expect(tasks!.y).toBe(toolbarBounds[0]!.y + toolbarBounds[0]!.height);
+  // Animated transforms can retain subpixel floating-point residue at rest.
+  expect(tasks!.y).toBeCloseTo(toolbarBounds[0]!.y + toolbarBounds[0]!.height, 3);
   await expect(page.getByTestId("workspace-supporting-cards")).toHaveCSS("border-width", "0px");
   const headerRule = await page.getByTestId("screen-header").evaluate((node) =>
     [...node.querySelectorAll("div")].some((child) => {

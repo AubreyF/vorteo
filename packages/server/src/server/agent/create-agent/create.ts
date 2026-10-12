@@ -570,9 +570,8 @@ async function resolveMcpCreateAgent(
       env: input.env,
     },
     prompt: trimmedPrompt ? trimmedPrompt : undefined,
-    ...(input.callerAgentId
-      ? { runOptions: { origin: "agent" as const, clientMessageId: randomUUID() } }
-      : {}),
+    // MCP provenance does not depend on having a parent agent.
+    runOptions: { origin: "agent", clientMessageId: randomUUID() },
     setupContinuation,
     createdWorktree,
     background: input.background,

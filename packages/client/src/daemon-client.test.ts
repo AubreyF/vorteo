@@ -9,6 +9,7 @@ import {
   type DaemonTransport,
   type Logger,
 } from "./daemon-client";
+import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
 import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import {
@@ -8206,6 +8207,7 @@ test.each([false, true])(
           ? {
               coordinatorBootstrapFactoryAdoption: true,
               coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
             }
           : {}),
       },
@@ -8215,6 +8217,7 @@ test.each([false, true])(
     const listed = parseSentFrame(mock.sent[0]);
     expect(listed.factoryRuntimeAdoption).toBe(supported ? true : undefined);
     expect(listed.compatibleRecovery).toBe(supported ? true : undefined);
+    expect(listed.previewMonitor).toBe(supported ? true : undefined);
     mock.triggerMessage(
       wrapSessionMessage({
         type: "installation.bootstrap.list_requests.response",
@@ -8222,6 +8225,16 @@ test.each([false, true])(
       }),
     );
     await expect(listing).resolves.toEqual([]);
+    const preparing = client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation());
+    const prepared = parseSentFrame(mock.sent[1]);
+    expect(prepared.previewMonitor).toBe(supported ? true : undefined);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: prepared.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(preparing).resolves.toEqual([]);
     const input = {
       id: "00000000-0000-4000-8000-000000000001",
       revision: "00000000-0000-4000-8000-000000000002",
@@ -8229,13 +8242,15 @@ test.each([false, true])(
       decision: "approve" as const,
     };
     const decision = client.decideCoordinatorBootstrap(input, "fixture-owner-proof");
-    const sent = parseSentFrame(mock.sent[1]);
+    const sent = parseSentFrame(mock.sent[2]);
     expect(sent).toEqual({
       type: "installation.bootstrap.decide.request",
       requestId: expect.any(String),
       input,
       ownerPassword: "fixture-owner-proof",
-      ...(supported ? { factoryRuntimeAdoption: true, compatibleRecovery: true } : {}),
+      ...(supported
+        ? { factoryRuntimeAdoption: true, compatibleRecovery: true, previewMonitor: true }
+        : {}),
     });
     const rejected = expect(decision).rejects.toThrow();
     mock.triggerClose({ code: 1006 });
@@ -8248,6 +8263,7 @@ test.each([false, true])(
           ? {
               coordinatorBootstrapFactoryAdoption: true,
               coordinatorBootstrapCompatibleRecovery: true,
+              coordinatorBootstrapPreviewMonitor: true,
             }
           : {}),
       },
@@ -8412,4 +8428,186 @@ test("rejects project-bound workspace creation before sending to an older daemon
     }),
   ).rejects.toThrow("Update this environment");
   expect(mock.sent).toEqual([]);
+});
+
+function bootstrapMonitorPreparation(change?: "enable" | "remove") {
+  const file = { path: "/protected/file", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    directory: "/protected/release",
+    artifactSha256: "c".repeat(64),
+    node: file,
+    entrypoint: file,
+    configuration: file,
+    launcher: file,
+  };
+  const monitor = {
+    docker: "/protected/docker",
+    socket: "/protected/docker.sock",
+    containerId: "d".repeat(64),
+    home: "/home/paseo",
+    worker: file,
+    recovery: { node: file, journal: file, queue: file },
+  };
+  return CoordinatorBootstrapPreparationSchema.parse({
+    id: "00000000-0000-4000-8000-000000000001",
+    reason: "Prepare monitor configuration",
+    plan: {
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: "00000000-0000-4000-8000-000000000002",
+      service: "gui/501/local.vorteo.fixture.installation",
+      expectedProcess: {
+        pid: 123,
+        bootId: "boot",
+        startIdentity: "start",
+        argumentsSha256: "e".repeat(64),
+      },
+      previous: release,
+      candidate: release,
+      state: {
+        directory: "/protected/state",
+        restartJournal: "/protected/state/restarts.json",
+        ownerSessions: "/protected/state/owners.json",
+      },
+      hostRequestsAfter: null,
+      ...(change ? { previewMonitorConfiguration: change === "remove" ? null : monitor } : {}),
+    },
+  });
+}
+
+test.each(["enable", "remove"] as const)(
+  "bootstrap monitor %s preparation refuses an older Host before transmission",
+  async (change) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-monitor",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+    await connecting;
+    await expect(
+      client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation(change)),
+    ).rejects.toThrow("Update the Host");
+    expect(mock.sent).toEqual([]);
+  },
+);
+
+test.each(["enable", "remove"] as const)(
+  "bootstrap monitor %s preparation sends reviewed change with advertised opt-in",
+  async (change) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-monitor",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = bootstrapMonitorPreparation(change);
+    const preparing = client.prepareCoordinatorBootstrap(input);
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toEqual({
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      previewMonitor: true,
+      input,
+    });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(preparing).resolves.toEqual([]);
+  },
+);
+
+test("source tooling preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing source update tooling",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("source tooling advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "source-tooling",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapSourceUpdateTooling: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.sourceUpdateTooling = true;
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      sourceUpdateTooling: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
 });
