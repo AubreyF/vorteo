@@ -463,3 +463,5 @@ Integration review: retained exact reviewed profile, alias and timeline implemen
 Continuity integration review: retained the Review status RPC assertions while isolating fresh test homes from inherited installation configuration. Production admission remains unchanged. These checks establish RPC and reconnect behavior, not daemon replacement acceptance.
 
 Maintenance integration preserves the published responsive sidebar and stable workspace transitions alongside the automatic daemon maintenance preference. Coordinator delivery and owner activation remain separate from source integration.
+
+Release metadata correction restores complete entry history from both interface integration parents. The installed coordinator reader verifies historical entries and duplicate counts before source delivery. Runtime behavior is unchanged.
