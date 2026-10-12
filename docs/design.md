@@ -401,3 +401,5 @@ Long question prompts and navigation belong in the body beneath the fixed Questi
 ### Journal cards
 
 Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.
+
+Maintenance that is awaiting dispatch or running belongs in compact two-line status rows at the bottom of the left sidebar. Keep a spinner on the left and Review on the right. Approval and recovery notices remain floating and dismissible; dismissing a notice does not cancel its request. Queued messages stays last in the supporting card group, after Files and Changes.

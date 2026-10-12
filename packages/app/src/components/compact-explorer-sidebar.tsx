@@ -417,6 +417,7 @@ function ExplorerSidebarContent({
               ) : null}
             </ExplorerViewCard>
           ) : null}
+          {cardHostName ? <PortalHost name={`${cardHostName}:queue`} /> : null}
         </CardColumn>
       </View>
     </View>

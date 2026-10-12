@@ -798,9 +798,13 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
-test("maintenance toasts retain exact review links and scroll outside the sidebar", async ({
+test("passive maintenance stays in the sidebar and actionable notices can be dismissed", async ({
   page,
 }, testInfo) => {
+  test.skip(
+    testInfo.project.name === "phone",
+    "Sidebar placement uses the desktop sidebar; compact actions have separate coverage.",
+  );
   test.setTimeout(180_000);
   const width = testInfo.project.name === "phone" ? 390 : 1440;
   await page.setViewportSize({ width, height: 600 });
@@ -866,51 +870,44 @@ test("maintenance toasts retain exact review links and scroll outside the sideba
         ).json(),
       );
       jobs.push(job.id);
+      if (jobs.length === 1) {
+        const floating = page
+          .getByTestId("installation-update-toasts")
+          .getByTestId(`restart-notice-${job.id}`);
+        await expect(
+          floating.getByRole("button", { name: "Review restart", exact: true }),
+        ).toBeVisible();
+        await floating.screenshot({ path: testInfo.outputPath("actionable-maintenance.png") });
+        await floating.getByRole("button", { name: "Dismiss", exact: true }).click();
+        await expect(floating).toHaveCount(0);
+        const afterDismiss = RestartJobSchema.parse(
+          await (
+            await fetch(`${origin}/api/installation/restart-requests/${job.id}`, {
+              headers: { Authorization: `Bearer ${guestToken}` },
+            })
+          ).json(),
+        );
+        expect(afterDismiss.status).toBe("pending");
+      }
       const response = await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
         revision: job.revision,
         decision: "approve-when-idle",
       });
       expect(response.status).toBe(200);
     }
-    const banner = page.getByTestId("installation-restart-banner").filter({ visible: true });
+    const sidebar = page.getByTestId("settings-sidebar");
+    const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.getByRole("alert");
+    const cards = banner.locator('[data-testid^="restart-notice-"]');
     await expect(cards).toHaveCount(2);
-    await expect(cards.first()).toHaveCSS("border-top-width", "1px");
-    await expect(cards.last()).toHaveCSS("border-top-width", "1px");
-    const stack = page.getByTestId("installation-update-toasts");
-    const scroll = page.getByTestId("installation-update-toasts-scroll");
-    await expect(stack.getByTestId("installation-restart-banner")).toHaveCount(1);
-    await expect(
-      page.getByTestId("settings-sidebar").getByTestId("installation-restart-banner"),
-    ).toHaveCount(0);
-    const bounds = await stack.boundingBox();
-    if (!bounds) throw new Error("Missing maintenance toast bounds");
-    expect(bounds.x + bounds.width).toBeCloseTo(width - 16, 0);
-    expect(bounds.y + bounds.height).toBeCloseTo(width < 640 ? 520 : 584, 0);
-    expect(bounds.height).toBeLessThanOrEqual(270);
-    const overflow = await scroll.evaluate(
-      (element) => element.scrollHeight - element.clientHeight,
-    );
-    expect(overflow).toBeGreaterThan(0);
-    for (const fraction of [0, 0.5, 1]) {
-      await scroll.evaluate((element, scrollTop) => {
-        element.scrollTop = scrollTop;
-      }, overflow * fraction);
-      await expect
-        .poll(async () =>
-          Math.abs((await scroll.evaluate((element) => element.scrollTop)) - overflow * fraction),
-        )
-        .toBeLessThanOrEqual(0.5);
-      expect(await stack.boundingBox()).toEqual(bounds);
-      await stack.screenshot({
-        path: testInfo.outputPath(`restart-banner-scroll-${fraction}.png`),
-      });
+    for (const card of await cards.all()) {
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);
+      await expect(card.getByRole("progressbar")).toBeVisible();
     }
-    const firstCardBounds = await cards.first().boundingBox();
-    if (!firstCardBounds) throw new Error("Missing restart card bounds");
-    expect(firstCardBounds.y).toBeLessThan(bounds.y);
+    const stack = page.getByTestId("installation-update-toasts");
+    await expect(stack.locator('[data-testid^="restart-notice-"]')).toHaveCount(0);
+    await sidebar.screenshot({ path: testInfo.outputPath("compact-passive-maintenance.png") });
     await cards
       .filter({ hasText: "Host daemon restart queued" })
       .getByRole("button", { name: "Review restart", exact: true })

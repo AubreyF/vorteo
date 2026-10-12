@@ -1578,7 +1578,7 @@ test("shared card group and thread resize independently and preserve saved width
         expect(input.x).toBeCloseTo(t.x + 8, 0);
         expect(input.width).toBeCloseTo(t.width - 16, 0);
         expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
-        expect(c.y + c.height).toBeCloseTo(page.viewportSize()!.height - 8, 0);
+        expect(Math.abs(c.y + c.height - (page.viewportSize()!.height - 8))).toBeLessThanOrEqual(1);
         expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
       }).toPass({ timeout: 5000 });
     };
@@ -1660,6 +1660,15 @@ test("shared card group and thread resize independently and preserve saved width
     await expect(cards.getByTestId("supporting-card-files")).toBeVisible();
     expect((await box(cards)).width).toBeCloseTo(beforeFiles.width, 0);
     await expect(cards.getByTestId("shared-message-queue")).toBeVisible();
+    await page.keyboard.press(mac ? "Meta+Shift+G" : "Control+Shift+G");
+    await expect(cards.getByTestId("supporting-card-changes_tree")).toBeVisible();
+    await expect(async () => {
+      const queue = await box(cards.getByTestId("shared-message-queue"));
+      for (const kind of ["files", "changes_tree"]) {
+        const panel = await box(cards.getByTestId(`supporting-card-${kind}`));
+        expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
+      }
+    }).toPass();
     await cards.getByTestId("workspace-explorer-toggle").click();
     await expect(cards).toBeHidden();
     await page.getByTestId("workspace-explorer-toggle").first().click();

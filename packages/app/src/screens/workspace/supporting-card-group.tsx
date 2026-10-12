@@ -38,6 +38,7 @@ export function SupportingCardGroup({
           <RetainedPanel active={supportingVisible} style={supportingStyle}>
             {children}
           </RetainedPanel>
+          <PortalHost name={`${hostName}:queue`} />
         </CardColumn>
       </View>
       {resizeHandle}
