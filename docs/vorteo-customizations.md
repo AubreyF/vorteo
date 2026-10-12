@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Workspace rows place trailing icons four pixels closer to the right edge in both project and status groupings. Project rows use a 4px right inset on desktop and touch layouts; status rows use 8px.
+
 Vorteo has no focus mode. Sidebar visibility and split-pane maximize controls remain explicit; the former focus-mode shortcut and palette command are removed. Upgrades discard its saved state without resetting other panel preferences.
 
 Workspace transition stability: desktop cards retain their right-hand portal destination before shell measurement and while hidden. Initial geometry comes from the viewport and effective navigation width; zero-sized retained measurements cannot trigger inline placement. Card motion animates height and opacity only; reactivation never interpolates a hidden zero rectangle into screen coordinates. Hidden body measurements retain their previous demand. Factory history admission correction and canonical c19f ancestry remain included.
