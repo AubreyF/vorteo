@@ -168,3 +168,165 @@ export type CoordinatorBootstrapOutbound = z.infer<
   | typeof CoordinatorBootstrapPrepareResponseSchema
   | typeof CoordinatorBootstrapDecideResponseSchema
 >;
+
+// Separate recovery records leave historical bootstrap requests readable by old hosts.
+export const BootstrapProcessIdentitySchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().positive(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().uuid(),
+  startIdentity: z.string().regex(/^\d+:\d+$/),
+  argumentsSha256: DigestSchema,
+  executable: z.string().startsWith("/"),
+});
+export const BootstrapAuditedProcessSchema = z.strictObject({
+  identity: BootstrapProcessIdentitySchema,
+  auditToken: z.array(z.number().int().min(0).max(0xffffffff)).length(8),
+});
+export const BootstrapPreclaimRecoveryPlanSchema = z.strictObject({
+  version: z.literal(1),
+  operation: z.literal("bootstrap-preclaim-recovery"),
+  original: CoordinatorBootstrapRequestSchema,
+  canceled: CoordinatorBootstrapRequestSchema,
+  ownerCancellation: CoordinatorBootstrapRequestSchema.optional(),
+  originalApproval: FileIdentitySchema.optional(),
+  executor: BootstrapAuditedProcessSchema,
+  hostProcess: BootstrapProcessIdentitySchema,
+  coordinatorProcess: BootstrapProcessIdentitySchema,
+  retainedObservation: FileIdentitySchema.optional(),
+  setup: FileIdentitySchema,
+  ownerLauncher: FileIdentitySchema,
+  runner: ReleaseIdentitySchema,
+  executorEntrypoint: FileIdentitySchema,
+  selectedLauncher: FileIdentitySchema,
+  selectedConfiguration: FileIdentitySchema,
+  executionLock: z.strictObject({
+    path: AbsolutePathSchema,
+    device: z.string().regex(/^\d+$/),
+    inode: z.string().regex(/^\d+$/),
+  }),
+  signalPolicy: z.strictObject({
+    terminate: z.literal("SIGTERM"),
+    escalation: z.enum(["none", "SIGKILL"]),
+    graceSeconds: z.number().int().min(1).max(60),
+  }),
+});
+export type BootstrapPreclaimRecoveryPlan = z.infer<typeof BootstrapPreclaimRecoveryPlanSchema>;
+export const BootstrapPreclaimRecoveryRequestSchema = z.strictObject({
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  requestedBy: z.literal("host-agent"),
+  reason: z.string().min(1).max(4000),
+  createdAt: z.string().datetime(),
+  plan: BootstrapPreclaimRecoveryPlanSchema,
+  planSha256: DigestSchema,
+  status: z.enum(["pending", "approved", "canceled"]),
+  decisionAt: z.string().datetime().optional(),
+  execution: z
+    .strictObject({
+      generation: z.string().uuid(),
+      stage: z.enum([
+        "claimed",
+        "cancellation_fenced",
+        "effect_pending",
+        "verifying",
+        "succeeded",
+        "recovery_required",
+        "aborted_before_effects",
+      ]),
+      updatedAt: z.string().datetime(),
+    })
+    .optional(),
+});
+export type BootstrapPreclaimRecoveryRequest = z.infer<
+  typeof BootstrapPreclaimRecoveryRequestSchema
+>;
+
+// Read-only receipt observations never become part of the persisted approval.
+const PreclaimDispatchReferenceSchema = z.strictObject({
+  approvedRevision: z.string().uuid(),
+  attemptId: z.string().uuid(),
+});
+export const BootstrapPreclaimDispatchObservationSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("no_receipt") }),
+  z.strictObject({ state: z.literal("unavailable") }),
+  PreclaimDispatchReferenceSchema.extend({ state: z.literal("attempt_retained") }),
+  PreclaimDispatchReferenceSchema.extend({
+    state: z.literal("birth_retained"),
+    executor: BootstrapProcessIdentitySchema,
+  }),
+]);
+export type BootstrapPreclaimDispatchObservation = z.infer<
+  typeof BootstrapPreclaimDispatchObservationSchema
+>;
+export const BootstrapPreclaimRecoveryRequestViewSchema =
+  BootstrapPreclaimRecoveryRequestSchema.extend({
+    dispatch: BootstrapPreclaimDispatchObservationSchema.optional(),
+  });
+export type BootstrapPreclaimRecoveryRequestView = z.infer<
+  typeof BootstrapPreclaimRecoveryRequestViewSchema
+>;
+
+export const BootstrapPreclaimRecoveryPreparationSchema = z.strictObject({
+  id: z.string().uuid(),
+  reason: z.string().min(1).max(4000),
+  plan: BootstrapPreclaimRecoveryPlanSchema,
+});
+export type BootstrapPreclaimRecoveryPreparation = z.infer<
+  typeof BootstrapPreclaimRecoveryPreparationSchema
+>;
+export const BootstrapPreclaimObservationSchema = z.strictObject({
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  generation: z.string().uuid(),
+});
+export type BootstrapPreclaimObservation = z.infer<typeof BootstrapPreclaimObservationSchema>;
+
+export const BootstrapPreclaimRecoveryListRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.list_requests.request"),
+  requestId: z.string(),
+  ownerCanceledOriginal: z.literal(true).optional(),
+  reconcile: BootstrapPreclaimObservationSchema.optional(),
+});
+export const BootstrapPreclaimRecoveryPrepareRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.prepare.request"),
+  requestId: z.string(),
+  ownerCanceledOriginal: z.literal(true).optional(),
+  input: BootstrapPreclaimRecoveryPreparationSchema,
+});
+export const BootstrapPreclaimRecoveryDecideRequestSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.decide.request"),
+  requestId: z.string(),
+  ownerCanceledOriginal: z.literal(true).optional(),
+  input: CoordinatorBootstrapDecisionSchema,
+  preclaimRecovery: z.literal(true).optional(),
+  ownerPassword: z.string().min(1).max(1024),
+});
+const PreclaimRecoveryResultSchema = z.strictObject({
+  requestId: z.string(),
+  requests: z.array(BootstrapPreclaimRecoveryRequestViewSchema).nullable(),
+  error: z.string().nullable(),
+});
+export const BootstrapPreclaimRecoveryListResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.list_requests.response"),
+  payload: PreclaimRecoveryResultSchema,
+});
+export const BootstrapPreclaimRecoveryPrepareResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.prepare.response"),
+  payload: PreclaimRecoveryResultSchema,
+});
+export const BootstrapPreclaimRecoveryDecideResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap_recovery.decide.response"),
+  payload: PreclaimRecoveryResultSchema,
+});
+export type BootstrapPreclaimRecoveryInbound = z.infer<
+  | typeof BootstrapPreclaimRecoveryListRequestSchema
+  | typeof BootstrapPreclaimRecoveryPrepareRequestSchema
+  | typeof BootstrapPreclaimRecoveryDecideRequestSchema
+>;
+export type BootstrapPreclaimRecoveryOutbound = z.infer<
+  | typeof BootstrapPreclaimRecoveryListResponseSchema
+  | typeof BootstrapPreclaimRecoveryPrepareResponseSchema
+  | typeof BootstrapPreclaimRecoveryDecideResponseSchema
+>;

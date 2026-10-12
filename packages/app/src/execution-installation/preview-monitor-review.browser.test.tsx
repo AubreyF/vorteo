@@ -39,11 +39,6 @@ vi.mock("@/runtime/host-runtime", () => ({
   getHostRuntimeStore: () => ({ getHosts: () => [] }),
   useHostRegistryLoaded: () => true,
 }));
-vi.mock("./bootstrap-panel", () => ({
-  getBootstrapPanel: () => null,
-  BootstrapReview: () => null,
-  BootstrapBanner: () => null,
-}));
 vi.mock("expo-router", () => ({
   usePathname: () => "/settings/general",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),

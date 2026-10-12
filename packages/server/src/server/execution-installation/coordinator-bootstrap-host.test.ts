@@ -1077,6 +1077,7 @@ test.runIf(process.platform === "darwin")(
     expect(() => unavailable!.list()).toThrow("maintenance is unavailable");
     expect(bootstrapReviewFeatures(unavailable)).toEqual({
       coordinatorBootstrapReview: false,
+      coordinatorBootstrapPreclaimRecovery: false,
       coordinatorBootstrapFactoryAdoption: false,
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
@@ -1729,6 +1730,40 @@ test("background maintenance failure stays unavailable without leaking private e
   expect(service.unavailableReason).toContain("could not validate");
   expect(service.unavailableReason).not.toContain("private configuration bytes");
   expect(() => service.list()).toThrow("could not validate");
+});
+
+test("validated recovery readiness survives ordinary maintenance unavailability", async () => {
+  let actions = 0;
+  const unavailable = () => {
+    throw new Error("ordinary maintenance blocked");
+  };
+  const recovery = {
+    available: true,
+    list: () => [],
+    prepare: async () => {
+      actions++;
+      throw new Error("not requested");
+    },
+    decide: async () => {
+      actions++;
+      throw new Error("not requested");
+    },
+  };
+  const service = deferBootstrapReview(async () => ({
+    unavailableReason: "ordinary maintenance blocked",
+    list: unavailable,
+    prepare: async () => unavailable(),
+    decide: async () => unavailable(),
+    preclaimRecovery: recovery,
+  }));
+  expect(service.preclaimRecovery).toBeUndefined();
+  await vi.waitFor(() => expect(service.preclaimRecovery).toBe(recovery));
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: false,
+    coordinatorBootstrapPreclaimRecovery: true,
+  });
+  expect(service.preclaimRecovery!.list()).toEqual([]);
+  expect(actions).toBe(0);
 });
 
 test("absent background maintenance remains unadvertised after verification", async () => {
