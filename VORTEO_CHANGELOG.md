@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.329 - 2026-10-11
+
+### Fixed
+
+- Align all three workspace toolbars in Electron by reserving window-control clearance above the columns. Keep the minimal project rail at 64px on macOS.
+
+### Maintenance
+
+- Verified real Electron layout, theme and minimal-rail persistence, plus desktop and compact browser layout. Native window minimize acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.328 - 2026-10-11
 
 ### Fixed

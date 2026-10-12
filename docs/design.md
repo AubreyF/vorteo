@@ -40,6 +40,8 @@ tab strips share `styles/tab-shape.ts`: rounded top corners and square bottom co
 The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger
 sits after Settings at the right end of the left toolbar. All three desktop
 columns use the same 48px top toolbar, aligned to the floating panel inset.
+In Electron, reserve window-control clearance once above all three columns.
+The minimal project rail stays 64px wide because window controls sit above it.
 The right toolbar holds workspace actions, including Create PR, and the
 workspace menu. When that panel is collapsed, those actions remain available
 through the central controls. Workspace menu items join the existing pane

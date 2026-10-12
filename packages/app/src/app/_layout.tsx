@@ -39,6 +39,7 @@ import { AppDiagnosticHost } from "@/components/app-diagnostic-host";
 import { LeftSidebar } from "@/components/left-sidebar";
 import { WindowSidebarMenuToggle } from "@/components/headers/menu-header";
 import { DesktopWindowControls } from "@/components/desktop/window-controls";
+import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarModelProvider } from "@/components/sidebar/sidebar-model";
 import { WorkspacePinShortcutHandler } from "@/components/workspace-pin-shortcut-handler";
 import { WorkspaceRenameHost } from "@/components/workspace-rename-host";
@@ -525,7 +526,10 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     isSettingsRoute: pathname.includes("/settings"),
   });
   const desktopSidebarMounted = hasMountedDesktopSidebar;
-  const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
+  const hasTopLeftObstruction = useHasWindowChromeObstruction("top-left");
+  // Reserve window chrome once above the columns so every toolbar shares a baseline.
+  const sharedWindowChrome = chromeEnabled && !isCompactLayout;
+  const hasTopLeftWindowControls = hasTopLeftObstruction && !sharedWindowChrome;
   const desktopSidebarVisible = resolveDesktopSidebarVisibility({
     chromeEnabled,
     isCompactLayout,
@@ -578,7 +582,14 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   // Theme updates preserve panel, navigator and portal lifetimes.
   const surface = (
     <View style={layoutStyles.surfaceFill} dataSet={appearanceCanvasDataSet}>
-      {workspaceChrome}
+      {sharedWindowChrome ? (
+        <WindowChromeSafeArea placement="below" testID="workspace-window-chrome">
+          <TitlebarDragRegion />
+        </WindowChromeSafeArea>
+      ) : null}
+      <WindowChromeRegion corners={sharedWindowChrome ? "none" : "both"}>
+        {workspaceChrome}
+      </WindowChromeRegion>
       {!isCompactLayout && appChromeLayout.sidebarToggleOwner === "window" ? (
         <WindowChromeRegion corners="top-left">
           <WindowChromeSafeArea
