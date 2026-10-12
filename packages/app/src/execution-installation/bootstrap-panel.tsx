@@ -5,6 +5,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { MaintenanceNotice } from "./maintenance-notice";
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { settingsStyles } from "@/styles/settings";
@@ -354,15 +355,22 @@ export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
   if (!request) return null;
   return (
     <View testID="coordinator-bootstrap-banner">
-      <SidebarCallout
-        title={`Coordinator: ${state.busy ? "Checking decision" : bootstrapStatus(request)}`}
+      <MaintenanceNotice
+        needsAction={
+          request.status !== "approved" ||
+          request.execution?.stage === "recovery_required" ||
+          !!state.error
+        }
+        revision={`${request.id}:${request.revision}:${request.status}:${request.execution?.stage ?? ""}`}
+        title="Coordinator update"
         description={
           state.error ??
           (state.busy
             ? "Host is processing your decision and checking the prepared update. This can take several minutes; do not submit it again."
-            : "Coordinator maintenance. Host and Dev tasks keep running.")
+            : bootstrapStatus(request))
         }
-        actions={[{ label: "Review update", onPress: open }]}
+        reviewLabel="Review update"
+        onReview={open}
       />
     </View>
   );

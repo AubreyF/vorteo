@@ -1,3 +1,4 @@
+import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
 
@@ -971,6 +972,7 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
+          <InstallationRestartBanner placement="sidebar" />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}

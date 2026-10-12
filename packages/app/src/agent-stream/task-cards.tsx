@@ -8,6 +8,7 @@ import { SharedQueueView } from "@/message-queue/queue-view";
 import { useMessageQueue } from "@/message-queue/use-message-queue";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
+import { PanePortal } from "@/panels/pane-context";
 
 const ignoreCreatedDraft = () => {};
 
@@ -16,11 +17,13 @@ export function AgentTaskCards({
   agentId,
   workspaceId,
   cwd,
+  queueHostName,
 }: {
   serverId: string;
   agentId: string;
   workspaceId?: string;
   cwd: string;
+  queueHostName?: string;
 }) {
   const queue = useMessageQueue(serverId, agentId);
   const goal = useAgentGoal(serverId, agentId);
@@ -29,6 +32,18 @@ export function AgentTaskCards({
   const [expanded, setExpanded] = useState(false);
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
+  const queueCards = (
+    <>
+      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
+      <SharedQueueView
+        serverId={serverId}
+        agentId={agentId}
+        control={queue}
+        goalErrorHandled={goal.supported}
+        reviewRequest={queueReviewRequest}
+      />
+    </>
+  );
   return (
     <>
       <GoalBar
@@ -47,14 +62,7 @@ export function AgentTaskCards({
       ) : (
         <JournalCard serverId={serverId} agentId={agentId} />
       )}
-      <SharedQueueView
-        serverId={serverId}
-        agentId={agentId}
-        control={queue}
-        goalErrorHandled={goal.supported}
-        reviewRequest={queueReviewRequest}
-      />
-      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
+      {queueHostName ? <PanePortal hostName={queueHostName}>{queueCards}</PanePortal> : queueCards}
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}

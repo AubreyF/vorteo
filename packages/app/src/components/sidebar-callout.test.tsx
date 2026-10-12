@@ -77,6 +77,10 @@ vi.stubGlobal("React", React);
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
 import { SidebarCallout, FloatingCalloutPresentation } from "./sidebar-callout";
+import {
+  MaintenanceNotice,
+  MaintenanceNoticePlacement,
+} from "@/execution-installation/maintenance-notice";
 
 type SidebarCalloutActions = React.ComponentProps<typeof SidebarCallout>["actions"];
 
@@ -113,6 +117,61 @@ describe("SidebarCallout", () => {
     root = null;
     container?.remove();
     container = null;
+  });
+
+  it("dismisses a maintenance notification until its request revision changes", () => {
+    const review = vi.fn();
+    const render = (revision: string) =>
+      act(() =>
+        root?.render(
+          <MaintenanceNotice
+            title="Approval needed"
+            description="Review the prepared update"
+            needsAction
+            revision={revision}
+            reviewLabel="Review update"
+            onReview={review}
+            testID="maintenance"
+          />,
+        ),
+      );
+    render("first");
+    const dismiss = container?.querySelector<HTMLElement>('[data-testid="maintenance-action-1"]');
+    expect(dismiss?.textContent).toBe("Dismiss");
+    act(() => dismiss?.click());
+    expect(container?.textContent).toBe("");
+    render("first");
+    expect(container?.textContent).toBe("");
+    expect(review).not.toHaveBeenCalled();
+    render("revised");
+    expect(container?.textContent).toContain("Approval needed");
+  });
+
+  it("keeps passive maintenance out of floating notices and available in the sidebar", () => {
+    const review = vi.fn();
+    const notice = (
+      <MaintenanceNotice
+        title="Awaiting dispatch"
+        description="Tasks keep running"
+        needsAction={false}
+        revision="approved"
+        reviewLabel="Review update"
+        onReview={review}
+        testID="maintenance"
+      />
+    );
+    act(() => root?.render(notice));
+    expect(container?.textContent).toBe("");
+    act(() =>
+      root?.render(
+        <MaintenanceNoticePlacement.Provider value="sidebar">
+          {notice}
+        </MaintenanceNoticePlacement.Provider>,
+      ),
+    );
+    expect(container?.textContent).toContain("Awaiting dispatch");
+    act(() => container?.querySelector<HTMLButtonElement>("button")?.click());
+    expect(review).toHaveBeenCalledTimes(1);
   });
 
   it("keeps floating maintenance notices visible after review and elapsed time", () => {

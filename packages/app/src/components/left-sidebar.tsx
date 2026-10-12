@@ -1,3 +1,4 @@
+import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { usePointerResize } from "./use-pointer-resize";
 import { useMenuContext } from "@/components/ui/menu/menu-context";
 import { SidebarMenuToggle } from "@/components/headers/menu-header";
@@ -709,6 +710,7 @@ function MobileSidebar({
           />
         )}
 
+        <InstallationRestartBanner placement="sidebar" />
         <DemoControls />
         {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
       </View>
@@ -967,6 +969,7 @@ function DesktopSidebar({
           </>
         )}
 
+        <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
         {!compact ? <DemoControls /> : null}
         {!compact ? <SidebarFooterRows /> : null}
 

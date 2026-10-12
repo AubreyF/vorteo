@@ -798,7 +798,7 @@ export function SplitContainer({
               resizeHandle={sidebarResizeHandle}
               renderHeader={renderExplorerSidebarHeaderAction}
               visible={renderExplorerSidebarDock}
-              supportingVisible={renderExplorerSidebarDock}
+              supportingVisible={Boolean(explorerSidebarPane?.tabIds.length)}
               hostName={cardHostName}
               style={explorerSidebarDockStyle}
             >

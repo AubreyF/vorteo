@@ -1184,9 +1184,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           agentId={agentId}
           workspaceId={context.workspaceId}
           cwd={context.cwd}
+          queueHostName={workspaceCardHost ? `${workspaceCardHost}:queue` : undefined}
         />
       );
-    }, [trailingCards, showTaskCards, serverId, agentId, context.workspaceId, context.cwd]);
+    }, [
+      trailingCards,
+      showTaskCards,
+      serverId,
+      agentId,
+      context.workspaceId,
+      context.cwd,
+      workspaceCardHost,
+    ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;

@@ -4,12 +4,26 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.336 - 2026-10-12
+
+### Maintenance
+
+- Preserve published sidebar maintenance placement and queued-message ordering in coordinator recovery delivery.
+- Keep the recovery notice in the floating action area without duplicating it in passive sidebar placements.
+
 ## 0.11.0-beta.3.vorteo.335 - 2026-10-12
 
 ### Maintenance
 
 - Integrate published compact notices and Electron appearance regressions with coordinator recovery, preserving both source histories.
 - Retain exact tracked cancellation, recovery and rollback checks for managed runtime delivery.
+
+## 0.11.0-beta.3.vorteo.335 - 2026-10-12
+
+### Changed
+
+- Keep Queued messages below Files, Changes and other supporting cards.
+- Move approved and running maintenance into compact two-line sidebar status rows with a spinner and Review action. Approval and recovery notices remain floating with Review and Dismiss buttons. Dismissal leaves the underlying request unchanged.
 
 ## 0.11.0-beta.3.vorteo.334 - 2026-10-12
 
