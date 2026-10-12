@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.354 - 2026-10-12
+
+### Changed
+
+- Use Dark Star typography across all six built-in Vorteo themes, including theme previews and font defaults. Preserve each palette, explicit font overrides and monospace code. Freed and Vorton are unchanged.
+
 ## 0.11.0-beta.3.vorteo.353 - 2026-10-12
 
 ### Changed

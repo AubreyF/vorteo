@@ -12,14 +12,14 @@ describe("Theme catalog", () => {
         platform: "ios",
         systemFont: "system-ui",
       }),
-    ).toBe("Manrope");
+    ).toBe("Barlow");
     expect(
       resolveAppearanceFont({
         stack: theme.previewDisplayFont,
         platform: "ios",
         systemFont: "system-ui",
       }),
-    ).toBe("Baskerville");
+    ).toBe("BarlowCondensed-Regular");
     expect(
       resolveAppearanceFont({
         stack: theme.previewBodyFont,

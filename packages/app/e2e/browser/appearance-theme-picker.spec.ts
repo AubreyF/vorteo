@@ -242,7 +242,7 @@ test("applies the interface font size to settings text", async ({ page }) => {
   await expect(sectionTitle).toHaveCSS("font-size", "10px");
 });
 
-test("restores each theme's typography when the interface override is cleared", async ({
+test("restores shared Dark Star typography when the interface override is cleared", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -255,21 +255,26 @@ test("restores each theme's typography when the interface override is cleared", 
   const input = page.getByLabel("Interface font family", { exact: true });
   const label = page.getByText("Interface font", { exact: true });
   await expect(input).toHaveValue("Georgia");
-  await expect(input).toHaveAttribute("placeholder", /Iowan Old Style/);
+  await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Georgia/);
   await page.getByTestId("theme-preview-scriptorium").click();
   await expect(input).toHaveValue("Georgia");
-  await expect(input).toHaveAttribute("placeholder", /Manrope/);
+  await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Georgia/);
   // Move the pointer off the swatches, as a user does when editing the field.
   // fill() alone leaves hover previews active while it focuses the input.
   await input.click();
   await input.fill("");
   await input.press("Tab");
-  await expect(label).toHaveCSS("font-family", /Manrope/);
+  await expect(label).toHaveCSS("font-family", /Barlow/);
   await page.getByTestId("theme-preview-starship-dark").click();
   await expect(input).toHaveAttribute("placeholder", /Barlow/);
   await expect(label).toHaveCSS("font-family", /Barlow/);
+  for (const id of ["starship-light", "midas", "ember", "neon", "scriptorium"]) {
+    await page.getByTestId(`theme-preview-${id}`).click();
+    await expect(input).toHaveAttribute("placeholder", /Barlow/);
+    await expect(label).toHaveCSS("font-family", /Barlow/);
+  }
 });
 
 test("previews compact theme swatches without saving and commits only on activation", async ({

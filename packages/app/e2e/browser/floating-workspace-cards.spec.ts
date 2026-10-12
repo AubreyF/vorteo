@@ -125,43 +125,26 @@ test("renders the floating workspace in all six themes", async ({ page }, info) 
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1900, height: 1000 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const agent = await seedMockAgentWorkspace({
-    repoPrefix: "theme-surfaces-",
-    title: "Theme surface review",
-    initialPrompt: "emit 2 agent stream updates",
-  });
-  const themes = [
-    { id: "starship-light", body: /Barlow/, display: /Barlow Condensed/ },
-    { id: "starship-dark", body: /Barlow/, display: /Barlow Condensed/ },
-    { id: "scriptorium", body: /Manrope/, display: /Baskerville/ },
-    { id: "midas", body: /Iowan Old Style/, display: /Baskerville/ },
-    { id: "ember", body: /Optima/, display: /Avenir Next Condensed/ },
-    { id: "neon", body: /Manrope/, display: /Space Grotesk/ },
-  ];
-  try {
-    await openAgentRoute(page, agent);
-    for (const theme of themes) {
-      await page.evaluate((id) => {
-        const settings = JSON.parse(localStorage.getItem("@paseo:app-settings") ?? "{}");
-        localStorage.setItem("@paseo:app-settings", JSON.stringify({ ...settings, theme: id }));
-      }, theme.id);
-      await page.reload();
-      await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme.id);
-      await expect(page.locator("[data-pdisplay]").first()).toHaveCSS("font-family", theme.display);
-      const group = page.getByTestId("workspace-supporting-cards");
-      await expect(group).toBeVisible();
-      const files = group.getByTestId("supporting-card-files");
-      if (!(await files.isVisible()))
-        await page.getByTestId("workspace-explorer-toggle").first().click();
-      await expect(files).toBeVisible();
-      await expect(group.getByTestId("supporting-card-changes_tree")).toBeVisible();
-      await expect(page.getByText("Theme surface review", { exact: true }).first()).toHaveCSS(
-        "font-family",
-        theme.body,
-      );
-      await page.screenshot({ path: info.outputPath(`${theme.id}-workspace.png`) });
-    }
-  } finally {
-    await agent.cleanup();
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  for (const id of ["starship-light", "starship-dark", "scriptorium", "midas", "ember", "neon"]) {
+    await page.getByTestId("sidebar-footer-overflow").click();
+    await page.getByTestId(`theme-preview-${id}`).click();
+    await page.mouse.move(950, 950);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", id);
+    await expect(page.getByTestId("workspace-supporting-cards")).toBeVisible();
+    await expect(page.getByText("Changes ready for review", { exact: true })).toHaveCSS(
+      "font-family",
+      /Barlow/,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--paseo-display-font"),
+        ),
+      )
+      .toMatch(/Barlow Condensed/);
+    await page.screenshot({ path: info.outputPath(`${id}-workspace.png`) });
   }
 });

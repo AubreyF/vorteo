@@ -7,8 +7,9 @@ Tokens — every color, font size, weight, spacing step, radius, icon size — l
 ## 1. Character
 
 Vorteo uses the six Vorton appearances: Starship, Dark Star, Scriptorium, Midas,
-Ember and Neon. Dark Star is the default. Theme identity includes typography,
-surfaces and shell textures. The appearance catalog records reference provenance;
+Ember and Neon. Dark Star is the default. All six use Dark Star typography: Barlow for interface and body text,
+Barlow Condensed for headings, and the shared monospace stack for code.
+Theme identity includes surfaces and shell textures. The appearance catalog records reference provenance;
 semantic adapters in `packages/app/src/styles/theme.ts` keep working text,
 status signals and terminal output readable.
 
@@ -27,7 +28,7 @@ Honor explicit font overrides and reduced-motion preferences. Code stays
 monospace across themes.
 
 When Freed and Vorton differ in an interaction pattern, follow Freed. Vorton
-supplies the appearance catalog and typography. The left sidebar and individual
+supplies the appearance catalog; Vorteo shares Dark Star typography across it. The left sidebar and individual
 right-hand cards share the floating panel surface. Files and Changes belong in
 designated cards with the other right-hand cards. The right group has no outer
 frame; its toolbar stands on the canvas, with the first card aligned to the
