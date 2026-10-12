@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.328 - 2026-10-11
+
+### Fixed
+
+- Preserve native theme swatch dimensions by rendering their artwork outside the button's text wrapper.
+- Render the six theme previews with native SVG gradients and Starship details instead of flat accent colors.
+- Update native font-field placeholder colors when the theme changes without replacing the editor or its draft.
+
 ## 0.11.0-beta.3.vorteo.327 - 2026-10-11
 
 ### Maintenance

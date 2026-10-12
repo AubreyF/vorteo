@@ -62,8 +62,14 @@ import { AppearancePreview } from "./appearance-preview";
 const ThemedSun = withUnistyles(Sun);
 const ThemedMoon = withUnistyles(Moon);
 const ThemedMonitor = withUnistyles(Monitor);
+const ThemedFontFamilyInput = withUnistyles(TextInput);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+// Placeholder color is a native prop, so it needs a theme subscription separate
+// from the input's Unistyles text and surface styles.
+const fontPlaceholderMapping = (theme: Theme) => ({
+  placeholderTextColor: theme.colors.foregroundMuted,
+});
 
 type BuiltInThemePreference = Exclude<AppSettings["theme"], typeof PLUGIN_THEME_PREFERENCE>;
 
@@ -277,13 +283,13 @@ function FontFamilyRow({
         <Text style={settingsStyles.rowTitle}>{title}</Text>
         <Text style={settingsStyles.rowHint}>{hint}</Text>
       </View>
-      <TextInput
+      <ThemedFontFamilyInput
         initialValue={draft}
         onChangeText={onChangeDraft}
         onBlur={handleCommit}
         onSubmitEditing={handleCommit}
         placeholder={placeholder}
-        placeholderTextColor={styles.placeholderColor.color}
+        uniProps={fontPlaceholderMapping}
         autoCapitalize="none"
         autoCorrect={false}
         spellCheck={false}
@@ -798,8 +804,5 @@ const styles = StyleSheet.create((theme) => ({
   unit: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
-  },
-  placeholderColor: {
-    color: theme.colors.foregroundMuted,
   },
 }));

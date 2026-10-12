@@ -14,6 +14,7 @@ import { isWeb } from "@/constants/platform";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
 import { Tooltip, TooltipContent, TooltipText, TooltipTrigger } from "@/components/ui/tooltip";
+import { ThemePreviewArtwork } from "./theme-preview-artwork";
 
 const previewDataset = { ptheme: true };
 
@@ -94,6 +95,21 @@ function ThemePreviewCard({
     ],
     [appearance.previewGradient, compact, palette.accent, palette.ring, selected, swatchHeight],
   );
+  // Button children are text. Keep graphics outside that wrapper so native text
+  // layout cannot squeeze the swatch width.
+  const swatch = useMemo(
+    () => (
+      <View style={fillStyle} testID={`theme-preview-surface-${appearance.id}`}>
+        <ThemePreviewArtwork
+          appearance={appearance.id}
+          width={compact ? 48 : 56}
+          height={swatchHeight}
+        />
+        <View style={styles.sheen} />
+      </View>
+    ),
+    [appearance.id, compact, fillStyle, swatchHeight],
+  );
   return (
     <View
       style={styles.hoverTarget}
@@ -114,11 +130,8 @@ function ThemePreviewCard({
             accessibilityState={accessibilityState}
             aria-pressed={selected}
             testID={`theme-preview-${appearance.id}`}
-          >
-            <View style={fillStyle} testID={`theme-preview-surface-${appearance.id}`}>
-              <View style={styles.sheen} />
-            </View>
-          </Button>
+            trailing={swatch}
+          />
         </TooltipTrigger>
         <TooltipContent>
           <TooltipText

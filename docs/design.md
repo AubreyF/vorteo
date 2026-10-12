@@ -17,6 +17,10 @@ Grotesk faces through Expo's font plugin. See the [native font assets](../packag
 for provenance, weight registration and native rebuild requirements. Keep
 authored fallback order when selecting platform fonts.
 
+Theme swatches are graphics, not button text. Keep their surfaces outside the
+shared Button text wrapper so native layout preserves the compact pill dimensions.
+Web uses the catalog's CSS gradients; native uses the matching SVG artwork.
+
 Use Freed's floating panel treatment for navigation and its theme preview and
 tooltip presentation. Keep decorative texture outside dense reading surfaces.
 Honor explicit font overrides and reduced-motion preferences. Code stays
