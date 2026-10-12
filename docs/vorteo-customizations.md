@@ -1,6 +1,6 @@
 # Vorteo customizations beyond Paseo
 
-Maintenance review (2026-10-12): compact card and sidebar interiors now retain a 2px inset for a little breathing room. Medium and spacious tiers remain 4px and 8px with the existing transitions. This spacing refinement does not change the README overview or onboarding.
+Maintenance review (2026-10-12): compact card and sidebar interiors now retain a 2px inset for a little breathing room. Medium and spacious tiers remain 4px and 8px with the existing transitions. Rendered goal-header geometry now checks those three fixed levels rather than the former continuous spacing formula. This spacing refinement does not change the README overview or onboarding.
 
 Workspace rows place trailing icons four pixels closer to the right edge in both project and status groupings. Project rows use a 4px right inset on desktop and touch layouts; status rows use 8px.
 

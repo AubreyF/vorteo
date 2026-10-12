@@ -617,7 +617,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
       const goalWidth = (await stack.getByTestId("agent-goal-bar").boundingBox())!.width;
-      expect(goalActionInset).toBe(Math.round(Math.max(0, Math.min(8, (goalWidth - 300) / 15))));
+      expect(goalActionInset).toBe(expectedPanelInset(goalWidth));
       await verifyQuestionScrollerSpacing(stack, page, width);
       await info.attach(`scrolling-cards-${width}`, {
         body: await page.screenshot(),
@@ -685,6 +685,12 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await rm(pluginDirectory, { recursive: true, force: true });
   }
 });
+
+function expectedPanelInset(width: number) {
+  if (width < 340) return 2;
+  if (width < 400) return 4;
+  return 8;
+}
 
 async function verifyQuestionScrollerSpacing(stack: Locator, page: Page, width: number) {
   const movement = await stack.getByTestId("question-form-card").evaluate(async (element) => {
