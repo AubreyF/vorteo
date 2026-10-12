@@ -4,7 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.341 - 2026-10-12
 
+### Added
+
+- Owner-unlocked automatic maintenance preference for tracked Host and Dev daemon updates and restarts, with persistent revision checks and visible saved or failed state.
+
+### Fixed
+
+- Disabling automatic maintenance cancels undispatched automatic requests and remains available when restart support is unavailable. Exact owner-only maintenance and recovery fences remain enforced.
+- Preference failures remain visible during background refresh, and old coordinators retain their existing controls without exposing unsupported preference writes.
 
 ## 0.11.0-beta.3.vorteo.340 - 2026-10-12
 

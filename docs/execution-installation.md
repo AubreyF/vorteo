@@ -292,6 +292,14 @@ Source batches reconcile complete release-note entries, so integration may inter
 
 After a coordinator reload, pending conflicted batches are checked again against the installed validator. Their contribution receipts remain unchanged, their review revision changes, and they still require exact owner approval. Dispatched installations are never replayed. The sidebar reports correction and validation states instead of describing every pending update as ready for approval.
 
+## Automatic daemon maintenance preference
+
+After unlocking Installation controls with the owner password, the owner can enable or disable automatic Host and Dev daemon updates and restarts. The coordinator retains this preference across daemon replacements. Only owner-authenticated requests can change it; scoped agent credentials cannot. Concurrent edits require the current preference revision.
+
+Enabling applies to subsequent Host and Dev agent requests and prepared source batches. Every automatic approval retains the exact request revision and source digest, finishes current turns through the managed queue, and permits cancellation before dispatch. Turning the preference off cancels automatic approvals that have not dispatched and releases their holds. Explicit owner approvals and already dispatched operations are unchanged. Source validation, exact-review requests, Factory recovery fences and separate coordinator, supervisor and helper approval still apply.
+
+An installation without a saved preference retains its existing trusted Host policy, if configured. The interface identifies that legacy policy until the owner saves the new preference. Other installations do not gain broader automatic authority merely by installing new code. Enabling the preference for a particular installation is a separate owner-authenticated setting change. An older coordinator does not expose the setting; an unavailable route after support was observed is an error, not permission to reset the policy.
+
 ## Trusted Host approval policy
 
 The coordinator supports an optional protected `restartApprovalPolicy.hostRequestsAfter` timestamp. An owner-authorized installation of this policy allows authenticated Host requests created at or after that timestamp to enter the existing finish-current-turns workflow automatically. The journal records the policy timestamp, request revision and source digest before placing a hold. Installation controls and the sidebar retain progress and cancellation before dispatch. Disabling the policy prevents new automatic approvals; an already recorded approval remains valid until canceled or completed.

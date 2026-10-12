@@ -1,3 +1,4 @@
+import { Switch } from "@/components/ui/switch";
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
 import {
   monitorActionDisabledReason,
@@ -266,6 +267,7 @@ function InstallationPanel({
         ) : null}
         {state.unlocked ? (
           <>
+            <DaemonAutomationControl model={model} state={state} />
             {state.monitorJobs.map((job) => (
               <MonitorRequest
                 key={`${job.id}:${job.revision}`}
@@ -361,6 +363,55 @@ function InstallationPanel({
         ) : null}
       </View>
     </SettingsSection>
+  );
+}
+
+function DaemonAutomationControl({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const change = useCallback(
+    (enabled: boolean) => {
+      void model.changeDaemonAutomation(enabled);
+    },
+    [model],
+  );
+  if (!state.daemonAutomation) return null;
+  return (
+    <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Automatic daemon updates and restarts</Text>
+        <Switch
+          value={state.daemonAutomation.enabled}
+          disabled={state.busy}
+          onValueChange={change}
+          accessibilityLabel="Automatic daemon updates and restarts"
+          testID="daemon-automation-switch"
+        />
+      </View>
+      <Text style={styles.text}>
+        Applies to Host and Dev. Current turns finish before restart. Turning off cancels automatic
+        requests that have not dispatched.
+      </Text>
+      {state.daemonAutomation.legacyHostOnly ? (
+        <Text style={styles.text}>
+          The existing trusted Host policy remains active until you save this preference.
+        </Text>
+      ) : null}
+      {state.daemonAutomationError ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {state.daemonAutomationError}
+        </Text>
+      ) : null}
+      {state.notice ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          {state.notice}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -465,7 +516,7 @@ function InstallationOwnerAccess({
       {state.unlocked ? (
         <Text style={styles.text}>
           {state.lastUpdatedAt
-            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Dev requests require your approval.`
+            ? `Updated ${new Date(state.lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
             : "Loading restart status..."}
         </Text>
       ) : null}

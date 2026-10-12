@@ -265,3 +265,16 @@ export const InstallationProfilesAdmissionSchema = z.strictObject({
   preferences: SharedProviderPreferencesSchema,
 });
 export type InstallationProfilesAdmission = z.infer<typeof InstallationProfilesAdmissionSchema>;
+
+// Owner-authenticated HTTP preference; old coordinators return 404 without changing policy.
+export const DaemonAutomationPreferenceSchema = z.strictObject({
+  revision: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+  enabledAfter: z.string().datetime().nullable(),
+  legacyHostOnly: z.boolean(),
+});
+export type DaemonAutomationPreference = z.infer<typeof DaemonAutomationPreferenceSchema>;
+export const DaemonAutomationChangeSchema = z.strictObject({
+  expectedRevision: z.string().uuid().nullable(),
+  enabled: z.boolean(),
+});
