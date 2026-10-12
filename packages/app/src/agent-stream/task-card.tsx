@@ -1,3 +1,4 @@
+import { ScrollDividerContext, useScrollDivider } from "@/components/use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useVortonTouch } from "@/vorton-touch";
 import {
@@ -61,6 +62,7 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const column = useContext(CardColumnContext);
   const retainedActive = useRetainedPanelActive();
@@ -115,61 +117,74 @@ function TaskCardView({
     [onDragActive, parentDrag],
   );
   return (
-    <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
-      <View
-        testID={testID}
-        onLayout={onPanelLayout}
-        style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
-      >
-        <View style={taskCardStyles.scrollContent}>
-          <View
-            testID={testID ? `${testID}-header` : undefined}
-            style={[taskCardStyles.fixedHeader, { padding: spacingInset }]}
-            onLayout={onHeaderLayout}
-          >
-            {header}
-            {notice}
-          </View>
-          {panelHeight !== undefined ? (
+    <ScrollDividerContext.Provider value={divider.report}>
+      <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
+        <View
+          ref={divider.ref}
+          testID={testID}
+          onLayout={onPanelLayout}
+          style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
+        >
+          <View style={taskCardStyles.scrollContent}>
             <View
-              style={[
-                {
-                  height: Math.max(0, maxHeight - headerHeight - insets),
-                  minHeight: 0,
-                  paddingHorizontal: spacingInset,
-                  paddingBottom: spacingInset,
-                },
-                !bodyVisible && taskCardStyles.hiddenBody,
-              ]}
+              testID={testID ? `${testID}-header` : undefined}
+              style={[taskCardStyles.fixedHeader, { padding: spacingInset }]}
+              onLayout={onHeaderLayout}
             >
-              <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+              {header}
+              {notice}
+              <View
+                pointerEvents="none"
+                testID={testID ? `${testID}-scroll-divider` : undefined}
+                style={[
+                  taskCardStyles.headerDivider,
+                  { opacity: bodyVisible && divider.scrolled ? 1 : 0 },
+                ]}
+              />
             </View>
-          ) : (
-            <ScrollView
-              ref={bodyRef}
-              onContentSizeChange={onBodySize}
-              testID={testID ? `${testID}-body-scroll` : undefined}
-              style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
-              contentContainerStyle={[
-                taskCardStyles.bodyContent,
-                flushBody && taskCardStyles.flushBody,
-                {
-                  paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
-                  paddingVertical: 4 + spacingInset,
-                },
-              ]}
-              nestedScrollEnabled
-              scrollEnabled={scrollEnabled}
-              keyboardShouldPersistTaps="handled"
-            >
-              <QueueDragScrollContext.Provider value={setDragging}>
+            {panelHeight !== undefined ? (
+              <View
+                style={[
+                  {
+                    height: Math.max(0, maxHeight - headerHeight - insets),
+                    minHeight: 0,
+                    paddingHorizontal: spacingInset,
+                    paddingBottom: spacingInset,
+                  },
+                  !bodyVisible && taskCardStyles.hiddenBody,
+                ]}
+              >
                 <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
-              </QueueDragScrollContext.Provider>
-            </ScrollView>
-          )}
+              </View>
+            ) : (
+              <ScrollView
+                ref={bodyRef}
+                onContentSizeChange={onBodySize}
+                onScroll={divider.onScroll}
+                scrollEventThrottle={16}
+                testID={testID ? `${testID}-body-scroll` : undefined}
+                style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
+                contentContainerStyle={[
+                  taskCardStyles.bodyContent,
+                  flushBody && taskCardStyles.flushBody,
+                  {
+                    paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
+                    paddingVertical: 4 + spacingInset,
+                  },
+                ]}
+                nestedScrollEnabled
+                scrollEnabled={scrollEnabled}
+                keyboardShouldPersistTaps="handled"
+              >
+                <QueueDragScrollContext.Provider value={setDragging}>
+                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                </QueueDragScrollContext.Provider>
+              </ScrollView>
+            )}
+          </View>
         </View>
-      </View>
-    </Animated.View>
+      </Animated.View>
+    </ScrollDividerContext.Provider>
   );
 }
 

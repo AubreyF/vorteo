@@ -1035,6 +1035,10 @@ async function checkFixedHeaders(
       });
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
       expect(result.offset).toBeGreaterThan(0);
+      const divider = card.getByTestId(`${id}-scroll-divider`);
+      await expect(divider).toHaveCSS("opacity", "1");
+      const borderColor = await card.evaluate((node) => getComputedStyle(node).borderTopColor);
+      await expect(divider).toHaveCSS("background-color", borderColor);
       expect(result.movement).toBeGreaterThan(0);
       expect(await cardHeaderOffset(card)).toBeCloseTo(before, 0);
       await header.scrollIntoViewIfNeeded();
@@ -1043,6 +1047,7 @@ async function checkFixedHeaders(
       await page.getByTestId(`${id}-body-scroll`).evaluate((node) => {
         node.scrollTop = 0;
       });
+      await expect(divider).toHaveCSS("opacity", "0");
     }
   }
 }

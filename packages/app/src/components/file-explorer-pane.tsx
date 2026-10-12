@@ -1,5 +1,7 @@
+import { ScrollDividerContext, type CardScrollHandler } from "./use-scroll-divider";
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -1152,6 +1154,7 @@ interface FileExplorerPaneContentProps {
 }
 
 function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
+  const reportScroll = useContext(ScrollDividerContext);
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const {
@@ -1173,6 +1176,14 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
     handleRetry,
     sortTriggerStyle: sortTriggerStyleProp,
   } = props;
+
+  const handleScroll = useCallback<CardScrollHandler>(
+    (event) => {
+      scrollbar.onScroll(event);
+      reportScroll(event.nativeEvent.contentOffset.y > 0);
+    },
+    [scrollbar, reportScroll],
+  );
 
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
 
@@ -1329,7 +1340,7 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
               testID="file-explorer-tree-scroll"
               contentContainerStyle={styles.entriesContent}
               onLayout={scrollbar.onLayout}
-              onScroll={scrollbar.onScroll}
+              onScroll={handleScroll}
               onContentSizeChange={scrollbar.onContentSizeChange}
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={!scrollbar.enabled}

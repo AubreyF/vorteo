@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.353 - 2026-10-12
+
+### Changed
+
+- Show a matching border below sidebar and supporting-card headers only while their contents are scrolled away from the top. Divider visibility does not change layout or button positions.
+- Track nested file and diff scrolling as well as standard card lists, preserving collapsed card behavior.
+
 ## 0.11.0-beta.3.vorteo.352 - 2026-10-12
 
 ### Changed

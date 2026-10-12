@@ -1,3 +1,4 @@
+import { useScrollDivider } from "./use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
@@ -413,12 +414,14 @@ function IconTooltipContent({
 }
 
 function SidebarToolbar({
+  scrolled = false,
   theme,
   handleOpenProject,
   handleSettings,
   labels,
   onBeforeNavigate,
 }: {
+  scrolled?: boolean;
   handleImportSession: () => void;
   theme: SidebarTheme;
   handleOpenProject: () => void;
@@ -472,7 +475,10 @@ function SidebarToolbar({
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
   return (
-    <View style={[styles.sidebarFooter, styles.sidebarToolbar]} testID="sidebar-toolbar">
+    <View
+      style={[styles.sidebarFooter, styles.sidebarToolbar, !scrolled && styles.unscrolledToolbar]}
+      testID="sidebar-toolbar"
+    >
       <SidebarMenuToggle insideSidebar testID="sidebar-collapse" />
       {
         <FooterIconButton
@@ -645,6 +651,7 @@ function MobileSidebar({
     closeSidebar();
   }, [closeSidebar]);
 
+  const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const mobileSidebarInsetStyle = useMemo(
     () => ({
@@ -663,6 +670,7 @@ function MobileSidebar({
   );
   const toolbar = (
     <SidebarToolbar
+      scrolled={divider.scrolled}
       onBeforeNavigate={closeSidebar}
       theme={theme}
       handleOpenProject={handleOpenProject}
@@ -680,6 +688,7 @@ function MobileSidebar({
       panelStyle={mobileSidebarInsetStyle}
     >
       <View
+        ref={divider.ref}
         style={[styles.sidebarContent, { padding: spacingInset }]}
         onLayout={onPanelLayout}
         pointerEvents="auto"
@@ -694,6 +703,7 @@ function MobileSidebar({
           </>
         ) : (
           <SidebarWorkspaceList
+            onScrolledChange={divider.report}
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
@@ -862,6 +872,9 @@ function DesktopSidebar({
     ],
     [active, resizeAnimatedStyle],
   );
+  const divider = useScrollDivider();
+  const resetScroll = divider.report;
+  useEffect(() => resetScroll(false), [compact, resetScroll]);
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const desktopSidebarBorderStyle = useMemo(
     () => [
@@ -878,6 +891,7 @@ function DesktopSidebar({
   const navigation = useMemo(() => <SidebarNavRows style={styles.scrollingNavGroup} />, []);
   const toolbar = (
     <SidebarToolbar
+      scrolled={divider.scrolled}
       theme={theme}
       handleOpenProject={handleOpenProject}
       handleImportSession={handleImportSession}
@@ -894,7 +908,12 @@ function DesktopSidebar({
       pointerEvents={active ? "auto" : "none"}
       style={desktopSidebarStyle}
     >
-      <View style={desktopSidebarBorderStyle} onLayout={onPanelLayout} testID="floating-sidebar">
+      <View
+        ref={divider.ref}
+        style={desktopSidebarBorderStyle}
+        onLayout={onPanelLayout}
+        testID="floating-sidebar"
+      >
         {compact ? (
           <>
             {ownsTopLeft ? (
@@ -950,6 +969,7 @@ function DesktopSidebar({
               </>
             ) : (
               <SidebarWorkspaceList
+                onScrolledChange={divider.report}
                 collapsedProjectKeys={collapsedProjectKeys}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
@@ -1058,6 +1078,7 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
+  unscrolledToolbar: { borderBottomColor: "transparent" },
   scrollingNavGroup: {
     gap: 2,
     paddingBottom: theme.spacing[1.5],

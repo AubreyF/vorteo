@@ -1,3 +1,5 @@
+import { useScrollReporter } from "../use-scroll-divider";
+import { NestableScrollDivider } from "../nestable-scroll-divider";
 import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import type { SidebarSurfaceBackdrop } from "@/styles/surface-backdrop";
 import {
@@ -115,6 +117,7 @@ function statusWorkspaceKeyExtractor(workspace: SidebarWorkspaceEntry): string {
 }
 
 interface StatusWorkspaceListProps {
+  onScrolledChange?: (scrolled: boolean) => void;
   groups: SidebarWorkspaceGroup[];
   pinnedWorkspaces: SidebarWorkspaceEntry[];
   projectIconByProjectViewKey: ReadonlyMap<string, string | null>;
@@ -134,6 +137,7 @@ interface StatusWorkspaceListProps {
 }
 
 export function SidebarStatusWorkspaceList({
+  onScrolledChange,
   groups,
   pinnedWorkspaces,
   projectIconByProjectViewKey,
@@ -150,6 +154,7 @@ export function SidebarStatusWorkspaceList({
   parentGestureRef,
   dragGestureHostActive,
 }: StatusWorkspaceListProps) {
+  const onScroll = useScrollReporter(onScrolledChange);
   const collapsedWorkspaceGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedWorkspaceGroupKeys,
   );
@@ -259,8 +264,11 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
+          <NestableScrollDivider onChange={onScrolledChange} />
           {content}
         </NestableScrollContainer>
       ) : (
@@ -268,6 +276,8 @@ export function SidebarStatusWorkspaceList({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-status-list-scroll"
         >
           {content}

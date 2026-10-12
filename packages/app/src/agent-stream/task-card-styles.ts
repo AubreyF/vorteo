@@ -22,6 +22,14 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     },
     flushBody: { paddingHorizontal: 0 },
     fixedHeader: { flexShrink: 0 },
+    headerDivider: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: theme.borderWidth[1],
+      backgroundColor: theme.colors.border,
+    },
     scrollBody: { minHeight: 0, flexShrink: 1, flexGrow: 0 },
     hiddenBody: { display: "none" },
     item: {

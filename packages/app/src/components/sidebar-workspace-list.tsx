@@ -1,3 +1,5 @@
+import { useScrollReporter } from "./use-scroll-divider";
+import { NestableScrollDivider } from "./nestable-scroll-divider";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
 import { splitFactoryWorkspaces, factoryOverviewTargets } from "@/workspace/lifecycle/grouping";
 import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
@@ -214,6 +216,7 @@ function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null)
 }
 
 interface SidebarWorkspaceListProps {
+  onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   /** What `useProjectIcons` is asked for, straight from the projection. See `SidebarProjection`. */
   projectIconTargets: SidebarProjectIconTarget[];
@@ -2111,6 +2114,7 @@ function areProjectBlockSelectionsEqual(
 const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
+  onScrolledChange,
   workspaceGroups,
   projectIconTargets,
   pinnedGroups,
@@ -2195,6 +2199,7 @@ export function SidebarWorkspaceList({
   const content =
     groupMode !== "project" ? (
       <SidebarGroupedModeList
+        onScrolledChange={onScrolledChange}
         workspaceGroups={workspaceGroups}
         pinnedGroups={pinnedGroups}
         workspaceEntriesByKey={workspaceEntriesByKey}
@@ -2213,6 +2218,7 @@ export function SidebarWorkspaceList({
       />
     ) : (
       <ProjectModeList
+        onScrolledChange={onScrolledChange}
         projects={projects}
         pinnedGroups={pinnedGroups}
         workspaceEntriesByKey={workspaceEntriesByKey}
@@ -2249,6 +2255,7 @@ export function SidebarWorkspaceList({
  * above it was status-only.
  */
 function SidebarGroupedModeList({
+  onScrolledChange,
   workspaceGroups,
   pinnedGroups,
   workspaceEntriesByKey,
@@ -2265,6 +2272,7 @@ function SidebarGroupedModeList({
   parentGestureRef,
   dragGestureHostActive,
 }: {
+  onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   pinnedGroups: PinnedSidebarGroups;
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -2293,6 +2301,7 @@ function SidebarGroupedModeList({
 
   return (
     <SidebarStatusWorkspaceList
+      onScrolledChange={onScrolledChange}
       groups={workspaceGroups}
       pinnedWorkspaces={pinnedWorkspaces}
       projectIconByProjectViewKey={projectIconByProjectViewKey}
@@ -2321,6 +2330,7 @@ function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
 }
 
 function ProjectModeListContent({
+  onScrolledChange,
   projects,
   pinnedGroups,
   workspaceEntriesByKey,
@@ -2363,6 +2373,7 @@ function ProjectModeListContent({
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   onPinnedWorkspaceReorder: (workspaces: SidebarWorkspacePlacement[]) => void;
 }) {
+  const onScroll = useScrollReporter(onScrolledChange);
   const pinnedExternalDrop = useWorkspaceProjectDrop();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
@@ -2718,8 +2729,11 @@ function ProjectModeListContent({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-project-workspace-list-scroll"
         >
+          <NestableScrollDivider onChange={onScrolledChange} />
           {content}
         </NestableScrollContainer>
       ) : (
@@ -2727,6 +2741,8 @@ function ProjectModeListContent({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           testID="sidebar-project-workspace-list-scroll"
         >
           {content}
