@@ -116,6 +116,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
   const list = useMemo(
     () => (
       <AccountList
+        singleLine={props.inline}
         accounts={accounts}
         account={account}
         serverId={props.serverId}
@@ -155,7 +156,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
           heading={profileHeading}
         />
       ) : (
-        <View style={[settingsStyles.card, styles.detailCard]}>
+        <View style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}>
           {profileHeading}
           {props.loading ? (
             <ProfileLoading label="Loading profiles" />
@@ -171,6 +172,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
       <View style={styles.accountList}>
         {props.environments.map((item) => (
           <EnvironmentButton
+            singleLine={props.inline}
             key={item.serverId}
             environment={item}
             selected={item.serverId === props.serverId}
@@ -179,7 +181,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
         ))}
       </View>
     ),
-    [props.environments, props.serverId, selectEnvironment],
+    [props.environments, props.serverId, props.inline, selectEnvironment],
   );
   const environmentIcon = useMemo(
     () => <ExecutionEnvironmentIcon serverId={props.serverId} />,
@@ -245,6 +247,7 @@ export function AccountPresetMenu(props: AccountPresetMenuProps) {
 }
 
 function AccountList({
+  singleLine,
   accounts,
   account,
   serverId,
@@ -254,6 +257,7 @@ function AccountList({
   renderBadge,
   renderAccountDetails,
 }: {
+  singleLine?: boolean;
   accounts: AccountPresets[];
   account: AccountPresets | undefined;
   serverId: string | null;
@@ -273,6 +277,7 @@ function AccountList({
           testID={`preset-reveal-account-${group.provider}`}
         >
           <AccountButton
+            singleLine={singleLine}
             serverId={serverId}
             group={group}
             active={group === account}
@@ -319,7 +324,7 @@ function CompactSelector({
   const ListScrollView = inline ? ScrollView : BottomSheetScrollView;
   return (
     <View style={[styles.compactBody, inline && styles.inlineCompactBody]}>
-      <View style={settingsStyles.card}>
+      <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
         <SectionButton
           section="environment"
           label="Environment"
@@ -333,7 +338,7 @@ function CompactSelector({
         ) : null}
       </View>
 
-      <View style={settingsStyles.card}>
+      <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
         <SectionButton
           section="account"
           label="Account"
@@ -351,7 +356,7 @@ function CompactSelector({
         {navigation === "profile" ? (
           details
         ) : (
-          <View style={settingsStyles.card}>
+          <View style={[settingsStyles.card, inline && styles.inlineColumn]}>
             <SectionButton
               section="profile"
               label="Profile"
@@ -448,10 +453,12 @@ function SectionButton({
 }
 
 function EnvironmentButton({
+  singleLine,
   environment,
   selected,
   onSelect,
 }: {
+  singleLine?: boolean;
   environment: PresetEnvironment;
   selected: boolean;
   onSelect: (id: string) => void;
@@ -466,6 +473,7 @@ function EnvironmentButton({
   );
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       label={environment.label}
       leading={environmentIcon}
       selected={selected}
@@ -494,6 +502,7 @@ const ThemedProviderGlyph = withUnistyles(ProviderGlyph, (theme) => ({
 }));
 
 function AccountButton({
+  singleLine,
   serverId,
   group,
   active,
@@ -501,6 +510,7 @@ function AccountButton({
   renderBadge,
   renderAccountDetails,
 }: {
+  singleLine?: boolean;
   serverId: string | null;
   group: AccountPresets;
   active: boolean;
@@ -514,6 +524,7 @@ function AccountButton({
 
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       leading={icon}
       badge={renderBadge(group.rows[0])}
       subtitle={renderAccountDetails(group.rows[0])}
@@ -542,7 +553,10 @@ function AccountChoices(props: AccountChoicesProps) {
   }
   if (!loading && !catalogError) return <ReadyAccountChoices {...props} />;
   return (
-    <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+    <View
+      style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}
+      testID="preset-profile-card"
+    >
       {props.heading}
       {loading ? (
         <ProfileLoading label="Loading profiles" />
@@ -573,7 +587,7 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
     setListWidth(event.nativeEvent.layout.width);
   }, []);
   const grid = useMemo(
-    () => props.inline || (props.compact ? listWidth >= 340 : width >= 1100),
+    () => !props.inline && (props.compact ? listWidth >= 340 : width >= 1100),
     [props.inline, props.compact, listWidth, width],
   );
   const DetailScrollView = props.compact && !props.inline ? BottomSheetScrollView : ScrollView;
@@ -597,7 +611,10 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
   const actionLabel = props.activeProfileId ? "Switch to Profile" : "Activate Profile";
   return (
     <View style={styles.detail} testID={`preset-choices-${account.provider}`}>
-      <View style={[settingsStyles.card, styles.detailCard]} testID="preset-profile-card">
+      <View
+        style={[settingsStyles.card, styles.detailCard, props.inline && styles.inlineColumn]}
+        testID="preset-profile-card"
+      >
         {heading}
         <DetailScrollView
           testID="preset-profile-scroll"
@@ -618,6 +635,7 @@ function ReadyAccountChoices({ account, inspected, rows, heading, ...props }: Ac
                   testID={`preset-reveal-profile-${row.id}`}
                 >
                   <ProfileChoice
+                    singleLine={props.inline}
                     row={row}
                     selected={hasSelection && row.id === inspectedId}
                     definition={props.definitions.find((profile) => profile.id === row.id)}
@@ -706,12 +724,14 @@ function WorkflowInstructions({
 }
 
 function ProfileChoice({
+  singleLine,
   row,
   selected,
   definition,
   entry,
   onInspect,
 }: {
+  singleLine?: boolean;
   row: AgentProfilePickerRow;
   selected: boolean;
   definition: AgentProfile | undefined;
@@ -728,6 +748,7 @@ function ProfileChoice({
     .join(" · ");
   return (
     <ProfileSelectorTile
+      singleLine={singleLine}
       label={row.name}
       subtitle={summary}
       selected={selected}
@@ -760,10 +781,10 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: 0,
     gap: theme.spacing[2],
   },
-  inlineSplit: { padding: 0, gap: theme.spacing[4] },
+  inlineSplit: { padding: 0, gap: theme.spacing[2] },
   environmentCard: { flex: 0.9, minWidth: 240 },
   accountCard: { flex: 1.3, minWidth: 320 },
-  inlineColumn: { minWidth: 0 },
+  inlineColumn: { minWidth: 0, borderRadius: theme.borderRadius["2xl"], overflow: "hidden" },
   profileCard: { flex: 1.7, minWidth: 0 },
   sectionIcons: {
     flexDirection: "row",
@@ -806,7 +827,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     lineHeight: Math.ceil(theme.fontSize.base * 1.5),
   },
-  inlineCompactBody: { padding: 0, gap: theme.spacing[4] },
+  inlineCompactBody: { padding: 0, gap: theme.spacing[2] },
   compactBody: { flex: 1, minHeight: 0, padding: theme.spacing[3], gap: theme.spacing[2] },
   compactList: { maxHeight: 220 },
   compactProfile: { flex: 1, minHeight: 0 },

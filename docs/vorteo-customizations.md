@@ -475,3 +475,5 @@ Maintenance integration preserves the published responsive sidebar and stable wo
 Release metadata correction restores complete entry history from both interface integration parents. The installed coordinator reader verifies historical entries and duplicate counts before source delivery. Runtime behavior is unchanged.
 
 Browser card validation reopens the responsive supporting sidebar after reload before checking journal history. This verifies the visible controls without changing saved sidebar preferences.
+
+October 12, 2026: New workspace uses taller chooser cards and a matching composer, with shared rounded corners and narrower column gaps. Single-line options retain selection and account controls; touch rows retain larger targets. Other profile menus keep their existing layout.

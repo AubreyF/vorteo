@@ -599,7 +599,7 @@ test("new workspace shows compact inline profiles and restores the account defau
     await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
     const surface = await page.getByTestId("message-input-surface").boundingBox();
     const environment = await page.getByTestId("preset-environment-card").boundingBox();
-    expect(bounds!.height).toBe(204);
+    expect(bounds!.height).toBe(240);
     expect(surface!.height).toBe(bounds!.height);
     expect(surface!.x).toBe(bounds!.x);
     expect(surface!.width).toBe(bounds!.width);
@@ -607,11 +607,19 @@ test("new workspace shows compact inline profiles and restores the account defau
     expect(environment!.height).toBe(surface!.height);
     const accountCard = await page.getByTestId("preset-account-card").boundingBox();
     const profileCard = await page.getByTestId("preset-profile-column").boundingBox();
-    expect(accountCard!.x - (environment!.x + environment!.width)).toBeCloseTo(16, 1);
-    expect(profileCard!.x - (accountCard!.x + accountCard!.width)).toBeCloseTo(16, 1);
+    expect(accountCard!.x - (environment!.x + environment!.width)).toBeCloseTo(8, 1);
+    expect(profileCard!.x - (accountCard!.x + accountCard!.width)).toBeCloseTo(8, 1);
     expect(profileCard!.x + profileCard!.width).toBeCloseTo(surface!.x + surface!.width, 1);
     expect(surface!.y - (bounds!.y + bounds!.height)).toBe(16);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(input!.y);
+    const radius = await page
+      .getByTestId("message-input-surface")
+      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    for (const id of ["preset-environment-card", "preset-account-card", "preset-profile-card"]) {
+      await expect(page.getByTestId(id)).toHaveCSS("border-top-left-radius", radius);
+    }
+    await expect(mediumRow).toHaveCSS("height", "36px");
+    await expect(page.getByTestId("preset-account-mock")).toHaveCSS("height", "36px");
     await mediumRow.click();
     await expect(mediumRow).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
     await expect(selected).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
