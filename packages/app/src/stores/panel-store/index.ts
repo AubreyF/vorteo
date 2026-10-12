@@ -12,6 +12,7 @@ import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
   SUPPORTING_CARD_DEFAULTS,
   type SupportingCardKind,
+  type SupportingCardLayout,
   type SupportingCardUpdate,
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
@@ -64,7 +65,12 @@ export type ExpandedPathsUpdate = string[] | ((currentPaths: string[]) => string
 export interface PanelState {
   // Device-local card preferences are shared by all workspaces, never server-synced.
   supportingCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
-  setSupportingCardExpanded: (kind: SupportingCardKind, update: SupportingCardUpdate) => void;
+  inlineCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
+  setSupportingCardExpanded: (
+    kind: SupportingCardKind,
+    update: SupportingCardUpdate,
+    layout?: SupportingCardLayout,
+  ) => void;
 
   // Mobile: React's durable target plus the generation that owns it.
   mobilePanel: MobilePanelSelection;
@@ -137,14 +143,16 @@ export const usePanelStore = create<PanelState>()(
   persist(
     (set) => ({
       supportingCardExpanded: {},
-      setSupportingCardExpanded: (kind, update) =>
+      inlineCardExpanded: {},
+      setSupportingCardExpanded: (kind, update, layout = "sidebar") =>
         set((state) => {
-          const current = state.supportingCardExpanded[kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
+          const key = layout === "inline" ? "inlineCardExpanded" : "supportingCardExpanded";
+          const current = state[key][kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
           const expanded = typeof update === "function" ? update(current) : update;
-          return state.supportingCardExpanded[kind] === expanded
+          return state[key][kind] === expanded
             ? state
             : {
-                supportingCardExpanded: { ...state.supportingCardExpanded, [kind]: expanded },
+                [key]: { ...state[key], [kind]: expanded },
               };
         }),
       // Mobile always starts at agent view
@@ -329,11 +337,12 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 18,
+      version: 19,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
         supportingCardExpanded: state.supportingCardExpanded,
+        inlineCardExpanded: state.inlineCardExpanded,
         desktop: state.desktop,
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,

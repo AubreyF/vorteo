@@ -18,6 +18,7 @@ export const SUPPORTING_CARD_DEFAULTS = {
   files: false,
   changes: false,
 } as const;
+export type SupportingCardLayout = "sidebar" | "inline";
 export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
 export type SupportingCardUpdate = boolean | ((expanded: boolean) => boolean);
 const SupportingCardStateSchema = z
@@ -159,6 +160,7 @@ const DesktopSidebarStorageSchema = z.strictObject({
 
 export const PanelPersistedStateSchema = z.strictObject({
   supportingCardExpanded: SupportingCardStateSchema.optional(),
+  inlineCardExpanded: SupportingCardStateSchema.optional(),
   mobileView: z.enum(["agent", "agent-list", "file-explorer"]).optional(),
   mobilePanel: z
     .strictObject({
@@ -237,9 +239,18 @@ function migrateTreeRailWidth(state: MigratablePanelState, version: number): voi
   state.treeRailWidth = clampTreeRailWidth(state.treeRailWidth);
 }
 
+function migrateCardLayouts(state: MigratablePanelState, version: number) {
+  // Seed both layouts from the existing device choice once, then keep them independent.
+  if (version < 19 && state.inlineCardExpanded === undefined) {
+    state.inlineCardExpanded = { ...state.supportingCardExpanded };
+  }
+}
+
 export function migratePanelState(persistedState: unknown, version: number): MigratablePanelState {
   const result = PanelPersistedStateSchema.safeParse(persistedState);
   const state: MigratablePanelState = result.success ? result.data : {};
+
+  migrateCardLayouts(state, version);
 
   // The docked explorer sidebar is gone; wider layouts render the explorer as
   // workspace tabs. Left behind, `fileExplorerOpen` kept drawing a sidebar that

@@ -681,9 +681,27 @@ test("shares card disclosure preferences across workspaces and reloads without f
   await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
   await expect(files).toHaveAttribute("aria-expanded", "true");
   await page.setViewportSize({ width: 390, height: 844 });
+  // A fresh inline layout has its own defaults, independent of desktop choices.
+  await expect(tasks).toHaveAttribute("aria-expanded", "true");
+  await expect(journal).toHaveAttribute("aria-expanded", "true");
+  await tasks.click();
+  await journal.click();
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await expect(tasks).toHaveAttribute("aria-expanded", "false");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
+  await tasks.click();
+  await row("0-0").click();
+  await expect(tasks).toHaveAttribute("aria-expanded", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(tasks).toHaveAttribute("aria-expanded", "false");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
+  await page.reload();
   await expect(tasks).toHaveAttribute("aria-expanded", "false");
   await expect(journal).toHaveAttribute("aria-expanded", "false");
   await page.screenshot({ path: info.outputPath("retained-card-preferences-phone.png") });
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await expect(tasks).toHaveAttribute("aria-expanded", "true");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
 });
 
 test("card spacing follows panel width on both sides and compact center layouts", async ({

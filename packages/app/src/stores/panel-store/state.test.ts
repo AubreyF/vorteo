@@ -284,6 +284,14 @@ describe("responsive sidebar presentation", () => {
 });
 
 describe("device-local card preferences", () => {
+  it("seeds inline choices once without coupling later layout preferences", () => {
+    const upgraded = migratePanelState({ supportingCardExpanded: { tasks: false } }, 18);
+    expect(upgraded.inlineCardExpanded).toEqual({ tasks: false });
+    expect(upgraded.inlineCardExpanded).not.toBe(upgraded.supportingCardExpanded);
+    const restored = migratePanelState({ ...upgraded, inlineCardExpanded: { tasks: true } }, 19);
+    expect(restored.supportingCardExpanded).toEqual({ tasks: false });
+    expect(restored.inlineCardExpanded).toEqual({ tasks: true });
+  });
   it("preserves independent disclosure choices while migrating existing panel settings", () => {
     const state = migratePanelState(
       {

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.355 - 2026-10-12
+
+### Changed
+
+- Remember separate device-local open and closed card states for the right-hand stack and inline primary-content layout. Resizing restores the destination layout's choices across workspaces and reloads; existing saved choices seed both layouts once on upgrade.
+
 ## 0.11.0-beta.3.vorteo.354 - 2026-10-12
 
 ### Changed
