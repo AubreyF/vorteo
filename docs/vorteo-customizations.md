@@ -142,6 +142,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+Maintenance notification checks distinguish the explicit Dismiss action from its close icon, inspect the visible sidebar after navigation, and verify that dismissal preserves the request.
+
 Coordinator dispatch notification review: an expired Host observation no longer turns a later acknowledgement into a fatal broken-pipe error. Connected observers still receive the same acknowledgement; approval, durable claims and watchdog requirements remain unchanged. Real child-process regressions cover both cases. This does not diagnose or recover a previously stalled executor.
 
 Coordinator artifact scanning review: each sequential scan reuses its own read buffer. Complete file reads, ownership checks, link checks and digests remain unchanged. Regression coverage compares prior digests across chunk boundaries and concurrent scans of different content. This reduces allocation overhead without caching approval evidence; installed maintenance still requires exact tracked approval.

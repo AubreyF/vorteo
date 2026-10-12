@@ -878,7 +878,7 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
           floating.getByRole("button", { name: "Review restart", exact: true }),
         ).toBeVisible();
         await floating.screenshot({ path: testInfo.outputPath("actionable-maintenance.png") });
-        await floating.getByRole("button", { name: "Dismiss", exact: true }).click();
+        await floating.getByTestId(`restart-notice-${job.id}-action-1`).click();
         await expect(floating).toHaveCount(0);
         const afterDismiss = RestartJobSchema.parse(
           await (
@@ -895,11 +895,11 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
       });
       expect(response.status).toBe(200);
     }
-    const sidebar = page.getByTestId("settings-sidebar");
+    const sidebar = page.getByTestId("settings-sidebar").filter({ visible: true });
     const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.locator('[data-testid^="restart-notice-"]');
+    const cards = banner.locator('[data-testid^="restart-notice-"]').filter({ visible: true });
     await expect(cards).toHaveCount(2);
     for (const card of await cards.all()) {
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);
