@@ -245,3 +245,15 @@ describe("panel-store compact file explorer actions", () => {
     expect(patch.explorerTab).toBe("files");
   });
 });
+
+describe("persistent desktop rail migration", () => {
+  it("restores a previously hidden sidebar as the minimal rail without changing its saved width", () => {
+    const migrated = migratePanelState(
+      { desktop: { agentListOpen: false, focusModeEnabled: false }, sidebarWidth: 412 },
+      16,
+    );
+    expect(migrated.desktop?.agentListOpen).toBe(true);
+    expect(migrated.sidebarCompact).toBe(true);
+    expect(migrated.sidebarWidth).toBe(412);
+  });
+});

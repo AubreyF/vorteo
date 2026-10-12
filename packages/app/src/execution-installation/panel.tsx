@@ -97,6 +97,8 @@ export function InstallationWelcome() {
 }
 
 function InstallationWelcomeForm({ model }: { model: InstallationPanelModel }) {
+  // The model outlives this dialog; dismissed password drafts must not.
+  useEffect(() => () => model.clearPasswordDraft(), [model]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const setPassword = useCallback((value: string) => model.setPassword(value), [model]);
   const connect = useCallback(() => {

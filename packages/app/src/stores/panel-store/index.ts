@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import {
   buildExplorerCheckoutKey,
   coerceExplorerTabForCheckout,
@@ -73,6 +73,7 @@ export interface PanelState {
   diffCollapsedFoldersByWorkspace: Record<string, string[]>;
   collapsedFilePathsByWorkspace: Record<string, string[]>;
   sidebarWidth: number;
+  sidebarCompact: boolean;
   explorerSortOption: SortOption;
   explorerShowHiddenFiles: boolean;
   treeRailWidth: number;
@@ -103,6 +104,7 @@ export interface PanelState {
   setCollapsedFilePathsForWorkspace: (workspaceKey: string, paths: string[]) => void;
   activateExplorerTabForCheckout: (checkout: ExplorerCheckoutContext) => void;
   setSidebarWidth: (width: number) => void;
+  setSidebarCompact: (compact: boolean) => void;
   setExplorerSortOption: (option: SortOption) => void;
   toggleExplorerShowHiddenFiles: () => void;
   setTreeRailWidth: (width: number) => void;
@@ -138,6 +140,7 @@ export const usePanelStore = create<PanelState>()(
       diffCollapsedFoldersByWorkspace: {},
       collapsedFilePathsByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sidebarCompact: false,
       explorerSortOption: "name",
       explorerShowHiddenFiles: true,
       treeRailWidth: DEFAULT_TREE_RAIL_WIDTH,
@@ -145,7 +148,12 @@ export const usePanelStore = create<PanelState>()(
 
       toggleFocusMode: () =>
         set((state) => ({
-          desktop: { ...state.desktop, focusModeEnabled: !state.desktop.focusModeEnabled },
+          desktop: {
+            ...state.desktop,
+            agentListOpen: true,
+            focusModeEnabled: !state.desktop.focusModeEnabled,
+          },
+          sidebarCompact: state.desktop.focusModeEnabled ? state.sidebarCompact : true,
         })),
 
       exitFocusMode: () =>
@@ -168,24 +176,21 @@ export const usePanelStore = create<PanelState>()(
         ),
 
       openDesktopAgentList: () =>
-        set((state) => {
-          if (state.desktop.agentListOpen) {
-            return state;
-          }
-          return { desktop: { ...state.desktop, agentListOpen: true } };
-        }),
+        set((state) => ({
+          desktop: { ...state.desktop, agentListOpen: true },
+          sidebarCompact: false,
+        })),
 
       closeDesktopAgentList: () =>
-        set((state) => {
-          if (!state.desktop.agentListOpen) {
-            return state;
-          }
-          return { desktop: { ...state.desktop, agentListOpen: false } };
-        }),
+        set((state) => ({
+          desktop: { ...state.desktop, agentListOpen: true },
+          sidebarCompact: true,
+        })),
 
       toggleDesktopAgentList: () =>
         set((state) => ({
-          desktop: { ...state.desktop, agentListOpen: !state.desktop.agentListOpen },
+          desktop: { ...state.desktop, agentListOpen: true },
+          sidebarCompact: !state.sidebarCompact,
         })),
 
       openAgentListForLayout: ({ isCompact }) =>
@@ -193,9 +198,7 @@ export const usePanelStore = create<PanelState>()(
           if (isCompact) {
             return setMobilePanelTargetPatch(state, "agent-list");
           }
-          return state.desktop.agentListOpen
-            ? state
-            : { desktop: { ...state.desktop, agentListOpen: true } };
+          return { desktop: { ...state.desktop, agentListOpen: true }, sidebarCompact: false };
         }),
 
       closeAgentListForLayout: ({ isCompact }) =>
@@ -203,9 +206,7 @@ export const usePanelStore = create<PanelState>()(
           if (isCompact) {
             return setMobilePanelTargetPatch(state, "agent");
           }
-          return state.desktop.agentListOpen
-            ? { desktop: { ...state.desktop, agentListOpen: false } }
-            : state;
+          return { desktop: { ...state.desktop, agentListOpen: true }, sidebarCompact: true };
         }),
 
       toggleAgentListForLayout: ({ isCompact }) =>
@@ -217,7 +218,8 @@ export const usePanelStore = create<PanelState>()(
             );
           }
           return {
-            desktop: { ...state.desktop, agentListOpen: !state.desktop.agentListOpen },
+            desktop: { ...state.desktop, agentListOpen: true },
+            sidebarCompact: !state.sidebarCompact,
           };
         }),
 
@@ -279,6 +281,7 @@ export const usePanelStore = create<PanelState>()(
           }),
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
+      setSidebarCompact: (sidebarCompact) => set({ sidebarCompact }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
         set((state) => ({ explorerShowHiddenFiles: !state.explorerShowHiddenFiles })),
@@ -287,7 +290,7 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 16,
+      version: 17,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
@@ -298,6 +301,7 @@ export const usePanelStore = create<PanelState>()(
         diffCollapsedFoldersByWorkspace: state.diffCollapsedFoldersByWorkspace,
         collapsedFilePathsByWorkspace: state.collapsedFilePathsByWorkspace,
         sidebarWidth: state.sidebarWidth,
+        sidebarCompact: state.sidebarCompact,
         explorerSortOption: state.explorerSortOption,
         explorerShowHiddenFiles: state.explorerShowHiddenFiles,
         treeRailWidth: state.treeRailWidth,

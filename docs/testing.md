@@ -170,6 +170,14 @@ Vitest picks up tests by suffix. The suffix tells the runner which category it b
 
 Browser Playwright specs live in `packages/app/e2e/browser/`. Desktop Playwright and real-Electron E2E live in `packages/desktop/e2e/`. Harness code shared by both suites lives in `packages/app/e2e/support/`; neither suite may place specs there. App Playwright specs that hit real providers use `*.real.spec.ts` and run through `npm run test:e2e:real --workspace=@getpaseo/app`; the default browser project ignores that suffix so CI does not need provider credentials.
 
+The isolated demo acceptance spec uses the same preview flag as the managed live
+launcher. Run `EXPO_PUBLIC_DEMO_PREVIEW=1 npm run test:e2e --workspace packages/app -- e2e/browser/demo-isolation.spec.ts e2e/browser/demo-checklist.spec.ts`
+to verify desktop and compact interactions, tab-local persistence, Reset, Exit,
+unchanged real settings and absence of external requests or daemon WebSockets.
+The isolation spec skips without that flag because normal clients retain Host
+access after leaving Demo. File and conversation browser specs cover their
+respective editor and composer flows.
+
 Live provider smoke tests belong in `*.real.e2e.test.ts`, not `*.test.ts`, even when guarded by environment variables. Default unit suites must use deterministic provider adapters/fakes so missing credits, auth outages, and upstream model drift do not block normal CI.
 
 Codex MultiAgentV2 real tests use local Codex authentication rather than the OpenRouter-compatible test provider. OpenRouter does not accept Codex collaboration-history items on the parent follow-up request, so it cannot verify a complete native sub-agent turn.

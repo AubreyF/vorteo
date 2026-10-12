@@ -505,6 +505,22 @@ This is **not** a build defect. Confirm with a control: launch `com.apple.Prefer
 watch it exit identically. Headless install and launch prove the binary is valid and that startup reaches
 RN init; anything about on-screen behavior needs a human holding the phone.
 
+## Cold workspace links
+
+Use a disposable mock-provider fixture and a fresh app installation on a task
+simulator. Connect to the fixture without opening the sidebar, then run:
+
+```bash
+agent-device replay packages/app/e2e/mobile/workspace-startup/cold-workspace.ios.ad \
+  --session workspace-startup --platform ios \
+  --env WORKSPACE_URL="paseo://h/$TEST_SERVER_ID/workspace/$TEST_WORKSPACE_ID?open=agent%3A$TEST_AGENT_ID"
+```
+
+The fixture must provide an existing conversation that this app installation has
+never opened. The flow waits for the workspace title and message editor without
+opening the drawer. It leaves the session open for visual inspection. Reusing a
+cached workspace does not test initial directory hydration.
+
 ## iOS Simulator
 
 ```bash

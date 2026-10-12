@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 
 const LEGACY_STORAGE_KEY = "@paseo:replica-cache";
 

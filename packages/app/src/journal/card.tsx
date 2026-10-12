@@ -1,5 +1,5 @@
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFetchQuery } from "@/data/query";
 import { Button } from "@/components/ui/button";

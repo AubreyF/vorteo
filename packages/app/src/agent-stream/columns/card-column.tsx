@@ -1,6 +1,7 @@
 import { createContext, useCallback, useMemo, useState, type ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { COLUMN_MARGIN, allocateCardHeights } from "./geometry";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 
 interface CardColumnLayout {
   heights: ReadonlyMap<string, number>;
@@ -9,6 +10,7 @@ interface CardColumnLayout {
 export const CardColumnContext = createContext<CardColumnLayout | null>(null);
 
 export function CardColumn({ children }: { children: ReactNode }) {
+  const active = useRetainedPanelActive();
   const [height, setHeight] = useState(0);
   const [demands, setDemands] = useState<ReadonlyMap<string, number>>(new Map());
   const onLayout = useCallback((event: LayoutChangeEvent) => {
@@ -29,9 +31,13 @@ export function CardColumn({ children }: { children: ReactNode }) {
     return { heights, measure };
   }, [height, demands, measure]);
   return (
-    <View style={columnStyle} onLayout={onLayout} testID="thread-cards-stack">
+    <View
+      style={columnStyle}
+      onLayout={onLayout}
+      testID={active ? "thread-cards-stack" : undefined}
+    >
       <CardColumnContext.Provider value={value}>
-        <View style={columnStyle} testID="agent-history-task-cards">
+        <View style={columnStyle} testID={active ? "agent-history-task-cards" : undefined}>
           {children}
         </View>
       </CardColumnContext.Provider>

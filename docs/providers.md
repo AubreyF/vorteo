@@ -67,7 +67,7 @@ not transcript events tied to that turn.
 
 Native goal operations currently require Codex with goals enabled. Pause prevents automatic
 continuation and preserves accounting; it does not interrupt the current turn. Attachments use
-the ordinary prompt path while the goal is paused, followed by a native read before activation.
+the ordinary prompt path while the goal is blocked, followed by a native read before activation.
 Do not reactivate a goal that completed or changed while its context was being delivered.
 
 Persist accepted user goal submissions with the agent record. Native goal events do not identify

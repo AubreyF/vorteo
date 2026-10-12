@@ -1,7 +1,103 @@
 import { expect, test } from "../support/fixtures";
+import { composerLocator } from "../support/helpers/composer";
+import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
 const API = "https://api.github.com/repos/AubreyF/paseo";
 const latestCommit = "b".repeat(40);
+
+test("compact notices clear a growing composer and release its space after navigation", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "notice-clearance-",
+    title: "Notice clearance",
+    initialPrompt: "emit 2 agent stream updates",
+  });
+  try {
+    await openAgentRoute(page, agent);
+    const stack = page.getByTestId("installation-update-toasts");
+    await expect(stack.getByText("Set up worktree scripts", { exact: true })).toBeVisible();
+    for (const kind of ["agent", "draft"]) {
+      if (kind === "draft") {
+        await page.getByTestId("workspace-header-menu-trigger").click();
+        await page.getByTestId("workspace-header-new-agent").click();
+      }
+      const composer = composerLocator(page);
+      for (const text of ["A short draft", "A multiline draft\n".repeat(8)]) {
+        await composer.fill(text);
+        await expect(async () => {
+          const notice = await stack.boundingBox();
+          const input = await page
+            .getByTestId("message-input-root")
+            .filter({ has: composer })
+            .boundingBox();
+          expect(notice).not.toBeNull();
+          expect(input).not.toBeNull();
+          expect(notice!.height).toBeGreaterThan(44);
+          expect(notice!.y).toBeGreaterThanOrEqual(56);
+          expect(notice!.y + notice!.height).toBeLessThanOrEqual(input!.y - 7);
+        }).toPass();
+        await composer.click();
+        await expect(composer).toBeFocused();
+      }
+      await page.screenshot({ path: info.outputPath(`compact-notice-${kind}.png`) });
+    }
+    await page.goto("/settings/appearance");
+    await expect(async () => {
+      const bounds = await stack.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.y + bounds!.height).toBeCloseTo(764, 0);
+    }).toPass();
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("update notice floats outside navigation and remains after review on desktop and compact", async ({
+  page,
+}, info) => {
+  await page.route(`${API}/**`, async (route) => {
+    await route.fulfill({
+      json: route.request().url().includes("/commits/")
+        ? { sha: latestCommit }
+        : { status: "ahead", ahead_by: 3 },
+    });
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/settings/appearance");
+  const stack = page.getByTestId("installation-update-toasts");
+  const notice = stack.getByTestId("vorton-update-notice");
+  await expect(notice).toBeVisible();
+  await expect(page.getByTestId("vorton-update-notice")).toHaveCount(1);
+  await expect(
+    page.getByTestId("settings-sidebar").getByTestId("vorton-update-notice"),
+  ).toHaveCount(0);
+  await stack.evaluate((node) => node.setAttribute("data-retention-check", "retained"));
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const bounds = await stack.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x + bounds!.width).toBeCloseTo(width - 16, 0);
+    expect(bounds!.y + bounds!.height).toBeCloseTo(width < 640 ? 920 : 984, 0);
+    expect(bounds!.height).toBeLessThanOrEqual(450);
+    const review = notice.getByRole("button", { name: "Review update", exact: true });
+    await expect(review).toBeVisible();
+    expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: info.outputPath(`floating-update-${width}.png`) });
+  }
+  await notice.getByRole("button", { name: "Review update", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/settings\/general$/);
+  await expect(stack).toHaveAttribute("data-retention-check", "retained");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("3 new commits are available on main.");
+  await notice.getByTestId("vorton-update-notice-dismiss").click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("vorton-update-status")).toContainText("3 new commits");
+  await expect(notice).toHaveCount(0);
+});
 
 test("Vorteo checks main and requires a connected installation host before preparing an update", async ({
   page,

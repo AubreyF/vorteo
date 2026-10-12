@@ -2269,7 +2269,7 @@ export const fr: TranslationResources = {
         systemDefault: "Valeur par défaut du système",
         interfaceFont: "Police d'interface",
         interfaceFontHint:
-          "Utilisé dans toute l'application. Laisser vide pour la valeur par défaut du système",
+          "Utilisée dans toute l’application. Laissez vide pour utiliser la typographie du thème",
         interfaceFontAccessibility: "Famille de polices d'interface",
         interfaceSize: "Taille de l'interface",
         interfaceSizeHint: "Utilisée pour la navigation, les contrôles et les libellés",

@@ -1,3 +1,4 @@
+import { tabShape } from "@/styles/tab-shape";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "@/agent-stream/task-card";
@@ -641,7 +642,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 28,
     paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[1],
-    borderRadius: theme.borderRadius.md,
+    ...tabShape(theme),
     borderWidth: theme.borderWidth[1],
   },
   questionNavText: {

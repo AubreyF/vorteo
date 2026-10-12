@@ -4,6 +4,77 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.333 - 2026-10-12
+
+### Maintenance
+
+- Reconcile the published interface with coordinator recovery source, preserving both release histories and installed source ancestry.
+- Retain current appearance, workspace hydration and composer fixes alongside exact owner-reviewed recovery. Runtime installation and coordinator recovery remain separate tracked operations.
+
+## 0.11.0-beta.3.vorteo.332 - 2026-10-11
+
+### Fixed
+
+- Keep floating notices visible above native draft editors by measuring the message field and its controls, excluding draft setup sections.
+- Load fresh workspace data from the active route without requiring the native sidebar to be opened first.
+
+### Maintenance
+
+- Extend compact notice coverage to both existing conversations and new drafts, including multiline typing and navigation cleanup.
+
+## 0.11.0-beta.3.vorteo.331 - 2026-10-11
+
+### Fixed
+
+- Keep native agent and draft composer controls above the keyboard by preserving their bottom safe-area padding.
+- Position compact floating notices above the active composer's measured height and keyboard clearance. Release the reserved space when navigating away.
+
+### Maintenance
+
+- Added compact notice regression coverage for multiline drafts and navigation. Verified notice and Send-button clearance in the iOS Release simulator.
+
+## 0.11.0-beta.3.vorteo.330 - 2026-10-11
+
+### Fixed
+
+- Keep focused settings fields visible above the iOS keyboard using the shared page layout's native keyboard insets.
+
+## 0.11.0-beta.3.vorteo.329 - 2026-10-11
+
+### Fixed
+
+- Align all three workspace toolbars in Electron by reserving window-control clearance above the columns. Keep the minimal project rail at 64px on macOS.
+
+### Maintenance
+
+- Verified real Electron layout, theme and minimal-rail persistence, plus desktop and compact browser layout. Native window minimize acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.328 - 2026-10-11
+
+### Fixed
+
+- Preserve native theme swatch dimensions by rendering their artwork outside the button's text wrapper.
+- Render the six theme previews with native SVG gradients and Starship details instead of flat accent colors.
+- Update native font-field placeholder colors when the theme changes without replacing the editor or its draft.
+
+## 0.11.0-beta.3.vorteo.327 - 2026-10-11
+
+### Maintenance
+
+- Preserve the installed release in the appearance integration's ancestry and retain its release notes. Application behavior remains unchanged from the preceding integration; deployment and owner acceptance remain pending.
+
+## 0.11.0-beta.3.vorteo.326 - 2026-10-11
+
+### Changed
+
+- Integrate the six-theme appearance, floating navigation, isolated demo and iOS scene startup with current main, preserving the coordinator and shared sidebar fixes.
+- Keep demo sidebar preferences isolated from installation synchronization. Place synchronization notices in the floating update stack.
+- Preserve shared workspace actions, labels and rename dialogs in the single central overflow menu when the right-hand cards are hidden.
+
+### Maintenance
+
+- Retain both source histories and their release notes. Installed publication and owner visual acceptance remain pending.
+
 ## 0.11.0-beta.3.vorteo.326 - 2026-10-11
 
 ### Added
@@ -62,6 +133,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Resolve Factory installation and coordinator binding through native shared-profile selection on the retained account, without requiring local profile copies.
 - Preserve exact coordinator snapshots and reject missing, ambiguous, changed or mismatched profiles. Cover shared-profile installation and restoration with focused regressions.
+
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.320 - 2026-10-11
 
@@ -205,6 +282,33 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Remove the new workspace profile header, align the selector and message card edges, and use matching card gaps and desktop heights
+
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Add six Vorton themes with Dark Star as the default, bundled typography, compact Freed theme previews and accessible tooltips.
+- Add an isolated demonstration with sample projects, conversations, tasks, journal entries, files and changes. Demo edits persist within the browser tab and reset without changing real installation settings.
+- Add Create New installation, Connect to Host and Demo welcome actions with subtle stationary Matrix rain.
+- Support native Host workspaces in the Preview Broker and live development previews.
+
+### Changed
+
+- Float the left sidebar and individual supporting cards over one page background. Align the three toolbars, move PR actions above the right cards, widen workspace tabs and retain a compact navigation rail when the left sidebar collapses.
+- Put compact theme tiles in the sidebar overflow menu and use consistent resize controls, rounded tab tops and one central workspace menu.
+- Move installation updates and approval notices into persistent floating notifications while preserving their tracked controls.
+- Keep automatic goal waits blocked and reserve pause for owner action. Revisit eligible blocked goals through the existing review queue.
+
+### Fixed
+
+- Preserve mounted editors and terminals during theme changes, and restore the previous appearance when preference storage fails.
+- Keep the configured single-password connection flow and clear abandoned password drafts.
+- Migrate generated iOS startup to the scene lifecycle required by iOS 27 while retaining existing Expo module callbacks and paste input.
+- Preserve all five Barlow Condensed weights on iOS and allow native exports to use a private Metro cache alongside live previews.
+
+### Maintenance
+
+- Document preview isolation, appearance conventions and delivery checks. iOS 27 Debug and Release startup and custom links pass simulator checks; physical-device visual and notification acceptance remain open. Installed goal recovery still needs daemon delivery and verification.
 
 ## 0.11.0-beta.3.vorteo.306 - 2026-10-11
 

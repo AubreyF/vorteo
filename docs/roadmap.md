@@ -4,6 +4,8 @@ Priorities below describe unfinished work. The [customizations inventory](vorteo
 
 ## Current priorities
 
+- **Finish appearance delivery and acceptance.** The six-theme interface, Freed controls, floating sidebars and isolated browser demo have desktop and compact browser coverage. Complete source integration, guarded publication and installed owner review. Native font assets compile and embed, but iOS 27 startup currently stops before the interface renders; native typography, touch and Electron acceptance remain open. Validate blocked-goal recovery against the installed daemon and provider through the tracked update workflow. After appearance acceptance, conduct measured UI performance optimization and a comprehensive security review, then propose further improvements from those findings.
+
 - **Complete quota reserve controls.** Connect the existing daemon policy to profile and task controls, capability checks and end-to-end acceptance. See [reserve integration](agent-presets.md#implementation-and-deployment-status).
 - **Finish installation and workflow acceptance.** Verify native host setup, real account sign-in and tasks, supervisor/Pi delegation, skill availability, physical devices, dictation, accessibility and performance. Use the [host acceptance checklist](host-handoff.md#acceptance) and [execution guide](execution-installation.md); record remaining deployment work against actual installation evidence.
 - **Deliver private desktop updates.** Automate custom-branch builds and updates for macOS, Windows and Linux. See the [desktop build proposal](desktop-auto-builds.md).

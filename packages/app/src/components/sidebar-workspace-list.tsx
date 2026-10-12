@@ -153,11 +153,7 @@ import {
   getCurrentProjectRemoveReadiness,
   removeProjectFromHosts,
 } from "@/projects/project-remove";
-import {
-  isWeb as platformIsWeb,
-  isNative as platformIsNative,
-  getIsElectron,
-} from "@/constants/platform";
+import { isNative as platformIsNative, getIsElectron } from "@/constants/platform";
 import { getDesktopHost } from "@/desktop/host";
 import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu-item";
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
@@ -808,7 +804,6 @@ function NewWorktreeButton({
   showShortcutHint?: boolean;
 }) {
   const { t } = useTranslation();
-  const touch = useVortonTouch();
   const newWorktreeKeys = useShortcutKeys("new-worktree");
   const actionSize = useSidebarActionSize();
 
@@ -842,7 +837,7 @@ function NewWorktreeButton({
             style={pressableStyle}
             onPress={handlePress}
             disabled={loading}
-            accessibilityRole={touch || !platformIsWeb ? "button" : undefined}
+            accessibilityRole="button"
             accessibilityLabel={t("sidebar.workspace.actions.createWorkspaceFor", {
               projectName: displayName,
             })}
@@ -1064,25 +1059,29 @@ function ProjectHeaderRow({
   );
 
   const rowChildren = (
-    <>
-      <View style={styles.projectRowLeft}>
-        <ProjectLeadingVisual
-          displayName={displayName}
-          iconDataUri={iconDataUri}
-          statusBucket={statusBucket}
-          projectViewKey={project.viewKey}
-          backdrop={getSidebarRowBackdrop({ isDragging, isPressed, selected, isHovered })}
-          chevron={chevron}
-          showChevron={(isHovered || touch) && chevron !== null}
-          isArchiving={isArchiving}
-        />
+    <View style={styles.projectRowLeft}>
+      <ProjectLeadingVisual
+        displayName={displayName}
+        iconDataUri={iconDataUri}
+        statusBucket={statusBucket}
+        projectViewKey={project.viewKey}
+        backdrop={getSidebarRowBackdrop({ isDragging, isPressed, selected, isHovered })}
+        chevron={chevron}
+        showChevron={(isHovered || touch) && chevron !== null}
+        isArchiving={isArchiving}
+      />
 
-        <View style={styles.projectTitleGroup}>
-          <Text style={styles.projectTitle} numberOfLines={1}>
-            {displayName}
-          </Text>
-        </View>
+      <View style={styles.projectTitleGroup}>
+        <Text style={styles.projectTitle} numberOfLines={1}>
+          {displayName}
+        </Text>
       </View>
+    </View>
+  );
+
+  // Actions are siblings of the project button so each has its own accessible target.
+  const trailingContent = (
+    <>
       {taskSummary ? (
         <ProjectTaskSummaryView summary={taskSummary} projectViewKey={project.viewKey} />
       ) : (
@@ -1115,12 +1114,14 @@ function ProjectHeaderRow({
         {...dragAttributes}
         {...dragHandleProps?.listeners}
         ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+        style={projectRowStyle({ pressed: isPressed })}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
         <PressHighlight
           accessibilityRole="button"
-          style={projectRowStyle}
+          style={styles.projectRowMain}
+          accessibilityLabel={displayName}
           highlightStyle={styles.projectRowPressed}
           onPressIn={handleProjectPressIn}
           onTouchMove={interaction.handleTouchMove}
@@ -1130,6 +1131,7 @@ function ProjectHeaderRow({
         >
           {rowChildren}
         </PressHighlight>
+        {trailingContent}
       </View>
     );
   }
@@ -1140,13 +1142,15 @@ function ProjectHeaderRow({
         {...dragAttributes}
         {...dragHandleProps?.listeners}
         ref={dragHandleProps?.setActivatorNodeRef as unknown as Ref<View>}
+        style={projectRowStyle({ pressed: isPressed })}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
         <ContextMenuTrigger
           enabledOnMobile={false}
           accessibilityRole="button"
-          style={projectRowStyle}
+          style={styles.projectRowMain}
+          accessibilityLabel={displayName}
           highlightStyle={styles.projectRowPressed}
           onPressIn={handleProjectPressIn}
           onTouchMove={interaction.handleTouchMove}
@@ -1156,6 +1160,7 @@ function ProjectHeaderRow({
         >
           {rowChildren}
         </ContextMenuTrigger>
+        {trailingContent}
       </View>
       <ContextMenuContent
         align="start"
@@ -2817,6 +2822,12 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
     userSelect: "none",
+  },
+  projectRowMain: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "stretch",
+    justifyContent: "center",
   },
   projectRowHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,

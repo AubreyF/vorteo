@@ -126,6 +126,8 @@ import { useAppSettings } from "@/hooks/use-settings";
 import { RenderProfile } from "@/utils/render-profiler";
 import { AfterPaintPublication } from "@/composer/after-paint-publication";
 import { isWeb, isNative } from "@/constants/platform";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFloatingNoticeClearance } from "@/contexts/floating-notice-layout";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
@@ -2269,6 +2271,20 @@ function ComposerContentImpl({
     [agentControls, isCompactLayout, inputWrapperStyle],
   );
   const mobileComposer = useMobileComposerLayout();
+  const { isActiveComposer } = useComposerKeyboardScope();
+  const insets = useSafeAreaInsets();
+  const measureNoticeClearance = useFloatingNoticeClearance(
+    isActiveComposer && isCompactLayout,
+    MOBILE_COMPOSER_MARGIN + (isNative && externalKeyboardShift ? insets.bottom : 0),
+  );
+  // Draft setup controls precede the editor but must not reserve notice space.
+  const handleComposerHeightChange = useCallback(
+    (height: number) => {
+      measureNoticeClearance(height);
+      onComposerHeightChange?.(height);
+    },
+    [measureNoticeClearance, onComposerHeightChange],
+  );
   const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
     () => [
@@ -2470,7 +2486,7 @@ function ComposerContentImpl({
                   onKeyPress={handleCommandKeyPress}
                   onSelectionChange={handleSelectionChange}
                   onFocusChange={handleFocusChange}
-                  onHeightChange={onComposerHeightChange}
+                  onHeightChange={handleComposerHeightChange}
                   inputWrapperStyle={draftInputWrapperStyle}
                   attachmentSlot={attachmentTray}
                   inputMode={inputMode}

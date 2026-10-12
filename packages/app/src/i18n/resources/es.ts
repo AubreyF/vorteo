@@ -2265,7 +2265,7 @@ export const es: TranslationResources = {
         systemDefault: "Valor predeterminado del sistema",
         interfaceFont: "Fuente de interfaz",
         interfaceFontHint:
-          "Utilizado en toda la aplicación. Déjelo vacío para el valor predeterminado del sistema.",
+          "Se usa en toda la aplicación. Déjalo vacío para usar la tipografía del tema",
         interfaceFontAccessibility: "Familia de fuentes de interfaz",
         interfaceSize: "Tamaño de interfaz",
         interfaceSizeHint: "Se usa en la navegación, los controles y las etiquetas",

@@ -50,7 +50,7 @@ import {
 } from "@/attachments/workspace-attachments-store";
 import type { UserMessageImageAttachment } from "@/types/stream";
 import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
-import { isWeb } from "@/constants/platform";
+import { isWeb, isNative } from "@/constants/platform";
 import {
   buildWorkspaceTabPersistenceKey,
   type WorkspaceDraftTabSetup,
@@ -652,7 +652,7 @@ export function WorkspaceDraftAgentTab({
   const inputAreaWrapperStyle = useMemo(
     () => [
       animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: mobileComposer.enabled ? 0 : insets.bottom },
+      { paddingBottom: isNative || !mobileComposer.enabled ? insets.bottom : 0 },
     ],
     [insets.bottom, mobileComposer.enabled],
   );

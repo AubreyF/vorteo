@@ -62,10 +62,26 @@ Codex owns automatic goal continuation. An assistant reply saying it has stopped
 change native goal state, and its built-in `update_goal` tool cannot pause a goal.
 Agent-scoped Vorteo tools expose `pause_goal` so an agent can honor a user's stop or handoff
 request before ending its turn. Pausing leaves the current turn available to finish the
-handoff. It also releases any queue-owned pause that would otherwise resume continuation.
+handoff. A manual pause applies to active and blocked goals and releases any queue-owned
+hold that would otherwise resume continuation.
 
 Natural-language stopping depends on the agent calling the tool. Use the goal card's pause
 control or `/goal pause` for a direct state change, including when Vorteo tools are disabled.
+
+Automatic queue, restart and context-delivery waits use `blocked`. Only the matching
+hold may resume a goal after its condition clears; an intervening manual pause or goal
+edit invalidates that ownership. Failed or uncertain state changes require reconciliation.
+
+External prerequisites belong in blocked checklist items with concrete conditions to
+recheck. The existing blocked-task review service scans once a minute and admits a review
+after an hour without activity or another review. It uses the same retained thread and
+does not create a worker. The agent checks current evidence before resuming authorized
+work. Manual goal pauses, usage limits, queue and restart holds prevent these reviews.
+Confirmed blocked goals also enter this review path without a checklist item. A durable
+discovery flag survives reloads; it never authorizes continuation. Admission re-reads the
+native goal and rejects paused, completed, limited or uncertain state. The flag changes
+without changing activity timestamps or the review cooldown. Older records acquire it
+when their native goal is next observed.
 
 ## Relationships
 

@@ -23,13 +23,17 @@ export function createPauseGoalTool(
       if (current.status !== "ready") {
         throw new Error("Could not confirm the current goal. Do not claim it is paused.");
       }
-      const shouldPause = current.goal?.status === "active" || current.goal?.status === "paused";
+      const shouldPause =
+        current.goal?.status === "active" ||
+        current.goal?.status === "blocked" ||
+        current.goal?.status === "paused";
       // Reassert an existing pause so the manager releases any message-queue
       // hold that would otherwise resume the goal when queued work finishes.
       const state = shouldPause
         ? await manager.setAgentGoal(callerAgentId, { status: "paused" })
         : current;
-      if (state.status !== "ready" || state.goal?.status === "active") {
+      const stillContinuable = state.goal?.status === "active" || state.goal?.status === "blocked";
+      if (state.status !== "ready" || stillContinuable) {
         throw new Error("Goal pause could not be confirmed. Do not claim it is paused.");
       }
       return { content: [], structuredContent: { state } };

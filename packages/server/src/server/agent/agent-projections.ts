@@ -78,6 +78,7 @@ export function toStoredAgentRecord(
     ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
     ...(agent.journal === undefined ? {} : { journal: agent.journal }),
     goalSubmissions: agent.goalSubmissions,
+    blockedGoalReviewNeeded: agent.blockedGoalReviewNeeded,
     queueGoalHold: agent.queueGoalHold,
     id: agent.id,
     provider: agent.provider,

@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { Link2, ExternalLink, Settings, Terminal } from "lucide-react-native";
+import { Link2, ExternalLink, Settings, Plus, Play } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostProfile } from "@/types/host-connection";
 import { getHostRuntimeStore, isHostRuntimeConnected, useHosts } from "@/runtime/host-runtime";
 import { AddHostModal } from "./add-host-modal";
-import { AddRemoteSshHostModal } from "./add-remote-ssh-host-modal";
+import { AdaptiveModalSheet } from "./adaptive-modal-sheet";
+import { enterDemo } from "@/demo/mode";
+import { WelcomeRain } from "./welcome-rain";
 import { Button } from "@/components/ui/button";
 import { resolveAppVersion } from "@/utils/app-version";
 import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
@@ -18,10 +20,13 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { InstallationWelcome } from "@/execution-installation/panel";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { isNative } from "@/constants/platform";
-import { isElectronRuntime } from "@/desktop/host";
+const CONNECT_HEADER = { title: "Connect to Host" };
+const SETUP_HEADER = { title: "Create New installation" };
+const INSTALL_COMMAND =
+  'git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&\n  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"';
 
 interface WelcomeAction {
-  key: "direct-connection" | "remote-ssh";
+  key: "new-installation" | "direct-connection" | "demo";
   label: string;
   testID: string;
   primary: boolean;
@@ -168,7 +173,8 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const appVersion = resolveAppVersion();
   const appVersionText = formatVersionWithPrefix(appVersion);
   const [isDirectOpen, setIsDirectOpen] = useState(false);
-  const [isRemoteSshOpen, setIsRemoteSshOpen] = useState(false);
+  const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
   const installation = readExecutionInstallation();
   const hosts = useHosts();
   const anyOnlineServerId = useAnyHostOnline(hosts.map((h) => h.serverId));
@@ -192,8 +198,15 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
 
   const handleOpenDirect = useCallback(() => setIsDirectOpen(true), []);
   const handleCloseDirect = useCallback(() => setIsDirectOpen(false), []);
-  const handleOpenRemoteSsh = useCallback(() => setIsRemoteSshOpen(true), []);
-  const handleCloseRemoteSsh = useCallback(() => setIsRemoteSshOpen(false), []);
+  const handleOpenSetup = useCallback(() => setIsSetupOpen(true), []);
+  const handleCloseSetup = useCallback(() => setIsSetupOpen(false), []);
+  const handleDemo = useCallback(() => {
+    try {
+      enterDemo();
+    } catch (error) {
+      setDemoError(error instanceof Error ? error.message : "Could not open the demo.");
+    }
+  }, []);
 
   const handleHostSaved = useCallback(
     ({ profile }: { profile: HostProfile; serverId: string }) => {
@@ -205,25 +218,30 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
 
   const actions: WelcomeAction[] = [
     {
-      key: "direct-connection",
-      label: "Connect to server",
-      testID: "welcome-direct-connection",
+      key: "new-installation",
+      label: "Create New installation",
+      testID: "welcome-create-installation",
       primary: true,
+      icon: Plus,
+      onPress: handleOpenSetup,
+    },
+    {
+      key: "direct-connection",
+      label: "Connect to Host",
+      testID: "welcome-direct-connection",
+      primary: false,
       icon: Link2,
       onPress: handleOpenDirect,
     },
-  ];
-
-  if (isElectronRuntime()) {
-    actions.splice(1, 0, {
-      key: "remote-ssh",
-      label: t("pairing.connectionMethods.remoteSsh.title"),
-      testID: "welcome-remote-ssh",
+    {
+      key: "demo",
+      label: "Demo",
+      testID: "welcome-demo",
       primary: false,
-      icon: Terminal,
-      onPress: handleOpenRemoteSsh,
-    });
-  }
+      icon: Play,
+      onPress: handleDemo,
+    },
+  ];
 
   const scrollContentContainerStyle = useMemo(
     () => [styles.container, { paddingBottom: theme.spacing[6] + insets.bottom }],
@@ -232,6 +250,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
 
   return (
     <View style={styles.root}>
+      <WelcomeRain />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={scrollContentContainerStyle}
@@ -246,9 +265,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
               {installation ? "Welcome to Vorteo" : t("onboarding.title")}
             </Text>
             <Text style={styles.subtitle}>
-              {installation
-                ? "Your projects and agents are ready when you are. Enter your owner password to get started."
-                : t("onboarding.subtitle")}
+              Create an installation, connect to your Host, or explore the demo.
             </Text>
             {isNative ? (
               <Pressable style={styles.setupLink} onPress={handleOpenPaseoSite}>
@@ -259,11 +276,14 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
           </View>
 
           <View style={styles.actions}>
-            {installation ? (
-              <InstallationWelcome />
-            ) : (
-              actions.map((action) => <WelcomeActionButton key={action.key} action={action} />)
-            )}
+            {actions.map((action) => (
+              <WelcomeActionButton key={action.key} action={action} />
+            ))}
+            {demoError ? (
+              <Text accessibilityRole="alert" style={styles.subtitle}>
+                {demoError}
+              </Text>
+            ) : null}
           </View>
 
           <Button
@@ -279,17 +299,40 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
         </View>
         <Text style={styles.versionLabel}>{appVersionText}</Text>
 
-        <AddHostModal
-          visible={isDirectOpen}
-          onClose={handleCloseDirect}
-          onSaved={handleHostSaved}
-        />
-
-        <AddRemoteSshHostModal
-          visible={isRemoteSshOpen}
-          onClose={handleCloseRemoteSsh}
-          onSaved={handleHostSaved}
-        />
+        {installation ? (
+          <AdaptiveModalSheet
+            visible={isDirectOpen}
+            onClose={handleCloseDirect}
+            header={CONNECT_HEADER}
+            testID="installation-connect-modal"
+          >
+            {isDirectOpen ? <InstallationWelcome /> : null}
+          </AdaptiveModalSheet>
+        ) : (
+          <AddHostModal
+            visible={isDirectOpen}
+            onClose={handleCloseDirect}
+            onSaved={handleHostSaved}
+          />
+        )}
+        <AdaptiveModalSheet
+          visible={isSetupOpen}
+          onClose={handleCloseSetup}
+          header={SETUP_HEADER}
+          testID="create-installation-modal"
+        >
+          <Text style={styles.subtitle}>
+            Run this command on the computer that will host your installation, or give it to your
+            agent. The installer prepares the Dev container and prints your private address and
+            password location.
+          </Text>
+          <Text selectable style={styles.subtitle} testID="installation-command">
+            {INSTALL_COMMAND}
+          </Text>
+          <Text style={styles.subtitle}>
+            When setup finishes, open the printed address and choose Connect to Host.
+          </Text>
+        </AdaptiveModalSheet>
       </ScrollView>
     </View>
   );
@@ -311,7 +354,12 @@ function WelcomeActionButton({ action }: WelcomeActionButtonProps) {
     [action.primary],
   );
   return (
-    <Pressable style={buttonStyle} onPress={action.onPress} testID={action.testID}>
+    <Pressable
+      accessibilityRole="button"
+      style={buttonStyle}
+      onPress={action.onPress}
+      testID={action.testID}
+    >
       <Icon
         size={18}
         color={action.primary ? theme.colors.accentForeground : theme.colors.foreground}

@@ -1,10 +1,14 @@
-import { SidebarSyncNotice } from "@/sidebar-state/status";
+import { usePointerResize } from "./use-pointer-resize";
+import { useMenuContext } from "@/components/ui/menu/menu-context";
+import { SidebarMenuToggle } from "@/components/headers/menu-header";
+import { ThemePreviewGrid } from "@/screens/settings/appearance/theme-preview-grid";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useOpenNewWorkspace } from "@/hooks/use-open-new-workspace";
 import { useVortonTouch } from "@/vorton-touch";
 
 import { router, usePathname } from "expo-router";
 import { useVortonCompatibilityCallout } from "./vorton-compatibility-callout";
+import { DemoControls } from "@/demo/controls";
 import {
   Search,
   FolderPlus,
@@ -38,7 +42,12 @@ import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import type { Theme } from "@/styles/theme";
+import { Button } from "@/components/ui/button";
+import { CompactProjectRail } from "./sidebar/compact-project-rail";
+import { floatingPanelStyles } from "@/styles/floating-panel";
+import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import {
@@ -87,12 +96,9 @@ import {
 import { openHostOverview } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
-import { InstallationRestartBanner } from "@/execution-installation/panel";
-import { SidebarCalloutStack } from "./sidebar-callout";
-import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
-type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
+type SidebarTheme = Theme;
 
 const DEV_BUILD_LABEL = process.env.EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL?.trim() || null;
 
@@ -143,9 +149,14 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   active: boolean;
 }
 
-export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boolean }) {
+const LeftSidebarBase = memo(function LeftSidebarBase({
+  active,
+  theme,
+}: {
+  active: boolean;
+  theme: Theme;
+}) {
   useVortonCompatibilityCallout();
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const isCompactLayout = useIsCompactFormFactor();
@@ -303,6 +314,12 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
   );
 });
 
+const ThemedLeftSidebar = withUnistyles(LeftSidebarBase);
+const sidebarThemeMapping = (theme: Theme) => ({ theme });
+export function LeftSidebar({ active }: { active: boolean }) {
+  return <ThemedLeftSidebar active={active} uniProps={sidebarThemeMapping} />;
+}
+
 function FooterIconButton({
   disabled = false,
   active = false,
@@ -453,6 +470,7 @@ function SidebarToolbar({
   );
   return (
     <View style={[styles.sidebarFooter, styles.sidebarToolbar]} testID="sidebar-toolbar">
+      <SidebarMenuToggle insideSidebar testID="sidebar-collapse" />
       {
         <FooterIconButton
           icon={Search}
@@ -466,6 +484,35 @@ function SidebarToolbar({
       }
       <View style={styles.footerGap} />
       <View style={styles.footerIconRow}>
+        {
+          <>
+            <FooterIconButton
+              testID="sidebar-sessions"
+              icon={History}
+              onPress={openHistory}
+              active={pathname.includes("/sessions")}
+              label={t(builtinSidebarNavLabelKey("history"))}
+              theme={theme}
+            />
+            <FooterIconButton
+              testID="sidebar-schedules"
+              icon={CalendarClock}
+              onPress={openSchedules}
+              active={pathname.includes("/schedules")}
+              label={t(builtinSidebarNavLabelKey("schedules"))}
+              theme={theme}
+            />
+          </>
+        }
+
+        <FooterIconButton
+          onPress={handleSettings}
+          testID="sidebar-settings"
+          label={labels.settings}
+          icon={Settings}
+          shortcutKeys={settingsKeys}
+          theme={theme}
+        />
         {
           <View>
             <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
@@ -483,7 +530,10 @@ function SidebarToolbar({
               >
                 <MoreVertical size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end" width={240}>
+              <DropdownMenuContent side="bottom" align="end" width={360}>
+                <View style={styles.themeMenu}>
+                  <SidebarThemePicker />
+                </View>
                 <DropdownMenuItem
                   testID="sidebar-add-project"
                   onSelect={handleOpenProject}
@@ -516,36 +566,6 @@ function SidebarToolbar({
             </DropdownMenu>
           </View>
         }
-
-        {
-          <>
-            <FooterIconButton
-              testID="sidebar-sessions"
-              icon={History}
-              onPress={openHistory}
-              active={pathname.includes("/sessions")}
-              label={t(builtinSidebarNavLabelKey("history"))}
-              theme={theme}
-            />
-            <FooterIconButton
-              testID="sidebar-schedules"
-              icon={CalendarClock}
-              onPress={openSchedules}
-              active={pathname.includes("/schedules")}
-              label={t(builtinSidebarNavLabelKey("schedules"))}
-              theme={theme}
-            />
-          </>
-        }
-
-        <FooterIconButton
-          onPress={handleSettings}
-          testID="sidebar-settings"
-          label={labels.settings}
-          icon={Settings}
-          shortcutKeys={settingsKeys}
-          theme={theme}
-        />
       </View>
     </View>
   );
@@ -689,6 +709,7 @@ function MobileSidebar({
           />
         )}
 
+        <DemoControls />
         {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
       </View>
     </MobilePanelOverlay>
@@ -724,11 +745,32 @@ function DesktopSidebar({
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
+  const compact = usePanelStore((state) => state.sidebarCompact);
+  const setCompact = usePanelStore((state) => state.setSidebarCompact);
+  const expandSidebar = useCallback(() => {
+    setCompact(false);
+  }, [setCompact]);
+  const compactSidebar = useCallback(() => {
+    setCompact(true);
+  }, [setCompact]);
+  const showAllProjects = useSidebarViewStore((state) => state.clearProjectFilters);
+  const selectRailProject = useCallback(
+    (key: string) => {
+      // Use the same projection as the sidebar filters so pinned rows, status groups
+      // and keyboard shortcuts all follow the chosen project.
+      useSidebarViewStore.setState({ projectFilters: [key] });
+      if (collapsedProjectKeys.has(key)) toggleProjectCollapsed(key);
+      setCompact(false);
+    },
+    [collapsedProjectKeys, setCompact, toggleProjectCollapsed],
+  );
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
   const visibleSidebarWidth = resolveDesktopSidebarWidth({
     requestedWidth: sidebarWidth,
     viewportWidth,
+    compact,
+    hasTopLeftWindowControls: ownsTopLeft,
   });
 
   const startWidthRef = useRef(visibleSidebarWidth);
@@ -740,6 +782,26 @@ function DesktopSidebar({
   useEffect(() => {
     resizeWidth.value = visibleSidebarWidth;
   }, [resizeWidth, visibleSidebarWidth]);
+
+  const beginPointerResize = useCallback(() => {
+    const initialWidth = visibleSidebarWidth;
+    let nextWidth = initialWidth;
+    return {
+      move: (delta: number) => {
+        nextWidth = resolveDesktopSidebarWidth({
+          requestedWidth: initialWidth + delta,
+          viewportWidth,
+        });
+        resizeWidth.value = nextWidth;
+      },
+      finish: () => setSidebarWidth(nextWidth),
+    };
+  }, [visibleSidebarWidth, viewportWidth, resizeWidth, setSidebarWidth]);
+  const handlePointerResize = usePointerResize({
+    direction: "horizontal",
+    begin: beginPointerResize,
+    onDraggingChange: setResizePressed,
+  });
 
   const resizeGesture = useMemo(
     () =>
@@ -794,7 +856,7 @@ function DesktopSidebar({
     [active, resizeAnimatedStyle],
   );
   const desktopSidebarBorderStyle = useMemo(
-    () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
+    () => [floatingPanelStyles.surface, { flex: 1, paddingTop: insetsTop }],
     [insetsTop],
   );
 
@@ -817,72 +879,107 @@ function DesktopSidebar({
       pointerEvents={active ? "auto" : "none"}
       style={desktopSidebarStyle}
     >
-      <View style={desktopSidebarBorderStyle}>
-        <View style={styles.sidebarDragArea}>
-          {ownsTopLeft || DEV_BUILD_LABEL ? (
-            <View style={styles.desktopChromeRow}>
-              <TitlebarDragRegion />
-              {DEV_BUILD_LABEL ? (
-                <View
-                  pointerEvents="none"
-                  style={styles.devBuildBadge}
-                  testID="dev-build-label"
-                  accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
-                >
-                  <GitBranch size={12} color={theme.colors.accentForeground} />
-                  <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
-                    {DEV_BUILD_LABEL}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ) : (
-            <TitlebarDragRegion />
-          )}
-          {toolbar}
-        </View>
-
-        {isInitialLoad && !hasActiveHostFilter ? (
+      <View style={desktopSidebarBorderStyle} testID="floating-sidebar">
+        {compact ? (
           <>
-            {navigation}
-            <SidebarAgentListSkeleton />
+            {ownsTopLeft ? (
+              <View style={styles.desktopChromeRow}>
+                <TitlebarDragRegion />
+              </View>
+            ) : null}
+            <CompactProjectRail
+              projects={projects}
+              onSelectProject={selectRailProject}
+              onExpand={expandSidebar}
+              onAddProject={handleOpenProject}
+              onSettings={handleSettings}
+            />
           </>
         ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            listTopComponent={navigation}
-            listHeaderComponent={undefined}
-          />
+          <>
+            <View style={styles.sidebarDragArea}>
+              {ownsTopLeft || DEV_BUILD_LABEL ? (
+                <View style={styles.desktopChromeRow}>
+                  <TitlebarDragRegion />
+                  {DEV_BUILD_LABEL ? (
+                    <View
+                      pointerEvents="none"
+                      style={styles.devBuildBadge}
+                      testID="dev-build-label"
+                      accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
+                    >
+                      <GitBranch size={12} color={theme.colors.accentForeground} />
+                      <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
+                        {DEV_BUILD_LABEL}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <TitlebarDragRegion />
+              )}
+              {toolbar}
+              <View style={styles.sidebarModeRow}>
+                {hasActiveProjectFilter ? (
+                  <Button variant="ghost" size="xs" onPress={showAllProjects}>
+                    All projects
+                  </Button>
+                ) : (
+                  <View style={styles.modeSpacer} />
+                )}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onPress={compactSidebar}
+                  accessibilityLabel="Use compact sidebar"
+                >
+                  Compact
+                </Button>
+              </View>
+            </View>
+
+            {isInitialLoad && !hasActiveHostFilter ? (
+              <>
+                {navigation}
+                <SidebarAgentListSkeleton />
+              </>
+            ) : (
+              <SidebarWorkspaceList
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                groupMode={groupMode}
+                workspaceGroups={workspaceGroups}
+                projectIconTargets={projectIconTargets}
+                pinnedGroups={pinnedGroups}
+                projects={projects}
+                hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+                hasActiveProjectFilter={hasActiveProjectFilter}
+                workspaceEntriesByKey={workspaceEntriesByKey}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+                onImportSession={handleImportSession}
+                listTopComponent={navigation}
+                listHeaderComponent={undefined}
+              />
+            )}
+          </>
         )}
 
-        <SidebarCalloutStack>
-          <SidebarSyncNotice />
-          <InstallationRestartBanner />
-          <SidebarCalloutSlot />
-        </SidebarCalloutStack>
+        {!compact ? <DemoControls /> : null}
+        {!compact ? <SidebarFooterRows /> : null}
 
-        {<SidebarFooterRows />}
-
-        <SidebarResizeHandle
-          edge="right"
-          gesture={resizeGesture}
-          pressed={resizePressed}
-          testID="left-sidebar-resize-handle"
-        />
+        {!compact ? (
+          <SidebarResizeHandle
+            edge="right"
+            floating
+            onPointerDown={handlePointerResize}
+            gesture={resizeGesture}
+            pressed={resizePressed}
+            testID="left-sidebar-resize-handle"
+          />
+        ) : null}
       </View>
     </Animated.View>
   );
@@ -897,6 +994,7 @@ function DesktopSidebar({
 const staticStyles = RNStyleSheet.create({
   desktopSidebar: {
     position: "relative" as const,
+    margin: SIDEBAR_OUTER_GAP,
   },
   desktopSidebarHidden: {
     display: "none",
@@ -908,11 +1006,13 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
-  desktopSidebarBorder: {
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceSidebar,
+  sidebarModeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingBottom: 4,
   },
+  modeSpacer: { flex: 1 },
   sidebarDragArea: {
     position: "relative",
   },
@@ -943,6 +1043,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
+  themeMenu: { paddingHorizontal: 16, paddingVertical: 8 },
   sidebarToolbar: {
     gap: theme.spacing[2],
     height: VORTON_HEADER_HEIGHT,
@@ -1008,3 +1109,9 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.popoverForeground,
   },
 }));
+
+function SidebarThemePicker() {
+  const { selectItem } = useMenuContext("SidebarThemePicker");
+  const selectTheme = useCallback((action: () => void) => selectItem(action, false), [selectItem]);
+  return <ThemePreviewGrid compact selectTheme={selectTheme} />;
+}

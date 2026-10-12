@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { darkHighlightColors, resolveSyntaxColors } from "@getpaseo/highlight";
-import { DEFAULT_UI_FONT_STACK, REGISTERED_THEMES } from "@/styles/theme";
+import { REGISTERED_THEMES } from "@/styles/theme";
 import { applyAppearance, type AppearanceInput } from "./apply";
 
 // Override the global react-native-unistyles mock (vitest.setup.ts) so that
@@ -95,13 +95,13 @@ describe("applyAppearance", () => {
   });
 
   it("patches the active theme before inactive registry entries", () => {
-    runtime.themeName = "darkPureBlack";
+    runtime.themeName = "midas";
 
     applyAppearance(makeInput({ uiBaseFontSize: 15 }));
 
     expect(updateTheme.mock.calls.map((call) => call[0])).toEqual([
-      "darkPureBlack",
-      ...ALL_THEME_KEYS.filter((key) => key !== "darkPureBlack"),
+      "midas",
+      ...ALL_THEME_KEYS.filter((key) => key !== "midas"),
     ]);
   });
 
@@ -111,10 +111,14 @@ describe("applyAppearance", () => {
     expect(runCapturedUpdater().contentMaxWidth).toBe(1600);
   });
 
-  it("resolves an empty UI font family to the default stack", () => {
+  it("resolves an empty UI font family to each theme's authored stack", () => {
     applyAppearance(makeInput({ uiFontFamily: "" }));
 
-    expect(runCapturedUpdater().fontFamily.ui).toBe(DEFAULT_UI_FONT_STACK);
+    for (const [index, key] of ALL_THEME_KEYS.entries()) {
+      expect(runCapturedUpdater(index).fontFamily.ui).toBe(
+        REGISTERED_THEMES[key as keyof typeof REGISTERED_THEMES].fontFamily.ui,
+      );
+    }
   });
 
   it("passes a non-empty UI font family through trimmed", () => {
