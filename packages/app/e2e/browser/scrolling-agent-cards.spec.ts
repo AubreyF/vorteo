@@ -563,7 +563,11 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const rowHeight = await stack.getByTestId("subagents-card").evaluate((card) => {
         const row = card.querySelector('[data-testid="subagents-card-header"]');
         if (!row) throw new Error("Subagent header row missing");
-        return row.getBoundingClientRect().height;
+        return (
+          row.getBoundingClientRect().height -
+          Number.parseFloat(getComputedStyle(row).paddingTop) -
+          Number.parseFloat(getComputedStyle(row).paddingBottom)
+        );
       });
       expect(headerHeight).toBe(rowHeight);
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
@@ -610,7 +614,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         if (!header || !action) throw new Error("Goal controls missing");
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
-      expect(goalActionInset).toBe(0);
+      const goalWidth = (await stack.getByTestId("agent-goal-bar").boundingBox())!.width;
+      expect(goalActionInset).toBe(Math.round(Math.max(0, Math.min(8, (goalWidth - 300) / 15))));
       await verifyQuestionScrollerSpacing(stack, page, width);
       await info.attach(`scrolling-cards-${width}`, {
         body: await page.screenshot(),
@@ -774,6 +779,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       const next = wrapper.nextElementSibling;
       const card = header.parentElement!.parentElement!.parentElement!;
       return {
+        panelInset: Number.parseFloat(getComputedStyle(header.parentElement!).paddingLeft),
         leftInset: box.left - card.getBoundingClientRect().left,
         iconInset: icon.left - box.left,
         iconTopInset: icon.top - box.top,
@@ -785,7 +791,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       };
     });
     expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
-    expect(geometry.leftInset, id).toBeCloseTo(1, 0);
+    expect(geometry.leftInset, id).toBeCloseTo(1 + geometry.panelInset, 0);
     expect(geometry.iconInset, id).toBeCloseTo((geometry.height - 20) / 2, 0);
     expect(geometry.iconInset, id).toBeCloseTo(geometry.iconTopInset, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
@@ -879,6 +885,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
         return {
           id,
           height: box.height,
+          panelInset: Number.parseFloat(getComputedStyle(header.parentElement!).paddingLeft),
           iconX: icon.getBoundingClientRect().x - cardBox.x,
           titleX: title.getBoundingClientRect().x - cardBox.x,
           titleWidth: title.getBoundingClientRect().width,
@@ -893,8 +900,14 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
   for (const card of geometry) {
     expect(card.height, card.id).toBe(width === 390 ? 44 : 32);
     expect(card.titleWidth, card.id).toBeGreaterThan(10);
-    expect(card.iconX, card.id).toBeCloseTo(geometry[0].iconX, 1);
-    expect(card.titleX, card.id).toBeCloseTo(geometry[0].titleX, 1);
+    expect(card.iconX - card.panelInset, card.id).toBeCloseTo(
+      geometry[0].iconX - geometry[0].panelInset,
+      1,
+    );
+    expect(card.titleX - card.panelInset, card.id).toBeCloseTo(
+      geometry[0].titleX - geometry[0].panelInset,
+      1,
+    );
     for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
     expect(card.overflow, card.id).toBe(false);
   }

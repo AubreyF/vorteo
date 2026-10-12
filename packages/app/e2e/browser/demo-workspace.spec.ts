@@ -685,3 +685,94 @@ test("shares card disclosure preferences across workspaces and reloads without f
   await expect(journal).toHaveAttribute("aria-expanded", "false");
   await page.screenshot({ path: info.outputPath("retained-card-preferences-phone.png") });
 });
+
+test("card spacing follows panel width on both sides and compact center layouts", async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  const card = page.getByTestId("agent-task-progress-card").filter({ visible: true });
+  const left = page.getByTestId("floating-sidebar").filter({ visible: true });
+  await expect(card).toBeVisible();
+  for (const [handleId, target, direction] of [
+    ["workspace-explorer-sidebar-resize-handle", card, -1],
+    ["left-sidebar-resize-handle", left, 1],
+  ] as const) {
+    const handle = page.getByTestId(handleId).filter({ visible: true });
+    const start = await handle.boundingBox();
+    if (!start) throw new Error(`Missing ${handleId}`);
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(start.x + direction * 180, start.y + start.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect
+      .poll(() =>
+        target.evaluate((node) => {
+          const padded =
+            node.dataset.testid === "floating-sidebar"
+              ? node
+              : node.firstElementChild!.firstElementChild!;
+          return Number.parseFloat(getComputedStyle(padded).paddingLeft);
+        }),
+      )
+      .toBe(8);
+  }
+  await page.screenshot({ path: info.outputPath("spacious-panels.png"), fullPage: true });
+  for (const width of [390, 280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(card).toBeVisible();
+    await expect
+      .poll(() =>
+        card.evaluate((node) => ({
+          width: node.getBoundingClientRect().width,
+          inset: Number.parseFloat(
+            getComputedStyle(node.firstElementChild!.firstElementChild!).paddingLeft,
+          ),
+        })),
+      )
+      .toMatchObject({ inset: width === 280 ? 0 : 4 });
+    await expect(page.getByTestId("checklist-toggle").filter({ visible: true })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await page.screenshot({ path: info.outputPath(`compact-panels-${width}.png`), fullPage: true });
+  }
+});
+
+test("mobile keyboard viewport keeps workspace navigation above the composer", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const editor = page
+    .locator('textarea, [contenteditable="true"]')
+    .filter({ visible: true })
+    .first();
+  await editor.focus();
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    Object.defineProperties(viewport, {
+      height: { configurable: true, get: () => 450 },
+      offsetTop: { configurable: true, get: () => 120 },
+    });
+    viewport.dispatchEvent(new Event("resize"));
+  });
+  const menu = page.getByRole("button", { name: "Open menu", exact: true });
+  await expect.poll(async () => (await menu.boundingBox())!.y).toBeGreaterThanOrEqual(120);
+  const composer = page.getByTestId("message-input-root").filter({ visible: true });
+  await expect
+    .poll(async () => {
+      const box = (await composer.boundingBox())!;
+      return box.y + box.height;
+    })
+    .toBeLessThanOrEqual(570);
+  await page.screenshot({ path: info.outputPath("keyboard-visible-navigation.png") });
+  await menu.click();
+  await expect(
+    page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
+  ).toBeVisible();
+});

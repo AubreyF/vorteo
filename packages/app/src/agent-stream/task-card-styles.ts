@@ -13,7 +13,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
   };
   return {
     surface,
-    // Headers meet the card boundary; only scrollable content owns an outer inset.
+    // TaskCard adds the shared width-adaptive inset around headers and body content.
     scrollContent: { minHeight: 0, flexShrink: 1 },
     bodyContent: {
       paddingHorizontal: theme.spacing[3],

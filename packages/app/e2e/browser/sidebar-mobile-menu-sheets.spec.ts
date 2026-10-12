@@ -39,6 +39,12 @@ test("touch workspace rows have no kebab and the title menu contains workspace a
     await expect(
       workspaceRow.getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`),
     ).toHaveCount(0);
+    const rowGeometry = await workspaceRow.evaluate((row) => {
+      const rail = row.querySelector('[data-testid="sidebar-trailing-rail"]')!;
+      const details = rail.lastElementChild!;
+      return { gap: rail.getBoundingClientRect().right - details.getBoundingClientRect().right };
+    });
+    expect(rowGeometry.gap).toBeLessThanOrEqual(1);
     await workspaceRow.tap();
     await page.getByTestId("workspace-header-menu-trigger").tap();
 

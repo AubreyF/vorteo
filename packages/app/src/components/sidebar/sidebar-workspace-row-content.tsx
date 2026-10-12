@@ -392,7 +392,11 @@ export function resolveTrailingActionVisibility({
 }
 
 export function SidebarWorkspaceTrailingActionSlot({ children }: { children: ReactNode }) {
-  return <View style={styles.trailingRail}>{children}</View>;
+  return (
+    <View style={styles.trailingRail} testID="sidebar-trailing-rail">
+      {children}
+    </View>
+  );
 }
 
 export function SidebarWorkspaceTrailingDetails({
@@ -461,7 +465,9 @@ export function SidebarWorkspaceMenuReveal({
   // Overlay the trailing content without changing the row's layout.
   return (
     <>
-      {touch ? <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} /> : null}
+      {touch && visible ? (
+        <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} />
+      ) : null}
       {visible ? (
         <View
           testID="sidebar-menu-backdrop"

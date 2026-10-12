@@ -1,3 +1,4 @@
+import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   Children,
@@ -60,6 +61,7 @@ function TaskCardView({
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
+  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const column = useContext(CardColumnContext);
   const retainedActive = useRetainedPanelActive();
   const id = useId();
@@ -116,12 +118,13 @@ function TaskCardView({
     <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
       <View
         testID={testID}
+        onLayout={onPanelLayout}
         style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
       >
         <View style={taskCardStyles.scrollContent}>
           <View
             testID={testID ? `${testID}-header` : undefined}
-            style={taskCardStyles.fixedHeader}
+            style={[taskCardStyles.fixedHeader, { padding: spacingInset }]}
             onLayout={onHeaderLayout}
           >
             {header}
@@ -133,6 +136,8 @@ function TaskCardView({
                 {
                   height: Math.max(0, maxHeight - headerHeight - insets),
                   minHeight: 0,
+                  paddingHorizontal: spacingInset,
+                  paddingBottom: spacingInset,
                 },
                 !bodyVisible && taskCardStyles.hiddenBody,
               ]}
@@ -148,6 +153,10 @@ function TaskCardView({
               contentContainerStyle={[
                 taskCardStyles.bodyContent,
                 flushBody && taskCardStyles.flushBody,
+                {
+                  paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
+                  paddingVertical: 4 + spacingInset,
+                },
               ]}
               nestedScrollEnabled
               scrollEnabled={scrollEnabled}

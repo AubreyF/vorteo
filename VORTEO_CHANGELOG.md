@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.352 - 2026-10-12
+
+### Changed
+
+- Adapt both sidebar interiors and supporting card headers to available panel width. Spacious cards gain matching button clearance and body padding; narrow cards stay compact and preserve touch targets.
+- Apply the same spacing to cards displayed in the central column, retaining each hidden panel's last measured spacing during workspace changes.
+
+### Fixed
+
+- Reclaim the empty touch menu slot at the trailing edge of workspace rows when their menu is hidden.
+- Keep the web app shell within the visible keyboard viewport so workspace navigation remains accessible while composing. Release the adjustment for blur and pinch zoom.
+
 ## 0.11.0-beta.3.vorteo.351 - 2026-10-12
 
 ### Changed

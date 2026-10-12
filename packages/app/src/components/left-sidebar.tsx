@@ -1,3 +1,4 @@
+import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { usePointerResize } from "./use-pointer-resize";
@@ -644,6 +645,7 @@ function MobileSidebar({
     closeSidebar();
   }, [closeSidebar]);
 
+  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const mobileSidebarInsetStyle = useMemo(
     () => ({
       paddingTop: insetsTop,
@@ -677,7 +679,11 @@ function MobileSidebar({
       closeGesture={closeGesture}
       panelStyle={mobileSidebarInsetStyle}
     >
-      <View style={styles.sidebarContent} pointerEvents="auto">
+      <View
+        style={[styles.sidebarContent, { padding: spacingInset }]}
+        onLayout={onPanelLayout}
+        pointerEvents="auto"
+      >
         <WindowChromeSafeArea placement="below" />
         {toolbar}
 
@@ -856,9 +862,17 @@ function DesktopSidebar({
     ],
     [active, resizeAnimatedStyle],
   );
+  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const desktopSidebarBorderStyle = useMemo(
-    () => [floatingPanelStyles.surface, { flex: 1, paddingTop: insetsTop }],
-    [insetsTop],
+    () => [
+      floatingPanelStyles.surface,
+      {
+        flex: 1,
+        padding: compact ? 0 : spacingInset,
+        paddingTop: insetsTop + (compact ? 0 : spacingInset),
+      },
+    ],
+    [insetsTop, compact, spacingInset],
   );
 
   const navigation = useMemo(() => <SidebarNavRows style={styles.scrollingNavGroup} />, []);
@@ -880,7 +894,7 @@ function DesktopSidebar({
       pointerEvents={active ? "auto" : "none"}
       style={desktopSidebarStyle}
     >
-      <View style={desktopSidebarBorderStyle} testID="floating-sidebar">
+      <View style={desktopSidebarBorderStyle} onLayout={onPanelLayout} testID="floating-sidebar">
         {compact ? (
           <>
             {ownsTopLeft ? (
