@@ -481,3 +481,5 @@ October 12, 2026: New workspace uses taller chooser cards and a matching compose
 October 12, 2026: Sidebar dragging reaches a 48px icon rail with a near-minimum snap and preserves the expanded width. Narrow panels hide activity badges and line deltas, prioritize search and navigation, and move secondary actions into grouped menus. The rail keeps schedules and history above projects and Settings and Add project below them. Interactive project previews support workspace navigation; theme previews remain temporary until selected and use a brief transition that respects reduced motion.
 
 The collapsed sidebar places expand, search, schedules and history above project tiles. Its only bottom control is the overflow menu, which includes Settings and Add project.
+
+Left project and status lists inherit the panel inset without an extra fixed horizontal gutter. Both sidebars use zero adaptive inset through 300px, increasing to 8px at 420px; compact highlights reach the inside border.

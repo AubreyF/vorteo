@@ -749,6 +749,44 @@ test("card spacing follows panel width on both sides and compact center layouts"
       )
       .toBe(8);
   }
+  const row = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
+  for (const width of [280, 360, 450]) {
+    const insets: number[] = [];
+    for (const [handleId, target, direction] of [
+      ["workspace-explorer-sidebar-resize-handle", card, -1],
+      ["left-sidebar-resize-handle", left, 1],
+    ] as const) {
+      const handle = (await page.getByTestId(handleId).boundingBox())!;
+      const before = (await target.boundingBox())!;
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        handle.x + handle.width / 2 + direction * (width - before.width),
+        handle.y + handle.height / 2,
+        { steps: 10 },
+      );
+      await page.mouse.up();
+      const expected = Math.round(Math.max(0, Math.min(8, (width - 300) / 15)));
+      await expect
+        .poll(() =>
+          target.evaluate((node) => {
+            const padded =
+              node.dataset.testid === "floating-sidebar"
+                ? node
+                : node.firstElementChild!.firstElementChild!;
+            return Number.parseFloat(getComputedStyle(padded).paddingLeft);
+          }),
+        )
+        .toBe(expected);
+      insets.push(expected);
+    }
+    expect(insets[0]).toBe(insets[1]);
+    const outer = (await left.boundingBox())!;
+    const highlighted = (await row.boundingBox())!;
+    expect(highlighted.x - outer.x).toBeCloseTo(insets[0] + 1, 0);
+    expect(outer.x + outer.width - highlighted.x - highlighted.width).toBeCloseTo(insets[0] + 1, 0);
+    await page.screenshot({ path: info.outputPath(`matching-panel-insets-${width}.png`) });
+  }
   await page.screenshot({ path: info.outputPath("spacious-panels.png"), fullPage: true });
   for (const width of [390, 280]) {
     await page.setViewportSize({ width, height: 900 });
