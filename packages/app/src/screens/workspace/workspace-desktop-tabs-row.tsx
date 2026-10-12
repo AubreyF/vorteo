@@ -2,7 +2,7 @@ import {
   WorkspaceToolbarToggleContext,
   WorkspaceOverflowItemsContext,
 } from "./workspace-header-menu";
-import { tabShape } from "@/styles/tab-shape";
+import { floatingControlSurface } from "@/styles/floating-control";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
   useCallback,
@@ -106,9 +106,8 @@ const PANE_MAXIMIZE_ACTION_RESERVED_WIDTH = smallIconButtonChromeFrameSize(false
 // Chip geometry. `layoutMetrics` measures tabs from these same numbers, so a chip that changes
 // shape without changing them mis-measures and drops the row into the overflow-scroll fallback at
 // the wrong width. Keep them together.
-// Tabs and the adjacent New Tab trigger are one control family. Keep their outer box and corner
-// token identical; only their horizontal sizing differs (content-width chip versus square icon).
-const TAB_CHIP_HORIZONTAL_PADDING = 8;
+// Keep the measured horizontal chrome aligned with the rendered padding and borders.
+const TAB_CHIP_HORIZONTAL_PADDING = 12;
 const TAB_CHIP_GAP = 4;
 const TAB_ROW_PADDING_HORIZONTAL = 4;
 const TAB_ICON_WIDTH = 14;
@@ -116,9 +115,9 @@ const TAB_CONTENT_GAP = 4;
 const TAB_DROP_INDICATOR_WIDTH = 4;
 const TAB_MODIFIED_DOT_SIZE = 8;
 const TAB_MIN_WIDTH = 120;
-const TAB_MAX_WIDTH = 260;
+const TAB_MAX_WIDTH = 420;
 const TAB_CLOSE_BUTTON_RESERVED_WIDTH = 0;
-const TAB_LABEL_LAYOUT_ALLOWANCE = 4;
+const TAB_LABEL_LAYOUT_ALLOWANCE = 6;
 const AGENT_TOOLTIP_TITLE_MAX_LENGTH = 80;
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
@@ -775,14 +774,13 @@ function TabChip({
   );
   const isCompact = useIsCompactFormFactor();
   const [hovered, setHovered] = useState(false);
-  // An active tab in a pane that does not have focus stays legible but quiet: it keeps the fill of
-  // a hovered chip and the muted label, so only one chip in the window reads as the live one.
+  // Only the focused pane's selected tab receives the floating surface treatment.
   const isActiveFocused = isActive && isFocused;
   const isHovered = hovered || isCloseHovered;
   const isHighlighted = isActiveFocused || isHovered;
   const chipBackdrop: SurfaceBackdrop = resolveChipBackdrop({
     isActiveFocused,
-    isFilled: isActive || isHovered,
+    isFilled: isHovered,
   });
   const showCloseControl = showCloseButton && (isHovered || isNative || isCompact || isClosingTab);
   const closeButtonDragBlockers = isWeb
@@ -800,8 +798,7 @@ function TabChip({
     () => [
       styles.tab,
       isActiveFocused && styles.tabActive,
-      isActive && !isFocused && styles.tabActiveUnfocused,
-      !isActive && isHovered && styles.tabHovered,
+      !isActiveFocused && isHovered && styles.tabHovered,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
       {
         minWidth: resolvedTabWidth,
@@ -809,7 +806,7 @@ function TabChip({
         maxWidth: resolvedTabWidth,
       },
     ],
-    [isActive, isActiveFocused, isDragging, isFocused, isHovered, resolvedTabWidth],
+    [isActiveFocused, isDragging, isHovered, resolvedTabWidth],
   );
 
   const handleTabPointerEnter = useCallback(() => {
@@ -1585,8 +1582,6 @@ const styles = StyleSheet.create((theme) => ({
   tabsContainer: {
     minWidth: 0,
     height: VORTON_HEADER_HEIGHT,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.surface0,
     flexDirection: "row",
     alignItems: "center",
@@ -1610,6 +1605,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: TAB_ROW_PADDING_HORIZONTAL,
+    minHeight: VORTON_HEADER_HEIGHT,
   },
   exitFocusModeSlot: {
     alignSelf: "stretch",
@@ -1633,9 +1629,11 @@ const styles = StyleSheet.create((theme) => ({
     marginRight: PANE_SPLIT_ACTIONS_OUTER_MARGIN,
   },
   tab: {
-    height: buttonControlHeight.xs,
+    height: buttonControlHeight.md,
     paddingHorizontal: TAB_CHIP_HORIZONTAL_PADDING,
-    ...tabShape(theme),
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: theme.borderRadius.full,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
@@ -1645,10 +1643,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface1,
   },
   tabActive: {
-    backgroundColor: theme.colors.surface2,
-  },
-  tabActiveUnfocused: {
-    backgroundColor: theme.colors.surface1,
+    ...floatingControlSurface(theme),
   },
   tabHoverFrame: {
     position: "relative",
@@ -1729,8 +1724,8 @@ const styles = StyleSheet.create((theme) => ({
     right: 0,
     bottom: 0,
     width: 48,
-    borderTopRightRadius: theme.borderRadius.lg,
-    borderBottomRightRadius: 0,
+    borderTopRightRadius: theme.borderRadius.full,
+    borderBottomRightRadius: theme.borderRadius.full,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,

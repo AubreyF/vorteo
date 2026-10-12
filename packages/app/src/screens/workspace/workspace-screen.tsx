@@ -952,6 +952,16 @@ function WorkspaceHeaderProjectRow({
   );
 }
 
+/** Environment context follows the focused tab, including cross-environment workspaces. */
+function WorkspaceToolbarEnvironment({ serverId }: { serverId: string }) {
+  const badge = useHostBadges({ enabled: true }).get(serverId);
+  return badge ? (
+    <View style={styles.toolbarEnvironment} testID="workspace-toolbar-environment">
+      <HostBadge badge={badge} />
+    </View>
+  ) : null;
+}
+
 interface WorkspaceHeaderTitleBarProps {
   isLoading: boolean;
   title: string;
@@ -1360,7 +1370,7 @@ function shouldShowWorkspaceScreenHeader(input: {
   isFocusModeEnabled: boolean;
   isMobile: boolean;
 }): boolean {
-  return !input.isFocusModeEnabled || input.isMobile;
+  return input.isMobile || (!supportsDesktopPaneSplits() && !input.isFocusModeEnabled);
 }
 
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
@@ -3921,12 +3931,14 @@ function WorkspaceScreenContent({
           tooltipKeys={EXPLORER_TOGGLE_KEYS}
           accessibilityState={explorerSidebarToggleAccessibilityState}
         />
+        <WorkspaceToolbarEnvironment serverId={focusedEnvironmentId} />
         <View style={styles.toolbarSpacer} />
         {desktopToolbarActions}
       </>
     ),
     [
       desktopToolbarActions,
+      focusedEnvironmentId,
       explorerSidebarToggleAccessibilityState,
       explorerSidebarToggleLabel,
       explorerToggleOwner,
@@ -4308,6 +4320,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface3,
     opacity: 0.25,
   },
+  toolbarEnvironment: { minWidth: 0, flexShrink: 1 },
   toolbarSpacer: { flex: 1 },
   headerRight: {
     flexDirection: "row",

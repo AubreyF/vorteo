@@ -40,11 +40,15 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     .getByTestId("workspace-pane-main")
     .getByTestId("workspace-tabs-row")
     .boundingBox();
-  const titleBounds = await page.getByTestId("screen-header").boundingBox();
-  expect(tabsBounds!.y + tabsBounds!.height).toBeLessThanOrEqual(titleBounds!.y);
+  expect(tabsBounds!.height).toBe(48);
+  await expect(page.getByTestId("screen-header").filter({ visible: true })).toHaveCount(0);
+  await expect(page.getByTestId("workspace-tabs-row").first()).toHaveCSS(
+    "border-bottom-width",
+    "0px",
+  );
   const taskTab = page.getByRole("button", { name: "Review accessible navigation", exact: true });
-  await expect(taskTab).toHaveCSS("border-bottom-left-radius", "0px");
-  await expect(taskTab).toHaveCSS("border-top-left-radius", "8px");
+  await expect(taskTab).toHaveCSS("border-bottom-left-radius", "9999px");
+  await expect(taskTab).toHaveCSS("border-top-left-radius", "9999px");
   await expect(page.getByTestId("workspace-explorer-sidebar-resize-handle")).toHaveCSS(
     "background-color",
     "rgba(0, 0, 0, 0)",
@@ -199,17 +203,20 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
   // Animated transforms can retain subpixel floating-point residue at rest.
   expect(tasks!.y).toBeCloseTo(toolbarBounds[0]!.y + toolbarBounds[0]!.height, 3);
   await expect(page.getByTestId("workspace-supporting-cards")).toHaveCSS("border-width", "0px");
-  const headerRule = await page.getByTestId("screen-header").evaluate((node) =>
-    [...node.querySelectorAll("div")].some((child) => {
-      const style = getComputedStyle(child);
-      return (
-        parseFloat(style.borderBottomWidth) > 0 && style.borderBottomColor !== "rgba(0, 0, 0, 0)"
-      );
-    }),
+  await expect(page.getByTestId("screen-header").filter({ visible: true })).toHaveCount(0);
+  await expect(page.getByTestId("workspace-tabs-row").first()).toHaveCSS(
+    "border-bottom-width",
+    "0px",
   );
-  expect(headerRule).toBe(false);
+  const environment = rightToolbar.getByTestId("workspace-toolbar-environment");
+  await expect(environment).toBeVisible();
+  const toggle = (await rightToolbar.getByTestId("workspace-explorer-toggle").boundingBox())!;
+  expect((await environment.boundingBox())!.x).toBeGreaterThanOrEqual(toggle.x + toggle.width);
   const taskTab = page.getByRole("button", { name: "Prepare Atlas release notes", exact: true });
   expect((await taskTab.boundingBox())!.width).toBeGreaterThan(160);
+  expect((await taskTab.boundingBox())!.height).toBe(44);
+  await expect(taskTab).toHaveCSS("border-width", "1px");
+  await expect(taskTab).not.toHaveCSS("box-shadow", "none");
   await expect(
     page.getByTestId("workspace-header-menu-trigger").filter({ visible: true }),
   ).toHaveCount(0);

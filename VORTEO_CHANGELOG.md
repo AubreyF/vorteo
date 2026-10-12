@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.340 - 2026-10-12
+
+### Changed
+
+- Remove the desktop workspace title row and tab-strip rule. Put the focused environment beside the right-toolbar toggle and let the conversation meet the tabs directly.
+- Make workspace tabs taller and wider, with adaptive shrinking and fully rounded corners. Give only the foreground tab the same floating surface, border and shadow as the Latest button.
+
 ## 0.11.0-beta.3.vorteo.339 - 2026-10-12
 
 ### Maintenance
