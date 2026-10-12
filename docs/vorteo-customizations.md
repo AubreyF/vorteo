@@ -170,7 +170,7 @@ October 11, 2026: Fresh-home checklist and goal RPC suites clear inherited insta
 
 Questions remain with the conversation in the left column while goals, tasks, journals, subagents, queued messages and action approvals stay on the right. Desktop and compact browser checks cover placement and retain shared card geometry.
 
-Sidebar update and maintenance notices share a single scroll area capped at 33% of the viewport height. Short stacks occupy their natural height. Cards share spacing, review action styling and equal top/right dismiss insets across workspace and settings sidebars.
+Update and maintenance notices share a floating scroll area capped at 45% of the viewport height, with additional clearance above compact composers. Short stacks occupy their natural height. Cards use compact padding without dialog-footer spacing; a single action sits beside a text description when space allows. Action targets remain at least 44px tall, and longer content wraps.
 
 Installation review copy assigns source repairs to the requesting agent and distinguishes waiting from canceling an unwanted update. Compact sidebar actions retain exact review navigation and all approval guards.
 

@@ -81,6 +81,7 @@ test("update notice floats outside navigation and remains after review on deskto
     expect(bounds!.x + bounds!.width).toBeCloseTo(width - 16, 0);
     expect(bounds!.y + bounds!.height).toBeCloseTo(width < 640 ? 920 : 984, 0);
     expect(bounds!.height).toBeLessThanOrEqual(450);
+    expect((await notice.boundingBox())!.height).toBeLessThanOrEqual(width < 640 ? 112 : 104);
     const review = notice.getByRole("button", { name: "Review update", exact: true });
     await expect(review).toBeVisible();
     expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
