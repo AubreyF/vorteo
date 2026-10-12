@@ -56,7 +56,7 @@ function Orbit({ spinning, color }: { spinning: boolean; color: string }) {
   return (
     <Animated.View style={[animationStyles.glyph, rotationStyle]} testID="queue-orbit-rotation">
       <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-        <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.7} opacity={0.22} />
+        <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.5} opacity={0.22} />
         <Circle cx={12} cy={4} r={2} fill={color} />
       </Svg>
     </Animated.View>

@@ -158,6 +158,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 12, 2026: Loading indicators share thin SVG rings across web and native. Large loaders use a 48px diameter and 1.5px stroke; small loaders retain their footprint with a lighter stroke. Task, agent and queue activity rings also use lighter outlines without moving adjacent content. README onboarding is unchanged.
+
 October 12, 2026: Journal markers have transparent frames and timeline gaps, preserving their animation without mismatched background squares. Starship light uses its lighter surface token for floating sidebars and cards. README onboarding remains unchanged.
 
 October 12, 2026: Installation controls separate current coordinator requests from collapsed history and show elapsed waiting time. Successful background refreshes clear recovered connection errors while preserving decision failures. This presentation change does not dispatch maintenance or change owner approval; README onboarding remains unchanged.

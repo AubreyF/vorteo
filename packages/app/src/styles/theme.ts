@@ -8,6 +8,13 @@ import { Platform } from "react-native";
 import { resolveAppearanceFont } from "./appearance-font";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
+export const LOADING_INDICATOR = {
+  small: 20,
+  large: 48,
+  smallStroke: 1.75,
+  largeStroke: 1.5,
+} as const;
+
 export const EXECUTION_ENVIRONMENT_COLORS = {
   container: "#7CB68B",
   host: "#E6B566",

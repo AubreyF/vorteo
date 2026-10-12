@@ -3,8 +3,9 @@ import { EnvironmentPresetMenu } from "./environment-preset-menu";
 import { AccountDisconnectedIcon } from "@/provider-usage/reconnect-control";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
-import { ActivityIndicator, Text, View, useWindowDimensions } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import { Combobox } from "@/components/ui/combobox";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -21,6 +22,9 @@ import { selectedPresetPresentation } from "./selected-preset-presentation";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 
 const PROFILE_SNAP_POINTS = ["90%"];
+const PendingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
 const EMPTY_OPTIONS: { id: string; label: string }[] = [];
 
 function PresetStatusIcon({
@@ -36,7 +40,7 @@ function PresetStatusIcon({
   remaining: number | null;
   stale: boolean;
 }) {
-  if (waiting) return <ActivityIndicator size="small" style={styles.pendingRing} />;
+  if (waiting) return <PendingSpinner size="small" style={styles.pendingRing} />;
   if (showWarning) return <AccountDisconnectedIcon />;
   if (showRing)
     return (

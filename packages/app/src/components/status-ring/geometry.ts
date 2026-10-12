@@ -3,8 +3,8 @@ import { STATUS_INDICATOR_FILLED_DOT_SIZE } from "@/utils/status-indicator-geome
 // The running indicator is a status dot with a rotating ring around it, and the whole set of
 // numbers below is a budget rather than four independent choices. The centre matches every other
 // filled status circle; the gap and stroke grow outward from it without changing that shared size.
-export const STATUS_RING_GAP = 1.5;
-export const STATUS_RING_STROKE = 1.5;
+export const STATUS_RING_GAP = 1.75;
+export const STATUS_RING_STROKE = 1.25;
 // Derived outward from the dot, which means the dot is not a free variable: shrink it without
 // opening the gap by the same amount and the ring closes in behind it, the whole mark scales
 // down, and nothing about how the centre reads against the ring actually changes.
