@@ -3,6 +3,8 @@ import type {
   CoordinatorBootstrapPreparation,
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapRequest,
+  BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
+  BootstrapPreclaimRecoveryPreparation,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import type {
   PluginDirectoryBinding,
@@ -3885,6 +3887,112 @@ export class DaemonClient {
     if (result.error || !result.requests)
       throw new Error(
         result.error ?? "Bootstrap decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  private assertPreclaimRecoveryReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimRecovery !== true)
+      throw new Error(
+        "Managed bootstrap recovery is unavailable. Update the Host to use this review.",
+      );
+  }
+
+  private preclaimOwnerCancellationCapability(): { ownerCanceledOriginal?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimOwnerCancellation ===
+      true
+      ? { ownerCanceledOriginal: true }
+      : {};
+  }
+
+  async reconcilePreclaimRecovery(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimObservation !== true)
+      throw new Error("Update the Host to verify a retained recovery outcome.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.preclaimOwnerCancellationCapability(),
+            reconcile: input,
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery observation unconfirmed");
+    return result.requests;
+  }
+
+  async listPreclaimRecoveryRequests(): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.preclaimOwnerCancellationCapability(),
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery status unavailable");
+    return result.requests;
+  }
+
+  async preparePreclaimRecovery(
+    input: BootstrapPreclaimRecoveryPreparation,
+  ): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    if (
+      input.plan.ownerCancellation &&
+      !this.preclaimOwnerCancellationCapability().ownerCanceledOriginal
+    )
+      throw new Error("Update the Host to recover an owner-canceled original operation.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.prepare.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.prepare.request",
+            ...this.preclaimOwnerCancellationCapability(),
+            input,
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery preparation unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  async decidePreclaimRecovery(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.decide.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.decide.request",
+            input,
+            ownerPassword,
+            preclaimRecovery: true,
+            ...this.preclaimOwnerCancellationCapability(),
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery decision unconfirmed. Refresh its status before retrying.",
       );
     return result.requests;
   }

@@ -2,27 +2,42 @@ import type {
   CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapStage,
+  BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 
-export interface BootstrapReviewClient {
-  listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]>;
+type BootstrapReviewRequest = CoordinatorBootstrapRequest | BootstrapPreclaimRecoveryRequest;
+
+export interface BootstrapReviewClient<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
+  listCoordinatorBootstrapRequests(): Promise<Request[]>;
+  verifyRetainedOutcome?(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<Request[]>;
   decideCoordinatorBootstrap(
     input: CoordinatorBootstrapDecision,
     password: string,
-  ): Promise<CoordinatorBootstrapRequest[]>;
+  ): Promise<Request[]>;
 }
 
-interface BootstrapPanelState {
+interface BootstrapPanelState<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
   available: boolean;
-  requests: CoordinatorBootstrapRequest[];
+  requests: Request[];
   busy: boolean;
   hasPassword: boolean;
   passwordEpoch: number;
   error: string | null;
 }
 
-export class BootstrapPanelModel {
-  private state: BootstrapPanelState = {
+export class BootstrapPanelModel<
+  Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
+> {
+  private state: BootstrapPanelState<Request> = {
     available: false,
     requests: [],
     busy: false,
@@ -37,7 +52,7 @@ export class BootstrapPanelModel {
   private generation = 0;
   private pendingDecision: { id: string; revision: string } | null = null;
   constructor(
-    private readonly resolveClient: () => BootstrapReviewClient | null,
+    private readonly resolveClient: () => BootstrapReviewClient<Request> | null,
     private readonly unavailableReason: () => string | null = () => null,
   ) {}
   getState = () => this.state;
@@ -47,7 +62,7 @@ export class BootstrapPanelModel {
       this.listeners.delete(listener);
     };
   };
-  private publish(patch: Partial<BootstrapPanelState>) {
+  private publish(patch: Partial<BootstrapPanelState<Request>>) {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
@@ -113,7 +128,42 @@ export class BootstrapPanelModel {
       if (this.refreshToken === refreshToken) this.refreshToken = null;
     }
   }
-  async decide(request: CoordinatorBootstrapRequest, decision: "approve" | "cancel") {
+  canReconcile = () => typeof this.resolveClient()?.verifyRetainedOutcome === "function";
+
+  async reconcile(request: Request) {
+    if (this.state.busy || !request.execution || this.unavailableReason()) return;
+    const client = this.resolveClient();
+    if (!client?.verifyRetainedOutcome) {
+      this.publish({ error: "Update the Host to verify a retained recovery outcome." });
+      return;
+    }
+    const current = this.state.requests.find((item) => item.id === request.id);
+    if (current?.revision !== request.revision || current.planSha256 !== request.planSha256) {
+      this.publish({ error: "Recovery changed. Refresh before verifying its outcome." });
+      return;
+    }
+    const generation = ++this.generation;
+    this.publish({ busy: true, error: null });
+    try {
+      const requests = await client.verifyRetainedOutcome({
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+        generation: request.execution.generation,
+      });
+      if (generation === this.generation) this.publish({ requests });
+    } catch {
+      if (generation === this.generation)
+        this.publish({
+          error:
+            "Outcome verification unconfirmed. Refresh the retained receipt; no effects were replayed.",
+        });
+    } finally {
+      if (generation === this.generation) this.publish({ busy: false });
+    }
+  }
+
+  async decide(request: Request, decision: "approve" | "cancel") {
     if (this.unavailableReason()) {
       await this.refresh();
       return;
@@ -171,7 +221,7 @@ export class BootstrapPanelModel {
 }
 
 export function bootstrapDecisionDisabledReason(
-  request: CoordinatorBootstrapRequest,
+  request: BootstrapReviewRequest,
   state: Pick<BootstrapPanelState, "busy" | "hasPassword">,
 ): string | null {
   if (state.busy) return "Waiting for the current decision to finish.";
@@ -228,4 +278,51 @@ export function currentBootstrapRequests(
       .filter((id) => id !== undefined),
   );
   return requests.filter((request) => !superseded.has(request.id));
+}
+
+export function preclaimRecoveryStatus(request: BootstrapPreclaimRecoveryRequest): string {
+  if (!request.execution) {
+    if (request.status === "canceled") return "Canceled";
+    return request.status === "approved"
+      ? "Approved; awaiting recorded claim"
+      : "Recovery approval needed";
+  }
+  const labels: Record<
+    NonNullable<BootstrapPreclaimRecoveryRequest["execution"]>["stage"],
+    string
+  > = {
+    claimed: "Checking recovery",
+    cancellation_fenced: "Original operation canceled",
+    effect_pending: "Stopping the reviewed executor",
+    verifying: "Verifying exit and preserved selection",
+    succeeded: "Recovery verified",
+    recovery_required: "Outcome requires inspection",
+    aborted_before_effects: "Stopped before effects",
+  };
+  return labels[request.execution.stage];
+}
+
+export function preclaimDispatchDescription(
+  request: BootstrapPreclaimRecoveryRequest,
+): string | null {
+  const observation = request.dispatch;
+  if (!observation) return null;
+  switch (observation.state) {
+    case "no_receipt":
+      return "No launch receipt recorded.";
+    case "attempt_retained":
+      return "Launch attempt retained; a runner birth receipt is not yet available.";
+    case "birth_retained":
+      return `Recovery runner birth recorded: PID ${observation.executor.pid}, start ${observation.executor.startIdentity}. Current liveness and completion still require verification.`;
+    case "unavailable":
+      return "Launch receipts could not be reconciled. Inspect retained evidence; do not replay approval.";
+  }
+}
+
+export function preclaimRecoveryNeedsAttention(request: BootstrapPreclaimRecoveryRequest): boolean {
+  return (
+    request.status !== "canceled" &&
+    request.execution?.stage !== "succeeded" &&
+    request.execution?.stage !== "aborted_before_effects"
+  );
 }

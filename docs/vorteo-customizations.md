@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Recovery delivery integration: the current published interface and coordinator recovery share a source lineage while retaining both release histories. Appearance, workspace hydration, composer clearance and goal behavior remain included. Recovery retains exact owner review and observation without replay; this source merge does not install a runtime or activate Factory.
+
 Integration review: the appearance and iOS scene changes retain current main's coordinator fixes and shared sidebar synchronization. Demo state bypasses installation synchronization; synchronization failures use the floating notice stack. The shared workspace menu retains labels and rename dialogs when the right-hand cards are hidden. The installed release's ancestry and release notes are retained. Native theme swatches render outside the shared button's text wrapper and use SVG artwork matching the catalog instead of flat accent colors. Native font-field placeholders subscribe to theme changes without replacing their editors. Electron reserves window-control clearance above all workspace columns, preserving aligned toolbars and a 64px minimal rail. Shared settings pages use native iOS keyboard insets to keep focused fields visible. Native agent and draft composers preserve bottom safe-area clearance. Compact floating notices reserve the active message editor’s measured height and keyboard clearance, excluding draft setup controls. Focused workspace routes subscribe to current directory data even when the native sidebar is closed. The Electron font-size regression uses Dark Star and supports Settings navigation from the minimal rail. Owner acceptance remains open; daemon changes require separate delivery.
 
 Vorteo extends Paseo with account management, reusable workflows, supervised workers and a shared Host and Dev container installation. This is the cumulative inventory of those differences, grouped by category and ordered by user impact within each category. Minor interface changes belong here rather than in the product overview.
@@ -11,6 +13,8 @@ Worker visibility maintenance: retained worker conversations remain available in
 Source integration review: shared sidebar state retains published Nova subscription safeguards, exact-profile delegation and Review checklist behavior. This source merge does not activate the bridge or install a runtime.
 
 Coordinator maintenance renewal: after a verified terminal transfer, the selected immutable Host release can reconstruct preparation from the retained private installation authority and current launcher. Exact button approval still gates coordinator replacement; candidate configuration may change the explicitly reviewed Factory adoption plan and optionally select source update tooling from the exact candidate release. Compatible recovery retains the complete previous configuration, including its tooling directory. Clients must display tooling selection before approval; unsupported preparation is refused before sending. Protected script and complete artifact checks run without executing tooling. Background verification keeps Host startup available while maintenance remains disabled, then updates connected clients. Ambiguous transfers and incompatible history disable maintenance with a visible diagnosis. Recovery replaces unresolved interface refreshes without accepting stale responses. Focused tests and desktop and phone browser checks pass; live installation acceptance remains pending.
+
+Coordinator preparation recovery: an exact owner review can cancel an unclaimed operation and stop only its audited executor. Independently recorded cancellation retains the protected original approval and cancellation provenance. Cancellation competes atomically with dispatch; durable effect intents prevent replay after uncertain results. Observation verifies the retained generation without repeating effects. Installation controls show the exact recovery and refuse hidden approval through older clients. Native fixture, server, SDK and desktop and compact browser acceptance pass; installed recovery and controller activation remain separate. See the [recovery implementation](../packages/server/src/server/execution-installation/coordinator-bootstrap-preclaim-recovery.ts).
 
 ## Accounts and reusable workflows
 
@@ -142,7 +146,13 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 12, 2026: Combined the published coordinator recovery controls with the three-state sidebar, unified workspace toolbar and compact card actions. Recovery operations and approval checks remain unchanged.
+
 Maintenance notification checks distinguish the explicit Dismiss action from its close icon, inspect the visible sidebar after navigation, and verify that dismissal preserves the request.
+
+October 12, 2026: Recovery delivery includes published passive sidebar maintenance and queued-message ordering. Exact recovery review remains in the floating action area, without duplicate sidebar copies.
+
+October 12, 2026: Integrated published compact notice controls and Electron appearance regressions with coordinator recovery. Both histories and recovery boundaries remain intact. README overview and onboarding are unchanged.
 
 Coordinator dispatch notification review: an expired Host observation no longer turns a later acknowledgement into a fatal broken-pipe error. Connected observers still receive the same acknowledgement; approval, durable claims and watchdog requirements remain unchanged. Real child-process regressions cover both cases. This does not diagnose or recover a previously stalled executor.
 

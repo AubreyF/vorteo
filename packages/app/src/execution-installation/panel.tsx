@@ -31,7 +31,14 @@ import { Button } from "@/components/ui/button";
 
 import { getHostRuntimeStore, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
-import { getBootstrapPanel, BootstrapReview, BootstrapBanner } from "./bootstrap-panel";
+import {
+  getBootstrapPanel,
+  BootstrapReview,
+  BootstrapBanner,
+  getPreclaimRecoveryPanel,
+  PreclaimRecoveryReview,
+  PreclaimRecoveryBanner,
+} from "./bootstrap-panel";
 import { readExecutionInstallation } from "./policy";
 import { InstallationClient, requestInstallationOwner, hasInstallationConnections } from "./client";
 import {
@@ -153,9 +160,11 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
   useEffect(() => {
     void model.initialize();
     void getBootstrapPanel()?.refresh();
+    void getPreclaimRecoveryPanel()?.refresh();
     const timer = setInterval(() => {
       void model.refresh();
       void getBootstrapPanel()?.refresh(true);
+      void getPreclaimRecoveryPanel()?.refresh(true);
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
@@ -198,6 +207,17 @@ function restartStatus(job: RestartJob, historical = false) {
   return { label: labels[job.status], variant };
 }
 
+function CoordinatorMaintenanceReviews() {
+  const bootstrap = getBootstrapPanel();
+  const recovery = getPreclaimRecoveryPanel();
+  return (
+    <>
+      {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
+      {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
+    </>
+  );
+}
+
 function InstallationPanel({
   model,
   requestId,
@@ -205,7 +225,6 @@ function InstallationPanel({
   model: InstallationPanelModel;
   requestId: string | null;
 }) {
-  const bootstrap = getBootstrapPanel();
   const controlSize = useVortonTouch() ? "md" : "sm";
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [historyVisible, setHistoryVisible] = useState(false);
@@ -238,7 +257,7 @@ function InstallationPanel({
     <SettingsSection title="Installation" testID="installation-panel">
       <View style={settingsStyles.card} testID="installation-card">
         <InstallationOwnerAccess model={model} state={state} />
-        {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
+        <CoordinatorMaintenanceReviews />
         <HelperActionError model={model} />
         {state.error ? (
           <Text accessibilityRole="alert" style={[styles.textInset, styles.error]}>
@@ -1134,8 +1153,10 @@ export function InstallationRestartBanner({
 }) {
   const model = getInstallationPanel(useHostRegistryLoaded());
   const bootstrap = getBootstrapPanel();
+  const recovery = getPreclaimRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement === "floating" && recovery ? <PreclaimRecoveryBanner model={recovery} /> : null}
       {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
       {model ? <RestartBanner model={model} /> : null}
     </MaintenanceNoticePlacement.Provider>

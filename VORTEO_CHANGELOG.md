@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.339 - 2026-10-12
+
+### Maintenance
+
+- Integrate the published coordinator recovery controls with the new sidebar layouts, unified workspace toolbars and compact card actions. Preserve both source histories and existing approval boundaries.
+
 ## 0.11.0-beta.3.vorteo.338 - 2026-10-12
 
 ### Changed
@@ -18,11 +24,27 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Cycle the sidebar toolbar button and keyboard shortcut through expanded, compact labeled and minimal rail layouts. Remove the separate Compact button row, remember the layout on this device and retain the expanded resize width.
 
+## 0.11.0-beta.3.vorteo.337 - 2026-10-12
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
 ## 0.11.0-beta.3.vorteo.336 - 2026-10-12
 
 ### Maintenance
 
 - Make maintenance browser checks select the explicit Dismiss action separately from the close icon and inspect the visible sidebar after navigation. No interface behavior changes.
+
+- Preserve published sidebar maintenance placement and queued-message ordering in coordinator recovery delivery.
+- Keep the recovery notice in the floating action area without duplicating it in passive sidebar placements.
+
+## 0.11.0-beta.3.vorteo.335 - 2026-10-12
+
+### Maintenance
+
+- Integrate published compact notices and Electron appearance regressions with coordinator recovery, preserving both source histories.
+- Retain exact tracked cancellation, recovery and rollback checks for managed runtime delivery.
 
 ## 0.11.0-beta.3.vorteo.335 - 2026-10-12
 
@@ -36,6 +58,13 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Shorten floating notices with tighter padding and actions beside short descriptions. Keep 44px action targets and wrapping for longer content.
+
+## 0.11.0-beta.3.vorteo.333 - 2026-10-12
+
+### Maintenance
+
+- Reconcile the published interface with coordinator recovery source, preserving both release histories and installed source ancestry.
+- Retain current appearance, workspace hydration and composer fixes alongside exact owner-reviewed recovery. Runtime installation and coordinator recovery remain separate tracked operations.
 
 ## 0.11.0-beta.3.vorteo.333 - 2026-10-11
 
@@ -107,6 +136,24 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Retain both source histories and their release notes. Installed publication and owner visual acceptance remain pending.
 
+## 0.11.0-beta.3.vorteo.326 - 2026-10-11
+
+### Added
+
+- Review recovery of an unclaimed coordinator executor with exact process identity, retained approval, owner cancellation and a separate approval for termination.
+- Verify uncertain recovery outcomes from their retained execution generation without repeating process effects.
+- Display recovery status and cancellation provenance in Installation controls, with capability checks that refuse approval through older clients.
+
+### Fixed
+
+- Preserve independently recorded owner cancellation when recovering its original executor. Reject changed approval, revision, plan, process or protected evidence.
+- Keep cancellation atomic with the original claim and retain effect intents before native execution so lost responses cannot cause replay.
+
+### Maintenance
+
+- Retain the installed source merge and both release-note histories in the integration ancestry.
+- Cover journal races, native process and lock verification, observation after runner interruption, and authenticated server and browser review. Installed recovery and Factory activation remain separate acceptance steps.
+
 ## 0.11.0-beta.3.vorteo.325 - 2026-10-11
 
 ### Fixed
@@ -161,6 +208,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Verify protected Nova bridge release manifests against the selected standalone bundle and consumed configuration before startup.
 - Report authenticated release commitments, startup identity and draining status; reject new MCP work while shutting down.
 - Test file substitution, ownership, size bounds, readiness identity and draining. Managed activation and account revocation acceptance remain separate work.
+
+## 0.11.0-beta.3.vorteo.320 - 2026-10-11
+
+### Maintenance
+
+- Combine 2 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.319 - 2026-10-11
 

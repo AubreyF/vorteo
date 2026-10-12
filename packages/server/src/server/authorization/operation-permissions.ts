@@ -33,8 +33,11 @@ const INBOUND_PERMISSION = {
   "agent.goal.set.request": "workspace.write",
   "agent.goal.clear.request": "workspace.write",
   "installation.bootstrap.list_requests.request": "daemon.manage",
+  "installation.bootstrap_recovery.list_requests.request": "daemon.manage",
   "installation.bootstrap.prepare.request": "daemon.manage",
+  "installation.bootstrap_recovery.prepare.request": "daemon.manage",
   "installation.bootstrap.decide.request": "daemon.manage",
+  "installation.bootstrap_recovery.decide.request": "daemon.manage",
 
   "browser.host.register.request": ["workspace.write"],
   "subscription.release.request": null,
@@ -263,8 +266,11 @@ const OUTBOUND_PERMISSION = {
   "agent.goal.set.response": "workspace.write",
   "agent.goal.clear.response": "workspace.write",
   "installation.bootstrap.list_requests.response": "daemon.manage",
+  "installation.bootstrap_recovery.list_requests.response": "daemon.manage",
   "installation.bootstrap.prepare.response": "daemon.manage",
+  "installation.bootstrap_recovery.prepare.response": "daemon.manage",
   "installation.bootstrap.decide.response": "daemon.manage",
+  "installation.bootstrap_recovery.decide.response": "daemon.manage",
 
   "agent.create.response": ["workspace.write", "hub.execute"],
   "agent.create.update": ["workspace.write", "hub.execute"],

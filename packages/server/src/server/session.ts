@@ -1,6 +1,7 @@
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import {
   handleBootstrapReview,
+  handlePreclaimRecoveryReview,
   type BootstrapReviewService,
 } from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
@@ -3367,13 +3368,31 @@ export class Session {
     }
   }
 
-  private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
+  private dispatchBootstrapMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
+      case "installation.bootstrap_recovery.list_requests.request":
+      case "installation.bootstrap_recovery.prepare.request":
+      case "installation.bootstrap_recovery.decide.request":
+        return handlePreclaimRecoveryReview(msg, this.coordinatorBootstrap?.preclaimRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
       case "installation.bootstrap.list_requests.request":
       case "installation.bootstrap.prepare.request":
       case "installation.bootstrap.decide.request":
-        this.emit(await handleBootstrapReview(msg, this.coordinatorBootstrap));
-        return;
+        return handleBootstrapReview(msg, this.coordinatorBootstrap).then((reply) => {
+          this.emit(reply);
+          return undefined;
+        });
+      default:
+        return undefined;
+    }
+  }
+
+  private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
+    switch (msg.type) {
       case "agent.queue.attachment.get.request":
         return this.handleQueueAttachmentRequest(msg);
       case "agent.queue.read.request":
@@ -3403,6 +3422,8 @@ export class Session {
           payload: { requestId: msg.requestId },
         });
         return;
+      default:
+        return this.dispatchBootstrapMessage(msg);
     }
   }
 
