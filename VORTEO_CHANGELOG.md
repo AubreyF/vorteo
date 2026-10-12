@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.373 - 2026-10-12
+
+### Changed
+
+- Give compact sidebar cards a little more interior space while preserving medium and spacious padding.
+
 ## 0.11.0-beta.3.vorteo.372 - 2026-10-12
 
 ### Changed

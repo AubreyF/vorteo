@@ -755,7 +755,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
       await page.mouse.up();
       let expected = 8;
       if (width < 400) expected = 4;
-      if (width < 340) expected = 0;
+      if (width < 340) expected = 2;
       await expect
         .poll(() =>
           target.evaluate((node) => {
@@ -789,7 +789,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
           ),
         })),
       )
-      .toMatchObject({ inset: width === 280 ? 0 : 4 });
+      .toMatchObject({ inset: width === 280 ? 2 : 4 });
     await expect(page.getByTestId("checklist-toggle").filter({ visible: true })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -829,7 +829,7 @@ test("panel spacing animates between exact tiers and settles after interrupted r
       await page.mouse.up();
     };
     await resize(280);
-    await expect.poll(readInset).toBe(0);
+    await expect.poll(readInset).toBe(2);
     const samples = target.evaluate(async (node) => {
       const padded =
         node.dataset.testid === "floating-sidebar"
@@ -845,7 +845,7 @@ test("panel spacing animates between exact tiers and settles after interrupted r
     });
     await resize(450);
     await expect.poll(readInset).toBe(8);
-    expect((await samples).some((value) => value > 0 && value < 8)).toBe(true);
+    expect((await samples).some((value) => value > 2 && value < 8)).toBe(true);
     await resize(280);
     await resize(360);
     await expect.poll(readInset).toBe(4);

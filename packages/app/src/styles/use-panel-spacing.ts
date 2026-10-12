@@ -3,16 +3,16 @@ import type { LayoutChangeEvent } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
 export function panelSpacingForWidth(width: number): number {
-  if (width < 340) return 0;
+  if (width < 340) return 2;
   if (width < 400) return 4;
   return 8;
 }
 
 /** Shared inset follows the panel itself, including cards moved into the center column. */
 export function usePanelSpacing() {
-  const [inset, setInset] = useState(0);
+  const [inset, setInset] = useState(2);
   const [target, setTarget] = useState<number | null>(null);
-  const current = useRef(0);
+  const current = useRef(2);
   const measured = useRef(false);
   const reduceMotion = useReducedMotion();
   const onLayout = useCallback((event: LayoutChangeEvent) => {
