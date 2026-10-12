@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.361 - 2026-10-12
+
+### Changed
+
+- Move workspace environment context from the upper-right toolbar into the first position on each tab tooltip’s second line, before agent ID and activity.
+
 ## 0.11.0-beta.3.vorteo.360 - 2026-10-12
 
 ### Fixed

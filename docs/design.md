@@ -44,7 +44,7 @@ sits after Settings at the right end of the left toolbar. All three desktop
 columns use the same 48px top toolbar, aligned to the floating panel inset.
 In Electron, reserve window-control clearance once above all three columns.
 The minimal project rail stays 64px wide because window controls sit above it.
-The upper toolbar spans the central content and right-hand card regions. Its vertical workspace/split menu stays at the left, followed by environment and action controls, with the explorer toggle at the far right. It borrows space from the central tab row when the card column is narrow; tabs reserve that space rather than overlapping. At very small desktop widths, middle controls can scroll horizontally while the edge menu and toggle remain accessible. Collapsing the cards hides their normal actions but keeps the menu and toggle in this shared region.
+The upper toolbar spans the central content and right-hand card regions. Its vertical workspace/split menu stays at the left, followed by action controls, with the explorer toggle at the far right. Environment context leads the second line of each tab tooltip, before agent ID and activity. It borrows space from the central tab row when the card column is narrow; tabs reserve that space rather than overlapping. At very small desktop widths, middle controls can scroll horizontally while the edge menu and toggle remain accessible. Collapsing the cards hides their normal actions but keeps the menu and toggle in this shared region.
 
 The isolated demo uses the real file editor against a simulated file store.
 Sample-file saves carry revisions, reject stale writes and notify subscribed

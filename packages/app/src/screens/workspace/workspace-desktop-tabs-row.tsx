@@ -1,3 +1,5 @@
+import { HostBadge } from "@/hosts/host-badge";
+import { useHostBadges } from "@/hosts/use-host-badges";
 import { Portal } from "@gorhom/portal";
 import { SharedWorkspaceToolbarContext, useSharedToolbarInset } from "./shared-toolbar-context";
 import {
@@ -158,16 +160,18 @@ function formatAgentTooltipTitle(singleLineTitle: string): string {
   return `${singleLineTitle.slice(0, AGENT_TOOLTIP_TITLE_MAX_LENGTH - 1).trimEnd()}…`;
 }
 
-function AgentTabTooltipBody({
+function WorkspaceTabTooltipBody({
   serverId,
   agentId,
   title,
 }: {
   serverId: string;
-  agentId: string;
+  agentId?: string;
   title: string;
 }) {
+  const badge = useHostBadges({ enabled: true }).get(serverId);
   const lastActivityAt = useSessionStore((state) => {
+    if (!agentId) return null;
     const session = state.sessions[serverId];
     const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId) ?? null;
     return state.agentLastActivity.get(agentId) ?? agent?.lastActivityAt ?? null;
@@ -181,7 +185,9 @@ function AgentTabTooltipBody({
         {title}
       </Text>
       <View style={styles.tooltipAgentMetadata}>
-        <Text style={styles.tooltipAgentId}>{agentId.slice(0, 7)}</Text>
+        {badge ? <HostBadge badge={badge} /> : null}
+        {badge && agentId ? <Text style={styles.tooltipAgentSeparator}>·</Text> : null}
+        {agentId ? <Text style={styles.tooltipAgentId}>{agentId.slice(0, 7)}</Text> : null}
         {activity ? (
           <>
             <Text style={styles.tooltipAgentSeparator}>·</Text>
@@ -903,15 +909,11 @@ function TabChip({
             maxWidth={720}
             testID={`workspace-tab-tooltip-${testIdentity}`}
           >
-            {tab.target.kind === "agent" ? (
-              <AgentTabTooltipBody
-                serverId={serverId}
-                agentId={tab.target.agentId}
-                title={tooltipLabel}
-              />
-            ) : (
-              <Text style={styles.newTabTooltipText}>{tooltipLabel}</Text>
-            )}
+            <WorkspaceTabTooltipBody
+              serverId={tab.target.environment?.serverId ?? serverId}
+              agentId={tab.target.kind === "agent" ? tab.target.agentId : undefined}
+              title={tooltipLabel}
+            />
           </TooltipContent>
         </Tooltip>
 
@@ -1770,10 +1772,6 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
     borderRadius: theme.borderRadius.full,
     backgroundColor: theme.colors.foregroundMuted,
-  },
-  newTabTooltipText: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
   },
   tooltipAgentContent: {
     gap: theme.spacing[0.5],

@@ -217,11 +217,16 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
     "border-bottom-width",
     "0px",
   );
-  const environment = rightToolbar.getByTestId("workspace-toolbar-environment");
-  await expect(environment).toBeVisible();
-  const toggle = (await rightToolbar.getByTestId("workspace-explorer-toggle").boundingBox())!;
-  expect((await environment.boundingBox())!.x).toBeLessThan(toggle.x);
+  await expect(rightToolbar.getByTestId("workspace-toolbar-environment")).toHaveCount(0);
   const taskTab = page.getByRole("button", { name: "Prepare Atlas release notes", exact: true });
+  await taskTab.hover();
+  const tabTooltip = page.getByRole("tooltip");
+  const environmentBadge = tabTooltip.getByTestId("host-badge-vorteo-demo");
+  await expect(environmentBadge).toBeVisible();
+  const metadata = environmentBadge.locator("..");
+  await expect(metadata).toHaveText(/Demo.*·.*·/);
+  expect((await environmentBadge.boundingBox())!.x).toBe((await metadata.boundingBox())!.x);
+  await page.keyboard.press("Escape");
   expect((await taskTab.boundingBox())!.width).toBeGreaterThan(160);
   expect((await taskTab.boundingBox())!.height).toBe(44);
   await expect(taskTab).toHaveCSS("border-width", "1px");

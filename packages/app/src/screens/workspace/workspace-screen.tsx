@@ -953,16 +953,6 @@ function WorkspaceHeaderProjectRow({
   );
 }
 
-/** Environment context follows the focused tab, including cross-environment workspaces. */
-function WorkspaceToolbarEnvironment({ serverId }: { serverId: string }) {
-  const badge = useHostBadges({ enabled: true }).get(serverId);
-  return badge ? (
-    <View style={styles.toolbarEnvironment} testID="workspace-toolbar-environment">
-      <HostBadge badge={badge} />
-    </View>
-  ) : null;
-}
-
 interface WorkspaceHeaderTitleBarProps {
   isLoading: boolean;
   title: string;
@@ -3950,7 +3940,6 @@ function WorkspaceScreenContent({
             style={styles.sharedToolbarScroll}
             contentContainerStyle={styles.sharedToolbarContents}
           >
-            <WorkspaceToolbarEnvironment serverId={focusedEnvironmentId} />
             {desktopToolbarActions}
           </ScrollView>
         ) : null}
@@ -3966,7 +3955,6 @@ function WorkspaceScreenContent({
     ),
     [
       desktopToolbarActions,
-      focusedEnvironmentId,
       explorerSidebarToggleAccessibilityState,
       explorerSidebarToggleLabel,
       handleToggleExplorerSidebar,
@@ -4347,7 +4335,6 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface3,
     opacity: 0.25,
   },
-  toolbarEnvironment: { minWidth: 0, maxWidth: 160, flexShrink: 1 },
   sharedToolbarScroll: { flexShrink: 1, minWidth: 0 },
   sharedToolbarContents: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerRight: {

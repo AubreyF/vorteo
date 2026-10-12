@@ -101,7 +101,7 @@ function WorkspaceTabPresentationResolverInner({
       kind: tab.kind,
       label: showEnvironment ? `${descriptor.label} · ${environmentLabel}` : descriptor.label,
       subtitle: descriptor.subtitle,
-      tooltip: showEnvironment ? `${descriptor.tooltip} · ${environmentLabel}` : descriptor.tooltip,
+      tooltip: descriptor.tooltip,
       environmentKind: showEnvironment ? installationEnvironment?.kind : undefined,
       modified: attributes.modified,
       showCloseButton: registration.showCloseButton,
