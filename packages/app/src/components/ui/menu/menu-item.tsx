@@ -53,7 +53,7 @@ const MENU_ITEM_LINE_HEIGHT = 18;
  * rows wrapped in a `View` of its own would not receive it — at zero there is nothing to lose,
  * but anything above it wants the wrapper to carry the same style.
  */
-const MENU_ROW_GAP = 0;
+const MENU_ROW_GAP = 2;
 
 /** Action status for menu items with loading/success feedback. */
 export type ActionStatus = "idle" | "pending" | "success";

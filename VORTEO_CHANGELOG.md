@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.365 - 2026-10-12
+
+### Changed
+
+- Let the left sidebar resize into a narrower icon rail and snap near its minimum. Reduce secondary row metadata as the sidebar narrows.
+- Keep compact navigation available, group sidebar actions and appearance controls, and increase shared menu row spacing.
+- Add interactive project workspace previews, missing rail tooltips and a reduced-motion-aware blur during theme transitions.
+
 ## 0.11.0-beta.3.vorteo.364 - 2026-10-12
 
 ### Changed

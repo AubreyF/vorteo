@@ -1,15 +1,19 @@
-import { memo, useCallback } from "react";
+import { ProjectRailPreview } from "./project-rail-preview";
+import { memo, type ReactNode } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { PanelLeftOpen, Plus, Settings } from "lucide-react-native";
+import { Plus, Settings } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useSidebarProjectStatusBucket,
   type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
 
 interface CompactProjectRailProps {
+  header: ReactNode;
+  workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   projects: SidebarProjectEntry[];
   onSelectProject: (key: string) => void;
   onExpand: () => void;
@@ -19,13 +23,14 @@ interface CompactProjectRailProps {
 
 const ProjectRailItem = memo(function ProjectRailItem({
   project,
+  workspaceEntries,
   onSelect,
 }: {
   project: SidebarProjectEntry;
+  workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   onSelect: (key: string) => void;
 }) {
   const bucket = useSidebarProjectStatusBucket({ workspaces: project.workspaces, enabled: true });
-  const select = useCallback(() => onSelect(project.viewKey), [onSelect, project.viewKey]);
   const initials =
     project.projectName
       .trim()
@@ -34,20 +39,14 @@ const ProjectRailItem = memo(function ProjectRailItem({
       .slice(0, 2)
       .join("")
       .toLocaleUpperCase() || "?";
-  const label = `${project.projectName}, ${project.workspaces.length} workspaces${bucket ? ", " + bucket.replaceAll("_", " ") : ""}`;
   return (
     <View style={styles.item}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" accessibilityLabel={label} onPress={select} style={styles.button}>
-            {initials}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          <Text style={styles.label}>{project.projectName}</Text>
-          <Text style={styles.description}>{project.workspaces.length} workspaces</Text>
-        </TooltipContent>
-      </Tooltip>
+      <ProjectRailPreview
+        workspaceEntries={workspaceEntries}
+        project={project}
+        initials={initials}
+        onSelect={onSelect}
+      />
       {bucket && bucket !== "done" ? (
         <View pointerEvents="none" style={[styles.dot, statusDotStyle(bucket)]} />
       ) : null}
@@ -56,51 +55,63 @@ const ProjectRailItem = memo(function ProjectRailItem({
 });
 
 export function CompactProjectRail({
+  header,
+  workspaceEntries,
   projects,
   onSelectProject,
-  onExpand,
   onAddProject,
   onSettings,
 }: CompactProjectRailProps) {
   return (
     <View style={styles.rail} testID="compact-project-rail">
-      <View style={styles.header}>
-        <Button
-          variant="ghost"
-          accessibilityLabel="Expand sidebar"
-          onPress={onExpand}
-          style={styles.button}
-          leftIcon={PanelLeftOpen}
-        />
-      </View>
+      {header}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.projects}>
         {projects.map((project) => (
-          <ProjectRailItem key={project.viewKey} project={project} onSelect={onSelectProject} />
+          <ProjectRailItem
+            workspaceEntries={workspaceEntries}
+            key={project.viewKey}
+            project={project}
+            onSelect={onSelectProject}
+          />
         ))}
       </ScrollView>
-      <Button
-        variant="ghost"
-        accessibilityLabel="Add project"
-        onPress={onAddProject}
-        style={styles.button}
-        leftIcon={Plus}
-      />
-      <Button
-        variant="ghost"
-        accessibilityLabel="Settings"
-        onPress={onSettings}
-        style={styles.button}
-        leftIcon={Settings}
-      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            accessibilityLabel="Add project"
+            onPress={onAddProject}
+            style={styles.button}
+            leftIcon={Plus}
+          />
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <Text style={styles.label}>Add project</Text>
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            accessibilityLabel="Settings"
+            onPress={onSettings}
+            style={styles.button}
+            leftIcon={Settings}
+          />
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <Text style={styles.label}>Settings</Text>
+        </TooltipContent>
+      </Tooltip>
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  rail: { flex: 1, minHeight: 0, alignItems: "center", paddingBottom: 8, gap: 6 },
+  rail: { flex: 1, minHeight: 0, alignItems: "center", paddingBottom: 2, gap: 2 },
   header: { height: 48, justifyContent: "center" },
   scroll: { flex: 1, width: "100%" },
-  projects: { alignItems: "center", gap: 6 },
+  projects: { alignItems: "center", gap: 2 },
   item: { position: "relative" },
   button: { width: 44, height: 44, paddingHorizontal: 0 },
   label: {

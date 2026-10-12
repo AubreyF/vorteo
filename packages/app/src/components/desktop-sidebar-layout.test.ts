@@ -67,6 +67,12 @@ describe("desktop sidebar layout", () => {
     ).toBe("none");
   });
 
+  it("lets dragging approach the rail and snap near its minimum", () => {
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(160);
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 95, viewportWidth: 1800 })).toBe(48);
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 310, viewportWidth: 1800 })).toBe(310);
+  });
+
   it("clamps a persisted wide sidebar to preserve the center pane", () => {
     const atHalfScreen = resolveDesktopSidebarWidth({ requestedWidth: 600, viewportWidth: 751 });
     expect(atHalfScreen).toBe(335);
@@ -94,7 +100,7 @@ describe("desktop sidebar layout", () => {
   it("lets the compact rail share space without consuming the saved expanded width", () => {
     expect(
       resolveDesktopSidebarWidth({ requestedWidth: 600, viewportWidth: 900, compact: true }),
-    ).toBe(64);
+    ).toBe(48);
     expect(
       canDesktopAppSidebarShare({
         contentMinimumWidth: 720,

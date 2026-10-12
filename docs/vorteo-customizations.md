@@ -477,3 +477,5 @@ Release metadata correction restores complete entry history from both interface 
 Browser card validation reopens the responsive supporting sidebar after reload before checking journal history. This verifies the visible controls without changing saved sidebar preferences.
 
 October 12, 2026: New workspace uses taller chooser cards and a matching composer, with shared rounded corners and narrower column gaps. Single-line options retain selection and account controls; touch rows retain larger targets. Other profile menus keep their existing layout.
+
+October 12, 2026: Sidebar dragging reaches a 48px icon rail with a near-minimum snap and preserves the expanded width. Narrow panels hide activity badges and line deltas, prioritize search and navigation, and move secondary actions into grouped menus. The rail keeps schedules and history above projects and Settings and Add project below them. Interactive project previews support workspace navigation; theme previews remain temporary until selected and use a brief transition that respects reduced motion.

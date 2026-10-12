@@ -124,22 +124,15 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     .getByRole("button", { name: /^Atlas,/ });
   await page.keyboard.press("Tab");
   await railProject.focus();
-  const railHelp = page.getByRole("tooltip", { name: /^Atlas / });
+  const railHelp = page.getByTestId("project-rail-preview");
   await expect(railHelp).toBeVisible();
-  await expect(railHelp).toHaveCSS("opacity", "1");
   await expect(railHelp).toContainText("Atlas");
-  await expect(railProject).toHaveAttribute(
-    "aria-describedby",
-    (await railHelp.getAttribute("id"))!,
-  );
-  const railBounds = (await railProject.boundingBox())!;
-  const helpBounds = (await railHelp.boundingBox())!;
-  expect(helpBounds.x).toBeGreaterThanOrEqual(railBounds.x + railBounds.width);
-  const arrowBounds = (await railHelp.getByTestId("tooltip-arrow").boundingBox())!;
-  const helpBorder = await railHelp.evaluate((node) =>
-    parseFloat(getComputedStyle(node).borderLeftWidth),
-  );
-  expect(arrowBounds.x + arrowBounds.width / 2).toBeCloseTo(helpBounds.x + helpBorder, 0);
+  await expect(railHelp.getByRole("button", { name: "Design review", exact: true })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(railHelp.getByRole("button", { name: "Design review", exact: true })).toBeFocused();
+  await page.mouse.move(900, 800);
+  await page.waitForTimeout(350);
+  await expect(railHelp).toBeVisible();
   await page.screenshot({ path: info.outputPath("minimal-rail-tooltip.png") });
   await page.keyboard.press("Escape");
   await expect(railHelp).toHaveCount(0);
@@ -442,7 +435,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect(cards).toBeHidden();
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
   await expect(cards).toBeHidden();
   await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
@@ -919,4 +912,109 @@ test("shared toolbar flows left of a narrow card column without overlapping tabs
   await expect(menu).toBeVisible();
   await page.getByTestId("workspace-restore-pane").click();
   await expect(menu).toBeVisible();
+});
+
+test("sidebar drags into a compact rail with persistent controls and interactive project previews", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const sidebar = page.getByTestId("floating-sidebar");
+  const grip = page.getByTestId("left-sidebar-resize-handle");
+  await expect(sidebar).toBeVisible();
+  async function dragTo(width: number) {
+    const b = (await grip.boundingBox())!;
+    const s = (await sidebar.boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(s.x + width, b.y + b.height / 2, { steps: 15 });
+    await page.mouse.up();
+  }
+  await dragTo(220);
+  await expect(
+    page
+      .getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0")
+      .getByText("+1", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-search")).toBeVisible();
+  await expect(page.getByTestId("sidebar-schedules")).toHaveCount(0);
+  await page.getByTestId("sidebar-footer-overflow").click();
+  await expect(page.getByRole("menuitem", { name: "Schedules", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "History", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem").first()).toHaveText("Settings");
+  await page.keyboard.press("Escape");
+  await dragTo(70);
+  await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(48);
+  const ids = [
+    "sidebar-expand",
+    "sidebar-search",
+    "sidebar-footer-overflow",
+    "sidebar-schedules",
+    "sidebar-sessions",
+  ];
+  let previous = -1;
+  for (const id of ids) {
+    const box = (await page.getByTestId(id).boundingBox())!;
+    expect(box.y).toBeGreaterThan(previous);
+    previous = box.y;
+  }
+  const project = page.locator('[data-testid^="project-rail-"]').first();
+  await project.hover();
+  const preview = page.getByTestId("project-rail-preview");
+  await expect(preview).toBeVisible();
+  await preview.getByRole("button", { name: "Design review", exact: true }).hover();
+  await expect(preview).toBeVisible();
+  await preview.getByRole("button", { name: "Design review", exact: true }).click();
+  await expect(preview).toBeHidden();
+  await expect(page.getByText("Changes ready for review", { exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("compact-rail.png") });
+  await page.reload();
+  await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+  await dragTo(350);
+  await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
+  await expect(page.getByTestId("sidebar-settings")).toBeVisible();
+  await page.getByTestId("sidebar-footer-overflow").click();
+  const theme = page.getByTestId("theme-preview-starship-light");
+  const before = await page.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor);
+  await theme.hover();
+  await expect
+    .poll(() => page.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor))
+    .not.toBe(before);
+  await page.mouse.move(1300, 800);
+  await expect
+    .poll(() => page.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe(before);
+  await page.screenshot({ path: info.outputPath("sidebar-menu.png") });
+});
+
+test.describe("touch project rail", () => {
+  test.use({ hasTouch: true });
+  test("keeps project previews and rail navigation usable without hover", async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await page.goto("/?demo=1");
+    await page.getByTestId("sidebar-collapse").click();
+    await page.getByTestId("sidebar-collapse").click();
+    await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+    for (const id of [
+      "sidebar-expand",
+      "sidebar-search",
+      "sidebar-footer-overflow",
+      "sidebar-schedules",
+      "sidebar-sessions",
+    ]) {
+      const box = (await page.getByTestId(id).boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.locator('[data-testid^="project-rail-"]').first().tap();
+    const preview = page.getByTestId("project-rail-preview");
+    await expect(preview).toBeVisible();
+    await page.screenshot({ path: info.outputPath("touch-project-preview.png") });
+    await preview.getByRole("button", { name: "Design review", exact: true }).tap();
+    await expect(preview).toHaveCount(0);
+    await expect(page.getByText("Changes ready for review", { exact: true })).toBeVisible();
+  });
 });

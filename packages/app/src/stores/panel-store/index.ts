@@ -302,7 +302,13 @@ export const usePanelStore = create<PanelState>()(
             explorerTabByCheckout: state.explorerTabByCheckout,
           }),
         })),
-      setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
+      setSidebarWidth: (width) =>
+        set((state) => ({
+          sidebarWidth: width <= 96 ? state.sidebarWidth : clampSidebarWidth(width),
+          sidebarCompact: width <= 96,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
+        })),
       setSidebarCompact: (sidebarCompact) =>
         set({
           sidebarCompact,

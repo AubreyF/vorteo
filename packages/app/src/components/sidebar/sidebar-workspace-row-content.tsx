@@ -1,3 +1,4 @@
+import { useSidebarWidth } from "./sidebar-width";
 import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
 import { WorkspaceLifecycleIndicators } from "@/workspace/lifecycle/indicators";
 import {
@@ -407,6 +408,7 @@ export function SidebarWorkspaceTrailingDetails({
   const {
     settings: { sidebarRowItems },
   } = useAppSettings();
+  const width = useSidebarWidth();
   const service = selectWorkspaceServiceSummary(workspace.scripts);
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   return (
@@ -417,7 +419,7 @@ export function SidebarWorkspaceTrailingDetails({
       <WorkspaceActivityBadges
         serverId={workspace.serverId}
         workspaceId={workspace.workspaceId}
-        visible={sidebarRowItems.activityBadges}
+        visible={sidebarRowItems.activityBadges && width >= 280}
       />
       {sidebarRowItems.labels && labels.length > 0 ? (
         <View style={styles.customLabels}>

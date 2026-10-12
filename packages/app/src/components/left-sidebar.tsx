@@ -1,3 +1,8 @@
+import {
+  SidebarWidthContext,
+  sidebarPresentationWidth,
+  useSidebarWidth,
+} from "./sidebar/sidebar-width";
 import { useScrollDivider } from "./use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
@@ -24,6 +29,7 @@ import {
   Settings,
   MoreVertical,
   CircleHelp,
+  PanelLeftOpen,
 } from "lucide-react-native";
 import { useSidebarNavItems } from "@/sidebar-nav/use-sidebar-nav-items";
 import { builtinSidebarNavLabelKey } from "@/sidebar-nav/model";
@@ -32,11 +38,14 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Pressable,
+  type LayoutChangeEvent,
   StyleSheet as RNStyleSheet,
   Text,
   useWindowDimensions,
@@ -351,6 +360,7 @@ function FooterIconButton({
   buttonRef?: RefObject<View | null>;
 }) {
   const touch = useVortonTouch();
+  const rail = useSidebarWidth() <= 96;
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
   const isCompact = useIsCompactFormFactor();
   const iconSize = isCompact ? theme.iconSize.xl : theme.iconSize.md;
@@ -363,7 +373,7 @@ function FooterIconButton({
           disabled={disabled}
           style={[
             styles.footerIconButton(isCompact),
-            touch && styles.touchIconButton,
+            (touch || rail) && styles.touchIconButton,
             active && styles.activeIconButton,
           ]}
           testID={testID}
@@ -414,6 +424,8 @@ function IconTooltipContent({
 }
 
 function SidebarToolbar({
+  rail = false,
+  onExpand,
   scrolled = false,
   theme,
   handleOpenProject,
@@ -421,6 +433,8 @@ function SidebarToolbar({
   labels,
   onBeforeNavigate,
 }: {
+  rail?: boolean;
+  onExpand?: () => void;
   scrolled?: boolean;
   handleImportSession: () => void;
   theme: SidebarTheme;
@@ -467,6 +481,9 @@ function SidebarToolbar({
   const openDisplay = useCallback(() => setDisplayOpen(true), []);
   const menuIcons = useMemo(
     () => ({
+      settings: <Settings size={16} color={theme.colors.foregroundMuted} />,
+      schedules: <CalendarClock size={16} color={theme.colors.foregroundMuted} />,
+      history: <History size={16} color={theme.colors.foregroundMuted} />,
       project: <FolderPlus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       help: <CircleHelp size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       workspace: <Plus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
@@ -474,13 +491,150 @@ function SidebarToolbar({
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
+  const width = useSidebarWidth();
+  const showHistory = !rail && width >= 300;
+  const showSchedules = !rail && width >= 260;
+  const showSettings = !rail && width >= 340;
+  const more = useMemo(
+    () => (
+      <View>
+        <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
+        <SidebarDisplayPreferencesMenu
+          hiddenTrigger
+          controlledOpen={displayOpen}
+          onOpenChange={setDisplayOpen}
+        />
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger
+                style={[styles.footerIconButton(false), (touch || rail) && styles.touchIconButton]}
+                accessibilityLabel="More sidebar actions"
+                accessibilityRole="button"
+                testID="sidebar-footer-overflow"
+              >
+                <MoreVertical size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side={rail ? "right" : "bottom"}>
+              <IconTooltipContent label="More sidebar actions" />
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent side={rail ? "right" : "bottom"} align="start" width={360}>
+            <DropdownMenuItem onSelect={handleSettings} leading={menuIcons.settings}>
+              Settings
+            </DropdownMenuItem>
+            {!showSchedules && !rail ? (
+              <DropdownMenuItem onSelect={openSchedules} leading={menuIcons.schedules}>
+                Schedules
+              </DropdownMenuItem>
+            ) : null}
+            {!showHistory && !rail ? (
+              <DropdownMenuItem onSelect={openHistory} leading={menuIcons.history}>
+                History
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+            <DropdownMenuItem
+              testID="sidebar-add-project"
+              onSelect={handleOpenProject}
+              leading={menuIcons.project}
+            >
+              {labels.addProject}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              testID="sidebar-global-new-workspace"
+              onSelect={handleNewWorkspace}
+              leading={menuIcons.workspace}
+            >
+              {t("sidebar.actions.newWorkspace")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+            <View style={styles.themeMenu}>
+              <SidebarThemePicker />
+            </View>
+            <DropdownMenuItem
+              testID="sidebar-display-preferences-action"
+              onSelect={openDisplay}
+              leading={menuIcons.display}
+            >
+              {t("sidebar.display.viewPreferences")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              testID="sidebar-help-action"
+              onSelect={openHelp}
+              leading={menuIcons.help}
+            >
+              {t("sidebar.help.trigger")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </View>
+    ),
+    [
+      helpOpen,
+      displayOpen,
+      touch,
+      rail,
+      theme,
+      handleSettings,
+      showSchedules,
+      openSchedules,
+      showHistory,
+      openHistory,
+      handleOpenProject,
+      handleNewWorkspace,
+      labels.addProject,
+      t,
+      openDisplay,
+      openHelp,
+      menuIcons,
+    ],
+  );
+  const history = (
+    <FooterIconButton
+      testID="sidebar-sessions"
+      icon={History}
+      onPress={openHistory}
+      active={pathname.includes("/sessions")}
+      label={t(builtinSidebarNavLabelKey("history"))}
+      theme={theme}
+    />
+  );
+  const schedules = (
+    <FooterIconButton
+      testID="sidebar-schedules"
+      icon={CalendarClock}
+      onPress={openSchedules}
+      active={pathname.includes("/schedules")}
+      label={t(builtinSidebarNavLabelKey("schedules"))}
+      theme={theme}
+    />
+  );
   return (
-    <View
-      style={[styles.sidebarFooter, styles.sidebarToolbar, !scrolled && styles.unscrolledToolbar]}
-      testID="sidebar-toolbar"
-    >
-      <SidebarMenuToggle insideSidebar testID="sidebar-collapse" />
-      {
+    <>
+      <View
+        style={
+          rail
+            ? styles.railToolbar
+            : [styles.sidebarFooter, styles.sidebarToolbar, !scrolled && styles.unscrolledToolbar]
+        }
+        testID="sidebar-toolbar"
+      >
+        {rail && onExpand ? (
+          <FooterIconButton
+            icon={PanelLeftOpen}
+            onPress={onExpand}
+            label="Expand sidebar"
+            testID="sidebar-expand"
+            theme={theme}
+          />
+        ) : (
+          <SidebarMenuToggle insideSidebar testID="sidebar-collapse" />
+        )}
         <FooterIconButton
           icon={Search}
           onPress={handleSearch}
@@ -490,93 +644,52 @@ function SidebarToolbar({
           testID="sidebar-search"
           theme={theme}
         />
-      }
-      <View style={styles.footerGap} />
-      <View style={styles.footerIconRow}>
-        {
-          <>
-            <FooterIconButton
-              testID="sidebar-sessions"
-              icon={History}
-              onPress={openHistory}
-              active={pathname.includes("/sessions")}
-              label={t(builtinSidebarNavLabelKey("history"))}
-              theme={theme}
-            />
-            <FooterIconButton
-              testID="sidebar-schedules"
-              icon={CalendarClock}
-              onPress={openSchedules}
-              active={pathname.includes("/schedules")}
-              label={t(builtinSidebarNavLabelKey("schedules"))}
-              theme={theme}
-            />
-          </>
-        }
-
-        <FooterIconButton
-          onPress={handleSettings}
-          testID="sidebar-settings"
-          label={labels.settings}
-          icon={Settings}
-          shortcutKeys={settingsKeys}
-          theme={theme}
-        />
-        {
-          <View>
-            <SidebarHelpMenu hiddenTrigger controlledOpen={helpOpen} onOpenChange={setHelpOpen} />
-            <SidebarDisplayPreferencesMenu
-              hiddenTrigger
-              controlledOpen={displayOpen}
-              onOpenChange={setDisplayOpen}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
-                accessibilityLabel="More sidebar actions"
-                accessibilityRole="button"
-                testID="sidebar-footer-overflow"
-              >
-                <MoreVertical size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end" width={360}>
-                <View style={styles.themeMenu}>
-                  <SidebarThemePicker />
-                </View>
-                <DropdownMenuItem
-                  testID="sidebar-add-project"
-                  onSelect={handleOpenProject}
-                  leading={menuIcons.project}
-                >
-                  {labels.addProject}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-global-new-workspace"
-                  onSelect={handleNewWorkspace}
-                  leading={menuIcons.workspace}
-                >
-                  {t("sidebar.actions.newWorkspace")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-display-preferences-action"
-                  onSelect={openDisplay}
-                  leading={menuIcons.display}
-                >
-                  {t("sidebar.display.viewPreferences")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  testID="sidebar-help-action"
-                  onSelect={openHelp}
-                  leading={menuIcons.help}
-                >
-                  {t("sidebar.help.trigger")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </View>
-        }
+        {!rail ? <View style={styles.footerGap} /> : null}
+        {rail ? more : null}
+        {showHistory ? history : null}
+        {showSchedules || rail ? schedules : null}
+        {rail ? history : null}
+        {showSettings ? (
+          <FooterIconButton
+            onPress={handleSettings}
+            testID="sidebar-settings"
+            label={labels.settings}
+            icon={Settings}
+            shortcutKeys={settingsKeys}
+            theme={theme}
+          />
+        ) : null}
+        {!rail ? more : null}
       </View>
-    </View>
+      {!rail && width < 260 ? (
+        <View style={styles.narrowNavigation}>
+          <Button
+            variant="ghost"
+            leftIcon={CalendarClock}
+            onPress={openSchedules}
+            style={styles.narrowNavigationRow}
+          >
+            Schedules
+          </Button>
+          <Button
+            variant="ghost"
+            leftIcon={History}
+            onPress={openHistory}
+            style={styles.narrowNavigationRow}
+          >
+            History
+          </Button>
+          <Button
+            variant="ghost"
+            leftIcon={Settings}
+            onPress={handleSettings}
+            style={styles.narrowNavigationRow}
+          >
+            Settings
+          </Button>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -764,7 +877,10 @@ function DesktopSidebar({
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
-  const { sidebarCompact: compact, sidebarNarrow: narrow } = useResponsiveSidebar();
+  const { sidebarCompact: savedCompact, sidebarNarrow: narrow } = useResponsiveSidebar();
+  const [measuredWidth, setMeasuredWidth] = useState(sidebarPresentationWidth(sidebarWidth));
+  const [resizePressed, setResizePressed] = useState(false);
+  const compact = resizePressed ? measuredWidth <= 96 : savedCompact;
   const setCompact = usePanelStore((state) => state.setSidebarCompact);
   const expandSidebar = useCallback(() => {
     setCompact(false);
@@ -785,14 +901,13 @@ function DesktopSidebar({
   const visibleSidebarWidth = resolveDesktopSidebarWidth({
     requestedWidth: sidebarWidth,
     viewportWidth,
-    compact,
+    compact: savedCompact,
     narrow,
     hasTopLeftWindowControls: ownsTopLeft,
   });
 
   const startWidthRef = useRef(visibleSidebarWidth);
   const resizeWidth = useSharedValue(visibleSidebarWidth);
-  const [resizePressed, setResizePressed] = useState(false);
   const showResizeGrip = useCallback(() => setResizePressed(true), []);
   const hideResizeGrip = useCallback(() => setResizePressed(false), []);
 
@@ -810,6 +925,7 @@ function DesktopSidebar({
           viewportWidth,
         });
         resizeWidth.value = nextWidth;
+        setMeasuredWidth(sidebarPresentationWidth(nextWidth));
       },
       finish: () => setSidebarWidth(nextWidth),
     };
@@ -889,114 +1005,139 @@ function DesktopSidebar({
   );
 
   const navigation = useMemo(() => <SidebarNavRows style={styles.scrollingNavGroup} />, []);
-  const toolbar = (
-    <SidebarToolbar
-      scrolled={divider.scrolled}
-      theme={theme}
-      handleOpenProject={handleOpenProject}
-      handleImportSession={handleImportSession}
-      handleSettings={handleSettings}
-      labels={labels}
-      handleAddHost={handleAddHost}
-      handleOpenHostSettings={handleOpenHostSettings}
-    />
+  const toolbar = useMemo(
+    () => (
+      <SidebarToolbar
+        rail={compact}
+        onExpand={expandSidebar}
+        scrolled={divider.scrolled}
+        theme={theme}
+        handleOpenProject={handleOpenProject}
+        handleImportSession={handleImportSession}
+        handleSettings={handleSettings}
+        labels={labels}
+        handleAddHost={handleAddHost}
+        handleOpenHostSettings={handleOpenHostSettings}
+      />
+    ),
+    [
+      compact,
+      expandSidebar,
+      divider.scrolled,
+      theme,
+      handleOpenProject,
+      handleImportSession,
+      handleSettings,
+      labels,
+      handleAddHost,
+      handleOpenHostSettings,
+    ],
   );
-  return (
-    <Animated.View
-      accessibilityElementsHidden={!active}
-      importantForAccessibility={active ? "auto" : "no-hide-descendants"}
-      pointerEvents={active ? "auto" : "none"}
-      style={desktopSidebarStyle}
+  const measureSidebar = useCallback(
+    (event: LayoutChangeEvent) =>
+      setMeasuredWidth(sidebarPresentationWidth(event.nativeEvent.layout.width)),
+    [],
+  );
+  const devBadge = DEV_BUILD_LABEL ? (
+    <View
+      pointerEvents="none"
+      style={styles.devBuildBadge}
+      testID="dev-build-label"
+      accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
     >
-      <View
-        ref={divider.ref}
-        style={desktopSidebarBorderStyle}
-        onLayout={onPanelLayout}
-        testID="floating-sidebar"
+      <GitBranch size={12} color={theme.colors.accentForeground} />
+      <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
+        {DEV_BUILD_LABEL}
+      </Text>
+    </View>
+  ) : null;
+  return (
+    <SidebarWidthContext.Provider value={measuredWidth}>
+      <Animated.View
+        accessibilityElementsHidden={!active}
+        importantForAccessibility={active ? "auto" : "no-hide-descendants"}
+        pointerEvents={active ? "auto" : "none"}
+        style={desktopSidebarStyle}
+        onLayout={measureSidebar}
       >
-        {compact ? (
-          <>
-            {ownsTopLeft ? (
-              <View style={styles.desktopChromeRow}>
-                <TitlebarDragRegion />
-              </View>
-            ) : null}
-            <CompactProjectRail
-              projects={projects}
-              onSelectProject={selectRailProject}
-              onExpand={expandSidebar}
-              onAddProject={handleOpenProject}
-              onSettings={handleSettings}
-            />
-          </>
-        ) : (
-          <>
-            <View style={styles.sidebarDragArea}>
-              {ownsTopLeft || DEV_BUILD_LABEL ? (
+        <View
+          ref={divider.ref}
+          style={desktopSidebarBorderStyle}
+          onLayout={onPanelLayout}
+          testID="floating-sidebar"
+        >
+          {compact ? (
+            <>
+              {ownsTopLeft ? (
                 <View style={styles.desktopChromeRow}>
                   <TitlebarDragRegion />
-                  {DEV_BUILD_LABEL ? (
-                    <View
-                      pointerEvents="none"
-                      style={styles.devBuildBadge}
-                      testID="dev-build-label"
-                      accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
-                    >
-                      <GitBranch size={12} color={theme.colors.accentForeground} />
-                      <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
-                        {DEV_BUILD_LABEL}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : (
-                <TitlebarDragRegion />
-              )}
-              {toolbar}
-              {hasActiveProjectFilter ? (
-                <View style={styles.sidebarModeRow}>
-                  <Button variant="ghost" size="xs" onPress={showAllProjects}>
-                    All projects
-                  </Button>
                 </View>
               ) : null}
-            </View>
-
-            {isInitialLoad && !hasActiveHostFilter ? (
-              <>
-                {navigation}
-                <SidebarAgentListSkeleton />
-              </>
-            ) : (
-              <SidebarWorkspaceList
-                onScrolledChange={divider.report}
-                collapsedProjectKeys={collapsedProjectKeys}
-                onToggleProjectCollapsed={toggleProjectCollapsed}
-                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-                groupMode={groupMode}
-                workspaceGroups={workspaceGroups}
-                projectIconTargets={projectIconTargets}
-                pinnedGroups={pinnedGroups}
+              <CompactProjectRail
+                header={toolbar}
+                workspaceEntries={workspaceEntriesByKey}
                 projects={projects}
-                hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-                hasActiveProjectFilter={hasActiveProjectFilter}
-                workspaceEntriesByKey={workspaceEntriesByKey}
-                isRefreshing={isManualRefresh && isRevalidating}
-                onRefresh={handleRefresh}
+                onSelectProject={selectRailProject}
+                onExpand={expandSidebar}
                 onAddProject={handleOpenProject}
-                onImportSession={handleImportSession}
-                listTopComponent={navigation}
-                listHeaderComponent={undefined}
+                onSettings={handleSettings}
               />
-            )}
-          </>
-        )}
+            </>
+          ) : (
+            <>
+              <View style={styles.sidebarDragArea}>
+                {ownsTopLeft || DEV_BUILD_LABEL ? (
+                  <View style={styles.desktopChromeRow}>
+                    <TitlebarDragRegion />
+                    {devBadge}
+                  </View>
+                ) : (
+                  <TitlebarDragRegion />
+                )}
+                {toolbar}
+                {hasActiveProjectFilter ? (
+                  <View style={styles.sidebarModeRow}>
+                    <Button variant="ghost" size="xs" onPress={showAllProjects}>
+                      All projects
+                    </Button>
+                  </View>
+                ) : null}
+              </View>
 
-        <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
-        {!compact ? <DemoControls /> : null}
-        {!compact ? <SidebarFooterRows /> : null}
+              {isInitialLoad && !hasActiveHostFilter ? (
+                <>
+                  {navigation}
+                  <SidebarAgentListSkeleton />
+                </>
+              ) : (
+                <SidebarWorkspaceList
+                  onScrolledChange={divider.report}
+                  collapsedProjectKeys={collapsedProjectKeys}
+                  onToggleProjectCollapsed={toggleProjectCollapsed}
+                  shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                  groupMode={groupMode}
+                  workspaceGroups={workspaceGroups}
+                  projectIconTargets={projectIconTargets}
+                  pinnedGroups={pinnedGroups}
+                  projects={projects}
+                  hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+                  hasActiveProjectFilter={hasActiveProjectFilter}
+                  workspaceEntriesByKey={workspaceEntriesByKey}
+                  isRefreshing={isManualRefresh && isRevalidating}
+                  onRefresh={handleRefresh}
+                  onAddProject={handleOpenProject}
+                  onImportSession={handleImportSession}
+                  listTopComponent={navigation}
+                  listHeaderComponent={undefined}
+                />
+              )}
+            </>
+          )}
 
-        {!compact && !narrow ? (
+          <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
+          {!compact ? <DemoControls /> : null}
+          {!compact ? <SidebarFooterRows /> : null}
+
           <SidebarResizeHandle
             edge="right"
             floating
@@ -1005,9 +1146,9 @@ function DesktopSidebar({
             pressed={resizePressed}
             testID="left-sidebar-resize-handle"
           />
-        ) : null}
-      </View>
-    </Animated.View>
+        </View>
+      </Animated.View>
+    </SidebarWidthContext.Provider>
   );
 }
 
@@ -1028,6 +1169,9 @@ const staticStyles = RNStyleSheet.create({
 });
 
 const styles = StyleSheet.create((theme) => ({
+  narrowNavigation: { gap: 2, padding: 2 },
+  narrowNavigationRow: { justifyContent: "flex-start", minHeight: 36 },
+  railToolbar: { alignItems: "center", gap: 2, paddingTop: 2 },
   sidebarContent: {
     flex: 1,
     minHeight: 0,
