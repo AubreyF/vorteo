@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): sidebar separators extend through the shared animated inset to meet the outer card border while content keeps its padding. Toolbar and maintenance rules use noninteractive overlays; regular footer separators extend their margins. Right-hand TaskCard dividers already span the full interior. README scope is unchanged.
+
 Maintenance review (2026-10-12): passive sidebar maintenance rows are single accessible buttons that open the matching review page. The separate review label no longer consumes text width; actionable floating notices retain their explicit review and dismiss controls. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-12): compact card and sidebar interiors now retain a 2px inset for a little breathing room. Medium and spacious tiers remain 4px and 8px with the existing transitions. Rendered goal-header geometry now checks those three fixed levels rather than the former continuous spacing formula. This spacing refinement does not change the README overview or onboarding.

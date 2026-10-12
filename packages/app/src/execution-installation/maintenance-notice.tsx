@@ -4,6 +4,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SidebarCallout } from "@/components/sidebar-callout";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
+import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
 
 export const MaintenanceNoticePlacement = createContext<"floating" | "sidebar" | "rail">(
   "floating",
@@ -70,6 +71,7 @@ export function MaintenanceNotice({
       accessibilityHint={description}
       onPress={onReview}
     >
+      <SidebarSeparator edge="top" testID={testID ? `${testID}-divider` : undefined} />
       <Spinner uniProps={spinnerColor} size={16} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>
@@ -98,7 +100,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: "transparent",
   },
   copy: { flex: 1, minWidth: 0 },
   title: { fontSize: theme.fontSize.sm, lineHeight: 16, color: theme.colors.foreground },

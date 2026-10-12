@@ -895,7 +895,9 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
     const banner = sidebar.getByTestId("installation-restart-banner");
     await expect(banner).toContainText("Dev daemon restart queued");
     await expect(banner).toContainText("Host daemon restart queued");
-    const cards = banner.locator('[data-testid^="restart-notice-"]').filter({ visible: true });
+    const cards = banner
+      .locator('[data-testid^="restart-notice-"][role="button"]')
+      .filter({ visible: true });
     await expect(cards).toHaveCount(2);
     for (const card of await cards.all()) {
       expect((await card.boundingBox())!.height).toBeLessThanOrEqual(56);

@@ -78,7 +78,7 @@ import {
 } from "@/components/sidebar-resize-handle-layout";
 
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
-import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
+import { SidebarSeparator, SidebarInsetContext } from "@/components/sidebar/sidebar-separator";
 import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
@@ -665,6 +665,7 @@ function SidebarToolbar({
           />
         ) : null}
         {!rail ? more : null}
+        {!rail ? <SidebarSeparator edge="bottom" testID="sidebar-toolbar-divider" /> : null}
       </View>
       {!rail && width < 260 ? (
         <View style={styles.narrowNavigation}>
@@ -809,43 +810,61 @@ function MobileSidebar({
         pointerEvents="auto"
       >
         <WindowChromeSafeArea placement="below" />
-        {toolbar}
+        <SidebarInsetContext.Provider value={spacingInset}>
+          {toolbar}
 
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <>
-            {navigation}
-            <SidebarAgentListSkeleton />
-          </>
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onWorkspacePress={handleWorkspacePress}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            parentGestureRef={closeGestureRef}
-            dragGestureHostActive={active}
-            listTopComponent={navigation}
-            listHeaderComponent={undefined}
-          />
-        )}
+          {isInitialLoad && !hasActiveHostFilter ? (
+            <>
+              {navigation}
+              <SidebarAgentListSkeleton />
+            </>
+          ) : (
+            <SidebarWorkspaceList
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              groupMode={groupMode}
+              workspaceGroups={workspaceGroups}
+              projectIconTargets={projectIconTargets}
+              pinnedGroups={pinnedGroups}
+              projects={projects}
+              hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+              hasActiveProjectFilter={hasActiveProjectFilter}
+              workspaceEntriesByKey={workspaceEntriesByKey}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onWorkspacePress={handleWorkspacePress}
+              onAddProject={handleOpenProject}
+              onImportSession={handleImportSession}
+              parentGestureRef={closeGestureRef}
+              dragGestureHostActive={active}
+              listTopComponent={navigation}
+              listHeaderComponent={undefined}
+            />
+          )}
 
-        <InstallationRestartBanner placement="sidebar" />
-        <DemoControls />
-        {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
+          <InstallationRestartBanner placement="sidebar" />
+          <DemoControls />
+          {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
+        </SidebarInsetContext.Provider>
       </View>
     </MobilePanelOverlay>
+  );
+}
+
+function SidebarPresentation({
+  width,
+  inset,
+  children,
+}: {
+  width: number;
+  inset: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <SidebarWidthContext.Provider value={width}>
+      <SidebarInsetContext.Provider value={inset}>{children}</SidebarInsetContext.Provider>
+    </SidebarWidthContext.Provider>
   );
 }
 
@@ -1052,7 +1071,7 @@ function DesktopSidebar({
     </View>
   ) : null;
   return (
-    <SidebarWidthContext.Provider value={measuredWidth}>
+    <SidebarPresentation width={measuredWidth} inset={compact ? 0 : spacingInset}>
       <Animated.View
         accessibilityElementsHidden={!active}
         importantForAccessibility={active ? "auto" : "no-hide-descendants"}
@@ -1140,7 +1159,7 @@ function DesktopSidebar({
           />
         </View>
       </Animated.View>
-    </SidebarWidthContext.Provider>
+    </SidebarPresentation>
   );
 }
 
@@ -1212,7 +1231,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: 0,
     borderTopWidth: 0,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: "transparent",
   },
   scrollingNavGroup: {
     gap: 2,

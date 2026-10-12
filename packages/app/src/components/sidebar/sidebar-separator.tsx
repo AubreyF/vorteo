@@ -1,13 +1,33 @@
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { createContext, useContext } from "react";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+
+export const SidebarInsetContext = createContext(0);
 
 /**
- * Edge-to-edge separator line for sidebars. Must render outside any horizontally
- * padded container so the line runs the full sidebar width — matching the
- * separator beneath the workspace sidebar's "New agent" header.
+ * Extend through the sidebar's shared inset without moving padded content.
+ * Overlay edges preserve header and footer geometry while spacing animates.
  */
-export function SidebarSeparator({ testID }: { testID?: string } = {}) {
-  return <View style={styles.line} testID={testID} />;
+export function SidebarSeparator({
+  testID,
+  edge,
+}: { testID?: string; edge?: "top" | "bottom" } = {}) {
+  const inset = useContext(SidebarInsetContext);
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.line,
+        inlineUnistylesStyle(
+          edge
+            ? { position: "absolute" as const, left: -inset, right: -inset, [edge]: 0 }
+            : { marginHorizontal: -inset },
+        ),
+      ]}
+      testID={testID}
+    />
+  );
 }
 
 const styles = StyleSheet.create((theme) => ({

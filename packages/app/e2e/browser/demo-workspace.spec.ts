@@ -897,22 +897,27 @@ test("sidebar header divider stays visible at every list scroll position", async
   await page.goto("/?demo=1");
   const sidebar = page.getByTestId("floating-sidebar").filter({ visible: true });
   const toolbar = sidebar.getByTestId("sidebar-toolbar");
+  const divider = sidebar.getByTestId("sidebar-toolbar-divider");
   const list = sidebar.getByTestId("sidebar-project-workspace-list-scroll");
   await expect(list).toBeVisible();
   const border = await sidebar.evaluate((node) => getComputedStyle(node).borderTopColor);
-  await expect(toolbar).toHaveCSS("border-bottom-color", border);
+  await expect(divider).toHaveCSS("border-bottom-color", border);
+  const bounds = (await sidebar.boundingBox())!;
+  const line = (await divider.boundingBox())!;
+  expect(line.x).toBeCloseTo(bounds.x + 1, 1);
+  expect(line.width).toBeCloseTo(bounds.width - 2, 1);
   const initial = await toolbar.boundingBox();
   await list.evaluate((node) => {
     node.scrollTop = node.scrollHeight;
   });
   await expect.poll(() => list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
-  await expect(toolbar).toHaveCSS("border-bottom-color", border);
+  await expect(divider).toHaveCSS("border-bottom-color", border);
   expect(await toolbar.boundingBox()).toEqual(initial);
   await page.screenshot({ path: info.outputPath("sidebar-scrolled-divider.png") });
   await list.evaluate((node) => {
     node.scrollTop = 0;
   });
-  await expect(toolbar).toHaveCSS("border-bottom-color", border);
+  await expect(divider).toHaveCSS("border-bottom-color", border);
   expect(await toolbar.boundingBox()).toEqual(initial);
 });
 
