@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.342 - 2026-10-12
+
+### Fixed
+
+- Keep desktop conversation cards in their right-hand dock from the first workspace render. Seed shell geometry from the viewport and retain valid measurements while workspaces are hidden, eliminating the temporary inline placement during navigation.
+- Animate card height and opacity without positional transforms or text scaling. Ignore hidden zero-sized measurements so retained cards do not restart from collapsed dimensions.
+- Preserve the published Factory history admission correction and canonical c19f source ancestry alongside the responsive sidebars and floating workspace tabs.
+
 ## 0.11.0-beta.3.vorteo.341 - 2026-10-12
 
 ### Changed
@@ -37,6 +45,18 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Cycle the sidebar toolbar button and keyboard shortcut through expanded, compact labeled and minimal rail layouts. Remove the separate Compact button row, remember the layout on this device and retain the expanded resize width.
+
+## 0.11.0-beta.3.vorteo.339 - 2026-10-12
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.338 - 2026-10-12
+
+### Fixed
+
+- Admit coordinator preparation recovery after an older failed generation was resolved by an exact successful recovery chain. Preserve historical receipts and reject unresolved or mismatched chains at initialization and dispatch.
 
 ## 0.11.0-beta.3.vorteo.337 - 2026-10-12
 

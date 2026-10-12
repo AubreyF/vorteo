@@ -1,6 +1,6 @@
 import { COLUMN_BREAKPOINT } from "@/agent-stream/columns/geometry";
 import { useCallback, useEffect, useState } from "react";
-import { useWindowDimensions } from "react-native";
+import { useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { usePanelStore } from "@/stores/panel-store";
 import { SIDEBAR_OUTER_GAP, resolveResponsiveSidebar } from "@/stores/panel-store/state";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
@@ -55,4 +55,36 @@ export function useResponsiveSupportingCards(manuallyCollapsed: boolean) {
         overrideWidth !== viewportWidth),
     reveal,
   };
+}
+
+/** Preserve usable shell geometry across cold mounts, hidden panes and viewport changes. */
+export function useWorkspaceShellMeasurement() {
+  const { viewportWidth, visibleWidth: navigationWidth } = useResponsiveSidebar();
+  const [shellMeasurement, setShellMeasurement] = useState<{
+    viewportWidth: number;
+    navigationWidth: number;
+    width: number;
+  } | null>(null);
+  // First render already knows the shell geometry. A hidden retained workspace's
+  // zero measurement must never move its cards back into the conversation.
+  const workspaceShellWidth =
+    shellMeasurement?.viewportWidth === viewportWidth &&
+    shellMeasurement.navigationWidth === navigationWidth
+      ? shellMeasurement.width
+      : Math.max(0, viewportWidth - navigationWidth);
+  const handleWorkspaceShellLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      if (width <= 0 || height <= 0) return;
+      setShellMeasurement((current) =>
+        current?.width === width &&
+        current.viewportWidth === viewportWidth &&
+        current.navigationWidth === navigationWidth
+          ? current
+          : { width, viewportWidth, navigationWidth },
+      );
+    },
+    [viewportWidth, navigationWidth],
+  );
+  return { workspaceShellWidth, handleWorkspaceShellLayout };
 }

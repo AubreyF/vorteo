@@ -16,7 +16,7 @@ import {
   CoordinatorBootstrapDecisionSchema,
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict, isCompletedBootstrap } from "./coordinator-bootstrap.js";
+import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import type {
   BootstrapReviewService,
   PreclaimRecoveryReviewService,
@@ -42,6 +42,7 @@ import {
 import {
   BootstrapRenewalSchema,
   deriveBootstrapRenewal,
+  terminalBootstrapRelease,
   persistRenewalSetup,
   verifyRenewalPlan,
   verifyRetainedRenewal,
@@ -86,6 +87,16 @@ interface PreclaimRuntimeInput {
   };
 }
 
+function unclaimedPreclaimRequests(
+  records: CoordinatorBootstrapRequest[],
+  identity: Parameters<typeof terminalBootstrapRelease>[1],
+) {
+  // Failed generations remain in history after an exact successor recovers them.
+  // Validate that complete chain before excluding executed records from admission.
+  terminalBootstrapRelease(records, identity);
+  return records.filter((record) => record.status !== "canceled" && !record.execution);
+}
+
 function readPreclaimRuntimeAnchor(input: PreclaimRuntimeInput) {
   const request = CoordinatorBootstrapRequestSchema.parse(input.original);
   const uid = process.getuid?.();
@@ -115,12 +126,12 @@ function readPreclaimRuntimeAnchor(input: PreclaimRuntimeInput) {
   const verifyOriginal = () => {
     const records = journal.read();
     const current = records.find((record) => record.id === request.id);
-    if (
-      records.some(
-        (record) =>
-          record.id !== request.id && record.status !== "canceled" && !isCompletedBootstrap(record),
-      )
-    )
+    const openRequests = unclaimedPreclaimRequests(records, {
+      installationId: binding.binding.installationId,
+      stateDirectory: binding.stateDirectory,
+      service: binding.binding.service,
+    });
+    if (openRequests.some((record) => record.id !== request.id))
       throw new BootstrapRequestConflict("Another bootstrap review or execution remains open");
     if (!isDeepStrictEqual(current, input.ownerCancellation ?? request))
       throw new BootstrapRequestConflict("Recovery target changed during runtime derivation");
@@ -338,10 +349,12 @@ export async function createManagedPreclaimRecoveryReview(
   );
   const binding = readBootstrapHostBinding(admission.configurationFile, daemonId);
   const legacy = new FileBootstrapRequestJournal(binding.stateDirectory);
-  const openRequests = legacy
-    .read()
-    .filter((item) => item.status !== "canceled" && !isCompletedBootstrap(item));
-  if (openRequests.length > 1 || openRequests.some((item) => item.execution !== undefined))
+  const openRequests = unclaimedPreclaimRequests(legacy.read(), {
+    installationId: binding.binding.installationId,
+    stateDirectory: binding.stateDirectory,
+    service: binding.binding.service,
+  });
+  if (openRequests.length > 1)
     throw new BootstrapRequestConflict(
       "Recovery initialization requires an unambiguous unclaimed target",
     );
@@ -1078,12 +1091,12 @@ function assertPreclaimRunnerTarget(
       "Recovery runner target differs from its execution snapshot",
     );
   const records = legacy.read();
-  if (
-    records.some(
-      (record) =>
-        record.id !== original.id && record.status !== "canceled" && !isCompletedBootstrap(record),
-    )
-  )
+  const openRequests = unclaimedPreclaimRequests(records, {
+    installationId: original.plan.installationId,
+    stateDirectory: setup.stateDirectory,
+    service: original.plan.service,
+  });
+  if (openRequests.some((record) => record.id !== original.id))
     throw new BootstrapRequestConflict("Another bootstrap operation remains open");
   const retained = journal.inspect(setup.request.id);
   if (retained?.fenced) {

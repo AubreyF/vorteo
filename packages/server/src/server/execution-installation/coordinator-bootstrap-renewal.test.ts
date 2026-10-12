@@ -920,6 +920,85 @@ test.runIf(process.platform === "darwin")(
 
 test
   .runIf(process.platform === "darwin")
+  .each(["approved", "canceled", "unresolved", "wrong-reference", "other-pending"])(
+  "preclaim admission validates retained recovery chains (%s)",
+  async (mode) => {
+    const f = await fixture();
+    const failed = structuredClone(f.record);
+    failed.id = randomUUID();
+    failed.revision = randomUUID();
+    failed.execution!.generation = randomUUID();
+    failed.execution!.stage = "recovery_required";
+    f.record.plan.recoveredFrom = {
+      id: failed.id,
+      revision: mode === "wrong-reference" ? randomUUID() : failed.revision,
+      generation: failed.execution!.generation,
+      planSha256: failed.planSha256,
+    };
+    f.record.planSha256 = coordinatorPlanDigest(f.record.plan);
+    for (const kind of ["executor", "transfer"]) {
+      const file = path.join(f.state, `coordinator-${kind}-${f.record.execution!.generation}.json`);
+      const receipt = JSON.parse(readFileSync(file, "utf8"));
+      f.save(file, { ...receipt, planSha256: f.record.planSha256 });
+    }
+    const original = structuredClone(f.record);
+    original.id = randomUUID();
+    original.revision = randomUUID();
+    delete original.execution;
+    delete original.plan.recoveredFrom;
+    original.plan.previous = f.coordinator;
+    original.plan.candidate = f.host;
+    const observed = await f.ports.reader.inspectProcess(404);
+    original.plan.expectedProcess = {
+      pid: observed.pid,
+      bootId: observed.bootId,
+      startIdentity: observed.startIdentity,
+      argumentsSha256: observed.argumentsSha256,
+    };
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    const ownerCancellation = {
+      ...original,
+      status: "canceled" as const,
+      revision: randomUUID(),
+      decisionAt: new Date().toISOString(),
+    };
+    const current = mode === "canceled" ? ownerCancellation : original;
+    const records = mode === "unresolved" ? [failed, current] : [failed, f.record, current];
+    if (mode === "other-pending")
+      records.push({ ...original, id: randomUUID(), revision: randomUUID(), status: "pending" });
+    f.writeRecords(records);
+    const before = readFileSync(path.join(f.state, "coordinator-bootstrap.json"));
+    const ports = {
+      ...f.ports,
+      moduleFile: path.join(f.host.directory, runnerRelative),
+      hostProcessId: f.hostProcess.pid,
+    };
+    const initialize = () =>
+      createManagedPreclaimRecoveryReview(f.setupFile, f.original.daemonId, ports);
+    const derive = () =>
+      derivePreclaimHostRuntime({
+        setupFile: f.setupFile,
+        daemonId: f.original.daemonId,
+        original,
+        ports,
+        ...(mode === "canceled" ? { ownerCancellation } : {}),
+      });
+    if (mode === "approved" || mode === "canceled") {
+      const service = await initialize();
+      expect(service?.available).toBe(true);
+      expect(service?.list()).toEqual([]);
+      expect((await derive()).renewal?.terminal.id).toBe(f.record.id);
+    } else {
+      await expect(initialize()).rejects.toThrow();
+      await expect(derive()).rejects.toThrow();
+    }
+    expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"))).toEqual(before);
+    expect(JSON.parse(readFileSync(f.setupFile, "utf8"))).toEqual(f.original);
+  },
+);
+
+test
+  .runIf(process.platform === "darwin")
   .each(["exact", "other-pending", "claimed", "stale", "changes-during-read", "selected-config"])(
   "preclaim runtime derivation excludes only the exact unclaimed approval (%s)",
   async (mode) => {
@@ -992,7 +1071,9 @@ test
             moduleFile: path.join(f.host.directory, runnerRelative),
             hostProcessId: f.hostProcess.pid,
           }),
-        ).rejects.toThrow("unambiguous unclaimed target");
+        ).rejects.toThrow(
+          mode === "claimed" ? "generation is ambiguous" : "unambiguous unclaimed target",
+        );
     }
     if (mode !== "changes-during-read")
       expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"), "utf8")).toBe(before);

@@ -6,7 +6,6 @@ import {
   useContext,
   useId,
   useLayoutEffect,
-  useMemo,
   useState,
   type ReactNode,
   type ComponentProps,
@@ -23,9 +22,10 @@ import {
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import Animated, {
   Easing,
-  FadeInUp,
-  FadeOutUp,
-  LinearTransition,
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  withTiming,
   ReduceMotion,
 } from "react-native-reanimated";
 import { withUnistyles } from "react-native-unistyles";
@@ -70,19 +70,34 @@ function TaskCardView({
   }, [measure, id, naturalHeight, retainedActive]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
-    setHeaderHeight(event.nativeEvent.layout.height);
+    const { height } = event.nativeEvent.layout;
+    if (height > 0) setHeaderHeight(height);
   }, []);
-  const onBodySize = useCallback((_width: number, measuredHeight: number) => {
-    setBodyHeight(measuredHeight);
+  const onBodySize = useCallback((width: number, measuredHeight: number) => {
+    // Hidden retained cards can report an empty layout. Keep the last real
+    // demand so returning to a workspace does not animate from a collapsed card.
+    if (width > 0) setBodyHeight(measuredHeight);
   }, []);
   const parts = Children.toArray(children);
   const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
   const { height } = useWindowDimensions();
-  const maxHeight = column ? (column.heights.get(id) ?? naturalHeight) : height / 2;
-  const animationStyle = useMemo(
-    () => ({ maxHeight, flexShrink: 0, overflow: "hidden" as const }),
+  const maxHeight = column
+    ? (column.heights.get(id) ?? naturalHeight)
+    : Math.min(naturalHeight, height / 2);
+  // Animate only height. Positional layout transitions treat a retained hidden
+  // card's zero DOM rect as its origin and fly it across the page on reactivation.
+  const animationStyle = useAnimatedStyle(
+    () => ({
+      height: withTiming(maxHeight, {
+        duration: 220,
+        easing,
+        reduceMotion: ReduceMotion.System,
+      }),
+      flexShrink: 0,
+      overflow: "hidden" as const,
+    }),
     [maxHeight],
   );
   const parentDrag = useContext(QueueDragScrollContext);
@@ -95,15 +110,10 @@ function TaskCardView({
     [onDragActive, parentDrag],
   );
   return (
-    <Animated.View
-      layout={cardTransition}
-      entering={cardEnter}
-      exiting={cardExit}
-      style={animationStyle}
-    >
+    <Animated.View entering={cardEnter} exiting={cardExit} style={animationStyle}>
       <View
         testID={testID}
-        style={[taskCardStyles.surface, style, { minHeight: 0, flexShrink: 1, overflow: "hidden" }]}
+        style={[taskCardStyles.surface, style, { minHeight: 0, flex: 1, overflow: "hidden" }]}
       >
         <View style={taskCardStyles.scrollContent}>
           <View
@@ -247,8 +257,5 @@ export function TaskCardInfo({
 
 // Ease-out exponential approximation supported by both native and web layout transitions.
 const easing = Easing.bezier(0.16, 1, 0.3, 1);
-const cardTransition = LinearTransition.duration(220)
-  .easing(easing)
-  .reduceMotion(ReduceMotion.System);
-const cardEnter = FadeInUp.duration(220).easing(easing).reduceMotion(ReduceMotion.System);
-const cardExit = FadeOutUp.duration(160).easing(easing).reduceMotion(ReduceMotion.System);
+const cardEnter = FadeIn.duration(180).easing(easing).reduceMotion(ReduceMotion.System);
+const cardExit = FadeOut.duration(160).easing(easing).reduceMotion(ReduceMotion.System);

@@ -461,3 +461,98 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
   await expect(cards).toBeHidden();
 });
+
+test("keeps cards docked through cold and retained workspace transitions", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const row = (id: string) =>
+    page.getByTestId(`sidebar-workspace-row-vorteo-demo:demo-workspace-${id}`);
+  await expect(row("0-0")).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => {
+    const samples: { x: number; right: number; dock: number | null }[] = [];
+    Object.assign(window, { cardTransitionSamples: samples, sampleCardTransitions: true });
+    const sample = () => {
+      if (!(window as unknown as { sampleCardTransitions: boolean }).sampleCardTransitions) return;
+      for (const cards of document.querySelectorAll(
+        '[data-testid="agent-task-progress-card"], [data-testid="agent-journal-card"]',
+      )) {
+        const bounds = cards.getBoundingClientRect();
+        if (bounds.width <= 0 || bounds.height <= 0) continue;
+        const dock = cards.closest('[data-testid="workspace-supporting-cards"]');
+        samples.push({
+          x: bounds.x,
+          right: bounds.right,
+          dock: dock?.getBoundingClientRect().x ?? null,
+        });
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  for (const id of ["0-0", "1-0", "2-0", "0-1", "1-1", "2-1", "0-0", "1-0", "0-1"]) {
+    await row(id).click();
+    await expect(
+      page.getByTestId("workspace-supporting-cards").filter({ visible: true }),
+    ).toHaveCount(1);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          let frames = 0;
+          const next = () => {
+            frames += 1;
+            if (frames === 8) resolve();
+            else requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        }),
+    );
+  }
+  const samples = await page.evaluate(() => {
+    const state = window as unknown as {
+      sampleCardTransitions: boolean;
+      cardTransitionSamples: { x: number; right: number; dock: number | null }[];
+    };
+    state.sampleCardTransitions = false;
+    return state.cardTransitionSamples;
+  });
+  await info.attach("card-transition-frames", {
+    body: JSON.stringify(samples),
+    contentType: "application/json",
+  });
+  expect(samples.length).toBeGreaterThan(30);
+  expect(
+    samples.filter((sample) => sample.dock === null || sample.x < 1400 || sample.right > 1800),
+  ).toEqual([]);
+  const tasks = page.getByTestId("agent-task-progress-card").filter({ visible: true });
+  await expect(tasks).toHaveCount(1);
+  const before = (await tasks.boundingBox())!.height;
+  const motion = tasks.evaluate(
+    (node) =>
+      new Promise<number[]>((resolve) => {
+        const heights: number[] = [];
+        const started = performance.now();
+        const sample = () => {
+          heights.push(node.getBoundingClientRect().height);
+          if (performance.now() - started > 650) resolve(heights);
+          else requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }),
+  );
+  await tasks.getByTestId("checklist-toggle").click();
+  const heights = await motion;
+  const after = (await tasks.boundingBox())!.height;
+  expect(after).toBeLessThan(before);
+  expect(heights.some((height) => height < before - 2 && height > after + 2)).toBe(true);
+  await info.attach("card-height-animation", {
+    body: JSON.stringify(heights),
+    contentType: "application/json",
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await row("2-0").click();
+  await row("0-1").click();
+  await expect(tasks).toBeVisible();
+  await page.screenshot({ path: info.outputPath("stable-workspace-cards.png") });
+});
