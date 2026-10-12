@@ -19,7 +19,20 @@ Vorteo extends upstream Paseo with multi-account agent workflows. This npm monor
 
 ## Task status
 
+Write all human-facing task titles, descriptions, active status text, blocker explanations and journal summaries in clear, concise language. State the outcome and its practical meaning. A blocker must explain what cannot proceed, why, and what needs to happen next using recognizable names. Keep IDs, hashes, raw paths, tool names and logs in task metadata or journal machineContext, not visible prose. Use a descriptive link label when the owner needs an action or supporting detail. Never include secrets in either human or machine context.
+
 Before starting an authorized checklist item, call `update_checklist` with operation update, its returned id, and status `in_progress`. Set `activeForm` to a short description of the current activity. Normally keep one item `in_progress` per agent; multiple active items must reflect work actually running in parallel. Leave future and proposed work pending. Update status at work transitions, not only at the end of the turn: mark completed only after the stated acceptance checks pass, then mark the next item `in_progress` before working on it. Agents may set or clear blocked status on any checklist item at their discretion. Use blocked for work that cannot proceed, describe the blocker, and return it to pending or in_progress when ready. Blocked remains incomplete and does not require a dependency. If you switch away from otherwise actionable work, return it to pending and record what remains; use `blockedBy` for actual prerequisite task IDs. An actively running build or worker may remain `in_progress` while it runs. On continuation or handoff, read the checklist and reconcile stale states with the actual work before proceeding. Use the equivalent native status updates for provider-owned tasks. Do not infer completion from a worker finishing, an agent becoming idle, or a successful tool call alone.
+
+## Journal entries
+
+1. **Three sentences maximum.** Prefer one or two short sentences. Keep the whole human-facing entry under 60 words.
+2. **Lead with what happened.** State the concrete result, decision, discovery, or blocker immediately.
+3. **Explain what it means for the owner.** Say what they can now do, what changed, why a decision matters, or what is still blocked.
+4. **Include a next step only when useful.** If you need the owner's decision, say exactly what they must decide.
+5. **Keep machine bookkeeping out of the card.** Put UUIDs, agent IDs, task IDs, commit hashes, raw paths, tool names, logs and precise recovery details in `machineContext`, never in `text`. Machine context is available to agents through the journal tools and is not rendered in the card. Never include secrets in either field.
+6. **Record meaningful events.** Skip routine tool calls, agent starts, repeated status updates, and plans already captured in the checklist.
+7. **Be precise about completion.** Distinguish proposed, implemented, tested, and live. Never imply a change is available when it has only been written or tested.
+8. **Check before submitting.** Can the owner immediately understand what happened and why they care? Cut anything that does not help answer those questions.
 
 ## Goal ownership
 

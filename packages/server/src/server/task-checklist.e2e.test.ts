@@ -158,6 +158,7 @@ test("journal tools append durably, broadcast in order and reject edits and cros
     const first = {
       entryId: "11111111-1111-4111-8111-111111111111",
       text: "Chose atomic persistence because journal entries must survive recovery.",
+      machineContext: "task=11111111-1111-4111-8111-111111111111\nsource=/tmp/journal-fixture",
     };
     const second = {
       entryId: "22222222-2222-4222-8222-222222222222",
@@ -177,10 +178,15 @@ test("journal tools append durably, broadcast in order and reject edits and cros
     );
     expect(snapshot.journal?.map((entry) => entry.text)).toEqual([first.text, second.text]);
     expect(snapshot.journal?.map((entry) => entry.sequence)).toEqual([1, 2]);
+    expect(snapshot.journal?.map((entry) => entry.machineContext)).toEqual([
+      first.machineContext,
+      undefined,
+    ]);
     const read = await mcp.callTool({ name: "get_journal", arguments: {} });
     expect(read.structuredContent).toEqual({ entries: snapshot.journal });
     for (const args of [
       { ...first, text: "Rewrite history" },
+      { ...first, machineContext: "Changed machine context" },
       { ...first, agentId: "another-thread" },
       { ...first, timestamp: "2000-01-01T00:00:00Z" },
       { entryId: "33333333-3333-4333-8333-333333333333", text: " " },

@@ -94,6 +94,7 @@ for (const width of [1400, 390]) {
               name: "append_journal",
               arguments: {
                 entryId: id,
+                machineContext: `Internal recovery detail ${id}: /tmp/journal-fixture`,
                 text:
                   `Journal observation ${index + 1}. ` +
                   "Verified the change and retained the decision history. ".repeat(6),
@@ -108,6 +109,8 @@ for (const width of [1400, 390]) {
         await card.scrollIntoViewIfNeeded();
         await expect(card).toBeVisible();
       }).toPass();
+      await expect(card).not.toContainText("Internal recovery detail");
+      await expect(card).not.toContainText(ids[0]);
       const status = (index: number) => page.getByTestId(`journal-status-${ids[index]}`);
       await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
@@ -1755,6 +1758,27 @@ for (const { width, interaction } of [
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath("blocked-reason.png") });
       expect((await client.getAgentChecklist(agent.agentId))[0].status).toBe("blocked");
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id: "internal-prerequisite-uuid",
+        text: "Reconnect Dev",
+      });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "update",
+        id: "blocked-review",
+        description: "",
+        blockedBy: ["internal-prerequisite-uuid"],
+      });
+      await expect(
+        page
+          .getByLabel(
+            "Blocked: Waiting for 1 prerequisite task to finish. The agent has not recorded a more specific reason.",
+          )
+          .last(),
+      ).toBeVisible();
+      await expect(page.getByTestId("agent-task-progress-card")).not.toContainText(
+        "internal-prerequisite-uuid",
+      );
     } finally {
       await client.close();
       await agent.cleanup();
