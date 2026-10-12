@@ -904,10 +904,12 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
     const stack = page.getByTestId("installation-update-toasts");
     await expect(stack.locator('[data-testid^="restart-notice-"]')).toHaveCount(0);
     await sidebar.screenshot({ path: testInfo.outputPath("compact-passive-maintenance.png") });
-    await cards
-      .filter({ hasText: "Host daemon restart queued" })
-      .getByRole("button", { name: "Review restart", exact: true })
-      .click();
+    const reviewRow = cards.filter({ hasText: "Host daemon restart queued" });
+    await expect(reviewRow).toHaveAttribute("role", "button");
+    await expect(reviewRow).not.toContainText("Review restart");
+    await expect(reviewRow.locator('[role="button"]')).toHaveCount(0);
+    await reviewRow.focus();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/installation=1.*restart=/);
     const reviewedId = new URL(page.url()).searchParams.get("restart");
     expect(reviewedId).toBe(jobs[1]);

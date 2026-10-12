@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useCallback } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SidebarCallout } from "@/components/sidebar-callout";
-import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { Theme } from "@/styles/theme";
 
@@ -63,7 +62,14 @@ export function MaintenanceNotice({
     );
   }
   return (
-    <View style={styles.row} testID={testID}>
+    <Pressable
+      style={styles.row}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${reviewLabel}`}
+      accessibilityHint={description}
+      onPress={onReview}
+    >
       <Spinner uniProps={spinnerColor} size={16} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>
@@ -73,10 +79,7 @@ export function MaintenanceNotice({
           {description}
         </Text>
       </View>
-      <Button variant="ghost" size="sm" onPress={onReview}>
-        {reviewLabel}
-      </Button>
-    </View>
+    </Pressable>
   );
 }
 

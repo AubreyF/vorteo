@@ -170,7 +170,12 @@ describe("SidebarCallout", () => {
       ),
     );
     expect(container?.textContent).toContain("Awaiting dispatch");
-    act(() => container?.querySelector<HTMLButtonElement>("button")?.click());
+    const row = container?.querySelector<HTMLElement>('[data-testid="maintenance"]');
+    expect(row?.getAttribute("role")).toBe("button");
+    expect(row?.getAttribute("aria-label")).toBe("Awaiting dispatch. Review update");
+    expect(row?.textContent).not.toContain("Review update");
+    expect(row?.querySelector('[role="button"], button')).toBeNull();
+    act(() => row?.click());
     expect(review).toHaveBeenCalledTimes(1);
   });
 
