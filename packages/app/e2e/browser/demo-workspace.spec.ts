@@ -69,7 +69,16 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).click();
   await expect(page.getByTestId("workspace-header-copy-path")).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.getByTestId("workspace-explorer-toggle").click();
+  const collapsedToggle = page.getByTestId("workspace-explorer-toggle");
+  const contentMenu = page.getByTestId("workspace-split-pane-menu").filter({ visible: true });
+  const toggleBounds = (await collapsedToggle.boundingBox())!;
+  const contentMenuBounds = (await contentMenu.boundingBox())!;
+  expect(toggleBounds.y + toggleBounds.height / 2).toBeCloseTo(
+    contentMenuBounds.y + contentMenuBounds.height / 2,
+    1,
+  );
+  expect(toggleBounds.x + toggleBounds.width).toBeLessThanOrEqual(contentMenuBounds.x);
+  await collapsedToggle.click();
   await expect(cards).toBeVisible();
   await cards.getByTestId("workspace-explorer-toggle").click();
   const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
@@ -103,7 +112,7 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     .getByRole("button", { name: /^Atlas,/ });
   await page.keyboard.press("Tab");
   await railProject.focus();
-  const railHelp = page.getByRole("tooltip");
+  const railHelp = page.getByRole("tooltip", { name: /^Atlas / });
   await expect(railHelp).toBeVisible();
   await expect(railHelp).toHaveCSS("opacity", "1");
   await expect(railHelp).toContainText("Atlas");
@@ -201,11 +210,14 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
   expect(headerRule).toBe(false);
   const taskTab = page.getByRole("button", { name: "Prepare Atlas release notes", exact: true });
   expect((await taskTab.boundingBox())!.width).toBeGreaterThan(160);
+  await expect(
+    page.getByTestId("workspace-header-menu-trigger").filter({ visible: true }),
+  ).toHaveCount(0);
   const settings = await page.getByTestId("sidebar-settings").boundingBox();
   const overflow = await page.getByTestId("sidebar-footer-overflow").boundingBox();
   expect(overflow!.x).toBeGreaterThan(settings!.x + settings!.width);
   await expect(rightToolbar.getByTestId("changes-primary-cta")).toHaveAccessibleName("Create PR");
-  await rightToolbar.getByTestId("workspace-header-menu-trigger").click();
+  await page.getByTestId("workspace-split-pane-menu").filter({ visible: true }).click();
   await expect(page.getByTestId("workspace-header-copy-path")).toBeVisible();
   await page.keyboard.press("Escape");
 
@@ -347,3 +359,38 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
     );
   });
 }
+
+test("card cleanup icons explain their effects and cards use compact gaps", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  for (const [id, label, detail] of [
+    ["checklist-clear-completed", "Clear completed tasks", "Deletes completed Vorteo tasks"],
+    ["journal-clear", "Clear journal", "Nothing is deleted"],
+  ]) {
+    const button = page.getByTestId(id);
+    await expect(button).toHaveAccessibleName(label);
+    await expect(button).toHaveText("");
+    await page.mouse.move(900, 20);
+    await page.keyboard.press("Tab");
+    await button.focus();
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText(detail);
+    await expect(button).toHaveAttribute("aria-describedby", (await tooltip.getAttribute("id"))!);
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toHaveCount(0);
+  }
+  const tasks = page.getByTestId("agent-task-progress-card");
+  const journal = page.getByTestId("agent-journal-card");
+  await expect
+    .poll(async () => {
+      const first = (await tasks.boundingBox())!;
+      return (await journal.boundingBox())!.y - first.y - first.height;
+    })
+    .toBeCloseTo(8, 1);
+  await page.mouse.move(900, 20);
+  await page.screenshot({ path: info.outputPath("compact-card-controls.png"), fullPage: true });
+});

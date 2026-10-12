@@ -2,7 +2,7 @@ import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
+import { BrushCleaning, Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
 import { StyleSheet } from "react-native-unistyles";
@@ -209,9 +209,10 @@ function ClearCompletedButton({
       loading={pending}
       testID="checklist-clear-completed"
       accessibilityLabel="Clear completed tasks"
-    >
-      {pending ? "Clearing…" : "Clear completed"}
-    </TaskCardAction>
+      accessibilityHint="Deletes completed Vorteo tasks from this checklist. Unfinished and provider-managed tasks remain."
+      iconOnly
+      leftIcon={BrushCleaning}
+    />
   );
 }
 

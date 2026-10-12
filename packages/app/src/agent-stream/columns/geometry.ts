@@ -1,5 +1,6 @@
 export const COLUMN_BREAKPOINT = 1080;
 export const COLUMN_MARGIN = 16;
+export const CARD_GAP = 8;
 export const COLUMN_GAP = COLUMN_MARGIN * 2;
 export const MIN_TEXT_WIDTH = 560;
 export const MIN_CARDS_WIDTH = 220;
@@ -59,7 +60,7 @@ export function resolveTextOffset(containerWidth: number, widths: ColumnWidths):
 
 /** Small cards keep their natural height; larger cards share the remaining space equally. */
 export function allocateCardHeights(available: number, demands: readonly number[]): number[] {
-  let remaining = Math.max(0, available - Math.max(0, demands.length - 1) * COLUMN_MARGIN);
+  let remaining = Math.max(0, available - Math.max(0, demands.length - 1) * CARD_GAP);
   let count = demands.length;
   let ceiling = 0;
   for (const demand of [...demands].sort((a, b) => a - b)) {

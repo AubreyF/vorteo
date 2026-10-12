@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.338 - 2026-10-12
+
+### Changed
+
+- Use cleaning icons for card cleanup actions, with tooltips explaining what is deleted or hidden. All shared card-header icon actions provide labeled tooltips.
+- Reduce the vertical gap between supporting cards to 8px while preserving column gutters and scroll allocation.
+- Combine workspace actions and pane splitting in the primary-content menu. Keep run, preview and other actions at the right edge of the supporting toolbar, and move its collapsed toggle beside the content menu. Use vertical three-dot menus.
+
 ## 0.11.0-beta.3.vorteo.337 - 2026-10-12
 
 ### Changed

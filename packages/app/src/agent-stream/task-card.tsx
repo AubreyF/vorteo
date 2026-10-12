@@ -188,12 +188,17 @@ interface TaskCardActionProps extends Omit<
   "variant" | "size" | "style" | "textStyle"
 > {
   iconOnly?: boolean;
+  tooltipDescription?: ReactNode;
 }
 
 /** Heading actions share one visual contract; callers supply behavior and content only. */
-export function TaskCardAction({ iconOnly = false, ...props }: TaskCardActionProps) {
+export function TaskCardAction({
+  iconOnly = false,
+  tooltipDescription,
+  ...props
+}: TaskCardActionProps) {
   const touch = useVortonTouch();
-  return (
+  const button = (
     <Button
       {...props}
       variant="ghost"
@@ -205,6 +210,18 @@ export function TaskCardAction({ iconOnly = false, ...props }: TaskCardActionPro
       ]}
       textStyle={taskCardStyles.headingActionText}
     />
+  );
+  if (!iconOnly || !props.accessibilityLabel) return button;
+  return (
+    <Tooltip enabledOnDesktop enabledOnMobile>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="top" offset={8}>
+        <TooltipText
+          label={props.accessibilityLabel}
+          description={tooltipDescription ?? props.accessibilityHint}
+        />
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -218,14 +235,13 @@ export function TaskCardInfo({
   children: ReactNode;
 }) {
   return (
-    <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile>
-      <TooltipTrigger asChild>
-        <TaskCardAction iconOnly leftIcon={Info} accessibilityLabel={label} testID={testID} />
-      </TooltipTrigger>
-      <TooltipContent side="top" align="start" offset={8}>
-        <TooltipText label={label} description={children} />
-      </TooltipContent>
-    </Tooltip>
+    <TaskCardAction
+      iconOnly
+      leftIcon={Info}
+      accessibilityLabel={label}
+      testID={testID}
+      tooltipDescription={children}
+    />
   );
 }
 

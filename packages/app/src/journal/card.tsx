@@ -18,7 +18,7 @@ import { useSessionStore } from "@/stores/session-store";
 import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { BrushCleaning, History } from "lucide-react-native";
 import { useVortonTouch } from "@/vorton-touch";
 import { useAppActivelyVisible } from "@/hooks/use-app-visible";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -191,19 +191,20 @@ function JournalViewAction({
   onClear: () => void;
   onShowHistory: () => void;
 }) {
-  const compact = useIsCompactFormFactor();
-  const clearLabel = compact ? "Clear" : "Clear journal";
-  const historyLabel = compact ? "History" : "Show history";
   return (
     <TaskCardAction
       disabled={disabled}
       accessibilityLabel={count ? "Clear journal" : "Show history"}
-      accessibilityHint="Changes this device's view. Journal history is retained."
+      accessibilityHint={
+        count
+          ? "Hides current journal entries on this device. Nothing is deleted; Show history restores them."
+          : "Restores journal entries hidden on this device."
+      }
+      iconOnly
+      leftIcon={count ? BrushCleaning : History}
       testID={count ? "journal-clear" : "journal-show-history"}
       onPress={count ? onClear : onShowHistory}
-    >
-      {count ? clearLabel : historyLabel}
-    </TaskCardAction>
+    />
   );
 }
 

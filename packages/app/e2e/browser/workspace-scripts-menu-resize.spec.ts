@@ -43,6 +43,18 @@ test("scripts menu resizes when a service row grows after launch", async ({ page
 
     await page.goto(buildHostWorkspaceRoute(getServerId(), workspace.id));
     await waitForWorkspaceTabsVisible(page);
+    const toolbar = page.getByTestId("workspace-supporting-toolbar");
+    if (!(await toolbar.isVisible())) await page.getByTestId("workspace-explorer-toggle").click();
+    await expect(toolbar.getByTestId("workspace-scripts-button")).toBeVisible();
+    const toggle = toolbar.getByTestId("workspace-explorer-toggle");
+    const toggleBounds = (await toggle.boundingBox())!;
+    const scriptsBounds = (await toolbar.getByTestId("workspace-scripts-button").boundingBox())!;
+    expect(scriptsBounds.x).toBeGreaterThan(toggleBounds.x + toggleBounds.width);
+    await toggle.click();
+    await expect(
+      page.getByTestId("workspace-scripts-button").filter({ visible: true }),
+    ).toHaveCount(0);
+    await page.getByTestId("workspace-explorer-toggle").click();
     await openWorkspaceScriptsMenu(page);
 
     const menu = page.getByTestId("workspace-scripts-menu");

@@ -86,9 +86,9 @@ describe("centered conversation and bounded cards", () => {
     expect(allocateCardHeights(800, [120])).toEqual([120]);
   });
   it("redistributes space from small and collapsed cards", () => {
-    expect(allocateCardHeights(800, [60, 1200, 1200])).toEqual([60, 354, 354]);
-    expect(allocateCardHeights(800, [60, 100, 1200])).toEqual([60, 100, 608]);
-    expect(allocateCardHeights(800, [1200, 1200])).toEqual([392, 392]);
+    expect(allocateCardHeights(800, [60, 1200, 1200])).toEqual([60, 362, 362]);
+    expect(allocateCardHeights(800, [60, 100, 1200])).toEqual([60, 100, 624]);
+    expect(allocateCardHeights(800, [1200, 1200])).toEqual([396, 396]);
     expect(allocateCardHeights(0, [1200, 1200])).toEqual([0, 0]);
     expect(allocateCardHeights(800, [])).toEqual([]);
   });

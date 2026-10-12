@@ -1,4 +1,7 @@
-import { WorkspaceOverflowItemsContext } from "./workspace-header-menu";
+import {
+  WorkspaceToolbarToggleContext,
+  WorkspaceOverflowItemsContext,
+} from "./workspace-header-menu";
 import { tabShape } from "@/styles/tab-shape";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -292,6 +295,7 @@ function WorkspacePaneToolbarActions({
 }) {
   const { t } = useTranslation();
   const workspaceItems = useContext(WorkspaceOverflowItemsContext);
+  const sidebarToggle = useContext(WorkspaceToolbarToggleContext);
   const splitRightKeys = useShortcutKeys("workspace-pane-split-right");
   const splitDownKeys = useShortcutKeys("workspace-pane-split-down");
   const splitActionsVisible = showSplitActions && Boolean(onSplitRight && onSplitDown);
@@ -345,6 +349,7 @@ function WorkspacePaneToolbarActions({
           )}
         </ToolbarButton>
       ) : null}
+      {paneId === "main" ? sidebarToggle : null}
       {splitActionsVisible && onSplitRight && onSplitDown ? (
         <DropdownMenu>
           <ToolbarButton
@@ -1052,6 +1057,8 @@ function ResolvedWorkspaceDesktopTabsRow({
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
+  const sidebarToggle = useContext(WorkspaceToolbarToggleContext);
+  const hasSidebarToggle = paneId === "main" && Boolean(sidebarToggle);
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [exitFocusModeWidth, setExitFocusModeWidth] = useState<number>(0);
@@ -1077,7 +1084,8 @@ function ResolvedWorkspaceDesktopTabsRow({
         DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
           (focusModeEnabled ? exitFocusModeWidth : 0) +
           (showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
-          (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0),
+          (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0) +
+          (hasSidebarToggle ? smallIconButtonChromeFrameSize(false) : 0),
       ),
       rowPaddingHorizontal: TAB_ROW_PADDING_HORIZONTAL,
       tabGap: TAB_CHIP_GAP,
@@ -1088,7 +1096,13 @@ function ResolvedWorkspaceDesktopTabsRow({
       tabHorizontalPadding: TAB_CHIP_HORIZONTAL_PADDING,
       closeButtonWidth: TAB_CLOSE_BUTTON_RESERVED_WIDTH,
     }),
-    [exitFocusModeWidth, focusModeEnabled, showPaneMaximizeAction, showPaneSplitActions],
+    [
+      exitFocusModeWidth,
+      focusModeEnabled,
+      showPaneMaximizeAction,
+      showPaneSplitActions,
+      hasSidebarToggle,
+    ],
   );
 
   const panePanelKinds = useMemo(() => tabs.map(({ tab }) => tab.kind), [tabs]);

@@ -6,15 +6,14 @@ import {
   TaskCardActions,
   TaskCardAction,
 } from "@/agent-stream/task-card";
+import { useVortonTouch } from "@/vorton-touch";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
 import { useCallback, useState } from "react";
-import { Pause, Play, Trash2, Pencil } from "lucide-react-native";
+import { Pause, Play, BrushCleaning, Pencil } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { useVortonTouch } from "@/vorton-touch";
 import { goalStatusLabel, isGoalContinuationEnabled, formatGoalElapsed } from "./goal-presentation";
 import type { AgentGoalControl } from "./use-agent-goal";
 import type { GoalQueueNotice } from "./goal-presentation";
@@ -134,7 +133,6 @@ function GoalActions({
   onExpand,
   compact,
 }: Pick<GoalBarProps, "control" | "onExpand"> & { compact: boolean }) {
-  const touch = useVortonTouch();
   const goal = control.state?.goal;
   const paused = !isGoalContinuationEnabled(control.state);
   const action = paused ? "Resume goal" : "Pause goal";
@@ -154,26 +152,16 @@ function GoalActions({
         leftIcon={Pencil}
         onPress={onExpand}
       />
-      <Tooltip enabledOnDesktop={!touch}>
-        <TooltipTrigger asChild>
-          <TaskCardAction
-            iconOnly
-            accessibilityLabel={action}
-            accessibilityHint={paused ? "Allows the goal to continue automatically." : pauseHint}
-            testID="agent-goal-pause-resume"
-            leftIcon={paused ? Play : Pause}
-            disabled={!control.canMutate || !goal}
-            loading={control.pending}
-            onPress={toggle}
-          />
-        </TooltipTrigger>
-        <TooltipContent>
-          <Text style={styles.help}>
-            {action}
-            {paused ? "" : `. ${pauseHint}`}
-          </Text>
-        </TooltipContent>
-      </Tooltip>
+      <TaskCardAction
+        iconOnly
+        accessibilityLabel={action}
+        accessibilityHint={paused ? "Allows the goal to continue automatically." : pauseHint}
+        testID="agent-goal-pause-resume"
+        leftIcon={paused ? Play : Pause}
+        disabled={!control.canMutate || !goal}
+        loading={control.pending}
+        onPress={toggle}
+      />
     </TaskCardActions>
   );
 }
@@ -194,7 +182,8 @@ function GoalClearAction({
       iconOnly={!labeled}
       accessibilityLabel="Clear goal"
       testID="agent-goal-clear"
-      leftIcon={Trash2}
+      leftIcon={BrushCleaning}
+      accessibilityHint="Removes the current goal and its automatic continuation. This cannot be undone."
       disabled={!control.canMutate || !control.state?.goal}
       onPress={clear}
     >
