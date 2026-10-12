@@ -78,9 +78,8 @@ the stack available across navigation and sidebar states, respect mobile safe
 areas, and bound its height with scrolling. Pending requests and running updates
 do not expire automatically. Review opens the exact tracked request in
 Installation controls; relocating a notice never changes approval or
-cancellation rules. On the compact welcome screen, fold notices behind a persistent
-Updates and maintenance button so setup and sign-in stay reachable. Expanding it
-reveals the existing notice cards and review controls.
+cancellation rules. Omit all operational notices on the welcome screen and its
+connection sheets at every viewport size. Restore them after entering the application.
 On compact workspace screens, place notices above the measured active composer
 and keyboard. Release that clearance when the composer becomes inactive or
 unmounts; retained background tabs must not move the notice stack.

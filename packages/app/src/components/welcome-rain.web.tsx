@@ -32,7 +32,7 @@ export function WelcomeRain() {
       const columns = Math.ceil(width / 42);
       const rows = Math.ceil(height / 19);
       for (let column = 0; column < columns; column++) {
-        const speed = 7 + (column % 5) * 1.4;
+        const speed = 2 * (7 + (column % 5) * 1.4);
         const head = ((column * 173 + elapsed * speed) % (height + 260)) - 80;
         for (let row = 0; row < rows; row++) {
           // Only brightness moves. Every glyph keeps the same grid cell and baseline.

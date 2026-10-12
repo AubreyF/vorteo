@@ -395,14 +395,18 @@ test("welcome signs in with the owner password and restores both environments", 
   await page.goto(origin);
   await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
   await expect(page.getByTestId("welcome-demo")).toBeVisible();
-  if (testInfo.project.name === "phone") {
-    const updates = page.getByTestId("installation-update-toasts-toggle");
-    await expect(updates).toHaveAttribute("aria-expanded", "false");
-    await updates.click();
-    await expect(page.getByRole("button", { name: "Review restart", exact: true })).toBeVisible();
-    await updates.click();
-    await expect(updates).toHaveAttribute("aria-expanded", "false");
-  }
+  await expect(page.getByTestId("installation-update-toasts")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts-toggle")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Review restart", exact: true })).toHaveCount(0);
+  const rain = page.getByTestId("welcome-rain");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(rain).toHaveAttribute("data-motion", "falling");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(rain).toHaveAttribute("data-motion", "still");
+  await page.screenshot({
+    path: testInfo.outputPath("welcome-without-notices.png"),
+    fullPage: true,
+  });
   await page.getByTestId("welcome-create-installation").click();
   await expect(page.getByTestId("installation-command")).toContainText(
     "docker/multiplex/install.sh",
@@ -424,15 +428,6 @@ test("welcome signs in with the owner password and restores both environments", 
         return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== node;
       });
       expect(covered).toBe(false);
-      const updatesCovered = await page
-        .getByTestId("installation-update-toasts-toggle")
-        .evaluate((node) => {
-          const box = node.getBoundingClientRect();
-          return !node.contains(
-            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
-          );
-        });
-      expect(updatesCovered).toBe(true);
     }).toPass();
   }
   await page.screenshot({
@@ -452,6 +447,7 @@ test("welcome signs in with the owner password and restores both environments", 
   await password.fill(ownerPassword);
   await password.press("Enter");
   await expect(page).not.toHaveURL(/welcome/);
+  await expect(page.getByTestId("installation-update-toasts")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(

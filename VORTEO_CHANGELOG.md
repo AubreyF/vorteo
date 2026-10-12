@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.351 - 2026-10-12
+
+### Changed
+
+- Double the welcome screen's Matrix rain speed while preserving its subtle contrast and stationary characters.
+- Hide update, Host, sync and maintenance notices throughout welcome and connection setup. Operational screens retain their notices.
+
 ## 0.11.0-beta.3.vorteo.350 - 2026-10-12
 
 ### Fixed
