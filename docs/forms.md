@@ -1,5 +1,9 @@
 # Forms
 
+Full-page settings forms use `PageLayout`, which enables iOS keyboard insets
+and scrolls the focused field above the keyboard. Keep controls reachable while
+the keyboard is open; verify the lowest fields in a native build.
+
 The paved road for building forms in the app. The schedule form is the golden
 example; when building or fixing any form, copy its shape, not the shape of
 whatever screen you happen to be near.
