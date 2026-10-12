@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
@@ -93,10 +93,15 @@ export function getBootstrapPanel(): BootstrapPanelModel | null {
 }
 
 export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
+  const [showHistory, setShowHistory] = useState(false);
+  const toggleHistory = useCallback(() => setShowHistory((value) => !value), []);
   const refresh = useCallback(() => {
     void model.refresh();
   }, [model]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const current = currentBootstrapRequests(state.requests).filter(bootstrapNeedsAttention);
+  const currentIds = new Set(current.map((request) => request.id));
+  const history = state.requests.filter((request) => !currentIds.has(request.id));
   if (!state.available) return null;
   return (
     <View testID="coordinator-bootstrap-review">
@@ -110,10 +115,50 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
           </Button>
         </View>
       ) : null}
-      {currentBootstrapRequests(state.requests).map((request) => (
+      {current.map((request) => (
         <BootstrapRequestCard key={request.id} request={request} model={model} />
       ))}
+      {history.length ? (
+        <>
+          <Button
+            variant="ghost"
+            onPress={toggleHistory}
+            accessibilityState={showHistory ? expanded : collapsed}
+          >
+            {`${showHistory ? "Hide" : "Show"} coordinator history (${history.length})`}
+          </Button>
+          {showHistory
+            ? history.map((request) => (
+                <BootstrapRequestCard key={request.id} request={request} model={model} />
+              ))
+            : null}
+        </>
+      ) : null}
     </View>
+  );
+}
+
+function CoordinatorElapsed({ request }: { request: CoordinatorBootstrapRequest }) {
+  const active = bootstrapNeedsAttention(request);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  if (!active) return null;
+  const seconds = Math.max(
+    0,
+    Math.floor((now - Date.parse(request.decisionAt ?? request.createdAt)) / 1000),
+  );
+  const elapsed = `${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s`;
+  let label = "Awaiting approval";
+  if (request.execution) label = "Since approval";
+  else if (request.status === "approved") label = "Awaiting dispatch";
+  return (
+    <Text style={styles.text} testID="coordinator-elapsed">
+      {label}: {elapsed}
+    </Text>
   );
 }
 
@@ -214,6 +259,7 @@ function BootstrapRequestCard({
           variant={request.execution?.stage === "recovery_required" ? "error" : "muted"}
         />
       </View>
+      <CoordinatorElapsed request={request} />
       <Text style={styles.text}>
         Update the installation coordinator. Installation controls will briefly reconnect; Host and
         Dev tasks keep running.{" "}

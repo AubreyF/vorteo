@@ -132,7 +132,7 @@ test.each([1280, 390])(
         await act(async () => {
           await page.getByTestId(`bootstrap-${action}`).click();
           // Move off the disabled decision wrapper before it can open a hover tooltip.
-          await page.getByText("Installation coordinator", { exact: true }).hover();
+          await page.getByTestId("coordinator-bootstrap-review").hover();
         });
         expect(decide).toHaveBeenLastCalledWith(
           {
@@ -286,3 +286,67 @@ test.each([1280, 390])(
     }
   },
 );
+
+test("coordinator review separates history and counts active waiting without dispatch", async () => {
+  vi.stubGlobal("React", React);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  await page.viewport(390, 1000);
+  const active = {
+    ...requestFixture(),
+    status: "approved" as const,
+    decisionAt: new Date(Date.now() - 65000).toISOString(),
+  };
+  const completed = {
+    ...requestFixture(),
+    id: "00000000-0000-4000-8000-000000000004",
+    execution: {
+      generation: "00000000-0000-4000-8000-000000000005",
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const canceled = {
+    ...requestFixture(),
+    id: "00000000-0000-4000-8000-000000000006",
+    status: "canceled" as const,
+  };
+  const decide = vi.fn();
+  const model = new BootstrapPanelModel(() => ({
+    listCoordinatorBootstrapRequests: async () => [completed, active, canceled],
+    decideCoordinatorBootstrap: decide,
+  }));
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(() => model.refresh());
+    act(() => root.render(<BootstrapReview model={model} />));
+    expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
+      1,
+    );
+    expect(page.getByTestId("coordinator-elapsed").element().textContent).toContain(
+      "Awaiting dispatch: 0h 1m",
+    );
+    const elapsed = page.getByTestId("coordinator-elapsed").element().textContent;
+    await expect
+      .poll(() => page.getByTestId("coordinator-elapsed").element().textContent)
+      .not.toBe(elapsed);
+    await act(async () => {
+      await page.getByRole("button", { name: "Show coordinator history (2)" }).click();
+    });
+    expect(container.querySelectorAll('[data-testid^="coordinator-bootstrap-000"]')).toHaveLength(
+      3,
+    );
+    expect(container.querySelectorAll('[data-testid="coordinator-elapsed"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="bootstrap-cancel"]')).toHaveLength(1);
+    expect(decide).not.toHaveBeenCalled();
+    await page.screenshot({
+      path: "../../../../output/playwright/coordinator-history-phone.png",
+      fullPage: true,
+    });
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});

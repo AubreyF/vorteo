@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.349 - 2026-10-12
+
+### Fixed
+
+- Clear stale coordinator connection errors after a successful automatic refresh while preserving unconfirmed decision errors.
+- Separate completed coordinator requests into collapsed history and show a live elapsed counter for current requests. Exact owner approval and cancellation controls are unchanged.
+
 ## 0.11.0-beta.3.vorteo.348 - 2026-10-12
 
 ### Changed
