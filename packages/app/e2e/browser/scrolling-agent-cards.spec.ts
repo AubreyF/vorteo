@@ -20,9 +20,10 @@ async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number)
   await expect(pauseGoal).toBeEnabled();
   if (width === 390) return;
   await pauseGoal.hover();
-  await expect(
-    page.getByText("Pause goal. Prevents the goal from continuing automatically.", { exact: true }),
-  ).toBeVisible();
+  const help = page.getByRole("tooltip");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Pause goal");
+  await expect(help).toContainText("Prevents the goal from continuing automatically.");
   await page.mouse.move(0, 0);
 }
 

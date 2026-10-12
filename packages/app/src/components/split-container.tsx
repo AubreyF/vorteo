@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { useWorkspaceShellMeasurement } from "@/hooks/use-responsive-sidebar";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import {
   DndContext,
@@ -315,14 +316,6 @@ const dropCollisionDetection: CollisionDetection = (args) => {
   return closestCenter(args);
 };
 
-function supportingCardHostName(
-  visible: boolean,
-  collapsed: boolean | undefined,
-  hostName: string,
-) {
-  return visible || collapsed ? hostName : null;
-}
-
 export function SplitContainer({
   layout,
   supportingCardsCollapsed,
@@ -430,7 +423,7 @@ export function SplitContainer({
     (state) => state.explorerSidebarWidthByWorkspace[workspaceKey],
   );
   const resizeExplorerSidebar = useWorkspaceLayoutStore((state) => state.resizeExplorerSidebar);
-  const [workspaceShellWidth, setWorkspaceShellWidth] = useState(0);
+  const { workspaceShellWidth, handleWorkspaceShellLayout } = useWorkspaceShellMeasurement();
   const [previewExplorerSidebarWidth, setPreviewExplorerSidebarWidth] = useState<number | null>(
     null,
   );
@@ -493,13 +486,11 @@ export function SplitContainer({
   const supportingCardsValue = useMemo(
     () => ({
       agentId: cardsAgentId,
-      hostName: supportingCardHostName(
-        renderExplorerSidebarDock,
-        supportingCardsCollapsed,
-        cardHostName,
-      ),
+      // Desktop cards always belong to their dock, including while it is hidden
+      // or awaiting its first layout event. Inline fallback is for compact hosts.
+      hostName: cardHostName,
     }),
-    [cardsAgentId, cardHostName, renderExplorerSidebarDock, supportingCardsCollapsed],
+    [cardsAgentId, cardHostName],
   );
   const mainColumnWindowChromeCorners = renderExplorerSidebarDock
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
@@ -509,10 +500,6 @@ export function SplitContainer({
     () => [styles.explorerSidebarDock, { width: explorerSidebarWidth - FLOATING_PANEL_INSET * 2 }],
     [explorerSidebarWidth],
   );
-  const handleWorkspaceShellLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextWidth = event.nativeEvent.layout.width;
-    setWorkspaceShellWidth((current) => (current === nextWidth ? current : nextWidth));
-  }, []);
   const previewExplorerSidebarResize = useCallback(
     (_groupId: string, sizes: number[]) => {
       const nextRatio = sizes[1];

@@ -1,3 +1,4 @@
+import { CARD_GAP } from "@/agent-stream/columns/geometry";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import {
@@ -14,7 +15,7 @@ import { useVortonTouch } from "@/vorton-touch";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Archive, Unlink, X } from "lucide-react-native";
+import { BrushCleaning, Archive, Unlink, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useProviderIcon } from "@/components/provider-icons";
 import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
@@ -278,14 +279,15 @@ export function ArchiveFinishedRow({
         disabled={disabled}
         loading={status.kind === "archiving"}
         testID="subagents-track-archive-finished"
+        iconOnly
+        leftIcon={BrushCleaning}
+        tooltipDescription={`${actionLabel}. Clears finished sub-agents from this track. Running sub-agents remain.`}
         accessibilityLabel={
           status.kind === "failed"
             ? "Retry clearing finished"
             : t("subagents.archiveFinishedAction")
         }
-      >
-        {actionLabel}
-      </TaskCardAction>
+      />
     );
   }
 
@@ -529,7 +531,7 @@ function SubagentActionButton({
 
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
-  groups: { gap: theme.spacing[3] },
+  groups: { gap: CARD_GAP },
   cardRows: {
     marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
   },

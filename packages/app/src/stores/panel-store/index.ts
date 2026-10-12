@@ -1,3 +1,4 @@
+import { Dimensions } from "react-native";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import AsyncStorage from "@/storage/app-storage";
@@ -11,6 +12,8 @@ import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
+  cycleDesktopSidebar,
+  resolveResponsiveSidebar,
   clampTreeRailWidth,
   clampSidebarWidth,
   DEFAULT_TREE_RAIL_WIDTH,
@@ -74,6 +77,8 @@ export interface PanelState {
   collapsedFilePathsByWorkspace: Record<string, string[]>;
   sidebarWidth: number;
   sidebarCompact: boolean;
+  sidebarNarrow: boolean;
+  sidebarViewportOverride: number | null;
   explorerSortOption: SortOption;
   explorerShowHiddenFiles: boolean;
   treeRailWidth: number;
@@ -141,6 +146,8 @@ export const usePanelStore = create<PanelState>()(
       collapsedFilePathsByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarCompact: false,
+      sidebarNarrow: false,
+      sidebarViewportOverride: null,
       explorerSortOption: "name",
       explorerShowHiddenFiles: true,
       treeRailWidth: DEFAULT_TREE_RAIL_WIDTH,
@@ -179,6 +186,8 @@ export const usePanelStore = create<PanelState>()(
         set((state) => ({
           desktop: { ...state.desktop, agentListOpen: true },
           sidebarCompact: false,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
         })),
 
       closeDesktopAgentList: () =>
@@ -190,7 +199,8 @@ export const usePanelStore = create<PanelState>()(
       toggleDesktopAgentList: () =>
         set((state) => ({
           desktop: { ...state.desktop, agentListOpen: true },
-          sidebarCompact: !state.sidebarCompact,
+          ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
+          sidebarViewportOverride: Dimensions.get("window").width,
         })),
 
       openAgentListForLayout: ({ isCompact }) =>
@@ -198,7 +208,12 @@ export const usePanelStore = create<PanelState>()(
           if (isCompact) {
             return setMobilePanelTargetPatch(state, "agent-list");
           }
-          return { desktop: { ...state.desktop, agentListOpen: true }, sidebarCompact: false };
+          return {
+            desktop: { ...state.desktop, agentListOpen: true },
+            sidebarCompact: false,
+            sidebarNarrow: false,
+            sidebarViewportOverride: Dimensions.get("window").width,
+          };
         }),
 
       closeAgentListForLayout: ({ isCompact }) =>
@@ -219,7 +234,8 @@ export const usePanelStore = create<PanelState>()(
           }
           return {
             desktop: { ...state.desktop, agentListOpen: true },
-            sidebarCompact: !state.sidebarCompact,
+            ...cycleDesktopSidebar(resolveResponsiveSidebar(state, Dimensions.get("window").width)),
+            sidebarViewportOverride: Dimensions.get("window").width,
           };
         }),
 
@@ -281,7 +297,12 @@ export const usePanelStore = create<PanelState>()(
           }),
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
-      setSidebarCompact: (sidebarCompact) => set({ sidebarCompact }),
+      setSidebarCompact: (sidebarCompact) =>
+        set({
+          sidebarCompact,
+          sidebarNarrow: false,
+          sidebarViewportOverride: Dimensions.get("window").width,
+        }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
         set((state) => ({ explorerShowHiddenFiles: !state.explorerShowHiddenFiles })),
@@ -302,6 +323,7 @@ export const usePanelStore = create<PanelState>()(
         collapsedFilePathsByWorkspace: state.collapsedFilePathsByWorkspace,
         sidebarWidth: state.sidebarWidth,
         sidebarCompact: state.sidebarCompact,
+        sidebarNarrow: state.sidebarNarrow,
         explorerSortOption: state.explorerSortOption,
         explorerShowHiddenFiles: state.explorerShowHiddenFiles,
         treeRailWidth: state.treeRailWidth,

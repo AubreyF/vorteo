@@ -12,7 +12,7 @@ import React, { createContext, useCallback, useMemo, type ReactNode } from "reac
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Ellipsis, Globe, SquarePen } from "lucide-react-native";
+import { EllipsisVertical, Globe, SquarePen } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile } from "@getpaseo/protocol/messages";
 import {
@@ -37,6 +37,8 @@ import {
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
 
+export const WorkspaceToolbarToggleContext = createContext<ReactNode>(null);
+
 export const WorkspaceOverflowItemsContext = createContext<{
   items: ReactNode;
   pages: ReturnType<typeof useWorkspaceLabelMenuPages>;
@@ -55,7 +57,7 @@ export function WorkspaceOverflowProvider(
   return <WorkspaceHeaderActionsMenu {...props} overflow />;
 }
 
-const ThemedEllipsis = withUnistyles(Ellipsis);
+const ThemedEllipsis = withUnistyles(EllipsisVertical);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedGlobe = withUnistyles(Globe);
 
