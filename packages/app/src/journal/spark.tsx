@@ -70,7 +70,7 @@ export function JournalSpark({
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  frame: { width: 20, height: 20, flexShrink: 0, backgroundColor: theme.colors.surface1 },
+  frame: { width: 20, height: 20, flexShrink: 0 },
   layer: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" },
   dot: {
     width: 6,

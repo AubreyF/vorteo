@@ -154,6 +154,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 12, 2026: Journal markers have transparent frames and timeline gaps, preserving their animation without mismatched background squares. Starship light uses its lighter surface token for floating sidebars and cards. README onboarding remains unchanged.
+
 October 12, 2026: Installation controls separate current coordinator requests from collapsed history and show elapsed waiting time. Successful background refreshes clear recovered connection errors while preserving decision failures. This presentation change does not dispatch maintenance or change owner approval; README onboarding remains unchanged.
 
 October 12, 2026: Preserve the published readable status and journal context changes alongside stable card transitions and responsive workspace layouts. This source integration changes no lifecycle policy.

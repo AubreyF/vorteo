@@ -577,6 +577,14 @@ test("quiet card chrome keeps compact geometry across themes", async ({ page }, 
     await page.keyboard.press("Escape");
     await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
     await expect(tasks.getByTestId("checklist-count")).toHaveText(/\d+ \/ \d+ open/);
+    await expect(journal.locator('[data-testid^="journal-status-"]').first()).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    if (theme === "starship-light") {
+      await expect(tasks).toHaveCSS("background-color", "rgb(238, 238, 246)");
+      await expect(journal).toHaveCSS("background-color", "rgb(238, 238, 246)");
+    }
     const inset = await tasks.getByTestId("checklist-toggle").evaluate((node) => {
       const box = node.getBoundingClientRect();
       const icon = node.firstElementChild!.getBoundingClientRect();

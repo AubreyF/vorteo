@@ -761,7 +761,7 @@ function buildAppearanceTheme(id: AppearanceId) {
     surface3: p.raised,
     surface4: p.strong,
     surfaceDiffEmpty: p.deep,
-    surfaceSidebar: p.root,
+    surfaceSidebar: id === "starship-light" ? p.surface : p.root,
     foreground: p.text,
     foregroundMuted: p.secondary,
     foregroundExtraMuted: p.muted,
@@ -784,6 +784,7 @@ function buildAppearanceTheme(id: AppearanceId) {
     ...base,
     colors: {
       ...base.colors,
+      surfaceSidebarSelected: id === "starship-light" ? p.root : base.colors.surfaceSidebarSelected,
       ...status,
       ...statusTints(status, light ? "1f" : "29"),
       success: status.statusSuccess,

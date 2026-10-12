@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.350 - 2026-10-12
+
+### Fixed
+
+- Make journal star and circle marker frames transparent, with timeline segments ending at each marker instead of showing through it.
+- Lift Starship light's shared sidebar and card surface above the page background for clearer separation. Other theme palettes remain unchanged.
+
 ## 0.11.0-beta.3.vorteo.349 - 2026-10-12
 
 ### Fixed

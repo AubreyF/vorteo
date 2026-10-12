@@ -35,8 +35,12 @@ export function JournalRow({
   );
   return (
     <View testID={`journal-entry-${entry.id}`} style={[styles.row, touch && styles.touchRow]}>
-      {!first ? <View style={[styles.lineAbove, touch && styles.touchLine]} /> : null}
-      {!last ? <View style={[styles.lineBelow, touch && styles.touchLine]} /> : null}
+      {!first ? (
+        <View testID="journal-line-above" style={[styles.lineAbove, touch && styles.touchLine]} />
+      ) : null}
+      {!last ? (
+        <View testID="journal-line-below" style={[styles.lineBelow, touch && styles.touchLine]} />
+      ) : null}
       <View style={styles.marker}>
         {ready ? (
           <JournalSpark seen={seen} entryId={entry.id} animate={animate} />
@@ -74,14 +78,15 @@ const styles = StyleSheet.create((theme) => ({
     position: "absolute",
     left: 11.5,
     top: 0,
-    height: theme.spacing[1] + 8,
+    // Stop at the transparent marker frame instead of painting behind its icon.
+    height: theme.spacing[1] - 2,
     width: 1,
     backgroundColor: theme.colors.borderAccent,
   },
   lineBelow: {
     position: "absolute",
     left: 11.5,
-    top: theme.spacing[1] + 8,
+    top: theme.spacing[1] + 18,
     bottom: 0,
     width: 1,
     backgroundColor: theme.colors.borderAccent,

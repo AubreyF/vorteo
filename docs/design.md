@@ -32,7 +32,10 @@ right-hand cards share the floating panel surface. Files and Changes belong in
 designated cards with the other right-hand cards. The right group has no outer
 frame; its toolbar stands on the canvas, with the first card aligned to the
 bottom of the left toolbar. The canvas behind every floating panel uses the same flat
-`surface0` color. The desktop left collapse control and keyboard shortcut retain
+`surface0` color. In Starship light, floating cards and navigation use the lighter
+`surface2` tone through their shared `surfaceSidebar` token. Journal marker frames
+are transparent; timeline segments stop at their edges instead of relying on a
+background mask. The desktop left collapse control and keyboard shortcut retain
 a minimal project rail, including after reload. Put the right collapse control
 in its toolbar and its reopen control in the central header. Desktop workspace tabs are the only central header, directly above the conversation scroller and its boundary fades. Tabs are 44px tall, grow to 420px for long labels and shrink toward 120px as more tabs open. The foreground tab shares the Latest button’s fully rounded floating surface, border and soft shadow; other tabs use muted text without a persistent fill. Settings and question tab strips retain `styles/tab-shape.ts`.
 The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger

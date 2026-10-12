@@ -44,7 +44,19 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
       const marker = node
         .querySelector('[data-testid^="journal-status-"]')!
         .getBoundingClientRect();
+      const markerBackground = getComputedStyle(
+        node.querySelector('[data-testid^="journal-status-"]')!,
+      ).backgroundColor;
+      const above = node
+        .querySelector('[data-testid="journal-line-above"]')
+        ?.getBoundingClientRect();
+      const below = node
+        .querySelector('[data-testid="journal-line-below"]')
+        ?.getBoundingClientRect();
       return {
+        markerBackground,
+        clearAbove: !above || above.bottom <= marker.top,
+        clearBelow: !below || below.top >= marker.bottom,
         markerInset: marker.left - node.getBoundingClientRect().left,
         markerRight: marker.right,
         markerCenter: marker.top + marker.height / 2,
@@ -60,6 +72,9 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
       };
     });
     expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
+    expect(rowGeometry.markerBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(rowGeometry.clearAbove).toBe(true);
+    expect(rowGeometry.clearBelow).toBe(true);
     expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
     expect(rowGeometry.markerInset).toBe(width === 390 ? 12 : 2);
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
@@ -189,6 +204,7 @@ for (const width of [1400, 390]) {
       expect(await transition).toBe(width === 1400);
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(card).toBeVisible();
       await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
