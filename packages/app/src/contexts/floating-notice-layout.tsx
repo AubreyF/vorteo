@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { LayoutChangeEvent } from "react-native";
 
 type RegisterClearance = (height: number) => () => void;
 const RegisterContext = createContext<RegisterClearance | null>(null);
@@ -42,9 +41,7 @@ export function useFloatingNoticeClearance(active: boolean, bottomInset: number)
   useEffect(() => {
     if (active && height > 0) return register(height + bottomInset);
   }, [active, height, bottomInset, register]);
-  return useCallback((event: LayoutChangeEvent) => {
-    setHeight(event.nativeEvent.layout.height);
-  }, []);
+  return setHeight;
 }
 
 export function useFloatingNoticeBottomClearance(): number {

@@ -18,20 +18,31 @@ test("compact notices clear a growing composer and release its space after navig
     await openAgentRoute(page, agent);
     const stack = page.getByTestId("installation-update-toasts");
     await expect(stack.getByText("Set up worktree scripts", { exact: true })).toBeVisible();
-    const composer = composerLocator(page);
-    for (const text of ["A short draft", "A multiline draft\n".repeat(8)]) {
-      await composer.fill(text);
-      await expect(async () => {
-        const notice = await stack.boundingBox();
-        const input = await page.getByTestId("composer-input-area").boundingBox();
-        expect(notice).not.toBeNull();
-        expect(input).not.toBeNull();
-        expect(notice!.y + notice!.height).toBeLessThanOrEqual(input!.y - 7);
-      }).toPass();
-      await composer.click();
-      await expect(composer).toBeFocused();
+    for (const kind of ["agent", "draft"]) {
+      if (kind === "draft") {
+        await page.getByTestId("workspace-header-menu-trigger").click();
+        await page.getByTestId("workspace-header-new-agent").click();
+      }
+      const composer = composerLocator(page);
+      for (const text of ["A short draft", "A multiline draft\n".repeat(8)]) {
+        await composer.fill(text);
+        await expect(async () => {
+          const notice = await stack.boundingBox();
+          const input = await page
+            .getByTestId("message-input-root")
+            .filter({ has: composer })
+            .boundingBox();
+          expect(notice).not.toBeNull();
+          expect(input).not.toBeNull();
+          expect(notice!.height).toBeGreaterThan(44);
+          expect(notice!.y).toBeGreaterThanOrEqual(56);
+          expect(notice!.y + notice!.height).toBeLessThanOrEqual(input!.y - 7);
+        }).toPass();
+        await composer.click();
+        await expect(composer).toBeFocused();
+      }
+      await page.screenshot({ path: info.outputPath(`compact-notice-${kind}.png`) });
     }
-    await page.screenshot({ path: info.outputPath("compact-notice-composer.png") });
     await page.goto("/settings/appearance");
     await expect(async () => {
       const bounds = await stack.boundingBox();

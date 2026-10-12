@@ -2275,7 +2275,15 @@ function ComposerContentImpl({
   const insets = useSafeAreaInsets();
   const measureNoticeClearance = useFloatingNoticeClearance(
     isActiveComposer && isCompactLayout,
-    isNative && externalKeyboardShift ? insets.bottom : 0,
+    MOBILE_COMPOSER_MARGIN + (isNative && externalKeyboardShift ? insets.bottom : 0),
+  );
+  // Draft setup controls precede the editor but must not reserve notice space.
+  const handleComposerHeightChange = useCallback(
+    (height: number) => {
+      measureNoticeClearance(height);
+      onComposerHeightChange?.(height);
+    },
+    [measureNoticeClearance, onComposerHeightChange],
   );
   const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
@@ -2389,7 +2397,6 @@ function ComposerContentImpl({
       <KeyboardTranslateView
         style={animatedStaticStyles.container}
         enabled={!externalKeyboardShift}
-        onLayout={measureNoticeClearance}
       >
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
         {/* Input area */}
@@ -2479,7 +2486,7 @@ function ComposerContentImpl({
                   onKeyPress={handleCommandKeyPress}
                   onSelectionChange={handleSelectionChange}
                   onFocusChange={handleFocusChange}
-                  onHeightChange={onComposerHeightChange}
+                  onHeightChange={handleComposerHeightChange}
                   inputWrapperStyle={draftInputWrapperStyle}
                   attachmentSlot={attachmentTray}
                   inputMode={inputMode}

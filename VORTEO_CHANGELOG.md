@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.332 - 2026-10-11
+
+### Fixed
+
+- Keep floating notices visible above native draft editors by measuring the message field and its controls, excluding draft setup sections.
+- Load fresh workspace data from the active route without requiring the native sidebar to be opened first.
+
+### Maintenance
+
+- Extend compact notice coverage to both existing conversations and new drafts, including multiline typing and navigation cleanup.
+
 ## 0.11.0-beta.3.vorteo.331 - 2026-10-11
 
 ### Fixed

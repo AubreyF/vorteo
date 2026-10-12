@@ -1555,6 +1555,12 @@ function WorkspaceScreenContent({
 
   const client = useHostRuntimeClient(normalizedServerId);
   const isConnected = useHostRuntimeIsConnected(normalizedServerId);
+  // Native drawers unmount while closed. The active route must own its directory
+  // subscription instead of relying on the sidebar to hydrate workspace data.
+  useEffect(() => {
+    if (!isRouteFocused || !isConnected || !normalizedServerId) return;
+    return getHostRuntimeStore().acquireDirectoryDemand(normalizedServerId);
+  }, [isRouteFocused, isConnected, normalizedServerId]);
   const supportsProvidersSnapshot = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.serverInfo?.features?.providersSnapshot === true,
   );
