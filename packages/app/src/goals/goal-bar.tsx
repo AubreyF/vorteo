@@ -49,17 +49,19 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
           testID="agent-goal-toggle"
         />
         {goal && !compact ? (
-          <Text style={styles.elapsed} numberOfLines={1}>
-            Goal time: {formatGoalElapsed(elapsed)}
+          <Text
+            style={[styles.elapsed, styles.headerElapsed]}
+            numberOfLines={1}
+            accessibilityLabel={`Goal elapsed time: ${formatGoalElapsed(elapsed)}`}
+          >
+            {formatGoalElapsed(elapsed)}
           </Text>
         ) : null}
         <GoalActions control={control} onExpand={onExpand} compact={compact} />
       </TaskCardHeader>
 
       <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
-        {goal && compact ? (
-          <Text style={styles.elapsed}>Goal time: {formatGoalElapsed(elapsed)}</Text>
-        ) : null}
+        {goal && compact ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
         <GoalQueueExplanation
           notice={notice}
           onExpand={onExpand}
@@ -201,7 +203,12 @@ function goalBarLabel(control: AgentGoalControl): string {
 const styles = StyleSheet.create((theme) => ({
   help: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  elapsed: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  elapsed: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontVariant: ["tabular-nums"],
+  },
+  headerElapsed: { marginRight: theme.spacing[2] },
   touch: { minWidth: 44, minHeight: 44 },
   errorRow: { alignItems: "flex-start", gap: theme.spacing[1] },
   recoveryAction: { alignSelf: "flex-end" },

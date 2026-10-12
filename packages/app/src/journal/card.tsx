@@ -114,7 +114,13 @@ function JournalContent({
     [seenState.failed, seenState.retry],
   );
   return (
-    <TaskCard testID="agent-journal-card" bodyVisible={expanded} bodyRef={viewport} notice={notice}>
+    <TaskCard
+      flushBody
+      testID="agent-journal-card"
+      bodyVisible={expanded}
+      bodyRef={viewport}
+      notice={notice}
+    >
       <TaskCardHeader>
         <CardDisclosure
           icon={HEADING_ICON}
@@ -209,25 +215,17 @@ function JournalViewAction({
 }
 
 function JournalCount({ count, unread, ready }: { count: number; unread: number; ready: boolean }) {
+  const hasUnread = ready && unread > 0;
   return (
-    <View style={styles.counts}>
-      <CountBadge label={String(count)} accessibilityLabel={`${count} journal entries`} />
-      {ready && unread > 0 ? (
-        <Text
-          style={styles.unreadCount}
-          testID="journal-unread-count"
-          accessibilityLabel={`${unread} unread journal entries`}
-        >
-          {unread} new
-        </Text>
-      ) : null}
-    </View>
+    <CountBadge
+      label={hasUnread ? `${count} / ${unread} new` : String(count)}
+      accessibilityLabel={`${count} journal entries${hasUnread ? `, ${unread} unread journal entries` : ""}`}
+      testID={hasUnread ? "journal-unread-count" : undefined}
+    />
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  counts: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
-  unreadCount: { fontSize: theme.fontSize.sm - 2, color: theme.colors.statusDanger },
   readError: {
     flexDirection: "row",
     alignItems: "center",

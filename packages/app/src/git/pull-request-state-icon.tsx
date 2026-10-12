@@ -8,7 +8,7 @@ const ThemedGitMerge = withUnistyles(GitMerge);
 const ThemedGitPullRequestClosed = withUnistyles(GitPullRequestClosed);
 
 const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
-const mergedMapping = (theme: Theme) => ({ color: theme.colors.statusMerged });
+const mergedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const dangerMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 
 const PRESENTATION = {

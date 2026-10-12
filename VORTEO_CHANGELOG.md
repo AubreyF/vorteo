@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.346 - 2026-10-12
+
+### Changed
+
+- Reduce routine interface color: quota and completed tasks use the shared blue accent, active tasks use text color, and incomplete tasks, Host icons, merged requests and successful checks use neutral tones. Context meters remain neutral at every usage level.
+- Tighten shared card bodies, balance heading icon insets, align journal markers with timestamps and list grips, and match card gaps to viewport gutters. List rows extend to card edges with actions aligned beneath header controls.
+- Include plugin action rows in the supporting column height budget so queued messages cannot overlap Files or Changes in short windows.
+- Combine journal totals and unread counts in one chip, shorten card titles and elapsed goal time, and replace standard sidebar label badges with neutral icons and tooltips. Custom workspace labels retain their text and identity colors.
+
 ## 0.11.0-beta.3.vorteo.345 - 2026-10-12
 
 ### Fixed

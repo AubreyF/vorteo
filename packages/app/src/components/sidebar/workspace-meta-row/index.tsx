@@ -415,7 +415,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   // Matches the indicator — see COLOR_MAPPINGS in check-indicator.tsx.
   checksTextPassed: {
-    color: theme.colors.statusSuccess,
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 16,
     flexShrink: 0,

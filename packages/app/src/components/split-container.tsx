@@ -1455,7 +1455,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 0,
     margin: FLOATING_PANEL_INSET,
     marginTop: FLOATING_PANEL_INSET + 1,
-    marginBottom: FLOATING_PANEL_INSET + 1,
+    marginBottom: FLOATING_PANEL_INSET,
   },
   group: {
     flex: 1,

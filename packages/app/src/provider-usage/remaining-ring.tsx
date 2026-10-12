@@ -7,12 +7,12 @@ const circumference = 2 * Math.PI * 12;
 function Ring({
   remaining,
   stale,
-  green,
+  accent,
   gray,
 }: {
   remaining: number | null;
   stale: boolean;
-  green: string;
+  accent: string;
   gray: string;
 }) {
   const percentSign = Math.round(remaining ?? 0) === 100 ? "" : "%";
@@ -32,7 +32,7 @@ function Ring({
               cy={14}
               r={12}
               fill="none"
-              stroke={green}
+              stroke={accent}
               strokeWidth={2.5}
               strokeDasharray={`${(circumference * remaining) / 100} ${circumference * (1 - remaining / 100)}`}
               rotation={-90}
@@ -49,7 +49,7 @@ function Ring({
 }
 const ThemedRing = withUnistyles(Ring);
 const palette = (theme: Theme) => ({
-  green: theme.colors.statusSuccess,
+  accent: theme.colors.statusDotRunning,
   gray: theme.colors.foregroundExtraMuted,
 });
 export function RemainingRing({ remaining, stale }: { remaining: number | null; stale: boolean }) {

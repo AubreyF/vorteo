@@ -193,7 +193,7 @@ function SubagentsGroup({
     </>
   );
   const body = expanded ? (
-    <View style={styles.cardRows}>
+    <View>
       {rows.map((row) => (
         <SubagentsTrackRow
           key={row.id}
@@ -208,7 +208,7 @@ function SubagentsGroup({
   return (
     <View testID={`subagents-group-${kind}`}>
       {inline ? (
-        <TaskCard bodyVisible={expanded} testID={cardTestID}>
+        <TaskCard flushBody bodyVisible={expanded} testID={cardTestID}>
           <TaskCardHeader>{header}</TaskCardHeader>
 
           {body}
@@ -355,7 +355,10 @@ export function SubagentsTrackRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <WorkspaceTabIcon presentation={presentation} backdrop={active ? "surface2" : "surface1"} />
+        <WorkspaceTabIcon
+          presentation={presentation}
+          backdrop={active && !inline ? "surface2" : "surface1"}
+        />
         <Text
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}
@@ -532,9 +535,6 @@ function SubagentActionButton({
 const styles = StyleSheet.create((theme) => ({
   rowMetadata: { maxWidth: "50%", textAlign: "right" },
   groups: { gap: CARD_GAP },
-  cardRows: {
-    marginLeft: { xs: theme.spacing[1], md: theme.spacing[2] },
-  },
   // `flexBasis: "auto"` rather than `flex: 1`: a zero-basis label contributes nothing to the row's
   // intrinsic width, so the panel measures itself at its floor and truncates every label at once.
   rowLabel: {

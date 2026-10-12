@@ -60,6 +60,7 @@ const styles = StyleSheet.create({
 
 const supportingStyle = {
   flexGrow: 0,
+  flexShrink: 0,
   flexBasis: "auto",
   gap: CARD_GAP,
 } as const;

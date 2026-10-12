@@ -556,3 +556,62 @@ test("keeps cards docked through cold and retained workspace transitions", async
   await expect(tasks).toBeVisible();
   await page.screenshot({ path: info.outputPath("stable-workspace-cards.png") });
 });
+
+test("quiet card chrome keeps compact geometry across themes", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-1").click();
+  const tasks = page.getByTestId("agent-task-progress-card");
+  const journal = page.getByTestId("agent-journal-card");
+  for (const theme of [
+    "starship-light",
+    "starship-dark",
+    "scriptorium",
+    "midas",
+    "ember",
+    "neon",
+  ]) {
+    await page.getByTestId("sidebar-footer-overflow").click();
+    await page.getByTestId(`theme-preview-${theme}`).click();
+    await page.mouse.move(900, 20);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
+    await expect(tasks.getByTestId("checklist-count")).toHaveText(/\d+ \/ \d+ open/);
+    const inset = await tasks.getByTestId("checklist-toggle").evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const icon = node.firstElementChild!.getBoundingClientRect();
+      return { left: icon.left - box.left, top: icon.top - box.top };
+    });
+    expect(inset.left).toBe(6);
+    expect(inset.left).toBe(inset.top);
+    const fills = await tasks
+      .getByTestId("checklist-progress")
+      .locator("path")
+      .evaluateAll((paths) => [...new Set(paths.map((path) => getComputedStyle(path).fill))]);
+    expect(fills.length).toBeGreaterThanOrEqual(2);
+    await expect
+      .poll(async () => {
+        const a = (await tasks.boundingBox())!;
+        return (await journal.boundingBox())!.y - a.y - a.height;
+      })
+      .toBeCloseTo(8, 0);
+    const entry = journal.locator('[data-testid^="journal-entry-"]').first();
+    const geometry = await entry.evaluate((node) => {
+      const marker = node
+        .querySelector('[data-testid^="journal-status-"]')!
+        .getBoundingClientRect();
+      const timestamp = node
+        .querySelector('[data-testid="journal-timestamp"]')!
+        .getBoundingClientRect();
+      const text = node.querySelector('[data-testid="journal-text"]')!.getBoundingClientRect();
+      return {
+        markerCenter: marker.y + marker.height / 2,
+        timestampCenter: timestamp.y + timestamp.height / 2,
+        gap: text.y - timestamp.bottom,
+      };
+    });
+    expect(geometry.markerCenter).toBeCloseTo(geometry.timestampCenter, 0);
+    expect(geometry.gap).toBe(2);
+    await page.screenshot({ path: info.outputPath(`quiet-${theme}.png`) });
+  }
+});

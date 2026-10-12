@@ -109,7 +109,7 @@ function QueueViewContent({
     return !!record.error && !!snapshot?.items.some((item) => item.id === operation.messageId);
   });
   return (
-    <TaskCard testID="shared-message-queue" bodyVisible={expanded}>
+    <TaskCard flushBody testID="shared-message-queue" bodyVisible={expanded}>
       <TaskCardHeader testID="message-queue-header">
         <QueueHeader control={control} expanded={expanded} toggleExpanded={toggleExpanded} />
       </TaskCardHeader>
@@ -191,7 +191,7 @@ function QueueHeader({
       <CardDisclosure
         icon={HEADING_ICON}
         trailing={headerStatus}
-        title="Queued messages"
+        title="Queue"
         expanded={expanded}
         onPress={toggleExpanded}
         testID="message-queue-toggle"
@@ -689,7 +689,7 @@ function QueueActions({
       .catch(() => {});
   }, [control, item]);
   return (
-    <View style={[taskCardStyles.actions, !touch && taskCardStyles.actionInset]}>
+    <View style={taskCardStyles.actions}>
       <QueuePrimaryActions
         queued={queued}
         canMutate={control.canMutate}
@@ -699,6 +699,7 @@ function QueueActions({
       />
       <DropdownMenu>
         <DropdownMenuTrigger
+          accessibilityRole="button"
           accessibilityLabel="Queued message actions"
           style={[styles.menuTrigger, touch && styles.touch]}
         >

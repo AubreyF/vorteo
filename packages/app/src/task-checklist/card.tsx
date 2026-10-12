@@ -105,7 +105,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const countBadge = useMemo(
     () => (
       <CountBadge
-        label={`${progress.completed} / ${progress.total}`}
+        label={`${progress.completed} / ${progress.total} open`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
           total: progress.total,
@@ -130,7 +130,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+      <TaskCard flushBody testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
         <TaskCardHeader>
           <CardDisclosure
             icon={headingIcon}

@@ -1,4 +1,13 @@
-import { createContext, useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { CARD_GAP, allocateCardHeights } from "./geometry";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -45,3 +54,26 @@ export function CardColumn({ children }: { children: ReactNode }) {
   );
 }
 const columnStyle = { flex: 1, minHeight: 0, gap: CARD_GAP, overflow: "hidden" } as const;
+
+/** Include non-card content in the same height budget as the surrounding cards. */
+export function CardColumnAccessory({ children }: { children: ReactNode }) {
+  const column = useContext(CardColumnContext);
+  const active = useRetainedPanelActive();
+  const id = useId();
+  const [height, setHeight] = useState(0);
+  const measure = column?.measure;
+  useLayoutEffect(() => {
+    measure?.(id, active && height > 0 ? height : null);
+  }, [measure, id, active, height]);
+  useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
+  const onLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height: measured } = event.nativeEvent.layout;
+    if (width > 0) setHeight(measured);
+  }, []);
+  return (
+    <View style={accessoryStyle} onLayout={onLayout}>
+      {children}
+    </View>
+  );
+}
+const accessoryStyle = { flexShrink: 0 } as const;

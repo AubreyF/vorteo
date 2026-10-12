@@ -39,6 +39,7 @@ import { taskCardStyles } from "./task-card-styles";
 /** Bound the entire card, including its header, as the viewport resizes. */
 function TaskCardView({
   insets = 0,
+  flushBody = false,
   bodyVisible = true,
   bodyRef,
   panelHeight,
@@ -48,6 +49,8 @@ function TaskCardView({
   style,
 }: {
   insets?: number;
+  /** List rows own their horizontal alignment with header actions. */
+  flushBody?: boolean;
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
   /** Panels such as file trees own their scrolling and need a bounded viewport. */
@@ -142,7 +145,10 @@ function TaskCardView({
               onContentSizeChange={onBodySize}
               testID={testID ? `${testID}-body-scroll` : undefined}
               style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
-              contentContainerStyle={taskCardStyles.bodyContent}
+              contentContainerStyle={[
+                taskCardStyles.bodyContent,
+                flushBody && taskCardStyles.flushBody,
+              ]}
               nestedScrollEnabled
               scrollEnabled={scrollEnabled}
               keyboardShouldPersistTaps="handled"
@@ -172,7 +178,7 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
         taskCardStyles.header,
         Children.toArray(children).some(
           (child) => isValidElement(child) && child.type === TaskCardTitle,
-        ) && taskCardStyles.staticHeader,
+        ) && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
         touch && taskCardStyles.touchHeader,
       ]}
     >
