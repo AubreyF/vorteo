@@ -1,3 +1,4 @@
+import { useResponsiveSupportingCards } from "@/hooks/use-responsive-sidebar";
 import { useSupportingCardRequests } from "@/workspace-tabs/supporting-card-requests";
 import { useAgentPresentationNavigation } from "@/subagents/use-agent-presentation-navigation";
 import { useWorkspaceArchiveRedirect } from "@/workspace/use-workspace-archive-redirect";
@@ -1796,6 +1797,11 @@ function WorkspaceScreenContent({
     workspaceKey: persistenceKey,
   });
   const [supportingCardsCollapsed, setSupportingCardsCollapsed] = useState(false);
+  const {
+    collapsed: responsiveCardsCollapsed,
+    reveal: revealSupportingCards,
+    sidebarCompact: responsiveSidebarCompact,
+  } = useResponsiveSupportingCards(supportingCardsCollapsed);
   const [supportingCardsVisible, setSupportingCardsVisible] = useState(false);
   useEffect(
     () =>
@@ -1806,9 +1812,10 @@ function WorkspaceScreenContent({
         ) {
           // Explicit Files/Changes navigation also reveals a collapsed card group.
           setSupportingCardsCollapsed(false);
+          revealSupportingCards();
         }
       }),
-    [persistenceKey],
+    [persistenceKey, revealSupportingCards],
   );
   const explorerSidebarToggleAccessibilityState = useMemo(
     () => ({
@@ -1894,6 +1901,7 @@ function WorkspaceScreenContent({
   const handleToggleExplorerSidebar = useCallback(() => {
     if (!isMobile && supportsDesktopPaneSplits()) {
       setSupportingCardsCollapsed(supportingCardsVisible);
+      revealSupportingCards();
       if (!supportingCardsVisible)
         showExplorerSidebar({
           isCompact: false,
@@ -1907,7 +1915,13 @@ function WorkspaceScreenContent({
       workspaceKey: persistenceKey,
       checkout: activeExplorerCheckout,
     });
-  }, [activeExplorerCheckout, isMobile, persistenceKey, supportingCardsVisible]);
+  }, [
+    activeExplorerCheckout,
+    isMobile,
+    persistenceKey,
+    supportingCardsVisible,
+    revealSupportingCards,
+  ]);
   const paneFocusSuppressedRef = useRef(false);
   const resizeWorkspaceSplit = useWorkspaceLayoutStore((state) => state.resizeSplit);
   const reorderWorkspaceTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
@@ -3281,7 +3295,7 @@ function WorkspaceScreenContent({
       toggleDesktopSidebarsWithCheckoutIntent({
         isAgentListOpen: isMobile
           ? selectIsAgentListOpen(panel, { isCompact: true })
-          : !panel.sidebarCompact,
+          : !responsiveSidebarCompact,
         isExplorerOpen:
           !isMobile && supportsDesktopPaneSplits()
             ? supportingCardsVisible
@@ -3292,7 +3306,13 @@ function WorkspaceScreenContent({
       });
       return true;
     },
-    [handleToggleExplorerSidebar, isMobile, persistenceKey, supportingCardsVisible],
+    [
+      handleToggleExplorerSidebar,
+      isMobile,
+      persistenceKey,
+      supportingCardsVisible,
+      responsiveSidebarCompact,
+    ],
   );
 
   const handleWorkspacePaneAction = useCallback(
@@ -4047,7 +4067,7 @@ function WorkspaceScreenContent({
         >
           <SplitContainer
             layout={workspaceLayout}
-            supportingCardsCollapsed={supportingCardsCollapsed}
+            supportingCardsCollapsed={responsiveCardsCollapsed}
             onSupportingCardsVisibilityChange={setSupportingCardsVisible}
             renderMainHeader={renderWorkspaceScreenHeader}
             renderExplorerSidebarHeaderAction={renderExplorerSidebarHeaderAction}
@@ -4089,7 +4109,7 @@ function WorkspaceScreenContent({
     supportingCardsVisible,
     collapsedExplorerToggle,
     canRenderDesktopPaneSplits,
-    supportingCardsCollapsed,
+    responsiveCardsCollapsed,
     workspaceLayout,
     renderWorkspaceScreenHeader,
     renderExplorerSidebarHeaderAction,

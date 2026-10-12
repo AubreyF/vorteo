@@ -401,3 +401,63 @@ test("card cleanup icons explain their effects and cards use compact gaps", asyn
   await page.mouse.move(900, 20);
   await page.screenshot({ path: info.outputPath("compact-card-controls.png"), fullPage: true });
 });
+
+test("restores responsive sidebars without replacing manual preferences", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-1").click();
+  const sidebar = page.getByTestId("floating-sidebar").filter({ visible: true });
+  const cards = page.getByTestId("workspace-supporting-cards");
+  const rail = page.getByTestId("compact-project-rail");
+  await expect(cards).toBeVisible();
+  const expandedWidth = (await sidebar.boundingBox())!.width;
+  // Files remains selected through automatic collapse and reopening.
+  const mac = await page.evaluate(() => /mac/i.test(navigator.platform));
+  await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+  await expect(page.getByTestId("supporting-card-files")).toBeVisible();
+  await page.setViewportSize({ width: 1300, height: 1000 });
+  await expect(cards).toBeHidden();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
+  await page.getByTestId("workspace-explorer-toggle").click();
+  await expect(cards).toBeVisible();
+  await page.setViewportSize({ width: 1290, height: 1000 });
+  await expect(cards).toBeHidden();
+  await page.setViewportSize({ width: 800, height: 1000 });
+  await expect(rail).toBeVisible();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
+  await expect(cards).toBeHidden();
+  await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
+  await page.setViewportSize({ width: 790, height: 1000 });
+  await expect(rail).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(790);
+  await page.screenshot({ path: info.outputPath("responsive-rail.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(sidebar).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.screenshot({ path: info.outputPath("responsive-phone.png") });
+  await page.getByTestId("menu-button").click();
+  await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
+  await page.setViewportSize({ width: 380, height: 844 });
+  await expect(page.getByTestId("sidebar-footer-overflow")).toBeHidden();
+  await page.setViewportSize({ width: 800, height: 1000 });
+  await expect(rail).toBeVisible();
+  await expect(cards).toBeHidden();
+  await page.setViewportSize({ width: 1300, height: 1000 });
+  await expect(rail).toBeHidden();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
+  await expect(cards).toBeHidden();
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await expect(cards).toBeVisible();
+  await page.screenshot({ path: info.outputPath("responsive-restored.png") });
+  // A manual collapse stays collapsed through a resize cycle.
+  await cards.getByTestId("workspace-explorer-toggle").click();
+  await page.getByTestId("sidebar-collapse").click();
+  await page.setViewportSize({ width: 800, height: 1000 });
+  await expect(rail).toBeVisible();
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
+  await expect(cards).toBeHidden();
+});

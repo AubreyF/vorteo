@@ -1,3 +1,4 @@
+import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { View, type StyleProp, type ViewStyle } from "react-native";
@@ -61,8 +62,7 @@ function SidebarMenuToggleButton({
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
-  const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
-  const sidebarNarrow = usePanelStore((state) => state.sidebarNarrow);
+  const { sidebarCompact, sidebarNarrow } = useResponsiveSidebar();
   const toggleAgentListForLayout = usePanelStore((state) => state.toggleAgentListForLayout);
   const toggleShortcutKeys = useMemo(
     () => (getShortcutOs() === "mac" ? ["mod", "B"] : ["mod", "."]),

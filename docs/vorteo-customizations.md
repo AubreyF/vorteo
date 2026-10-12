@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Responsive sidebars: viewport changes temporarily close supporting cards before reducing the left navigation to its 64px project rail. Phone widths use the compact navigation drawer. Widening restores the left layout before right-hand cards, without replacing saved widths or manual collapse preferences. A manual open overrides automatic sizing until the next width change.
+
 Workspace header refinement: desktop central content starts directly below a single borderless tab bar. Its 44px tabs grow to 420px and shrink as tabs are added. Only the foreground tab carries the shared Latest-button floating pill treatment. The right toolbar places the focused environment beside its left toggle while actions remain at the right. Compact headers retain their navigation controls.
 
 Recovery delivery integration: the current published interface and coordinator recovery share a source lineage while retaining both release histories. Appearance, workspace hydration, composer clearance and goal behavior remain included. Recovery retains exact owner review and observation without replay; this source merge does not install a runtime or activate Factory.

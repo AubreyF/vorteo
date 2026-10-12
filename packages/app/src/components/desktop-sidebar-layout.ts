@@ -1,9 +1,12 @@
 import { SETTINGS_DESKTOP_SPLIT_MIN_WIDTH, DESKTOP_TRAFFIC_LIGHT_WIDTH } from "@/constants/layout";
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "@/stores/panel-store";
-import { COMPACT_SIDEBAR_WIDTH, SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
+import {
+  COMPACT_LABELED_SIDEBAR_WIDTH,
+  COMPACT_SIDEBAR_WIDTH,
+  SIDEBAR_OUTER_GAP,
+} from "@/stores/panel-store/state";
 
 const MIN_DESKTOP_CENTER_WIDTH = 400;
-const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 
 export function resolveDesktopSidebarVisibility(input: {
   chromeEnabled: boolean;

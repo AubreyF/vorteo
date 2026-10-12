@@ -1,3 +1,4 @@
+import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import "@/styles/unistyles";
 import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
 import { ProjectMoveModalHost } from "@/workspace/project-move/modal";
@@ -474,8 +475,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
   const isDesktopAgentListOpen = usePanelStore((state) => state.desktop.agentListOpen);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
-  const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
-  const sidebarNarrow = usePanelStore((state) => state.sidebarNarrow);
+  const { sidebarCompact, sidebarNarrow } = useResponsiveSidebar();
   const { width: viewportWidth } = useWindowDimensions();
 
   const cycleTheme = useCallback(() => {
@@ -483,6 +483,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   }, [settings.theme, updateSettings]);
 
   const isCompactLayout = useIsCompactFormFactor();
+  useEffect(() => {
+    // A resize starts a fresh compact presentation; the menu can still open it explicitly.
+    const panel = usePanelStore.getState();
+    if (isCompactLayout && panel.mobilePanel.target === "agent-list") panel.showMobileAgent();
+  }, [isCompactLayout, viewportWidth]);
   const explorerSidebarPresentation = resolveExplorerSidebarPresentation({
     isCompact: isCompactLayout,
   });

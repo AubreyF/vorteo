@@ -1,3 +1,4 @@
+import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { usePointerResize } from "./use-pointer-resize";
 import { useMenuContext } from "@/components/ui/menu/menu-context";
@@ -747,8 +748,7 @@ function DesktopSidebar({
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
-  const compact = usePanelStore((state) => state.sidebarCompact);
-  const narrow = usePanelStore((state) => state.sidebarNarrow);
+  const { sidebarCompact: compact, sidebarNarrow: narrow } = useResponsiveSidebar();
   const setCompact = usePanelStore((state) => state.setSidebarCompact);
   const expandSidebar = useCallback(() => {
     setCompact(false);

@@ -1,3 +1,4 @@
+import { MIN_TEXT_WIDTH } from "@/agent-stream/columns/geometry";
 import {
   buildExplorerCheckoutKey,
   isExplorerTab,
@@ -25,6 +26,7 @@ export const DEFAULT_SIDEBAR_WIDTH = 320;
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 600;
 export const COMPACT_SIDEBAR_WIDTH = 64;
+export const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_OUTER_GAP = 8;
 
 export const DEFAULT_TREE_RAIL_WIDTH = 260;
@@ -281,4 +283,24 @@ export function cycleDesktopSidebar(state: { sidebarCompact: boolean; sidebarNar
   if (state.sidebarCompact) return { sidebarCompact: false, sidebarNarrow: false };
   if (state.sidebarNarrow) return { sidebarCompact: true, sidebarNarrow: false };
   return { sidebarCompact: false, sidebarNarrow: true };
+}
+
+/** Resize constraints are presentation only; never replace the saved desktop choice. */
+export function resolveResponsiveSidebar(
+  state: {
+    sidebarCompact: boolean;
+    sidebarNarrow: boolean;
+    sidebarWidth: number;
+    sidebarViewportOverride?: number | null;
+  },
+  viewportWidth: number,
+) {
+  const requestedWidth = state.sidebarNarrow ? COMPACT_LABELED_SIDEBAR_WIDTH : state.sidebarWidth;
+  const autoCompact =
+    viewportWidth < requestedWidth + MIN_TEXT_WIDTH + SIDEBAR_OUTER_GAP * 2 &&
+    state.sidebarViewportOverride !== viewportWidth;
+  return {
+    sidebarCompact: state.sidebarCompact || autoCompact,
+    sidebarNarrow: state.sidebarNarrow && !autoCompact,
+  };
 }

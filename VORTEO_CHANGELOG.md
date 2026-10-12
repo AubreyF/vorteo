@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.341 - 2026-10-12
+
+### Changed
+
+- Adapt sidebars as the viewport changes: close the right-hand cards first, reduce the left sidebar to its project rail next, and use hidden navigation on phone widths. Restore the left sidebar before the right as space returns.
+- Preserve saved widths and manual collapse preferences. Explicit opens remain available until the next width change, including Files and Changes navigation.
+
 ## 0.11.0-beta.3.vorteo.340 - 2026-10-12
 
 ### Changed

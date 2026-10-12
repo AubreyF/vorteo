@@ -58,6 +58,8 @@ tab-local storage across reloads, retries do not duplicate them, and Reset clear
 them. Attachments and real execution remain unavailable. Replies never claim
 that a model or command ran.
 
+As the viewport narrows, hide the supporting cards before reducing left navigation to its 64px project rail. Below the compact breakpoint, hide navigation behind its menu. Restore the left sidebar before the right when space returns. Treat responsive changes as presentation constraints, preserving saved widths and manual collapse choices. Explicit opens override the constraint until the next width change.
+
 Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
 Match Freed's centered 2px neutral gap indicator, transparent at rest, with
 matching hover and drag opacity. Touch targets stay within panel bounds so
