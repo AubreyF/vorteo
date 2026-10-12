@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, type ReactElement } from "react";
 import { Info } from "lucide-react-native";
 import { withUnistyles } from "react-native-unistyles";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import type { Theme } from "@/styles/theme";

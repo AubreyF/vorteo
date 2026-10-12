@@ -4,9 +4,23 @@ import {
   resizeColumn,
   resolveTextOffset,
   allocateCardHeights,
+  resolveStandaloneTextWidth,
 } from "./geometry";
 
 describe("thread columns", () => {
+  it("resizes reading width after the workspace has already reserved the shared card group", () => {
+    expect(resolveStandaloneTextWidth(900, 820)).toBe(820);
+    expect(resolveStandaloneTextWidth(600, 820)).toBe(568);
+    expect(
+      resizeColumn({
+        column: "text",
+        initial: { text: 600, cards: 0 },
+        translation: 40,
+        containerWidth: 900,
+        standaloneText: true,
+      }),
+    ).toEqual({ text: 680, cards: 0 });
+  });
   it("fits both minimum reading widths at the primary-region breakpoint", () => {
     expect(resolveColumnWidths(1080, { text: 820, cards: 440 })).toEqual({ text: 576, cards: 440 });
   });

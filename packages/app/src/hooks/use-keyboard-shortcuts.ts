@@ -1,3 +1,4 @@
+import { useThemePreviewActive } from "@/appearance/provider";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "expo-router";
 import { getIsElectronRuntime } from "@/constants/layout";
@@ -60,6 +61,7 @@ export function useKeyboardShortcuts({
   cycleTheme?: () => void;
 }) {
   const keyboardActionDispatcher = useKeyboardActionDispatcher();
+  const previewingTheme = useThemePreviewActive();
   const pathname = usePathname();
   const router = useRouter();
   const resetModifiers = useKeyboardShortcutsStore((s) => s.resetModifiers);
@@ -320,6 +322,8 @@ export function useKeyboardShortcuts({
     if (dispatchTopWebOverlayKeyDown(event)) {
       return;
     }
+    // The chooser consumes Escape to restore the saved theme before route navigation.
+    if (event.key === "Escape" && previewingTheme) return;
 
     // During IME composition, Enter confirms the candidate selection and must
     // not route through global shortcuts like message send.

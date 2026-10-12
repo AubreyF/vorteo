@@ -1,6 +1,6 @@
 import {
   blockedReviewDue,
-  hasReviewableBlockedTasks,
+  hasReviewableBlockedWork,
   BLOCKED_REVIEW_PROMPT,
 } from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
@@ -465,6 +465,7 @@ interface ManagedAgentBase {
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
+  blockedGoalReviewNeeded?: boolean;
   id: string;
   provider: AgentProvider;
   cwd: string;
@@ -1453,7 +1454,7 @@ export class AgentManager {
         if (!agent || !agent.session || agent.lifecycle !== "idle") return null;
         const threadEligible = () => {
           const record = registry.getLoadedRecord(agentId);
-          if (!record || !hasReviewableBlockedTasks(record)) return false;
+          if (!record || !hasReviewableBlockedWork(record)) return false;
           if (!foregroundAllowsStart() || !goalAllowsStart()) return false;
           if (!canContinue() || !this.acceptingAgentRegistrations || this.isRestartDraining())
             return false;
@@ -1472,7 +1473,12 @@ export class AgentManager {
         const eligible = () => {
           if (!threadEligible()) return false;
           const state = agent.session.goals?.state;
-          if (!state) return true;
+          if (!state) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
           if (
             state.status !== "ready" ||
             state.queueContinuationHeld ||
@@ -1480,7 +1486,12 @@ export class AgentManager {
           )
             return false;
           const goal = state.goal;
-          if (!goal) return true;
+          if (!goal) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
           if (goal.status !== "blocked") return false;
           return goal.tokenBudget === null || goal.tokensUsed < goal.tokenBudget;
         };
@@ -3008,6 +3019,7 @@ export class AgentManager {
     if (!agent.session.goals) throw new Error("This provider does not support goals");
     const state = await agent.session.goals.read();
     await this.drainSessionEvents(agentId);
+    this.observeGoalState(agent, agent.session.goals.state);
     return projectQueueGoalState(state, agent.queueGoalHold);
   }
 
@@ -4461,7 +4473,7 @@ export class AgentManager {
       const current = await this.readAgentGoal(agentId);
       if (current.status !== "ready")
         throw new Error("The goal state could not be confirmed while stopping the task.");
-      if (current.goal?.status !== "active") return;
+      if (current.goal?.status !== "active" && current.goal?.status !== "blocked") return;
       const paused = await this.setAgentGoalUnlocked(
         agentId,
         { status: "paused" },
@@ -4947,6 +4959,7 @@ export class AgentManager {
       }
     }
     managed.goalSubmissions = record?.goalSubmissions;
+    managed.blockedGoalReviewNeeded = record?.blockedGoalReviewNeeded;
     managed.queueGoalHold = record?.queueGoalHold;
   }
 
@@ -5357,13 +5370,35 @@ export class AgentManager {
     }
   }
 
+  private observeGoalState(
+    agent: ManagedAgent,
+    state: import("@getpaseo/protocol/agent-goals").AgentGoalState,
+  ): void {
+    agent.goalState = state;
+    const needed =
+      state.status === "ready" ? state.goal?.status === "blocked" : agent.blockedGoalReviewNeeded;
+    const changed = needed !== agent.blockedGoalReviewNeeded;
+    agent.blockedGoalReviewNeeded = needed;
+    // Persist status transitions, not every usage notification. Loading and
+    // errors retain discovery without authorizing a review or native resume.
+    if (changed && needed !== undefined && this.registry) {
+      const write = this.registry.updateBlockedGoalReview(agent.id, needed).catch((err) => {
+        this.logger.error(
+          { err, agentId: agent.id },
+          "Could not retain blocked goal review discovery",
+        );
+      });
+      this.trackBackgroundTask(write);
+    }
+    this.emitState(agent, { persist: false });
+  }
+
   private async dispatchSessionEvent(
     agent: ActiveManagedAgent,
     event: AgentStreamEvent,
   ): Promise<void> {
     if (event.type === "goal_changed") {
-      agent.goalState = event.state;
-      this.emitState(agent, { persist: false });
+      this.observeGoalState(agent, event.state);
       return;
     }
     if (event.type === "provider_subagent") {
@@ -5877,9 +5912,8 @@ export class AgentManager {
         this.onStreamThreadStarted(agent);
         return undefined;
       case "goal_changed":
-        agent.goalState = event.state;
+        this.observeGoalState(agent, event.state);
         flags.shouldDispatchEvent = false;
-        this.emitState(agent, { persist: false });
         return undefined;
       case "usage_updated":
         agent.lastUsage = event.usage;

@@ -12,6 +12,7 @@ interface ColumnResizeHandleProps {
   column: keyof ColumnWidths;
   widths: ColumnWidths;
   containerWidth: number;
+  standaloneText?: boolean;
   onPreview: (column: keyof ColumnWidths, width: number) => void;
   onCommit: (column: keyof ColumnWidths, width: number) => void;
 }
@@ -20,6 +21,7 @@ export function ColumnResizeHandle({
   column,
   widths,
   containerWidth,
+  standaloneText,
   onPreview,
   onCommit,
 }: ColumnResizeHandleProps) {
@@ -41,6 +43,7 @@ export function ColumnResizeHandle({
             initial: initial.current.widths,
             translation: event.absoluteX - initial.current.pointerX,
             containerWidth,
+            standaloneText,
           });
           onPreview(column, next[column]);
         })
@@ -50,11 +53,12 @@ export function ColumnResizeHandle({
             initial: initial.current.widths,
             translation: event.absoluteX - initial.current.pointerX,
             containerWidth,
+            standaloneText,
           });
           onCommit(column, next[column]);
         })
         .onFinalize(() => setPressed(false)),
-    [column, widths, containerWidth, onPreview, onCommit],
+    [column, widths, containerWidth, standaloneText, onPreview, onCommit],
   );
   return (
     <View pointerEvents="box-none" style={absoluteFill}>

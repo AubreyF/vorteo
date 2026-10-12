@@ -2185,7 +2185,7 @@ export const zhCN: TranslationResources = {
         title: "字体",
         systemDefault: "系统默认",
         interfaceFont: "界面字体",
-        interfaceFontHint: "用于整个应用。留空则使用系统默认",
+        interfaceFontHint: "用于整个应用。留空则使用主题字体",
         interfaceFontAccessibility: "界面字体族",
         interfaceSize: "界面字号",
         interfaceSizeHint: "用于导航、控件和标签",

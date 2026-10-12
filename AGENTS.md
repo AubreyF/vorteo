@@ -31,6 +31,12 @@ Use `get_thread_goal` and `update_thread_goal` to revise your existing goal with
 
 When the owner asks to implement a change in Vorteo, deliver it to this existing Vorteo instance so the owner can reload and review it here. Do not substitute a separate preview URL unless explicitly requested. This is the current rapid-development preference and may change as the project stabilizes. Validate the change and use the guarded static publisher for interface-only updates; preserve the required tracked approval workflow for any daemon or installation restart. When the owner requests visual review, leave acceptance open until they review the installed change.
 
+### Live demo previews
+
+Interactive UI previews default to a live development server with file watching and Fast Refresh or the framework's equivalent. Use representative isolated demo data without real credentials, provider execution or installation mutations. Reuse the task worktree, managed preview service and private HTTPS reservation. Verify an actual source edit reaches the browser without rebuilding or manually reloading, then revert the verification edit. Keep the demo available while implementation continues and journal the verified review URL when ready.
+
+Use a sealed production build when checking production behavior or when the owner explicitly requests a fixed snapshot. Live previews do not replace production validation or authorize primary publication, daemon restarts, new workspaces or broader network access. Report any limitation that prevents live updates instead of silently serving a stale export.
+
 - Deliver interface-only changes to the existing primary installation as each coherent, validated revision is ready, so the owner can reload while work continues. Use the guarded web build and publisher in [instance continuity](docs/instance-continuity.md). Preserve the deployed source ancestry, verify the served receipt and assets, and report when reloading will show the change. Do not restart or hold agents for static interface publication. A preview-only request still stops at preview delivery.
 - Never restart the main daemon on port `6767` without explicit permission. It owns running agents. A timeout is not a reason to restart it.
 - Previews reuse the task workspace, service and HTTPS reservation. Never create a project or workspace solely to serve a preview or work around a broker rejection. Keep isolated code in its task worktree and follow the [preview workflow](docker/tailscale/AGENT-INSTRUCTIONS.md#preview-workspace-reuse).

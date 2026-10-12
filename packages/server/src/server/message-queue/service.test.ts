@@ -154,8 +154,8 @@ it.each(["queue pause", "task stop"] as const)(
         hold = value;
       },
       read,
-      set: async (status: "active" | "paused") => {
-        if (status === "paused") {
+      set: async (status: "active" | "paused" | "blocked") => {
+        if (status === "blocked") {
           enteredPause();
           await pausePending;
         }
@@ -215,7 +215,7 @@ it.each(["queue pause", "task stop"] as const)(
       await expect
         .poll(
           () =>
-            hold === undefined && goal.status === (action === "queue pause" ? "active" : "paused"),
+            hold === undefined && goal.status === (action === "queue pause" ? "active" : "blocked"),
         )
         .toBe(true);
       expect(starts).toBe(0);

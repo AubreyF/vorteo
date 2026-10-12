@@ -161,6 +161,32 @@ describe("AgentStorage", () => {
     expect(await reopened.claimBlockedReview(agent.id, now + 7_200_000)).toBe(false);
   });
 
+  test("blocked goal discovery survives reload and stale snapshots without resetting activity", async () => {
+    const agent = createManagedAgent({
+      id: "blocked-goal-review",
+      persistence: { provider: "codex", sessionId: "retained" },
+    });
+    agent.labels = {};
+    await storage.applySnapshot(agent);
+    const original = await storage.get(agent.id);
+    await storage.updateBlockedGoalReview(agent.id, true);
+    await storage.applySnapshot(agent);
+    const reopened = new AgentStorage(storagePath, logger);
+    expect(await reopened.get(agent.id)).toMatchObject({
+      blockedGoalReviewNeeded: true,
+      lastActivityAt: original!.lastActivityAt,
+      updatedAt: original!.updatedAt,
+    });
+    const now = Date.now() + 3_600_001;
+    expect(await reopened.claimBlockedReview(agent.id, now)).toBe(true);
+    expect(await reopened.claimBlockedReview(agent.id, now + 1)).toBe(false);
+    await reopened.updateBlockedGoalReview(agent.id, false);
+    agent.blockedGoalReviewNeeded = true;
+    await reopened.applySnapshot(agent);
+    expect((await reopened.get(agent.id))?.blockedGoalReviewNeeded).toBe(false);
+    expect(await reopened.claimBlockedReview(agent.id, now + 7_200_000)).toBe(false);
+  });
+
   test("journal appends preserve order, survive stale snapshots and retry without duplication", async () => {
     const agent = createManagedAgent({ id: "journal" });
     await storage.applySnapshot(agent);

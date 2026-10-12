@@ -4,6 +4,33 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.306 - 2026-10-11
+
+### Added
+
+- Add six Vorton themes with Dark Star as the default, bundled typography, compact Freed theme previews and accessible tooltips.
+- Add an isolated demonstration with sample projects, conversations, tasks, journal entries, files and changes. Demo edits persist within the browser tab and reset without changing real installation settings.
+- Add Create New installation, Connect to Host and Demo welcome actions with subtle stationary Matrix rain.
+- Support native Host workspaces in the Preview Broker and live development previews.
+
+### Changed
+
+- Float the left sidebar and individual supporting cards over one page background. Align the three toolbars, move PR actions above the right cards, widen workspace tabs and retain a compact navigation rail when the left sidebar collapses.
+- Put compact theme tiles in the sidebar overflow menu and use consistent resize controls, rounded tab tops and one central workspace menu.
+- Move installation updates and approval notices into persistent floating notifications while preserving their tracked controls.
+- Keep automatic goal waits blocked and reserve pause for owner action. Revisit eligible blocked goals through the existing review queue.
+
+### Fixed
+
+- Preserve mounted editors and terminals during theme changes, and restore the previous appearance when preference storage fails.
+- Keep the configured single-password connection flow and clear abandoned password drafts.
+- Migrate generated iOS startup to the scene lifecycle required by iOS 27 while retaining existing Expo module callbacks and paste input.
+- Preserve all five Barlow Condensed weights on iOS and allow native exports to use a private Metro cache alongside live previews.
+
+### Maintenance
+
+- Document preview isolation, appearance conventions and delivery checks. iOS 27 Debug and Release startup and custom links pass simulator checks; physical-device visual and notification acceptance remain open. Installed goal recovery still needs daemon delivery and verification.
+
 ## 0.11.0-beta.3.vorteo.305 - 2026-10-11
 
 ### Fixed

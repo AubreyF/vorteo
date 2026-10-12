@@ -85,6 +85,8 @@ const STORED_AGENT_SCHEMA = z.object({
   journal: z.array(AgentJournalEntrySchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
+  // Discovery hint only. Admission always re-reads the native goal.
+  blockedGoalReviewNeeded: z.boolean().optional(),
   queueGoalHold: QueueGoalHoldSchema.optional(),
   id: z.string(),
   provider: z.string(),
@@ -280,6 +282,15 @@ export class AgentStorage {
       { blockedReviewWrite: true },
     );
     return claimed;
+  }
+
+  async updateBlockedGoalReview(agentId: string, needed: boolean): Promise<void> {
+    await this.load();
+    await this.queueRecordMutation(
+      agentId,
+      (record) => (record ? { ...record, blockedGoalReviewNeeded: needed } : null),
+      { goalReviewWrite: true },
+    );
   }
 
   async appendJournal(agentId: string, input: AppendJournalInput): Promise<AgentJournalEntry> {
@@ -658,6 +669,7 @@ function preserveManagedChecklist(
 }
 
 interface RecordMutationOptions {
+  goalReviewWrite?: boolean;
   checklistWrite?: boolean;
   journalWrite?: boolean;
   blockedReviewWrite?: boolean;
@@ -671,6 +683,8 @@ interface OwnedRecordFields {
 
 // Snapshot writers cannot rewrite state owned by dedicated serialized mutations.
 function preserveOwnedRecordFields({ record, existing, options }: OwnedRecordFields): void {
+  if (!options.goalReviewWrite && existing)
+    record.blockedGoalReviewNeeded = existing.blockedGoalReviewNeeded;
   if (!options.journalWrite && existing) record.journal = existing.journal;
   if (!options.checklistWrite) preserveManagedChecklist(record, existing);
   if (!options.blockedReviewWrite && existing)

@@ -1,16 +1,19 @@
 import { ActionFooter } from "@/components/ui/action-footer";
 import { X } from "lucide-react-native";
-import { useCallback, useMemo, type ReactNode } from "react";
-import {
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-  type PressableStateCallbackType,
-} from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
+import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import type { Theme } from "@/styles/theme";
 import { useTranslation } from "react-i18next";
+
+const DismissIcon = withUnistyles(X);
+const normalIcon = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const hoveredIcon = (theme: Theme) => ({ color: theme.colors.foreground });
+
+const FloatingCalloutContext = createContext(false);
+export function FloatingCalloutPresentation({ children }: { children: ReactNode }) {
+  return <FloatingCalloutContext.Provider value={true}>{children}</FloatingCalloutContext.Provider>;
+}
 
 export type SidebarCalloutActionVariant = "primary" | "secondary";
 
@@ -35,20 +38,6 @@ export interface SidebarCalloutProps {
   testID?: string;
 }
 
-/** All sidebar notices share one height budget and one scroll surface. */
-export function SidebarCalloutStack({ children }: { children: ReactNode }) {
-  const { height } = useWindowDimensions();
-  return (
-    <ScrollView
-      style={[styles.stack, { maxHeight: height * 0.33 }]}
-      contentContainerStyle={styles.stackContent}
-      testID="sidebar-callout-stack"
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
 export function SidebarCalloutDescriptionText({ children }: { children: ReactNode }) {
   return <Text style={styles.description}>{children}</Text>;
 }
@@ -64,7 +53,7 @@ export function SidebarCallout({
   testID,
 }: SidebarCalloutProps) {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
+  const floating = useContext(FloatingCalloutContext);
   const visibleActions = (actions ?? []).slice(0, 2);
   const hasHeader = title != null || icon != null;
   const hasDescription = description != null && description !== "";
@@ -74,8 +63,10 @@ export function SidebarCallout({
       styles.container,
       variant === "error" ? styles.containerError : null,
       !showTopBorder ? styles.withoutTopBorder : null,
+      floating ? styles.floatingContainer : null,
+      floating && variant === "error" ? styles.floatingError : null,
     ],
-    [variant, showTopBorder],
+    [variant, showTopBorder, floating],
   );
 
   return (
@@ -97,16 +88,13 @@ export function SidebarCallout({
               <Pressable
                 onPress={onDismiss}
                 hitSlop={8}
-                style={styles.dismissButton}
+                style={[styles.dismissButton, floating && styles.floatingDismissButton]}
                 testID={testID ? `${testID}-dismiss` : undefined}
                 accessibilityLabel={t("sidebarCallout.dismiss")}
                 accessibilityRole="button"
               >
                 {({ hovered }) => (
-                  <X
-                    size={14}
-                    color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-                  />
+                  <DismissIcon size={14} uniProps={hovered ? hoveredIcon : normalIcon} />
                 )}
               </Pressable>
             ) : null}
@@ -173,8 +161,15 @@ function SidebarCalloutActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  stack: { flexGrow: 0, flexShrink: 0 },
-  stackContent: { flexGrow: 0 },
+  floatingContainer: {
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.borderAccent,
+    borderRadius: 12,
+    marginBottom: 8,
+    ...theme.shadow.md,
+  },
+  floatingError: { borderColor: theme.colors.destructive },
   container: {
     flexShrink: 0,
     width: "100%",
@@ -196,6 +191,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  floatingDismissButton: { width: 32, height: 32 },
   body: {
     gap: theme.spacing[2],
   },
@@ -231,10 +227,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
   },
   actionButton: {
+    minHeight: 44,
+    maxWidth: "100%",
     flexShrink: 0,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],

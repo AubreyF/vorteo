@@ -31,6 +31,48 @@ Managed Dev workers retain their process arguments. Preview recovery verifies th
 
 ## Preview lifecycle and private HTTPS
 
+### Native Host workspaces
+
+The native adapter serves workspaces registered with the macOS Host daemon. It
+uses the same broker reservations, receipts, stop barriers and verification as
+Dev previews, with a separate deployment directory and native Tailscale node.
+It does not require Docker or restart either agent daemon.
+
+Run `install-native-https-broker.py` with explicit `--deployment`, `--daemon-home`,
+`--node`, `--cli-entry` and `--tailscale` paths. The CLI entry must belong to a
+compatible installed release. The installer verifies the daemon's loopback
+listener, existing tailnet policy and native node identity before installing its
+own login consumer. It never broadens tailnet grants. Existing identity or policy
+changes require review rather than silent adoption.
+
+The installer prints `helperCommand`. Use that command with the ordinary
+`start`, `status`, `restart`, `stop` and `list` arguments below. The helper pins
+the native daemon home and supplies the reserved origin to the managed service.
+It also installs `~/.local/bin/paseo-preview` and the preview instructions under
+`~/.config/paseo-preview/AGENTS.md`. The non-secret
+`~/.local/share/paseo-preview/https/installed.json` records the pinned command.
+Keep using the owning task workspace, including when its command explicitly
+targets an isolated worktree. Do not create a duplicate preview workspace.
+
+Native listener verification requires an IPv4 loopback binding and a matching
+managed terminal environment. Process birth timestamps come from macOS libproc;
+arguments cannot impersonate environment bindings. Native tasks share the
+logged-in user's authority. Native broker state is separate from project source,
+but this is not the privilege boundary provided by the Dev container.
+When republishing its own reservation, the native adapter permits retained
+connections on this node's Tailscale addresses after route removal. A new
+reservation, an unrelated address or any remaining listener still blocks reuse.
+
+For a Vorteo UI-only preview, `scripts/preview-static.mjs --directory EXPORT`
+serves a sealed preview export through this workflow without starting another
+agent daemon. It verifies asset hashes, serves only manifest-listed assets and
+rejects unexpected hosts, origins and write requests. Rebuild and restart the
+managed preview to select a new export while retaining its HTTPS reservation.
+Connecting the preview to an agent environment still requires that environment's
+normal authentication and origin policy; serving static assets grants no access.
+
+### Dev container workspaces
+
 On the Mac host, run these commands from this source directory, then install against the retained serving container:
 
 ```sh

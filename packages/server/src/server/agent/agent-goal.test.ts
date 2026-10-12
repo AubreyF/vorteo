@@ -37,17 +37,17 @@ function fixture() {
   };
 }
 
-it("delivers context while paused before enabling native continuation", async () => {
+it("delivers context while blocked before enabling native continuation", async () => {
   const f = fixture();
   await setAgentGoalWithContext({
     manager: f.manager,
     agentId: "agent",
     goal: { objective: "Work" },
     sendContext: async () => {
-      expect(f.state().goal?.status).toBe("paused");
+      expect(f.state().goal?.status).toBe("blocked");
     },
   });
-  expect(f.writes).toEqual([{ objective: "Work", status: "paused" }, { status: "active" }]);
+  expect(f.writes).toEqual([{ objective: "Work", status: "blocked" }, { status: "active" }]);
 });
 
 it("does not reactivate a goal completed during the context turn", async () => {
@@ -61,6 +61,46 @@ it("does not reactivate a goal completed during the context turn", async () => {
     },
   });
   expect(result.goal?.status).toBe("complete");
+  expect(f.writes).toHaveLength(1);
+});
+
+it("preserves a manual pause while context is being delivered", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work" },
+    sendContext: async () => {
+      f.change({ ...f.state().goal!, status: "paused" });
+    },
+  });
+  expect(result.goal?.status).toBe("paused");
+  expect(f.writes).toEqual([{ objective: "Work", status: "blocked" }]);
+});
+
+it("preserves an explicitly paused submission after its context arrives", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work", status: "paused" },
+    sendContext: async () => {},
+  });
+  expect(result.goal?.status).toBe("paused");
+  expect(f.writes).toEqual([{ objective: "Work", status: "paused" }]);
+});
+
+it("does not clear a new blocker reported during context delivery", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work" },
+    sendContext: async () => {
+      f.change({ ...f.state().goal!, status: "blocked", updatedAt: 2 });
+    },
+  });
+  expect(result.goal?.status).toBe("blocked");
   expect(f.writes).toHaveLength(1);
 });
 
@@ -79,7 +119,7 @@ it("does not resume a replacement or cleared goal", async () => {
   expect(f.writes).toHaveLength(1);
 });
 
-it("leaves continuation paused if context delivery fails", async () => {
+it("leaves continuation blocked if context delivery fails", async () => {
   const f = fixture();
   await expect(
     setAgentGoalWithContext({
@@ -91,7 +131,7 @@ it("leaves continuation paused if context delivery fails", async () => {
       },
     }),
   ).rejects.toThrow("attachment rejected");
-  expect(f.state().goal?.status).toBe("paused");
+  expect(f.state().goal?.status).toBe("blocked");
 });
 
 it("edits an existing objective without resuming a paused goal or resetting usage", async () => {

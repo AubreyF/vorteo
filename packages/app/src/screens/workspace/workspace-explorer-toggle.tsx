@@ -75,7 +75,7 @@ export function WorkspaceHeaderExplorerToggle({
   style,
   ...toggleProps
 }: DesktopWorkspaceExplorerToggleProps) {
-  if (owner === "mobile" || (owner === "window" && accessibilityState.expanded)) return null;
+  if (owner === "mobile" || accessibilityState.expanded) return null;
   return (
     <WorkspaceExplorerToggle
       {...toggleProps}
@@ -90,6 +90,6 @@ export function WorkspaceExplorerSidebarToggle({
   owner,
   ...toggleProps
 }: DesktopWorkspaceExplorerToggleProps) {
-  if (owner !== "window") return null;
+  if (owner === "mobile" || !toggleProps.accessibilityState.expanded) return null;
   return <WorkspaceExplorerToggle {...toggleProps} mobile={false} />;
 }

@@ -2230,8 +2230,7 @@ export const ja: TranslationResources = {
         title: "フォント",
         systemDefault: "システムデフォルト",
         interfaceFont: "インターフェースフォント",
-        interfaceFontHint:
-          "アプリ全体で使用されます。システムデフォルトにするには空のままにしてください",
+        interfaceFontHint: "アプリ全体で使用します。空欄にするとテーマのフォントを使用します",
         interfaceFontAccessibility: "インターフェースフォントファミリー",
         interfaceSize: "インターフェースサイズ",
         interfaceSizeHint: "ナビゲーション、コントロール、ラベルに使用されます",

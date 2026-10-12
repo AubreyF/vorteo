@@ -138,6 +138,19 @@ Clients require `server_info.features.installationProviderRemoval === true` from
 
 Owner settings requests opt into this marker with `X-Vorteo-Provider-Removal: 1`. Responses to older clients omit it because their provider schema rejects unknown fields. While a removed provider exists, older clients cannot replace the provider catalog; they receive a revision conflict and must refresh to the current client. Other shared settings remain editable. Upgraded clients restore a definition explicitly with `removed: false`.
 
+## Automatic goal holds
+
+Queue and restart continuation holds use the existing native goal status `blocked`.
+The durable hold receipt owns automatic resumption after the matching queue or
+restart condition clears. Explicit goal edits and manual pauses release that
+ownership; completion and usage limits are never cleared by recovery.
+
+`COMPAT(queuePausedHold)` reads older receipts whose recorded goal is `paused`.
+Recovery requires the same goal identity, status and update timestamp. A paused
+goal without a matching receipt remains manually paused. Retain this reader until
+persisted receipts from releases that wrote automatic pauses have been drained
+or explicitly reconciled. No new wire status or required field is introduced.
+
 ## Blocked checklist items
 
 Daemons advertise `features.checklistBlockedStatus`. Clients require it before writing

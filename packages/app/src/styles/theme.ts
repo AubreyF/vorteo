@@ -1,5 +1,11 @@
+import {
+  getAppearanceDefinition,
+  type AppearanceId,
+  type AppearanceDefinition,
+} from "./appearance-catalog";
 import { hexColorWithAlpha } from "@/utils/color";
 import { Platform } from "react-native";
+import { resolveAppearanceFont } from "./appearance-font";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
 export const EXECUTION_ENVIRONMENT_COLORS = {
@@ -328,30 +334,6 @@ export function buildLightSemanticColors(tint: LightThemeConfig) {
   };
 }
 
-const lightSemanticColors = buildLightSemanticColors({
-  surface0: "#ffffff",
-  surface1: "#fafafa",
-  surface2: "#f4f4f5",
-  surface3: "#e4e4e7",
-  surface4: "#d4d4d8",
-  surfaceDiffEmpty: "#f6f6f6",
-  surfaceSidebar: "#f4f4f5",
-  foreground: "#1a1a1e",
-  foregroundMuted: "#71717a",
-  foregroundExtraMuted: "#a1a1aa",
-  border: "#e4e4e7",
-  borderAccent: "#ececf1",
-  accent: "#20744A",
-  accentBright: "#239956",
-  accentForeground: "#ffffff",
-  primary: "#18181b",
-  primaryForeground: "#fafafa",
-  destructive: "#b04138",
-  terminalBlack: "#1a1a1e",
-  terminalBrightBlack: "#3f3f46",
-  ring: "#18181b",
-});
-
 // ---------------------------------------------------------------------------
 // Dark theme variant builder
 // ---------------------------------------------------------------------------
@@ -462,111 +444,6 @@ export function buildDarkSemanticColors(tint: DarkThemeConfig) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Dark tint definitions
-// ---------------------------------------------------------------------------
-
-// Paseo — subtle teal-green tint (default)
-const paseoDarkColors = buildDarkSemanticColors({
-  surface0: "#181B1A",
-  surface1: "#1E2120",
-  surface2: "#272A29",
-  surface3: "#434645",
-  surface4: "#595B5B",
-  surfaceDiffEmpty: "#252827",
-  surfaceSidebar: "#141716",
-  foregroundMuted: "#A1A5A4",
-  foregroundExtraMuted: "#717574",
-  border: "#252B2A",
-  borderAccent: "#2F3534",
-  accent: "#20744A",
-  accentBright: "#7ccba0",
-  destructive: "#c64f43", // warm red, hue ~7 — reads as red (not pink) against the green tint
-  terminalBlack: "#141716",
-  terminalBrightBlack: "#434645",
-});
-
-// Zinc — neutral gray, no tint
-const zincDarkColors = buildDarkSemanticColors({
-  surface0: "#18181b",
-  surface1: "#1f1f22",
-  surface2: "#27272a",
-  surface3: "#3f3f46",
-  surface4: "#52525b",
-  surfaceDiffEmpty: "#242427",
-  surfaceSidebar: "#131316",
-  foregroundMuted: "#a1a1aa",
-  foregroundExtraMuted: "#71717a",
-  border: "#27272a",
-  borderAccent: "#303036",
-  accent: "#e4e4e7",
-  accentBright: "#fafafa",
-  accentForeground: "#18181b", // monochrome zinc accent is near-white — needs dark text
-  destructive: "#c44a4a", // neutral red, hue 0 — clearly red without screaming
-  terminalBlack: "#131316",
-  terminalBrightBlack: "#3f3f46",
-});
-
-// Midnight — subtle blue tint
-const midnightDarkColors = buildDarkSemanticColors({
-  surface0: "#161820",
-  surface1: "#1c1e27",
-  surface2: "#252731",
-  surface3: "#3c3e4c",
-  surface4: "#535564",
-  surfaceDiffEmpty: "#222430",
-  surfaceSidebar: "#121420",
-  foregroundMuted: "#9a9db0",
-  foregroundExtraMuted: "#6b6e82",
-  border: "#242636",
-  borderAccent: "#2e3040",
-  accent: "#3b6fcf",
-  accentBright: "#7eaaeb",
-  destructive: "#c44a52", // red with a hint of cool lean against the blue tint
-  terminalBlack: "#121420",
-  terminalBrightBlack: "#3c3e4c",
-});
-
-// Claude — warm neutral with subtle orange undertone
-const claudeDarkColors = buildDarkSemanticColors({
-  surface0: "#1f1f1e",
-  surface1: "#262523",
-  surface2: "#2f2d2b",
-  surface3: "#4a4745",
-  surface4: "#605d5b",
-  surfaceDiffEmpty: "#2a2826",
-  surfaceSidebar: "#1a1918",
-  foregroundMuted: "#ada9a5",
-  foregroundExtraMuted: "#78746f",
-  border: "#2c2a27",
-  borderAccent: "#36332f",
-  accent: "#d97757",
-  accentBright: "#e89a7f",
-  destructive: "#cf513e", // warm orange-red, hue ~10 — sits with the Claude orange accent
-  terminalBlack: "#1a1918",
-  terminalBrightBlack: "#4a4745",
-});
-
-// Ghostty — blue-tinted dark based on Ghostty default background
-const ghosttyDarkColors = buildDarkSemanticColors({
-  surface0: "#282c34",
-  surface1: "#2f333d",
-  surface2: "#383c48",
-  surface3: "#4a4f5e",
-  surface4: "#5b6175",
-  surfaceDiffEmpty: "#323643",
-  surfaceSidebar: "#21252d",
-  foregroundMuted: "#c8ccd8",
-  foregroundExtraMuted: "#a0a4b2",
-  border: "#353a47",
-  borderAccent: "#3f4454",
-  accent: "#89b4fa",
-  accentBright: "#b4d0fc",
-  destructive: "#c44a55", // red with slight cool lean against the slate-blue surfaces
-  terminalBlack: "#21252d",
-  terminalBrightBlack: "#4a4f5e",
-});
-
 export const SPACING = {
   0: 0,
   0.5: 2,
@@ -665,7 +542,8 @@ export const DEFAULT_CONTENT_MAX_WIDTH = 820;
 interface CommonTheme {
   spacing: typeof SPACING;
   fontSize: Record<keyof typeof FONT_SIZE, number>;
-  fontFamily: { ui: string; mono: string };
+  fontFamily: { ui: string; mono: string; display: string };
+  appearance: AppearanceDefinition | null;
   lineHeight: Record<keyof typeof LINE_HEIGHT, number>;
   contentMaxWidth: number;
   iconSize: typeof ICON_SIZE;
@@ -678,7 +556,12 @@ interface CommonTheme {
 const commonTheme: CommonTheme = {
   spacing: SPACING,
   fontSize: FONT_SIZE,
-  fontFamily: { ui: DEFAULT_UI_FONT_STACK, mono: DEFAULT_MONO_FONT_STACK },
+  fontFamily: {
+    ui: DEFAULT_UI_FONT_STACK,
+    mono: DEFAULT_MONO_FONT_STACK,
+    display: DEFAULT_UI_FONT_STACK,
+  },
+  appearance: null,
   lineHeight: LINE_HEIGHT,
   contentMaxWidth: DEFAULT_CONTENT_MAX_WIDTH,
   iconSize: ICON_SIZE,
@@ -722,34 +605,6 @@ export function buildDarkTheme(semanticColors: ReturnType<typeof buildDarkSemant
   } as const;
 }
 
-export const darkTheme = buildDarkTheme(paseoDarkColors);
-export const darkZincTheme = buildDarkTheme(zincDarkColors);
-export const darkMidnightTheme = buildDarkTheme(midnightDarkColors);
-export const darkClaudeTheme = buildDarkTheme(claudeDarkColors);
-export const darkGhosttyTheme = buildDarkTheme(ghosttyDarkColors);
-
-// Pure black — zero-luminance background with high-contrast surfaces.
-const pureBlackDarkColors = buildDarkSemanticColors({
-  surface0: "#000000",
-  surface1: "#0a0a0a",
-  surface2: "#111111",
-  surface3: "#202020",
-  surface4: "#2d2d2d",
-  surfaceDiffEmpty: "#0c0c0c",
-  surfaceSidebar: "#000000",
-  foregroundMuted: "#a1a1aa",
-  foregroundExtraMuted: "#71717a",
-  border: "#1c1c1c",
-  borderAccent: "#242424",
-  accent: "#20744A",
-  accentBright: "#7ccba0",
-  destructive: "#c44a4a",
-  terminalBlack: "#595959",
-  terminalBrightBlack: "#8a8a8a",
-});
-
-export const darkPureBlackTheme = buildDarkTheme(pureBlackDarkColors);
-
 const lightShadow = {
   sm: {
     shadowColor: "rgba(0, 0, 0, 0.02)",
@@ -784,62 +639,216 @@ export function buildLightTheme(semanticColors: ReturnType<typeof buildLightSema
   } as const;
 }
 
-export const lightTheme = buildLightTheme(lightSemanticColors);
+// Semantic adapters for Vorton's authored palettes. Opaque working surfaces keep
+// code and small text readable; shell textures are rendered separately on web.
+interface AppearancePalette {
+  root: string;
+  deep: string;
+  surface: string;
+  raised: string;
+  text: string;
+  secondary: string;
+  muted: string;
+  border: string;
+  strong: string;
+  accent: string;
+  bright: string;
+}
+const APPEARANCE_PALETTES: Record<AppearanceId, AppearancePalette> = {
+  "starship-light": {
+    root: "#e2e2ee",
+    deep: "#e8e8f1",
+    surface: "#eeeef6",
+    raised: "#f0f0f8",
+    text: "#16163a",
+    secondary: "#4a4a84",
+    muted: "#5f5f9c",
+    border: "rgba(0,0,40,0.1)",
+    strong: "rgba(0,0,40,0.22)",
+    accent: "#2997ff",
+    bright: "#1672c8",
+  },
+  "starship-dark": {
+    root: "#222222",
+    deep: "#29292b",
+    surface: "#2c2c2e",
+    raised: "#38383a",
+    text: "#f5f5f7",
+    secondary: "#c7c7cc",
+    muted: "#aeaeb2",
+    border: "rgba(84,84,88,0.72)",
+    strong: "#646468",
+    accent: "#2997ff",
+    bright: "#64d2ff",
+  },
+  scriptorium: {
+    root: "#f4ead7",
+    deep: "#ece0ca",
+    surface: "#f8efdf",
+    raised: "#faf2e4",
+    text: "#2a1f17",
+    secondary: "#5d4634",
+    muted: "#85684b",
+    border: "rgba(136,106,74,0.18)",
+    strong: "rgba(132,100,68,0.28)",
+    accent: "#86684a",
+    bright: "#86684a",
+  },
+  midas: {
+    root: "#2b231d",
+    deep: "#352b23",
+    surface: "#3e3229",
+    raised: "#493c30",
+    text: "#f3e9da",
+    secondary: "#d0b89c",
+    muted: "#a8967f",
+    border: "rgba(188,157,108,0.28)",
+    strong: "rgba(176,138,72,0.34)",
+    accent: "#b08a48",
+    bright: "#d0b89c",
+  },
+  ember: {
+    root: "#180f0d",
+    deep: "#221411",
+    surface: "#2a1a16",
+    raised: "#38221c",
+    text: "#f7ede9",
+    secondary: "#d5b4a6",
+    muted: "#ab8474",
+    border: "rgba(193,90,46,0.24)",
+    strong: "rgba(193,90,46,0.32)",
+    accent: "#c15a2e",
+    bright: "#e99468",
+  },
+  neon: {
+    root: "#0a0a0a",
+    deep: "#0f0f15",
+    surface: "#14141b",
+    raised: "#20202d",
+    text: "#f7f7fb",
+    secondary: "#c2c3d5",
+    muted: "#8b8da8",
+    border: "rgba(255,255,255,0.08)",
+    strong: "rgba(139,92,246,0.24)",
+    accent: "#3b82f6",
+    bright: "#a78bfa",
+  },
+};
 
-// Keep compatibility with existing code
+function appearanceFont(stack: string): string {
+  return resolveAppearanceFont({ stack, platform: Platform.OS, systemFont: DEFAULT_UI_FONT_STACK });
+}
+
+function buildAppearanceTheme(id: AppearanceId) {
+  const appearance = getAppearanceDefinition(id);
+  const p = APPEARANCE_PALETTES[id];
+  const light = appearance.surface === "light";
+  // The reference themes include warmer, lighter raised surfaces than the
+  // legacy dark palette. Lift the whole status family by the same 16% white
+  // blend so small status text keeps 4.5:1 contrast on every raised surface.
+  const status = light
+    ? lightStatusColors
+    : {
+        statusSuccess: "#84bd90",
+        statusDanger: "#de9890",
+        statusWarning: "#caa77d",
+        statusMerged: "#b6a2dc",
+      };
+  const config = {
+    surface0: p.root,
+    surface1: p.deep,
+    surface2: p.surface,
+    surface3: p.raised,
+    surface4: p.strong,
+    surfaceDiffEmpty: p.deep,
+    surfaceSidebar: p.root,
+    foreground: p.text,
+    foregroundMuted: p.secondary,
+    foregroundExtraMuted: p.muted,
+    border: p.border,
+    borderAccent: p.strong,
+    accent: p.accent,
+    accentBright: p.bright,
+    accentForeground: id === "scriptorium" ? "#ffffff" : "#000000",
+    primary: p.text,
+    primaryForeground: p.root,
+    destructive: light ? "#b3261e" : "#ff7168",
+    terminalBlack: light ? "#353540" : "#777780",
+    terminalBrightBlack: light ? "#5f5f69" : "#aeaeb2",
+    ring: p.bright,
+  };
+  const base = light
+    ? buildLightTheme(buildLightSemanticColors(config))
+    : buildDarkTheme(buildDarkSemanticColors(config));
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      ...status,
+      ...statusTints(status, light ? "1f" : "29"),
+      success: status.statusSuccess,
+      successForeground: light ? "#ffffff" : "#000000",
+      destructiveForeground: light ? "#ffffff" : "#000000",
+    },
+    appearance,
+    fontFamily: {
+      ...base.fontFamily,
+      ui: appearanceFont(appearance.previewBodyFont),
+      display: appearanceFont(appearance.previewDisplayFont),
+    },
+  };
+}
+
+// Keep these public aliases for terminal and plugin consumers. They now refer to
+// the Starship pair, which also occupies Unistyles' adaptive light/dark slots.
+export const lightTheme = buildAppearanceTheme("starship-light");
+export const darkTheme = buildAppearanceTheme("starship-dark");
 export const theme = darkTheme;
 
 export const THEME_OPTIONS = [
   {
-    name: "light",
+    name: "starship-light",
     group: "primary",
     unistylesName: "light",
     theme: lightTheme,
-    swatch: "#ffffff",
+    swatch: "#e2e2ee",
   },
   {
-    name: "dark",
+    name: "starship-dark",
     group: "primary",
     unistylesName: "dark",
     theme: darkTheme,
-    swatch: "#2D8B62",
+    swatch: "#222222",
+  },
+  {
+    name: "scriptorium",
+    group: "variant",
+    unistylesName: "scriptorium",
+    theme: buildAppearanceTheme("scriptorium"),
+    swatch: "#d8c4a1",
+  },
+  {
+    name: "midas",
+    group: "variant",
+    unistylesName: "midas",
+    theme: buildAppearanceTheme("midas"),
+    swatch: "#b08a48",
+  },
+  {
+    name: "ember",
+    group: "variant",
+    unistylesName: "ember",
+    theme: buildAppearanceTheme("ember"),
+    swatch: "#c15a2e",
+  },
+  {
+    name: "neon",
+    group: "variant",
+    unistylesName: "neon",
+    theme: buildAppearanceTheme("neon"),
+    swatch: "#8b5cf6",
   },
   { name: "auto", group: "primary" },
-  {
-    name: "zinc",
-    group: "variant",
-    unistylesName: "darkZinc",
-    theme: darkZincTheme,
-    swatch: "#808080",
-  },
-  {
-    name: "midnight",
-    group: "variant",
-    unistylesName: "darkMidnight",
-    theme: darkMidnightTheme,
-    swatch: "#4A6BA8",
-  },
-  {
-    name: "claude",
-    group: "variant",
-    unistylesName: "darkClaude",
-    theme: darkClaudeTheme,
-    swatch: "#D97757",
-  },
-  {
-    name: "ghostty",
-    group: "variant",
-    unistylesName: "darkGhostty",
-    theme: darkGhosttyTheme,
-    swatch: "#8caaee",
-  },
-  {
-    name: "pureBlack",
-    group: "variant",
-    unistylesName: "darkPureBlack",
-    theme: darkPureBlackTheme,
-    swatch: "#000000",
-  },
 ] as const;
 
 export const PLUGIN_THEME_PREFERENCE = "plugin";
@@ -853,7 +862,11 @@ export type ThemePreference =
   | typeof PLUGIN_THEME_PREFERENCE;
 export type ThemeName = Exclude<ThemePreference, "auto" | typeof PLUGIN_THEME_PREFERENCE>;
 type ConcreteThemeOption = Exclude<(typeof THEME_OPTIONS)[number], { name: "auto" }>;
-export type Theme = ConcreteThemeOption["theme"];
+export interface Theme extends CommonTheme {
+  colorScheme: "light" | "dark";
+  colors: ReturnType<typeof buildAppearanceTheme>["colors"];
+  shadow: typeof lightShadow | typeof darkShadow;
+}
 
 const CONCRETE_THEME_OPTIONS = THEME_OPTIONS.filter(
   (option): option is ConcreteThemeOption => option.name !== "auto",
@@ -868,10 +881,10 @@ type ThemeSwatches = {
 };
 
 type RegisteredThemes = {
-  [Option in ConcreteThemeOption as Option["unistylesName"]]: Option["theme"];
+  [Option in ConcreteThemeOption as Option["unistylesName"]]: Theme;
 } & {
-  pluginLight: typeof lightTheme;
-  pluginDark: typeof darkTheme;
+  pluginLight: Theme;
+  pluginDark: Theme;
 };
 
 export const THEME_TO_UNISTYLES = Object.fromEntries(

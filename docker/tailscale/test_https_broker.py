@@ -4,11 +4,85 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import uuid
-from https_broker import Broker, Runtime, atomic, safe_read, validate
+from https_broker import Broker, Runtime, NativeRuntime, atomic, safe_read, validate
+
+
+class NativeWorkspacePolicyTests(unittest.TestCase):
+    def test_retained_tailnet_connection_does_not_block_owned_restart(self):
+        runtime = NativeRuntime({'nodeId': 'node', 'hostname': 'test.ts.net'})
+        runtime.ts = lambda args: json.dumps({'Self': {'ID': 'node', 'DNSName': 'test.ts.net.', 'TailscaleIPs': ['100.64.0.1']}})
+        row = 'tcp4 0 0 100.64.0.1.32768 100.64.0.2.50000 ESTABLISHED'
+        runtime.command = lambda args: row
+        with patch('https_broker.socket.socket') as socket:
+            socket.return_value.__enter__.return_value.bind.side_effect = OSError('occupied')
+            with self.assertRaises(subprocess.SubprocessError):
+                runtime.free(32768)
+            runtime.free(32768, retained=True)
+            for blocked in ('tcp4 0 0 *.32768 *.* LISTEN',
+                            'tcp4 0 0 127.0.0.1.32768 127.0.0.1.50000 ESTABLISHED'):
+                row = blocked
+                with self.assertRaises(subprocess.SubprocessError):
+                    runtime.free(32768, retained=True)
+            row = 'tcp4 0 0 100.64.0.1.32768 100.64.0.2.50000 ESTABLISHED\ntcp4 0 0 *.32768 *.* LISTEN'
+            with self.assertRaises(subprocess.SubprocessError):
+                runtime.free(32768, retained=True)
+
+    def test_native_listener_rejects_wildcard_and_other_terminal(self):
+        runtime = NativeRuntime({})
+        runtime.command = lambda args: 'p123\nn*:40001\n'
+        with self.assertRaisesRegex(ValueError, 'loopback listener'):
+            runtime.listener_pid(40001)
+        runtime.command = lambda args: 'p123\nn127.0.0.1:40001\n' if args[0].endswith('lsof') else 'node PASEO_TERMINAL_ID=another'
+        runtime.process_identity = lambda pid: {'pid': pid, 'parent': 1, 'birth': '1:2'}
+        runtime.terminal_environment = lambda pid: 'another'
+        with self.assertRaisesRegex(ValueError, 'managed terminal'):
+            runtime.listener_identity(40001, 'terminal_expected')
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS process ownership probe')
+    def test_real_native_listener_identity(self):
+        # Disposable HTTP fixture only; never start or stop an installed daemon.
+        runtime = NativeRuntime({})
+        code = 'import socket,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(); print(s.getsockname()[1],flush=True); time.sleep(30)'
+        process = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, text=True,
+                                   env={**os.environ, 'PASEO_TERMINAL_ID': 'terminal_fixture'})
+        try:
+            port = int(process.stdout.readline())
+            identity = runtime.listener_identity(port, 'terminal_fixture')
+            self.assertTrue(identity.startswith(str(process.pid) + ':'))
+            self.assertEqual(runtime.listener_identity(port, 'terminal_fixture'), identity)
+            with self.assertRaisesRegex(ValueError, 'managed terminal'):
+                runtime.listener_identity(port, 'terminal_other')
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            process.stdout.close()
+
+    def test_registered_native_workspace_uses_real_host_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'paseo.json').write_text(json.dumps({'scripts': {
+                'preview': {'type': 'service', 'command': 'npm run dev', 'port': 40001}}}))
+            runtime = NativeRuntime({'workspacePolicy': 'registered'})
+            workspace = {'workspaceId': 'wks_native', 'cwd': str(root), 'isolation': 'local'}
+            runtime.cli = lambda args: [workspace] if args == ['workspace', 'ls'] else [
+                {'scriptName': 'preview', 'type': 'service'}]
+            self.assertEqual(runtime.current('wks_native', 'preview')['cwd'], str(root))
+            self.assertEqual(runtime.registered_ports(), {40001})
+            workspace['archivedAt'] = '2026-10-11'
+            with self.assertRaisesRegex(ValueError, 'archived'):
+                runtime.current('wks_native', 'preview')
+            del workspace['archivedAt']
+            alias = root / 'alias'
+            alias.symlink_to(root, target_is_directory=True)
+            workspace['cwd'] = str(alias)
+            with self.assertRaises(OSError):
+                runtime.current('wks_native', 'preview')
 
 
 class DaemonIdentityTests(unittest.TestCase):
@@ -154,7 +228,7 @@ class Fake:
     def publication(self):
         if any(self.config.get('AllowFunnel', {}).values()): raise ValueError('Unexpected Funnel')
         return copy.deepcopy(self.config)
-    def free(self, p): self.free_calls.append(p)
+    def free(self, p, retained=False): self.free_calls.append(p)
     def backend_ready(self, p): pass
     def listener_identity(self, p, terminal): return terminal
     def lifecycle(self, op, e):
@@ -242,6 +316,25 @@ class Tests(unittest.TestCase):
         self.runtime.entry['port']=6767
         with self.assertRaises(ValueError):self.b.handle(self.request())
         self.assertEqual(self.runtime.sets,0)
+
+    def test_high_ephemeral_backend_keeps_frontend_reservation(self):
+        for port in (60999, 61000, 61983, 65535):
+            with self.subTest(port=port):
+                self.runtime.entry['port'] = port
+                result = self.b.handle(self.request('restart'))
+                self.assertEqual(result['status'], 'ready')
+                self.assertEqual(result['backendPort'], port)
+                self.assertEqual(result['frontendPort'], 44444)
+                route = self.runtime.config['Web']['test.example.ts.net:44444']
+                self.assertEqual(route['Handlers']['/']['Proxy'], f'http://127.0.0.1:{port}')
+
+    def test_invalid_and_frontend_backend_ports_stay_rejected(self):
+        for port in (None, True, '61983', 32767, 65536, 44444):
+            with self.subTest(port=port):
+                self.runtime.entry['port'] = port
+                with self.assertRaisesRegex(ValueError, 'Backend allocation'):
+                    self.b.handle(self.request('restart', preferredPort=44444))
+                self.assertEqual(self.runtime.sets, 0)
 
     def test_concurrent_consumer_lock_and_multiple_starts(self):
         import fcntl

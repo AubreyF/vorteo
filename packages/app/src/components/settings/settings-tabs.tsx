@@ -1,3 +1,4 @@
+import { tabShape } from "@/styles/tab-shape";
 import { useCallback, useMemo } from "react";
 import { ScrollView, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -77,9 +78,6 @@ const styles = StyleSheet.create((theme) => ({
   tab: {
     minHeight: 44,
     flexShrink: 0,
-    borderTopLeftRadius: theme.borderRadius.lg,
-    borderTopRightRadius: theme.borderRadius.lg,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    ...tabShape(theme),
   },
 }));

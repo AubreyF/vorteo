@@ -4,6 +4,7 @@ const GOAL_ERRORS = new Set([
   "A goal change could not be confirmed. Review and set the task goal before continuing.",
   "The goal state must be confirmed before queue delivery.",
   "The goal pause could not be confirmed. Review the goal before continuing.",
+  "The goal block could not be confirmed. Review the goal before continuing.",
   "The goal resume could not be confirmed. Review the goal before continuing.",
   "The goal stop could not be confirmed. Review the goal before continuing.",
 ]);

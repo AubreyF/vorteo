@@ -118,6 +118,9 @@ test("failed unlock remains visible and can be retried without granting authorit
     visible: true,
     error: "Incorrect installation password",
   });
+  model.clearPasswordDraft();
+  expect(model.getState()).toMatchObject({ password: "", error: null, unlocked: false });
+  expect(attempts).toBe(1);
   model.setPassword("correct");
   await model.unlock();
   expect(model.getState()).toMatchObject({

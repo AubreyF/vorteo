@@ -5,6 +5,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Theme } from "@/styles/theme";
+import { isWeb } from "@/constants/platform";
 import type { ChecklistProgress } from "./progress";
 import { petalGeometry, taskPetals, type PetalStatus } from "./flower";
 
@@ -16,23 +17,23 @@ interface FlowerPalette {
 const palette = (theme: Theme): FlowerPalette => ({
   completed: theme.colors.statusSuccess,
   active: theme.colors.statusDotRunning,
-  pending: theme.colors.surface3,
+  pending: theme.colors.foregroundExtraMuted,
 });
+const decorativeSvgProps = isWeb
+  ? { "aria-hidden": true as const }
+  : {
+      accessibilityElementsHidden: true,
+      importantForAccessibility: "no-hide-descendants" as const,
+    };
 
 function Flower({ petals, ...colors }: FlowerPalette & { petals: PetalStatus[] }) {
   const geometry = petalGeometry(petals.length);
   return (
-    <Svg
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
+    <Svg width={20} height={20} viewBox="0 0 24 24" {...decorativeSvgProps}>
       {petals.map((status, index) => {
         const angle = (index * 360) / petals.length;
         return (
-          <G key={angle} rotation={angle} origin="12, 12">
+          <G key={angle} transform={`rotate(${angle} 12 12)`}>
             <Path d={geometry.path} fill={colors[status]} />
           </G>
         );

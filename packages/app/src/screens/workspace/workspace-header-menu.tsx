@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { createContext, useCallback, useMemo, type ReactNode } from "react";
 import { View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -33,6 +33,8 @@ import {
 } from "@getpaseo/protocol/terminal-profiles";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
+
+export const WorkspaceOverflowItemsContext = createContext<ReactNode>(null);
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedCopy = withUnistyles(Copy);
@@ -80,7 +82,7 @@ export interface WorkspaceHeaderWorkspaceActions {
   onOpenSetupTab: () => void;
 }
 
-function WorkspaceHeaderWorkspaceActionItems({
+export function WorkspaceHeaderWorkspaceActionItems({
   currentBranchName,
   showWorkspaceSetup,
   importAgentDisabled,
@@ -161,7 +163,7 @@ export function WorkspaceHeaderMenuDesktop(props: WorkspaceHeaderWorkspaceAction
       >
         <WorkspaceHeaderMenuTriggerIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" width={220} testID="workspace-header-menu">
+      <DropdownMenuContent align="end" width={220} testID="workspace-header-menu">
         <WorkspaceHeaderWorkspaceActionItems {...props} />
       </DropdownMenuContent>
     </DropdownMenu>

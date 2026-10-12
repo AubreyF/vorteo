@@ -30,9 +30,10 @@ import Animated, {
 } from "react-native-reanimated";
 import { withUnistyles } from "react-native-unistyles";
 import { CardColumnContext } from "./columns/card-column";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
 import { taskCardStyles } from "./task-card-styles";
 
 /** Bound the entire card, including its header, as the viewport resizes. */
@@ -40,6 +41,7 @@ function TaskCardView({
   insets = 0,
   bodyVisible = true,
   bodyRef,
+  panelHeight,
   notice,
   children,
   testID,
@@ -48,21 +50,24 @@ function TaskCardView({
   insets?: number;
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
+  /** Panels such as file trees own their scrolling and need a bounded viewport. */
+  panelHeight?: number;
   notice?: ReactNode;
   children: ReactNode;
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
   const column = useContext(CardColumnContext);
+  const retainedActive = useRetainedPanelActive();
   const id = useId();
   const [headerHeight, setHeaderHeight] = useState(32);
   const [bodyHeight, setBodyHeight] = useState(0);
   const measure = column?.measure;
-  const bodySpace = bodyVisible ? bodyHeight : 0;
+  const bodySpace = bodyVisible ? (panelHeight ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
-    measure?.(id, naturalHeight);
-  }, [measure, id, naturalHeight]);
+    measure?.(id, retainedActive ? naturalHeight : null);
+  }, [measure, id, naturalHeight, retainedActive]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     setHeaderHeight(event.nativeEvent.layout.height);
@@ -109,20 +114,34 @@ function TaskCardView({
             {header}
             {notice}
           </View>
-          <ScrollView
-            ref={bodyRef}
-            onContentSizeChange={onBodySize}
-            testID={testID ? `${testID}-body-scroll` : undefined}
-            style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
-            contentContainerStyle={taskCardStyles.bodyContent}
-            nestedScrollEnabled
-            scrollEnabled={scrollEnabled}
-            keyboardShouldPersistTaps="handled"
-          >
-            <QueueDragScrollContext.Provider value={setDragging}>
+          {panelHeight !== undefined ? (
+            <View
+              style={[
+                {
+                  height: Math.max(0, maxHeight - headerHeight - insets),
+                  minHeight: 0,
+                },
+                !bodyVisible && taskCardStyles.hiddenBody,
+              ]}
+            >
               <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
-            </QueueDragScrollContext.Provider>
-          </ScrollView>
+            </View>
+          ) : (
+            <ScrollView
+              ref={bodyRef}
+              onContentSizeChange={onBodySize}
+              testID={testID ? `${testID}-body-scroll` : undefined}
+              style={[taskCardStyles.scrollBody, !bodyVisible && taskCardStyles.hiddenBody]}
+              contentContainerStyle={taskCardStyles.bodyContent}
+              nestedScrollEnabled
+              scrollEnabled={scrollEnabled}
+              keyboardShouldPersistTaps="handled"
+            >
+              <QueueDragScrollContext.Provider value={setDragging}>
+                <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+              </QueueDragScrollContext.Provider>
+            </ScrollView>
+          )}
         </View>
       </View>
     </Animated.View>
@@ -204,7 +223,7 @@ export function TaskCardInfo({
         <TaskCardAction iconOnly leftIcon={Info} accessibilityLabel={label} testID={testID} />
       </TooltipTrigger>
       <TooltipContent side="top" align="start" offset={8}>
-        <Text style={taskCardStyles.headingInfoText}>{children}</Text>
+        <TooltipText label={label} description={children} />
       </TooltipContent>
     </Tooltip>
   );

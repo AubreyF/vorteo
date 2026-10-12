@@ -317,3 +317,107 @@ index 39e0d9d..a21ba95 100644
          this.stylesCache.clear()
          this.dependenciesMap.clear()
          this.disposeListenersMap.clear()
+diff --git a/node_modules/react-native-unistyles/src/web/shadowRegistry.ts b/node_modules/react-native-unistyles/src/web/shadowRegistry.ts
+--- a/node_modules/react-native-unistyles/src/web/shadowRegistry.ts
++++ b/node_modules/react-native-unistyles/src/web/shadowRegistry.ts
+@@ -1,7 +1,6 @@
+ import type { UnistylesTheme, UnistylesValues } from '../types'
+ import type { UniGeneratedStyle, UnistylesServices } from './types'
+
+-import { UnistyleDependency } from '../specs/NativePlatform/NativePlatform.nitro'
+ import { deepMergeObjects } from '../utils'
+ import { extractSecrets, extractUnistyleDependencies, isGeneratedUnistyle, isServer } from './utils'
+ import { getVariants } from './variants'
+@@ -82,9 +81,9 @@
+         const injectedClassNames = parsedStyles?._web?._classNames ?? []
+         const injectedClassName = Array.isArray(injectedClassNames) ? injectedClassNames.join(' ') : injectedClassNames
+         const dependencies = extractUnistyleDependencies(parsedStyles)
+-        const filteredDependencies = this.services.state.CSSVars
+-            ? dependencies.filter((dependency) => dependency !== UnistyleDependency.Theme)
+-            : dependencies
++        // Numeric theme tokens are not CSS variables. Keep theme subscriptions so
++        // existing rules update without remounting stateful React screens.
++        const filteredDependencies = dependencies
+
+         if (!existingHash) {
+             this.disposeMap.set(
+diff --git a/node_modules/react-native-unistyles/lib/module/web/shadowRegistry.js b/node_modules/react-native-unistyles/lib/module/web/shadowRegistry.js
+--- a/node_modules/react-native-unistyles/lib/module/web/shadowRegistry.js
++++ b/node_modules/react-native-unistyles/lib/module/web/shadowRegistry.js
+@@ -1,6 +1,5 @@
+ "use strict";
+
+-import { UnistyleDependency } from '../specs/NativePlatform/NativePlatform.nitro';
+ import { deepMergeObjects } from '../utils';
+ import { extractSecrets, extractUnistyleDependencies, isGeneratedUnistyle, isServer } from './utils';
+ import { getVariants } from './variants';
+@@ -78,7 +77,8 @@
+     const injectedClassNames = parsedStyles?._web?._classNames ?? [];
+     const injectedClassName = Array.isArray(injectedClassNames) ? injectedClassNames.join(' ') : injectedClassNames;
+     const dependencies = extractUnistyleDependencies(parsedStyles);
+-    const filteredDependencies = this.services.state.CSSVars ? dependencies.filter(dependency => dependency !== UnistyleDependency.Theme) : dependencies;
++    // Numeric theme tokens need rule updates even when colors use CSS variables.
++    const filteredDependencies = dependencies;
+     if (!existingHash) {
+       this.disposeMap.set(hash, this.services.listener.addListeners(filteredDependencies, () => {
+         this.services.registry.applyStyles(hash, getParsedStyles());
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/web/shadowRegistry.js b/node_modules/react-native-unistyles/lib/commonjs/web/shadowRegistry.js
+--- a/node_modules/react-native-unistyles/lib/commonjs/web/shadowRegistry.js
++++ b/node_modules/react-native-unistyles/lib/commonjs/web/shadowRegistry.js
+@@ -4,7 +4,6 @@
+   value: true
+ });
+ exports.UnistylesShadowRegistry = void 0;
+-var _NativePlatform = require("../specs/NativePlatform/NativePlatform.nitro");
+ var _utils = require("../utils");
+ var _utils2 = require("./utils");
+ var _variants = require("./variants");
+@@ -82,7 +81,8 @@
+     const injectedClassNames = parsedStyles?._web?._classNames ?? [];
+     const injectedClassName = Array.isArray(injectedClassNames) ? injectedClassNames.join(' ') : injectedClassNames;
+     const dependencies = (0, _utils2.extractUnistyleDependencies)(parsedStyles);
+-    const filteredDependencies = this.services.state.CSSVars ? dependencies.filter(dependency => dependency !== _NativePlatform.UnistyleDependency.Theme) : dependencies;
++    // Numeric theme tokens need rule updates even when colors use CSS variables.
++    const filteredDependencies = dependencies;
+     if (!existingHash) {
+       this.disposeMap.set(hash, this.services.listener.addListeners(filteredDependencies, () => {
+         this.services.registry.applyStyles(hash, getParsedStyles());
+diff --git a/node_modules/react-native-unistyles/src/core/withUnistyles/withUnistyles.tsx b/node_modules/react-native-unistyles/src/core/withUnistyles/withUnistyles.tsx
+--- a/node_modules/react-native-unistyles/src/core/withUnistyles/withUnistyles.tsx
++++ b/node_modules/react-native-unistyles/src/core/withUnistyles/withUnistyles.tsx
+@@ -60,6 +60,9 @@
+                 : {}),
+         } as any
+
++        // uniProps belongs to this adapter, not the wrapped component or DOM.
++        delete combinedProps.uniProps
++
+         // @ts-ignore
+         // prettier-ignore
+         maybeWarnAboutMultipleUnistyles(narrowedProps.style, `withUnistyles(${Component.displayName ?? Component.name ?? 'Unknown'})`)
+diff --git a/node_modules/react-native-unistyles/lib/module/core/withUnistyles/withUnistyles.js b/node_modules/react-native-unistyles/lib/module/core/withUnistyles/withUnistyles.js
+--- a/node_modules/react-native-unistyles/lib/module/core/withUnistyles/withUnistyles.js
++++ b/node_modules/react-native-unistyles/lib/module/core/withUnistyles/withUnistyles.js
+@@ -39,6 +39,9 @@
+       } : {})
+     };
+
++    // uniProps belongs to this adapter, not the wrapped component or DOM.
++    delete combinedProps.uniProps;
++
+     // @ts-ignore
+     // prettier-ignore
+     maybeWarnAboutMultipleUnistyles(narrowedProps.style, `withUnistyles(${Component.displayName ?? Component.name ?? 'Unknown'})`);
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/core/withUnistyles/withUnistyles.js b/node_modules/react-native-unistyles/lib/commonjs/core/withUnistyles/withUnistyles.js
+--- a/node_modules/react-native-unistyles/lib/commonjs/core/withUnistyles/withUnistyles.js
++++ b/node_modules/react-native-unistyles/lib/commonjs/core/withUnistyles/withUnistyles.js
+@@ -44,6 +44,9 @@
+       } : {})
+     };
+
++    // uniProps belongs to this adapter, not the wrapped component or DOM.
++    delete combinedProps.uniProps;
++
+     // @ts-ignore
+     // prettier-ignore
+     (0, _warn.maybeWarnAboutMultipleUnistyles)(narrowedProps.style, `withUnistyles(${Component.displayName ?? Component.name ?? 'Unknown'})`);

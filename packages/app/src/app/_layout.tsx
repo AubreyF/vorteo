@@ -36,7 +36,6 @@ import { QuittingOverlay } from "@/components/quitting-overlay";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
 import { ChangelogHost } from "@/changelog";
 import { AppDiagnosticHost } from "@/components/app-diagnostic-host";
-import { AppearanceStyleBoundary } from "@/components/appearance-style-boundary";
 import { LeftSidebar } from "@/components/left-sidebar";
 import { WindowSidebarMenuToggle } from "@/components/headers/menu-header";
 import { DesktopWindowControls } from "@/components/desktop/window-controls";
@@ -65,6 +64,7 @@ import { isNative, isWeb } from "@/constants/platform";
 import { HorizontalScrollProvider } from "@/contexts/horizontal-scroll-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { SidebarCalloutProvider } from "@/contexts/sidebar-callout-context";
+import { InstallationUpdateToasts } from "@/components/installation-update-toasts";
 import { ToastProvider } from "@/contexts/toast-context";
 import { VoiceProvider } from "@/contexts/voice-context";
 import {
@@ -472,6 +472,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
   const isDesktopAgentListOpen = usePanelStore((state) => state.desktop.agentListOpen);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
+  const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
   const { width: viewportWidth } = useWindowDimensions();
 
   const cycleTheme = useCallback(() => {
@@ -523,7 +524,8 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const appContentMinimumWidth = resolveDesktopAppContentMinimum({
     isSettingsRoute: pathname.includes("/settings"),
   });
-  const desktopSidebarMounted = hasMountedDesktopSidebar && !isWorkspaceFocusModeEnabled;
+  const desktopSidebarMounted = hasMountedDesktopSidebar;
+  const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
   const desktopSidebarVisible = resolveDesktopSidebarVisibility({
     chromeEnabled,
     isCompactLayout,
@@ -532,10 +534,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     canShare: canDesktopAppSidebarShare({
       contentMinimumWidth: appContentMinimumWidth,
       requestedSidebarWidth: sidebarWidth,
+      compact: sidebarCompact,
+      hasTopLeftWindowControls,
       viewportWidth,
     }),
   });
-  const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
   const appChromeLayout = resolveDesktopAppChromeLayout({
     desktopSidebarRendered: desktopSidebarVisible,
     hasTopLeftWindowControls,
@@ -548,15 +551,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
       keyboardShortcutsEnabled={keyboardShortcutsEnabled}
     />
   );
-  let themedSidebarChrome = sidebarChrome;
-  if (isWeb) {
-    themedSidebarChrome = <AppearanceStyleBoundary>{sidebarChrome}</AppearanceStyleBoundary>;
-  }
   const workspaceChrome = (
     <View style={rowStyle}>
       {!isCompactLayout ? (
         <WindowChromeRegion corners={appChromeLayout.sidebarCorners}>
-          {themedSidebarChrome}
+          {sidebarChrome}
         </WindowChromeRegion>
       ) : null}
       {usesCompactExplorerHost ? (
@@ -576,52 +575,47 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     </View>
   );
 
-  // Native panel gesture hosts outlive appearance keys, like native navigators.
-  // Their tracked styles update in place; web numeric styles still need remounting.
+  // Theme updates preserve panel, navigator and portal lifetimes.
   const surface = (
-    <View style={layoutStyles.surfaceFill}>
+    <View style={layoutStyles.surfaceFill} dataSet={appearanceCanvasDataSet}>
       {workspaceChrome}
-      <AppearanceStyleBoundary>
-        {!isCompactLayout && appChromeLayout.sidebarToggleOwner === "window" ? (
-          <WindowChromeRegion corners="top-left">
-            <WindowChromeSafeArea
-              placement="inline"
-              horizontalPadding={WINDOW_SIDEBAR_TOGGLE_HORIZONTAL_PADDING}
-              pointerEvents="box-none"
-              style={layoutStyles.windowSidebarToggle}
-            >
-              <WindowSidebarMenuToggle />
-            </WindowChromeSafeArea>
-          </WindowChromeRegion>
-        ) : null}
-        <DesktopWindowControls />
-        <FloatingPanelPortalHost />
-      </AppearanceStyleBoundary>
-      {isCompactLayout ? themedSidebarChrome : null}
-      <AppearanceStyleBoundary>
-        <DownloadToast />
-        <RosettaCalloutSource />
-        <UpdateCalloutSource />
-        <VortonUpdateCalloutSource />
-        <LegacyAgentSkillsMigration />
-        <WorktreeSetupCalloutSource />
-        <CommandCenterRootActions />
-        <CommandCenterWorkspaceActions />
-        <PluginCommandCenterActions />
-        <WorkspacePinShortcutHandler />
-        <WorkspaceRenameHost />
-        <CommandCenter />
-        <AddProjectFlowHost />
-        <HostChooserModal />
-        <HostConfirmationSheet />
-        <ProviderSettingsHost />
-        <WorkspaceSetupDialog />
-        <KeyboardShortcutsDialog />
-        <AppDiagnosticHost />
-        <ChangelogHost />
-        <InstallationSessionHost />
-        <QuittingOverlay />
-      </AppearanceStyleBoundary>
+      {!isCompactLayout && appChromeLayout.sidebarToggleOwner === "window" ? (
+        <WindowChromeRegion corners="top-left">
+          <WindowChromeSafeArea
+            placement="inline"
+            horizontalPadding={WINDOW_SIDEBAR_TOGGLE_HORIZONTAL_PADDING}
+            pointerEvents="box-none"
+            style={layoutStyles.windowSidebarToggle}
+          >
+            <WindowSidebarMenuToggle />
+          </WindowChromeSafeArea>
+        </WindowChromeRegion>
+      ) : null}
+      <DesktopWindowControls />
+      <FloatingPanelPortalHost />
+      {isCompactLayout ? sidebarChrome : null}
+      <DownloadToast />
+      <RosettaCalloutSource />
+      <UpdateCalloutSource />
+      <VortonUpdateCalloutSource />
+      <LegacyAgentSkillsMigration />
+      <WorktreeSetupCalloutSource />
+      <CommandCenterRootActions />
+      <CommandCenterWorkspaceActions />
+      <PluginCommandCenterActions />
+      <WorkspacePinShortcutHandler />
+      <WorkspaceRenameHost />
+      <CommandCenter />
+      <AddProjectFlowHost />
+      <HostChooserModal />
+      <HostConfirmationSheet />
+      <ProviderSettingsHost />
+      <WorkspaceSetupDialog />
+      <KeyboardShortcutsDialog />
+      <AppDiagnosticHost />
+      <ChangelogHost />
+      <InstallationSessionHost />
+      <QuittingOverlay />
     </View>
   );
 
@@ -884,15 +878,11 @@ const ROOT_STACK_SCREEN_OPTIONS = {
   headerShown: false,
   animation: "none" as const,
 };
-const ROOT_STACK_NESTED_NAVIGATOR_SCREENS = ["h/[serverId]"] as const;
 
 function RootStack() {
   const storeReady = useStoreReady();
   return (
-    <ThemedStack
-      screenOptions={ROOT_STACK_SCREEN_OPTIONS}
-      nestedNavigatorScreens={ROOT_STACK_NESTED_NAVIGATOR_SCREENS}
-    >
+    <ThemedStack screenOptions={ROOT_STACK_SCREEN_OPTIONS}>
       <Stack.Screen name="index" />
       <Stack.Protected guard={storeReady}>
         <Stack.Screen name="welcome" />
@@ -948,6 +938,7 @@ function RuntimeProviders({ children }: { children: ReactNode }) {
         <ProvidersWrapper>
           {children}
           <ProjectMoveModalHost />
+          <InstallationUpdateToasts />
         </ProvidersWrapper>
       </SidebarCalloutProvider>
     </HostRuntimeBootstrapProvider>
@@ -1029,3 +1020,5 @@ const layoutStyles = StyleSheet.create((theme) => ({
     borderBottomColor: "transparent",
   },
 }));
+
+const appearanceCanvasDataSet = { appearanceCanvas: true };

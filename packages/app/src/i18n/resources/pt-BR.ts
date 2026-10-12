@@ -2246,7 +2246,7 @@ export const ptBR: TranslationResources = {
         title: "Fontes",
         systemDefault: "Sistema padrão",
         interfaceFont: "Fonte da interface",
-        interfaceFontHint: "Usada em todo o app. Deixe vazio para usar o padrão do sistema",
+        interfaceFontHint: "Usada em todo o app. Deixe vazio para usar a tipografia do tema",
         interfaceFontAccessibility: "Família da fonte da interface",
         interfaceSize: "Tamanho da interface",
         interfaceSizeHint: "Usado na navegação, nos controles e nos rótulos",

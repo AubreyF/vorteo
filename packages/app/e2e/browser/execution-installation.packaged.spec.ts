@@ -382,18 +382,58 @@ test("welcome signs in with the owner password and restores both environments", 
   page,
 }, testInfo) => {
   await page.goto(origin);
+  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("welcome-demo")).toBeVisible();
+  if (testInfo.project.name === "phone") {
+    const updates = page.getByTestId("installation-update-toasts-toggle");
+    await expect(updates).toHaveAttribute("aria-expanded", "false");
+    await updates.click();
+    await expect(page.getByRole("button", { name: "Review restart", exact: true })).toBeVisible();
+    await updates.click();
+    await expect(updates).toHaveAttribute("aria-expanded", "false");
+  }
+  await page.getByTestId("welcome-create-installation").click();
+  await expect(page.getByTestId("installation-command")).toContainText(
+    "docker/multiplex/install.sh",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByTestId("welcome-direct-connection").click();
   const form = page.getByTestId("installation-welcome");
   await expect(form).toBeVisible();
-  await expect(page.getByText("Welcome to Vorteo", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
   await expect(page.getByTestId("welcome-remote-ssh")).toHaveCount(0);
   const password = page.getByRole("textbox", { name: "Owner password" });
   const connect = page.getByRole("button", { name: "Connect", exact: true });
   await expect(connect).toBeDisabled();
+  if (testInfo.project.name === "phone") {
+    // Wait for the sheet to settle and prove maintenance cannot intercept its fields.
+    await expect(async () => {
+      const covered = await password.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) !== node;
+      });
+      expect(covered).toBe(false);
+      const updatesCovered = await page
+        .getByTestId("installation-update-toasts-toggle")
+        .evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return !node.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        });
+      expect(updatesCovered).toBe(true);
+    }).toPass();
+  }
   await page.screenshot({
     path: testInfo.outputPath("owner-welcome.png"),
     fullPage: true,
   });
+  await password.fill("discard-on-cancel");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await page.getByTestId("welcome-direct-connection").click();
+  await expect(password).toHaveValue("");
+  await expect(connect).toBeDisabled();
   await password.fill("container-test-password");
   await connect.click();
   await expect(form.getByRole("alert")).toContainText("Incorrect owner password");
@@ -448,10 +488,11 @@ test("owner connects two environments, prepares host drafts, and approves a veri
       );
   });
   await page.goto(origin);
+  await page.getByTestId("welcome-direct-connection").click();
   await expect(page.getByTestId("installation-welcome")).toBeVisible();
   await expect(page).toHaveURL(/welcome/);
-  await expect(page.getByTestId("welcome-direct-connection")).toHaveCount(0);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("direct-host-input")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await page.screenshot({
     path: testInfo.outputPath("installation-owner-access.png"),
     fullPage: true,
@@ -664,10 +705,12 @@ test("owner connects two environments, prepares host drafts, and approves a veri
   await page.screenshot({ path: testInfo.outputPath("installation-controls.png"), fullPage: true });
 });
 
-test("restart banner names daemons and keeps its top divider fixed while scrolling", async ({
+test("maintenance toasts retain exact review links and scroll outside the sidebar", async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+  const width = testInfo.project.name === "phone" ? 390 : 1440;
+  await page.setViewportSize({ width, height: 600 });
   await page.goto(`${origin}/settings/general?installation=1`);
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
@@ -693,15 +736,27 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
         source: { kind: "directory", path: directory },
       });
       if (!workspace) throw new Error("Missing banner fixture workspace");
-      const blocker = await client.createAgent({
-        config: {
-          provider: "mock",
-          cwd: directory,
-          title: "Keep the banner fixture queued",
-          model: "thirty-minute-stream",
-        },
-        workspaceId: workspace.id,
-        initialPrompt: "Keep this isolated restart queued during the scroll check",
+      const createBlocker = () =>
+        client.createAgent({
+          config: {
+            provider: "mock",
+            cwd: directory,
+            title: "Keep the banner fixture queued",
+            model: "thirty-minute-stream",
+          },
+          workspaceId: workspace.id,
+          initialPrompt: "Keep this isolated restart queued during the scroll check",
+        });
+      // The coordinator may finish its initial settings sync during admission.
+      // This exact guard rejects before agent creation, so one retry is safe.
+      const blocker = await createBlocker().catch((error: unknown) => {
+        if (
+          !(error instanceof Error) ||
+          error.message !==
+            "Local account or settings bindings changed during launch. Retry with the current configuration."
+        )
+          throw error;
+        return createBlocker();
       });
       blockers.push({ client, id: blocker.id });
       await expect
@@ -729,30 +784,51 @@ test("restart banner names daemons and keeps its top divider fixed while scrolli
     await expect(banner).toContainText("Host daemon restart queued");
     const cards = banner.getByRole("alert");
     await expect(cards).toHaveCount(2);
-    await expect(cards.first()).toHaveCSS("border-top-width", "0px");
+    await expect(cards.first()).toHaveCSS("border-top-width", "1px");
     await expect(cards.last()).toHaveCSS("border-top-width", "1px");
-    const bounds = await banner.boundingBox();
-    if (!bounds) throw new Error("Missing restart banner bounds");
-    const overflow = await banner.evaluate(
+    const stack = page.getByTestId("installation-update-toasts");
+    const scroll = page.getByTestId("installation-update-toasts-scroll");
+    await expect(stack.getByTestId("installation-restart-banner")).toHaveCount(1);
+    await expect(
+      page.getByTestId("settings-sidebar").getByTestId("installation-restart-banner"),
+    ).toHaveCount(0);
+    const bounds = await stack.boundingBox();
+    if (!bounds) throw new Error("Missing maintenance toast bounds");
+    expect(bounds.x + bounds.width).toBeCloseTo(width - 16, 0);
+    expect(bounds.y + bounds.height).toBeCloseTo(width < 640 ? 520 : 584, 0);
+    expect(bounds.height).toBeLessThanOrEqual(270);
+    const overflow = await scroll.evaluate(
       (element) => element.scrollHeight - element.clientHeight,
     );
     expect(overflow).toBeGreaterThan(0);
     for (const fraction of [0, 0.5, 1]) {
-      await banner.evaluate((element, scrollTop) => {
+      await scroll.evaluate((element, scrollTop) => {
         element.scrollTop = scrollTop;
       }, overflow * fraction);
       await expect
-        .poll(() => banner.evaluate((element) => element.scrollTop))
-        .toBeCloseTo(overflow * fraction, 0);
-      await expect(banner).toHaveCSS("border-top-width", "1px");
-      expect(await banner.boundingBox()).toEqual(bounds);
-      await banner.screenshot({
+        .poll(async () =>
+          Math.abs((await scroll.evaluate((element) => element.scrollTop)) - overflow * fraction),
+        )
+        .toBeLessThanOrEqual(0.5);
+      expect(await stack.boundingBox()).toEqual(bounds);
+      await stack.screenshot({
         path: testInfo.outputPath(`restart-banner-scroll-${fraction}.png`),
       });
     }
     const firstCardBounds = await cards.first().boundingBox();
     if (!firstCardBounds) throw new Error("Missing restart card bounds");
     expect(firstCardBounds.y).toBeLessThan(bounds.y);
+    await cards
+      .filter({ hasText: "Host daemon restart queued" })
+      .getByRole("button", { name: "Review restart", exact: true })
+      .click();
+    await expect(page).toHaveURL(/installation=1.*restart=/);
+    const reviewedId = new URL(page.url()).searchParams.get("restart");
+    expect(reviewedId).toBe(jobs[1]);
+    const reviewedCard = page.getByTestId(`restart-request-${reviewedId}`);
+    await reviewedCard.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(reviewedCard).toContainText("Rejected");
+    await expect(cards).toHaveCount(1);
   } finally {
     for (const id of jobs) {
       const response = await fetch(`${origin}/api/installation/restart-requests/${id}`, {

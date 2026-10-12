@@ -6,7 +6,12 @@ import { Pressable, Text } from "react-native";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const touchState = vi.hoisted(() => ({ enabled: false, compact: false }));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => touchState.enabled }));
-import { Tooltip, TooltipTrigger } from "./tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "./tooltip";
+
+vi.mock("./floating", async () => {
+  const { View } = await import("react-native");
+  return { FloatingSurface: View };
+});
 
 vi.mock("@/constants/platform", () => ({
   isWeb: true,
@@ -29,8 +34,9 @@ vi.mock("react-native-reanimated", () => ({
   default: {
     View: "div",
   },
-  FadeIn: {},
-  FadeOut: {},
+  FadeIn: { duration: () => ({ reduceMotion: () => undefined }) },
+  FadeOut: { duration: () => ({ reduceMotion: () => undefined }) },
+  ReduceMotion: { System: "system" },
 }));
 
 vi.mock("react-native-unistyles", () => ({
@@ -100,6 +106,63 @@ function pressTrigger(): void {
 }
 
 describe("TooltipTrigger", () => {
+  it("closes on Escape while leaving focus and activation with the trigger", async () => {
+    const activate = vi.fn();
+    await act(async () =>
+      root?.render(
+        <Tooltip defaultOpen>
+          <TooltipTrigger asChild>
+            <Pressable testID="trigger" onPress={activate}>
+              <Text>Info</Text>
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent>
+            <TooltipText label="Info" description="Conversation details" />
+          </TooltipContent>
+        </Tooltip>,
+      ),
+    );
+    const trigger = container?.querySelector<HTMLElement>('[data-testid="trigger"]');
+    act(() => trigger?.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      "InfoConversation details",
+    );
+    act(() =>
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Escape", cancelable: true }),
+      ),
+    );
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(activate).not.toHaveBeenCalled();
+    pressTrigger();
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
+
+  it("associates visible tooltip copy without replacing the control's existing description", async () => {
+    const render = (open: boolean) => (
+      <Tooltip open={open}>
+        <TooltipTrigger asChild>
+          <Pressable testID="trigger" aria-describedby="existing-help">
+            <Text>Context usage</Text>
+          </Pressable>
+        </TooltipTrigger>
+        <TooltipContent>
+          <TooltipText label="Context usage" description="Tokens available for this conversation" />
+        </TooltipContent>
+      </Tooltip>
+    );
+    await act(async () => root?.render(render(true)));
+    const trigger = container?.querySelector('[data-testid="trigger"]');
+    const tooltip = document.querySelector('[role="tooltip"]');
+    expect(tooltip?.textContent).toBe("Context usageTokens available for this conversation");
+    expect(tooltip?.id).not.toBe("");
+    expect(trigger?.getAttribute("aria-describedby")).toBe(`existing-help ${tooltip?.id}`);
+    await act(async () => root?.render(render(false)));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(trigger?.getAttribute("aria-describedby")).toBe("existing-help");
+  });
+
   it.each(["wide touch", "compact"])("keeps a tapped tooltip open on a %s screen", (mode) => {
     touchState.enabled = mode === "wide touch";
     touchState.compact = mode === "compact";

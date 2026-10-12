@@ -1,14 +1,15 @@
 import { StyleSheet } from "react-native-unistyles";
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 
 export const TASK_CARD_ROW_HEIGHT = 40;
 export const TASK_CARD_TOUCH_ROW_HEIGHT = 52;
 
 export const taskCardStyles = StyleSheet.create((theme) => {
   const surface = {
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: theme.colors.surfaceSidebar,
     borderColor: theme.colors.border,
     borderWidth: theme.borderWidth[1],
-    borderRadius: theme.borderRadius.lg,
+    borderRadius: FLOATING_PANEL_RADIUS,
   };
   return {
     surface,
@@ -27,7 +28,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.border },
     rowText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
     actions: { flexDirection: "row", alignItems: "center", gap: 0, flexShrink: 0 },
-    headingAction: { borderRadius: theme.borderRadius.lg, flexShrink: 0 },
+    headingAction: { borderRadius: FLOATING_PANEL_RADIUS, flexShrink: 0 },
     headingInfoText: {
       color: theme.colors.foreground,
       fontSize: theme.fontSize.base,
@@ -42,7 +43,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       minHeight: 32,
       paddingHorizontal: 0,
       paddingVertical: 0,
-      borderRadius: theme.borderRadius.lg,
+      borderRadius: FLOATING_PANEL_RADIUS,
     },
     touchAction: { width: 44, height: 44, minWidth: 44, minHeight: 44 },
     header: {

@@ -4,7 +4,10 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 import { allowBrowserAutomation, readExecutionInstallation } from "@/execution-installation/policy";
 import { useSyncExternalStore, useMemo } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
+import { isDemoSession } from "@/demo/mode";
+import { isIsolatedDemoPreview, assertRealHostAccess } from "@/demo/preview";
+import { createDemoClient } from "@/demo/client";
 import equal from "fast-deep-equal/es6";
 import {
   DaemonClient,
@@ -524,6 +527,7 @@ function probeIntervalForConnection(
 
 function createDefaultDeps(): HostRuntimeControllerDeps {
   const browserHostAvailable =
+    !isDemoSession() &&
     allowBrowserAutomation(readExecutionInstallation()) &&
     typeof getDesktopHost()?.browser?.executeAutomationCommand === "function";
   const browserAutomationCapabilities = browserHostAvailable
@@ -540,6 +544,8 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
 
   return {
     createClient: ({ host, connection, clientId, runtimeGeneration }) => {
+      if (isDemoSession()) return createDemoClient(host.serverId, clientId);
+      assertRealHostAccess();
       const desktopTransportFactory = createDesktopDaemonTransportFactory();
       const webSocketConfig = { webSocketFactory: createAppWebSocketFactory() };
       const base = {
@@ -603,15 +609,22 @@ function createDefaultDeps(): HostRuntimeControllerDeps {
         },
       });
     },
-    connectToDaemon: ({ host, connection, timeoutMs }) =>
-      connectToDaemon(connection, {
+    connectToDaemon: async ({ host, connection, timeoutMs }) => {
+      if (isDemoSession()) {
+        const client = createDemoClient(host.serverId, "demo-probe");
+        await client.connect();
+        return { client, serverId: host.serverId, hostname: "Demo" };
+      }
+      assertRealHostAccess();
+      return connectToDaemon(connection, {
         ...(host.serverId ? { serverId: host.serverId } : {}),
         ...(host.password ? { password: host.password } : {}),
         localCredential: () => readDesktopManagedLocalCredential(connection),
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         capabilities: appCapabilities,
         trace: nativePerformanceTrace,
-      }),
+      });
+    },
     getClientId: () => getOrCreateClientId(),
     mountClientHandlers: ({ client, host }) => {
       const unmountMessageQueue = mountMessageQueueClient(host.serverId, client);
@@ -1569,6 +1582,7 @@ export class HostRuntimeStore {
   private async runBoot(): Promise<void> {
     const override = readConfiguredLocalDaemonOverride();
     await this.loadRegistry();
+    if (isDemoSession() || isIsolatedDemoPreview) return;
 
     let isE2E: string | null = null;
     try {

@@ -1,4 +1,5 @@
 import type { ReplicaHostRows, ReplicaRow, ReplicaRowChanges, ReplicaRowStore } from "./row-store";
+import { demoStorageName } from "@/demo/mode";
 import { REPLICA_ROW_STORE_SCHEMA_VERSION } from "./row-store-schema";
 
 export type {
@@ -212,7 +213,7 @@ export function createIndexedDbReplicaRowStore(
 
 export function createReplicaRowStore(): ReplicaRowStore {
   return createIndexedDbReplicaRowStore({
-    databaseName: DATABASE_NAME,
+    databaseName: demoStorageName(DATABASE_NAME),
     schemaVersion: REPLICA_ROW_STORE_SCHEMA_VERSION,
   });
 }

@@ -54,7 +54,7 @@ it("offers Pause for a queue-held goal and Resume for a manual pause", () => {
   expect(goalStatusLabel(paused)).toBe("Goal (waiting for messages)");
   expect(isGoalContinuationEnabled(paused)).toBe(true);
   expect(goalStatusLabel({ ...paused, restartContinuationHeld: true })).toBe(
-    "Goal paused for restart",
+    "Goal blocked by restart",
   );
   const manual = { ...paused, queueContinuationHeld: false };
   expect(goalStatusLabel(manual)).toBe("Goal paused");
@@ -131,6 +131,6 @@ it("explains a held goal and distinguishes message failures from goal recovery",
   expect(goalQueueNotice({ status: "loading", goal: held.goal }, queue)).toBeNull();
   expect(goalQueueNotice({ ...held, restartContinuationHeld: true }, queue)).toBeNull();
   expect(goalStatusLabel({ ...held, restartContinuationHeld: true })).toBe(
-    "Goal paused for restart",
+    "Goal blocked by restart",
   );
 });

@@ -1,3 +1,5 @@
+import { isDemoSession } from "@/demo/mode";
+import { isIsolatedDemoPreview } from "@/demo/preview";
 import Constants from "expo-constants";
 import { useCallback } from "react";
 import { useStore } from "zustand";
@@ -9,6 +11,7 @@ import { checkVortonUpdate } from "./check";
 const sourceCommit: unknown = Constants.expoConfig?.extra?.vortonBuildCommit;
 export const VORTON_BUILD_COMMIT =
   typeof sourceCommit === "string" && /^[a-f0-9]{40}$/.test(sourceCommit) ? sourceCommit : null;
+const updatesEnabled = !isDemoSession() && !isIsolatedDemoPreview && VORTON_BUILD_COMMIT !== null;
 const CHECK_INTERVAL = 30 * 60 * 1000;
 
 export function useVortonUpdate(poll = false) {
@@ -20,7 +23,7 @@ export function useVortonUpdate(poll = false) {
       if (!VORTON_BUILD_COMMIT) throw new Error("This build has no source commit.");
       return checkVortonUpdate(VORTON_BUILD_COMMIT, signal);
     },
-    enabled: VORTON_BUILD_COMMIT !== null,
+    enabled: updatesEnabled,
     staleTimeMs: CHECK_INTERVAL,
     refetchInterval: poll ? CHECK_INTERVAL : false,
     refetchOnWindowFocus: true,
@@ -29,7 +32,7 @@ export function useVortonUpdate(poll = false) {
   });
   const { refetch } = query;
   const checkNow = useCallback(() => {
-    if (!VORTON_BUILD_COMMIT) return;
+    if (!updatesEnabled) return;
     void manualUpdateCheck.check(async () => {
       const result = await refetch({ cancelRefetch: false });
       if (result.error) throw result.error;
