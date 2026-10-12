@@ -110,6 +110,17 @@ function nativeRunnerUid(): number {
   return uid;
 }
 
+/** Host observation may time out before validation finishes. Losing its pipe
+ * cannot abort a durable claim or change the executor's recovery obligations. */
+export function acknowledgeBootstrapDispatch(): void {
+  process.stdout.on("error", () => {});
+  try {
+    process.stdout.write("dispatched\n");
+  } catch {
+    // The journal, not this best-effort notification, records dispatch.
+  }
+}
+
 type RunnerSetup = z.infer<typeof BootstrapRunnerSetupSchema>;
 function runnerRenewal(
   setup: RunnerSetup,
@@ -386,7 +397,7 @@ export async function runNativeBootstrap(
     if (child.exitCode !== null || child.signalCode !== null)
       throw new BootstrapRequestConflict("Watchdog exited before dispatch");
     await requireOwnership();
-    process.stdout.write("dispatched\n");
+    acknowledgeBootstrapDispatch();
   };
   const operations = await createBootstrapNativeOperations({
     requests,
