@@ -46,18 +46,14 @@ import { dispatchTopWebOverlayKeyDown } from "@/lib/overlay-root";
 export function useKeyboardShortcuts({
   enabled,
   isMobile,
-  isWorkspaceFocusModeEnabled,
   toggleAgentList,
   toggleBothSidebars,
-  exitFocusMode,
   cycleTheme,
 }: {
   enabled: boolean;
   isMobile: boolean;
-  isWorkspaceFocusModeEnabled: boolean;
   toggleAgentList: () => void;
   toggleBothSidebars?: () => void;
-  exitFocusMode: () => void;
   cycleTheme?: () => void;
 }) {
   const keyboardActionDispatcher = useKeyboardActionDispatcher();
@@ -240,9 +236,6 @@ export function useKeyboardShortcuts({
       input.domEvent,
       input.browserFocusRestoreElement,
     );
-    if (handled && isWorkspaceFocusModeEnabled && input.action.startsWith("sidebar.")) {
-      exitFocusMode();
-    }
     return handled;
   };
 

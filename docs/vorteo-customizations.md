@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Vorteo has no focus mode. Sidebar visibility and split-pane maximize controls remain explicit; the former focus-mode shortcut and palette command are removed. Upgrades discard its saved state without resetting other panel preferences.
+
 Workspace transition stability: desktop cards retain their right-hand portal destination before shell measurement and while hidden. Initial geometry comes from the viewport and effective navigation width; zero-sized retained measurements cannot trigger inline placement. Card motion animates height and opacity only; reactivation never interpolates a hidden zero rectangle into screen coordinates. Hidden body measurements retain their previous demand. Factory history admission correction and canonical c19f ancestry remain included.
 
 Responsive sidebars: viewport changes temporarily close supporting cards before reducing the left navigation to its 64px project rail. Phone widths use the compact navigation drawer. Widening restores the left layout before right-hand cards, without replacing saved widths or manual collapse preferences. A manual open overrides automatic sizing until the next width change.

@@ -1357,11 +1357,8 @@ function WorkspaceDocumentTitleEffectSlot({
   );
 }
 
-function shouldShowWorkspaceScreenHeader(input: {
-  isFocusModeEnabled: boolean;
-  isMobile: boolean;
-}): boolean {
-  return input.isMobile || (!supportsDesktopPaneSplits() && !input.isFocusModeEnabled);
+function shouldShowWorkspaceScreenHeader(input: { isMobile: boolean }): boolean {
+  return input.isMobile || !supportsDesktopPaneSplits();
 }
 
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
@@ -1527,8 +1524,6 @@ function WorkspaceScreenContent({
     isMobile,
     hasMacTrafficLights,
   });
-  const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
-  const toggleFocusMode = usePanelStore((state) => state.toggleFocusMode);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
 
@@ -1959,10 +1954,7 @@ function WorkspaceScreenContent({
       }),
     [uiTabs, workspaceLayout, unfocusedPaneId],
   );
-  const syncFocusedPaneOnly = useMemo(
-    () => isMobile || isFocusModeEnabled || !supportsDesktopPaneSplits(),
-    [isFocusModeEnabled, isMobile],
-  );
+  const syncFocusedPaneOnly = useMemo(() => isMobile || !supportsDesktopPaneSplits(), [isMobile]);
   const visibleAgentIds = useVisibleAgentIds({
     layout: workspaceLayout,
     tabs: uiTabs,
@@ -3307,11 +3299,6 @@ function WorkspaceScreenContent({
 
   const handleWorkspacePaneAction = useCallback(
     (action: KeyboardActionDefinition): boolean => {
-      if (action.id === "workspace.focus.toggle") {
-        toggleFocusMode();
-        return true;
-      }
-
       if (!persistenceKey || !workspaceLayout) {
         return true;
       }
@@ -3379,7 +3366,6 @@ function WorkspaceScreenContent({
       persistenceKey,
       focusedPaneTabState.activeTabId,
       focusedPaneTabState.pane,
-      toggleFocusMode,
       workspaceLayout,
     ],
   );
@@ -3495,7 +3481,6 @@ function WorkspaceScreenContent({
       "workspace.pane.move-tab.up",
       "workspace.pane.move-tab.down",
       "workspace.pane.close",
-      "workspace.focus.toggle",
     ] as const,
     enabled: workspaceActionsEnabled,
     priority: 100,
@@ -3926,10 +3911,7 @@ function WorkspaceScreenContent({
     t,
   ]);
 
-  const showScreenHeader = useMemo(
-    () => shouldShowWorkspaceScreenHeader({ isFocusModeEnabled, isMobile }),
-    [isFocusModeEnabled, isMobile],
-  );
+  const showScreenHeader = useMemo(() => shouldShowWorkspaceScreenHeader({ isMobile }), [isMobile]);
   const renderExplorerSidebarHeaderAction = useCallback(
     (visible: boolean) => (
       <>
@@ -3983,10 +3965,6 @@ function WorkspaceScreenContent({
     ],
   );
   const focusedPaneIdOrUndefined = useMemo(() => focusedPaneId ?? undefined, [focusedPaneId]);
-  const desktopFocusModeEnabled = useMemo(
-    () => isFocusModeEnabled && !isMobile,
-    [isFocusModeEnabled, isMobile],
-  );
   const workspaceFloatingPanelPortalHostName = useMemo(
     () =>
       `${WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX}:${normalizedServerId}:${normalizedWorkspaceId}`,
@@ -4066,8 +4044,6 @@ function WorkspaceScreenContent({
             onSupportingCardsVisibilityChange={setSupportingCardsVisible}
             renderMainHeader={renderWorkspaceScreenHeader}
             renderExplorerSidebarHeaderAction={renderExplorerSidebarHeaderAction}
-            focusModeEnabled={desktopFocusModeEnabled}
-            onExitFocusMode={toggleFocusMode}
             workspaceKey={persistenceKey}
             normalizedServerId={normalizedServerId}
             normalizedWorkspaceId={normalizedWorkspaceId}
@@ -4109,8 +4085,6 @@ function WorkspaceScreenContent({
     renderWorkspaceScreenHeader,
     renderExplorerSidebarHeaderAction,
     persistenceKey,
-    desktopFocusModeEnabled,
-    toggleFocusMode,
     normalizedServerId,
     normalizedWorkspaceId,
     isRouteFocused,
@@ -4197,8 +4171,6 @@ function WorkspaceScreenContent({
             onCloseOtherTabs={handleCloseOtherTabs}
             onCreateNewTab={handleCreateNewTab}
             onReorderTabs={handleReorderTabsInFocusedPane}
-            focusModeEnabled={desktopFocusModeEnabled}
-            onExitFocusMode={toggleFocusMode}
           />
         </NewTabLauncherProvider>
       ) : null}

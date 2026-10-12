@@ -131,11 +131,7 @@ import {
   WindowChromeRegion,
   WindowChromeSafeArea,
 } from "@/utils/desktop-window";
-import {
-  buildOpenProjectRoute,
-  parseHostWorkspaceRouteFromPathname,
-  parseServerIdFromPathname,
-} from "@/utils/host-routes";
+import { buildOpenProjectRoute, parseServerIdFromPathname } from "@/utils/host-routes";
 import { buildNotificationRoute, resolveNotificationTarget } from "@/utils/notification-routing";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { PluginCatalogSync } from "@/plugins";
@@ -471,8 +467,6 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const { settings, updateSettings } = useAppSettings();
   const toggleMobileAgentList = usePanelStore((state) => state.toggleMobileAgentList);
   const toggleDesktopAgentList = usePanelStore((state) => state.toggleDesktopAgentList);
-  const exitFocusMode = usePanelStore((state) => state.exitFocusMode);
-  const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
   const isDesktopAgentListOpen = usePanelStore((state) => state.desktop.agentListOpen);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const { sidebarCompact, sidebarNarrow } = useResponsiveSidebar();
@@ -494,8 +488,6 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const usesCompactExplorerHost = explorerSidebarPresentation !== "pane";
   useCompactWebViewportZoomLock();
   const pathname = usePathname();
-  const isWorkspaceRoute = parseHostWorkspaceRouteFromPathname(pathname) !== null;
-  const isWorkspaceFocusModeEnabled = isWorkspaceRoute && isFocusModeEnabled;
   const chromeEnabled = chromeEnabledOverride ?? daemons.length > 0;
   const hasMountedDesktopSidebar = useLatchedBoolean(chromeEnabled);
   const toggleAgentList = isCompactLayout ? toggleMobileAgentList : toggleDesktopAgentList;
@@ -519,10 +511,8 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   useKeyboardShortcuts({
     enabled: keyboardShortcutsEnabled,
     isMobile: isCompactLayout,
-    isWorkspaceFocusModeEnabled,
     toggleAgentList,
     toggleBothSidebars: toggleDesktopSidebars,
-    exitFocusMode,
     cycleTheme,
   });
 
@@ -554,7 +544,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const appChromeLayout = resolveDesktopAppChromeLayout({
     desktopSidebarRendered: desktopSidebarVisible,
     hasTopLeftWindowControls,
-    sidebarControlsEnabled: chromeEnabled && !isWorkspaceFocusModeEnabled,
+    sidebarControlsEnabled: chromeEnabled,
   });
   const sidebarChrome = (
     <SidebarChrome

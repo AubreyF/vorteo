@@ -44,11 +44,7 @@ import {
   resolveExplorerSidebarWidth,
 } from "@/components/explorer-sidebar-layout";
 import { RetainedPanel } from "@/components/retained-panel";
-import {
-  hasMultipleVisiblePanes,
-  resolveSplitContainerRoot,
-  splitNodeContainsPane,
-} from "@/components/split-container-focus";
+import { hasMultipleVisiblePanes, splitNodeContainsPane } from "@/components/split-container-panes";
 import { shouldFocusPaneFromEventTarget } from "@/components/split-container-pane-focus";
 import {
   removeWindowChromeCorner,
@@ -144,8 +140,6 @@ interface SplitContainerProps {
   onSelectTabInPane: (paneId: string, tabId: string) => void;
   onResizeSplit: (groupId: string, sizes: number[]) => void;
   onReorderTabsInPane: (paneId: string, tabIds: string[]) => void;
-  focusModeEnabled?: boolean;
-  onExitFocusMode: () => void;
 }
 
 interface WorkspaceTabDragData {
@@ -352,11 +346,9 @@ export function SplitContainer({
   onSelectTabInPane,
   onResizeSplit,
   onReorderTabsInPane,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitContainerProps) {
   const inheritedWindowChromeCorners = useWindowChromeCorners();
-  const windowChromeCorners = focusModeEnabled ? inheritedWindowChromeCorners : "none";
+  const windowChromeCorners = "none";
   const [activeDragTabId, setActiveDragTabId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<SplitDropZoneHover | null>(null);
   const [tabDropPreview, setTabDropPreview] = useState<TabDropPreview | null>(null);
@@ -394,14 +386,11 @@ export function SplitContainer({
   useEffect(() => {
     if (
       maximizedPaneId &&
-      (focusModeEnabled ||
-        !workspaceHasMultiplePanes ||
-        !mainRoot ||
-        !splitNodeContainsPane(mainRoot, maximizedPaneId))
+      (!workspaceHasMultiplePanes || !mainRoot || !splitNodeContainsPane(mainRoot, maximizedPaneId))
     ) {
       setMaximizedPane(null);
     }
-  }, [focusModeEnabled, mainRoot, maximizedPaneId, workspaceHasMultiplePanes]);
+  }, [mainRoot, maximizedPaneId, workspaceHasMultiplePanes]);
   const handleTogglePaneMaximized = useCallback(
     (paneId: string) => {
       setMaximizedPane((current) =>
@@ -412,15 +401,7 @@ export function SplitContainer({
     },
     [workspaceKey],
   );
-  const splitRoot = useMemo(
-    () =>
-      resolveSplitContainerRoot({
-        root: mainRoot ?? createDefaultLayout().root,
-        focusedPaneId: layout.focusedPaneId,
-        focusModeEnabled,
-      }),
-    [focusModeEnabled, layout.focusedPaneId, mainRoot],
-  );
+  const renderedRoot = useMemo(() => mainRoot ?? createDefaultLayout().root, [mainRoot]);
   const storedExplorerSidebarWidth = useWorkspaceLayoutStore(
     (state) => state.explorerSidebarWidthByWorkspace[workspaceKey],
   );
@@ -443,7 +424,7 @@ export function SplitContainer({
     [requestedExplorerSidebarWidth, workspaceShellWidth],
   );
   const supportingViewsVisible = Boolean(
-    !focusModeEnabled && explorerSidebarPane && explorerSidebarPane.hidden !== true,
+    explorerSidebarPane && explorerSidebarPane.hidden !== true,
   );
   const focusedMainPane = mainRoot ? findPaneById(mainRoot, layout.focusedPaneId) : null;
   const focusedTarget = deriveWorkspacePaneState({
@@ -455,7 +436,6 @@ export function SplitContainer({
   const renderExplorerSidebarDock = shouldShowSupportingCardGroup({
     collapsed: supportingCardsCollapsed,
     supportingViewsVisible,
-    focusModeEnabled,
     cardsAgentId,
     workspaceShellWidth,
   });
@@ -499,7 +479,7 @@ export function SplitContainer({
       renderExplorerSidebarDock,
       explorerSidebarWidth,
       workspaceShellWidth,
-      splitRoot.root,
+      renderedRoot,
       maximizedPaneId,
     );
   const mainColumnWindowChromeCorners = renderExplorerSidebarDock
@@ -540,7 +520,7 @@ export function SplitContainer({
     },
     [resizeExplorerSidebar, workspaceKey, workspaceShellWidth],
   );
-  const renderRoot = useMemo(() => wrapRootPaneForStableMount(splitRoot.root), [splitRoot.root]);
+  const renderRoot = useMemo(() => wrapRootPaneForStableMount(renderedRoot), [renderedRoot]);
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const data = asWorkspaceTabDragData(event.active.data.current);
     if (!data) {
@@ -745,7 +725,6 @@ export function SplitContainer({
             <WindowChromeRegion corners={mainColumnWindowChromeCorners}>
               <View style={mainColumnStyle}>
                 {!renderRoot ? renderMainHeader?.() : null}
-                {splitRoot.usesFallbackStrip && <WindowChromeSafeArea placement="below" />}
                 {renderRoot ? (
                   <SplitNodeView
                     renderMainHeader={renderMainHeader}
@@ -781,12 +760,10 @@ export function SplitContainer({
                     showDropZones={activeDragTabId !== null}
                     dropPreview={dropPreview}
                     tabDropPreview={tabDropPreview}
-                    windowChromeCorners={splitRoot.usesFallbackStrip ? "none" : windowChromeCorners}
+                    windowChromeCorners={windowChromeCorners}
                     maximizedPaneId={maximizedPaneId}
                     workspaceHasMultiplePanes={workspaceHasMultiplePanes}
                     onTogglePaneMaximized={handleTogglePaneMaximized}
-                    focusModeEnabled={focusModeEnabled}
-                    onExitFocusMode={onExitFocusMode}
                   />
                 ) : null}
               </View>
@@ -1020,8 +997,6 @@ function SplitNodeView({
   maximizedPaneId,
   workspaceHasMultiplePanes,
   onTogglePaneMaximized,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitNodeViewProps) {
   const [groupContainerSize, setGroupContainerSize] = useState(0);
   const groupId = node.kind === "group" ? node.group.id : null;
@@ -1107,8 +1082,6 @@ function SplitNodeView({
             maximizedPaneId={maximizedPaneId}
             workspaceHasMultiplePanes={workspaceHasMultiplePanes}
             onTogglePaneMaximized={onTogglePaneMaximized}
-            focusModeEnabled={focusModeEnabled}
-            onExitFocusMode={onExitFocusMode}
           />
         </WindowChromeRegion>
       </RetainedPanel>
@@ -1169,8 +1142,6 @@ function SplitNodeView({
               maximizedPaneId={maximizedPaneId}
               workspaceHasMultiplePanes={workspaceHasMultiplePanes}
               onTogglePaneMaximized={onTogglePaneMaximized}
-              focusModeEnabled={focusModeEnabled}
-              onExitFocusMode={onExitFocusMode}
             />
           </SplitGroupChild>
           {index < node.group.children.length - 1 &&
@@ -1228,8 +1199,6 @@ function SplitPaneView({
   maximizedPaneId,
   workspaceHasMultiplePanes,
   onTogglePaneMaximized,
-  focusModeEnabled,
-  onExitFocusMode,
 }: SplitPaneViewProps) {
   const paneRef = useRef<View | null>(null);
   const stableOnFocusPane = useStableEvent(onFocusPane);
@@ -1357,14 +1326,12 @@ function SplitPaneView({
             tabDropPreviewIndex={
               tabDropPreview?.paneId === pane.id ? tabDropPreview.indicatorIndex : null
             }
-            showPaneSplitActions={!focusModeEnabled}
-            showPaneMaximizeAction={workspaceHasMultiplePanes && !focusModeEnabled}
+            showPaneSplitActions
+            showPaneMaximizeAction={workspaceHasMultiplePanes}
             paneMaximized={paneId === maximizedPaneId}
             onTogglePaneMaximized={handleTogglePaneMaximized}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}
-            focusModeEnabled={Boolean(focusModeEnabled)}
-            onExitFocusMode={onExitFocusMode}
           />
         </WindowChromeSafeArea>
 
@@ -1621,7 +1588,6 @@ const styles = StyleSheet.create((theme) => ({
 interface SupportingCardGroupVisibility {
   collapsed?: boolean;
   supportingViewsVisible: boolean;
-  focusModeEnabled: boolean | undefined;
   cardsAgentId: string | null;
   workspaceShellWidth: number;
 }
@@ -1629,12 +1595,11 @@ interface SupportingCardGroupVisibility {
 function shouldShowSupportingCardGroup({
   collapsed,
   supportingViewsVisible,
-  focusModeEnabled,
   cardsAgentId,
   workspaceShellWidth,
 }: SupportingCardGroupVisibility): boolean {
   if (collapsed) return false;
   if (supportingViewsVisible) return true;
-  if (focusModeEnabled || !cardsAgentId) return false;
+  if (!cardsAgentId) return false;
   return workspaceShellWidth >= COLUMN_BREAKPOINT;
 }

@@ -21,7 +21,6 @@ function makePanelState(overrides: Partial<PanelCoreState> = {}): PanelCoreState
     mobilePanel: { target: "agent", revision: 0 },
     desktop: {
       agentListOpen: false,
-      focusModeEnabled: false,
     },
     explorerTab: "changes",
     explorerTabByCheckout: {},
@@ -175,7 +174,7 @@ describe("panel-store visibility selectors", () => {
   it("uses the mobile panel target for compact layout visibility", () => {
     const state = makePanelState({
       mobilePanel: { target: "file-explorer", revision: 1 },
-      desktop: { agentListOpen: true, focusModeEnabled: false },
+      desktop: { agentListOpen: true },
     });
 
     expect(selectIsAgentListOpen(state, { isCompact: true })).toBe(false);
@@ -185,7 +184,7 @@ describe("panel-store visibility selectors", () => {
   it("uses the desktop flag for the expanded agent list", () => {
     const state = makePanelState({
       mobilePanel: { target: "file-explorer", revision: 1 },
-      desktop: { agentListOpen: true, focusModeEnabled: false },
+      desktop: { agentListOpen: true },
     });
 
     expect(selectIsAgentListOpen(state, { isCompact: false })).toBe(true);
@@ -250,7 +249,7 @@ describe("panel-store compact file explorer actions", () => {
 describe("persistent desktop rail migration", () => {
   it("restores a previously hidden sidebar as the minimal rail without changing its saved width", () => {
     const migrated = migratePanelState(
-      { desktop: { agentListOpen: false, focusModeEnabled: false }, sidebarWidth: 412 },
+      { desktop: { agentListOpen: false }, sidebarWidth: 412 },
       16,
     );
     expect(migrated.desktop?.agentListOpen).toBe(true);
@@ -314,4 +313,27 @@ describe("device-local card preferences", () => {
     expect(state.sidebarCompact).toBe(true);
     expect(state.supportingCardExpanded).toBeUndefined();
   });
+});
+
+describe("retired focus mode preferences", () => {
+  it.each(["focusModeEnabled", "zoomed", "focused"])(
+    "discards %s without losing panel preferences",
+    (key) => {
+      const state = migratePanelState(
+        {
+          desktop: { agentListOpen: true, [key]: true },
+          sidebarWidth: 412,
+          sidebarCompact: false,
+          supportingCardExpanded: { tasks: false },
+          inlineCardExpanded: { journal: false },
+        },
+        19,
+      );
+      expect(state.desktop).toEqual({ agentListOpen: true });
+      expect(state.sidebarWidth).toBe(412);
+      expect(state.sidebarCompact).toBe(false);
+      expect(state.supportingCardExpanded).toEqual({ tasks: false });
+      expect(state.inlineCardExpanded).toEqual({ journal: false });
+    },
+  );
 });

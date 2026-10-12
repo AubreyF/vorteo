@@ -100,8 +100,6 @@ export interface PanelState {
   fileTreeVisible: boolean;
 
   // Actions
-  toggleFocusMode: () => void;
-  exitFocusMode: () => void;
   showMobileAgent: () => void;
   showMobileAgentList: () => void;
   toggleMobileAgentList: () => void;
@@ -161,7 +159,6 @@ export const usePanelStore = create<PanelState>()(
       // Desktop defaults based on platform
       desktop: {
         agentListOpen: DEFAULT_DESKTOP_OPEN,
-        focusModeEnabled: false,
       },
 
       // File explorer defaults
@@ -178,23 +175,6 @@ export const usePanelStore = create<PanelState>()(
       explorerShowHiddenFiles: true,
       treeRailWidth: DEFAULT_TREE_RAIL_WIDTH,
       fileTreeVisible: true,
-
-      toggleFocusMode: () =>
-        set((state) => ({
-          desktop: {
-            ...state.desktop,
-            agentListOpen: true,
-            focusModeEnabled: !state.desktop.focusModeEnabled,
-          },
-          sidebarCompact: state.desktop.focusModeEnabled ? state.sidebarCompact : true,
-        })),
-
-      exitFocusMode: () =>
-        set((state) =>
-          state.desktop.focusModeEnabled
-            ? { desktop: { ...state.desktop, focusModeEnabled: false } }
-            : state,
-        ),
 
       showMobileAgent: () => set((state) => setMobilePanelTargetPatch(state, "agent")),
 
@@ -337,7 +317,7 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 19,
+      version: 20,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({

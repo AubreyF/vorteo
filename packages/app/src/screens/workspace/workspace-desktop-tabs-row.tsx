@@ -408,35 +408,6 @@ function SharedToolbarMenu({ paneId, children }: { paneId?: string; children: Re
   return children;
 }
 
-function WorkspaceExitFocusModeButton({
-  visible,
-  onPress,
-  onLayout,
-}: {
-  visible: boolean;
-  onPress: () => void;
-  onLayout: (event: LayoutChangeEvent) => void;
-}) {
-  const { t } = useTranslation();
-  const focusModeKeys = useShortcutKeys("toggle-focus");
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <View style={styles.exitFocusModeSlot} onLayout={onLayout}>
-      <ToolbarButton
-        label={t("workspace.tabs.actions.exitFocusMode")}
-        shortcut={focusModeKeys}
-        testID="workspace-exit-focus-mode"
-        onPress={onPress}
-      >
-        <ThemedX size={14} uniProps={mutedColorMapping} />
-      </ToolbarButton>
-    </View>
-  );
-}
-
 function TabContextMenuItem({
   entry,
 }: {
@@ -572,8 +543,6 @@ export interface WorkspaceDesktopTabsRowProps {
   onTogglePaneMaximized?: () => void;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
-  focusModeEnabled: boolean;
-  onExitFocusMode: () => void;
 }
 
 interface ResolvedWorkspaceDesktopTabsRowProps extends Omit<WorkspaceDesktopTabsRowProps, "tabs"> {
@@ -1064,8 +1033,6 @@ function ResolvedWorkspaceDesktopTabsRow({
   onTogglePaneMaximized,
   onSplitRight,
   onSplitDown,
-  focusModeEnabled,
-  onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
   const sharedToolbar = useContext(SharedWorkspaceToolbarContext);
@@ -1074,7 +1041,6 @@ function ResolvedWorkspaceDesktopTabsRow({
   const toolbarInset = useSharedToolbarInset(paneId);
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
-  const [exitFocusModeWidth, setExitFocusModeWidth] = useState<number>(0);
   const tabScrollBoundary = useHorizontalScrollBoundary();
   const [labelMeasurements, setLabelMeasurements] = useState(
     () => new Map<string, WorkspaceTabLabelMeasurement>(),
@@ -1085,10 +1051,6 @@ function ResolvedWorkspaceDesktopTabsRow({
     updateMeasuredWidth(setTabsContainerWidth, event);
   }, []);
 
-  const handleExitFocusModeLayout = useCallback((event: LayoutChangeEvent) => {
-    updateMeasuredWidth(setExitFocusModeWidth, event);
-  }, []);
-
   const layoutMetrics = useMemo(
     () => ({
       rowHorizontalInset: 0,
@@ -1096,7 +1058,6 @@ function ResolvedWorkspaceDesktopTabsRow({
         0,
         toolbarInset +
           DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
-          (focusModeEnabled ? exitFocusModeWidth : 0) +
           (showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
           (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0) +
           (hasSidebarToggle ? smallIconButtonChromeFrameSize(false) : 0),
@@ -1110,14 +1071,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       tabHorizontalPadding: TAB_CHIP_HORIZONTAL_PADDING,
       closeButtonWidth: TAB_CLOSE_BUTTON_RESERVED_WIDTH,
     }),
-    [
-      exitFocusModeWidth,
-      focusModeEnabled,
-      showPaneMaximizeAction,
-      showPaneSplitActions,
-      hasSidebarToggle,
-      toolbarInset,
-    ],
+    [showPaneMaximizeAction, showPaneSplitActions, hasSidebarToggle, toolbarInset],
   );
 
   const panePanelKinds = useMemo(() => tabs.map(({ tab }) => tab.kind), [tabs]);
@@ -1393,11 +1347,6 @@ function ResolvedWorkspaceDesktopTabsRow({
           />
         ))}
       </View>
-      <WorkspaceExitFocusModeButton
-        visible={focusModeEnabled}
-        onPress={onExitFocusMode}
-        onLayout={handleExitFocusModeLayout}
-      />
       <View style={styles.tabsScrollContainer}>
         <Animated.ScrollView
           horizontal
@@ -1624,14 +1573,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     paddingHorizontal: TAB_ROW_PADDING_HORIZONTAL,
     minHeight: VORTON_HEADER_HEIGHT,
-  },
-  exitFocusModeSlot: {
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: theme.spacing[0.5],
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
   },
   inlineAddButton: {
     flexDirection: "row",

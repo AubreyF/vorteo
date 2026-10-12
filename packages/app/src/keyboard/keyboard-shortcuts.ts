@@ -194,7 +194,7 @@ export const SHORTCUT_HELP_ROW_ORDER: Record<ShortcutSectionId, readonly string[
     "workspace-pane-move-tab-down",
     "workspace-pane-close",
   ],
-  layout: ["toggle-left-sidebar", "toggle-right-sidebar", "toggle-both-sidebars", "toggle-focus"],
+  layout: ["toggle-left-sidebar", "toggle-right-sidebar", "toggle-both-sidebars"],
   "agent-input": [
     "focus-message-input",
     "cycle-agent-mode",
@@ -242,7 +242,6 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "toggle-right-sidebar": "settings.shortcuts.help.toggleRightSidebar",
   "toggle-both-sidebars": "settings.shortcuts.help.toggleBothSidebars",
   "toggle-settings": "settings.shortcuts.help.toggleSettings",
-  "toggle-focus": "settings.shortcuts.help.toggleFocusMode",
   "cycle-theme": "settings.shortcuts.help.cycleTheme",
   "focus-message-input": "settings.shortcuts.help.focusMessageInput",
   "cycle-agent-mode": "settings.shortcuts.help.cycleAgentMode",
@@ -1011,30 +1010,6 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
       id: "toggle-settings",
       section: "general",
       label: "Toggle settings",
-    },
-  },
-
-  // --- Focus mode ---
-  {
-    id: "view-toggle-focus-cmd-shift-f-mac",
-    action: "view.toggle.focus",
-    combo: "Cmd+Shift+F",
-    when: { mac: true, commandCenter: false },
-    help: {
-      id: "toggle-focus",
-      section: "layout",
-      label: "Toggle focus mode",
-    },
-  },
-  {
-    id: "view-toggle-focus-ctrl-shift-f-non-mac",
-    action: "view.toggle.focus",
-    combo: "Ctrl+Shift+F",
-    when: { mac: false, commandCenter: false, terminal: false },
-    help: {
-      id: "toggle-focus",
-      section: "layout",
-      label: "Toggle focus mode",
     },
   },
 

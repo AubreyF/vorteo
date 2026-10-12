@@ -43,7 +43,6 @@ export interface MobilePanelSelection {
 
 export interface DesktopSidebarState {
   agentListOpen: boolean;
-  focusModeEnabled: boolean;
 }
 
 export type SortOption = "name" | "modified" | "size";
@@ -149,6 +148,7 @@ export function buildToggleFileExplorerPatch(
 const ExplorerTabSchema = z.enum(["changes", "files", "pr"]);
 const DesktopSidebarStorageSchema = z.strictObject({
   agentListOpen: z.boolean().optional(),
+  // Legacy focus-mode keys are accepted only to discard them during migration.
   focusModeEnabled: z.boolean().optional(),
   zoomed: z.boolean().optional(),
   focused: z.boolean().optional(),
@@ -210,24 +210,6 @@ function migratePanelExplorerTabByCheckout(state: MigratablePanelState, version:
   state.explorerTabByCheckout = next;
 }
 
-function migratePanelDesktopFocusMode(state: MigratablePanelState): void {
-  const desktop = state.desktop;
-  if (!desktop) {
-    return;
-  }
-  if ("zoomed" in desktop) {
-    desktop.focusModeEnabled = desktop.zoomed;
-    delete desktop.zoomed;
-  }
-  if ("focused" in desktop) {
-    desktop.focusModeEnabled = desktop.focused;
-    delete desktop.focused;
-  }
-  if (typeof desktop.focusModeEnabled !== "boolean") {
-    desktop.focusModeEnabled = false;
-  }
-}
-
 // v16 narrowed the rail. Existing installs almost all carry the old 320 default,
 // so the reset is what makes the narrower rail visible to anyone but a new user.
 function migrateTreeRailWidth(state: MigratablePanelState, version: number): void {
@@ -268,8 +250,10 @@ export function migratePanelState(persistedState: unknown, version: number): Mig
     state.desktop.agentListOpen = true;
   }
   migratePanelExplorerTabByCheckout(state, version);
-  if (version < 8) {
-    migratePanelDesktopFocusMode(state);
+  if (state.desktop) {
+    delete state.desktop.focusModeEnabled;
+    delete state.desktop.zoomed;
+    delete state.desktop.focused;
   }
   if (version < 6 || typeof state.sidebarWidth !== "number") {
     state.sidebarWidth = DEFAULT_SIDEBAR_WIDTH;

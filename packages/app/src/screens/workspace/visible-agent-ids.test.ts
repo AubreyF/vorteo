@@ -44,7 +44,7 @@ test("route blur publishes no viewed agents", () => {
   ).toEqual([]);
 });
 
-test("compact and focus modes contribute only the focused pane", () => {
+test("compact layouts contribute only the focused pane", () => {
   const layout: WorkspaceLayout = {
     focusedPaneId: "right",
     root: {

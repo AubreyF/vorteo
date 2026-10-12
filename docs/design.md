@@ -1,5 +1,7 @@
 # Design
 
+Vorteo has no focus mode. Sidebar visibility and split-pane maximize controls remain explicit; the former focus-mode shortcut and palette command are removed. Upgrades discard its saved state without resetting other panel preferences.
+
 Tokens — every color, font size, weight, spacing step, radius, icon size — live in `packages/app/src/styles/theme.ts`.
 
 ---
