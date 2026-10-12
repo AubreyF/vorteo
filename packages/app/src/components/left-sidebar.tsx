@@ -3,7 +3,6 @@ import {
   sidebarPresentationWidth,
   useSidebarWidth,
 } from "./sidebar/sidebar-width";
-import { useScrollDivider } from "./use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
@@ -436,7 +435,6 @@ function SidebarToolbar({
   rail = false,
   railFooter,
   onExpand,
-  scrolled = false,
   theme,
   handleOpenProject,
   handleSettings,
@@ -446,7 +444,6 @@ function SidebarToolbar({
   rail?: boolean;
   railFooter?: boolean;
   onExpand?: () => void;
-  scrolled?: boolean;
   handleImportSession: () => void;
   theme: SidebarTheme;
   handleOpenProject: () => void;
@@ -629,11 +626,7 @@ function SidebarToolbar({
   return (
     <>
       <View
-        style={
-          rail
-            ? styles.railToolbar
-            : [styles.sidebarFooter, styles.sidebarToolbar, !scrolled && styles.unscrolledToolbar]
-        }
+        style={rail ? styles.railToolbar : [styles.sidebarFooter, styles.sidebarToolbar]}
         testID="sidebar-toolbar"
       >
         {rail && onExpand ? (
@@ -775,7 +768,6 @@ function MobileSidebar({
     closeSidebar();
   }, [closeSidebar]);
 
-  const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const mobileSidebarInsetStyle = useMemo(
     () => ({
@@ -794,7 +786,6 @@ function MobileSidebar({
   );
   const toolbar = (
     <SidebarToolbar
-      scrolled={divider.scrolled}
       onBeforeNavigate={closeSidebar}
       theme={theme}
       handleOpenProject={handleOpenProject}
@@ -812,7 +803,6 @@ function MobileSidebar({
       panelStyle={mobileSidebarInsetStyle}
     >
       <View
-        ref={divider.ref}
         style={[styles.sidebarContent, { padding: spacingInset }]}
         onLayout={onPanelLayout}
         pointerEvents="auto"
@@ -827,7 +817,6 @@ function MobileSidebar({
           </>
         ) : (
           <SidebarWorkspaceList
-            onScrolledChange={divider.report}
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
@@ -999,9 +988,6 @@ function DesktopSidebar({
     ],
     [active, resizeAnimatedStyle],
   );
-  const divider = useScrollDivider();
-  const resetScroll = divider.report;
-  useEffect(() => resetScroll(false), [compact, resetScroll]);
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
   const desktopSidebarBorderStyle = useMemo(
     () => [
@@ -1021,7 +1007,6 @@ function DesktopSidebar({
       <SidebarToolbar
         rail={compact}
         onExpand={expandSidebar}
-        scrolled={divider.scrolled}
         theme={theme}
         handleOpenProject={handleOpenProject}
         handleImportSession={handleImportSession}
@@ -1034,7 +1019,6 @@ function DesktopSidebar({
     [
       compact,
       expandSidebar,
-      divider.scrolled,
       theme,
       handleOpenProject,
       handleImportSession,
@@ -1075,12 +1059,7 @@ function DesktopSidebar({
         style={desktopSidebarStyle}
         onLayout={measureSidebar}
       >
-        <View
-          ref={divider.ref}
-          style={desktopSidebarBorderStyle}
-          onLayout={onPanelLayout}
-          testID="floating-sidebar"
-        >
+        <View style={desktopSidebarBorderStyle} onLayout={onPanelLayout} testID="floating-sidebar">
           {compact ? (
             <>
               {ownsTopLeft ? (
@@ -1124,7 +1103,6 @@ function DesktopSidebar({
                 </>
               ) : (
                 <SidebarWorkspaceList
-                  onScrolledChange={divider.report}
                   collapsedProjectKeys={collapsedProjectKeys}
                   onToggleProjectCollapsed={toggleProjectCollapsed}
                   shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
@@ -1235,7 +1213,6 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  unscrolledToolbar: { borderBottomColor: "transparent" },
   scrollingNavGroup: {
     gap: 2,
     paddingBottom: theme.spacing[1.5],

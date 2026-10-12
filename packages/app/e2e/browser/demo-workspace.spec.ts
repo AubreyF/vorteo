@@ -832,7 +832,7 @@ test("mobile keyboard viewport keeps workspace navigation above the composer", a
   ).toBeVisible();
 });
 
-test("sidebar header divider follows the list scroll position without moving rows", async ({
+test("sidebar header divider stays visible at every list scroll position", async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 1800, height: 360 });
@@ -841,20 +841,20 @@ test("sidebar header divider follows the list scroll position without moving row
   const toolbar = sidebar.getByTestId("sidebar-toolbar");
   const list = sidebar.getByTestId("sidebar-project-workspace-list-scroll");
   await expect(list).toBeVisible();
-  await expect(toolbar).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
+  const border = await sidebar.evaluate((node) => getComputedStyle(node).borderTopColor);
+  await expect(toolbar).toHaveCSS("border-bottom-color", border);
   const initial = await toolbar.boundingBox();
   await list.evaluate((node) => {
     node.scrollTop = node.scrollHeight;
   });
   await expect.poll(() => list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
-  const border = await sidebar.evaluate((node) => getComputedStyle(node).borderTopColor);
   await expect(toolbar).toHaveCSS("border-bottom-color", border);
   expect(await toolbar.boundingBox()).toEqual(initial);
   await page.screenshot({ path: info.outputPath("sidebar-scrolled-divider.png") });
   await list.evaluate((node) => {
     node.scrollTop = 0;
   });
-  await expect(toolbar).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
+  await expect(toolbar).toHaveCSS("border-bottom-color", border);
   expect(await toolbar.boundingBox()).toEqual(initial);
 });
 
