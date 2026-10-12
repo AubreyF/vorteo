@@ -106,18 +106,7 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   const expandedWidth = (await sidebar.boundingBox())!.width;
   await expect(page.getByText("Compact", { exact: true })).toHaveCount(0);
   await page.getByTestId("sidebar-collapse").click();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
-  await expect(page.getByTestId("sidebar-collapse")).toHaveAccessibleName("Minimize sidebar");
-  await expect(workspace).toBeVisible();
-  const compactBounds = (await sidebar.boundingBox())!;
-  const menuBounds = (await page.getByTestId("sidebar-footer-overflow").boundingBox())!;
-  expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(
-    compactBounds.x + compactBounds.width,
-  );
-  await page.screenshot({ path: info.outputPath("compact-sidebar.png") });
-  await page.reload();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
-  await page.getByTestId("sidebar-collapse").click();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   const railProject = page
     .getByTestId("compact-project-rail")
@@ -142,8 +131,6 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect(page.getByTestId("sidebar-toolbar")).toBeVisible();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
-  await page.keyboard.press(mac ? "Meta+b" : "Control+.");
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
   await page.keyboard.press(mac ? "Meta+b" : "Control+.");
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   await page.keyboard.press(mac ? "Meta+b" : "Control+.");
@@ -470,7 +457,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1800, height: 1000 });
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
   await expect(cards).toBeHidden();
 });
 
@@ -1043,7 +1030,6 @@ test.describe("touch project rail", () => {
     await page.setViewportSize({ width: 1400, height: 1000 });
     await page.goto("/?demo=1");
     await page.getByTestId("sidebar-collapse").click();
-    await page.getByTestId("sidebar-collapse").click();
     await expect(page.getByTestId("compact-project-rail")).toBeVisible();
     for (const id of [
       "sidebar-expand",
@@ -1065,3 +1051,33 @@ test.describe("touch project rail", () => {
     await expect(page.getByText("Changes ready for review", { exact: true })).toBeVisible();
   });
 });
+
+for (const hasTouch of [false, true]) {
+  test.describe(`sidebar width routing with touch ${hasTouch}`, () => {
+    test.use({ hasTouch });
+    test("uses the mobile overlay only below the viewport breakpoint", async ({ page }) => {
+      await page.setViewportSize({ width: 1000, height: 900 });
+      await page.goto("/?demo=1");
+      const row = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
+      await row.click();
+      await page.getByTestId("sidebar-collapse").click();
+      await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+      await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+      await expect(row).toBeVisible();
+      await page.setViewportSize({ width: 719, height: 900 });
+      await expect(page.getByTestId("compact-project-rail")).toBeHidden();
+      const toggle = page.getByRole("button", { name: "Open menu", exact: true });
+      await expect(toggle).toHaveCount(1);
+      await expect(toggle).toBeVisible();
+      await toggle.click();
+      await expect(row).toBeVisible();
+      await row.click();
+      // The retained overlay leaves accessibility after its close animation settles.
+      await expect(toggle).toHaveCount(1);
+      await expect(toggle).toBeVisible();
+      await page.setViewportSize({ width: 720, height: 900 });
+      await expect(toggle).toBeHidden();
+      await expect(page.getByTestId("compact-project-rail")).toBeVisible();
+    });
+  });
+}

@@ -301,9 +301,7 @@ export type { ExplorerTab, ExplorerCheckoutContext };
 
 // Keep the minimal rail visible and preserve the user's expanded resize width.
 export function cycleDesktopSidebar(state: { sidebarCompact: boolean; sidebarNarrow: boolean }) {
-  if (state.sidebarCompact) return { sidebarCompact: false, sidebarNarrow: false };
-  if (state.sidebarNarrow) return { sidebarCompact: true, sidebarNarrow: false };
-  return { sidebarCompact: false, sidebarNarrow: true };
+  return { sidebarCompact: !state.sidebarCompact, sidebarNarrow: false };
 }
 
 /** Resize constraints are presentation only; never replace the saved desktop choice. */
@@ -316,12 +314,13 @@ export function resolveResponsiveSidebar(
   },
   viewportWidth: number,
 ) {
-  const requestedWidth = state.sidebarNarrow ? COMPACT_LABELED_SIDEBAR_WIDTH : state.sidebarWidth;
+  // Ignore the retired intermediate mode in existing device preferences.
+  const requestedWidth = state.sidebarWidth;
   const autoCompact =
     viewportWidth < requestedWidth + MIN_TEXT_WIDTH + SIDEBAR_OUTER_GAP * 2 &&
     state.sidebarViewportOverride !== viewportWidth;
   return {
     sidebarCompact: state.sidebarCompact || autoCompact,
-    sidebarNarrow: state.sidebarNarrow && !autoCompact,
+    sidebarNarrow: false,
   };
 }

@@ -62,7 +62,7 @@ function SidebarMenuToggleButton({
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
-  const { sidebarCompact, sidebarNarrow } = useResponsiveSidebar();
+  const { sidebarCompact } = useResponsiveSidebar();
   const toggleAgentListForLayout = usePanelStore((state) => state.toggleAgentListForLayout);
   const toggleShortcutKeys = useMemo(
     () => (getShortcutOs() === "mac" ? ["mod", "B"] : ["mod", "."]),
@@ -75,7 +75,6 @@ function SidebarMenuToggleButton({
 
   const expanded = isMobile ? isOpen : !sidebarCompact;
   let toggleLabel = "Use compact sidebar";
-  if (sidebarNarrow) toggleLabel = "Minimize sidebar";
   if (sidebarCompact) toggleLabel = "Expand sidebar";
   if (isMobile) toggleLabel = isOpen ? t("shell.menu.close") : t("shell.menu.open");
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);

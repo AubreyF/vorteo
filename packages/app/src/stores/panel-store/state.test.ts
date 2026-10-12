@@ -8,6 +8,7 @@ import {
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
   DEFAULT_TREE_RAIL_WIDTH,
+  cycleDesktopSidebar,
   resolveResponsiveSidebar,
   migratePanelState,
   selectIsAgentListOpen,
@@ -260,6 +261,12 @@ describe("persistent desktop rail migration", () => {
 
 describe("responsive sidebar presentation", () => {
   const expanded = { sidebarCompact: false, sidebarNarrow: false, sidebarWidth: 360 };
+  it("toggles directly between normal and rail, including old intermediate preferences", () => {
+    const rail = cycleDesktopSidebar(expanded);
+    expect(rail).toEqual({ sidebarCompact: true, sidebarNarrow: false });
+    expect(cycleDesktopSidebar(rail)).toEqual({ sidebarCompact: false, sidebarNarrow: false });
+    expect(cycleDesktopSidebar({ sidebarCompact: false, sidebarNarrow: true })).toEqual(rail);
+  });
   it("uses the rail only while the saved width would crowd the center", () => {
     expect(resolveResponsiveSidebar(expanded, 1300).sidebarCompact).toBe(false);
     expect(resolveResponsiveSidebar(expanded, 800).sidebarCompact).toBe(true);
@@ -271,7 +278,7 @@ describe("responsive sidebar presentation", () => {
       resolveResponsiveSidebar({ ...expanded, sidebarCompact: true }, 1800).sidebarCompact,
     ).toBe(true);
     expect(resolveResponsiveSidebar({ ...expanded, sidebarNarrow: true }, 1000).sidebarNarrow).toBe(
-      true,
+      false,
     );
     expect(
       resolveResponsiveSidebar({ ...expanded, sidebarViewportOverride: 800 }, 800).sidebarCompact,
