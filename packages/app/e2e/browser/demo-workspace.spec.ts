@@ -54,8 +54,13 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     "rgba(0, 0, 0, 0)",
   );
   const cards = page.getByTestId("workspace-supporting-cards");
-  await expect(cards.getByTestId("workspace-explorer-toggle")).toBeVisible();
-  await cards.getByTestId("workspace-explorer-toggle").click();
+  await expect(
+    page.getByTestId("workspace-shared-toolbar").getByTestId("workspace-explorer-toggle"),
+  ).toBeVisible();
+  await page
+    .getByTestId("workspace-shared-toolbar")
+    .getByTestId("workspace-explorer-toggle")
+    .click();
   await expect(cards).toBeHidden();
   await expect(
     page.getByTestId("workspace-header-menu-trigger").filter({ visible: true }),
@@ -81,10 +86,13 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     contentMenuBounds.y + contentMenuBounds.height / 2,
     1,
   );
-  expect(toggleBounds.x + toggleBounds.width).toBeLessThanOrEqual(contentMenuBounds.x);
+  expect(contentMenuBounds.x + contentMenuBounds.width).toBeLessThanOrEqual(toggleBounds.x);
   await collapsedToggle.click();
   await expect(cards).toBeVisible();
-  await cards.getByTestId("workspace-explorer-toggle").click();
+  await page
+    .getByTestId("workspace-shared-toolbar")
+    .getByTestId("workspace-explorer-toggle")
+    .click();
   const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
   await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
   await expect(cards).toBeVisible();
@@ -188,7 +196,7 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
   await page.setViewportSize({ width: 1800, height: 1000 });
   await page.goto("/?demo=1");
   await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-1").click();
-  const rightToolbar = page.getByTestId("workspace-supporting-toolbar");
+  const rightToolbar = page.getByTestId("workspace-shared-toolbar");
   await expect(rightToolbar).toBeVisible();
   const toolbarBounds = await Promise.all([
     page.getByTestId("sidebar-toolbar").boundingBox(),
@@ -197,11 +205,12 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
   ]);
   for (const bounds of toolbarBounds) {
     expect(bounds!.height).toBe(48);
-    expect(bounds!.y).toBe(toolbarBounds[0]!.y);
+    expect(Math.abs(bounds!.y - toolbarBounds[1]!.y)).toBeLessThanOrEqual(8);
   }
+  expect(toolbarBounds[2]!.y).toBe(toolbarBounds[1]!.y);
   const tasks = await page.getByTestId("agent-task-progress-card").boundingBox();
   // Animated transforms can retain subpixel floating-point residue at rest.
-  expect(tasks!.y).toBeCloseTo(toolbarBounds[0]!.y + toolbarBounds[0]!.height, 3);
+  expect(tasks!.y).toBeCloseTo(toolbarBounds[1]!.y + toolbarBounds[1]!.height, 3);
   await expect(page.getByTestId("workspace-supporting-cards")).toHaveCSS("border-width", "0px");
   await expect(page.getByTestId("screen-header").filter({ visible: true })).toHaveCount(0);
   await expect(page.getByTestId("workspace-tabs-row").first()).toHaveCSS(
@@ -211,7 +220,7 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
   const environment = rightToolbar.getByTestId("workspace-toolbar-environment");
   await expect(environment).toBeVisible();
   const toggle = (await rightToolbar.getByTestId("workspace-explorer-toggle").boundingBox())!;
-  expect((await environment.boundingBox())!.x).toBeGreaterThanOrEqual(toggle.x + toggle.width);
+  expect((await environment.boundingBox())!.x).toBeLessThan(toggle.x);
   const taskTab = page.getByRole("button", { name: "Prepare Atlas release notes", exact: true });
   expect((await taskTab.boundingBox())!.width).toBeGreaterThan(160);
   expect((await taskTab.boundingBox())!.height).toBe(44);
@@ -265,7 +274,9 @@ test("aligns column toolbars and shares sidebar resize behavior", async ({ page 
     await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(before + 40, 0);
     widths[panelId] = before + 40;
   }
-  expect(appearances[0]).toEqual(appearances[1]);
+  // The floating card outline contributes one pixel to its resize track.
+  expect(Math.abs(appearances[0].height - appearances[1].height)).toBeLessThanOrEqual(1);
+  expect({ ...appearances[0], height: 0 }).toEqual({ ...appearances[1], height: 0 });
   expect(appearances[0].width).toBe(2);
   await page.reload();
   for (const [panelId, width] of Object.entries(widths)) {
@@ -453,7 +464,10 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect(cards).toBeVisible();
   await page.screenshot({ path: info.outputPath("responsive-restored.png") });
   // A manual collapse stays collapsed through a resize cycle.
-  await cards.getByTestId("workspace-explorer-toggle").click();
+  await page
+    .getByTestId("workspace-shared-toolbar")
+    .getByTestId("workspace-explorer-toggle")
+    .click();
   await page.getByTestId("sidebar-collapse").click();
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
@@ -819,4 +833,85 @@ test("sidebar header divider follows the list scroll position without moving row
   });
   await expect(toolbar).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
   expect(await toolbar.boundingBox()).toEqual(initial);
+});
+
+test("shared toolbar flows left of a narrow card column without overlapping tabs", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  const toolbar = page.getByTestId("workspace-shared-toolbar");
+  const menu = toolbar.getByTestId("workspace-split-pane-menu");
+  const toggle = toolbar.getByTestId("workspace-explorer-toggle");
+  await expect(menu).toBeVisible();
+  await expect(toggle).toBeVisible();
+  const handle = page.getByTestId("workspace-explorer-sidebar-resize-handle");
+  const grip = (await handle.boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 180, grip.y + 80, { steps: 12 });
+  await page.mouse.up();
+  for (const width of [1800, 1150, 900]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(toggle).toBeVisible();
+    await expect
+      .poll(async () => {
+        const m = (await menu.boundingBox())!;
+        const t = (await toggle.boundingBox())!;
+        const bar = (await toolbar.boundingBox())!;
+        return m.x >= bar.x - 1 && t.x > m.x && Math.abs(t.x + t.width - (bar.x + bar.width)) <= 2;
+      })
+      .toBe(true);
+    const tabs = page.getByTestId("workspace-tabs-row");
+    const activeTab = tabs.getByRole("button", {
+      name: "Review accessible navigation",
+      exact: true,
+    });
+    await expect
+      .poll(async () => {
+        const tab = (await activeTab.boundingBox())!;
+        const bar = (await toolbar.boundingBox())!;
+        return tab.x + tab.width <= bar.x + 1;
+      })
+      .toBe(true);
+    const controls = await toolbar.locator('button, [role="button"]').evaluateAll((nodes) =>
+      nodes
+        .filter((node) => node.checkVisibility())
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          return { left: box.left, right: box.right };
+        })
+        .sort((a, b) => a.left - b.left),
+    );
+    for (let index = 1; index < controls.length; index++) {
+      expect(controls[index]!.left).toBeGreaterThanOrEqual(controls[index - 1]!.right - 1);
+    }
+    if (width === 1800) {
+      expect((await toolbar.boundingBox())!.x).toBeLessThan(
+        (await page.getByTestId("workspace-supporting-cards").boundingBox())!.x,
+      );
+    }
+    await page.screenshot({ path: info.outputPath(`shared-toolbar-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await toggle.click();
+  await expect(page.getByTestId("workspace-supporting-cards")).toBeHidden();
+  await expect(menu).toBeVisible();
+  await expect(toggle).toBeVisible();
+  await menu.click();
+  await expect(page.getByTestId("workspace-split-pane-right")).toBeVisible();
+  await expect(page.getByTestId("workspace-header-copy-path")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await toggle.click();
+  await expect(page.getByTestId("workspace-supporting-cards")).toBeVisible();
+  await menu.click();
+  await page.getByTestId("workspace-split-pane-right").click();
+  await expect(menu).toBeVisible();
+  await expect(toggle).toBeVisible();
+  const maximize = page.getByTestId("workspace-maximize-pane").filter({ visible: true }).last();
+  await maximize.click();
+  await expect(menu).toBeVisible();
+  await page.getByTestId("workspace-restore-pane").click();
+  await expect(menu).toBeVisible();
 });

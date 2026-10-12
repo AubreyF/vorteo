@@ -1,3 +1,5 @@
+import { Portal } from "@gorhom/portal";
+import { SharedWorkspaceToolbarContext, useSharedToolbarInset } from "./shared-toolbar-context";
 import {
   WorkspaceToolbarToggleContext,
   WorkspaceOverflowItemsContext,
@@ -294,6 +296,7 @@ function WorkspacePaneToolbarActions({
 }) {
   const { t } = useTranslation();
   const workspaceItems = useContext(WorkspaceOverflowItemsContext);
+  const sharedToolbar = useContext(SharedWorkspaceToolbarContext);
   const sidebarToggle = useContext(WorkspaceToolbarToggleContext);
   const splitRightKeys = useShortcutKeys("workspace-pane-split-right");
   const splitDownKeys = useShortcutKeys("workspace-pane-split-down");
@@ -316,6 +319,44 @@ function WorkspacePaneToolbarActions({
   );
   const maximizeActionVisible = showMaximizeAction && Boolean(onTogglePaneMaximized);
   if (!showNewTabButton && !splitActionsVisible && !maximizeActionVisible) return null;
+
+  const menu = (
+    <DropdownMenu>
+      <ToolbarButton
+        kind="menu"
+        label={t("workspace.git.actions.moreActions")}
+        testID="workspace-split-pane-menu"
+      >
+        <ThemedMoreVertical size={14} uniProps={extraMutedColorMapping} />
+      </ToolbarButton>
+      <DropdownMenuContent
+        side="bottom"
+        align="end"
+        offset={4}
+        width={220}
+        testID="workspace-split-pane-menu-content"
+        pages={workspaceItems?.pages}
+      >
+        {workspaceItems?.items}
+        <DropdownMenuItem
+          leading={splitRightLeading}
+          trailing={splitRightTrailing}
+          testID="workspace-split-pane-right"
+          onSelect={onSplitRight}
+        >
+          {t("workspace.tabs.actions.splitRight")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          leading={splitDownLeading}
+          trailing={splitDownTrailing}
+          testID="workspace-split-pane-down"
+          onSelect={onSplitDown}
+        >
+          {t("workspace.tabs.actions.splitDown")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <ToolbarControls style={styles.paneSplitActions}>
@@ -348,46 +389,17 @@ function WorkspacePaneToolbarActions({
           )}
         </ToolbarButton>
       ) : null}
-      {paneId === "main" ? sidebarToggle : null}
-      {splitActionsVisible && onSplitRight && onSplitDown ? (
-        <DropdownMenu>
-          <ToolbarButton
-            kind="menu"
-            label={t("workspace.git.actions.moreActions")}
-            testID="workspace-split-pane-menu"
-          >
-            <ThemedMoreVertical size={14} uniProps={extraMutedColorMapping} />
-          </ToolbarButton>
-          <DropdownMenuContent
-            side="bottom"
-            align="end"
-            offset={4}
-            width={220}
-            testID="workspace-split-pane-menu-content"
-            pages={workspaceItems?.pages}
-          >
-            {workspaceItems?.items}
-            <DropdownMenuItem
-              leading={splitRightLeading}
-              trailing={splitRightTrailing}
-              testID="workspace-split-pane-right"
-              onSelect={onSplitRight}
-            >
-              {t("workspace.tabs.actions.splitRight")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              leading={splitDownLeading}
-              trailing={splitDownTrailing}
-              testID="workspace-split-pane-down"
-              onSelect={onSplitDown}
-            >
-              {t("workspace.tabs.actions.splitDown")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
+      {!sharedToolbar && paneId === "main" ? sidebarToggle : null}
+      {splitActionsVisible ? <SharedToolbarMenu paneId={paneId}>{menu}</SharedToolbarMenu> : null}
     </ToolbarControls>
   );
+}
+
+function SharedToolbarMenu({ paneId, children }: { paneId?: string; children: React.ReactNode }) {
+  const toolbar = useContext(SharedWorkspaceToolbarContext);
+  if (toolbar && paneId === toolbar.paneId)
+    return <Portal hostName={toolbar.menuHost}>{children}</Portal>;
+  return children;
 }
 
 function WorkspaceExitFocusModeButton({
@@ -1054,8 +1066,10 @@ function ResolvedWorkspaceDesktopTabsRow({
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
+  const sharedToolbar = useContext(SharedWorkspaceToolbarContext);
   const sidebarToggle = useContext(WorkspaceToolbarToggleContext);
-  const hasSidebarToggle = paneId === "main" && Boolean(sidebarToggle);
+  const hasSidebarToggle = !sharedToolbar && paneId === "main" && Boolean(sidebarToggle);
+  const toolbarInset = useSharedToolbarInset(paneId);
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [exitFocusModeWidth, setExitFocusModeWidth] = useState<number>(0);
@@ -1078,7 +1092,8 @@ function ResolvedWorkspaceDesktopTabsRow({
       rowHorizontalInset: 0,
       actionsReservedWidth: Math.max(
         0,
-        DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
+        toolbarInset +
+          DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
           (focusModeEnabled ? exitFocusModeWidth : 0) +
           (showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
           (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0) +
@@ -1099,6 +1114,7 @@ function ResolvedWorkspaceDesktopTabsRow({
       showPaneMaximizeAction,
       showPaneSplitActions,
       hasSidebarToggle,
+      toolbarInset,
     ],
   );
 
@@ -1356,7 +1372,7 @@ function ResolvedWorkspaceDesktopTabsRow({
 
   const row = (
     <View
-      style={styles.tabsContainer}
+      style={[styles.tabsContainer, { paddingRight: toolbarInset }]}
       testID="workspace-tabs-row"
       onLayout={handleTabsContainerLayout}
     >

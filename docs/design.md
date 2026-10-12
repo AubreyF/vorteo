@@ -38,13 +38,13 @@ bottom of the left toolbar. The canvas behind every floating panel uses the same
 are transparent; timeline segments stop at their edges instead of relying on a
 background mask. The desktop left collapse control and keyboard shortcut retain
 a minimal project rail, including after reload. Put the right collapse control
-in its toolbar and its reopen control in the central header. Desktop workspace tabs are the only central header, directly above the conversation scroller and its boundary fades. Tabs are 44px tall, grow to 420px for long labels and shrink toward 120px as more tabs open. The foreground tab shares the Latest button’s fully rounded floating surface, border and soft shadow; other tabs use muted text without a persistent fill. Settings and question tab strips retain `styles/tab-shape.ts`.
+at the far right of the shared upper toolbar in either state. Desktop workspace tabs are the only central header, directly above the conversation scroller and its boundary fades. Tabs are 44px tall, grow to 420px for long labels and shrink toward 120px as more tabs open. The foreground tab shares the Latest button’s fully rounded floating surface, border and soft shadow; other tabs use muted text without a persistent fill. Settings and question tab strips retain `styles/tab-shape.ts`.
 The sidebar overflow menu contains the compact Freed theme swatches. The overflow trigger
 sits after Settings at the right end of the left toolbar. All three desktop
 columns use the same 48px top toolbar, aligned to the floating panel inset.
 In Electron, reserve window-control clearance once above all three columns.
 The minimal project rail stays 64px wide because window controls sit above it.
-The right toolbar places its collapse toggle and focused environment at the left, with run, preview and workspace actions, including Create PR, at the right. Workspace context and split actions share one vertical overflow menu in the central tab bar. When the right panel is collapsed, its action buttons are hidden and its reopen toggle appears immediately before that menu.
+The upper toolbar spans the central content and right-hand card regions. Its vertical workspace/split menu stays at the left, followed by environment and action controls, with the explorer toggle at the far right. It borrows space from the central tab row when the card column is narrow; tabs reserve that space rather than overlapping. At very small desktop widths, middle controls can scroll horizontally while the edge menu and toggle remain accessible. Collapsing the cards hides their normal actions but keeps the menu and toggle in this shared region.
 
 The isolated demo uses the real file editor against a simulated file store.
 Sample-file saves carry revisions, reject stale writes and notify subscribed

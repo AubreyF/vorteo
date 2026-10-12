@@ -1,3 +1,5 @@
+import { PortalHost } from "@gorhom/portal";
+import { SharedWorkspaceToolbarContext } from "@/screens/workspace/shared-toolbar-context";
 import {
   Fragment,
   useCallback,
@@ -103,7 +105,7 @@ interface SplitContainerProps {
   supportingCardsCollapsed?: boolean;
   onSupportingCardsVisibilityChange?: (visible: boolean) => void;
   renderMainHeader?: () => ReactNode;
-  renderExplorerSidebarHeaderAction?: () => ReactNode;
+  renderExplorerSidebarHeaderAction?: (visible: boolean) => ReactNode;
   workspaceKey: string;
   normalizedServerId: string;
   normalizedWorkspaceId: string;
@@ -492,6 +494,14 @@ export function SplitContainer({
     }),
     [cardsAgentId, cardHostName],
   );
+  const { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar } =
+    useSharedToolbarGeometry(
+      renderExplorerSidebarDock,
+      explorerSidebarWidth,
+      workspaceShellWidth,
+      splitRoot.root,
+      maximizedPaneId,
+    );
   const mainColumnWindowChromeCorners = renderExplorerSidebarDock
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
     : inheritedWindowChromeCorners;
@@ -730,7 +740,7 @@ export function SplitContainer({
         onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
-        <SupportingCardsContext.Provider value={supportingCardsValue}>
+        <WorkspaceChromeProviders toolbar={toolbarContext} cards={supportingCardsValue}>
           <View style={styles.workspaceShell} onLayout={handleWorkspaceShellLayout}>
             <WindowChromeRegion corners={mainColumnWindowChromeCorners}>
               <View style={mainColumnStyle}>
@@ -783,7 +793,7 @@ export function SplitContainer({
             </WindowChromeRegion>
             <SupportingCardGroup
               resizeHandle={sidebarResizeHandle}
-              renderHeader={renderExplorerSidebarHeaderAction}
+              renderHeader={renderToolbarSpacer}
               visible={renderExplorerSidebarDock}
               supportingVisible={Boolean(explorerSidebarPane?.tabIds.length)}
               hostName={cardHostName}
@@ -791,8 +801,19 @@ export function SplitContainer({
             >
               {supportingCards}
             </SupportingCardGroup>
+            <View
+              style={sharedToolbarStyle}
+              onLayout={measureToolbar}
+              testID="workspace-shared-toolbar"
+            >
+              <PortalHost name={toolbarMenuHost} />
+              <SharedToolbarActions
+                renderActions={renderExplorerSidebarHeaderAction}
+                visible={renderExplorerSidebarDock}
+              />
+            </View>
           </View>
-        </SupportingCardsContext.Provider>
+        </WorkspaceChromeProviders>
         <DragOverlay dropAnimation={null}>
           {activeDragTabId ? (
             <DragOverlayTabChip
@@ -1433,7 +1454,94 @@ function removePaneFromSplitTree(node: SplitNode, paneId: string | null): SplitN
   };
 }
 
+function topRightToolbarPane(node: SplitNode | null): string | null {
+  if (!node || isSplitNodeHidden(node)) return null;
+  if (node.kind === "pane") return node.pane.id;
+  const children = node.group.children.filter((child) => !isSplitNodeHidden(child));
+  return topRightToolbarPane(
+    (node.group.direction === "horizontal" ? children.at(-1) : children[0]) ?? null,
+  );
+}
+
+function useSharedToolbarGeometry(
+  renderExplorerSidebarDock: boolean,
+  explorerSidebarWidth: number,
+  workspaceShellWidth: number,
+  root: SplitNode | null,
+  maximizedPaneId: string | null,
+) {
+  const paneId = maximizedPaneId ?? topRightToolbarPane(root);
+  const toolbarMenuHost = `workspace-toolbar-${useId()}`;
+  const [toolbarWidth, setToolbarWidth] = useState(0);
+  const measureToolbar = useCallback((event: LayoutChangeEvent) => {
+    setToolbarWidth(event.nativeEvent.layout.width);
+  }, []);
+  const toolbarContext = useMemo(
+    () => ({
+      menuHost: toolbarMenuHost,
+      paneId,
+      reservedWidth: Math.max(
+        0,
+        toolbarWidth +
+          FLOATING_PANEL_INSET -
+          (renderExplorerSidebarDock ? explorerSidebarWidth : 0),
+      ),
+    }),
+    [toolbarMenuHost, toolbarWidth, renderExplorerSidebarDock, explorerSidebarWidth, paneId],
+  );
+  const sharedToolbarStyle = useMemo(
+    () => [
+      styles.sharedToolbar,
+      {
+        maxWidth: Math.max(80, workspaceShellWidth - 120),
+        opacity: toolbarWidth > 0 ? 1 : 0,
+      },
+    ],
+    [workspaceShellWidth, toolbarWidth],
+  );
+  return { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar };
+}
+
+function WorkspaceChromeProviders({
+  toolbar,
+  cards,
+  children,
+}: {
+  toolbar: { menuHost: string; reservedWidth: number; paneId: string | null };
+  cards: { agentId: string | null; hostName: string };
+  children: ReactNode;
+}) {
+  return (
+    <SharedWorkspaceToolbarContext.Provider value={toolbar}>
+      <SupportingCardsContext.Provider value={cards}>{children}</SupportingCardsContext.Provider>
+    </SharedWorkspaceToolbarContext.Provider>
+  );
+}
+
+function SharedToolbarActions({
+  renderActions,
+  visible,
+}: {
+  renderActions?: (visible: boolean) => ReactNode;
+  visible: boolean;
+}) {
+  return renderActions?.(visible);
+}
+
+const renderToolbarSpacer = () => null;
+
 const styles = StyleSheet.create((theme) => ({
+  sharedToolbar: {
+    position: "absolute",
+    top: FLOATING_PANEL_INSET + 1,
+    right: FLOATING_PANEL_INSET,
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 5,
+    backgroundColor: theme.colors.surface0,
+  },
   workspaceShell: {
     flex: 1,
     minWidth: 0,

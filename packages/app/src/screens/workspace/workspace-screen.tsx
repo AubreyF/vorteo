@@ -1,3 +1,4 @@
+import { ScrollView } from "react-native";
 import { useResponsiveSupportingCards } from "@/hooks/use-responsive-sidebar";
 import { useSupportingCardRequests } from "@/workspace-tabs/supporting-card-requests";
 import { useAgentPresentationNavigation } from "@/subagents/use-agent-presentation-navigation";
@@ -147,7 +148,6 @@ import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-
 import {
   resolveWorkspaceExplorerToggleOwner,
   WorkspaceExplorerToggle,
-  WorkspaceExplorerSidebarToggle,
   WorkspaceHeaderExplorerToggle,
 } from "@/screens/workspace/workspace-explorer-toggle";
 import { useHasWindowChromeObstruction } from "@/utils/desktop-window";
@@ -3941,19 +3941,27 @@ function WorkspaceScreenContent({
     [isFocusModeEnabled, isMobile],
   );
   const renderExplorerSidebarHeaderAction = useCallback(
-    () => (
+    (visible: boolean) => (
       <>
-        <WorkspaceExplorerSidebarToggle
-          owner={explorerToggleOwner}
+        {visible ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.sharedToolbarScroll}
+            contentContainerStyle={styles.sharedToolbarContents}
+          >
+            <WorkspaceToolbarEnvironment serverId={focusedEnvironmentId} />
+            {desktopToolbarActions}
+          </ScrollView>
+        ) : null}
+        <WorkspaceExplorerToggle
           onPress={handleToggleExplorerSidebar}
           label={explorerSidebarToggleLabel}
           tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
           tooltipKeys={EXPLORER_TOGGLE_KEYS}
           accessibilityState={explorerSidebarToggleAccessibilityState}
+          mobile={false}
         />
-        <WorkspaceToolbarEnvironment serverId={focusedEnvironmentId} />
-        <View style={styles.toolbarSpacer} />
-        {desktopToolbarActions}
       </>
     ),
     [
@@ -3961,7 +3969,6 @@ function WorkspaceScreenContent({
       focusedEnvironmentId,
       explorerSidebarToggleAccessibilityState,
       explorerSidebarToggleLabel,
-      explorerToggleOwner,
       handleToggleExplorerSidebar,
       t,
     ],
@@ -4340,8 +4347,9 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface3,
     opacity: 0.25,
   },
-  toolbarEnvironment: { minWidth: 0, flexShrink: 1 },
-  toolbarSpacer: { flex: 1 },
+  toolbarEnvironment: { minWidth: 0, maxWidth: 160, flexShrink: 1 },
+  sharedToolbarScroll: { flexShrink: 1, minWidth: 0 },
+  sharedToolbarContents: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",

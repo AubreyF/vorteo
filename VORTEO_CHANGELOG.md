@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.357 - 2026-10-12
+
+### Changed
+
+- Share the upper workspace toolbar across central content and right-hand cards. Keep the vertical menu leftmost and explorer toggle rightmost, and reserve tab-row space when controls extend left of a narrow card column. Constrained middle controls scroll without displacing the edge controls.
+
 ## 0.11.0-beta.3.vorteo.356 - 2026-10-12
 
 ### Changed
