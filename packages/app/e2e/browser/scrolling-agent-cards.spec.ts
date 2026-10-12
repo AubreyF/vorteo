@@ -616,6 +616,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         stack.getByText("Journal cleared on this device. New entries will appear here."),
       ).toBeVisible();
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(stack.getByTestId("journal-show-history")).toBeVisible();
       await expect(entries).toHaveCount(0);
       await stack.getByTestId("journal-show-history").click();

@@ -465,3 +465,5 @@ Continuity integration review: retained the Review status RPC assertions while i
 Maintenance integration preserves the published responsive sidebar and stable workspace transitions alongside the automatic daemon maintenance preference. Coordinator delivery and owner activation remain separate from source integration.
 
 Release metadata correction restores complete entry history from both interface integration parents. The installed coordinator reader verifies historical entries and duplicate counts before source delivery. Runtime behavior is unchanged.
+
+Browser card validation reopens the responsive supporting sidebar after reload before checking journal history. This verifies the visible controls without changing saved sidebar preferences.
