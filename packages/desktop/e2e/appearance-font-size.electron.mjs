@@ -14,8 +14,10 @@ export async function runAppearanceFontSizeRegression(page) {
   await openSettings(page);
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
 
-  await page.getByLabel("Theme: Claude", { exact: true }).click();
-  await page.getByText("Pure black", { exact: true }).click();
+  await page.getByTestId("theme-preview-starship-dark").click();
+  await page.waitForFunction(
+    () => document.documentElement.dataset.vorteoAppearance === "starship-dark",
+  );
 
   const interfaceSizeInput = page.getByRole("textbox", { name: "Interface font size" });
   const contentSizeInput = page.getByRole("textbox", { name: "Content font size" });

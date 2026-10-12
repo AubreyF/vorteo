@@ -4,12 +4,31 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.335 - 2026-10-12
+
+### Maintenance
+
+- Integrate published compact notices and Electron appearance regressions with coordinator recovery, preserving both source histories.
+- Retain exact tracked cancellation, recovery and rollback checks for managed runtime delivery.
+
+## 0.11.0-beta.3.vorteo.334 - 2026-10-12
+
+### Changed
+
+- Shorten floating notices with tighter padding and actions beside short descriptions. Keep 44px action targets and wrapping for longer content.
+
 ## 0.11.0-beta.3.vorteo.333 - 2026-10-12
 
 ### Maintenance
 
 - Reconcile the published interface with coordinator recovery source, preserving both release histories and installed source ancestry.
 - Retain current appearance, workspace hydration and composer fixes alongside exact owner-reviewed recovery. Runtime installation and coordinator recovery remain separate tracked operations.
+
+## 0.11.0-beta.3.vorteo.333 - 2026-10-11
+
+### Maintenance
+
+- Update the Electron font-size regression to select Dark Star and open Settings from the minimal sidebar rail.
 
 ## 0.11.0-beta.3.vorteo.332 - 2026-10-11
 
