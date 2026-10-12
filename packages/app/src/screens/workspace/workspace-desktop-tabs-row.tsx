@@ -1736,9 +1736,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabTrailingOverlay: {
     position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
+    // Keep the close-control scrim inside the chip's outline, including its curved end.
+    top: 1,
+    right: 1,
+    bottom: 1,
     width: 48,
     borderTopRightRadius: theme.borderRadius.full,
     borderBottomRightRadius: theme.borderRadius.full,
@@ -1755,7 +1756,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabCloseButton: {
     position: "absolute",
-    right: 4,
+    right: 6,
     width: 18,
     height: 18,
     borderRadius: theme.borderRadius.sm,
