@@ -946,13 +946,7 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await dragTo(70);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(48);
-  const ids = [
-    "sidebar-expand",
-    "sidebar-search",
-    "sidebar-footer-overflow",
-    "sidebar-schedules",
-    "sidebar-sessions",
-  ];
+  const ids = ["sidebar-expand", "sidebar-search", "sidebar-schedules", "sidebar-sessions"];
   let previous = -1;
   for (const id of ids) {
     const box = (await page.getByTestId(id).boundingBox())!;
@@ -960,6 +954,21 @@ test("sidebar drags into a compact rail with persistent controls and interactive
     previous = box.y;
   }
   const project = page.locator('[data-testid^="project-rail-"]').first();
+  const rail = page.getByTestId("compact-project-rail");
+  const projectBounds = (await project.boundingBox())!;
+  expect(projectBounds.y).toBeGreaterThan(previous);
+  const menuBounds = (await page.getByTestId("sidebar-footer-overflow").boundingBox())!;
+  const railBounds = (await rail.boundingBox())!;
+  expect(menuBounds.y).toBeGreaterThan(projectBounds.y);
+  expect(railBounds.y + railBounds.height - menuBounds.y - menuBounds.height).toBeLessThanOrEqual(
+    4,
+  );
+  await expect(rail.getByRole("button", { name: "Add project", exact: true })).toHaveCount(0);
+  await expect(rail.getByRole("button", { name: "Settings", exact: true })).toHaveCount(0);
+  await page.getByTestId("sidebar-footer-overflow").click();
+  await expect(page.getByRole("menuitem").first()).toHaveText("Settings");
+  await page.keyboard.press("Escape");
+
   await project.hover();
   const preview = page.getByTestId("project-rail-preview");
   await expect(preview).toBeVisible();

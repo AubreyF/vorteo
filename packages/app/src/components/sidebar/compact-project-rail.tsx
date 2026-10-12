@@ -1,10 +1,7 @@
 import { ProjectRailPreview } from "./project-rail-preview";
 import { memo, type ReactNode } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { Plus, Settings } from "lucide-react-native";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useSidebarProjectStatusBucket,
   type SidebarProjectEntry,
@@ -13,12 +10,10 @@ import {
 
 interface CompactProjectRailProps {
   header: ReactNode;
+  footer: ReactNode;
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   projects: SidebarProjectEntry[];
   onSelectProject: (key: string) => void;
-  onExpand: () => void;
-  onAddProject: () => void;
-  onSettings: () => void;
 }
 
 const ProjectRailItem = memo(function ProjectRailItem({
@@ -56,11 +51,10 @@ const ProjectRailItem = memo(function ProjectRailItem({
 
 export function CompactProjectRail({
   header,
+  footer,
   workspaceEntries,
   projects,
   onSelectProject,
-  onAddProject,
-  onSettings,
 }: CompactProjectRailProps) {
   return (
     <View style={styles.rail} testID="compact-project-rail">
@@ -75,34 +69,7 @@ export function CompactProjectRail({
           />
         ))}
       </ScrollView>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            accessibilityLabel="Add project"
-            onPress={onAddProject}
-            style={styles.button}
-            leftIcon={Plus}
-          />
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          <Text style={styles.label}>Add project</Text>
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            accessibilityLabel="Settings"
-            onPress={onSettings}
-            style={styles.button}
-            leftIcon={Settings}
-          />
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          <Text style={styles.label}>Settings</Text>
-        </TooltipContent>
-      </Tooltip>
+      {footer}
     </View>
   );
 }

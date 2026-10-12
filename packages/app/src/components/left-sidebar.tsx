@@ -42,7 +42,16 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useTranslation } from "react-i18next";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  cloneElement,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   Pressable,
   type LayoutChangeEvent,
@@ -425,6 +434,7 @@ function IconTooltipContent({
 
 function SidebarToolbar({
   rail = false,
+  railFooter,
   onExpand,
   scrolled = false,
   theme,
@@ -434,6 +444,7 @@ function SidebarToolbar({
   onBeforeNavigate,
 }: {
   rail?: boolean;
+  railFooter?: boolean;
   onExpand?: () => void;
   scrolled?: boolean;
   handleImportSession: () => void;
@@ -614,6 +625,7 @@ function SidebarToolbar({
       theme={theme}
     />
   );
+  if (railFooter) return more;
   return (
     <>
       <View
@@ -645,7 +657,6 @@ function SidebarToolbar({
           theme={theme}
         />
         {!rail ? <View style={styles.footerGap} /> : null}
-        {rail ? more : null}
         {showHistory ? history : null}
         {showSchedules || rail ? schedules : null}
         {rail ? history : null}
@@ -1033,6 +1044,10 @@ function DesktopSidebar({
       handleOpenHostSettings,
     ],
   );
+  const railFooter = useMemo(
+    () => cloneElement(toolbar, { rail: true, railFooter: true }),
+    [toolbar],
+  );
   const measureSidebar = useCallback(
     (event: LayoutChangeEvent) =>
       setMeasuredWidth(sidebarPresentationWidth(event.nativeEvent.layout.width)),
@@ -1075,12 +1090,10 @@ function DesktopSidebar({
               ) : null}
               <CompactProjectRail
                 header={toolbar}
+                footer={railFooter}
                 workspaceEntries={workspaceEntriesByKey}
                 projects={projects}
                 onSelectProject={selectRailProject}
-                onExpand={expandSidebar}
-                onAddProject={handleOpenProject}
-                onSettings={handleSettings}
               />
             </>
           ) : (
