@@ -737,7 +737,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
       .toBe(8);
   }
   const row = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
-  for (const width of [280, 360, 450]) {
+  for (const width of [280, 330, 360, 390, 450]) {
     const insets: number[] = [];
     for (const [handleId, target, direction] of [
       ["workspace-explorer-sidebar-resize-handle", card, -1],
@@ -753,7 +753,9 @@ test("card spacing follows panel width on both sides and compact center layouts"
         { steps: 10 },
       );
       await page.mouse.up();
-      const expected = Math.round(Math.max(0, Math.min(8, (width - 300) / 15)));
+      let expected = 8;
+      if (width < 400) expected = 4;
+      if (width < 340) expected = 0;
       await expect
         .poll(() =>
           target.evaluate((node) => {
@@ -793,6 +795,62 @@ test("card spacing follows panel width on both sides and compact center layouts"
       "true",
     );
     await page.screenshot({ path: info.outputPath(`compact-panels-${width}.png`), fullPage: true });
+  }
+});
+
+test("panel spacing animates between exact tiers and settles after interrupted resizing", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  for (const [handleId, targetId, direction] of [
+    ["left-sidebar-resize-handle", "floating-sidebar", 1],
+    ["workspace-explorer-sidebar-resize-handle", "agent-task-progress-card", -1],
+  ] as const) {
+    const target = page.getByTestId(targetId).filter({ visible: true });
+    const readInset = () =>
+      target.evaluate((node) => {
+        const padded =
+          node.dataset.testid === "floating-sidebar"
+            ? node
+            : node.firstElementChild!.firstElementChild!;
+        return Number.parseFloat(getComputedStyle(padded).paddingLeft);
+      });
+    const resize = async (width: number) => {
+      const handle = (await page.getByTestId(handleId).boundingBox())!;
+      const before = (await target.boundingBox())!;
+      const x = handle.x + handle.width / 2;
+      const y = handle.y + handle.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + direction * (width - before.width), y);
+      await page.mouse.up();
+    };
+    await resize(280);
+    await expect.poll(readInset).toBe(0);
+    const samples = target.evaluate(async (node) => {
+      const padded =
+        node.dataset.testid === "floating-sidebar"
+          ? node
+          : node.firstElementChild!.firstElementChild!;
+      const values: number[] = [];
+      const start = performance.now();
+      while (performance.now() - start < 650) {
+        values.push(Number.parseFloat(getComputedStyle(padded).paddingLeft));
+        await new Promise(requestAnimationFrame);
+      }
+      return values;
+    });
+    await resize(450);
+    await expect.poll(readInset).toBe(8);
+    expect((await samples).some((value) => value > 0 && value < 8)).toBe(true);
+    await resize(280);
+    await resize(360);
+    await expect.poll(readInset).toBe(4);
+    await resize(390);
+    await expect.poll(readInset).toBe(4);
   }
 });
 

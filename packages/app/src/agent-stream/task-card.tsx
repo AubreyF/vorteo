@@ -1,5 +1,6 @@
 import { ScrollDividerContext, useScrollDivider } from "@/components/use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   Children,
@@ -128,7 +129,7 @@ function TaskCardView({
           <View style={taskCardStyles.scrollContent}>
             <View
               testID={testID ? `${testID}-header` : undefined}
-              style={[taskCardStyles.fixedHeader, { padding: spacingInset }]}
+              style={[taskCardStyles.fixedHeader, inlineUnistylesStyle({ padding: spacingInset })]}
               onLayout={onHeaderLayout}
             >
               {header}
@@ -145,12 +146,12 @@ function TaskCardView({
             {panelHeight !== undefined ? (
               <View
                 style={[
-                  {
+                  inlineUnistylesStyle({
                     height: Math.max(0, maxHeight - headerHeight - insets),
                     minHeight: 0,
                     paddingHorizontal: spacingInset,
                     paddingBottom: spacingInset,
-                  },
+                  }),
                   !bodyVisible && taskCardStyles.hiddenBody,
                 ]}
               >
@@ -167,10 +168,10 @@ function TaskCardView({
                 contentContainerStyle={[
                   taskCardStyles.bodyContent,
                   flushBody && taskCardStyles.flushBody,
-                  {
+                  inlineUnistylesStyle({
                     paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
                     paddingVertical: 4 + spacingInset,
-                  },
+                  }),
                 ]}
                 nestedScrollEnabled
                 scrollEnabled={scrollEnabled}

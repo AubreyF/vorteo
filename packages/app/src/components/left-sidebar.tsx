@@ -4,6 +4,7 @@ import {
   useSidebarWidth,
 } from "./sidebar/sidebar-width";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { usePointerResize } from "./use-pointer-resize";
@@ -803,7 +804,7 @@ function MobileSidebar({
       panelStyle={mobileSidebarInsetStyle}
     >
       <View
-        style={[styles.sidebarContent, { padding: spacingInset }]}
+        style={[styles.sidebarContent, inlineUnistylesStyle({ padding: spacingInset })]}
         onLayout={onPanelLayout}
         pointerEvents="auto"
       >
@@ -992,11 +993,11 @@ function DesktopSidebar({
   const desktopSidebarBorderStyle = useMemo(
     () => [
       floatingPanelStyles.surface,
-      {
+      inlineUnistylesStyle({
         flex: 1,
         padding: compact ? 0 : spacingInset,
         paddingTop: insetsTop + (compact ? 0 : spacingInset),
-      },
+      }),
     ],
     [insetsTop, compact, spacingInset],
   );

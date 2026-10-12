@@ -158,6 +158,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 12, 2026: Shared panel spacing settles at 0px, 4px or 8px of extra inset, with thresholds at 340px and 400px of panel width. A 180ms transition follows breakpoint changes and retargets from its visible value during fast resizing. Initial measurement and reduced-motion mode settle immediately. Both sidebars and inline cards share these rules; README onboarding is unchanged.
+
 October 12, 2026: The left sidebar toolbar keeps its bottom divider visible at every scroll position on desktop and in the mobile overlay. Supporting cards retain conditional dividers. The sidebar no longer subscribes to scroll changes merely to control this border; README onboarding is unchanged.
 
 October 12, 2026: The static pre-launch loading ring uses the same 1.75px stroke as small application loaders. It retains reduced-motion support and its existing startup diagnostics. README onboarding is unchanged.
