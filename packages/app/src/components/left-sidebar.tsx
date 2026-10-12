@@ -748,12 +748,10 @@ function DesktopSidebar({
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const compact = usePanelStore((state) => state.sidebarCompact);
+  const narrow = usePanelStore((state) => state.sidebarNarrow);
   const setCompact = usePanelStore((state) => state.setSidebarCompact);
   const expandSidebar = useCallback(() => {
     setCompact(false);
-  }, [setCompact]);
-  const compactSidebar = useCallback(() => {
-    setCompact(true);
   }, [setCompact]);
   const showAllProjects = useSidebarViewStore((state) => state.clearProjectFilters);
   const selectRailProject = useCallback(
@@ -772,6 +770,7 @@ function DesktopSidebar({
     requestedWidth: sidebarWidth,
     viewportWidth,
     compact,
+    narrow,
     hasTopLeftWindowControls: ownsTopLeft,
   });
 
@@ -921,23 +920,13 @@ function DesktopSidebar({
                 <TitlebarDragRegion />
               )}
               {toolbar}
-              <View style={styles.sidebarModeRow}>
-                {hasActiveProjectFilter ? (
+              {hasActiveProjectFilter ? (
+                <View style={styles.sidebarModeRow}>
                   <Button variant="ghost" size="xs" onPress={showAllProjects}>
                     All projects
                   </Button>
-                ) : (
-                  <View style={styles.modeSpacer} />
-                )}
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onPress={compactSidebar}
-                  accessibilityLabel="Use compact sidebar"
-                >
-                  Compact
-                </Button>
-              </View>
+                </View>
+              ) : null}
             </View>
 
             {isInitialLoad && !hasActiveHostFilter ? (
@@ -973,7 +962,7 @@ function DesktopSidebar({
         {!compact ? <DemoControls /> : null}
         {!compact ? <SidebarFooterRows /> : null}
 
-        {!compact ? (
+        {!compact && !narrow ? (
           <SidebarResizeHandle
             edge="right"
             floating
@@ -1015,7 +1004,6 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: 8,
     paddingBottom: 4,
   },
-  modeSpacer: { flex: 1 },
   sidebarDragArea: {
     position: "relative",
   },

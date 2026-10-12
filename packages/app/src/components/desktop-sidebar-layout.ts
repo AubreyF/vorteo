@@ -3,6 +3,7 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "@/stores/panel-store";
 import { COMPACT_SIDEBAR_WIDTH, SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 
 const MIN_DESKTOP_CENTER_WIDTH = 400;
+const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 
 export function resolveDesktopSidebarVisibility(input: {
   chromeEnabled: boolean;
@@ -58,6 +59,7 @@ export function resolveDesktopSidebarWidth(input: {
   requestedWidth: number;
   viewportWidth: number;
   compact?: boolean;
+  narrow?: boolean;
   hasTopLeftWindowControls?: boolean;
 }): number {
   "worklet";
@@ -67,6 +69,7 @@ export function resolveDesktopSidebarWidth(input: {
       : COMPACT_SIDEBAR_WIDTH;
   return resolveDesktopPanelWidth({
     ...input,
+    requestedWidth: input.narrow ? COMPACT_LABELED_SIDEBAR_WIDTH : input.requestedWidth,
     minimumWidth: MIN_SIDEBAR_WIDTH,
     maximumWidth: MAX_SIDEBAR_WIDTH,
   });
@@ -81,6 +84,7 @@ export function canDesktopAppSidebarShare(input: {
   requestedSidebarWidth: number;
   viewportWidth: number;
   compact?: boolean;
+  narrow?: boolean;
   hasTopLeftWindowControls?: boolean;
 }): boolean {
   return (
@@ -89,6 +93,7 @@ export function canDesktopAppSidebarShare(input: {
         requestedWidth: input.requestedSidebarWidth,
         viewportWidth: input.viewportWidth,
         compact: input.compact,
+        narrow: input.narrow,
         hasTopLeftWindowControls: input.hasTopLeftWindowControls,
       }) -
       SIDEBAR_OUTER_GAP * 2 >=

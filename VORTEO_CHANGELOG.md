@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.337 - 2026-10-12
+
+### Changed
+
+- Cycle the sidebar toolbar button and keyboard shortcut through expanded, compact labeled and minimal rail layouts. Remove the separate Compact button row, remember the layout on this device and retain the expanded resize width.
+
 ## 0.11.0-beta.3.vorteo.336 - 2026-10-12
 
 ### Maintenance

@@ -148,6 +148,7 @@ export const PanelPersistedStateSchema = z.strictObject({
   collapsedFilePathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   sidebarWidth: z.number().optional(),
   sidebarCompact: z.boolean().optional(),
+  sidebarNarrow: z.boolean().optional(),
   // Accepted only so migration can discard the former docked explorer sidebar width.
   explorerWidth: z.number().optional(),
   explorerSortOption: z.enum(["name", "modified", "size"]).optional(),
@@ -274,3 +275,10 @@ export function migratePanelState(persistedState: unknown, version: number): Mig
 
 export { buildExplorerCheckoutKey, resolveExplorerTabForCheckout };
 export type { ExplorerTab, ExplorerCheckoutContext };
+
+// Keep the minimal rail visible and preserve the user's expanded resize width.
+export function cycleDesktopSidebar(state: { sidebarCompact: boolean; sidebarNarrow: boolean }) {
+  if (state.sidebarCompact) return { sidebarCompact: false, sidebarNarrow: false };
+  if (state.sidebarNarrow) return { sidebarCompact: true, sidebarNarrow: false };
+  return { sidebarCompact: false, sidebarNarrow: true };
+}

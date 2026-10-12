@@ -475,6 +475,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   const isDesktopAgentListOpen = usePanelStore((state) => state.desktop.agentListOpen);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
+  const sidebarNarrow = usePanelStore((state) => state.sidebarNarrow);
   const { width: viewportWidth } = useWindowDimensions();
 
   const cycleTheme = useCallback(() => {
@@ -540,6 +541,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
       contentMinimumWidth: appContentMinimumWidth,
       requestedSidebarWidth: sidebarWidth,
       compact: sidebarCompact,
+      narrow: sidebarNarrow,
       hasTopLeftWindowControls,
       viewportWidth,
     }),

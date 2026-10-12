@@ -81,6 +81,21 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   await page.mouse.move(800, 900);
   await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", "scriptorium");
   await page.keyboard.press("Escape");
+  const sidebar = page.getByTestId("floating-sidebar");
+  const expandedWidth = (await sidebar.boundingBox())!.width;
+  await expect(page.getByText("Compact", { exact: true })).toHaveCount(0);
+  await page.getByTestId("sidebar-collapse").click();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
+  await expect(page.getByTestId("sidebar-collapse")).toHaveAccessibleName("Minimize sidebar");
+  await expect(workspace).toBeVisible();
+  const compactBounds = (await sidebar.boundingBox())!;
+  const menuBounds = (await page.getByTestId("sidebar-footer-overflow").boundingBox())!;
+  expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(
+    compactBounds.x + compactBounds.width,
+  );
+  await page.screenshot({ path: info.outputPath("compact-sidebar.png") });
+  await page.reload();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
   await page.getByTestId("sidebar-collapse").click();
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   const railProject = page
@@ -112,6 +127,9 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect(page.getByTestId("sidebar-toolbar")).toBeVisible();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
+  await page.keyboard.press(mac ? "Meta+b" : "Control+.");
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(240);
   await page.keyboard.press(mac ? "Meta+b" : "Control+.");
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   await page.keyboard.press(mac ? "Meta+b" : "Control+.");

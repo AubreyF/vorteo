@@ -62,6 +62,7 @@ function SidebarMenuToggleButton({
   const { t } = useTranslation();
   const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
   const sidebarCompact = usePanelStore((state) => state.sidebarCompact);
+  const sidebarNarrow = usePanelStore((state) => state.sidebarNarrow);
   const toggleAgentListForLayout = usePanelStore((state) => state.toggleAgentListForLayout);
   const toggleShortcutKeys = useMemo(
     () => (getShortcutOs() === "mac" ? ["mod", "B"] : ["mod", "."]),
@@ -73,14 +74,16 @@ function SidebarMenuToggleButton({
   }, [toggleAgentListForLayout, isMobile]);
 
   const expanded = isMobile ? isOpen : !sidebarCompact;
-  let toggleLabel = expanded ? "Minimize sidebar" : "Expand sidebar";
+  let toggleLabel = "Use compact sidebar";
+  if (sidebarNarrow) toggleLabel = "Minimize sidebar";
+  if (sidebarCompact) toggleLabel = "Expand sidebar";
   if (isMobile) toggleLabel = isOpen ? t("shell.menu.close") : t("shell.menu.open");
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
 
   return (
     <HeaderToggleButton
       onPress={handlePress}
-      tooltipLabel={t("shell.menu.toggleSidebar")}
+      tooltipLabel={isMobile ? t("shell.menu.toggleSidebar") : toggleLabel}
       tooltipKeys={toggleShortcutKeys}
       tooltipSide={tooltipSide}
       testID={testID}
