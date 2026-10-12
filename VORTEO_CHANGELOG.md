@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.348 - 2026-10-12
+
+### Changed
+
+- Remember each supporting card’s expanded state on the device and apply it across workspaces and reloads. Goal, Tasks, Journal, Queue, managed and provider subagents, Files and Changes retain independent choices without server synchronization.
+- Keep Files and Changes folded during workspace selection when that is the saved preference. Explicit navigation commands and queue review actions still reveal the requested card.
+
+### Maintenance
+
+- Verify disclosure preferences across cold and retained workspace transitions, reloads and phone layout. Scope subagent navigation checks to their card rows when the same title also appears in a workspace tab.
+
 ## 0.11.0-beta.3.vorteo.347 - 2026-10-12
 
 ### Maintenance

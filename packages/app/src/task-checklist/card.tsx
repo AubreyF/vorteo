@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -52,8 +53,8 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("tasks");
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const [editor, setEditor] = useState<EditorState>({ open: false });
   const { supported, supportsBlocked, supportsReview, readOnly } = useSessionStore(
     useShallow((state) => {

@@ -282,3 +282,28 @@ describe("responsive sidebar presentation", () => {
     ).toBe(true);
   });
 });
+
+describe("device-local card preferences", () => {
+  it("preserves independent disclosure choices while migrating existing panel settings", () => {
+    const state = migratePanelState(
+      {
+        sidebarWidth: 360,
+        supportingCardExpanded: { tasks: false, journal: true, files: false, changes: true },
+      },
+      17,
+    );
+    expect(state.sidebarWidth).toBe(360);
+    expect(state.supportingCardExpanded).toEqual({
+      tasks: false,
+      journal: true,
+      files: false,
+      changes: true,
+    });
+  });
+  it("keeps older panel preferences when no card choices have been saved", () => {
+    const state = migratePanelState({ sidebarWidth: 360, sidebarCompact: true }, 17);
+    expect(state.sidebarWidth).toBe(360);
+    expect(state.sidebarCompact).toBe(true);
+    expect(state.supportingCardExpanded).toBeUndefined();
+  });
+});

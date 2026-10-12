@@ -10,6 +10,9 @@ import {
 } from "../explorer-tab-memory";
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
+  SUPPORTING_CARD_DEFAULTS,
+  type SupportingCardKind,
+  type SupportingCardUpdate,
   buildOpenFileExplorerPatch,
   buildToggleFileExplorerPatch,
   cycleDesktopSidebar,
@@ -59,6 +62,10 @@ export {
 export type ExpandedPathsUpdate = string[] | ((currentPaths: string[]) => string[]);
 
 export interface PanelState {
+  // Device-local card preferences are shared by all workspaces, never server-synced.
+  supportingCardExpanded: Partial<Record<SupportingCardKind, boolean>>;
+  setSupportingCardExpanded: (kind: SupportingCardKind, update: SupportingCardUpdate) => void;
+
   // Mobile: React's durable target plus the generation that owns it.
   mobilePanel: MobilePanelSelection;
 
@@ -129,6 +136,17 @@ function setMobilePanelTargetPatch(
 export const usePanelStore = create<PanelState>()(
   persist(
     (set) => ({
+      supportingCardExpanded: {},
+      setSupportingCardExpanded: (kind, update) =>
+        set((state) => {
+          const current = state.supportingCardExpanded[kind] ?? SUPPORTING_CARD_DEFAULTS[kind];
+          const expanded = typeof update === "function" ? update(current) : update;
+          return state.supportingCardExpanded[kind] === expanded
+            ? state
+            : {
+                supportingCardExpanded: { ...state.supportingCardExpanded, [kind]: expanded },
+              };
+        }),
       // Mobile always starts at agent view
       mobilePanel: { target: "agent", revision: 0 },
 
@@ -311,10 +329,11 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 17,
+      version: 18,
       storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
+        supportingCardExpanded: state.supportingCardExpanded,
         desktop: state.desktop,
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,

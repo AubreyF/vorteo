@@ -8,6 +8,31 @@ import {
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import { z } from "zod";
 
+export const SUPPORTING_CARD_DEFAULTS = {
+  goal: true,
+  tasks: true,
+  journal: true,
+  queue: true,
+  subagents: true,
+  providerSubagents: true,
+  files: false,
+  changes: false,
+} as const;
+export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
+export type SupportingCardUpdate = boolean | ((expanded: boolean) => boolean);
+const SupportingCardStateSchema = z
+  .object({
+    goal: z.boolean(),
+    tasks: z.boolean(),
+    journal: z.boolean(),
+    queue: z.boolean(),
+    subagents: z.boolean(),
+    providerSubagents: z.boolean(),
+    files: z.boolean(),
+    changes: z.boolean(),
+  })
+  .partial();
+
 export type MobilePanelView = "agent" | "agent-list" | "file-explorer";
 
 export interface MobilePanelSelection {
@@ -133,6 +158,7 @@ const DesktopSidebarStorageSchema = z.strictObject({
 });
 
 export const PanelPersistedStateSchema = z.strictObject({
+  supportingCardExpanded: SupportingCardStateSchema.optional(),
   mobileView: z.enum(["agent", "agent-list", "file-explorer"]).optional(),
   mobilePanel: z
     .strictObject({

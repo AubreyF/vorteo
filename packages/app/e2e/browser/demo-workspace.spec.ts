@@ -615,3 +615,65 @@ test("quiet card chrome keeps compact geometry across themes", async ({ page }, 
     await page.screenshot({ path: info.outputPath(`quiet-${theme}.png`) });
   }
 });
+
+test("shares card disclosure preferences across workspaces and reloads without flashing open", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const row = (id: string) =>
+    page.getByTestId(`sidebar-workspace-row-vorteo-demo:demo-workspace-${id}`);
+  const tasks = page.getByTestId("checklist-toggle").filter({ visible: true });
+  const journal = page.getByTestId("agent-journal-toggle").filter({ visible: true });
+  await row("0-1").click();
+  await tasks.click();
+  await journal.click();
+  await expect(tasks).toHaveAttribute("aria-expanded", "false");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
+  await page.evaluate(() => {
+    const samples: string[] = [];
+    Object.assign(window, { disclosureSamples: samples, sampleDisclosures: true });
+    const sample = () => {
+      if (!(window as unknown as { sampleDisclosures: boolean }).sampleDisclosures) return;
+      for (const node of document.querySelectorAll(
+        '[data-testid="checklist-toggle"], [data-testid="agent-journal-toggle"]',
+      )) {
+        if (node.checkVisibility()) samples.push(node.getAttribute("aria-expanded") ?? "missing");
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  for (const id of ["1-0", "2-0", "0-0", "1-1", "2-1", "0-1"]) {
+    await row(id).click();
+    await expect(tasks).toHaveAttribute("aria-expanded", "false");
+    await expect(journal).toHaveAttribute("aria-expanded", "false");
+  }
+  const samples = await page.evaluate(() => {
+    const state = window as unknown as { disclosureSamples: string[]; sampleDisclosures: boolean };
+    state.sampleDisclosures = false;
+    return state.disclosureSamples;
+  });
+  expect(samples.length).toBeGreaterThan(10);
+  expect(samples.every((value) => value === "false")).toBe(true);
+  await info.attach("disclosure-frames", {
+    body: JSON.stringify(samples),
+    contentType: "application/json",
+  });
+  await page.reload();
+  await expect(tasks).toHaveAttribute("aria-expanded", "false");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
+  const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+  await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+  const files = page.getByTestId("supporting-card-files-toggle").filter({ visible: true });
+  await expect(files).toHaveAttribute("aria-expanded", "true");
+  await files.click();
+  await page.reload();
+  await expect(files).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+  await expect(files).toHaveAttribute("aria-expanded", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(tasks).toHaveAttribute("aria-expanded", "false");
+  await expect(journal).toHaveAttribute("aria-expanded", "false");
+  await page.screenshot({ path: info.outputPath("retained-card-preferences-phone.png") });
+});

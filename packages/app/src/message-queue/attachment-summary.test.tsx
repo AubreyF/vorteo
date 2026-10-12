@@ -200,7 +200,11 @@ vi.mock("react-native-unistyles", () => ({
   StyleSheet: { create: () => ({}) },
   withUnistyles: (component: unknown) => component,
 }));
+vi.mock("@/storage/app-storage", () => ({
+  default: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} },
+}));
 vi.mock("react-native", () => ({
+  Dimensions: { get: () => ({ width: 1400, height: 900 }) },
   StyleSheet: { create: () => ({}) },
   View: ({
     children,

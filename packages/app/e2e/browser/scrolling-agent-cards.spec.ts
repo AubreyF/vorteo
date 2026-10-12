@@ -644,7 +644,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
     await pill.click();
     await expect(pill).toHaveCount(0);
-    await stack.getByRole("button", { name: "Card child 0", exact: true }).click();
+    await stack.getByTestId(`subagents-track-row-${childIds[0]}`).click();
     await expectAgentTabActive(page, childIds[0]);
     await expect(
       page.getByText("Queued after progress", { exact: true }).filter({ visible: true }),

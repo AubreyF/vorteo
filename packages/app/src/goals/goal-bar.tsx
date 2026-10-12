@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import {
@@ -9,7 +10,7 @@ import {
 import { useVortonTouch } from "@/vorton-touch";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { Pause, Play, BrushCleaning, Pencil } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
@@ -27,8 +28,8 @@ interface GoalBarProps {
 
 export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: GoalBarProps) {
   const compact = useIsCompactFormFactor();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("goal");
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const elapsed = useGoalElapsed(control.state, control.connected);
   if (!control.supported) return null;
   const goal = control.state?.goal;

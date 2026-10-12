@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CARD_GAP } from "@/agent-stream/columns/geometry";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -12,7 +13,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { CountBadge } from "@/components/ui/count-badge";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { BrushCleaning, Archive, Unlink, X } from "lucide-react-native";
@@ -142,8 +143,10 @@ function SubagentsGroup({
   ...rowActions
 }: SubagentsGroupProps): ReactElement | null {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure(
+    kind === "paseo" ? "subagents" : "providerSubagents",
+  );
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const status = kind === "paseo" ? archiveFinishedStatus : IDLE_ARCHIVE_FINISHED_STATUS;
   const clearFinished = useCallback(() => {
     if (kind === "paseo") {

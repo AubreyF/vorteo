@@ -60,6 +60,8 @@ that a model or command ran.
 
 As the viewport narrows, hide the supporting cards before reducing left navigation to its 64px project rail. Below the compact breakpoint, hide navigation behind its menu. Restore the left sidebar before the right when space returns. Treat responsive changes as presentation constraints, preserving saved widths and manual collapse choices. Explicit opens override the constraint until the next width change.
 
+Supporting card disclosure preferences live in the device-local panel store and apply across every workspace. Keep Goal, Tasks, Journal, Queue, managed subagents, provider subagents, Files and Changes independent. Workspace selection must not reopen a folded card; explicit navigation or review commands may reveal it. Preserve height-only animation and reduced-motion behavior.
+
 Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
 Match Freed's centered 2px neutral gap indicator, transparent at rest, with
 matching hover and drag opacity. Touch targets stay within panel bounds so

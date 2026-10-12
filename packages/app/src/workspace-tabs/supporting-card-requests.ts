@@ -1,3 +1,4 @@
+import { usePanelStore } from "@/stores/panel-store";
 import { create } from "zustand";
 import type { WorkspaceTabTarget } from "./model";
 
@@ -10,6 +11,7 @@ interface SupportingCardRequests {
 export const useSupportingCardRequests = create<SupportingCardRequests>(() => ({ requests: {} }));
 
 export function requestSupportingCard(workspaceKey: string, kind: WorkspaceTabTarget["kind"]) {
+  usePanelStore.getState().setSupportingCardExpanded(kind === "files" ? "files" : "changes", true);
   useSupportingCardRequests.setState((state) => ({
     requests: {
       ...state.requests,

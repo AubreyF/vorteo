@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
 import AsyncStorage from "@/storage/app-storage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ import {
   parseClearedThrough,
   visibleJournalEntries,
 } from "./view-state";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
@@ -58,8 +59,8 @@ function JournalContent({
   agentId: string;
   entries: AgentJournalEntry[];
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  const [expanded, setExpanded] = useCardDisclosure("journal");
+  const toggle = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const touch = useVortonTouch();
   const buttonSize = touch ? "md" : "xs";
   const storageKey = journalViewKey(serverId, agentId);

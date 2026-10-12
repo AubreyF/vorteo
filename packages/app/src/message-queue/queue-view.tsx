@@ -1,3 +1,4 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -91,11 +92,11 @@ function QueueViewContent({
   goalErrorHandled?: boolean;
   reviewRequest?: number;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useCardDisclosure("queue");
   useEffect(() => {
     if (reviewRequest > 0) setExpanded(true);
-  }, [reviewRequest]);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+  }, [reviewRequest, setExpanded]);
+  const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const edits = useQueueEditDrafts();
   const snapshot = control.snapshot;
   if (
