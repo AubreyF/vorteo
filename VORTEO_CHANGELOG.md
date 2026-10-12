@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.331 - 2026-10-11
+
+### Fixed
+
+- Keep native agent and draft composer controls above the keyboard by preserving their bottom safe-area padding.
+- Position compact floating notices above the active composer's measured height and keyboard clearance. Release the reserved space when navigating away.
+
+### Maintenance
+
+- Added compact notice regression coverage for multiline drafts and navigation. Verified notice and Send-button clearance in the iOS Release simulator.
+
 ## 0.11.0-beta.3.vorteo.330 - 2026-10-11
 
 ### Fixed

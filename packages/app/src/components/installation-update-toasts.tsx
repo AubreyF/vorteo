@@ -14,11 +14,20 @@ import { SidebarCalloutViewport } from "@/contexts/sidebar-callout-context";
 import { usePathname } from "expo-router";
 import { Button } from "@/components/ui/button";
 import { FloatingCalloutPresentation } from "./sidebar-callout";
+import { useFloatingNoticeBottomClearance } from "@/contexts/floating-notice-layout";
+import { useSettledKeyboardShift } from "@/keyboard/shift";
 
 /** One app-wide host keeps tracked maintenance visible across routes and sidebar states. */
 export function InstallationUpdateToasts() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const composerClearance = useFloatingNoticeBottomClearance();
+  const keyboardShift = useSettledKeyboardShift();
+  const bottom = Math.max(
+    width < 640 ? composerClearance + keyboardShift + 8 : 16,
+    insets.bottom + 16,
+    width < 640 && composerClearance === 0 ? 80 : 0,
+  );
   const pathname = usePathname();
   const compactWelcome = width < 640 && pathname === "/welcome";
   const [expanded, setExpanded] = useState(false);
@@ -32,11 +41,11 @@ export function InstallationUpdateToasts() {
   const position = useMemo(
     () => ({
       right: Math.max(16, insets.right),
-      bottom: Math.max(width < 640 ? 80 : 16, insets.bottom + 16),
+      bottom,
       width: Math.max(0, Math.min(360, width - insets.left - insets.right - 32)),
-      maxHeight: Math.max(0, height * 0.45 - insets.top - insets.bottom),
+      maxHeight: Math.max(0, Math.min(height * 0.45, height - bottom - insets.top - 64)),
     }),
-    [width, height, insets.left, insets.right, insets.top, insets.bottom],
+    [width, height, bottom, insets.left, insets.right, insets.top],
   );
   return (
     <View

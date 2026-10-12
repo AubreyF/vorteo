@@ -1,7 +1,47 @@
 import { expect, test } from "../support/fixtures";
+import { composerLocator } from "../support/helpers/composer";
+import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
 const API = "https://api.github.com/repos/AubreyF/paseo";
 const latestCommit = "b".repeat(40);
+
+test("compact notices clear a growing composer and release its space after navigation", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "notice-clearance-",
+    title: "Notice clearance",
+    initialPrompt: "emit 2 agent stream updates",
+  });
+  try {
+    await openAgentRoute(page, agent);
+    const stack = page.getByTestId("installation-update-toasts");
+    await expect(stack.getByText("Set up worktree scripts", { exact: true })).toBeVisible();
+    const composer = composerLocator(page);
+    for (const text of ["A short draft", "A multiline draft\n".repeat(8)]) {
+      await composer.fill(text);
+      await expect(async () => {
+        const notice = await stack.boundingBox();
+        const input = await page.getByTestId("composer-input-area").boundingBox();
+        expect(notice).not.toBeNull();
+        expect(input).not.toBeNull();
+        expect(notice!.y + notice!.height).toBeLessThanOrEqual(input!.y - 7);
+      }).toPass();
+      await composer.click();
+      await expect(composer).toBeFocused();
+    }
+    await page.screenshot({ path: info.outputPath("compact-notice-composer.png") });
+    await page.goto("/settings/appearance");
+    await expect(async () => {
+      const bounds = await stack.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.y + bounds!.height).toBeCloseTo(764, 0);
+    }).toPass();
+  } finally {
+    await agent.cleanup();
+  }
+});
 
 test("update notice floats outside navigation and remains after review on desktop and compact", async ({
   page,

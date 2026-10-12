@@ -1607,7 +1607,7 @@ function ActiveAgentComposer({
   const inputAreaStyle = useMemo(
     () => [
       animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: mobileComposer.enabled ? 0 : insets.bottom },
+      { paddingBottom: isNative || !mobileComposer.enabled ? insets.bottom : 0 },
     ],
     [insets.bottom, mobileComposer.enabled],
   );

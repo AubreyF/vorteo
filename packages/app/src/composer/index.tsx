@@ -126,6 +126,8 @@ import { useAppSettings } from "@/hooks/use-settings";
 import { RenderProfile } from "@/utils/render-profiler";
 import { AfterPaintPublication } from "@/composer/after-paint-publication";
 import { isWeb, isNative } from "@/constants/platform";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFloatingNoticeClearance } from "@/contexts/floating-notice-layout";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
@@ -2269,6 +2271,12 @@ function ComposerContentImpl({
     [agentControls, isCompactLayout, inputWrapperStyle],
   );
   const mobileComposer = useMobileComposerLayout();
+  const { isActiveComposer } = useComposerKeyboardScope();
+  const insets = useSafeAreaInsets();
+  const measureNoticeClearance = useFloatingNoticeClearance(
+    isActiveComposer && isCompactLayout,
+    isNative && externalKeyboardShift ? insets.bottom : 0,
+  );
   const columnWidth = useContext(StreamColumnWidthContext);
   const inputAreaContainerStyle = useMemo(
     () => [
@@ -2381,6 +2389,7 @@ function ComposerContentImpl({
       <KeyboardTranslateView
         style={animatedStaticStyles.container}
         enabled={!externalKeyboardShift}
+        onLayout={measureNoticeClearance}
       >
         <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
         {/* Input area */}

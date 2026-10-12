@@ -79,6 +79,9 @@ Installation controls; relocating a notice never changes approval or
 cancellation rules. On the compact welcome screen, fold notices behind a persistent
 Updates and maintenance button so setup and sign-in stay reachable. Expanding it
 reveals the existing notice cards and review controls.
+On compact workspace screens, place notices above the measured active composer
+and keyboard. Release that clearance when the composer becomes inactive or
+unmounts; retained background tabs must not move the notice stack.
 
 Consistency comes from component reuse, not from hand-matching styles across surfaces. A row in the projects list, a row in settings, and a row in a modal are the same component, not three implementations that happen to look alike. When two surfaces do the same semantic thing in two different ways, one of them is wrong.
 
