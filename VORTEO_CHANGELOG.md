@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.377 - 2026-10-12
+
+### Fixed
+
+- Square expanded card title hover backgrounds along their lower edge, retaining both top corners when the title fills the header.
+- Show one scroll-dependent separator below supporting pane controls instead of adding a second rule below the card title.
+
 ## 0.11.0-beta.3.vorteo.376 - 2026-10-12
 
 ### Fixed

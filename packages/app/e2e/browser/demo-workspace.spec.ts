@@ -1144,3 +1144,42 @@ for (const hasTouch of [false, true]) {
     });
   });
 }
+
+test("files card has joined hover corners and one scroll divider below its toolbar", async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1800, height: 320 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+  await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+  const card = page.getByTestId("supporting-card-files").filter({ visible: true });
+  const toggle = card.getByTestId("supporting-card-files-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.hover();
+  await expect(toggle).toHaveCSS("border-top-left-radius", "16px");
+  await expect(toggle).toHaveCSS("border-top-right-radius", "16px");
+  await expect(toggle).toHaveCSS("border-bottom-left-radius", "0px");
+  await expect(toggle).toHaveCSS("border-bottom-right-radius", "0px");
+  const divider = card.getByTestId("files-pane-header-divider");
+  const outer = card.getByTestId("supporting-card-files-scroll-divider");
+  await expect(divider).toHaveCSS("opacity", "0");
+  await expect(outer).toHaveCSS("opacity", "0");
+  const scroll = card.getByTestId("file-explorer-tree-scroll");
+  await scroll.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await expect.poll(() => scroll.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect(divider).toHaveCSS("opacity", "1");
+  await expect(outer).toHaveCSS("opacity", "0");
+  const box = (await card.boundingBox())!;
+  const line = (await divider.boundingBox())!;
+  expect(line.x).toBeCloseTo(box.x + 1, 1);
+  expect(line.width).toBeCloseTo(box.width - 2, 1);
+  await card.screenshot({ path: info.outputPath("files-single-divider.png") });
+  await scroll.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await expect(divider).toHaveCSS("opacity", "0");
+});

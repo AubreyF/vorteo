@@ -18,6 +18,7 @@ export function CardDisclosure({
   testID,
   icon,
   trailing,
+  fullWidth = false,
 }: {
   title: string;
   status?: string;
@@ -27,6 +28,7 @@ export function CardDisclosure({
   testID: string;
   icon: ReactNode;
   trailing?: ReactNode;
+  fullWidth?: boolean;
 }) {
   const touch = useVortonTouch();
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
@@ -40,6 +42,7 @@ export function CardDisclosure({
           taskCardStyles.accordionTrigger,
           styles.trigger,
           expanded && styles.expandedTrigger,
+          expanded && fullWidth && styles.fullWidthExpandedTrigger,
           hovered && styles.hovered,
           touch && taskCardStyles.touchAccordionTrigger,
           touch && styles.touchTrigger,
@@ -102,7 +105,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   touchTrigger: { paddingLeft: 12 },
   // Match the card's outer corner without rounding back into the adjoining header/body.
-  expandedTrigger: { borderTopRightRadius: 0, borderBottomLeftRadius: 0 },
+  expandedTrigger: {
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  fullWidthExpandedTrigger: { borderTopRightRadius: theme.borderRadius.lg },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),

@@ -4,6 +4,9 @@ import { isWeb } from "@/constants/platform";
 
 export type CardScrollHandler = (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 export const ScrollDividerContext = createContext<(scrolled: boolean) => void>(() => {});
+export const CardPaneDividerContext = createContext<{ scrolled: boolean; inset: number } | null>(
+  null,
+);
 
 /** Update only when crossing the top edge, never once per scrolling pixel. */
 export function useScrollDivider() {

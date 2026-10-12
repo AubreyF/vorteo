@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): expanded title hover backgrounds square both lower corners; full-width Files and Changes headings retain both upper corners. Supporting pane toolbars own the single conditional scroll divider, spanning through card padding, while their outer title divider stays hidden. README overview is unchanged.
+
 Maintenance review (2026-10-12): sidebar separators extend through the shared animated inset to meet the outer card border while content keeps its padding. Toolbar and maintenance rules use noninteractive overlays; regular footer separators extend their margins. Right-hand TaskCard dividers already span the full interior. README scope is unchanged.
 
 Maintenance review (2026-10-12): passive sidebar maintenance rows are single accessible buttons that open the matching review page. The separate review label no longer consumes text width; actionable floating notices retain their explicit review and dismiss controls. README overview and onboarding are unchanged.

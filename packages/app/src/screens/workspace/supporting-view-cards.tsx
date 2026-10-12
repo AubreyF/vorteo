@@ -81,6 +81,7 @@ function SupportingViewCard({
               onPress={toggle}
               testID={`supporting-card-${tab.kind}-toggle`}
               icon={icon}
+              fullWidth={tab.kind === "files" || tab.kind === "changes_tree"}
             />
             {tab.kind !== "files" && tab.kind !== "changes_tree" ? (
               <TaskCardAction

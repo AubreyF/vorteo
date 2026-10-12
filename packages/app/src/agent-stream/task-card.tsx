@@ -1,4 +1,8 @@
-import { ScrollDividerContext, useScrollDivider } from "@/components/use-scroll-divider";
+import {
+  CardPaneDividerContext,
+  ScrollDividerContext,
+  useScrollDivider,
+} from "@/components/use-scroll-divider";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
@@ -9,6 +13,7 @@ import {
   useContext,
   useId,
   useLayoutEffect,
+  useMemo,
   useState,
   type ReactNode,
   type ComponentProps,
@@ -65,6 +70,10 @@ function TaskCardView({
 }) {
   const divider = useScrollDivider();
   const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const paneDivider = useMemo(
+    () => ({ scrolled: divider.scrolled, inset: spacingInset }),
+    [divider.scrolled, spacingInset],
+  );
   const column = useContext(CardColumnContext);
   const retainedActive = useRetainedPanelActive();
   const id = useId();
@@ -139,7 +148,7 @@ function TaskCardView({
                 testID={testID ? `${testID}-scroll-divider` : undefined}
                 style={[
                   taskCardStyles.headerDivider,
-                  { opacity: bodyVisible && divider.scrolled ? 1 : 0 },
+                  { opacity: panelHeight === undefined && bodyVisible && divider.scrolled ? 1 : 0 },
                 ]}
               />
             </View>
@@ -155,7 +164,9 @@ function TaskCardView({
                   !bodyVisible && taskCardStyles.hiddenBody,
                 ]}
               >
-                <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                <CardPaneDividerContext.Provider value={paneDivider}>
+                  <CardColumnContext.Provider value={null}>{body}</CardColumnContext.Provider>
+                </CardPaneDividerContext.Provider>
               </View>
             ) : (
               <ScrollView

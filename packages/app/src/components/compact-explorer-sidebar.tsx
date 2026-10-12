@@ -448,6 +448,7 @@ function ExplorerViewCard({
           onPress={toggle}
           testID={`explorer-tab-${tab}`}
           icon={icon}
+          fullWidth
         />
       </TaskCardHeader>
       <RetainedPanel active={expanded}>{children}</RetainedPanel>
