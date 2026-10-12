@@ -39,6 +39,7 @@ export function CardDisclosure({
         style={[
           taskCardStyles.accordionTrigger,
           styles.trigger,
+          expanded && styles.expandedTrigger,
           hovered && styles.hovered,
           touch && taskCardStyles.touchAccordionTrigger,
           touch && styles.touchTrigger,
@@ -100,6 +101,8 @@ const styles = StyleSheet.create((theme) => ({
     paddingRight: theme.spacing[2],
   },
   touchTrigger: { paddingLeft: 12 },
+  // Match the card's outer corner without rounding back into the adjoining header/body.
+  expandedTrigger: { borderTopRightRadius: 0, borderBottomLeftRadius: 0 },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),

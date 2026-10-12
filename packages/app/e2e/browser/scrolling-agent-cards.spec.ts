@@ -543,6 +543,8 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const expandedHeight = (await journalCard.boundingBox())!.height;
       await toggleJournal.click();
       await expect(toggleJournal).toHaveAttribute("aria-expanded", "false");
+      await expect(toggleJournal).toHaveCSS("border-top-right-radius", "8px");
+      await expect(toggleJournal).toHaveCSS("border-bottom-left-radius", "8px");
       await expect(entries).toHaveCount(0);
       expect((await journalCard.boundingBox())!.height).toBeLessThan(expandedHeight);
       await toggleJournal.click();
@@ -802,6 +804,11 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     const color = await toggle.evaluate((node) => getComputedStyle(node).backgroundColor);
     highlight ??= color;
     expect(color, id).toBe(highlight);
+    const expanded = (await toggle.getAttribute("aria-expanded")) === "true";
+    await expect(toggle).toHaveCSS("border-top-right-radius", expanded ? "0px" : "8px");
+    await expect(toggle).toHaveCSS("border-bottom-left-radius", expanded ? "0px" : "8px");
+    await expect(toggle).toHaveCSS("border-top-left-radius", "8px");
+    await expect(toggle).toHaveCSS("border-bottom-right-radius", "8px");
     await toggle.hover({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
     await expect
       .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
