@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Integration review (2026-10-12): queueing, image downloads and icon rollback preserve the published question-card and usage-label behavior. Fixed-header tests exclude natural-height questions; page-scroll submission coverage remains. README scope is unchanged.
+
 Image previews offer a compact Download action with pending feedback. Download errors remain visible until dismissed or replaced by another download; successful downloads still dismiss automatically. Markdown copy controls remain unchanged. README overview and onboarding are unaffected.
 
 The four fixed browser icon URLs use Vorteo artwork through an exact-byte publisher migration. Icons follow the selected release for rollback; existing versioned icons and application chunks retain their bytes. Future artwork changes require a new reviewed migration.

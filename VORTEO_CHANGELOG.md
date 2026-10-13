@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.412 - 2026-10-12
+
+### Maintenance
+
+- Integrate the stopped-thread queue, image download and fallback icon changes with the final question-card test correction. Preserve the published usage message and all v410 behavior.
+
 ## 0.11.0-beta.3.vorteo.411 - 2026-10-12
 
 ### Fixed
@@ -11,6 +17,10 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Allow Command-to-queue and the compact Queue button while a thread is stopped, without starting it. Ordinary Send still resumes the thread.
 - Add a compact image Download button with pending feedback and persistent failure messages. Preserve Markdown copy controls.
 - Replace the four fallback browser icons with Vorteo artwork through an exact-byte migration. Retain previous icons for rollback and preserve versioned assets and open-client chunks.
+
+### Maintenance
+
+- Keep fixed-header scrolling checks limited to bounded cards; question cards are validated through page scrolling and answer submission instead.
 
 ## 0.11.0-beta.3.vorteo.410 - 2026-10-12
 

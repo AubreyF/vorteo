@@ -1120,7 +1120,6 @@ async function checkFixedHeaders(
       "agent-journal-card",
       "shared-message-queue",
       "agent-goal-bar",
-      "question-form-card",
     ]) {
       const card = page.getByTestId(id);
       await card.scrollIntoViewIfNeeded();
