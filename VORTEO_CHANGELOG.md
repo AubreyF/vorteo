@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.415 - 2026-10-13
+
+### Maintenance
+
+- Measure the bottom edge of a loaded image that shrinks across the timeline reading line. Keep detecting actual text jumps in either direction instead of reporting preserved text as a scroll failure.
+
 ## 0.11.0-beta.3.vorteo.414 - 2026-10-13
 
 ### Fixed

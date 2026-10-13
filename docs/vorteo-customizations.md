@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Timeline scroll checks follow the bottom edge of an image that shrinks across the reading line after loading, where the following text begins. Regression cases still reject text movement in either direction. This measurement correction does not change runtime scrolling or README scope.
+
 Integration review (2026-10-12): queueing, image downloads and icon rollback preserve the published question-card and usage-label behavior. Fixed-header tests exclude natural-height questions; page-scroll submission coverage remains. README scope is unchanged.
 
 Image previews offer a compact Download action with pending feedback. Download errors remain visible until dismissed or replaced by another download; successful downloads still dismiss automatically. Markdown copy controls remain unchanged. README overview and onboarding are unaffected.
