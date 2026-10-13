@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -359,8 +360,12 @@ function ChecklistRow({
         onPress={toggle}
         leftIcon={completed ? Check : incompleteIcon}
       />
-      <Text
+      <TruncatedText
         numberOfLines={1}
+        tooltipLabel={task.text}
+        tooltipDescription={[title !== task.text ? title : undefined, task.description, task.owner]
+          .filter(Boolean)
+          .join("\n\n")}
         style={[
           taskCardStyles.rowText,
           styles.title,
@@ -369,7 +374,7 @@ function ChecklistRow({
         ]}
       >
         {title}
-      </Text>
+      </TruncatedText>
       {blocked ? <BlockedTaskBadge task={task} /> : null}
       {review ? <ReviewTaskBadge task={task} /> : null}
       <Button

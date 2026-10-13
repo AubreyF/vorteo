@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { CardHeaderStatus } from "@/components/ui/card-header-status";
@@ -379,14 +380,14 @@ function PendingRow({ record, control }: { record: OutboxRecord; control: Messag
           count={attachments.length}
           hasMedia={attachments.some((attachment) => attachment.kind === "image")}
         />
-        <Text
+        <TruncatedText
           selectable
           style={[taskCardStyles.rowText, styles.summaryText]}
           numberOfLines={2}
           ellipsizeMode="tail"
         >
           {describePendingChange(record)}
-        </Text>
+        </TruncatedText>
       </View>
       <PendingRecovery record={record} control={control} />
     </View>
@@ -578,14 +579,14 @@ function QueueRow({
             count={attachments.length}
             hasMedia={attachments.some((attachment) => attachment.kind === "image")}
           />
-          <Text
+          <TruncatedText
             selectable={!!record}
             style={[taskCardStyles.rowText, styles.summaryText]}
             numberOfLines={2}
             ellipsizeMode="tail"
           >
             {text}
-          </Text>
+          </TruncatedText>
           {item ? (
             <QueueActions
               item={item}

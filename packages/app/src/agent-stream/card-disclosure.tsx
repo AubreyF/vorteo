@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -56,7 +57,8 @@ export function CardDisclosure({
         testID={testID}
       >
         {icon}
-        <Text
+        <TruncatedText
+          tooltipLabel={status ? `${title} (${status})` : title}
           style={[taskCardStyles.heading, styles.title]}
           numberOfLines={1}
           testID={`${testID}-title`}
@@ -68,7 +70,7 @@ export function CardDisclosure({
               ({status})
             </Text>
           ) : null}
-        </Text>
+        </TruncatedText>
         <View testID={`${testID}-arrow`} style={styles.arrow}>
           {expanded ? <Down size={16} /> : <Right size={16} />}
         </View>

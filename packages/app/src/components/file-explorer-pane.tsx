@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import { ScrollDividerContext, type CardScrollHandler } from "./use-scroll-divider";
 import {
   useCallback,
@@ -362,7 +363,7 @@ function TreeRowItem({
               <MaterialFileIcon fileName={entry.name} size={WORKSPACE_TREE_ICON_SIZE} />
             )}
           </View>
-          <Text
+          <TruncatedText
             style={[
               styles.entryName,
               workspaceTreeRowStyles.name,
@@ -372,7 +373,7 @@ function TreeRowItem({
             testID={testID ? `${testID}-name` : undefined}
           >
             {entry.name}
-          </Text>
+          </TruncatedText>
         </View>
       </ContextMenuTrigger>
       <FileActionsContextMenuContent

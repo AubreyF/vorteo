@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/ui/truncated-text";
 import {
   CardPaneDividerContext,
   ScrollDividerContext,
@@ -22,7 +23,6 @@ import {
 import {
   ScrollView,
   View,
-  Text,
   useWindowDimensions,
   type StyleProp,
   type ViewStyle,
@@ -286,9 +286,9 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
 
 export function TaskCardTitle({ children }: { children: string }) {
   return (
-    <Text style={[taskCardStyles.heading, taskCardStyles.title]} numberOfLines={1}>
+    <TruncatedText style={[taskCardStyles.heading, taskCardStyles.title]} numberOfLines={1}>
       {children}
-    </Text>
+    </TruncatedText>
   );
 }
 

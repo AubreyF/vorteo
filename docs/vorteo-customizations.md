@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Truncated card and row text uses a shared tooltip that measures clipping when opened, including multiline queue messages. Task titles include available description and owner context; subagent titles include their metadata. Tooltips preserve text geometry, do not accept pointer interaction and do not intercept touch actions. README overview and onboarding are unchanged.
+
 Three-task flowers use the same narrow petal shape and center gap as four-task flowers, with even radial spacing. README overview and onboarding are unchanged.
 
 Static question headings share the same icon inset as disclosure headings. Sidebar card headings use fixed 44px controls and 16px rounding on all four hover corners in every spacing tier and input mode. Queue status precedes its count chip. Count chips and goal elapsed time sit at the right inside the heading disclosure, before separate action buttons, so the heading hover and click target includes them. The left navigation toolbar uses the same control height and keeps its leading icon aligned with project icons. README overview and onboarding are unchanged.
