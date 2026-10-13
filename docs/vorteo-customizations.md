@@ -658,3 +658,5 @@ Small shared loading spinners use a 1px stroke, including the 16px coordinator n
 The early web loading shell embeds the approved Vorteo silhouette in white inside a 160px, 1px rotating ring. The mark remains stationary, reduced motion stops the ring, and delayed connection help remains available before React mounts.
 
 Details cards use an 8px stack gap. Shared disclosure headings measure their available width after adjacent actions, hide labels and chevrons when space is tight, and hide chips only when they cannot fit beside the icon. Accessible button labels and expansion behavior remain available.
+
+Heading geometry checks measure visible controls and verify icon-only expansion at the minimum sidebar width, followed by label and chip restoration when widened.

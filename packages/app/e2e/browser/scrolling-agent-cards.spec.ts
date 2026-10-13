@@ -1072,7 +1072,9 @@ async function checkHeadingGeometry(stack: Locator, _width: number) {
           iconX: icon.getBoundingClientRect().x - cardBox.x,
           titleX: title.getBoundingClientRect().x - cardBox.x,
           titleWidth: title.getBoundingClientRect().width,
-          offsets: marks.map((node) => center(node) - center(header)),
+          offsets: marks
+            .filter((node) => node.getBoundingClientRect().width > 0)
+            .map((node) => center(node) - center(header)),
           topClearance: buttonBox && buttonBox.top - cardBox.top,
           rightClearance: buttonBox && cardBox.right - buttonBox.right,
           overflow: header.scrollWidth > header.clientWidth,
@@ -1082,15 +1084,17 @@ async function checkHeadingGeometry(stack: Locator, _width: number) {
   );
   for (const card of geometry) {
     expect(card.height, card.id).toBe(44);
-    expect(card.titleWidth, card.id).toBeGreaterThan(10);
+    if (card.titleWidth > 0) expect(card.titleWidth, card.id).toBeGreaterThan(10);
     expect(card.iconX - card.panelInset, card.id).toBeCloseTo(
       geometry[0].iconX - geometry[0].panelInset,
       1,
     );
-    expect(card.titleX - card.panelInset, card.id).toBeCloseTo(
-      geometry[0].titleX - geometry[0].panelInset,
-      1,
-    );
+    if (card.titleWidth > 0) {
+      expect(card.titleX - card.panelInset, card.id).toBeCloseTo(
+        geometry[0].titleX - geometry[0].panelInset,
+        1,
+      );
+    }
     for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
     expect(card.overflow, card.id).toBe(false);
   }
@@ -1902,6 +1906,10 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
     "agent-journal-toggle",
   ]) {
     const arrow = stack.getByTestId(`${id}-arrow`);
+    if (!(await arrow.isVisible())) {
+      await expect(stack.getByTestId(`${id}-title`)).toBeHidden();
+      continue;
+    }
     const order = await arrow.evaluate((node) => {
       const arrowBox = node.getBoundingClientRect();
       const titleBox = node.previousElementSibling!.getBoundingClientRect();

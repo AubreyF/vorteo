@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.464 - 2026-10-13
+
+### Validation
+
+- Check alignment of visible heading elements while allowing labels and chevrons to disappear in compact disclosures. Desktop and phone card interactions, narrow expansion and restored spacing pass.
+
 ## 0.11.0-beta.3.vorteo.463 - 2026-10-13
 
 ### Appearance
