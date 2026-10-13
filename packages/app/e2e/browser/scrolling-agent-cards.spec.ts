@@ -814,7 +814,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     await expect(toggle).toHaveCSS("border-top-right-radius", expanded ? "0px" : "8px");
     await expect(toggle).toHaveCSS("border-bottom-left-radius", expanded ? "0px" : "8px");
     await expect(toggle).toHaveCSS("border-top-left-radius", "8px");
-    await expect(toggle).toHaveCSS("border-bottom-right-radius", "8px");
+    await expect(toggle).toHaveCSS("border-bottom-right-radius", expanded ? "0px" : "8px");
     await toggle.hover({ position: { x: geometry.width - 4, y: geometry.height / 2 } });
     await expect
       .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))

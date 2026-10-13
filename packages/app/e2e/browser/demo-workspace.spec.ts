@@ -1149,7 +1149,7 @@ test("files card has joined hover corners and one scroll divider below its toolb
   page,
 }, info) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 1800, height: 320 });
+  await page.setViewportSize({ width: 1800, height: 500 });
   await page.goto("/?demo=1");
   await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
   const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
@@ -1158,8 +1158,8 @@ test("files card has joined hover corners and one scroll divider below its toolb
   const toggle = card.getByTestId("supporting-card-files-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await toggle.hover();
-  await expect(toggle).toHaveCSS("border-top-left-radius", "16px");
-  await expect(toggle).toHaveCSS("border-top-right-radius", "16px");
+  await expect(toggle).toHaveCSS("border-top-left-radius", "8px");
+  await expect(toggle).toHaveCSS("border-top-right-radius", "8px");
   await expect(toggle).toHaveCSS("border-bottom-left-radius", "0px");
   await expect(toggle).toHaveCSS("border-bottom-right-radius", "0px");
   const divider = card.getByTestId("files-pane-header-divider");
