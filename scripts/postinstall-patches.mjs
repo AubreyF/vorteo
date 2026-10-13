@@ -8,6 +8,8 @@ import { join, relative } from "node:path";
 // workspace root live in their workspace's own node_modules, and patch-package resolves
 // the patch's node_modules/... paths relative to its working directory.
 const patchedPackages = [
+  // Preserve EAS 16 upload interop while using the patched tar 7 dependency.
+  { nodeModulesPath: "node_modules/eas-cli", patchPrefix: "eas-cli+" },
   // Backport parser progress guards until Metro supports image-size 2.
   { nodeModulesPath: "node_modules/image-size", patchPrefix: "image-size+" },
   // SDK 54 development launcher waits for the scene-owned React window.

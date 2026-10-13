@@ -39,7 +39,13 @@ test("shell-quote rejects an operator token containing a newline", () => {
   assert.throws(() => shellQuote.quote([{ op: "\nprintf INJECTED" }]), TypeError);
 });
 
-for (const consumer of ["@expo/cli", "@mapbox/node-pre-gyp", "app-builder-lib", "node-gyp"]) {
+for (const consumer of [
+  "@expo/cli",
+  "@mapbox/node-pre-gyp",
+  "app-builder-lib",
+  "node-gyp",
+  "eas-cli",
+]) {
   test(`${consumer} tar round-trips archives without following extraction-directory symlinks`, async () => {
     const owner = createRequire(
       new URL(`../node_modules/${consumer}/package.json`, import.meta.url),

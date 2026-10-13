@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.428 - 2026-10-13
+
+### Security
+
+- Scope EAS CLI's tar dependency to 7.5.22 and preserve its upload helper's CommonJS interop through the existing postinstall patch workflow. Test the actual archive creation and JavaScript extraction helpers with synthetic files and a stubbed upload transport. All tar consumers now resolve the patched version; deployment and broader security review remain open.
+
 ## 0.11.0-beta.3.vorteo.427 - 2026-10-13
 
 ### Security

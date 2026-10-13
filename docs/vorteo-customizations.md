@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+An EAS CLI-scoped override selects tar 7.5.22. The pinned EAS 16 upload helper receives a one-line CommonJS compatibility patch because tar 7 exposes named exports. Tests call the actual archive creation and extraction helpers, substituting only the upload transport and forcing the JavaScript extraction fallback; no account or upload is used. Retire the patch with a validated EAS upgrade that supports the patched archive dependency directly. README overview and onboarding are unchanged.
+
 An oxfmt-scoped override selects Tinypool 2.1.2 to reject inherited worker options while retaining the existing formatter. A bounded regression verifies inherited task filenames cannot redirect worker selection; representative formatting output is unchanged. This addresses the dependency gadget without claiming an application prototype-pollution entry point was found. Remove the override when an independently validated formatter update includes the fix. README overview and onboarding are unchanged.
 
 Workspace Vitest dependencies require 4.1.11 within the version 4 series, including browser, Playwright and UI companions. Usage browser checks save screenshots under the project's existing screenshot directory instead of requesting writes outside the allowed filesystem boundary. This tooling update leaves production behavior, README overview and onboarding unchanged.
