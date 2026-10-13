@@ -126,11 +126,11 @@ export function runDefaultSendAction(ctx: SendActionContext): void {
 }
 
 export function runAlternateSendAction(ctx: SendActionContext): void {
-  if (ctx.defaultSendBehavior === "queue") {
+  if (ctx.defaultSendBehavior === "queue" && ctx.isAgentRunning) {
     ctx.handleSendMessage();
     return;
   }
-  if (ctx.isAgentRunning && ctx.onQueue) {
+  if (ctx.onQueue) {
     ctx.handleQueueMessage();
   }
 }

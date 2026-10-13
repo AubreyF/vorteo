@@ -2482,7 +2482,7 @@ function ComposerContentImpl({
                   voiceAgentId={agentId}
                   isAgentRunning={isAgentRunning}
                   defaultSendBehavior={activeSendBehavior}
-                  onQueue={handleQueue}
+                  onQueue={hasAgent && supportsMessageQueue ? handleQueue : undefined}
                   onSubmitLoadingPress={submitLoadingPressHandler}
                   onKeyPress={handleCommandKeyPress}
                   onSelectionChange={handleSelectionChange}

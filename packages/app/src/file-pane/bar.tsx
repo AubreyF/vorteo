@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { Copy } from "lucide-react-native";
+import { Copy, Download } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/contexts/toast-context";
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
@@ -27,6 +27,8 @@ export function FilePanelBar({
   vimMode,
   conflict,
   textContent,
+  onDownload,
+  downloading,
 }: {
   size: number;
   lineCount?: number;
@@ -37,6 +39,8 @@ export function FilePanelBar({
   vimMode?: string | null;
   conflict?: FileConflictAlertState;
   textContent?: string;
+  onDownload?: () => void;
+  downloading?: boolean;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -127,6 +131,18 @@ export function FilePanelBar({
                 testID="file-preview-mode"
                 options={previewModes}
               />
+            ) : null}
+            {onDownload ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                leftIcon={Download}
+                onPress={onDownload}
+                loading={downloading}
+                testID="file-download"
+              >
+                {t("workspace.fileActions.download")}
+              </Button>
             ) : null}
             {textContent !== undefined ? (
               <Button

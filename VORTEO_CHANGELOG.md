@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.411 - 2026-10-12
+
+### Fixed
+
+- Allow Command-to-queue and the compact Queue button while a thread is stopped, without starting it. Ordinary Send still resumes the thread.
+- Add a compact image Download button with pending feedback and persistent failure messages. Preserve Markdown copy controls.
+- Replace the four fallback browser icons with Vorteo artwork through an exact-byte migration. Retain previous icons for rollback and preserve versioned assets and open-client chunks.
+
 ## 0.11.0-beta.3.vorteo.410 - 2026-10-12
 
 ### Fixed

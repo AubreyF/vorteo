@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { runInNewContext } from "node:vm";
 import { installationWebEntry } from "./installation-web-entry.mjs";
+import { fallbackIcons, isReviewedFallback } from "./web-icon-migration.mjs";
 import {
   assertIntegratedSource,
   digest,
@@ -101,6 +102,81 @@ async function candidate(f, name, previous = null) {
 function publish(source, destination) {
   return run(process.execPath, [publisher, source, destination]);
 }
+
+async function withIcon(f, name, bytes) {
+  const directory = await candidate(f, name);
+  const manifestPath = path.join(directory, ".build-manifest.json");
+  const provenance = JSON.parse(await fs.readFile(manifestPath));
+  await fs.rm(manifestPath);
+  delete provenance.files;
+  await fs.writeFile(path.join(directory, "apple-touch-icon.png"), bytes);
+  await sealArtifact(directory, provenance);
+  return directory;
+}
+
+test("fallback migration only accepts exact approved bytes and fixed names", async () => {
+  for (const [name, hashes] of Object.entries(fallbackIcons)) {
+    assert.equal(isReviewedFallback(name, hashes.before, hashes.after), true);
+    assert.equal(isReviewedFallback(name, hashes.after, hashes.after), true);
+    assert.equal(isReviewedFallback(name, null, hashes.after), true);
+    assert.throws(() => isReviewedFallback(name, digest("unknown"), hashes.after));
+    assert.throws(() => isReviewedFallback(name, hashes.before, digest("new")));
+    const bytes = await fs.readFile(path.resolve("packages/app/public", name));
+    assert.equal(digest(bytes), hashes.after);
+  }
+  assert.equal(isReviewedFallback("versioned-icon.png", "old", "new"), false);
+  assert.equal(isReviewedFallback("../favicon.ico", "old", "new"), false);
+});
+
+test("reviewed icons switch with the release and preserve rollback and open-client assets", async (t) => {
+  const f = await fixture(t);
+  const oldIcon = await fs.readFile("scripts/test-fixtures/paseo-apple-touch-icon.png");
+  const newIcon = await fs.readFile("packages/app/public/apple-touch-icon.png");
+  await fs.writeFile(path.join(f.destination, "apple-touch-icon.png"), oldIcon);
+  await publish(await candidate(f, "before-icons"), f.destination);
+  const before = await fs.readlink(path.join(f.destination, ".current"));
+  await publish(await withIcon(f, "icons", newIcon), f.destination);
+  const after = await fs.readlink(path.join(f.destination, ".current"));
+  assert.equal(
+    await fs.readlink(path.join(f.destination, "apple-touch-icon.png")),
+    ".current/apple-touch-icon.png",
+  );
+  assert.deepEqual(await fs.readFile(path.join(f.destination, "apple-touch-icon.png")), newIcon);
+  assert.deepEqual(
+    await fs.readFile(path.join(f.destination, before, "apple-touch-icon.png")),
+    oldIcon,
+  );
+  assert.ok(await fs.readFile(path.join(f.destination, "before-icons.js")));
+  await fs.symlink(before, path.join(f.destination, ".rollback"));
+  await fs.rename(path.join(f.destination, ".rollback"), path.join(f.destination, ".current"));
+  assert.deepEqual(await fs.readFile(path.join(f.destination, "apple-touch-icon.png")), oldIcon);
+  await fs.symlink(after, path.join(f.destination, ".forward"));
+  await fs.rename(path.join(f.destination, ".forward"), path.join(f.destination, ".current"));
+  await assert.rejects(
+    publish(await candidate(f, "omitted-icon"), f.destination),
+    /omits selected fallback/,
+  );
+  await publish(await withIcon(f, "icons-again", newIcon), f.destination);
+  assert.deepEqual(await fs.readFile(path.join(f.destination, "apple-touch-icon.png")), newIcon);
+});
+
+test("unexpected fallback bytes refuse before selection or icon changes", async (t) => {
+  const f = await fixture(t);
+  const newIcon = await fs.readFile("packages/app/public/apple-touch-icon.png");
+  await publish(await candidate(f, "baseline-icons"), f.destination);
+  const before = (await readLiveState(f.destination)).token;
+  await fs.writeFile(path.join(f.destination, "apple-touch-icon.png"), "unreviewed prior bytes");
+  await assert.rejects(
+    publish(await withIcon(f, "bad-prior", newIcon), f.destination),
+    /Unreviewed fallback/,
+  );
+  await fs.rm(path.join(f.destination, "apple-touch-icon.png"));
+  await assert.rejects(
+    publish(await withIcon(f, "bad-next", Buffer.from("other")), f.destination),
+    /Unreviewed fallback/,
+  );
+  assert.equal((await readLiveState(f.destination)).token, before);
+});
 
 test("installation redirects use guarded publication and record their target", async (t) => {
   const f = await fixture(t);

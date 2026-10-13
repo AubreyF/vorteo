@@ -166,7 +166,7 @@ export interface MessageInputProps {
    *  running. "interrupt" and "steer" send immediately, "queue" queues. Required so the default
    *  lives only in DEFAULT_CLIENT_SETTINGS. */
   defaultSendBehavior: "interrupt" | "steer" | "queue";
-  /** Callback for queue button when agent is running */
+  /** Callback for explicitly queueing without starting the agent. */
   onQueue?: (payload: MessagePayload) => void;
   /** Optional handler used when submit button is in loading state. */
   onSubmitLoadingPress?: () => void;
@@ -450,7 +450,7 @@ function handleDesktopKeyPressImpl(
 
   if (ctx.isSubmitDisabled || ctx.isSubmitLoading || ctx.disabled) return;
   event.preventDefault();
-  if ((metaKey || ctrlKey) && ctx.isAgentRunning && ctx.onQueue) {
+  if ((metaKey || ctrlKey) && ctx.onQueue) {
     ctx.handleAlternateSendAction();
     return;
   }
@@ -1286,8 +1286,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const touch = useVortonTouch();
     const mobileComposer = useMobileComposerLayout();
     const showMobileQueue = useMemo(
-      () => mobileComposer.enabled && isAgentRunning && Boolean(onQueue) && !readOnly,
-      [mobileComposer.enabled, isAgentRunning, onQueue, readOnly],
+      () => mobileComposer.enabled && Boolean(onQueue) && !readOnly,
+      [mobileComposer.enabled, onQueue, readOnly],
     );
     const showSubmitModifiers = supportsSubmitModifiers({
       isWeb,

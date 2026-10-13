@@ -22,6 +22,11 @@ describe("composer submit action", () => {
     });
     expect(resolveSubmitAction(running)).toEqual({ action: "default", queues: false });
   });
+  it("offers Command queue when the thread is stopped", () => {
+    expect(
+      resolveSubmitAction({ ...running, isAgentRunning: false, modifier: "alternate" }),
+    ).toEqual({ action: "alternate", queues: true });
+  });
   it("shows send for Command when Enter already queues by default", () => {
     expect(resolveSubmitAction({ ...running, defaultActionQueues: true })).toEqual({
       action: "default",
@@ -31,7 +36,7 @@ describe("composer submit action", () => {
       resolveSubmitAction({ ...running, defaultActionQueues: true, modifier: "alternate" }),
     ).toEqual({ action: "alternate", queues: false });
   });
-  it.each([{ isAgentRunning: false }, { canQueue: false }, { isCompact: true }])(
+  it.each([{ canQueue: false }, { isCompact: true }])(
     "does not advertise unavailable Command queue behavior: %j",
     (override) => {
       expect(resolveSubmitAction({ ...running, modifier: "alternate", ...override })).toEqual({

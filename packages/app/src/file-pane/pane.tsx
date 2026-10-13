@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react-native";
 import { useFileDownload } from "@/hooks/use-file-download";
+import { useDownloadStore } from "@/stores/download-store";
 
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -399,6 +400,16 @@ function FilePanePresentation({
     }
   }, [downloadFile, filename, readTarget]);
   const canDownload = readTarget !== null;
+  const canDownloadImage = canDownload && preview?.kind === "image";
+  const downloading = useDownloadStore((state) =>
+    Array.from(state.downloads.values()).some(
+      (download) =>
+        download.serverId === serverId &&
+        download.scopeId === readTarget?.cwd &&
+        download.fileName === filename &&
+        download.status === "downloading",
+    ),
+  );
 
   if (!client && readTarget) {
     return (
@@ -458,6 +469,8 @@ function FilePanePresentation({
         <FilePanelBar
           size={preview.size}
           textContent={preview.kind === "text" ? (preview.content ?? "") : undefined}
+          onDownload={canDownloadImage ? onDownload : undefined}
+          downloading={downloading}
           lineCount={lineCount}
           mode={previewMode}
           onModeChange={onPreviewModeChange}
