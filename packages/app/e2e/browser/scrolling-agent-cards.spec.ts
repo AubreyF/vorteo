@@ -812,7 +812,15 @@ async function checkCardGaps(
             })
             .filter((box) => box.width > 0),
         )
-      : geometry;
+      : await stack.evaluate((root, boxes) => {
+          const file = root
+            .querySelector('[data-testid="supporting-card-files"]')!
+            .getBoundingClientRect();
+          return [
+            ...boxes,
+            { id: "supporting-card-files", top: file.top, bottom: file.bottom },
+          ].sort((a, b) => a.top - b.top);
+        }, geometry);
   for (let index = 1; index < adjacent.length; index++) {
     expect(
       adjacent[index].top - adjacent[index - 1].bottom,

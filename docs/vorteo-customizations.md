@@ -523,3 +523,5 @@ Mobile workspace headers retain only the left navigation and right workspace men
 Narrow composer Queue and Send buttons retain fixed click and tap actions. Queue renders above the text input hit area. Command or Control highlights Queue and queues with Enter; ordinary Enter keeps the narrow editor’s multiline behavior.
 
 Goal cards keep queue-priority notices directly below the heading and outside the scrolling objective. Their conditional divider appears below the notice; waiting for messages does not add a heading suffix.
+
+Mobile card geometry checks include the inline Files card when measuring adjacent gaps.
