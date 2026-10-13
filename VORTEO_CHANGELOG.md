@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.450 - 2026-10-13
+
+### Appearance
+
+- Remove extra vertical padding around queue row actions. Keep sidebar action tooltips hover-only so touch opens menus directly.
+- Update browser checks for the tighter body clearance and verify project and workspace menu tooltips alongside sidebar alignment, hover feedback and Settings placement.
+
 ## 0.11.0-beta.3.vorteo.449 - 2026-10-13
 
 ### Appearance

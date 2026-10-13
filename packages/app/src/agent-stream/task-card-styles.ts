@@ -38,7 +38,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     hiddenBody: { display: "none" },
     item: {
       minHeight: TASK_CARD_ROW_HEIGHT,
-      paddingVertical: theme.spacing[1],
+      paddingVertical: 0,
       gap: theme.spacing[1],
       justifyContent: "center",
     },

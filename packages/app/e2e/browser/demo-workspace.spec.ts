@@ -1274,7 +1274,7 @@ test("sidebar controls align with project icons and expose hover and menu feedba
       .poll(() => more.evaluate((n) => getComputedStyle(n).backgroundColor))
       .not.toBe(idle);
     await more.click();
-    const menu = page.getByRole("menu").filter({ visible: true });
+    const menu = page.getByTestId("sidebar-add-project").locator("..");
     await expect(menu.getByText("Settings", { exact: true })).toHaveCount(width < 340 ? 1 : 0);
     if (width >= 340) await expect(menu.locator(":scope > *").first()).toContainText("Workspace");
     await page.keyboard.press("Escape");
@@ -1292,6 +1292,13 @@ test("sidebar controls align with project icons and expose hover and menu feedba
     const kebab = project.locator("..").locator('[data-testid^="sidebar-project-kebab-"]').first();
     await kebab.hover();
     await expect(page.getByRole("tooltip")).toContainText("Project");
+    const workspace = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
+    await workspace.hover();
+    const workspaceMenu = page.getByTestId(
+      "sidebar-workspace-kebab-vorteo-demo:demo-workspace-0-0",
+    );
+    await workspaceMenu.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Workspace actions");
     await page.screenshot({ path: info.outputPath(`sidebar-controls-${width}.png`) });
   }
 });

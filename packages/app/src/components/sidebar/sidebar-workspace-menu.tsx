@@ -531,7 +531,7 @@ export function SidebarWorkspaceMenu({
   const pages = useWorkspaceLabelMenuPages(workspaceTarget);
   return (
     <DropdownMenu compactMode="sheet" open={open} onOpenChange={onOpenChange}>
-      <Tooltip enabledOnDesktop={!open} enabledOnMobile>
+      <Tooltip enabledOnDesktop={!open} enabledOnMobile={false}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
             hitSlop={actionSize ? 0 : 8}

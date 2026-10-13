@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Queue rows use their action height without extra vertical padding. Sidebar action tooltips are hover-only; touch activates their menus directly. Browser checks cover heading clearance, sidebar icon alignment, action hover feedback, both row-menu tooltips and conditional Settings placement. README overview and onboarding are unchanged.
+
 Card headings use equal 2px, 3px and 4px insets at the existing width breakpoints. Bodies start 2px below their headings, adjacent cards have 4px gaps, and subagent rows retain 40px desktop or 44px touch targets without extra vertical padding. The sidebar toolbar sizes independently of central tabs, aligns its first control with project images, and provides hover feedback and tooltips for menu and creation actions. Settings appears either in the toolbar or its overflow menu. README overview and onboarding are unchanged.
 
 Script-toolbar unit fixtures include the shared button opacity token and exercise the direct ghost control without replacing the button component. This test maintenance does not change product behavior or onboarding.

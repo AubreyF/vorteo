@@ -540,7 +540,7 @@ function ProjectKebabMenu({
   );
   return (
     <DropdownMenu compactMode="sheet">
-      <Tooltip enabledOnDesktop enabledOnMobile>
+      <Tooltip enabledOnDesktop enabledOnMobile={false}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
             hitSlop={actionSize ? 0 : 8}
