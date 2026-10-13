@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): plan-card browser checks explicitly reveal supporting cards after desktop resizing and follow the visible card into the mobile layout. Header geometry includes the existing shared spacing tiers. Failure screenshots preserve the page before fixture cleanup. Product behavior and README scope are unchanged.
+
 Maintenance review (2026-10-12): count badges suppress zero totals. Progress labels pass their total explicitly so a nonempty task list with zero completed tasks keeps its chip. Journal also supplies its visible total. README scope is unchanged.
 
 Maintenance review (2026-10-12): the sidebar toolbar has a 2px right inset; workspace row-density styles use 6px in project groups and 10px in status groups. The desktop overflow glyph and final workspace indicator share a centerline. Project add buttons retain their current placement. README scope is unchanged.
