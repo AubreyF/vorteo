@@ -70,7 +70,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { Button } from "@/components/ui/button";
 import { CompactProjectRail } from "./sidebar/compact-project-rail";
-import { floatingPanelStyles } from "@/styles/floating-panel";
+import { FLOATING_PANEL_RADIUS, floatingPanelStyles } from "@/styles/floating-panel";
 import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
@@ -1274,6 +1274,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: 2,
   },
   footerIconButton: (isCompact: boolean) => ({
+    borderRadius: FLOATING_PANEL_RADIUS,
     width: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
     height: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
     alignItems: "center",
@@ -1284,7 +1285,7 @@ const styles = StyleSheet.create((theme) => ({
   touchIconButton: { width: 44, height: 44 },
   activeIconButton: {
     backgroundColor: theme.colors.interactionHighlight,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   tooltipRow: {
     flexDirection: "row",

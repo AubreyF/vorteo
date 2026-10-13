@@ -1,3 +1,4 @@
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
@@ -103,7 +104,7 @@ const styles = StyleSheet.create((theme) => ({
     flexGrow: 0,
     flexShrink: 0,
     flexBasis: "auto",
-    borderRadius: theme.borderRadius.lg,
+    borderRadius: FLOATING_PANEL_RADIUS,
     paddingLeft: TASK_CARD_ICON_CENTER - 10,
     paddingRight: theme.spacing[2],
   },
@@ -114,7 +115,7 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
   },
-  fullWidthExpandedTrigger: { borderTopRightRadius: theme.borderRadius.lg },
+  fullWidthExpandedTrigger: { borderTopRightRadius: FLOATING_PANEL_RADIUS },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),

@@ -1160,8 +1160,8 @@ test("files card has joined hover corners and one scroll divider below its toolb
   const toggle = card.getByTestId("supporting-card-files-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await toggle.hover();
-  await expect(toggle).toHaveCSS("border-top-left-radius", "8px");
-  await expect(toggle).toHaveCSS("border-top-right-radius", "8px");
+  await expect(toggle).toHaveCSS("border-top-left-radius", "16px");
+  await expect(toggle).toHaveCSS("border-top-right-radius", "16px");
   await expect(toggle).toHaveCSS("border-bottom-left-radius", "0px");
   await expect(toggle).toHaveCSS("border-bottom-right-radius", "0px");
   const divider = card.getByTestId("files-pane-header-divider");
