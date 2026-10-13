@@ -76,7 +76,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       gap: 0,
       flexShrink: 0,
     },
-    staticHeader: { paddingHorizontal: 10, gap: theme.spacing[2] },
+    staticHeader: { paddingHorizontal: TASK_CARD_ICON_CENTER - 10, gap: theme.spacing[2] },
     touchStaticHeader: { paddingHorizontal: 12 },
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
