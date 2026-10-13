@@ -1,3 +1,4 @@
+import { SettingsExpansion } from "@/components/settings/settings-expansion";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -104,7 +105,7 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
   const history = state.requests.filter((request) => !currentIds.has(request.id));
   if (!state.available) return null;
   return (
-    <View testID="coordinator-bootstrap-review">
+    <View testID="coordinator-bootstrap-review" style={settingsStyles.rowBorder}>
       {state.error ? (
         <View>
           <Text accessibilityRole="alert" style={styles.error}>
@@ -119,7 +120,7 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
         <BootstrapRequestCard key={request.id} request={request} model={model} />
       ))}
       {history.length ? (
-        <>
+        <View style={styles.card}>
           <Button
             variant="ghost"
             onPress={toggleHistory}
@@ -127,12 +128,14 @@ export function BootstrapReview({ model }: { model: BootstrapPanelModel }) {
           >
             {`${showHistory ? "Hide" : "Show"} coordinator history (${history.length})`}
           </Button>
-          {showHistory
-            ? history.map((request) => (
-                <BootstrapRequestCard key={request.id} request={request} model={model} />
-              ))
-            : null}
-        </>
+          {showHistory ? (
+            <SettingsExpansion testID="coordinator-history-content">
+              {history.map((request) => (
+                <BootstrapRequestCard key={request.id} request={request} model={model} historical />
+              ))}
+            </SettingsExpansion>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -227,12 +230,18 @@ function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrap
   );
 }
 
+function bootstrapCardStyle(historical?: boolean) {
+  return historical ? styles.historyItem : styles.card;
+}
+
 function BootstrapRequestCard({
   request,
   model,
+  historical,
 }: {
   request: CoordinatorBootstrapRequest;
   model: BootstrapPanelModel;
+  historical?: boolean;
 }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [details, setDetails] = useState(false);
@@ -248,10 +257,7 @@ function BootstrapRequestCard({
   const deciding = !request.execution && request.status !== "canceled";
   const checking = state.busy && deciding;
   return (
-    <View
-      style={[styles.card, settingsStyles.rowBorder]}
-      testID={`coordinator-bootstrap-${request.id}`}
-    >
+    <View style={bootstrapCardStyle(historical)} testID={`coordinator-bootstrap-${request.id}`}>
       <View style={styles.row}>
         <Text style={settingsStyles.rowTitle}>Installation coordinator</Text>
         <StatusBadge
@@ -277,7 +283,7 @@ function BootstrapRequestCard({
         {details ? "Hide details" : "Details"}
       </Button>
       {details ? (
-        <View style={styles.details}>
+        <SettingsExpansion>
           <Text selectable style={styles.text}>
             {request.reason}
           </Text>
@@ -314,7 +320,7 @@ function BootstrapRequestCard({
           <Text selectable style={styles.text}>
             Revision: {request.revision}
           </Text>
-        </View>
+        </SettingsExpansion>
       ) : null}
       {deciding ? (
         <>
@@ -521,7 +527,7 @@ function PreclaimRecoveryCard({
         Exact recovery details
       </Button>
       {details ? (
-        <View style={styles.details}>
+        <SettingsExpansion>
           <Text selectable style={styles.text}>
             Request: {request.id}
             {"\n"}Revision: {request.revision}
@@ -549,7 +555,7 @@ function PreclaimRecoveryCard({
             Preserved configuration: {plan.selectedConfiguration.path}
             {"\n"}SHA-256: {plan.selectedConfiguration.sha256}
           </Text>
-        </View>
+        </SettingsExpansion>
       ) : null}
       {deciding ? (
         <>
@@ -627,6 +633,7 @@ export function PreclaimRecoveryBanner({ model }: { model: RecoveryPanelModel })
 
 const styles = StyleSheet.create((theme) => ({
   card: { padding: theme.spacing[4], gap: theme.spacing[3] },
+  historyItem: { gap: theme.spacing[3] },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -635,7 +642,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
-  details: { gap: theme.spacing[2] },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   error: {
     color: theme.colors.destructive,

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.451 - 2026-10-13
+
+### Appearance
+
+- Keep expanded General settings details, coordinator history, shared workflows and restart history inside shaded regions beneath their parent. Remove internal section dividers and use a second shade for nested details.
+- Keep linked historical restart requests inside expanded history while preserving their focus and approval boundaries. Add desktop and phone hierarchy checks.
+
 ## 0.11.0-beta.3.vorteo.450 - 2026-10-13
 
 ### Appearance

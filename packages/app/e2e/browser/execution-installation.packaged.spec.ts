@@ -1103,6 +1103,23 @@ test("restart links keep rejected and missing requests separate from a pending a
   );
   await expect(page.getByTestId(`restart-request-${pending.id}`)).toBeVisible();
   await expect(page.getByTestId(`restart-confirm-${historicalRestartId}`)).toHaveCount(0);
+  const historyRegion = page.getByTestId("restart-history-content");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toBeVisible();
+  await expect(historyRegion).toHaveCSS("border-top-width", "0px");
+  await expect(historyRegion.getByTestId(`restart-request-${historicalRestartId}`)).toHaveCSS(
+    "border-top-width",
+    "0px",
+  );
+  const historyColor = await historyRegion.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  expect(historyColor).not.toBe("rgba(0, 0, 0, 0)");
+  await page.getByTestId("installation-sharing-toggle").click();
+  const sharingRegion = page.getByTestId("installation-sharing-content");
+  await expect(sharingRegion).toBeVisible();
+  await expect(sharingRegion).toHaveCSS("background-color", historyColor);
+  await expect(sharingRegion).toHaveCSS("border-top-width", "0px");
+
   await page.goto(`${origin}/settings/general?installation=1&restart=${randomUUID()}`);
   await expect(
     page.getByText("This restart request is no longer available.", { exact: true }),

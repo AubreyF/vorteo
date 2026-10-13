@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+General settings expansions use a shared shaded region within their parent section. Coordinator history, restart history, shared workflows, recovery details and request details have no internal section dividers; nested expansions use a second surface shade. Historical restart links reveal the containing history without moving the request into the active list. This changes presentation only; lifecycle approval requirements remain unchanged. README overview and onboarding are unchanged.
+
 Queue rows use their action height without extra vertical padding. Sidebar action tooltips are hover-only; touch activates their menus directly. Browser checks cover heading clearance, sidebar icon alignment, action hover feedback, both row-menu tooltips and conditional Settings placement. README overview and onboarding are unchanged.
 
 Card headings use equal 2px, 3px and 4px insets at the existing width breakpoints. Bodies start 2px below their headings, adjacent cards have 4px gaps, and subagent rows retain 40px desktop or 44px touch targets without extra vertical padding. The sidebar toolbar sizes independently of central tabs, aligns its first control with project images, and provides hover feedback and tooltips for menu and creation actions. Settings appears either in the toolbar or its overflow menu. README overview and onboarding are unchanged.
