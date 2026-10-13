@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.440 - 2026-10-13
+
+### Security
+
+- Scope minimatch 5.1.9 to EAS while upstream retains its older exact pin. Provisioning-profile identifier validation preserves exact and wildcard matches and rejects mismatches. A bounded worker reproduces the old matcher stall and verifies the updated matcher returns; its brace-expansion dependency also passes allocation-limit checks. No installed services or credentials are changed.
+
 ## 0.11.0-beta.3.vorteo.439 - 2026-10-13
 
 ### Security

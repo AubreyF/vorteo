@@ -1,6 +1,6 @@
 {
   "name": "paseo",
-  "version": "0.11.0-beta.3.vorteo.439",
+  "version": "0.11.0-beta.3.vorteo.440",
   "private": true,
   "description": "Vorteo: voice-controlled development environment for local AI coding agents",
   "keywords": [
@@ -151,6 +151,7 @@
     "@codemirror/language": "6.12.4",
     "@codemirror/view": "6.43.6",
     "eas-cli": {
+      "minimatch": "5.1.9",
       "tar": "7.5.22"
     },
     "lightningcss": "1.30.1",
