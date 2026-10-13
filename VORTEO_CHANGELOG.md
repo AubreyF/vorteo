@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.462 - 2026-10-13
+
+### Appearance
+
+- Give the early app loading screen a 160px hairline ring around the white Vorteo silhouette. Embed the mark so it appears before assets load, preserve delayed recovery help, and stop rotation for reduced motion.
+
 ## 0.11.0-beta.3.vorteo.461 - 2026-10-13
 
 ### Appearance
