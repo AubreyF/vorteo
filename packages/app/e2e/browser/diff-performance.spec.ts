@@ -432,8 +432,11 @@ async function openFirstReviewEditor(page: Page): Promise<number> {
   ]);
   if (!bodyBounds) throw new Error("Expanded diff body has no bounds");
   const lineHeight = Math.round(fontSize * 1.5);
+  await page.mouse.move(bodyBounds.x + 120, bodyBounds.y + lineHeight * 1.5);
+  const addComment = page.getByRole("button", { name: "Add review comment", exact: true });
+  await expect(addComment).toBeVisible();
   const startedAt = performance.now();
-  await page.mouse.click(bodyBounds.x + 120, bodyBounds.y + lineHeight * 1.5);
+  await addComment.click();
   await expect(page.getByTestId("inline-review-editor")).toBeVisible();
   return performance.now() - startedAt;
 }

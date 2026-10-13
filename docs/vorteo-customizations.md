@@ -539,3 +539,5 @@ Web views restore their shared CSS if the last mounted owner released it while a
 Appearance application compares typography, syntax colors and content width with each live registered theme before updating it. Theme previews avoid rebuilding unchanged styles; replacing a contributed theme still reapplies user preferences. Terminal performance checks wait for a standalone completion marker rather than matching the echoed command, and replica-cache measurements separate writes and serialized volume by record type.
 
 Browser selection assertions match Starship's existing root-colored highlight on its lighter sidebar surface. This maintenance correction changes test expectations only; production colors remain unchanged.
+
+Browser workspace helpers expand Files and Changes in the supporting card group. The large-diff review benchmark uses the desktop hover comment action before measuring editor latency.
