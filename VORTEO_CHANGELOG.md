@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.438 - 2026-10-13
+
+### Security
+
+- Refresh compatible js-yaml, smol-toml and compression dependencies. Bounded checks cover YAML merge budgets, desktop update metadata parsing, Knip's TOML loader and native compression cleanup after a client disconnect. The old compression version fails the cleanup regression. Source preparation does not update the installed desktop application or development services.
+
 ## 0.11.0-beta.3.vorteo.437 - 2026-10-13
 
 ### Security
