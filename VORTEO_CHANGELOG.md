@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.430 - 2026-10-13
+
+### Security
+
+- Update DOMPurify to 3.4.17 and regenerate the embedded Mermaid runtime so diagrams use the updated sanitizer. Diagram policy, sizing, streaming and iframe checks pass. No application use of the advisories' in-place sanitization mode was established; installation remains pending.
+
 ## 0.11.0-beta.3.vorteo.429 - 2026-10-13
 
 ### Security

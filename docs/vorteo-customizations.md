@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The dependency lock and generated Mermaid runtime include DOMPurify 3.4.17. The runtime imports Mermaid's core module, which uses the external sanitizer; updating the lock must be followed by regenerating the runtime for native and web consumers. Existing closed-network policy and diagram checks remain in force. The reviewed application path did not establish use of the affected in-place sanitization mode. README overview and onboarding are unchanged.
+
 Chat search requires markdown-it 14.3.2, and a scoped react-native-markdown-display override selects the same parser for default rendering. The lock resolves linkify-it 5.0.2 across these consumers. Search and parser tests plus a default-renderer browser check cover compatibility and unsafe markup rejection. Remove the scoped override when the renderer declares a compatible patched parser itself. This prepared dependency update does not change README overview or onboarding.
 
 An EAS CLI-scoped override selects tar 7.5.22. The pinned EAS 16 upload helper receives a one-line CommonJS compatibility patch because tar 7 exposes named exports. Tests call the actual archive creation and extraction helpers, substituting only the upload transport and forcing the JavaScript extraction fallback; no account or upload is used. Retire the patch with a validated EAS upgrade that supports the patched archive dependency directly. README overview and onboarding are unchanged.
