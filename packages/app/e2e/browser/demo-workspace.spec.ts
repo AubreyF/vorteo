@@ -40,7 +40,8 @@ test("opens a populated demo without connecting to a real host", async ({ page }
     .getByTestId("workspace-pane-main")
     .getByTestId("workspace-tabs-row")
     .boundingBox();
-  expect(tabsBounds!.height).toBe(48);
+  // The default desktop row includes the shared 2px top and bottom insets.
+  expect(tabsBounds!.height).toBe(52);
   await expect(page.getByTestId("screen-header").filter({ visible: true })).toHaveCount(0);
   await expect(page.getByTestId("workspace-tabs-row").first()).toHaveCSS(
     "border-bottom-width",
