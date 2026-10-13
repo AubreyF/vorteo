@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/desktop",
-  "version": "0.11.0-beta.3.vorteo.425",
+  "version": "0.11.0-beta.3.vorteo.426",
   "private": true,
   "description": "Vorteo desktop app (Electron wrapper)",
   "homepage": "https://paseo.sh",
@@ -44,7 +44,7 @@
     "electron-builder": "26.15.3",
     "typescript": "5.9.3",
     "unzip-crx-3": "^0.2.0",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.11",
     "wait-on": "8.0.5"
   },
   "desktopName": "Paseo.desktop"

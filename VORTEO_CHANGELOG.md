@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.426 - 2026-10-13
+
+### Security
+
+- Require Vitest and its browser/UI companions at 4.1.11 or later within version 4. Keep usage-test screenshots inside the project because the patched browser runner now enforces file-access restrictions. Existing security-related unit tests and desktop/phone Chromium usage checks pass; this is development tooling and does not change the installed interface.
+
 ## 0.11.0-beta.3.vorteo.425 - 2026-10-13
 
 ### Security

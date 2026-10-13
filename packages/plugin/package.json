@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/plugin",
-  "version": "0.11.0-beta.3.vorteo.425",
+  "version": "0.11.0-beta.3.vorteo.426",
   "description": "Vorteo plugin SDK package",
   "files": [
     "dist",
@@ -70,19 +70,19 @@
     "use-sync-external-store": "^1.6.0"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.425",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.425",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.426",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.426",
     "@types/node": "^20.9.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.11",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.425",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.425",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.426",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.426",
     "react": "~19.1.0",
     "react-native": ">=0.81.5",
     "zod": "^4.4.3"

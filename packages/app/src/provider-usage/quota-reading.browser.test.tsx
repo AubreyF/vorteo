@@ -112,6 +112,6 @@ for (const width of [1280, 390]) {
     expect(container.querySelector('[role="progressbar"]')).toBeNull();
     expect(container.textContent).not.toContain("100%");
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    await page.screenshot({ path: `/tmp/claude-quota-${width}.png` });
+    await page.screenshot({ path: `.vitest-screenshots/claude-quota-${width}.png` });
   });
 }

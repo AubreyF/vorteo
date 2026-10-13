@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/relay",
-  "version": "0.11.0-beta.3.vorteo.425",
+  "version": "0.11.0-beta.3.vorteo.426",
   "description": "Vorteo relay for bridging daemon and client connections",
   "files": [
     "dist",
@@ -43,6 +43,6 @@
     "@types/node": "^20.9.0",
     "@types/ws": "^8.5.8",
     "typescript": "^5.2.2",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.11"
   }
 }
