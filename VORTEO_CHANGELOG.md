@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.435 - 2026-10-13
+
+### Fixes
+
+- Keep diagram controls visible on touch and compact layouts with 44-pixel targets. Empty toolbar overlays no longer intercept canvas input. Add a real-browser touch regression for fullscreen opening and closing without hover.
+
 ## 0.11.0-beta.3.vorteo.434 - 2026-10-13
 
 ### Maintenance

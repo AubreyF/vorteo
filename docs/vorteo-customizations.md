@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Diagram viewport controls stay visible on touch and compact layouts, using 44-pixel targets. Empty overlay space passes input to the canvas; visible controls retain their own hit targets. Production validation found the former invisible overlay blocking touches. A browser regression opens and closes fullscreen directly by touch, without hover or a preliminary canvas tap. README overview and onboarding are unchanged.
+
 The security candidate preserves the installed repair-notification suppression. Static publication can deliver compatible Markdown and diagram changes without applying server or desktop binaries. Permission-reset controls remain hidden unless the desktop bridge supplies that capability. Source integration and a web build do not establish installation of the prepared transport, permission or desktop security fixes.
 
 AJV's compatible URI dependency resolves to fast-uri 3.1.8. Regressions cover authority errors, ordinary host parsing, local schema references and rejection of unresolved remote references. Reviewed server and bridge validators compile synchronously without remote schema loaders; the dependency advisory alone does not establish application SSRF. The separate pinned EAS AJV advisory remains under review. README overview and onboarding are unchanged.
