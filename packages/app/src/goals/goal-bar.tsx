@@ -10,7 +10,7 @@ import {
 import { useVortonTouch } from "@/vorton-touch";
 import { useGoalElapsed } from "./use-goal-elapsed";
 import { Text, View } from "react-native";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Pause, Play, BrushCleaning, Pencil } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
@@ -31,20 +31,31 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
   const [expanded, setExpanded] = useCardDisclosure("goal");
   const toggleExpanded = useCallback(() => setExpanded((value) => !value), [setExpanded]);
   const elapsed = useGoalElapsed(control.state, control.connected);
+  const notice = control.connected && !control.error ? queueNotice : null;
+  const fixedNotice = useMemo(
+    () => (
+      <GoalQueueExplanation
+        visible={expanded}
+        notice={notice}
+        onExpand={onExpand}
+        onReviewMessages={onReviewMessages}
+      />
+    ),
+    [expanded, notice, onExpand, onReviewMessages],
+  );
   if (!control.supported) return null;
   const goal = control.state?.goal;
   if (!goal && !control.error && !queueNotice) return null;
   const paused = !isGoalContinuationEnabled(control.state);
-  const notice = control.connected && !control.error ? queueNotice : null;
   const label = notice ? "Goal" : goalBarLabel(control);
 
   return (
-    <TaskCard testID="agent-goal-bar" bodyVisible={expanded}>
+    <TaskCard testID="agent-goal-bar" bodyVisible={expanded} notice={fixedNotice}>
       <TaskCardHeader>
         <CardDisclosure
           icon={HEADING_ICON}
           title={label}
-          status={notice?.status}
+          status={goalNoticeStatus(notice)}
           expanded={expanded}
           onPress={toggleExpanded}
           testID="agent-goal-toggle"
@@ -63,11 +74,6 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
 
       <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
         {goal && compact ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
-        <GoalQueueExplanation
-          notice={notice}
-          onExpand={onExpand}
-          onReviewMessages={onReviewMessages}
-        />
         {goal && !paused ? (
           <Text style={styles.help}>
             Pause goal prevents the goal from continuing automatically.
@@ -97,19 +103,25 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
   );
 }
 
+function goalNoticeStatus(notice: GoalQueueNotice | null | undefined) {
+  return notice?.action ? notice.status : undefined;
+}
+
 function GoalQueueExplanation({
+  visible,
   notice,
   onExpand,
   onReviewMessages,
 }: {
+  visible: boolean;
   notice: GoalQueueNotice | null | undefined;
   onExpand: () => void;
   onReviewMessages?: () => void;
 }) {
   const touch = useVortonTouch();
-  if (!notice) return null;
+  if (!visible || !notice) return null;
   return (
-    <View style={styles.errorRow}>
+    <View testID="agent-goal-notice" style={[styles.errorRow, styles.notice]}>
       <Text
         accessibilityRole={notice.action ? "alert" : undefined}
         style={notice.action ? styles.error : styles.help}
@@ -203,7 +215,10 @@ function goalBarLabel(control: AgentGoalControl): string {
 
 const styles = StyleSheet.create((theme) => ({
   help: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  objective: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  objective: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
   elapsed: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
@@ -212,8 +227,13 @@ const styles = StyleSheet.create((theme) => ({
   headerElapsed: { marginRight: theme.spacing[2] },
   touch: { minWidth: 44, minHeight: 44 },
   errorRow: { alignItems: "flex-start", gap: theme.spacing[1] },
+  notice: { paddingHorizontal: 12, paddingBottom: 4 },
   recoveryAction: { alignSelf: "flex-end" },
-  error: { alignSelf: "stretch", color: theme.colors.destructive, fontSize: theme.fontSize.sm },
+  error: {
+    alignSelf: "stretch",
+    color: theme.colors.destructive,
+    fontSize: theme.fontSize.sm,
+  },
 }));
 
 const HEADING_ICON = <TaskCardIcon kind="goal" />;

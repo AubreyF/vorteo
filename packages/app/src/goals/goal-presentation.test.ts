@@ -51,7 +51,7 @@ it("offers Pause for a queue-held goal and Resume for a manual pause", () => {
     goal: { ...state.goal!, status: "paused" as const },
     queueContinuationHeld: true,
   };
-  expect(goalStatusLabel(paused)).toBe("Goal (waiting for messages)");
+  expect(goalStatusLabel(paused)).toBe("Goal");
   expect(isGoalContinuationEnabled(paused)).toBe(true);
   expect(goalStatusLabel({ ...paused, restartContinuationHeld: true })).toBe(
     "Goal blocked by restart",
@@ -102,7 +102,11 @@ it("explains a held goal and distinguishes message failures from goal recovery",
       items: [
         {
           ...uncertain,
-          delivery: { status: "failed", attemptId: "attempt", reason: "Attachment missing" },
+          delivery: {
+            status: "failed",
+            attemptId: "attempt",
+            reason: "Attachment missing",
+          },
         },
       ],
     }),
