@@ -24,6 +24,9 @@ export const taskCardStyles = StyleSheet.create((theme) => {
       paddingVertical: theme.spacing[1],
       gap: 2,
     },
+    // Secondary drag targets stay tall while reserving less horizontal space on touch.
+    rowHandle: { width: 24, marginLeft: TASK_CARD_ICON_CENTER - 12, minHeight: 32 },
+    touchRowHandle: { width: 32, marginLeft: TASK_CARD_ICON_CENTER - 16, minHeight: 44 },
     flushBody: { paddingHorizontal: 0 },
     fixedHeader: { flexShrink: 0 },
     headerDivider: {

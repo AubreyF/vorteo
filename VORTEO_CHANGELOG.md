@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.468 - 2026-10-13
+
+### Appearance
+
+- Bring mobile task checkboxes and queue attachment tiles 10px closer to their drag handles. Share the leading group and handle geometry, preserve heading centerlines and full-height controls, and cover both rows in the production browser layout check.
+
 ## 0.11.0-beta.3.vorteo.467 - 2026-10-13
 
 ### Appearance

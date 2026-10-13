@@ -347,12 +347,22 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expectedRevision: 0,
       operationId: "pause-cards",
     });
+    const uploaded = await client.uploadFile({
+      fileName: "card-layout.png",
+      mimeType: "image/png",
+      bytes: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    });
+    expect(uploaded.error).toBeNull();
+    expect(uploaded.file).not.toBeNull();
     await client.mutateMessageQueue(agent.agentId, {
       kind: "enqueue",
       operationId: "enqueue-cards",
       messageId: "card-message",
       text: "Queued after progress",
-      attachments: [],
+      attachments: [{ ...uploaded.file!, kind: "image" }],
     });
     // The mock provider has no goals. Supply only that provider-owned observation;
     // agents, todo events, plugin registration and queue operations use the real daemon.
@@ -579,6 +589,23 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         expect(card.frame).toEqual(geometry[0].frame);
       }
       await checkHeadingGeometry(stack, width);
+      if (width === 390) {
+        const taskRow = stack
+          .locator('[data-testid^="checklist-row-"]')
+          .filter({ has: page.locator('[data-testid^="checklist-drag-"]') })
+          .first();
+        const handle = (await taskRow.locator('[data-testid^="checklist-drag-"]').boundingBox())!;
+        const checkbox = (await taskRow.getByRole("checkbox").boundingBox())!;
+        expect(handle.width).toBe(32);
+        expect(handle.height).toBe(44);
+        expect(checkbox.width).toBe(44);
+        expect(checkbox.x - handle.x - handle.width).toBeCloseTo(0, 1);
+        const queueHandle = (await stack.getByTestId("queue-drag-card-message").boundingBox())!;
+        const attachment = (await stack.getByTestId("queue-attachment-summary").boundingBox())!;
+        expect(queueHandle.width).toBe(32);
+        expect(queueHandle.height).toBe(44);
+        expect(attachment.x - queueHandle.x - queueHandle.width).toBeCloseTo(0, 1);
+      }
       await checkHeadingActions(stack, width);
       await checkHeadingHover(page, stack, width, info);
       const journalCard = stack.getByTestId("agent-journal-card");

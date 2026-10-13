@@ -1,4 +1,4 @@
-import { TaskCardRow } from "@/agent-stream/task-card-row";
+import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
@@ -376,11 +376,13 @@ function PendingRow({ record, control }: { record: OutboxRecord; control: Messag
   return (
     <View style={taskCardStyles.item}>
       <TaskCardRow>
-        <QueueMessageIndicator record={record} />
-        <QueueAttachmentSummary
-          count={attachments.length}
-          hasMedia={attachments.some((attachment) => attachment.kind === "image")}
-        />
+        <TaskCardRowLeading>
+          <QueueMessageIndicator record={record} />
+          <QueueAttachmentSummary
+            count={attachments.length}
+            hasMedia={attachments.some((attachment) => attachment.kind === "image")}
+          />
+        </TaskCardRowLeading>
         <TruncatedText
           selectable
           style={[taskCardStyles.rowText, styles.summaryText]}
@@ -565,21 +567,23 @@ function QueueRow({
     >
       {!editing.length ? (
         <TaskCardRow>
-          <QueueMessageIndicator record={record}>
-            {item ? (
-              <ListDragHandle
-                inset={false}
-                info={dragInfo}
-                disabled={!reorderEnabled}
-                label="Reorder queued message"
-                testID={`queue-drag-${row.id}`}
-              />
-            ) : null}
-          </QueueMessageIndicator>
-          <QueueAttachmentSummary
-            count={attachments.length}
-            hasMedia={attachments.some((attachment) => attachment.kind === "image")}
-          />
+          <TaskCardRowLeading>
+            <QueueMessageIndicator record={record}>
+              {item ? (
+                <ListDragHandle
+                  inset={false}
+                  info={dragInfo}
+                  disabled={!reorderEnabled}
+                  label="Reorder queued message"
+                  testID={`queue-drag-${row.id}`}
+                />
+              ) : null}
+            </QueueMessageIndicator>
+            <QueueAttachmentSummary
+              count={attachments.length}
+              hasMedia={attachments.some((attachment) => attachment.kind === "image")}
+            />
+          </TaskCardRowLeading>
           <TruncatedText
             selectable={!!record}
             style={[taskCardStyles.rowText, styles.summaryText]}

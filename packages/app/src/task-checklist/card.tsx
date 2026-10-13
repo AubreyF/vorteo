@@ -1,4 +1,4 @@
-import { TaskCardRow } from "@/agent-stream/task-card-row";
+import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
@@ -341,26 +341,28 @@ function ChecklistRow({
   );
   return (
     <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
-      {managed ? (
-        <ListDragHandle
-          info={info}
-          disabled={!canReorder}
-          label={`Reorder ${task.text}`}
-          testID={`checklist-drag-${task.id}`}
+      <TaskCardRowLeading>
+        {managed ? (
+          <ListDragHandle
+            info={info}
+            disabled={!canReorder}
+            label={`Reorder ${task.text}`}
+            testID={`checklist-drag-${task.id}`}
+          />
+        ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          style={iconStyle}
+          accessibilityRole="checkbox"
+          aria-checked={completed}
+          accessibilityState={checkboxState}
+          accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
+          disabled={!managed || !canMutate}
+          onPress={toggle}
+          leftIcon={completed ? Check : incompleteIcon}
         />
-      ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        style={iconStyle}
-        accessibilityRole="checkbox"
-        aria-checked={completed}
-        accessibilityState={checkboxState}
-        accessibilityLabel={`${completed ? "Reopen" : "Complete"} ${task.text}`}
-        disabled={!managed || !canMutate}
-        onPress={toggle}
-        leftIcon={completed ? Check : incompleteIcon}
-      />
+      </TaskCardRowLeading>
       <TruncatedText
         numberOfLines={1}
         tooltipLabel={task.text}

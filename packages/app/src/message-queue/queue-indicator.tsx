@@ -17,10 +17,7 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  TASK_CARD_ICON_CENTER,
-  TASK_CARD_TOUCH_ICON_CENTER,
-} from "@/agent-stream/task-card-styles";
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
 import type { OutboxRecord } from "./outbox-record";
 
@@ -117,7 +114,7 @@ export function QueueMessageIndicator({
   const orbitStyle = useAnimatedStyle(() => ({ opacity: orbitOpacity.value }));
   const handleStyle = useAnimatedStyle(() => ({ opacity: handleOpacity.value }));
   return (
-    <View style={[styles.slot, touch && styles.touch]}>
+    <View style={[styles.slot, taskCardStyles.rowHandle, touch && taskCardStyles.touchRowHandle]}>
       {showOrbit ? (
         <Animated.View
           style={[animationStyles.overlay, orbitStyle]}
@@ -130,7 +127,12 @@ export function QueueMessageIndicator({
             <TooltipTrigger
               accessibilityRole="button"
               accessibilityLabel={status}
-              style={[styles.slot, touch && styles.touch, styles.innerSlot]}
+              style={[
+                styles.slot,
+                taskCardStyles.rowHandle,
+                touch && taskCardStyles.touchRowHandle,
+                styles.innerSlot,
+              ]}
             >
               <ThemedOrbit spinning={spinning} />
             </TooltipTrigger>
@@ -153,13 +155,9 @@ const animationStyles = NativeStyleSheet.create({
 });
 const styles = StyleSheet.create((theme) => ({
   slot: {
-    marginLeft: TASK_CARD_ICON_CENTER - 12,
-    width: 24,
-    minHeight: 32,
     alignItems: "center",
     justifyContent: "center",
   },
-  touch: { minWidth: 44, minHeight: 44, marginLeft: TASK_CARD_TOUCH_ICON_CENTER - 22 },
   innerSlot: { marginLeft: 0 },
   tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
 }));
