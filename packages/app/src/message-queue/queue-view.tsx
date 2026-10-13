@@ -703,7 +703,7 @@ function QueueActions({
         <DropdownMenuTrigger
           accessibilityRole="button"
           accessibilityLabel="Queued message actions"
-          style={[styles.menuTrigger, touch && styles.touch]}
+          style={[taskCardStyles.iconAction, styles.menuTrigger, touch && styles.touch]}
         >
           <ThemedMore size={16} uniProps={mutedIconMapping} />
         </DropdownMenuTrigger>
@@ -810,11 +810,8 @@ const styles = StyleSheet.create((theme) => ({
   touch: { minHeight: 44, minWidth: 44 },
   inlineAction: { minHeight: 44, alignSelf: "flex-start" },
   menuTrigger: {
-    width: 32,
-    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: theme.borderRadius.full,
   },
   dragActive: { backgroundColor: theme.colors.surface2 },
   editorActions: {

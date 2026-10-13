@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Queued-message overflow menus use shared card action geometry rather than a separate size, keeping row and heading centers aligned on desktop and touch layouts. README scope is unchanged.
+
 Journal browser checks use the same desktop icon-column offset for both the timeline marker and timestamp. This test maintenance does not change runtime behavior or README scope.
 
 Tag catalog equality includes explicit-color intent, so selecting a hue identical to the stored legacy default still persists the choice. Reload tests cover this case. Browser geometry checks follow the 40px control centerline. This Host persistence fix remains subject to tracked lifecycle approval; README scope is unchanged.
