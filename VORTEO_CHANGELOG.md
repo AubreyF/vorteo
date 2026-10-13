@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.425 - 2026-10-13
+
+### Security
+
+- Update electron-builder to 26.15.3 and resolve electron-updater to 6.8.9 with builder-util-runtime 9.7.0. Verify sensitive headers are removed across redirect origin changes while same-origin authentication remains intact. Desktop updater tests, compilation and an unsigned disposable packaging check pass; application installation and signed release validation remain separate.
+
 ## 0.11.0-beta.3.vorteo.424 - 2026-10-13
 
 ### Security
