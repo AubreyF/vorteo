@@ -652,3 +652,5 @@ The web diff renderer prepares scroll-window text through its canvas model witho
 Host routes reserve sidebar space while the saved-host registry loads, preventing the content column from moving sideways after its first paint. The host route still validates the requested host and redirects unknown IDs after loading. Startup checks cover cold and warm desktop, tablet and phone layouts, saved-host settings and offline diagnostics.
 
 The app uses Markdown-it 14.3.2 and Mermaid 11.16.1, including the regenerated embedded diagram runtime. Parser checks retain literal typography and reject unsafe links; reference destinations containing spaces use angle brackets under the current parser syntax. These updates address client rendering advisories without changing daemon dependencies.
+
+Small shared loading spinners use a 1px stroke, including the 16px coordinator notice indicator. Their footprint and rotation timing remain unchanged.

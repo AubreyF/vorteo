@@ -19,7 +19,7 @@ function internalDividerColor(border: string): string {
 export const LOADING_INDICATOR = {
   small: 20,
   large: 48,
-  smallStroke: 1.75,
+  smallStroke: 1,
   largeStroke: 1.5,
 } as const;
 

@@ -93,7 +93,7 @@ Consistency comes from component reuse, not from hand-matching styles across sur
 
 ## 2. Component reuse
 
-Loading indicators use `LoadingSpinner` with shared `LOADING_INDICATOR` geometry. Large page loaders use a 48px diameter and 1.5px stroke. Small loaders keep their 20px footprint with a 1.75px stroke; explicitly smaller icons scale the stroke down. Keep status-ring frames stable when thinning their outlines.
+Loading indicators use `LoadingSpinner` with shared `LOADING_INDICATOR` geometry. Large page loaders use a 48px diameter and 1.5px stroke. Small loaders keep their 20px footprint with a 1px stroke; explicitly smaller icons scale the stroke down. Keep status-ring frames stable when thinning their outlines.
 
 A semantic element used in three or more places is a primitive. One of a kind is a screen.
 

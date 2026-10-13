@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.461 - 2026-10-13
+
+### Appearance
+
+- Thin shared small loading spinners to a 1px stroke, including the coordinator update row, while preserving their size and animation.
+
 ## 0.11.0-beta.3.vorteo.460 - 2026-10-13
 
 ### Appearance
