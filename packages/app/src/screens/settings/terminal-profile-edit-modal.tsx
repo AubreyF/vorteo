@@ -132,6 +132,33 @@ export function TerminalProfileEditModal({
   const nameError = fieldErrors.name;
   const commandError = fieldErrors.command;
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          variant="secondary"
+          style={styles.actionButton}
+          onPress={handleCancel}
+          disabled={isPending}
+          testID="terminal-profile-cancel-button"
+        >
+          {t("common.actions.cancel")}
+        </Button>
+        <Button
+          variant="default"
+          style={styles.actionButton}
+          onPress={handleSave}
+          disabled={isPending}
+          testID="terminal-profile-save-button"
+        >
+          {isPending
+            ? t("settings.host.terminalProfiles.saving")
+            : t("settings.host.terminalProfiles.save")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleCancel, isPending, t, handleSave],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
@@ -139,6 +166,7 @@ export function TerminalProfileEditModal({
       onClose={handleCancel}
       testID={testID}
       desktopMaxWidth={480}
+      footer={modalFooter1}
     >
       <View style={styles.body}>
         <Field
@@ -212,29 +240,6 @@ export function TerminalProfileEditModal({
             {submitError}
           </Text>
         ) : null}
-
-        <ActionFooter style={styles.actions}>
-          <Button
-            variant="secondary"
-            style={styles.actionButton}
-            onPress={handleCancel}
-            disabled={isPending}
-            testID="terminal-profile-cancel-button"
-          >
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            variant="default"
-            style={styles.actionButton}
-            onPress={handleSave}
-            disabled={isPending}
-            testID="terminal-profile-save-button"
-          >
-            {isPending
-              ? t("settings.host.terminalProfiles.saving")
-              : t("settings.host.terminalProfiles.save")}
-          </Button>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

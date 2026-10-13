@@ -1379,7 +1379,7 @@ for (const width of [1400, 390]) {
       await expect(page.getByTestId("checklist-count")).toHaveText("2 / 2");
       await page.getByRole("button", { name: "Details for Build API", exact: true }).click();
       const footer = page.getByTestId("checklist-editor-actions");
-      await footer.scrollIntoViewIfNeeded();
+      await expect(footer).toBeInViewport();
       const deleteButton = footer.getByRole("button", {
         name: "Delete task",
         exact: true,
@@ -1402,7 +1402,7 @@ for (const width of [1400, 390]) {
       }
       expect(closeBox.y).toBeCloseTo(saveBox.y, 0);
       expect(saveBox.x).toBeGreaterThan(closeBox.x + closeBox.width);
-      await expect(footer).toHaveCSS("padding-top", "16px");
+      await expect(footer).toHaveCSS("padding-top", "0px");
       const deleteColor = await deleteButton.evaluate(
         (node) => getComputedStyle(node).backgroundColor,
       );

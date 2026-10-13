@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import type { ProviderResetView } from "@getpaseo/protocol/provider-reset";
-import { ResetDialogContent } from "./reset-dialog";
+import { ResetDialogContent, ResetDialogActions } from "./reset-dialog";
 import { initialResetFlow, resetFlowReducer, type ResetFlow } from "./reset-flow";
 import { selectableResetCredits } from "./reset-state";
 
@@ -87,22 +87,26 @@ function Harness({
     [],
   );
   const back = useCallback(() => dispatch({ type: "back" }), []);
+  const props = {
+    name: "Example account",
+    view: source,
+    flow,
+    selectedCreditId,
+    selectionSupported: true,
+    enabled: true,
+    connected: true,
+    readFailed: false,
+    onSelect: select,
+    onBack: back,
+    onClose: noop,
+    onRefresh: noop,
+    onAct: actOnReset,
+  };
   return (
-    <ResetDialogContent
-      name="Example account"
-      view={source}
-      flow={flow}
-      selectedCreditId={selectedCreditId}
-      selectionSupported
-      enabled
-      connected
-      readFailed={false}
-      onSelect={select}
-      onBack={back}
-      onClose={noop}
-      onRefresh={noop}
-      onAct={actOnReset}
-    />
+    <>
+      <ResetDialogContent {...props} />
+      <ResetDialogActions {...props} />
+    </>
   );
 }
 

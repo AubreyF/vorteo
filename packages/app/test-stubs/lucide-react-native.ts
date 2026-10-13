@@ -9,6 +9,8 @@ export type LucideIcon = ComponentType<{
 const StubIcon: LucideIcon = () => null;
 
 export const Activity = StubIcon;
+export const Files = StubIcon;
+export const GitCompareArrows = StubIcon;
 export const AlertTriangle = StubIcon;
 export const Archive = StubIcon;
 export const ArrowDownUp = StubIcon;

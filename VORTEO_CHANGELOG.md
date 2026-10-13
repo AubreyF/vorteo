@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.403 - 2026-10-12
+
+### Fixed
+
+- Keep modal actions in a fixed footer while long forms scroll independently. Task, goal, account, host, plugin, skill and settings dialogs retain visible bottom actions at short desktop and compact viewport heights.
+- Prevent modal headers and footers from shrinking, preserve safe-area clearance, and avoid doubled action-row padding. Add browser checks for visible, clickable Save controls before and after scrolling a long task form.
+
 ## 0.11.0-beta.3.vorteo.402 - 2026-10-12
 
 ### Maintenance

@@ -14,7 +14,7 @@ import { providerUsageQueryKey } from "./use-provider-usage";
 import { currentResetPreparation, resetPresentation, selectableResetCredits } from "./reset-state";
 import { providerResetQueryOptions } from "./reset-query";
 import { initialResetFlow, resetFlowReducer } from "./reset-flow";
-import { ResetDialogContent } from "./reset-dialog";
+import { ResetDialogContent, ResetDialogActions } from "./reset-dialog";
 import { prepareResetForView, reconcileResetResult, resetResultNotice } from "./reset-result";
 
 function useResetControl({
@@ -232,6 +232,42 @@ export function ProviderResetControl(props: {
     readFailed: query.isError,
     positiveOnly: props.compact,
   });
+  const modalFooter1 = useMemo(
+    () => (
+      <ResetDialogActions
+        name={name}
+        view={view}
+        flow={flow}
+        selectedCreditId={selectedCreditId}
+        selectionSupported={selectionSupported}
+        enabled={enabled && selectionSupported && (Boolean(prepared) || selectedExists)}
+        connected={connected}
+        readFailed={query.isError}
+        onSelect={select}
+        onBack={back}
+        onClose={close}
+        onRefresh={refresh}
+        onAct={press}
+      />
+    ),
+    [
+      name,
+      view,
+      flow,
+      selectedCreditId,
+      selectionSupported,
+      enabled,
+      prepared,
+      selectedExists,
+      connected,
+      query,
+      select,
+      back,
+      close,
+      refresh,
+      press,
+    ],
+  );
   if (!visible) return null;
   const BadgeButton = props.compact ? CompactAccountButton : Button;
   return (
@@ -258,6 +294,7 @@ export function ProviderResetControl(props: {
           onClose={close}
           desktopMaxWidth={560}
           testID="provider-reset-dialog"
+          footer={modalFooter1}
         >
           <ResetDialogContent
             name={name}

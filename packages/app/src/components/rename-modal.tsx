@@ -129,12 +129,49 @@ export function AdaptiveRenameModal({
   const cancelTestID = testID ? `${testID}-cancel` : undefined;
   const sheetHeader = useMemo<SheetHeader>(() => ({ title }), [title]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          variant="secondary"
+          size="sm"
+          style={styles.actionButton}
+          onPress={handleCancel}
+          disabled={isPending}
+          testID={cancelTestID}
+        >
+          {t("common.actions.cancel")}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          style={styles.actionButton}
+          onPress={handleSubmitVoid}
+          disabled={submitDisabled}
+          testID={submitTestID}
+        >
+          {isPending ? t("renameModal.saving") : (submitLabel ?? t("renameModal.rename"))}
+        </Button>
+      </ActionFooter>
+    ),
+    [
+      handleCancel,
+      isPending,
+      cancelTestID,
+      t,
+      handleSubmitVoid,
+      submitDisabled,
+      submitTestID,
+      submitLabel,
+    ],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
       onClose={handleCancel}
       header={sheetHeader}
       testID={testID}
+      footer={modalFooter1}
     >
       <View style={styles.body}>
         <AdaptiveTextInput
@@ -156,28 +193,6 @@ export function AdaptiveRenameModal({
           </Text>
         ) : null}
         {renderSuggestions?.(selectSuggestion, isPending)}
-        <ActionFooter style={styles.actions}>
-          <Button
-            variant="secondary"
-            size="sm"
-            style={styles.actionButton}
-            onPress={handleCancel}
-            disabled={isPending}
-            testID={cancelTestID}
-          >
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            style={styles.actionButton}
-            onPress={handleSubmitVoid}
-            disabled={submitDisabled}
-            testID={submitTestID}
-          >
-            {isPending ? t("renameModal.saving") : (submitLabel ?? t("renameModal.rename"))}
-          </Button>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );

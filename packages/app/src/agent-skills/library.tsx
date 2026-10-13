@@ -240,20 +240,34 @@ function useSkillChange(serverId: string, onChanged: () => void) {
   });
 }
 
-function ChangeResult({
+function ChangeActions({
   result,
   pending,
-  error,
   apply,
 }: {
   result: SkillLibraryResult | undefined;
   pending: boolean;
-  error: Error | null;
   apply: (preview: SkillPreview) => void;
 }) {
   const applyPreview = useCallback(() => {
     if (result?.kind === "preview") apply(result.preview);
   }, [apply, result]);
+  return result?.kind === "preview" ? (
+    <Button disabled={pending} onPress={applyPreview}>
+      Apply reviewed change
+    </Button>
+  ) : null;
+}
+
+function ChangeResult({
+  result,
+  pending,
+  error,
+}: {
+  result: SkillLibraryResult | undefined;
+  pending: boolean;
+  error: Error | null;
+}) {
   return (
     <View style={styles.content}>
       {pending ? <Text style={styles.muted}>Working...</Text> : null}
@@ -283,11 +297,6 @@ function ChangeResult({
               </Text>
             </View>
           ))}
-          <ActionFooter>
-            <Button disabled={pending} onPress={applyPreview}>
-              Apply reviewed change
-            </Button>
-          </ActionFooter>
         </>
       ) : null}
     </View>
@@ -342,8 +351,37 @@ function SkillDetail({
     () => change.mutate({ kind: "preview_link", id: skill.id, provider: "codex" }),
     [change, skill.id],
   );
+  const modalFooter1 = useMemo(
+    () => (
+      <View style={styles.fixedActions}>
+        {skill.owner === "personal" ? (
+          <ActionFooter style={styles.actions}>
+            <Button variant="outline" disabled={change.isPending} onPress={linkClaude}>
+              Preview Claude discovery link
+            </Button>
+            <Button variant="outline" disabled={change.isPending} onPress={linkCodex}>
+              Preview Codex discovery link
+            </Button>
+          </ActionFooter>
+        ) : null}
+        {skill.managed && !readExecutionInstallation() ? (
+          <ActionFooter>
+            <Button variant="outline" disabled={change.isPending} onPress={remove}>
+              Preview removal
+            </Button>
+          </ActionFooter>
+        ) : null}
+        {change.data?.kind === "preview" ? (
+          <ActionFooter>
+            <ChangeActions result={change.data} pending={change.isPending} apply={apply} />
+          </ActionFooter>
+        ) : null}
+      </View>
+    ),
+    [skill, change, linkClaude, linkCodex, remove, apply],
+  );
   return (
-    <AdaptiveModalSheet visible header={header} onClose={onClose}>
+    <AdaptiveModalSheet visible header={header} onClose={onClose} footer={modalFooter1}>
       <View style={styles.content}>
         {locations.length > 1 ? (
           <SettingsSection title="Discovery paths">
@@ -400,23 +438,6 @@ function SkillDetail({
             {file.path} · {file.bytes} bytes · {file.sha256}
           </Text>
         ))}
-        {skill.owner === "personal" ? (
-          <ActionFooter style={styles.actions}>
-            <Button variant="outline" disabled={change.isPending} onPress={linkClaude}>
-              Preview Claude discovery link
-            </Button>
-            <Button variant="outline" disabled={change.isPending} onPress={linkCodex}>
-              Preview Codex discovery link
-            </Button>
-          </ActionFooter>
-        ) : null}
-        {skill.managed && !readExecutionInstallation() ? (
-          <ActionFooter>
-            <Button variant="outline" disabled={change.isPending} onPress={remove}>
-              Preview removal
-            </Button>
-          </ActionFooter>
-        ) : null}
         {alternatives
           .filter(
             (other) =>
@@ -435,12 +456,7 @@ function SkillDetail({
               />
             </ActionFooter>
           ))}
-        <ChangeResult
-          result={change.data}
-          pending={change.isPending}
-          error={change.error}
-          apply={apply}
-        />
+        <ChangeResult result={change.data} pending={change.isPending} error={change.error} />
       </View>
     </AdaptiveModalSheet>
   );
@@ -494,8 +510,29 @@ function InstallSkill({
     () => change.mutate({ kind: "preview_install", source: draft }),
     [change, draft],
   );
+  const modalFooter2 = useMemo(
+    () => (
+      <View style={styles.fixedActions}>
+        <ActionFooter>
+          <Button
+            variant="outline"
+            disabled={change.isPending || !/^[a-f0-9]{40}$/.test(draft.revision)}
+            onPress={inspect}
+          >
+            Inspect installation
+          </Button>
+        </ActionFooter>
+        {change.data?.kind === "preview" ? (
+          <ActionFooter>
+            <ChangeActions result={change.data} pending={change.isPending} apply={apply} />
+          </ActionFooter>
+        ) : null}
+      </View>
+    ),
+    [change, draft, inspect, apply],
+  );
   return (
-    <AdaptiveModalSheet visible header={installHeader} onClose={onClose}>
+    <AdaptiveModalSheet visible header={installHeader} onClose={onClose} footer={modalFooter2}>
       <View style={styles.content}>
         <Text style={styles.muted}>
           Install a canonical personal package for this environment. After installation, use Details
@@ -522,21 +559,8 @@ function InstallSkill({
             onChangeText={directoryChanged}
           />
         </Field>
-        <ActionFooter>
-          <Button
-            variant="outline"
-            disabled={change.isPending || !/^[a-f0-9]{40}$/.test(draft.revision)}
-            onPress={inspect}
-          >
-            Inspect installation
-          </Button>
-        </ActionFooter>
-        <ChangeResult
-          result={change.data}
-          pending={change.isPending}
-          error={change.error}
-          apply={apply}
-        />
+
+        <ChangeResult result={change.data} pending={change.isPending} error={change.error} />
       </View>
     </AdaptiveModalSheet>
   );
@@ -566,8 +590,19 @@ function SkillHistory({
     (preview: SkillPreview) => change.mutate({ kind: "apply", previewId: preview.id }),
     [change],
   );
+  const modalFooter3 = useMemo(
+    () =>
+      change.data?.kind === "preview" ? (
+        <View style={styles.fixedActions}>
+          <ActionFooter>
+            <ChangeActions result={change.data} pending={change.isPending} apply={apply} />
+          </ActionFooter>
+        </View>
+      ) : undefined,
+    [change, apply],
+  );
   return (
-    <AdaptiveModalSheet visible header={historyHeader} onClose={onClose}>
+    <AdaptiveModalSheet visible header={historyHeader} onClose={onClose} footer={modalFooter3}>
       <View style={styles.content}>
         {query.error ? <Text style={styles.error}>{query.error.message}</Text> : null}
         {query.data?.kind === "audit"
@@ -590,18 +625,14 @@ function SkillHistory({
               </View>
             ))
           : null}
-        <ChangeResult
-          result={change.data}
-          pending={change.isPending}
-          error={change.error}
-          apply={apply}
-        />
+        <ChangeResult result={change.data} pending={change.isPending} error={change.error} />
       </View>
     </AdaptiveModalSheet>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
+  fixedActions: { width: "100%", gap: theme.spacing[2] },
   content: { gap: theme.spacing[4], padding: theme.spacing[4] },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },

@@ -107,8 +107,46 @@ export function ChecklistEditor({
         })),
     [tasks, task, dependencySource],
   );
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions} testID="checklist-editor-actions">
+        {task && !readOnly ? (
+          <ActionFooterLeading>
+            <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
+              Delete task
+            </Button>
+          </ActionFooterLeading>
+        ) : null}
+        <ActionFooterTrailing>
+          <Button size={size} variant="ghost" onPress={onClose}>
+            Close
+          </Button>
+          {!readOnly ? (
+            <Button
+              size={size}
+              variant="default"
+              disabled={disabled || !form.text.trim()}
+              loading={pending}
+              onPress={save}
+              testID="checklist-save"
+            >
+              Save task
+            </Button>
+          ) : null}
+        </ActionFooterTrailing>
+      </ActionFooter>
+    ),
+    [task, readOnly, size, disabled, remove, onClose, form, pending, save],
+  );
   return (
-    <AdaptiveModalSheet visible={active} onClose={onClose} header={header} desktopMaxWidth={620}>
+    <AdaptiveModalSheet
+      visible={active}
+      onClose={onClose}
+      header={header}
+      desktopMaxWidth={620}
+      testID="checklist-modal"
+      footer={modalFooter1}
+    >
       <View style={styles.body} testID="checklist-editor">
         <Field label="Task">
           <FormTextInput
@@ -198,32 +236,6 @@ export function ChecklistEditor({
             {error}
           </Text>
         ) : null}
-        <ActionFooter style={styles.actions} testID="checklist-editor-actions">
-          {task && !readOnly ? (
-            <ActionFooterLeading>
-              <Button size={size} variant="destructive" disabled={disabled} onPress={remove}>
-                Delete task
-              </Button>
-            </ActionFooterLeading>
-          ) : null}
-          <ActionFooterTrailing>
-            <Button size={size} variant="ghost" onPress={onClose}>
-              Close
-            </Button>
-            {!readOnly ? (
-              <Button
-                size={size}
-                variant="default"
-                disabled={disabled || !form.text.trim()}
-                loading={pending}
-                onPress={save}
-                testID="checklist-save"
-              >
-                Save task
-              </Button>
-            ) : null}
-          </ActionFooterTrailing>
-        </ActionFooter>
       </View>
     </AdaptiveModalSheet>
   );
