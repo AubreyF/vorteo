@@ -206,9 +206,64 @@ function TaskCardView({
   );
 }
 
-export const TaskCard = withUnistyles(TaskCardView, (theme) => ({
+const BoundedTaskCard = withUnistyles(TaskCardView, (theme) => ({
   insets: theme.borderWidth[1] * 2,
 }));
+
+type TaskCardProps = ComponentProps<typeof BoundedTaskCard> & {
+  /** Question forms scroll with the conversation, without a nested viewport. */
+  scrollBody?: boolean;
+};
+
+export function TaskCard({ scrollBody = true, ...props }: TaskCardProps) {
+  return scrollBody ? <BoundedTaskCard {...props} /> : <ContentTaskCard {...props} />;
+}
+
+function ContentTaskCard({
+  children,
+  testID,
+  style,
+  flushBody,
+  bodyVisible = true,
+}: TaskCardProps) {
+  const { inset, onLayout } = usePanelSpacing();
+  const parts = Children.toArray(children);
+  const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
+  return (
+    <Animated.View entering={cardEnter} exiting={cardExit} style={contentCardStyle}>
+      <View testID={testID} onLayout={onLayout} style={[taskCardStyles.surface, style]}>
+        <View
+          testID={testID ? `${testID}-header` : undefined}
+          style={[
+            taskCardStyles.fixedHeader,
+            inlineUnistylesStyle({
+              paddingHorizontal: inset,
+              paddingVertical: panelHeaderInset(inset),
+            }),
+          ]}
+        >
+          {parts.filter(isHeader)}
+        </View>
+        <View
+          testID={testID ? `${testID}-body` : undefined}
+          style={[
+            taskCardStyles.bodyContent,
+            inlineUnistylesStyle({
+              paddingHorizontal: (flushBody ? 0 : 12) + inset,
+              paddingVertical: 4 + inset,
+            }),
+            !bodyVisible && taskCardStyles.hiddenBody,
+          ]}
+        >
+          <CardColumnContext.Provider value={null}>
+            {parts.filter((part) => !isHeader(part))}
+          </CardColumnContext.Provider>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+const contentCardStyle = { flexShrink: 0 } as const;
 
 /** Explicit heading slot, rendered outside the card's body scroll region. */
 export function TaskCardHeader({ children, testID }: { children: ReactNode; testID?: string }) {

@@ -567,7 +567,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           };
         });
       }, ids);
-      for (const card of geometry) expect(card.bottom - card.top).toBeLessThanOrEqual(325);
+      geometry
+        .filter((card) => card.id !== "question-form-card")
+        .forEach((card) => expect(card.bottom - card.top).toBeLessThanOrEqual(325));
       await checkCardGaps(stack, geometry, width);
       // Cards and their header controls share the approved floating-panel corners.
       expect(geometry[0].frame[3]).toBe("16px");
@@ -749,6 +751,16 @@ function expectedHeaderInset(width: number) {
 }
 
 async function verifyQuestionScrollerSpacing(stack: Locator, page: Page, width: number) {
+  const question = stack.getByTestId("question-form-card");
+  await expect(question.getByTestId("question-form-card-body-scroll")).toHaveCount(0);
+  const overflow = await question.evaluate((element) =>
+    [...element.querySelectorAll("*")].some(
+      (node) =>
+        /auto|scroll/.test(getComputedStyle(node).overflowY) &&
+        node.scrollHeight > node.clientHeight + 1,
+    ),
+  );
+  expect(overflow).toBe(false);
   const movement = await stack.getByTestId("question-form-card").evaluate(async (element) => {
     let scroll = element.parentElement;
     while (
@@ -1640,7 +1652,9 @@ test("sidebar metadata defaults to neutral and text badges precede icons", async
     repoPrefix: "neutral-sidebar-",
     title: "Neutral sidebar",
   });
-  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "neutral-sidebar" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "neutral-sidebar",
+  });
   try {
     await agent.client.setWorkspaceLabel({
       workspaceId: agent.workspaceId,
@@ -1652,9 +1666,17 @@ test("sidebar metadata defaults to neutral and text badges precede icons", async
       ["active", "in_progress"],
       ["next", "pending"],
     ] as const) {
-      await client.mutateAgentChecklist(agent.agentId, { operation: "create", id, text: id });
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        id,
+        text: id,
+      });
       if (status !== "pending")
-        await client.mutateAgentChecklist(agent.agentId, { operation: "update", id, status });
+        await client.mutateAgentChecklist(agent.agentId, {
+          operation: "update",
+          id,
+          status,
+        });
     }
     await client.mutateMessageQueue(agent.agentId, {
       kind: "pause",
@@ -1691,7 +1713,11 @@ test("sidebar metadata defaults to neutral and text badges precede icons", async
     expect((await queue.boundingBox())!.x).toBeLessThan((await label.boundingBox())!.x);
     expect((await label.boundingBox())!.x).toBeLessThan((await petals.first().boundingBox())!.x);
     await page.screenshot({ path: info.outputPath("neutral-sidebar.png") });
-    await client.updateWorkspaceLabel({ name: "Default", color: "red", explicitColor: true });
+    await client.updateWorkspaceLabel({
+      name: "Default",
+      color: "red",
+      explicitColor: true,
+    });
     await expect
       .poll(() =>
         label

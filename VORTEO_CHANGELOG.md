@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.409 - 2026-10-12
+
+### Fixed
+
+- Question cards grow with their contents and scroll with the conversation on all viewport widths, instead of trapping answers inside a nested scrolling body.
+
 ## 0.11.0-beta.3.vorteo.408 - 2026-10-12
 
 ### Maintenance

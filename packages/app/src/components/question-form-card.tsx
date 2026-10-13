@@ -86,7 +86,9 @@ function QuestionOptionRow({
   const optionLabelStyle = useMemo(
     () => [
       styles.optionLabel,
-      { color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isSelected, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -189,7 +191,9 @@ function QuestionNavButton({
   const textStyle = useMemo(
     () => [
       styles.questionNavText,
-      { color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isActive, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -297,7 +301,13 @@ function QuestionOtherInput({
           color: theme.colors.foreground,
           backgroundColor: theme.colors.surface2,
         },
-        IS_WEB ? { outlineStyle: "none", outlineWidth: 0, outlineColor: "transparent" } : null,
+        IS_WEB
+          ? {
+              outlineStyle: "none",
+              outlineWidth: 0,
+              outlineColor: "transparent",
+            }
+          : null,
       ] as const,
     [
       value.length,
@@ -523,7 +533,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <TaskCard testID="question-form-card">
+    <TaskCard testID="question-form-card" scrollBody={false}>
       <TaskCardHeader>
         <TaskCardIcon kind="question" />
         <TaskCardTitle>Questions</TaskCardTitle>
