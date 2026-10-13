@@ -46,6 +46,7 @@ import {
   InstallationPanelModel,
   restartRequestSummary,
   restartBannerTitle,
+  restartNoticeVisible,
   restartBlockingReason,
   restartRepairGuidance,
   restartActionDisabledReason,
@@ -1219,9 +1220,10 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   const router = useRouter();
   const open = useCallback(() => router.push("/settings/general?installation=1"), [router]);
   const pendingIds = new Set(state.pendingJobs.map((job) => job.id));
-  const jobs = state.jobs.filter(
-    (job) => pendingIds.has(job.id) || job.status === "approved" || job.status === "running",
-  );
+  const jobs = state.jobs.filter((job) => {
+    const active = pendingIds.has(job.id) || job.status === "approved" || job.status === "running";
+    return active && restartNoticeVisible(job);
+  });
   if (!state.unlocked && state.restartSummary) {
     const summary = state.restartSummary;
     const description = lockedMaintenanceSummary(summary);

@@ -6,6 +6,7 @@ import {
   restartExplanation,
   restartRequestSummary,
   restartBannerTitle,
+  restartNoticeVisible,
   restartBlockingReason,
   restartActionDisabledReason,
 } from "./panel-model";
@@ -348,6 +349,11 @@ test("sidebar distinguishes blocked source updates from owner approval", () => {
   };
   expect(restartBannerTitle(job)).toBe("Host daemon update awaiting agent repair");
   expect(restartBlockingReason(job)).toBe("Contributions need correction");
+  expect(restartNoticeVisible(job)).toBe(false);
+  expect(restartNoticeVisible({ ...job, target: "container-daemon" })).toBe(false);
+  expect(restartNoticeVisible({ ...job, sourceBatch: undefined })).toBe(true);
+  expect(restartNoticeVisible({ ...job, status: "approved" })).toBe(true);
+  expect(restartNoticeVisible({ ...job, status: "running" })).toBe(true);
   for (const [status, title] of [
     ["preparing", "update is being checked"],
     ["waiting", "update is waiting"],
@@ -356,6 +362,7 @@ test("sidebar distinguishes blocked source updates from owner approval", () => {
     const changed = { ...job, sourceBatch: { ...job.sourceBatch!, status } };
     expect(restartBannerTitle(changed)).toBe(`Host daemon ${title}`);
     expect(restartBlockingReason(changed)).toBeNull();
+    expect(restartNoticeVisible(changed)).toBe(status === "ready");
   }
   expect(restartBannerTitle({ ...job, target: "container-daemon" })).toBe(
     "Dev daemon update awaiting agent repair",
