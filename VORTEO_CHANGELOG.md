@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.434 - 2026-10-13
+
+### Maintenance
+
+- Reconcile the tested security candidate with the installed repair-notification fix, preserving both histories. Prepare compatible Markdown and diagram runtime changes for static publication; desktop and server fixes still require their separate supported installation workflows.
+
 ## 0.11.0-beta.3.vorteo.433 - 2026-10-13
 
 ### Security
@@ -99,6 +105,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Security
 
 - Raise direct WebSocket dependency requirements to the patched release line and resolve the shared transport to ws 8.22.0. Add a bounded loopback regression for excessive fragments and ordinary fragmented messages. Host and desktop installation remains subject to the tracked lifecycle workflow; static interface publication does not update their transports.
+
+## 0.11.0-beta.3.vorteo.417 - 2026-10-13
+
+### Fixed
+
+- Keep source updates awaiting agent repair or preparation out of maintenance notifications. Preserve their status and cancellation in Installation controls, and notify when an update becomes ready for approval.
 
 ## 0.11.0-beta.3.vorteo.416 - 2026-10-13
 

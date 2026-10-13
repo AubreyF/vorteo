@@ -4073,6 +4073,7 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${id}`);
   await expect(card).toContainText("Awaiting agent repair");
+  await expect(page.getByTestId(`restart-notice-${id}`)).toHaveCount(0);
   await expect(card).toContainText("The requesting agent must repair this update");
   await expect(card).toContainText("Leave it queued for repair");
   await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
@@ -4099,6 +4100,11 @@ test("disabled restart explains the correction on hover, focus and touch without
   }
   expect(decisions).toEqual([]);
   await expect(button).toBeDisabled();
+  job.sourceBatch.status = "ready";
+  job.revision = randomUUID();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`restart-notice-${id}`)).toContainText("Review update");
+  expect(decisions).toEqual([]);
 });
 
 test("native helper review binds approval and cancellation through real owner routes", async ({

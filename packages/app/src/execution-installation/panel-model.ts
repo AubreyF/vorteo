@@ -427,6 +427,11 @@ export function restartExplanation(reason: string): {
   };
 }
 
+export function restartNoticeVisible(job: RestartJob): boolean {
+  if (job.status !== "pending") return true;
+  return !job.sourceBatch || job.sourceBatch.status === "ready";
+}
+
 export function restartBannerTitle(job: RestartJob): string {
   if (job.factoryRuntimePlanSha256) {
     if (job.status === "running") return "Adopting Factory startup on Dev";
