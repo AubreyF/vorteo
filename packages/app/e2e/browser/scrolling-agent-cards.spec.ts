@@ -664,7 +664,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
         return action.getBoundingClientRect().top - header.getBoundingClientRect().top;
       });
       const goalWidth = (await stack.getByTestId("agent-goal-bar").boundingBox())!.width;
-      expect(goalActionInset).toBe(expectedPanelInset(goalWidth));
+      expect(goalActionInset).toBe(expectedHeaderInset(goalWidth));
       await verifyQuestionScrollerSpacing(stack, page, width);
       await info.attach(`scrolling-cards-${width}`, {
         body: await page.screenshot(),
@@ -741,6 +741,11 @@ function expectedPanelInset(width: number) {
   if (width < 340) return 2;
   if (width < 400) return 4;
   return 8;
+}
+
+function expectedHeaderInset(width: number) {
+  const inset = expectedPanelInset(width);
+  return inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
 }
 
 async function verifyQuestionScrollerSpacing(stack: Locator, page: Page, width: number) {
@@ -2190,8 +2195,9 @@ test("quiet queue and subagent rows align with header actions without hover fill
       }
       const cardBox = (await card.boundingBox())!;
       const rowBox = (await row.boundingBox())!;
-      expect(rowBox.x - cardBox.x).toBeCloseTo(1, 0);
-      expect(cardBox.x + cardBox.width - rowBox.x - rowBox.width).toBeCloseTo(1, 0);
+      const rowInset = 1 + expectedPanelInset(cardBox.width);
+      expect(rowBox.x - cardBox.x).toBeCloseTo(rowInset, 0);
+      expect(cardBox.x + cardBox.width - rowBox.x - rowBox.width).toBeCloseTo(rowInset, 0);
       const queue = page.getByTestId("shared-message-queue");
       await queue.scrollIntoViewIfNeeded();
       const menu = (await queue

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Card browser checks distinguish vertical header insets from horizontal panel insets and account for the shared row gutter. All six focused production checks pass, including desktop/mobile controls and animated resizing. This test maintenance leaves runtime behavior and README scope unchanged.
+
 Queued-message overflow menus use shared card action geometry rather than a separate size, keeping row and heading centers aligned on desktop and touch layouts. README scope is unchanged.
 
 Journal browser checks use the same desktop icon-column offset for both the timeline marker and timestamp. This test maintenance does not change runtime behavior or README scope.
