@@ -4,13 +4,13 @@ import { useReducedMotion } from "react-native-reanimated";
 
 export function panelSpacingForWidth(width: number): number {
   if (width < 340) return 2;
-  if (width < 400) return 4;
-  return 8;
+  if (width < 400) return 3;
+  return 4;
 }
 
-/** Vertical breathing room grows gently; width must not turn headers into tall gutters. */
+/** Heading clearance is equal on every edge at each spacing tier. */
 export function panelHeaderInset(inset: number): number {
-  return inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
+  return inset;
 }
 
 /** Shared inset follows the panel itself, including cards moved into the center column. */

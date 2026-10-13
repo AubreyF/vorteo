@@ -62,6 +62,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Shortcut } from "@/components/ui/shortcut";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
 import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu-item";
 import { resolveSidebarWorkspaceAccessibilityLabel } from "@/components/sidebar/sidebar-workspace-title";
 import {
@@ -530,15 +531,22 @@ export function SidebarWorkspaceMenu({
   const pages = useWorkspaceLabelMenuPages(workspaceTarget);
   return (
     <DropdownMenu compactMode="sheet" open={open} onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger
-        hitSlop={actionSize ? 0 : 8}
-        style={actionStyle}
-        accessibilityRole={isWeb ? undefined : "button"}
-        accessibilityLabel={t("sidebar.workspace.actions.menu")}
-        testID={`sidebar-workspace-kebab-${workspaceKey}`}
-      >
-        {renderTriggerIcon}
-      </DropdownMenuTrigger>
+      <Tooltip enabledOnDesktop={!open} enabledOnMobile>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            hitSlop={actionSize ? 0 : 8}
+            style={actionStyle}
+            accessibilityRole={isWeb ? undefined : "button"}
+            accessibilityLabel={t("sidebar.workspace.actions.menu")}
+            testID={`sidebar-workspace-kebab-${workspaceKey}`}
+          >
+            {renderTriggerIcon}
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <TooltipText label={t("sidebar.workspace.actions.menu")} />
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         testID={`sidebar-workspace-menu-content-${workspaceKey}`}
         align="end"

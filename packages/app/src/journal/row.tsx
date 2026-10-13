@@ -99,7 +99,7 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    paddingVertical: theme.spacing[1],
+    paddingVertical: 2,
     paddingLeft: TASK_CARD_ICON_CENTER - 10,
   },
   touchRow: { paddingLeft: TASK_CARD_TOUCH_ICON_CENTER - 10 },

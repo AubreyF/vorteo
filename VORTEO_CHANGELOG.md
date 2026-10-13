@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.449 - 2026-10-13
+
+### Appearance
+
+- Equalize card heading insets at 2px, 3px and 4px, reduce heading-to-content and card gaps, and remove extra subagent row padding without shrinking touch targets.
+- Give sidebar toolbar controls matching sizes, align their first icon with project icons, and detach toolbar height from central tabs. Restore overflow and New workspace hover feedback, add row menu tooltips, and omit duplicate Settings entries and empty menu groups.
+
 ## 0.11.0-beta.3.vorteo.448 - 2026-10-13
 
 ### Tests

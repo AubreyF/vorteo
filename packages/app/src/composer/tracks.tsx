@@ -357,6 +357,7 @@ const styles = StyleSheet.create((theme) => {
     },
     inlineRow: {
       minHeight: TASK_CARD_ROW_HEIGHT,
+      paddingVertical: 0,
       marginHorizontal: 0,
       paddingLeft: theme.spacing[2],
       paddingRight: 0,

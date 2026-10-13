@@ -734,7 +734,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
           return Number.parseFloat(getComputedStyle(padded).paddingLeft);
         }),
       )
-      .toBe(8);
+      .toBe(4);
   }
   const row = page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
   for (const width of [280, 330, 360, 390, 450]) {
@@ -753,8 +753,8 @@ test("card spacing follows panel width on both sides and compact center layouts"
         { steps: 10 },
       );
       await page.mouse.up();
-      let expected = 8;
-      if (width < 400) expected = 4;
+      let expected = 4;
+      if (width < 400) expected = 3;
       if (width < 340) expected = 2;
       await expect
         .poll(() =>
@@ -789,7 +789,7 @@ test("card spacing follows panel width on both sides and compact center layouts"
           ),
         })),
       )
-      .toMatchObject({ inset: width === 280 ? 2 : 4 });
+      .toMatchObject({ inset: width === 280 ? 2 : 3 });
     await expect(page.getByTestId("checklist-toggle").filter({ visible: true })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -844,13 +844,13 @@ test("panel spacing animates between exact tiers and settles after interrupted r
       return values;
     });
     await resize(450);
-    await expect.poll(readInset).toBe(8);
-    expect((await samples).some((value) => value > 2 && value < 8)).toBe(true);
+    await expect.poll(readInset).toBe(4);
+    expect((await samples).some((value) => value > 2 && value < 4)).toBe(true);
     await resize(280);
     await resize(360);
-    await expect.poll(readInset).toBe(4);
+    await expect.poll(readInset).toBe(3);
     await resize(390);
-    await expect.poll(readInset).toBe(4);
+    await expect.poll(readInset).toBe(3);
   }
 });
 
@@ -1206,15 +1206,11 @@ test("tabs retain Latest geometry while toolbar keeps equal outer margins", asyn
   }
   for (const [width, inset] of [
     [280, 2],
-    [360, 4],
-    [450, 8],
+    [360, 3],
+    [450, 4],
     [280, 2],
   ]) {
     const samples = page.evaluate(async () => {
-      const center = (node: Element) => {
-        const b = node.getBoundingClientRect();
-        return b.y + b.height / 2;
-      };
       const result: number[][] = [];
       const start = performance.now();
       while (performance.now() - start < 450) {
@@ -1225,7 +1221,7 @@ test("tabs retain Latest geometry while toolbar keeps equal outer margins", asyn
         const right = document.querySelector('[data-testid="workspace-shared-toolbar"]')!;
         const rightBox = right.getBoundingClientRect();
         result.push([
-          center(tabNode) - center(left),
+          left.getBoundingClientRect().height - 40,
           tabNode.getBoundingClientRect().height - 44,
           rightBox.top - (window.innerWidth - rightBox.right),
         ]);
@@ -1241,6 +1237,62 @@ test("tabs retain Latest geometry while toolbar keeps equal outer margins", asyn
     await expect(tab).toHaveCSS("border-radius", "9999px");
     for (const offsets of await samples)
       for (const offset of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.6);
+  }
+});
+
+test("sidebar controls align with project icons and expose hover and menu feedback", async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  const sidebar = page.getByTestId("floating-sidebar");
+  const collapse = page.getByTestId("sidebar-collapse");
+  const more = page.getByTestId("sidebar-footer-overflow");
+  for (const width of [280, 360, 450]) {
+    const grip = (await page.getByTestId("left-sidebar-resize-handle").boundingBox())!;
+    const before = (await sidebar.boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2 + width - before.width, grip.y + grip.height / 2);
+    await page.mouse.up();
+    await expect(collapse).toHaveCSS("width", "40px");
+    await expect(collapse).toHaveCSS("height", "40px");
+    const project = sidebar.locator('[data-testid^="sidebar-project-row-"]').first();
+    const icon = project
+      .locator('[data-testid="project-icon-only"], [data-testid^="project-status-indicator-"]')
+      .first();
+    const buttonBox = (await collapse.boundingBox())!;
+    const iconBox = (await icon.boundingBox())!;
+    expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(iconBox.x + iconBox.width / 2, 0);
+    const frame = (await sidebar.boundingBox())!;
+    expect(buttonBox.x - frame.x).toBeCloseTo(buttonBox.y - frame.y, 0);
+    await page.mouse.move(1700, 900);
+    const idle = await more.evaluate((n) => getComputedStyle(n).backgroundColor);
+    await more.hover();
+    await expect
+      .poll(() => more.evaluate((n) => getComputedStyle(n).backgroundColor))
+      .not.toBe(idle);
+    await more.click();
+    const menu = page.getByRole("menu").filter({ visible: true });
+    await expect(menu.getByText("Settings", { exact: true })).toHaveCount(width < 340 ? 1 : 0);
+    if (width >= 340) await expect(menu.locator(":scope > *").first()).toContainText("Workspace");
+    await page.keyboard.press("Escape");
+    await project.hover();
+    const plus = project
+      .locator("..")
+      .locator('[data-testid^="sidebar-project-new-worktree-"]')
+      .first();
+    const plusIdle = await plus.evaluate((n) => getComputedStyle(n).backgroundColor);
+    await plus.hover();
+    await expect
+      .poll(() => plus.evaluate((n) => getComputedStyle(n).backgroundColor))
+      .not.toBe(plusIdle);
+    await expect(page.getByRole("tooltip")).toBeVisible();
+    const kebab = project.locator("..").locator('[data-testid^="sidebar-project-kebab-"]').first();
+    await kebab.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Project");
+    await page.screenshot({ path: info.outputPath(`sidebar-controls-${width}.png`) });
   }
 });
 

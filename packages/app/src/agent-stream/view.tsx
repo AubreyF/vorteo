@@ -4,7 +4,7 @@ import {
   useWorkspaceCardHost,
   WorkspaceCardsPortal,
 } from "@/screens/workspace/supporting-cards-context";
-import { COLUMN_FADE_HEIGHT } from "./columns/geometry";
+import { CARD_GAP, COLUMN_FADE_HEIGHT } from "./columns/geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
@@ -1831,7 +1831,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[12],
   },
   bottomCardStack: {
-    gap: theme.spacing[4],
+    gap: CARD_GAP,
   },
   syncingIndicator: {
     flexDirection: "row",

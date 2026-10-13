@@ -6,7 +6,7 @@ export const TASK_CARD_ICON_CENTER = 20;
 export const TASK_CARD_TOUCH_ICON_CENTER = 22;
 
 export const TASK_CARD_ROW_HEIGHT = 40;
-export const TASK_CARD_TOUCH_ROW_HEIGHT = 52;
+export const TASK_CARD_TOUCH_ROW_HEIGHT = 44;
 
 export const taskCardStyles = StyleSheet.create((theme) => {
   const surface = {
@@ -22,7 +22,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     bodyContent: {
       paddingHorizontal: theme.spacing[3],
       paddingVertical: theme.spacing[1],
-      gap: theme.spacing[1],
+      gap: 2,
     },
     flushBody: { paddingHorizontal: 0 },
     fixedHeader: { flexShrink: 0 },

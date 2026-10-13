@@ -741,13 +741,12 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
 
 function expectedPanelInset(width: number) {
   if (width < 340) return 2;
-  if (width < 400) return 4;
-  return 8;
+  if (width < 400) return 3;
+  return 4;
 }
 
 function expectedHeaderInset(width: number) {
-  const inset = expectedPanelInset(width);
-  return inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
+  return expectedPanelInset(width);
 }
 
 async function verifyQuestionScrollerSpacing(stack: Locator, page: Page, width: number) {
@@ -842,7 +841,7 @@ async function checkCardGaps(
     expect(
       adjacent[index].top - adjacent[index - 1].bottom,
       `${adjacent[index - 1].id} to ${adjacent[index].id}`,
-    ).toBeCloseTo(width > 600 ? 8 : 16, 0);
+    ).toBeCloseTo(4, 0);
   }
 }
 
@@ -1012,9 +1011,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
     expect(card.overflow, card.id).toBe(false);
   }
-  const horizontal = geometry[0].rightClearance! - 1;
-  const vertical = horizontal <= 4 ? 1 + horizontal / 2 : 2 + horizontal / 4;
-  expect(geometry[0].topClearance).toBeCloseTo(vertical + 1, 1);
+  expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
 }
 
 async function captureConsistentCards(page: Page, info: TestInfo) {
@@ -2220,6 +2217,11 @@ test("quiet queue and subagent rows align with header actions without hover fill
       }
       const cardBox = (await card.boundingBox())!;
       const rowBox = (await row.boundingBox())!;
+      expect(rowBox.height).toBe(width > 600 ? 40 : 44);
+      const headingBox = (await card.getByTestId("subagents-group-paseo-toggle").boundingBox())!;
+      expect(rowBox.y - headingBox.y - headingBox.height).toBeLessThanOrEqual(
+        expectedHeaderInset(cardBox.width) + 3,
+      );
       const rowInset = 1 + expectedPanelInset(cardBox.width);
       expect(rowBox.x - cardBox.x).toBeCloseTo(rowInset, 0);
       expect(cardBox.x + cardBox.width - rowBox.x - rowBox.width).toBeCloseTo(rowInset, 0);

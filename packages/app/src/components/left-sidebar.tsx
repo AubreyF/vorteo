@@ -88,11 +88,7 @@ import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { buttonControlHeight } from "@/components/ui/control-geometry";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  HEADER_INNER_HEIGHT,
-  VORTON_HEADER_HEIGHT,
-  useIsCompactFormFactor,
-} from "@/constants/layout";
+import { HEADER_INNER_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useOpenAddProject } from "@/hooks/use-open-add-project";
 import { useImportSession } from "@/hooks/use-import-session";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -439,6 +435,26 @@ function IconTooltipContent({
   );
 }
 
+function sidebarNavigationVisibility(width: number, rail: boolean) {
+  const showHistory = !rail && width >= 300;
+  const showSchedules = !rail && width >= 260;
+  const showSettings = !rail && width >= 340;
+  const navigationRows = !rail && width < 260;
+  const settingsOutside = showSettings || navigationRows;
+  const menuSchedules = !showSchedules && !rail && !navigationRows;
+  const menuHistory = !showHistory && !rail && !navigationRows;
+  return {
+    showHistory,
+    showSchedules,
+    showSettings,
+    navigationRows,
+    settingsOutside,
+    menuSchedules,
+    menuHistory,
+    hasMenuNavigation: !settingsOutside || menuSchedules || menuHistory,
+  };
+}
+
 function SidebarToolbar({
   rail = false,
   railFooter,
@@ -508,9 +524,24 @@ function SidebarToolbar({
     [theme.iconSize.sm, theme.colors.foregroundMuted],
   );
   const width = useSidebarWidth();
-  const showHistory = !rail && width >= 300;
-  const showSchedules = !rail && width >= 260;
-  const showSettings = !rail && width >= 340;
+  const {
+    showHistory,
+    showSchedules,
+    showSettings,
+    navigationRows,
+    settingsOutside,
+    menuSchedules,
+    menuHistory,
+    hasMenuNavigation,
+  } = sidebarNavigationVisibility(width, rail);
+  const moreStyle = useCallback(
+    ({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
+      styles.footerIconButton(false),
+      (touch || rail) && styles.touchIconButton,
+      (hovered || pressed) && styles.activeIconButton,
+    ],
+    [touch, rail],
+  );
   const more = useMemo(
     () => (
       <View>
@@ -524,7 +555,7 @@ function SidebarToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger
-                style={[styles.footerIconButton(false), (touch || rail) && styles.touchIconButton]}
+                style={moreStyle}
                 accessibilityLabel="More sidebar actions"
                 accessibilityRole="button"
                 testID="sidebar-footer-overflow"
@@ -537,20 +568,22 @@ function SidebarToolbar({
             </TooltipContent>
           </Tooltip>
           <DropdownMenuContent side={rail ? "right" : "bottom"} align="start" width={360}>
-            <DropdownMenuItem onSelect={handleSettings} leading={menuIcons.settings}>
-              Settings
-            </DropdownMenuItem>
-            {!showSchedules && !rail ? (
+            {!settingsOutside ? (
+              <DropdownMenuItem onSelect={handleSettings} leading={menuIcons.settings}>
+                Settings
+              </DropdownMenuItem>
+            ) : null}
+            {menuSchedules ? (
               <DropdownMenuItem onSelect={openSchedules} leading={menuIcons.schedules}>
                 Schedules
               </DropdownMenuItem>
             ) : null}
-            {!showHistory && !rail ? (
+            {menuHistory ? (
               <DropdownMenuItem onSelect={openHistory} leading={menuIcons.history}>
                 History
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuSeparator />
+            {hasMenuNavigation ? <DropdownMenuSeparator /> : null}
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
             <DropdownMenuItem
               testID="sidebar-add-project"
@@ -593,13 +626,15 @@ function SidebarToolbar({
     [
       helpOpen,
       displayOpen,
-      touch,
       rail,
       theme,
       handleSettings,
-      showSchedules,
+      moreStyle,
+      menuSchedules,
       openSchedules,
-      showHistory,
+      menuHistory,
+      settingsOutside,
+      hasMenuNavigation,
       openHistory,
       handleOpenProject,
       handleNewWorkspace,
@@ -634,7 +669,11 @@ function SidebarToolbar({
   return (
     <>
       <View
-        style={rail ? styles.railToolbar : [styles.sidebarFooter, styles.sidebarToolbar]}
+        style={
+          rail
+            ? styles.railToolbar
+            : [styles.sidebarFooter, styles.sidebarToolbar, touch && styles.touchToolbar]
+        }
         testID="sidebar-toolbar"
       >
         {rail && onExpand ? (
@@ -646,7 +685,11 @@ function SidebarToolbar({
             theme={theme}
           />
         ) : (
-          <SidebarMenuToggle insideSidebar testID="sidebar-collapse" />
+          <SidebarMenuToggle
+            insideSidebar
+            testID="sidebar-collapse"
+            style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
+          />
         )}
         <FooterIconButton
           icon={Search}
@@ -674,7 +717,7 @@ function SidebarToolbar({
         {!rail ? more : null}
         {!rail ? <SidebarSeparator edge="bottom" testID="sidebar-toolbar-divider" /> : null}
       </View>
-      {!rail && width < 260 ? (
+      {navigationRows ? (
         <View style={styles.narrowNavigation}>
           <Button
             variant="ghost"
@@ -1239,15 +1282,16 @@ const styles = StyleSheet.create((theme) => ({
   },
   themeMenu: { paddingHorizontal: 16, paddingVertical: 8 },
   sidebarToolbar: {
-    paddingRight: 2,
+    paddingHorizontal: 0,
     gap: theme.spacing[2],
-    height: VORTON_HEADER_HEIGHT,
+    height: 40,
     paddingTop: 0,
     paddingBottom: 0,
     borderTopWidth: 0,
     borderBottomWidth: 0,
     borderBottomColor: "transparent",
   },
+  touchToolbar: { height: 44 },
   scrollingNavGroup: {
     gap: 2,
     paddingBottom: theme.spacing[1.5],

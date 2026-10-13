@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Card headings use equal 2px, 3px and 4px insets at the existing width breakpoints. Bodies start 2px below their headings, adjacent cards have 4px gaps, and subagent rows retain 40px desktop or 44px touch targets without extra vertical padding. The sidebar toolbar sizes independently of central tabs, aligns its first control with project images, and provides hover feedback and tooltips for menu and creation actions. Settings appears either in the toolbar or its overflow menu. README overview and onboarding are unchanged.
+
 Script-toolbar unit fixtures include the shared button opacity token and exercise the direct ghost control without replacing the button component. This test maintenance does not change product behavior or onboarding.
 
 Workspace tabs retain the Latest control's 44px height and full pill radius while their row follows sidebar spacing. The shared upper-right toolbar uses equal top and right outer insets, and run controls use borderless hover surfaces for both single and multiple scripts. README overview and onboarding are unchanged.

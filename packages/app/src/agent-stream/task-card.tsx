@@ -187,7 +187,7 @@ function TaskCardView({
                   flushBody && taskCardStyles.flushBody,
                   inlineUnistylesStyle({
                     paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
-                    paddingVertical: 4 + spacingInset,
+                    paddingVertical: 2,
                   }),
                 ]}
                 nestedScrollEnabled
@@ -250,7 +250,7 @@ function ContentTaskCard({
             taskCardStyles.bodyContent,
             inlineUnistylesStyle({
               paddingHorizontal: (flushBody ? 0 : 12) + inset,
-              paddingVertical: 4 + inset,
+              paddingVertical: 2,
             }),
             !bodyVisible && taskCardStyles.hiddenBody,
           ]}

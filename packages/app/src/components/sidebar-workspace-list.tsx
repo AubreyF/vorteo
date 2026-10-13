@@ -138,7 +138,7 @@ import {
   useSidebarWorkspaceTrailing,
 } from "@/components/sidebar/workspace-trailing";
 import { PressHighlight } from "@/components/ui/press-highlight";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipText } from "@/components/ui/tooltip";
 import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -540,15 +540,22 @@ function ProjectKebabMenu({
   );
   return (
     <DropdownMenu compactMode="sheet">
-      <DropdownMenuTrigger
-        hitSlop={actionSize ? 0 : 8}
-        style={actionStyle}
-        accessibilityRole="button"
-        accessibilityLabel={t("sidebar.project.actions.menu")}
-        testID={`sidebar-project-kebab-${projectViewKey}`}
-      >
-        {renderKebabTriggerIcon}
-      </DropdownMenuTrigger>
+      <Tooltip enabledOnDesktop enabledOnMobile>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            hitSlop={actionSize ? 0 : 8}
+            style={actionStyle}
+            accessibilityRole="button"
+            accessibilityLabel={t("sidebar.project.actions.menu")}
+            testID={`sidebar-project-kebab-${projectViewKey}`}
+          >
+            {renderKebabTriggerIcon}
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <TooltipText label={t("sidebar.project.actions.menu")} />
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" width={220} sheetTitle={t("sidebar.project.actions.menu")}>
         <ProjectMenuItems
           surface="dropdown"
@@ -1053,12 +1060,13 @@ function ProjectHeaderRow({
     ({ pressed }: PressableStateCallbackType) => [
       styles.projectRow,
       density,
+      touch && styles.projectTouchRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered, density],
+    [isDragging, selected, isHovered, density, touch],
   );
 
   const rowChildren = (
@@ -2831,6 +2839,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
+    paddingLeft: 12,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",
@@ -2839,6 +2848,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     userSelect: "none",
   },
+  projectTouchRow: { paddingLeft: 14 },
   projectRowMain: {
     flex: 1,
     minWidth: 0,
@@ -2905,7 +2915,7 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   projectIconActionButtonHovered: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
+    backgroundColor: theme.colors.interactionHighlight,
   },
   projectIconActionButtonHidden: {
     opacity: 0,
