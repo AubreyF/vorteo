@@ -664,3 +664,5 @@ Heading geometry checks measure visible controls and verify icon-only expansion 
 The Files sorting toolbar fits its existing sort and icon controls with one pixel for the divider. File lists start with a 2px top inset.
 
 The left sidebar toolbar reserves 4px below its controls before the full-width divider. Button positions and hit targets remain unchanged.
+
+The early loading emblem has no visible caption. A thin conic-gradient sweep fades behind its bright leading edge around the stationary V; an accessible progress label and delayed recovery help remain available.
