@@ -1,4 +1,4 @@
-import { PanelRight } from "lucide-react-native";
+import { PanelRight, PanelRightOpen } from "lucide-react-native";
 import { type StyleProp, type ViewStyle } from "react-native";
 import { withUnistyles } from "react-native-unistyles";
 import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
@@ -12,6 +12,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 const desktopTarget = { minWidth: 40, minHeight: 40 };
 
 const ThemedPanelRight = withUnistyles(PanelRight);
+const ThemedPanelRightOpen = withUnistyles(PanelRightOpen);
 
 interface WorkspaceExplorerToggleProps {
   onPress: () => void;
@@ -45,6 +46,7 @@ export function WorkspaceExplorerToggle({
   mobile,
   style,
 }: WorkspaceExplorerToggleProps) {
+  const Icon = accessibilityState.expanded ? ThemedPanelRight : ThemedPanelRightOpen;
   return (
     <HeaderToggleButton
       testID="workspace-explorer-toggle"
@@ -58,7 +60,7 @@ export function WorkspaceExplorerToggle({
       accessibilityLabel={label}
       accessibilityState={accessibilityState}
     >
-      <ThemedPanelRight
+      <Icon
         size={iconButtonChromeGlyphSize("large")}
         strokeWidth={1.5}
         uniProps={mobile ? mutedIconColorMapping : extraMutedIconColorMapping}
