@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Chat search requires markdown-it 14.3.2, and a scoped react-native-markdown-display override selects the same parser for default rendering. The lock resolves linkify-it 5.0.2 across these consumers. Search and parser tests plus a default-renderer browser check cover compatibility and unsafe markup rejection. Remove the scoped override when the renderer declares a compatible patched parser itself. This prepared dependency update does not change README overview or onboarding.
+
 An EAS CLI-scoped override selects tar 7.5.22. The pinned EAS 16 upload helper receives a one-line CommonJS compatibility patch because tar 7 exposes named exports. Tests call the actual archive creation and extraction helpers, substituting only the upload transport and forcing the JavaScript extraction fallback; no account or upload is used. Retire the patch with a validated EAS upgrade that supports the patched archive dependency directly. README overview and onboarding are unchanged.
 
 An oxfmt-scoped override selects Tinypool 2.1.2 to reject inherited worker options while retaining the existing formatter. A bounded regression verifies inherited task filenames cannot redirect worker selection; representative formatting output is unchanged. This addresses the dependency gadget without claiming an application prototype-pollution entry point was found. Remove the override when an independently validated formatter update includes the fix. README overview and onboarding are unchanged.

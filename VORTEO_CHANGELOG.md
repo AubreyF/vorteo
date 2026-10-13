@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.429 - 2026-10-13
+
+### Security
+
+- Update chat search and the default Markdown renderer to markdown-it 14.3.2 and linkify-it 5.0.2, matching the main message renderer. Search, parser and browser checks preserve formatting and reject active markup. Installation and the broader security review remain open.
+
 ## 0.11.0-beta.3.vorteo.428 - 2026-10-13
 
 ### Security
