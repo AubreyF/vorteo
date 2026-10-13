@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.424 - 2026-10-13
+
+### Security
+
+- Backport image parser progress guards for Metro's image-size dependency through the existing postinstall patch workflow. Both Metro copies reject malformed ICNS, JXL and HEIF data disguised as PNG files, with ordinary image dimensions preserved. The bounded baseline reproduces an ICNS stall; this build-tool fix is prepared source and does not update the installed app.
+
 ## 0.11.0-beta.3.vorteo.423 - 2026-10-13
 
 ### Security
