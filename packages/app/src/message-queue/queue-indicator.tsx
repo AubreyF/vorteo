@@ -21,6 +21,7 @@ import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
 import type { OutboxRecord } from "./outbox-record";
 
+const rowHandleData = { vortonRowHandle: "true" };
 const rotation = makeMutable(0);
 const subscribers = makeMutable(0);
 let nextListenerId = 1;
@@ -127,6 +128,7 @@ export function QueueMessageIndicator({
             <TooltipTrigger
               accessibilityRole="button"
               accessibilityLabel={status}
+              dataSet={rowHandleData}
               style={[
                 styles.slot,
                 taskCardStyles.rowHandle,

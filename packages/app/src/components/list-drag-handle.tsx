@@ -11,7 +11,7 @@ import type { DraggableRenderItemInfo } from "./draggable-list";
 // A plain web activator lets dnd-kit own Space/arrow keys without a Pressable
 // consuming the key event first. Native still uses press-in to acquire the drag.
 const DragHandleSurface = isNative ? Pressable : View;
-const dragKeyboardScope = { keyboardReorder: "true" };
+const dragKeyboardScope = { keyboardReorder: "true", vortonRowHandle: "true" };
 
 export function ListDragHandle<T>({
   info,

@@ -24,6 +24,9 @@ html[data-vorton-touch="true"] :is(button, [role="button"], [role="tab"], [role=
   min-width: 44px !important;
   touch-action: manipulation;
 }
+/* Card drag columns own their compact width; keep the shared 44px height. */
+html[data-vorton-touch="true"] [data-vorton-row-handle] { min-width: 0 !important; }
+html[data-vorton-touch="true"] [data-keyboard-reorder] { touch-action: none; }
 html[data-vorton-touch="true"] :is(input, textarea, [contenteditable="true"]) { font-size: max(16px, 1em); }
 html :is(button, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"]):focus-visible {
   outline: 2px solid currentColor;
