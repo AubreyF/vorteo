@@ -118,7 +118,7 @@ Custom tag catalogs retain their legacy hue for wire compatibility. An optional 
 
 Modal actions remain outside scrolling form content in the shared adaptive sheet footer. Headers and footers do not shrink; footer rows inherit sheet padding and safe-area clearance. Task, goal, account, host, plugin, skill and settings dialogs use this contract. Long-form browser checks cover desktop and compact viewport sizes. README scope is unchanged.
 
-Maintenance review (2026-10-12): plan-card browser checks explicitly reveal supporting cards after desktop resizing and follow the visible card into the mobile layout. Header geometry includes the existing shared spacing tiers. Failure screenshots preserve the page before fixture cleanup. Product behavior and README scope are unchanged.
+Maintenance review (2026-10-13): agent instructions now require early scope reassessment and recommendations to split independent outcomes into focused workspaces. Handoffs preserve evidence, ownership and delivery constraints; owner-confirmed everyday use satisfies the behavior reported. Runtime behavior and README overview are unchanged.
 
 Maintenance review (2026-10-12): count badges suppress zero totals. Progress labels pass their total explicitly so a nonempty task list with zero completed tasks keeps its chip. Journal also supplies its visible total. README scope is unchanged.
 
