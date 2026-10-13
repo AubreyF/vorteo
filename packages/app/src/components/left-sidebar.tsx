@@ -1,3 +1,5 @@
+import { useLayoutEffect } from "react";
+import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import {
   SidebarWidthContext,
   sidebarPresentationWidth,
@@ -1008,7 +1010,12 @@ function DesktopSidebar({
     ],
     [active, resizeAnimatedStyle],
   );
-  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const {
+    inset: spacingInset,
+    onLayout: onPanelLayout,
+    setCompact: reportCompact,
+  } = useSidebarSpacing();
+  useLayoutEffect(() => reportCompact(compact), [compact, reportCompact]);
   const desktopSidebarBorderStyle = useMemo(
     () => [
       floatingPanelStyles.surface,
@@ -1230,7 +1237,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingTop: 0,
     paddingBottom: 0,
     borderTopWidth: 0,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: "transparent",
   },
   scrollingNavGroup: {

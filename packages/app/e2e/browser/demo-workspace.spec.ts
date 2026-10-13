@@ -1185,3 +1185,57 @@ test("files card has joined hover corners and one scroll divider below its toolb
   });
   await expect(divider).toHaveCSS("opacity", "0");
 });
+
+test("tab and toolbar centerlines share every sidebar spacing animation frame", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  const sidebar = page.getByTestId("floating-sidebar");
+  const tab = page.locator('[data-testid^="workspace-tab-"][aria-selected="true"]').first();
+  await expect(tab).toBeVisible();
+  async function resize(width: number) {
+    const grip = (await page.getByTestId("left-sidebar-resize-handle").boundingBox())!;
+    const box = (await sidebar.boundingBox())!;
+    const x = grip.x + grip.width / 2;
+    const y = grip.y + grip.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + width - box.width, y);
+    await page.mouse.up();
+  }
+  for (const [width, inset] of [
+    [280, 2],
+    [360, 4],
+    [450, 8],
+    [280, 2],
+  ]) {
+    const samples = page.evaluate(async () => {
+      const center = (node: Element) => {
+        const b = node.getBoundingClientRect();
+        return b.y + b.height / 2;
+      };
+      const result: number[][] = [];
+      const start = performance.now();
+      while (performance.now() - start < 450) {
+        const tabNode = document.querySelector(
+          '[data-testid^="workspace-tab-"][aria-selected="true"]',
+        )!;
+        const left = document.querySelector('[data-testid="sidebar-search"]')!;
+        const right = document.querySelector('[data-testid="workspace-shared-toolbar"]')!;
+        result.push([center(tabNode) - center(left), center(tabNode) - center(right)]);
+        await new Promise(requestAnimationFrame);
+      }
+      return result;
+    });
+    await resize(width);
+    await expect
+      .poll(() => sidebar.evaluate((n) => parseFloat(getComputedStyle(n).paddingLeft)))
+      .toBe(inset);
+    await expect(tab).toHaveCSS("height", `${44 + inset * 2}px`);
+    for (const offsets of await samples)
+      for (const offset of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.6);
+  }
+});

@@ -1,3 +1,4 @@
+import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import { StyleSheet } from "react-native-unistyles";
 import { VORTON_HEADER_HEIGHT } from "@/constants/layout";
 import type { ReactNode } from "react";
@@ -25,10 +26,14 @@ export function SupportingCardGroup({
   renderHeader?: () => ReactNode;
   resizeHandle?: ReactNode;
 }) {
+  const { headerHeight } = useSidebarSpacing();
   return (
     <RetainedPanel active={visible} style={style} testID="workspace-supporting-cards">
       {renderHeader ? (
-        <View style={styles.header} testID="workspace-supporting-toolbar">
+        <View
+          style={[styles.header, { height: headerHeight }]}
+          testID="workspace-supporting-toolbar"
+        >
           {renderHeader()}
         </View>
       ) : null}

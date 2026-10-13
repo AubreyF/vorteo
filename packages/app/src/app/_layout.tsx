@@ -1,3 +1,4 @@
+import { SidebarSpacingProvider } from "@/styles/sidebar-spacing";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import "@/styles/unistyles";
 import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
@@ -634,7 +635,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
     surface
   );
 
-  return <CommandCenterProvider>{content}</CommandCenterProvider>;
+  return (
+    <SidebarSpacingProvider>
+      <CommandCenterProvider>{content}</CommandCenterProvider>
+    </SidebarSpacingProvider>
+  );
 }
 
 function SidebarChrome({

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): desktop sidebar padding, tab heights, shared toolbar height and supporting-card header clearance use one spacing animation. The shared 180ms cubic ease-out preserves matching centerlines through all three tiers and interrupted resizing. The sidebar divider remains an overlay without a spare transparent border consuming height. README scope is unchanged.
+
 Maintenance review (2026-10-12): sidebar dragging snaps to the 48px compact rail at a shared 160px threshold. Widths above that remain fluid, and releasing a snapped drag preserves the saved expanded width. README scope is unchanged.
 
 Maintenance review (2026-10-12): heading icons, task and queue handles, and journal markers share a leading centerline. The queue indicator slot owns its inset so status markers and drag handles remain interchangeable. Desktop row markers move four pixels right; touch alignment remains unchanged. Browser geometry checks cover both layouts. README scope is unchanged.

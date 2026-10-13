@@ -1,3 +1,4 @@
+import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import { HostBadge } from "@/hosts/host-badge";
 import { useHostBadges } from "@/hosts/use-host-badges";
 import { Portal } from "@gorhom/portal";
@@ -754,6 +755,7 @@ function TabChip({
   onCloseTab: (tabId: string) => Promise<void> | void;
   dragHandleProps: DraggableListDragHandleProps | undefined;
 }) {
+  const { headerHeight } = useSidebarSpacing();
   const { closeButtonTestId, contextMenuTestId, menuEntries } = resolvedTab;
   const { t } = useTranslation();
   const middleClickRef = useMiddleClickClose(
@@ -784,6 +786,7 @@ function TabChip({
   const tabChipStyle = useCallback(
     () => [
       styles.tab,
+      { height: headerHeight - 4 },
       isActiveFocused && styles.tabActive,
       !isActiveFocused && isHovered && styles.tabHovered,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
@@ -793,7 +796,7 @@ function TabChip({
         maxWidth: resolvedTabWidth,
       },
     ],
-    [isActiveFocused, isDragging, isHovered, resolvedTabWidth],
+    [headerHeight, isActiveFocused, isDragging, isHovered, resolvedTabWidth],
   );
 
   const handleTabPointerEnter = useCallback(() => {
@@ -1047,6 +1050,7 @@ function ResolvedWorkspaceDesktopTabsRow({
   );
   const [trackSnapshot, setTrackSnapshot] = useState<WorkspaceTabTrackSnapshot | null>(null);
 
+  const { headerHeight } = useSidebarSpacing();
   const handleTabsContainerLayout = useCallback((event: LayoutChangeEvent) => {
     updateMeasuredWidth(setTabsContainerWidth, event);
   }, []);
@@ -1328,7 +1332,7 @@ function ResolvedWorkspaceDesktopTabsRow({
 
   const row = (
     <View
-      style={[styles.tabsContainer, { paddingRight: toolbarInset }]}
+      style={[styles.tabsContainer, { paddingRight: toolbarInset, height: headerHeight }]}
       testID="workspace-tabs-row"
       onLayout={handleTabsContainerLayout}
     >
@@ -1353,7 +1357,7 @@ function ResolvedWorkspaceDesktopTabsRow({
           scrollEnabled={layout.requiresHorizontalScrollFallback}
           testID="workspace-tabs-scroll"
           style={tabsScrollStyle}
-          contentContainerStyle={styles.tabsContent}
+          contentContainerStyle={[styles.tabsContent, { minHeight: headerHeight }]}
           showsHorizontalScrollIndicator={false}
           onLayout={tabScrollBoundary.onLayout}
           onContentSizeChange={tabScrollBoundary.onContentSizeChange}
