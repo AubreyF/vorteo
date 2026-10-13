@@ -1031,7 +1031,9 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByRole("menuitem", { name: "History", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem").first()).toHaveText("Settings");
   await page.keyboard.press("Escape");
-  await dragTo(70);
+  await dragTo(180);
+  await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
+  await dragTo(155);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(48);
   const ids = ["sidebar-expand", "sidebar-search", "sidebar-schedules", "sidebar-sessions"];

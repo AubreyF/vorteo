@@ -67,9 +67,9 @@ describe("desktop sidebar layout", () => {
     ).toBe("none");
   });
 
-  it("lets dragging approach the rail and snap near its minimum", () => {
-    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(160);
-    expect(resolveDesktopSidebarWidth({ requestedWidth: 95, viewportWidth: 1800 })).toBe(48);
+  it("snaps at 160px while retaining fluid widths above the boundary", () => {
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 161, viewportWidth: 1800 })).toBe(161);
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(48);
     expect(resolveDesktopSidebarWidth({ requestedWidth: 310, viewportWidth: 1800 })).toBe(310);
   });
 

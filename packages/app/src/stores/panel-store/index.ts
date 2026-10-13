@@ -11,6 +11,7 @@ import {
 import { type ExplorerCheckoutContext } from "../explorer-checkout-context";
 import {
   SUPPORTING_CARD_DEFAULTS,
+  SIDEBAR_COMPACT_SNAP_WIDTH,
   type SupportingCardKind,
   type SupportingCardLayout,
   type SupportingCardUpdate,
@@ -304,8 +305,9 @@ export const usePanelStore = create<PanelState>()(
         })),
       setSidebarWidth: (width) =>
         set((state) => ({
-          sidebarWidth: width <= 96 ? state.sidebarWidth : clampSidebarWidth(width),
-          sidebarCompact: width <= 96,
+          sidebarWidth:
+            width <= SIDEBAR_COMPACT_SNAP_WIDTH ? state.sidebarWidth : clampSidebarWidth(width),
+          sidebarCompact: width <= SIDEBAR_COMPACT_SNAP_WIDTH,
           sidebarNarrow: false,
           sidebarViewportOverride: Dimensions.get("window").width,
         })),

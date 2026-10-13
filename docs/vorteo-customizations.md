@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): sidebar dragging snaps to the 48px compact rail at a shared 160px threshold. Widths above that remain fluid, and releasing a snapped drag preserves the saved expanded width. README scope is unchanged.
+
 Maintenance review (2026-10-12): heading icons, task and queue handles, and journal markers share a leading centerline. The queue indicator slot owns its inset so status markers and drag handles remain interchangeable. Desktop row markers move four pixels right; touch alignment remains unchanged. Browser geometry checks cover both layouts. README scope is unchanged.
 
 Maintenance review (2026-10-12): expanded title hover backgrounds square both lower corners; full-width Files and Changes headings retain both upper corners. Supporting pane toolbars own the single conditional scroll divider, spanning through card padding, while their outer title divider stays hidden. Browser regression coverage checks the retained 8px upper radius, squared lower corners and the full-width divider at the pane controls. README overview is unchanged.
