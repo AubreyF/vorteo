@@ -61,7 +61,7 @@ test("updates a running terminal across all six themes without replacing its ses
             page.getByTestId(`sidebar-workspace-row-${getServerId()}:${harness.workspaceId}`),
           ).toHaveCSS(
             "background-color",
-            theme === "starship-light" ? "rgb(240, 240, 248)" : "rgb(44, 44, 46)",
+            theme === "starship-light" ? "rgb(226, 226, 238)" : "rgb(44, 44, 46)",
           );
         }
         await expect
@@ -189,7 +189,7 @@ test("keeps the selected workspace visible in Starship", async ({ page }, testIn
     await row.click();
 
     await expect(row).toHaveAttribute("aria-selected", "true");
-    await expect(row).toHaveCSS("background-color", "rgb(240, 240, 248)");
+    await expect(row).toHaveCSS("background-color", "rgb(226, 226, 238)");
     await page.screenshot({
       path: testInfo.outputPath("starship-selected-workspace.png"),
       fullPage: true,
