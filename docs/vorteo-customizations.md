@@ -1,6 +1,6 @@
 # Vorteo customizations beyond Paseo
 
-On compact and touch layouts, task and queue rows group the drag handle with its adjacent checkbox or attachment summary. Shared 32px-wide, 44px-tall handle slots and zero internal group gap bring the neighboring element 10px closer while preserving the heading icon centerline. Task checkboxes remain 44px square. Desktop spacing and subagent leading slots are unchanged.
+On compact and touch layouts, task and queue rows group the drag handle with its adjacent checkbox or attachment summary. Shared 32px-wide, 44px-tall handle slots and zero internal group gap bring the neighboring element 10px closer while preserving the heading icon centerline. Task checkboxes remain 44px square. Browser coverage measures editable task rows alongside keyboard reordering and uploaded queue media in the shared card fixture. Desktop spacing and subagent leading slots are unchanged.
 
 Task, queue and inline subagent rows share `TaskCardRow` for height, alignment and spacing. Subagent and bulk-action icons use `TaskCardRowIcon`, whose fixed leading slot matches the heading centerline and reserves room before the label. Menu rows retain their own menu layout. README overview and onboarding are unchanged.
 

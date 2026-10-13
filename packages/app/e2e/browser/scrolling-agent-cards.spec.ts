@@ -590,16 +590,6 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       }
       await checkHeadingGeometry(stack, width);
       if (width === 390) {
-        const taskRow = stack
-          .locator('[data-testid^="checklist-row-"]')
-          .filter({ has: page.locator('[data-testid^="checklist-drag-"]') })
-          .first();
-        const handle = (await taskRow.locator('[data-testid^="checklist-drag-"]').boundingBox())!;
-        const checkbox = (await taskRow.getByRole("checkbox").boundingBox())!;
-        expect(handle.width).toBe(32);
-        expect(handle.height).toBe(44);
-        expect(checkbox.width).toBe(44);
-        expect(checkbox.x - handle.x - handle.width).toBeCloseTo(0, 1);
         const queueHandle = (await stack.getByTestId("queue-drag-card-message").boundingBox())!;
         const attachment = (await stack.getByTestId("queue-attachment-summary").boundingBox())!;
         expect(queueHandle.width).toBe(32);
@@ -1584,6 +1574,14 @@ for (const width of [1400, 390]) {
       const handle = page.getByTestId("checklist-drag-dependent");
       const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
       expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
+      if (width === 390) {
+        const grip = (await handle.boundingBox())!;
+        const check = (await checkbox.boundingBox())!;
+        expect(grip.width).toBe(32);
+        expect(grip.height).toBe(44);
+        expect(check.width).toBe(44);
+        expect(check.x - grip.x - grip.width).toBeCloseTo(0, 1);
+      }
       await handle.click();
       await expect(handle).toBeFocused();
       await handle.press("Space");

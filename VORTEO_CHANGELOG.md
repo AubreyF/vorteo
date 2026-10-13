@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.469 - 2026-10-13
+
+### Validation
+
+- Check mobile task handle spacing in the editable-checklist fixture, where drag handles exist, alongside its keyboard reorder exercise. Keep queue media spacing in the shared card fixture; interface behavior is unchanged from the preceding candidate.
+
 ## 0.11.0-beta.3.vorteo.468 - 2026-10-13
 
 ### Appearance
