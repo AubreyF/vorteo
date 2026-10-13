@@ -1287,14 +1287,14 @@ const styles = StyleSheet.create((theme) => ({
   sidebarToolbar: {
     paddingHorizontal: 0,
     gap: 0,
-    height: FLOATING_PANEL_CONTROL_HEIGHT,
+    height: FLOATING_PANEL_CONTROL_HEIGHT + theme.spacing[1],
     paddingTop: 0,
-    paddingBottom: 0,
+    paddingBottom: theme.spacing[1],
     borderTopWidth: 0,
     borderBottomWidth: 0,
     borderBottomColor: "transparent",
   },
-  touchToolbar: { height: 44 },
+  touchToolbar: { height: 44 + theme.spacing[1] },
   scrollingNavGroup: {
     gap: 2,
     paddingBottom: theme.spacing[1.5],

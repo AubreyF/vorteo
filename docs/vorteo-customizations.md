@@ -662,3 +662,5 @@ Details cards use an 8px stack gap. Shared disclosure headings measure their ava
 Heading geometry checks measure visible controls and verify icon-only expansion at the minimum sidebar width, followed by label and chip restoration when widened.
 
 The Files sorting toolbar fits its existing sort and icon controls with one pixel for the divider. File lists start with a 2px top inset.
+
+The left sidebar toolbar reserves 4px below its controls before the full-width divider. Button positions and hit targets remain unchanged.
