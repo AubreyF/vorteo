@@ -635,6 +635,28 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect((await toggle.boundingBox())?.height).toBe(headerHeight);
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      const subagentColumns = await stack.getByTestId("subagents-card").evaluate((card) => {
+        const heading = card
+          .querySelector('[data-testid="subagents-group-paseo-toggle"]')!
+          .firstElementChild!.getBoundingClientRect();
+        return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
+          const slot = row.querySelector('[data-testid^="subagents-track-icon-"]')!;
+          const icon = slot.firstElementChild!.getBoundingClientRect();
+          const title = row
+            .querySelector('[data-testid^="subagents-track-label-"]')!
+            .getBoundingClientRect();
+          return {
+            headingCenter: heading.left + heading.width / 2,
+            iconCenter: icon.left + icon.width / 2,
+            textGap: title.left - icon.right,
+          };
+        });
+      });
+      expect(subagentColumns.length).toBeGreaterThan(0);
+      for (const columns of subagentColumns) {
+        expect(columns.iconCenter).toBeCloseTo(columns.headingCenter, 1);
+        expect(columns.textGap).toBeGreaterThanOrEqual(12);
+      }
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
         const rows = card.querySelectorAll('[data-testid^="subagents-track-row-"]');
         const lastRow = rows.item(rows.length - 1);

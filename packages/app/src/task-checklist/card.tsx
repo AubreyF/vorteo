@@ -1,9 +1,10 @@
+import { TaskCardRow } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { BrushCleaning, Check, Circle, CircleAlert, Eye, Pencil, Plus } from "lucide-react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useShallow } from "zustand/shallow";
@@ -339,7 +340,7 @@ function ChecklistRow({
     [completed, managed, canMutate],
   );
   return (
-    <View style={[styles.row, info.isActive && styles.active]} testID={`checklist-row-${task.id}`}>
+    <TaskCardRow style={info.isActive && styles.active} testID={`checklist-row-${task.id}`}>
       {managed ? (
         <ListDragHandle
           info={info}
@@ -385,12 +386,11 @@ function ChecklistRow({
         onPress={details}
         leftIcon={Pencil}
       />
-    </View>
+    </TaskCardRow>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: { flexDirection: "row", alignItems: "center", minHeight: 40, gap: theme.spacing[1] },
   title: { flex: 1, minWidth: 0 },
   running: { color: theme.colors.foreground },
   completed: { color: theme.colors.foregroundExtraMuted, textDecorationLine: "line-through" },

@@ -1,3 +1,4 @@
+import { TaskCardRowIcon } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CARD_GAP } from "@/agent-stream/columns/geometry";
@@ -247,10 +248,19 @@ export function ArchiveFinishedRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <ThemedArchive
-          size={ROW_ICON_SIZE}
-          uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
-        />
+        {inline ? (
+          <TaskCardRowIcon>
+            <ThemedArchive
+              size={ROW_ICON_SIZE}
+              uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <ThemedArchive
+            size={ROW_ICON_SIZE}
+            uniProps={active ? foregroundColorMapping : foregroundMutedColorMapping}
+          />
+        )}
         <TruncatedText
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}
@@ -362,10 +372,19 @@ export function SubagentsTrackRow({
   const renderRow = useCallback(
     ({ active }: { active: boolean }) => (
       <>
-        <WorkspaceTabIcon
-          presentation={presentation}
-          backdrop={active && !inline ? "surface2" : "surface1"}
-        />
+        {inline ? (
+          <TaskCardRowIcon testID={`subagents-track-icon-${row.id}`}>
+            <WorkspaceTabIcon
+              presentation={presentation}
+              backdrop={active && !inline ? "surface2" : "surface1"}
+            />
+          </TaskCardRowIcon>
+        ) : (
+          <WorkspaceTabIcon
+            presentation={presentation}
+            backdrop={active && !inline ? "surface2" : "surface1"}
+          />
+        )}
         <TruncatedText
           style={[styles.rowLabel, inline && taskCardStyles.rowText]}
           numberOfLines={1}

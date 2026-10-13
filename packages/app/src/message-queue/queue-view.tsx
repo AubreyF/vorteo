@@ -1,3 +1,4 @@
+import { TaskCardRow } from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
@@ -374,7 +375,7 @@ function PendingRow({ record, control }: { record: OutboxRecord; control: Messag
   const attachments = pendingAttachments(record);
   return (
     <View style={taskCardStyles.item}>
-      <View style={styles.summary}>
+      <TaskCardRow>
         <QueueMessageIndicator record={record} />
         <QueueAttachmentSummary
           count={attachments.length}
@@ -388,7 +389,7 @@ function PendingRow({ record, control }: { record: OutboxRecord; control: Messag
         >
           {describePendingChange(record)}
         </TruncatedText>
-      </View>
+      </TaskCardRow>
       <PendingRecovery record={record} control={control} />
     </View>
   );
@@ -563,7 +564,7 @@ function QueueRow({
       testID={`queue-message-${row.id}`}
     >
       {!editing.length ? (
-        <View style={styles.summary}>
+        <TaskCardRow>
           <QueueMessageIndicator record={record}>
             {item ? (
               <ListDragHandle
@@ -596,7 +597,7 @@ function QueueRow({
               toggleDetails={toggleDetails}
             />
           ) : null}
-        </View>
+        </TaskCardRow>
       ) : null}
       {record ? <PendingRecovery record={record} control={control} /> : null}
       {item && details && !editing.length ? (
@@ -789,11 +790,6 @@ const styles = StyleSheet.create((theme) => ({
     flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[1],
-  },
-  summary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
   },
   summaryText: { flex: 1, minWidth: 0 },
   heading: {

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.460 - 2026-10-13
+
+### Appearance
+
+- Share row layout across task, queue and inline subagent cards. Give subagent and bulk-action icons a fixed leading column aligned with the heading, with consistent spacing before their labels.
+- Check subagent icon centerlines and label clearance in desktop and phone browser layouts.
+
 ## 0.11.0-beta.3.vorteo.459 - 2026-10-13
 
 ### Validation

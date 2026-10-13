@@ -1,4 +1,4 @@
-import { TASK_CARD_ROW_HEIGHT } from "@/agent-stream/task-card-styles";
+import { TaskCardRow } from "@/agent-stream/task-card-row";
 import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -244,11 +244,14 @@ function TrackRowContent({
   const handlePointerLeave = useCallback(() => setHovered(false), []);
 
   const renderRow = useCallback(
-    (active: boolean) => (
-      <View style={[active && !inline ? styles.rowActive : styles.row, inline && styles.inlineRow]}>
-        {typeof children === "function" ? children({ active }) : children}
-      </View>
-    ),
+    (active: boolean) => {
+      const content = typeof children === "function" ? children({ active }) : children;
+      return inline ? (
+        <TaskCardRow>{content}</TaskCardRow>
+      ) : (
+        <View style={active ? styles.rowActive : styles.row}>{content}</View>
+      );
+    },
     [children, inline],
   );
   const renderPressed = useCallback(
@@ -354,13 +357,6 @@ const styles = StyleSheet.create((theme) => {
       paddingHorizontal: theme.spacing[2],
       paddingVertical: theme.spacing[1],
       borderRadius: theme.borderRadius.md,
-    },
-    inlineRow: {
-      minHeight: TASK_CARD_ROW_HEIGHT,
-      paddingVertical: 0,
-      marginHorizontal: 0,
-      paddingLeft: theme.spacing[2],
-      paddingRight: 0,
     },
     rowActive: {
       flexDirection: "row",
