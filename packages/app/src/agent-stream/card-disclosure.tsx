@@ -3,7 +3,11 @@ import { Pressable, Text, View } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useVortonTouch } from "@/vorton-touch";
-import { taskCardStyles } from "./task-card-styles";
+import {
+  TASK_CARD_ICON_CENTER,
+  TASK_CARD_TOUCH_ICON_CENTER,
+  taskCardStyles,
+} from "./task-card-styles";
 
 const Down = withUnistyles(ChevronDown, (theme) => ({ color: theme.colors.foregroundMuted }));
 const Right = withUnistyles(ChevronRight, (theme) => ({ color: theme.colors.foregroundMuted }));
@@ -100,10 +104,10 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
     flexBasis: "auto",
     borderRadius: theme.borderRadius.lg,
-    paddingLeft: 6,
+    paddingLeft: TASK_CARD_ICON_CENTER - 10,
     paddingRight: theme.spacing[2],
   },
-  touchTrigger: { paddingLeft: 12 },
+  touchTrigger: { paddingLeft: TASK_CARD_TOUCH_ICON_CENTER - 10 },
   // Match the card's outer corner without rounding back into the adjoining header/body.
   expandedTrigger: {
     borderTopRightRadius: 0,

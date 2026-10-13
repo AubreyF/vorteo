@@ -4,6 +4,10 @@ import { GripVertical } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isNative } from "@/constants/platform";
 import { useVortonTouch } from "@/vorton-touch";
+import {
+  TASK_CARD_ICON_CENTER,
+  TASK_CARD_TOUCH_ICON_CENTER,
+} from "@/agent-stream/task-card-styles";
 import type { Theme } from "@/styles/theme";
 import type { DraggableRenderItemInfo } from "./draggable-list";
 
@@ -53,9 +57,10 @@ export function ListDragHandle<T>({
 const ThemedGrip = withUnistyles(GripVertical);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const styles = StyleSheet.create(() => ({
-  touch: { minHeight: 44, minWidth: 44 },
+  touch: { minHeight: 44, minWidth: 44, marginLeft: TASK_CARD_TOUCH_ICON_CENTER - 22 },
   dragHandle: {
     width: 24,
+    marginLeft: TASK_CARD_ICON_CENTER - 12,
     minHeight: 32,
     alignItems: "center",
     justifyContent: "center",

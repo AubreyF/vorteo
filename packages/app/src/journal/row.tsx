@@ -3,6 +3,10 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
 import { useVortonTouch } from "@/vorton-touch";
+import {
+  TASK_CARD_ICON_CENTER,
+  TASK_CARD_TOUCH_ICON_CENTER,
+} from "@/agent-stream/task-card-styles";
 import { JournalSpark } from "./spark";
 
 interface JournalRowProps {
@@ -76,7 +80,7 @@ const styles = StyleSheet.create((theme) => ({
   markerPlaceholder: { width: 20, height: 20 },
   lineAbove: {
     position: "absolute",
-    left: 11.5,
+    left: TASK_CARD_ICON_CENTER - 0.5,
     top: 0,
     // Stop at the transparent marker frame instead of painting behind its icon.
     height: theme.spacing[1] - 2,
@@ -85,7 +89,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   lineBelow: {
     position: "absolute",
-    left: 11.5,
+    left: TASK_CARD_ICON_CENTER - 0.5,
     top: theme.spacing[1] + 18,
     bottom: 0,
     width: 1,
@@ -96,10 +100,10 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "flex-start",
     gap: theme.spacing[2],
     paddingVertical: theme.spacing[1],
-    paddingLeft: 2,
+    paddingLeft: TASK_CARD_ICON_CENTER - 10,
   },
-  touchRow: { paddingLeft: 12 },
-  touchLine: { left: 21.5 },
+  touchRow: { paddingLeft: TASK_CARD_TOUCH_ICON_CENTER - 10 },
+  touchLine: { left: TASK_CARD_TOUCH_ICON_CENTER - 0.5 },
   timestamp: {
     flexDirection: "row",
     flexWrap: "wrap",

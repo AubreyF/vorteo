@@ -1,6 +1,10 @@
 import { StyleSheet } from "react-native-unistyles";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 
+// Shared leading centerline for heading icons, row handles and journal markers.
+export const TASK_CARD_ICON_CENTER = 16;
+export const TASK_CARD_TOUCH_ICON_CENTER = 22;
+
 export const TASK_CARD_ROW_HEIGHT = 40;
 export const TASK_CARD_TOUCH_ROW_HEIGHT = 52;
 

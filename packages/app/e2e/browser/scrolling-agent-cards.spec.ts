@@ -55,6 +55,16 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
         ?.getBoundingClientRect();
       return {
         markerBackground,
+        headingOffset:
+          marker.left +
+          marker.width / 2 -
+          (() => {
+            const icon = node
+              .closest('[data-testid="agent-journal-card"]')!
+              .querySelector("[aria-expanded]")!
+              .firstElementChild!.getBoundingClientRect();
+            return icon.left + icon.width / 2;
+          })(),
         clearAbove: !above || above.bottom <= marker.top,
         clearBelow: !below || below.top >= marker.bottom,
         markerInset: marker.left - node.getBoundingClientRect().left,
@@ -71,16 +81,17 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
         overflow: node.scrollWidth > node.clientWidth,
       };
     });
+    expect(rowGeometry.headingOffset).toBeCloseTo(0, 1);
     expect(rowGeometry.timestampLeft).toBe(rowGeometry.textLeft);
     expect(rowGeometry.markerBackground).toBe("rgba(0, 0, 0, 0)");
     expect(rowGeometry.clearAbove).toBe(true);
     expect(rowGeometry.clearBelow).toBe(true);
     expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
-    expect(rowGeometry.markerInset).toBe(width === 390 ? 12 : 2);
+    expect(rowGeometry.markerInset).toBe(width === 390 ? 12 : 6);
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
     expect(rowGeometry.textTop - rowGeometry.timestampBottom).toBe(2);
     expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 30);
+    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 34);
     expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - rowGeometry.timestampInset);
     expect(rowGeometry.overflow).toBe(false);
   }).toPass({ timeout: 5000 });
@@ -872,6 +883,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     "agent-goal-bar",
     "question-form-card",
   ];
+  await checkHandleCenterlines(stack);
   const geometry = await stack.evaluate(
     (root, cardIds) =>
       cardIds.map((id) => {
@@ -1998,3 +2010,22 @@ test("quiet queue and subagent rows align with header actions without hover fill
     await agent.cleanup();
   }
 });
+
+async function checkHandleCenterlines(stack: Locator) {
+  const offsets = await stack.evaluate((root) =>
+    ["agent-task-progress-card", "shared-message-queue"].flatMap((id) => {
+      const card = root.querySelector(`[data-testid="${id}"]`)!;
+      const icon = card
+        .querySelector("[aria-expanded]")!
+        .firstElementChild!.getBoundingClientRect();
+      return [
+        ...card.querySelectorAll('[data-testid^="checklist-drag-"], [data-testid^="queue-drag-"]'),
+      ]
+        .map((handle) => handle.getBoundingClientRect())
+        .filter((box) => box.width > 0)
+        .map((box) => box.x + box.width / 2 - icon.x - icon.width / 2);
+    }),
+  );
+  expect(offsets.length).toBeGreaterThan(0);
+  for (const offset of offsets) expect(offset).toBeCloseTo(0, 1);
+}
