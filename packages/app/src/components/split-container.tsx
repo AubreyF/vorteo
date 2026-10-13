@@ -1,4 +1,3 @@
-import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import { PortalHost } from "@gorhom/portal";
 import { SharedWorkspaceToolbarContext } from "@/screens/workspace/shared-toolbar-context";
 import {
@@ -1438,7 +1437,6 @@ function useSharedToolbarGeometry(
   root: SplitNode | null,
   maximizedPaneId: string | null,
 ) {
-  const { headerHeight } = useSidebarSpacing();
   const paneId = maximizedPaneId ?? topRightToolbarPane(root);
   const toolbarMenuHost = `workspace-toolbar-${useId()}`;
   const [toolbarWidth, setToolbarWidth] = useState(0);
@@ -1462,12 +1460,11 @@ function useSharedToolbarGeometry(
     () => [
       styles.sharedToolbar,
       {
-        height: headerHeight,
         maxWidth: Math.max(80, workspaceShellWidth - 120),
         opacity: toolbarWidth > 0 ? 1 : 0,
       },
     ],
-    [headerHeight, workspaceShellWidth, toolbarWidth],
+    [workspaceShellWidth, toolbarWidth],
   );
   return { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar };
 }
@@ -1503,9 +1500,8 @@ const renderToolbarSpacer = () => null;
 const styles = StyleSheet.create((theme) => ({
   sharedToolbar: {
     position: "absolute",
-    top: FLOATING_PANEL_INSET + 1,
+    top: FLOATING_PANEL_INSET,
     right: FLOATING_PANEL_INSET,
-    height: 48,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,

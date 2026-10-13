@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Workspace tabs retain the Latest control's 44px height and full pill radius while their row follows sidebar spacing. The shared upper-right toolbar uses equal top and right outer insets, and run controls use borderless hover surfaces for both single and multiple scripts. README overview and onboarding are unchanged.
+
 Certificate tooling resolves node-forge 1.4.0, including EAS through a scoped override. Ordinary Expo certificate, CSR and signing operations and EAS password-protected archive reading pass tests using generated in-memory keys. Node independently verifies the produced signature. Retire the override when a validated EAS parent supplies the required version. The remaining upstream signature-verification advisory is unresolved; compatibility tests do not prove its remediation. README overview and onboarding are unchanged.
 
 The older Expo property-list package has a scoped xmldom 0.8.15 override. Its EAS file helpers and provisioning-metadata helpers pass synthetic round-trip and rejection checks, alongside property-list escaping and identifier matching. Retire the override when the older package is replaced by a validated parent update with a patched XML dependency. No Apple request, real credential or installed service is involved in validation. README overview and onboarding are unchanged.

@@ -1186,9 +1186,7 @@ test("files card has joined hover corners and one scroll divider below its toolb
   await expect(divider).toHaveCSS("opacity", "0");
 });
 
-test("tab and toolbar centerlines share every sidebar spacing animation frame", async ({
-  page,
-}) => {
+test("tabs retain Latest geometry while toolbar keeps equal outer margins", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 1800, height: 1000 });
   await page.goto("/?demo=1");
@@ -1225,7 +1223,12 @@ test("tab and toolbar centerlines share every sidebar spacing animation frame", 
         )!;
         const left = document.querySelector('[data-testid="sidebar-search"]')!;
         const right = document.querySelector('[data-testid="workspace-shared-toolbar"]')!;
-        result.push([center(tabNode) - center(left), center(tabNode) - center(right)]);
+        const rightBox = right.getBoundingClientRect();
+        result.push([
+          center(tabNode) - center(left),
+          tabNode.getBoundingClientRect().height - 44,
+          rightBox.top - (window.innerWidth - rightBox.right),
+        ]);
         await new Promise(requestAnimationFrame);
       }
       return result;
@@ -1234,8 +1237,8 @@ test("tab and toolbar centerlines share every sidebar spacing animation frame", 
     await expect
       .poll(() => sidebar.evaluate((n) => parseFloat(getComputedStyle(n).paddingLeft)))
       .toBe(inset);
-    const verticalInset = inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
-    await expect(tab).toHaveCSS("height", `${44 + verticalInset * 2}px`);
+    await expect(tab).toHaveCSS("height", "44px");
+    await expect(tab).toHaveCSS("border-radius", "9999px");
     for (const offsets of await samples)
       for (const offset of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.6);
   }

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.447 - 2026-10-13
+
+### Appearance
+
+- Keep workspace tabs at the Latest control's 44px height and pill radius. Use borderless run controls with hover feedback, and align the upper-right toolbar's top and right insets. Tab centers continue to follow sidebar spacing without stretching the buttons.
+
 ## 0.11.0-beta.3.vorteo.446 - 2026-10-13
 
 ### Security

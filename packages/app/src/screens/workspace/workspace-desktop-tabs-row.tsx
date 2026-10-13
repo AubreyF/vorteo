@@ -757,7 +757,6 @@ function TabChip({
   onCloseTab: (tabId: string) => Promise<void> | void;
   dragHandleProps: DraggableListDragHandleProps | undefined;
 }) {
-  const { headerHeight } = useSidebarSpacing();
   const { closeButtonTestId, contextMenuTestId, menuEntries } = resolvedTab;
   const { t } = useTranslation();
   const middleClickRef = useMiddleClickClose(
@@ -788,7 +787,6 @@ function TabChip({
   const tabChipStyle = useCallback(
     () => [
       styles.tab,
-      { height: headerHeight - 4 },
       isActiveFocused && styles.tabActive,
       !isActiveFocused && isHovered && styles.tabHovered,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
@@ -798,7 +796,7 @@ function TabChip({
         maxWidth: resolvedTabWidth,
       },
     ],
-    [headerHeight, isActiveFocused, isDragging, isHovered, resolvedTabWidth],
+    [isActiveFocused, isDragging, isHovered, resolvedTabWidth],
   );
 
   const handleTabPointerEnter = useCallback(() => {

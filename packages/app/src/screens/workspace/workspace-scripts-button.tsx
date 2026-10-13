@@ -26,6 +26,7 @@ import {
   useDropdownMenuClose,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { MENU_ITEM_HEIGHT } from "@/components/ui/menu/menu-geometry";
 import { useToast } from "@/contexts/toast-context";
 import { openServiceUrl } from "@/utils/open-service-url";
@@ -36,7 +37,6 @@ import {
 } from "@/utils/workspace-script-links";
 import type { Theme } from "@/styles/theme";
 import { useWorkspaceServiceRoutePreferencesStore } from "@/workspace-service-routes/store";
-import { buttonControlHeight, HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
 import { extraMutedIconColorMapping } from "@/components/ui/icon-color";
 
 type RowActionIcon = "copy" | "open" | "restart" | "start" | "stop" | "terminal";
@@ -584,8 +584,9 @@ function SingleScriptButton({
   return (
     <Tooltip enabledOnDesktop enabledOnMobile>
       <TooltipTrigger asChild>
-        <Pressable
+        <Button
           testID="workspace-scripts-button"
+          variant="ghost"
           accessibilityRole="button"
           accessibilityLabel={label}
           disabled={pending || (running && !link && !terminalId)}
@@ -597,7 +598,7 @@ function SingleScriptButton({
             uniProps={running ? blueColorMapping : mutedColorMapping}
             {...playFillTransparent}
           />
-        </Pressable>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>
         <Text style={styles.tooltipText}>{label}</Text>
@@ -830,8 +831,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.borderAccent,
   },
   row: {
     flexDirection: "row",
@@ -840,15 +839,10 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    height: 40,
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: 16,
     overflow: "hidden",
   },
   ghostButtonFrame: {
