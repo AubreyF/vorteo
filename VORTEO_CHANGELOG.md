@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.390 - 2026-10-12
+
+### Fixed
+
+- Keep narrow composer Queue controls above the text input hit area; preserve fixed Queue and Send click actions and highlight Queue while Command is held. Command+Enter queues in narrow web layouts.
+
 ## 0.11.0-beta.3.vorteo.389 - 2026-10-12
 
 ### Changed

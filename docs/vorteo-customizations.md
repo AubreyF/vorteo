@@ -519,3 +519,5 @@ Host unavailability and sidebar sync failures appear in the left sidebar footer 
 Desktop composer outer padding uses the same 8px inset as the floating sidebar frames, keeping their bottom edges aligned. Mobile keyboard and safe-area spacing remain independently handled.
 
 Mobile workspace headers retain only the left navigation and right workspace menu controls. Script actions live inside the workspace menu, and Files appears before Queue among inline conversation cards with device-local inline disclosure memory.
+
+Narrow composer Queue and Send buttons retain fixed click and tap actions. Queue renders above the text input hit area. Command or Control highlights Queue and queues with Enter; ordinary Enter keeps the narrow editor’s multiline behavior.

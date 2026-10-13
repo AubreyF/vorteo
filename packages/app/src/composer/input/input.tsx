@@ -1297,7 +1297,11 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     });
     const { modifier: submitModifier, reset: resetSubmitModifier } =
       useSubmitModifier(showSubmitModifiers);
-    const isNewlineAction = submitModifier === "newline";
+    const isNewlineAction = !showMobileQueue && submitModifier === "newline";
+    const highlightQueue = useMemo(
+      () => showMobileQueue && submitModifier === "alternate",
+      [showMobileQueue, submitModifier],
+    );
 
     const { height: windowHeight } = useWindowDimensions();
     const maxInputHeight = resolveMaxInputHeight(windowHeight);
@@ -1731,6 +1735,16 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     function handleDesktopKeyPress(event: WebTextInputKeyPressEvent) {
       if (!shouldHandleWebKeyPress) return;
+      const queueShortcut =
+        showMobileQueue &&
+        event.nativeEvent.key === "Enter" &&
+        (event.nativeEvent.metaKey || event.nativeEvent.ctrlKey) &&
+        !event.nativeEvent.shiftKey;
+      if (queueShortcut && !isImeComposingKeyboardEvent(event.nativeEvent)) {
+        event.preventDefault();
+        if (!isSendButtonDisabled) handleQueueMessage();
+        return;
+      }
       handleDesktopKeyPressImpl(event, {
         onKeyPressCallback,
         input: getComposerInputSnapshot(
@@ -1942,10 +1956,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         styles.sendButton,
         touch && styles.touchButton,
         submitLabel ? styles.sendButtonLabeled : undefined,
-        isNewlineAction && styles.sendButtonNewline,
+        (isNewlineAction || highlightQueue) && styles.sendButtonNewline,
         buttonDisabled && styles.buttonDisabled,
       ],
-      [buttonDisabled, isNewlineAction, submitLabel, touch],
+      [buttonDisabled, isNewlineAction, highlightQueue, submitLabel, touch],
     );
     const overlayContainerStyle = useMemo(
       () => [styles.overlayContainer, { opacity: surfacePresentation.overlay.opacity }],
@@ -2003,13 +2017,14 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               styles.sendButton,
               styles.touchButton,
               styles.mobileQueueButton,
+              !highlightQueue && styles.sendButtonNewline,
               isSendButtonDisabled && styles.buttonDisabled,
             ]}
           >
             <ThemedListPlus size={buttonIconSize} uniProps={iconAccentForegroundMapping} />
           </Pressable>
         ) : null,
-      [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize],
+      [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize, highlightQueue],
     );
     const queueRecordingAction = useMemo(
       () => (showMobileQueue ? handleAcceptAndQueueRecording : undefined),
@@ -2042,7 +2057,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         >
           {attachmentSlot}
           {dictationPlacement.top}
-          {mobileQueueButton}
           {/* Text input */}
           <RenderProfile id="ComposerTextSurface">
             <ComposerTextSurface
@@ -2072,6 +2086,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             />
           </RenderProfile>
 
+          {mobileQueueButton}
           {/* Button row */}
           <View style={styles.buttonRow}>
             {/* Toolbar left: attachment button + agent controls */}
@@ -2191,6 +2206,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
   mobileQueueSurface: { minHeight: 172, justifyContent: "space-between" },
   mobileQueueButton: {
     position: "absolute",
+    zIndex: 1,
     bottom: 59,
     right: 7,
   },
