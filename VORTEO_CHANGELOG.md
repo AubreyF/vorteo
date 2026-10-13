@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.444 - 2026-10-13
+
+### Security
+
+- Update eight compatible XML parser copies to xmldom 0.8.15. Property-list round trips preserve values and escaping; parser checks reject the CDATA markup injection reproduced in the old dependency. The older Expo property-list parser remains under review. These source updates do not change installed applications or services.
+
 ## 0.11.0-beta.3.vorteo.443 - 2026-10-13
 
 ### Fixes

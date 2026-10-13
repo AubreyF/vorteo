@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/protocol",
-  "version": "0.11.0-beta.3.vorteo.443",
+  "version": "0.11.0-beta.3.vorteo.444",
   "description": "Vorteo shared protocol schemas and wire types",
   "files": [
     "dist",

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Compatible Expo and property-list XML dependencies resolve xmldom 0.8.15. Tests exercise standard and Expo property-list parsing and building, preserving nested values and escaped text, and reject CDATA markup injection through their resolved XML implementations. The root Expo property-list package still requires xmldom 0.7 and remains a separate finding. The reviewed serialization regression does not establish that project property-list input reaches that injection API. README overview and onboarding are unchanged.
+
 Pretty logging formats each serialized Pino entry before writing to the normal Pino destination. If formatting throws, it writes the original redacted JSON line and continues with subsequent entries. Tests cover retained nested entries, authorization redaction, stdout and file output. Flush methods delegate to the destination, and the default JSON path remains unchanged. This completes the prepared formatter recovery fix; installed daemon delivery is separate. README overview and onboarding are unchanged.
 
 The optional pretty-log formatter resolves fast-copy 4.1.2 within its declared range. Its filtering path preserves nested values without mutating the original log and rejects excessive copy depth with an explicit error. JSON remains the default console format. This dependency repair does not add error recovery to pretty logging or prove that arbitrary nested input can be logged successfully. README overview and onboarding are unchanged.
