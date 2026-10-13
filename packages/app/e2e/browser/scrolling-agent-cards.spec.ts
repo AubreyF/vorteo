@@ -557,7 +557,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
             top: box.top,
             bottom: box.bottom,
             width: box.width,
-            padding: getComputedStyle(node.firstElementChild!).padding,
+            padding: style.padding,
             frame: [
               style.backgroundColor,
               style.borderColor,
