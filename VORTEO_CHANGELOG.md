@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.401 - 2026-10-12
+
+### Security
+
+- Update the application's Markdown parser and Mermaid renderer to patched releases, and regenerate the embedded diagram runtime. Existing HTML, resource and unsafe-link restrictions remain in place.
+- Reference-link destinations follow current Markdown syntax: wrap paths containing spaces in angle brackets. Invalid unbracketed definitions remain visible as text.
+
 ## 0.11.0-beta.3.vorteo.400 - 2026-10-12
 
 ### Maintenance
