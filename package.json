@@ -1,6 +1,6 @@
 {
   "name": "paseo",
-  "version": "0.11.0-beta.3.vorteo.444",
+  "version": "0.11.0-beta.3.vorteo.445",
   "private": true,
   "description": "Vorteo: voice-controlled development environment for local AI coding agents",
   "keywords": [
@@ -150,6 +150,9 @@
   "overrides": {
     "@codemirror/language": "6.12.4",
     "@codemirror/view": "6.43.6",
+    "@expo/plist@0.2.0": {
+      "@xmldom/xmldom": "0.8.15"
+    },
     "eas-cli": {
       "minimatch": "5.1.9",
       "tar": "7.5.22"

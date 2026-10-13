@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.445 - 2026-10-13
+
+### Security
+
+- Scope xmldom 0.8.15 to the older Expo property-list package. Validate EAS file reading and writing, synthetic provisioning metadata, malformed input rejection and identifier matching without network requests or credentials. The override removes the remaining older XML parser copy; installed applications and services remain unchanged.
+
 ## 0.11.0-beta.3.vorteo.444 - 2026-10-13
 
 ### Security
