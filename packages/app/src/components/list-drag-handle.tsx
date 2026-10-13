@@ -21,11 +21,13 @@ export function ListDragHandle<T>({
   disabled,
   label,
   testID,
+  inset = true,
 }: {
   info: DraggableRenderItemInfo<T>;
   disabled: boolean;
   label: string;
   testID?: string;
+  inset?: boolean;
 }) {
   const touch = useVortonTouch();
   const handle = disabled ? undefined : info.dragHandleProps;
@@ -45,6 +47,7 @@ export function ListDragHandle<T>({
       style={[
         styles.dragHandle,
         touch && styles.touch,
+        !inset && styles.noInset,
         info.isActive && styles.dragGrabbing,
         disabled && styles.dragDisabled,
       ]}
@@ -67,6 +70,7 @@ const styles = StyleSheet.create(() => ({
     _web: { cursor: "grab" },
     touchAction: "none",
   },
+  noInset: { marginLeft: 0 },
   dragGrabbing: { _web: { cursor: "grabbing" } },
   dragDisabled: { opacity: 0.35, _web: { cursor: "auto" } },
 }));

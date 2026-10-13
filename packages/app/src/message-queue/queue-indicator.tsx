@@ -17,6 +17,10 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  TASK_CARD_ICON_CENTER,
+  TASK_CARD_TOUCH_ICON_CENTER,
+} from "@/agent-stream/task-card-styles";
 import { useVortonTouch } from "@/vorton-touch";
 import type { OutboxRecord } from "./outbox-record";
 
@@ -126,7 +130,7 @@ export function QueueMessageIndicator({
             <TooltipTrigger
               accessibilityRole="button"
               accessibilityLabel={status}
-              style={[styles.slot, touch && styles.touch]}
+              style={[styles.slot, touch && styles.touch, styles.innerSlot]}
             >
               <ThemedOrbit spinning={spinning} />
             </TooltipTrigger>
@@ -148,7 +152,14 @@ const animationStyles = NativeStyleSheet.create({
   overlay: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" },
 });
 const styles = StyleSheet.create((theme) => ({
-  slot: { width: 24, minHeight: 32, alignItems: "center", justifyContent: "center" },
-  touch: { minWidth: 44, minHeight: 44 },
+  slot: {
+    marginLeft: TASK_CARD_ICON_CENTER - 12,
+    width: 24,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  touch: { minWidth: 44, minHeight: 44, marginLeft: TASK_CARD_TOUCH_ICON_CENTER - 22 },
+  innerSlot: { marginLeft: 0 },
   tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
 }));

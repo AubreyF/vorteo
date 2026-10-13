@@ -566,6 +566,7 @@ function QueueRow({
           <QueueMessageIndicator record={record}>
             {item ? (
               <ListDragHandle
+                inset={false}
                 info={dragInfo}
                 disabled={!reorderEnabled}
                 label="Reorder queued message"
