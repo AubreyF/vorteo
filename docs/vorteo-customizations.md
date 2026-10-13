@@ -565,4 +565,6 @@ Browser selection assertions match Starship's existing root-colored highlight on
 
 Browser workspace helpers expand Files and Changes in the supporting card group. The large-diff review benchmark uses the desktop hover comment action before measuring editor latency.
 
+The web diff renderer prepares scroll-window text through its canvas model without updating React state for every window. Interactive file headers update when their source or geometry changes; review rows still follow document layout changes.
+
 The app uses Markdown-it 14.3.2 and Mermaid 11.16.1, including the regenerated embedded diagram runtime. Parser checks retain literal typography and reject unsafe links; reference destinations containing spaces use angle brackets under the current parser syntax. These updates address client rendering advisories without changing daemon dependencies.

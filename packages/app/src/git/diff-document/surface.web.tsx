@@ -104,7 +104,7 @@ export function DiffSurface(props: DiffSurfaceProps) {
   const forcePaintRef = useRef(true);
   const canvasWindowRef = useRef({ top: 0, height: 0 });
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [fileWindowTop, setFileWindowTop] = useState(0);
+  const fileWindowTopRef = useRef(0);
   const [interactionFiles, setInteractionFiles] = useState<
     ReturnType<typeof buildDiffDocumentModel>["files"]
   >([]);
@@ -159,49 +159,54 @@ export function DiffSurface(props: DiffSurfaceProps) {
   const measurement =
     readyTypographyResource === typographyResource ? typographyResource.measureText : null;
   const reviewActions = props.mode.kind === "working" ? props.mode.reviewActions : undefined;
-  const model = useMemo(() => {
-    if (!loadedTypography || !measurement) {
-      return emptyDiffDocumentModel({
+  const buildModel = useCallback(
+    (fileWindowTop: number) => {
+      if (!loadedTypography || !measurement) {
+        return emptyDiffDocumentModel({
+          layout: props.displayPreferences.layout,
+          wrapLines: props.displayPreferences.wrapLines,
+          viewportWidth: viewport.width,
+          lineHeight: desiredTypography.lineHeight,
+        });
+      }
+      const next = workspaceCache.buildModel({
+        files: props.files,
+        collapsedFilePaths: props.collapsedFilePaths,
         layout: props.displayPreferences.layout,
         wrapLines: props.displayPreferences.wrapLines,
         viewportWidth: viewport.width,
-        lineHeight: desiredTypography.lineHeight,
+        typography: loadedTypography,
+        measureText: measurement,
+        palette: props.palette,
+        reviewActions,
+        labels: {
+          binary: t("workspace.git.diff.binaryFile"),
+          tooLarge: t("workspace.git.diff.tooLarge"),
+        },
+        materializationWindow: diffMaterializationWindow(fileWindowTop, viewport.height),
       });
-    }
-    const next = workspaceCache.buildModel({
-      files: props.files,
-      collapsedFilePaths: props.collapsedFilePaths,
-      layout: props.displayPreferences.layout,
-      wrapLines: props.displayPreferences.wrapLines,
-      viewportWidth: viewport.width,
-      typography: loadedTypography,
-      measureText: measurement,
-      palette: props.palette,
+      return next;
+    },
+    [
+      measurement,
+      props.collapsedFilePaths,
+      props.displayPreferences.layout,
+      props.displayPreferences.wrapLines,
+      props.files,
+      props.palette,
       reviewActions,
-      labels: {
-        binary: t("workspace.git.diff.binaryFile"),
-        tooLarge: t("workspace.git.diff.tooLarge"),
-      },
-      materializationWindow: diffMaterializationWindow(fileWindowTop, viewport.height),
-    });
-    return next;
-  }, [
-    fileWindowTop,
-    measurement,
-    props.collapsedFilePaths,
-    props.displayPreferences.layout,
-    props.displayPreferences.wrapLines,
-    props.files,
-    props.palette,
-    reviewActions,
-    t,
-    desiredTypography.lineHeight,
-    loadedTypography,
-    viewport.width,
-    viewport.height,
-    workspaceCache,
-  ]);
-  modelRef.current = model;
+      t,
+      desiredTypography.lineHeight,
+      loadedTypography,
+      viewport.width,
+      viewport.height,
+      workspaceCache,
+    ],
+  );
+  const model = useMemo(() => buildModel(fileWindowTopRef.current), [buildModel]);
+  useLayoutEffect(() => {
+    modelRef.current = model;
+  }, [model]);
 
   const paintStickyHeaderPool = useCallback(
     (currentModel: ReturnType<typeof buildDiffDocumentModel>, scrollTop: number) => {
@@ -440,20 +445,39 @@ export function DiffSurface(props: DiffSurfaceProps) {
   const updateInteractionFiles = useCallback(
     (scrollTop: number) => {
       const windowTop = diffInteractionWindowTop(scrollTop, viewport.height);
-      setFileWindowTop((current) => (current === windowTop ? current : windowTop));
+      if (fileWindowTopRef.current !== windowTop) {
+        fileWindowTopRef.current = windowTop;
+        // Preparing text for the canvas does not change React's review rows or
+        // header geometry. Keep scroll-driven materialization out of React state.
+        modelRef.current = buildModel(windowTop);
+        schedulePaint();
+      }
+      const currentModel = modelRef.current ?? model;
       const next = resolveVisibleFileSections({
-        files: model.files,
+        files: currentModel.files,
         scrollTop: windowTop,
         viewportHeight: viewport.height,
         overscan: viewport.height * 2,
       }).files;
       setInteractionFiles((current) =>
-        current.length === next.length && current[0] === next[0] && current.at(-1) === next.at(-1)
+        current.length === next.length &&
+        current.every((file, index) => {
+          const candidate = next[index]!;
+          return (
+            file.file === candidate.file &&
+            file.fileIndex === candidate.fileIndex &&
+            file.top === candidate.top &&
+            file.bottom === candidate.bottom &&
+            file.contentWidth === candidate.contentWidth &&
+            file.isCollapsed === candidate.isCollapsed &&
+            file.gutterWidth === candidate.gutterWidth
+          );
+        })
           ? current
           : next,
       );
     },
-    [model.files, viewport.height],
+    [buildModel, model, schedulePaint, viewport.height],
   );
   useLayoutEffect(() => {
     schedulePaint();
