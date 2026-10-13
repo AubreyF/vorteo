@@ -1,7 +1,7 @@
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useVortonTouch } from "@/vorton-touch";
@@ -35,12 +35,28 @@ export function CardDisclosure({
   trailing?: ReactNode;
 }) {
   const touch = useVortonTouch();
+  const [width, setWidth] = useState(Infinity);
+  const [metadataWidth, setMetadataWidth] = useState(0);
+  const measure = useCallback((event: LayoutChangeEvent) => {
+    if (event.nativeEvent.layout.width > 0) setWidth(event.nativeEvent.layout.width);
+  }, []);
+  const measureMetadata = useCallback((event: LayoutChangeEvent) => {
+    if (event.nativeEvent.layout.width > 0) setMetadataWidth(event.nativeEvent.layout.width);
+  }, []);
+  // Reserve the icon, insets and gaps before admitting text or trailing chips.
+  const compact = width < 132 + metadataWidth;
+  const hideMetadata = width < 48 + metadataWidth;
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const [hovered, setHovered] = useState(false);
   const enter = useCallback(() => setHovered(true), []);
   const leave = useCallback(() => setHovered(false), []);
   return (
-    <View style={styles.hoverTarget} onPointerEnter={enter} onPointerLeave={leave}>
+    <View
+      style={styles.hoverTarget}
+      onLayout={measure}
+      onPointerEnter={enter}
+      onPointerLeave={leave}
+    >
       <Pressable
         style={[
           taskCardStyles.accordionTrigger,
@@ -59,7 +75,7 @@ export function CardDisclosure({
         {icon}
         <TruncatedText
           tooltipLabel={status ? `${title} (${status})` : title}
-          style={[taskCardStyles.heading, styles.title]}
+          style={[taskCardStyles.heading, styles.title, compact && styles.collapsed]}
           numberOfLines={1}
           testID={`${testID}-title`}
         >
@@ -71,11 +87,15 @@ export function CardDisclosure({
             </Text>
           ) : null}
         </TruncatedText>
-        <View testID={`${testID}-arrow`} style={styles.arrow}>
+        <View testID={`${testID}-arrow`} style={[styles.arrow, compact && styles.collapsed]}>
           {expanded ? <Down size={16} /> : <Right size={16} />}
         </View>
         {count || trailing ? (
-          <View style={styles.metadata} testID={`${testID}-metadata`}>
+          <View
+            onLayout={measureMetadata}
+            style={[styles.metadata, hideMetadata && styles.collapsed]}
+            testID={`${testID}-metadata`}
+          >
             {trailing}
             {count}
           </View>

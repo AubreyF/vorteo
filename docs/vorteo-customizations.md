@@ -656,3 +656,5 @@ The app uses Markdown-it 14.3.2 and Mermaid 11.16.1, including the regenerated e
 Small shared loading spinners use a 1px stroke, including the 16px coordinator notice indicator. Their footprint and rotation timing remain unchanged.
 
 The early web loading shell embeds the approved Vorteo silhouette in white inside a 160px, 1px rotating ring. The mark remains stationary, reduced motion stops the ring, and delayed connection help remains available before React mounts.
+
+Details cards use an 8px stack gap. Shared disclosure headings measure their available width after adjacent actions, hide labels and chevrons when space is tight, and hide chips only when they cannot fit beside the icon. Accessible button labels and expansion behavior remain available.

@@ -737,6 +737,45 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await page.setViewportSize({ width: 1400, height: 900 });
     await revealSupportingCards(page, 1400);
     await expect(stack.getByTestId("subagents-card")).toBeAttached();
+    const resizeHandle = page.getByTestId("workspace-explorer-sidebar-resize-handle");
+    const resizeCards = async (offset: number) => {
+      const handle = (await resizeHandle.boundingBox())!;
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handle.x + handle.width / 2 + offset, handle.y + handle.height / 2, {
+        steps: 12,
+      });
+      await page.mouse.up();
+    };
+    await resizeCards(1000);
+    const narrowGoal = stack.getByTestId("agent-goal-toggle");
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-title")).toBeHidden();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-arrow")).toBeHidden();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-metadata")).toBeHidden();
+    await narrowGoal.click();
+    await expect(narrowGoal).toHaveAttribute("aria-expanded", "false");
+    await narrowGoal.click();
+    await expect(narrowGoal).toHaveAttribute("aria-expanded", "true");
+    const overlaps = await stack.locator("[aria-expanded]").evaluateAll((buttons) => {
+      const collisions: boolean[] = [];
+      for (const button of buttons) {
+        const bounds = button.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) continue;
+        let previousRight = bounds.left;
+        for (const child of button.children) {
+          const rect = child.getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
+          collisions.push(rect.right > bounds.right + 1 || rect.left < previousRight - 1);
+          previousRight = rect.right;
+        }
+      }
+      return collisions;
+    });
+    expect(overlaps.some(Boolean)).toBe(false);
+    await page.screenshot({ path: info.outputPath("narrow-card-heading-icons.png") });
+    await resizeCards(-240);
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-title")).toBeVisible();
+    await expect(narrowGoal.getByTestId("agent-goal-toggle-metadata")).toBeVisible();
     await pill.click();
     await expect(pill).toHaveCount(0);
     await stack.getByTestId(`subagents-track-row-${childIds[0]}`).click();
@@ -864,7 +903,7 @@ async function checkCardGaps(
     expect(
       adjacent[index].top - adjacent[index - 1].bottom,
       `${adjacent[index - 1].id} to ${adjacent[index].id}`,
-    ).toBeCloseTo(4, 0);
+    ).toBeCloseTo(8, 0);
   }
 }
 

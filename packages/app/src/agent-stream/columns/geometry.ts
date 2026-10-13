@@ -1,6 +1,6 @@
 export const COLUMN_BREAKPOINT = 1080;
 export const COLUMN_MARGIN = 16;
-export const CARD_GAP = 4;
+export const CARD_GAP = 8;
 export const COLUMN_GAP = COLUMN_MARGIN * 2;
 export const MIN_TEXT_WIDTH = 560;
 export const MIN_CARDS_WIDTH = 220;
