@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.432 - 2026-10-13
+
+### Security
+
+- Refresh compatible Express, body-parser and qs dependencies. Loopback checks preserve normal JSON requests, reject malformed and oversized bodies, and fail closed on an invalid configured limit. Query checks cover prototype keys and nullable comma arrays. No daemon was started or updated.
+
 ## 0.11.0-beta.3.vorteo.431 - 2026-10-13
 
 ### Security

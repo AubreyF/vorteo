@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The lock resolves server Express 4.22.3, its body-parser 1.20.8, MCP's Express 5.3.0 and shared qs 6.16.0. Existing valid body limits remain enforced; malformed limit configuration now throws instead of disabling enforcement. Disposable loopback tests verify body limits and parsing, while both query consumers reject prototype keys and handle nullable comma arrays. This dependency maintenance is prepared source, not a Host update; README overview and onboarding are unchanged.
+
 Server and Nova bridge pin MCP SDK 1.32.1. The internal JSON-schema conversion helper is byte-identical to the prior pin; the compatibility helper changes error formatting, while the imported normalization behavior remains unchanged. MCP server and bridge tests cover schemas and calls. Reviewed application transports do not configure an OAuth authProvider, so the dependency advisory is not evidence of an observed credential leak. README overview and onboarding are unchanged.
 
 The dependency lock and generated Mermaid runtime include DOMPurify 3.4.17. The runtime imports Mermaid's core module, which uses the external sanitizer; updating the lock must be followed by regenerating the runtime for native and web consumers. Existing closed-network policy and diagram checks remain in force. The reviewed application path did not establish use of the affected in-place sanitization mode. README overview and onboarding are unchanged.
