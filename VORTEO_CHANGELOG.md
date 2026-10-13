@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.393 - 2026-10-12
+
+### Changed
+
+- Add mobile menu page insets and soften internal card, sidebar and menu rules across all themes while preserving outer borders.
+
 ## 0.11.0-beta.3.vorteo.392 - 2026-10-12
 
 ### Tests

@@ -1856,7 +1856,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
   },
   sheetTitle: {
     fontSize: theme.fontSize.base,

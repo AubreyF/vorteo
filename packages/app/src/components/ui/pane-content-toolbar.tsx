@@ -221,11 +221,11 @@ const styles = StyleSheet.create((theme) => ({
     height: WORKSPACE_SECONDARY_HEADER_HEIGHT,
     backgroundColor: theme.colors.surface0,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
     flexShrink: 0,
   },
   cardToolbar: { borderBottomColor: "transparent" },
-  divider: { position: "absolute", bottom: -1, height: 1, backgroundColor: theme.colors.border },
+  divider: { position: "absolute", bottom: -1, height: 1, backgroundColor: theme.colors.divider },
   controls: {
     flexDirection: "row",
     alignItems: "center",

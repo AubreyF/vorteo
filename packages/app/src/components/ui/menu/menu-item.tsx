@@ -386,6 +386,7 @@ export function MenuItem({
 const styles = StyleSheet.create((theme) => ({
   page: {
     paddingVertical: theme.spacing[1],
+    paddingHorizontal: { xs: theme.spacing[2], md: 0 },
     gap: MENU_ROW_GAP,
   },
   labelContainer: {
@@ -397,20 +398,12 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     color: theme.colors.foregroundMuted,
   },
-  // `border` sits between surface1 and surface2, which put it within a hair of the hover fill and
-  // made separators vanish against a hovered row. `borderAccent` is the colour the menu surface
-  // already outlines itself with, so the divider reads as part of the same frame.
-  //
-  // The one thing on a page that wants more room than the row gap gives it, so it says so here.
-  // That is one number controlling one gap: rows no longer carry vertical spacing of their own,
-  // so there is nothing left for this to double up with.
-  //
-  // No horizontal margin, and the page has no horizontal padding, so the rule still runs the
-  // full width of the surface rather than reading as an inset tick between two chips.
+  // Internal rules are quieter than the frame and span the page inset.
   separator: {
     height: 1,
     marginVertical: theme.spacing[1],
-    backgroundColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.divider,
+    marginHorizontal: { xs: -theme.spacing[2], md: 0 },
   },
   // A hint with `trailing` is a key on the left edge and its value on the right, so the values
   // line up down the menu's right rail instead of ragging with the length of each key.

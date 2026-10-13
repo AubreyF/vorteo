@@ -8,6 +8,14 @@ import { Platform } from "react-native";
 import { resolveAppearanceFont } from "./appearance-font";
 import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
 
+/** Internal rules retain the border hue at just over half its opacity. */
+function internalDividerColor(border: string): string {
+  if (border.startsWith("rgba(")) {
+    return border.replace(/,\s*([\d.]+)\)$/, (_, alpha: string) => `,${Number(alpha) * 0.55})`);
+  }
+  return hexColorWithAlpha(border, 0.55);
+}
+
 export const LOADING_INDICATOR = {
   small: 20,
   large: 48,
@@ -296,6 +304,7 @@ export function buildLightSemanticColors(tint: LightThemeConfig) {
     foregroundExtraMuted: tint.foregroundExtraMuted,
 
     border: tint.border,
+    divider: internalDividerColor(tint.border),
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,
@@ -405,6 +414,7 @@ export function buildDarkSemanticColors(tint: DarkThemeConfig) {
     foregroundExtraMuted: tint.foregroundExtraMuted,
 
     border: tint.border,
+    divider: internalDividerColor(tint.border),
     borderAccent: tint.borderAccent,
 
     accent: tint.accent,

@@ -104,7 +104,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   headerContainer: {
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.surface2,
+    borderBottomColor: theme.colors.divider,
   },
   headerRow: {
     paddingHorizontal: theme.spacing[SHEET_HORIZONTAL_PADDING_SCALE],
@@ -167,7 +167,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
   },
   inlineTitle: {
     flex: 1,
@@ -223,7 +223,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[SHEET_HORIZONTAL_PADDING_SCALE],
     paddingVertical: theme.spacing[3],
     borderTopWidth: 1,
-    borderTopColor: theme.colors.surface2,
+    borderTopColor: theme.colors.divider,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",

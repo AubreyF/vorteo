@@ -52,6 +52,15 @@ test("touch workspace rows have no kebab and the title menu contains workspace a
       timeout: 10_000,
     });
     await expect(page.getByText("Workspace actions", { exact: true })).toBeVisible();
+    const rowInset = await page.getByTestId("workspace-header-copy-path").evaluate((row) => {
+      const menuPage = row.parentElement!;
+      return {
+        padding: getComputedStyle(menuPage).paddingLeft,
+        margin: getComputedStyle(row).marginLeft,
+      };
+    });
+    expect(rowInset.padding).toBe("8px");
+    expect(rowInset.margin).toBe("4px");
     // A mounted item can still be clipped while the content-sized sheet opens.
     await expect(page.getByTestId("workspace-header-copy-path")).toBeInViewport();
     for (const action of [

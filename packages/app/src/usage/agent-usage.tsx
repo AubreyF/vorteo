@@ -61,6 +61,6 @@ function AgentUsageCards({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  divider: { height: 1, backgroundColor: theme.colors.borderAccent },
+  divider: { height: 1, backgroundColor: theme.colors.divider },
   message: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
 }));

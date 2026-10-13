@@ -1122,7 +1122,9 @@ async function checkFixedHeaders(
       const divider = card.getByTestId(`${id}-scroll-divider`);
       await expect(divider).toHaveCSS("opacity", "1");
       const borderColor = await card.evaluate((node) => getComputedStyle(node).borderTopColor);
-      await expect(divider).toHaveCSS("background-color", borderColor);
+      const dividerColor = await divider.evaluate((node) => getComputedStyle(node).backgroundColor);
+      const alpha = (color: string) => Number(color.match(/,\s*([\d.]+)\)$/)?.[1] ?? 1);
+      expect(alpha(dividerColor)).toBeCloseTo(alpha(borderColor) * 0.55, 2);
       expect(result.movement).toBeGreaterThan(0);
       expect(await cardHeaderOffset(card)).toBeCloseTo(before, 0);
       await header.scrollIntoViewIfNeeded();

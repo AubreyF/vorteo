@@ -365,7 +365,7 @@ const styles = StyleSheet.create((theme) => ({
     height: 30,
     backgroundColor: theme.colors.surface0,
     borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.borderAccent,
+    borderBottomColor: theme.colors.divider,
   },
   header: {
     flexDirection: "row",

@@ -525,3 +525,5 @@ Narrow composer Queue and Send buttons retain fixed click and tap actions. Queue
 Goal cards keep queue-priority notices directly below the heading and outside the scrolling objective. Their conditional divider appears below the notice; waiting for messages does not add a heading suffix.
 
 Mobile card geometry checks include the inline Files card when measuring adjacent gaps.
+
+Mobile menu pages add eight pixels of horizontal breathing room around their shared rows, labels and custom contents, including nested pages. Internal card and menu dividers use a separate color at 55 percent of the outer border opacity across themes; rules remain full width.
