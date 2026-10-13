@@ -393,17 +393,3 @@ export function setupDefaultContextMenu(win: BrowserWindow): void {
     menu.popup({ window: win });
   });
 }
-
-/**
- * Prevent Electron from navigating to files dragged onto the window.
- * The renderer handles drag-drop via standard HTML5 APIs instead.
- */
-export function setupDragDropPrevention(win: BrowserWindow): void {
-  win.webContents.on("will-navigate", (event, url) => {
-    // Allow normal navigation (e.g. dev server hot-reload) but block file:// URLs
-    // that result from dropping files onto the window.
-    if (url.startsWith("file://")) {
-      event.preventDefault();
-    }
-  });
-}

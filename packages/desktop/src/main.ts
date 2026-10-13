@@ -39,9 +39,9 @@ import {
   setupWindowResizeEvents,
   setupWindowStatePersistence,
   setupDefaultContextMenu,
-  setupDragDropPrevention,
   buildStandardContextMenuItems,
 } from "./window/window-manager.js";
+import { registerAppNavigationGuards } from "./window/navigation.js";
 import { setupDarwinCompositorWatchdog } from "./window/compositor-watchdog/index.js";
 import { resolveDesktopWindowChromeMode, windowChromeModeArgument } from "./window/chrome.js";
 import { registerDialogHandlers } from "./features/dialogs.js";
@@ -741,7 +741,10 @@ async function createWindow(
     setupWindowStatePersistence(mainWindow, windowStateStore);
   }
   setupDefaultContextMenu(mainWindow);
-  setupDragDropPrevention(mainWindow);
+  registerAppNavigationGuards(
+    mainWindow.webContents,
+    app.isPackaged ? `${APP_SCHEME}://app/` : DEV_SERVER_URL,
+  );
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     if (!isPaseoBrowserWebviewAttach(params)) {
       event.preventDefault();

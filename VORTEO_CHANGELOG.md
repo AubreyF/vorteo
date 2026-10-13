@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.418 - 2026-10-13
+
+### Security
+
+- Restrict desktop application navigation and redirects to the application authority, and deny new windows from the privileged renderer. External links continue through the validated opener; embedded browser tabs retain their separate navigation policy. Add URL-policy tests and a disposable Electron regression. Desktop installation remains pending its supported delivery workflow.
+
 ## 0.11.0-beta.3.vorteo.417 - 2026-10-13
 
 ### Security

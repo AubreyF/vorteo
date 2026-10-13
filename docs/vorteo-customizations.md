@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The desktop application window permits navigation and redirects only within its packaged application authority or configured development origin. New windows from that renderer are denied so outside pages cannot inherit the application preload bridge. HTTP(S) links use the existing validated external opener, while embedded browser tabs keep their separate sandbox and navigation policy. The disposable Electron regression exercises the actual preload without launching the daemon. README overview and onboarding are unchanged; installing this change requires a rebuilt desktop application.
+
 Direct WebSocket dependencies require ws 8.21.0 or later; the lockfile resolves the shared transport to 8.22.0. This includes the upstream fragment-count protection for [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p). A finite loopback test verifies rejection before message delivery and preserves ordinary fragmented-message compatibility. Host delivery requires the tracked lifecycle workflow; static web publication cannot replace an installed Node transport. README overview and onboarding are unchanged.
 
 Assistant message rows share fixed completed and streaming Markdown parsers so virtualization does not repeatedly compile linkifier rules. Each parse still receives fresh document state; reference isolation, streaming formatting and unsafe-link rejection have focused coverage. README scope is unchanged.
