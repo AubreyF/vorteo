@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.398 - 2026-10-12
+
+### Changed
+
+- Skip unchanged typography updates during theme previews and switching, avoiding repeated stylesheet rebuilds while retaining custom settings and contributed theme replacements.
+- Measure terminal throughput only after completed output reaches the terminal, and report cache writes by record type for performance diagnosis.
+
 ## 0.11.0-beta.3.vorteo.397 - 2026-10-12
 
 ### Fixed

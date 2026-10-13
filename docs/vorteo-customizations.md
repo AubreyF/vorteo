@@ -535,3 +535,5 @@ Workspace menu and explorer controls have 40px minimum targets. A single script 
 The split-pane overflow menu shares the larger target and includes single-script management alongside workspace actions.
 
 Web views restore their shared CSS if the last mounted owner released it while a replacement view was still pending. Restoration preserves theme updates and normal cleanup, so delayed labels do not fall back to browser black. Browser coverage exercises the style lifecycle and the Latest control across all six palettes and desktop and compact widths.
+
+Appearance application compares typography, syntax colors and content width with each live registered theme before updating it. Theme previews avoid rebuilding unchanged styles; replacing a contributed theme still reapplies user preferences. Terminal performance checks wait for a standalone completion marker rather than matching the echoed command, and replica-cache measurements separate writes and serialized volume by record type.
