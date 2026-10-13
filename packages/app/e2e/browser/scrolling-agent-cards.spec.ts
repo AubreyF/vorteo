@@ -243,6 +243,7 @@ for (const width of [1400, 390]) {
 
       await card.getByTestId("journal-clear").click();
       await expect(card).toContainText("Journal cleared on this device");
+      await expect(card.getByLabel("0 journal entries", { exact: true })).toHaveCount(0);
       await card.getByTestId("journal-show-history").click();
       await expect(status(11)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(5)).toHaveAttribute("aria-label", "Unread journal entry");
