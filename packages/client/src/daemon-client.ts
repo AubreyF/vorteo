@@ -2602,6 +2602,7 @@ export class DaemonClient {
     name: string;
     newName?: string;
     color?: Extract<SessionInboundMessage, { type: "workspace.label.update.request" }>["color"];
+    explicitColor?: boolean;
     requestId?: string;
   }): Promise<WorkspaceLabelUpdatePayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"workspace.label.update.response">({
@@ -2611,6 +2612,7 @@ export class DaemonClient {
         name: options.name,
         ...(options.newName === undefined ? {} : { newName: options.newName }),
         ...(options.color === undefined ? {} : { color: options.color }),
+        ...(options.explicitColor === undefined ? {} : { explicitColor: options.explicitColor }),
       },
     });
   }

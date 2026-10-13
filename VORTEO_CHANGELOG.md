@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.404 - 2026-10-12
+
+### Changed
+
+- Use neutral sidebar tags, diff counts and completed task petals. Place text badges before trailing icons and mute automatically managed workspaces and secondary metadata.
+- Restore 40px desktop card and sidebar toolbar controls. Keep header vertical insets at 2px, 3px and 4px while horizontal spacing retains its three tiers and shared animation.
+- Prepare explicit tag-color persistence with a Host capability flag. Legacy catalogs display neutral without rewriting their stored colors; choosing custom colors requires the updated Host.
+
 ## 0.11.0-beta.3.vorteo.403 - 2026-10-12
 
 ### Fixed

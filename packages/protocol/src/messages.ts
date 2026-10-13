@@ -1250,6 +1250,7 @@ export const WorkspaceLabelColorSchema = z.enum(WORKSPACE_LABEL_COLORS);
 export const WorkspaceLabelDefinitionSchema = z.object({
   name: z.string(),
   color: WorkspaceLabelColorSchema,
+  explicitColor: z.boolean().optional(),
 });
 const WorkspaceLabelSyncCursorSchema = z.object({
   generation: z.string(),
@@ -1280,6 +1281,7 @@ export const WorkspaceLabelUpdateRequestSchema = z.object({
   name: z.string(),
   newName: z.string().optional(),
   color: WorkspaceLabelColorSchema.optional(),
+  explicitColor: z.boolean().optional(),
 });
 export const WorkspaceLabelDeleteRequestSchema = z.object({
   type: z.literal("workspace.label.delete.request"),
@@ -3848,6 +3850,7 @@ export const ServerInfoStatusPayloadSchema = z
         directorySync: z.boolean().optional(),
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
         workspaceLabels: z.boolean().optional(),
+        workspaceLabelNeutralColors: z.boolean().optional(),
         // COMPAT(workspaceSetupRun): added in v0.8.0, remove gate after 2027-09-02.
         workspaceSetupRun: z.boolean().optional(),
         // COMPAT(workspaceTerminals): added in v0.8.0, remove gate after 2027-09-05.

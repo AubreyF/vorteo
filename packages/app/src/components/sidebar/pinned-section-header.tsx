@@ -13,7 +13,7 @@ import type { Theme } from "@/styles/theme";
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const foregroundMutedColorMapping = (theme: Theme) => ({
-  color: theme.colors.foregroundMuted,
+  color: theme.colors.foregroundExtraMuted,
 });
 
 export function PinnedSectionHeader({
@@ -114,7 +114,7 @@ const styles = StyleSheet.create((theme) => ({
   workspaceTitle: { fontSize: theme.fontSize.base, lineHeight: 20 },
   touchHeader: { minHeight: 44 },
   title: {
-    color: theme.colors.foregroundMuted,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
   },

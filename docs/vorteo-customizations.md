@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Sidebar metadata and default custom tags use neutral theme colors. Completed task petals use secondary gray between pending and active tones. Text badges precede trailing image icons; managed workspaces and their group headings use secondary text. Header controls are 40px on desktop and 44px on touch, with vertical insets of 2px, 3px and 4px for the existing horizontal 2px, 4px and 8px tiers. Both dimensions use the same 180ms animation. README scope is unchanged.
+
+Custom tag catalogs retain their legacy hue for wire compatibility. An optional explicit-color marker distinguishes deliberately chosen hues from defaults; absent or false markers display neutral. The Host advertises support before the client enables custom color selection. Static publication delivers the neutral display and layout; persistence of explicit choices requires the prepared Host capability through the tracked lifecycle workflow.
+
 Modal actions remain outside scrolling form content in the shared adaptive sheet footer. Headers and footers do not shrink; footer rows inherit sheet padding and safe-area clearance. Task, goal, account, host, plugin, skill and settings dialogs use this contract. Long-form browser checks cover desktop and compact viewport sizes. README scope is unchanged.
 
 Maintenance review (2026-10-12): plan-card browser checks explicitly reveal supporting cards after desktop resizing and follow the visible card into the mobile layout. Header geometry includes the existing shared spacing tiers. Failure screenshots preserve the page before fixture cleanup. Product behavior and README scope are unchanged.

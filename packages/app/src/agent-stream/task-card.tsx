@@ -3,7 +3,7 @@ import {
   ScrollDividerContext,
   useScrollDivider,
 } from "@/components/use-scroll-divider";
-import { usePanelSpacing } from "@/styles/use-panel-spacing";
+import { panelHeaderInset, usePanelSpacing } from "@/styles/use-panel-spacing";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useVortonTouch } from "@/vorton-touch";
 import {
@@ -138,7 +138,13 @@ function TaskCardView({
           <View style={taskCardStyles.scrollContent}>
             <View
               testID={testID ? `${testID}-header` : undefined}
-              style={[taskCardStyles.fixedHeader, inlineUnistylesStyle({ padding: spacingInset })]}
+              style={[
+                taskCardStyles.fixedHeader,
+                inlineUnistylesStyle({
+                  paddingHorizontal: spacingInset,
+                  paddingVertical: panelHeaderInset(spacingInset),
+                }),
+              ]}
               onLayout={onHeaderLayout}
             >
               {header}

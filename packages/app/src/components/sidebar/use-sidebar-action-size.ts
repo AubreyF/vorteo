@@ -1,6 +1,6 @@
 import { useVortonTouch } from "@/vorton-touch";
 
-const desktop = { width: 24, height: 24, minWidth: 24, minHeight: 24 };
+const desktop = { width: 32, height: 32, minWidth: 32, minHeight: 32 };
 const touchAction = { width: 44, height: 44, minWidth: 44, minHeight: 44 };
 
 export function useSidebarActionSize() {

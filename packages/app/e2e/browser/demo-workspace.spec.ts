@@ -1234,7 +1234,8 @@ test("tab and toolbar centerlines share every sidebar spacing animation frame", 
     await expect
       .poll(() => sidebar.evaluate((n) => parseFloat(getComputedStyle(n).paddingLeft)))
       .toBe(inset);
-    await expect(tab).toHaveCSS("height", `${44 + inset * 2}px`);
+    const verticalInset = inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
+    await expect(tab).toHaveCSS("height", `${44 + verticalInset * 2}px`);
     for (const offsets of await samples)
       for (const offset of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.6);
   }

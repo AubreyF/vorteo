@@ -14,7 +14,7 @@ const Shield = withUnistyles(LockKeyhole);
 const Repeat = withUnistyles(Repeat2);
 const Paused = withUnistyles(CirclePause);
 const FactoryIcon = withUnistyles(Factory);
-const neutral = (theme: Theme) => ({ color: theme.colors.foreground });
+const neutral = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
 const shield = <Shield size={16} uniProps={neutral} />;
 const repeat = <Repeat size={16} uniProps={neutral} />;

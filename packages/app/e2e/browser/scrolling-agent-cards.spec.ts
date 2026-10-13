@@ -622,7 +622,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
       await expect(clearFinished).toBeVisible();
       expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
-      expect(headerHeight).toBe(width === 390 ? 44 : 32);
+      expect(headerHeight).toBe(width === 390 ? 44 : 40);
       if (width === 1200) {
         await toggle.hover();
         expect((await toggle.boundingBox())?.height).toBe(headerHeight);
@@ -862,7 +862,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
         height: box.height,
       };
     });
-    expect(geometry.height, id).toBe(width === 390 ? 44 : 32);
+    expect(geometry.height, id).toBe(width === 390 ? 44 : 40);
     expect(geometry.leftInset, id).toBeCloseTo(1 + geometry.panelInset, 0);
     expect(geometry.iconInset, id).toBeCloseTo((geometry.height - 20) / 2, 0);
     expect(geometry.iconInset, id).toBeCloseTo(geometry.iconTopInset, 0);
@@ -924,7 +924,7 @@ async function checkHeadingActions(root: Locator, width: number) {
     );
   expect(actions.length).toBeGreaterThan(0);
   for (const action of actions) {
-    expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 32);
+    expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 40);
     expect(action.borderWidth).toBe("1px");
     expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
@@ -982,7 +982,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     ids,
   );
   for (const card of geometry) {
-    expect(card.height, card.id).toBe(width === 390 ? 44 : 32);
+    expect(card.height, card.id).toBe(width === 390 ? 44 : 40);
     expect(card.titleWidth, card.id).toBeGreaterThan(10);
     expect(card.iconX - card.panelInset, card.id).toBeCloseTo(
       geometry[0].iconX - geometry[0].panelInset,
@@ -995,7 +995,9 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     for (const offset of card.offsets) expect(Math.abs(offset), card.id).toBeLessThanOrEqual(1);
     expect(card.overflow, card.id).toBe(false);
   }
-  expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
+  const horizontal = geometry[0].rightClearance! - 1;
+  const vertical = horizontal <= 4 ? 1 + horizontal / 2 : 2 + horizontal / 4;
+  expect(geometry[0].topClearance).toBeCloseTo(vertical + 1, 1);
 }
 
 async function captureConsistentCards(page: Page, info: TestInfo) {
@@ -1624,6 +1626,87 @@ for (const width of [1400, 390]) {
     }
   });
 }
+
+test("sidebar metadata defaults to neutral and text badges precede icons", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "neutral-sidebar-",
+    title: "Neutral sidebar",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "neutral-sidebar" });
+  try {
+    await agent.client.setWorkspaceLabel({
+      workspaceId: agent.workspaceId,
+      label: { name: "Default", color: "red" },
+      assigned: true,
+    });
+    for (const [id, status] of [
+      ["done", "completed"],
+      ["active", "in_progress"],
+      ["next", "pending"],
+    ] as const) {
+      await client.mutateAgentChecklist(agent.agentId, { operation: "create", id, text: id });
+      if (status !== "pending")
+        await client.mutateAgentChecklist(agent.agentId, { operation: "update", id, status });
+    }
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      expectedRevision: 0,
+      operationId: "neutral-pause",
+    });
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "enqueue",
+      operationId: "neutral-enqueue",
+      messageId: "neutral-message",
+      text: "Waiting",
+      attachments: [],
+    });
+    await openAgentRoute(page, agent);
+    const label = page.getByTestId("workspace-label-chip-Default");
+    const petals = page.getByTestId(/^workspace-task-progress-/).locator("svg path[fill]");
+    await expect(petals).toHaveCount(3);
+    const fills = await petals.evaluateAll((nodes) =>
+      nodes.map((node) => getComputedStyle(node).fill),
+    );
+    expect(new Set(fills).size).toBe(3);
+    for (const fill of fills) {
+      const channels = fill.match(/\d+/g)!.slice(0, 3).map(Number);
+      expect(Math.max(...channels) - Math.min(...channels)).toBeLessThan(12);
+    }
+    const labelColor = await label
+      .getByText("Default", { exact: true })
+      .evaluate((node) => getComputedStyle(node).color);
+    expect(labelColor).not.toMatch(/rgb\(2[0-5][0-9], [0-9]{1,2}, [0-9]{1,2}\)/);
+    const row = page.getByTestId(/^sidebar-workspace-row-/).filter({ has: label });
+    const queue = row.getByText("Q1", { exact: true });
+    await expect(queue).toBeVisible();
+    expect((await queue.boundingBox())!.x).toBeLessThan((await label.boundingBox())!.x);
+    expect((await label.boundingBox())!.x).toBeLessThan((await petals.first().boundingBox())!.x);
+    await page.screenshot({ path: info.outputPath("neutral-sidebar.png") });
+    await client.updateWorkspaceLabel({ name: "Default", color: "red", explicitColor: true });
+    await expect
+      .poll(() =>
+        label
+          .getByText("Default", { exact: true })
+          .evaluate((node) => getComputedStyle(node).color),
+      )
+      .not.toBe(labelColor);
+    await page.reload();
+    await expect
+      .poll(() =>
+        label
+          .getByText("Default", { exact: true })
+          .evaluate((node) => getComputedStyle(node).color),
+      )
+      .not.toBe(labelColor);
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
+});
 
 test("task flowers stay bounded through 300 tasks and follow sidebar labels", async ({
   page,

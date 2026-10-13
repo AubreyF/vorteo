@@ -6,7 +6,7 @@ import {
   sidebarPresentationWidth,
   useSidebarWidth,
 } from "./sidebar/sidebar-width";
-import { usePanelSpacing } from "@/styles/use-panel-spacing";
+import { panelHeaderInset, usePanelSpacing } from "@/styles/use-panel-spacing";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
@@ -376,6 +376,14 @@ function FooterIconButton({
   const accessibilityState = useMemo(() => ({ selected: active }), [active]);
   const isCompact = useIsCompactFormFactor();
   const iconSize = isCompact ? theme.iconSize.xl : theme.iconSize.md;
+  const buttonStyle = useCallback(
+    ({ hovered }: { hovered?: boolean }) => [
+      styles.footerIconButton(isCompact),
+      (touch || rail) && styles.touchIconButton,
+      (active || hovered) && styles.activeIconButton,
+    ],
+    [isCompact, touch, rail, active],
+  );
 
   return (
     <Tooltip delayDuration={300}>
@@ -383,11 +391,7 @@ function FooterIconButton({
         <Pressable
           ref={buttonRef}
           disabled={disabled}
-          style={[
-            styles.footerIconButton(isCompact),
-            (touch || rail) && styles.touchIconButton,
-            active && styles.activeIconButton,
-          ]}
+          style={buttonStyle}
           testID={testID}
           nativeID={testID}
           collapsable={false}
@@ -1024,7 +1028,7 @@ function DesktopSidebar({
       inlineUnistylesStyle({
         flex: 1,
         padding: compact ? 0 : spacingInset,
-        paddingTop: insetsTop + (compact ? 0 : spacingInset),
+        paddingTop: insetsTop + (compact ? 0 : panelHeaderInset(spacingInset)),
       }),
     ],
     [insetsTop, compact, spacingInset],
@@ -1279,8 +1283,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   footerIconButton: (isCompact: boolean) => ({
     borderRadius: FLOATING_PANEL_RADIUS,
-    width: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
-    height: isCompact ? buttonControlHeight.md : buttonControlHeight.xs,
+    width: isCompact ? buttonControlHeight.md : 40,
+    height: isCompact ? buttonControlHeight.md : 40,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: theme.spacing[1],

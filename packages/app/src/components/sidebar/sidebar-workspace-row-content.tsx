@@ -46,6 +46,11 @@ import { WorkspaceLabelChip } from "@/workspace-labels/chip";
 import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const managedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
+const managedAlertMapping = (theme: Theme) => ({
+  color: theme.colors.surface0,
+  fill: theme.colors.foregroundExtraMuted,
+});
 const needsInputColorMapping = (theme: Theme) => ({
   color: theme.colors.surface0,
   fill: getStatusDotColor({ theme, bucket: "needs_input" }) ?? undefined,
@@ -167,8 +172,9 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
       styles.workspaceBranchText,
       isHovered && styles.workspaceBranchTextHovered,
       isCreating && styles.workspaceBranchTextCreating,
+      (workspace.standing || workspace.factoryMembership) && styles.managedText,
     ],
-    [isHovered, isCreating],
+    [isHovered, isCreating, workspace.standing, workspace.factoryMembership],
   );
 
   return (
@@ -190,6 +196,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             workspaceKind={workspace.workspaceKind}
             loading={isLoading}
             reserveIdleSpace={reserveIdleStatusIndicatorSpace}
+            muted={Boolean(workspace.standing || workspace.factoryMembership)}
           />
         )}
         <View style={styles.workspaceContentColumn}>
@@ -224,11 +231,13 @@ function WorkspaceStatusIndicator({
   workspaceKind,
   loading = false,
   reserveIdleSpace = true,
+  muted = false,
 }: {
   bucket: SidebarWorkspaceEntry["statusBucket"];
   workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
   loading?: boolean;
   reserveIdleSpace?: boolean;
+  muted?: boolean;
 }) {
   // Busy is the only status that moves, and it is the ring rather than a dot for the same
   // reason it is a dot elsewhere: every status in the sidebar sits in this one slot, so busy
@@ -237,7 +246,7 @@ function WorkspaceStatusIndicator({
   if (loading) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-loading">
-        <StatusRing />
+        <StatusRing variant={muted ? "task" : "agent"} />
       </View>
     );
   }
@@ -245,7 +254,7 @@ function WorkspaceStatusIndicator({
   if (shouldRenderSyncedStatusLoader({ bucket })) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-running">
-        <StatusRing />
+        <StatusRing variant={muted ? "task" : "agent"} />
       </View>
     );
   }
@@ -253,7 +262,10 @@ function WorkspaceStatusIndicator({
   if (bucket === "needs_input") {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-needs_input">
-        <ThemedCircleAlert size={STATUS_INDICATOR_ALERT_SIZE} uniProps={needsInputColorMapping} />
+        <ThemedCircleAlert
+          size={STATUS_INDICATOR_ALERT_SIZE}
+          uniProps={muted ? managedAlertMapping : needsInputColorMapping}
+        />
       </View>
     );
   }
@@ -261,7 +273,7 @@ function WorkspaceStatusIndicator({
   if (bucket === "attention") {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-attention">
-        <View style={styles.standaloneStatusDot} />
+        <View style={[styles.standaloneStatusDot, muted && styles.managedStatusDot]} />
       </View>
     );
   }
@@ -286,8 +298,10 @@ function WorkspaceStatusIndicator({
   const dotColorStyle = getStatusDotColorStyle(bucket);
   return (
     <View style={styles.workspaceStatusDot} testID={`workspace-status-indicator-${bucket}`}>
-      <KindIcon size={14} uniProps={foregroundMutedColorMapping} />
-      {dotColorStyle ? <StatusDotOverlay dotColorStyle={dotColorStyle} /> : null}
+      <KindIcon size={14} uniProps={muted ? managedColorMapping : foregroundMutedColorMapping} />
+      {dotColorStyle ? (
+        <StatusDotOverlay dotColorStyle={muted ? styles.managedStatusDot : dotColorStyle} />
+      ) : null}
     </View>
   );
 }
@@ -413,9 +427,6 @@ export function SidebarWorkspaceTrailingDetails({
   const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   return (
     <View style={styles.trailingDetails}>
-      <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
-      <WorkspaceLifecycleIndicators workspace={workspace} />
-      {service ? <ServiceItem summary={service} iconOnly /> : null}
       <WorkspaceActivityBadges
         serverId={workspace.serverId}
         workspaceId={workspace.workspaceId}
@@ -428,6 +439,13 @@ export function SidebarWorkspaceTrailingDetails({
           ))}
         </View>
       ) : null}
+      <ExecutionEnvironmentIcon
+        serverId={workspace.serverId}
+        hostOnly
+        muted={Boolean(workspace.standing || workspace.factoryMembership)}
+      />
+      <WorkspaceLifecycleIndicators workspace={workspace} />
+      {service ? <ServiceItem summary={service} iconOnly /> : null}
       {sidebarRowItems.activityBadges ? (
         <WorkspaceChecklistProgress
           serverId={workspace.serverId}
@@ -585,6 +603,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   workspaceBranchTextCreating: {
     opacity: 0.92,
+  },
+  managedText: { color: theme.colors.foregroundExtraMuted, opacity: 1 },
+  managedStatusDot: {
+    width: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    height: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.foregroundExtraMuted,
   },
   workspaceBranchTextHovered: {
     opacity: 1,

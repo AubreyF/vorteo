@@ -8,6 +8,11 @@ export function panelSpacingForWidth(width: number): number {
   return 8;
 }
 
+/** Vertical breathing room grows gently; width must not turn headers into tall gutters. */
+export function panelHeaderInset(inset: number): number {
+  return inset <= 4 ? 1 + inset / 2 : 2 + inset / 4;
+}
+
 /** Shared inset follows the panel itself, including cards moved into the center column. */
 export function usePanelSpacing() {
   const [inset, setInset] = useState(2);

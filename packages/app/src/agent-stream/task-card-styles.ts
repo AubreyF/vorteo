@@ -2,7 +2,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 
 // Shared leading centerline for heading icons, row handles and journal markers.
-export const TASK_CARD_ICON_CENTER = 16;
+export const TASK_CARD_ICON_CENTER = 20;
 export const TASK_CARD_TOUCH_ICON_CENTER = 22;
 
 export const TASK_CARD_ROW_HEIGHT = 40;
@@ -55,9 +55,9 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     headingActionText: { fontSize: theme.fontSize.sm },
     actionInset: { paddingRight: theme.spacing[1] },
     iconAction: {
-      width: 32,
-      height: 32,
-      minHeight: 32,
+      width: 40,
+      height: 40,
+      minHeight: 40,
       paddingHorizontal: 0,
       paddingVertical: 0,
       borderRadius: FLOATING_PANEL_RADIUS,
@@ -66,18 +66,18 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     header: {
       flexDirection: "row",
       alignItems: "center",
-      height: 32,
+      height: 40,
       gap: 0,
       flexShrink: 0,
     },
-    staticHeader: { paddingHorizontal: 6, gap: theme.spacing[2] },
+    staticHeader: { paddingHorizontal: 10, gap: theme.spacing[2] },
     touchStaticHeader: { paddingHorizontal: 12 },
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
     accordionTrigger: {
       flex: 1,
       minWidth: 0,
-      height: 32,
+      height: 40,
       flexDirection: "row",
       alignItems: "center",
       gap: theme.spacing[2],

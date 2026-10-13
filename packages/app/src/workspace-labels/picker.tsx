@@ -35,6 +35,7 @@ import {
 } from "@/workspace-labels";
 import type { Theme } from "@/styles/theme";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
+import { useHostFeature } from "@/runtime/host-features";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import { workspaceLabelDisplayName, isBuiltInWorkspaceLabel } from "./display-name";
 import { useVortonTouch } from "@/vorton-touch";
@@ -222,6 +223,7 @@ function WorkspaceLabelCreatePage({
 }): ReactElement {
   const { t } = useTranslation();
   const menu = useMenuContext("WorkspaceLabelCreatePage");
+  const allowCustomColors = useHostFeature(serverId, "workspaceLabelNeutralColors");
   const { targetHost: host } = useWorkspaceLabelProjection(serverId);
   const [name, setName] = useState("");
   const [color, setColor] = useState<WorkspaceLabelColor>(DEFAULT_CREATE_COLOR);
@@ -262,6 +264,7 @@ function WorkspaceLabelCreatePage({
       />
       <View style={styles.swatches}>
         <WorkspaceLabelSwatchRow
+          allowCustomColors={allowCustomColors}
           value={color}
           onChange={setColor}
           disabled={offline || pending}

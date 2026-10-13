@@ -8,13 +8,16 @@ const ThemedBox = withUnistyles(Box);
 const ThemedMonitor = withUnistyles(Monitor);
 const ThemedKey = withUnistyles(KeyRound);
 const neutral = (theme: Theme) => ({ color: theme.colors.foreground });
+const subdued = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 
 export function ExecutionEnvironmentIcon({
   serverId,
   hostOnly = false,
+  muted = false,
 }: {
   serverId: string | null;
   hostOnly?: boolean;
+  muted?: boolean;
 }) {
   const environment = serverId
     ? findInstallationEnvironment(readExecutionInstallation(), serverId)
@@ -28,7 +31,7 @@ export function ExecutionEnvironmentIcon({
         testID="execution-environment-container-icon"
         accessibilityLabel="Runs in dev container"
       >
-        <ThemedBox size={size} uniProps={neutral} />
+        <ThemedBox size={size} uniProps={muted ? subdued : neutral} />
       </View>
     );
   return (
@@ -37,9 +40,9 @@ export function ExecutionEnvironmentIcon({
       testID="execution-environment-host-icon"
       accessibilityLabel="Runs on host"
     >
-      <ThemedMonitor size={size} uniProps={neutral} />
+      <ThemedMonitor size={size} uniProps={muted ? subdued : neutral} />
       <View style={styles.key}>
-        <ThemedKey size={size / 2} uniProps={neutral} />
+        <ThemedKey size={size / 2} uniProps={muted ? subdued : neutral} />
       </View>
     </View>
   );

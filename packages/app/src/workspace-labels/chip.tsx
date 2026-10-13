@@ -25,7 +25,12 @@ const LabelIcon = withUnistyles(Tag);
 /** Custom labels share the compact title-row geometry while retaining their identity colors. */
 export function WorkspaceLabelChip({ label }: { label: WorkspaceLabelDefinition }): ReactElement {
   const iconColor = useCallback(
-    (theme: Theme) => ({ color: identityForeground(label.color, theme.colorScheme) }),
+    (theme: Theme) => ({
+      color:
+        label.color === "neutral"
+          ? theme.colors.foreground
+          : identityForeground(label.color, theme.colorScheme),
+    }),
     [label.color],
   );
   return (
@@ -73,6 +78,7 @@ const styles = StyleSheet.create((theme) => ({
   // Text has no `color` prop to hand a mapping to, so the name's color has to come from a
   // registered style — one per color, picked at render time. See docs/unistyles.md.
   nameViolet: { color: identityForeground("violet", theme.colorScheme) },
+  nameNeutral: { color: theme.colors.foreground },
   nameSky: { color: identityForeground("sky", theme.colorScheme) },
   nameEmerald: { color: identityForeground("emerald", theme.colorScheme) },
   nameOrange: { color: identityForeground("orange", theme.colorScheme) },
@@ -86,6 +92,8 @@ const styles = StyleSheet.create((theme) => ({
 
 function nameColorStyle(color: WorkspaceLabelColor) {
   switch (color) {
+    case "neutral":
+      return styles.nameNeutral;
     case "violet":
       return styles.nameViolet;
     case "sky":
