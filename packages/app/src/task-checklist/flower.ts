@@ -27,7 +27,7 @@ const SPARSE_PETAL: PetalGeometry = {
 const DENSE_PETAL: PetalGeometry = {
   path: "M12 9 C11.4 7.6 11 5.3 11 4 C11 1.33 13 1.33 13 4 C13 5.3 12.6 7.6 12 9 Z",
 };
-// Two and three tasks fill more of the icon while retaining a gap between pointed tips.
+// Two tasks fill more of the icon while retaining a gap between pointed tips.
 const SMALL_PETAL: PetalGeometry = {
   path: "M12 11 C10 9.5 8.8 6 8.8 4.4 C8.8 1.2 15.2 1.2 15.2 4.4 C15.2 6 14 9.5 12 11 Z",
 };
@@ -38,6 +38,6 @@ const SINGLE_PETAL: PetalGeometry = {
 
 export function petalGeometry(count: number): PetalGeometry {
   if (count === 1) return SINGLE_PETAL;
-  if (count <= 3) return SMALL_PETAL;
+  if (count === 2) return SMALL_PETAL;
   return count > 8 ? DENSE_PETAL : SPARSE_PETAL;
 }
