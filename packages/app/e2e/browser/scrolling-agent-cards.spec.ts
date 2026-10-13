@@ -94,7 +94,7 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
     expect(rowGeometry.textTop - rowGeometry.timestampBottom).toBe(2);
     expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 34);
+    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 38);
     expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - rowGeometry.timestampInset);
     expect(rowGeometry.overflow).toBe(false);
   }).toPass({ timeout: 5000 });
