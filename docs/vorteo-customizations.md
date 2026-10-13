@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Script-toolbar unit fixtures include the shared button opacity token and exercise the direct ghost control without replacing the button component. This test maintenance does not change product behavior or onboarding.
+
 Workspace tabs retain the Latest control's 44px height and full pill radius while their row follows sidebar spacing. The shared upper-right toolbar uses equal top and right outer insets, and run controls use borderless hover surfaces for both single and multiple scripts. README overview and onboarding are unchanged.
 
 Certificate tooling resolves node-forge 1.4.0, including EAS through a scoped override. Ordinary Expo certificate, CSR and signing operations and EAS password-protected archive reading pass tests using generated in-memory keys. Node independently verifies the produced signature. Retire the override when a validated EAS parent supplies the required version. The remaining upstream signature-verification advisory is unresolved; compatibility tests do not prove its remediation. README overview and onboarding are unchanged.

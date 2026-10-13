@@ -24,6 +24,7 @@ const {
   setPreferredRouteMock,
 } = vi.hoisted(() => {
   const hoistedTheme = {
+    opacity: { 50: 0.5 },
     spacing: { 1: 4, 1.5: 6, 2: 8, 3: 12 },
     borderWidth: { 1: 1 },
     borderRadius: { md: 6, lg: 8 },
