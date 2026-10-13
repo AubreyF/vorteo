@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.433 - 2026-10-13
+
+### Security
+
+- Update the compatible fast-uri dependency to 3.1.8. Tests flag ambiguous authorities and preserve local schema references and validation. Reviewed schema consumers use synchronous compilation without remote loaders; no application SSRF path was established. Installation remains pending.
+
 ## 0.11.0-beta.3.vorteo.432 - 2026-10-13
 
 ### Security

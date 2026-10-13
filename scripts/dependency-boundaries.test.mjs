@@ -11,6 +11,28 @@ const server = createRequire(new URL("../packages/server/package.json", import.m
 const express = createRequire(server.resolve("express"));
 const proxyaddr = express("proxy-addr");
 
+test("schema URI parsing flags ambiguous authorities and preserves local references", () => {
+  const ajvRequire = createRequire(server.resolve("ajv"));
+  const uri = ajvRequire("fast-uri");
+  assert.ok(uri.parse("https://trusted.example\\@evil.example/").error);
+  assert.ok(uri.parse("https://%2565xample.com/").error);
+  assert.equal(uri.parse("https://example.com/schema").host, "example.com");
+  const Ajv = server("ajv");
+  const ajv = new Ajv();
+  const validate = ajv.compile({
+    $id: "https://example.com/schema",
+    $defs: { label: { type: "string" } },
+    type: "object",
+    properties: { label: { $ref: "#/$defs/label" } },
+  });
+  assert.equal(validate({ label: "valid" }), true);
+  assert.equal(validate({ label: 4 }), false);
+  assert.throws(
+    () => ajv.compile({ $ref: "https://example.invalid/missing" }),
+    /resolve reference/,
+  );
+});
+
 test("HTTP query parsers preserve repeated values without accepting prototype keys", () => {
   const sdk = createRequire(server.resolve("@modelcontextprotocol/sdk/server/mcp.js"));
   const sdkExpress = createRequire(sdk.resolve("express"));
