@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.414 - 2026-10-13
+
+### Fixed
+
+- Reserve host-route sidebar space while saved hosts load, preventing the desktop content column from jumping sideways during startup. Preserve unknown-host redirects and mobile navigation.
+
+### Maintenance
+
+- Cover cold and warm startup column stability at desktop, tablet and phone widths. Verify saved hosts through Connections settings instead of the removed sidebar host picker.
+
 ## 0.11.0-beta.3.vorteo.413 - 2026-10-13
 
 ### Fixed

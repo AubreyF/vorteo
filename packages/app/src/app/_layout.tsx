@@ -867,10 +867,15 @@ function OpenProjectListener() {
 function AppWithSidebar({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const hosts = useHosts();
+  const hostRegistryLoaded = useHostRegistryLoaded();
   const storeReady = useStoreReady();
   const routeServerId = useMemo(() => parseServerIdFromPathname(pathname), [pathname]);
-  const routeHasKnownHost =
-    routeServerId !== null && hosts.some((host) => host.serverId === routeServerId);
+  // Host routes already render while the registry loads. Reserve their sidebar
+  // immediately so registry hydration does not push visible content sideways.
+  // The host route still validates the ID and redirects unknown hosts once ready.
+  const routeHasHostShell =
+    routeServerId !== null &&
+    (!hostRegistryLoaded || hosts.some((host) => host.serverId === routeServerId));
   const shouldShowAppChrome =
     storeReady &&
     (pathname === "/open-project" ||
@@ -878,7 +883,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
       pathname === "/sessions" ||
       pathname === "/schedules" ||
       pathname === "/usage" ||
-      routeHasKnownHost);
+      routeHasHostShell);
 
   return <AppContainer chromeEnabled={shouldShowAppChrome}>{children}</AppContainer>;
 }

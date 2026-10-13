@@ -2,6 +2,7 @@ import type { Route } from "@playwright/test";
 import { expect, type Page } from "../fixtures";
 import { buildCreateAgentPreferences, buildSeededHost } from "./daemon-registry";
 import { wsRoutePatternForPort } from "./daemon-port";
+import { goBackInSettings, openSettingsHost } from "./settings";
 
 const DISABLE_DEFAULT_SEED_ONCE_KEY = "@paseo:e2e-disable-default-seed-once";
 const SEED_NONCE_KEY = "@paseo:e2e-seed-nonce";
@@ -167,13 +168,19 @@ class StartupAssertions {
 
   async expectsSavedHostShell(input: { serverId: string; label: string }): Promise<this> {
     await this.page.getByRole("button", { name: "Open menu", exact: true }).click();
-    await this.page.getByTestId("sidebar-hosts-trigger").click();
-    const hostRow = this.page.getByTestId(`sidebar-host-row-${input.serverId}`);
-    await expect(hostRow).toBeVisible({ timeout: 15_000 });
-    await expect(hostRow).toContainText(input.label);
-    await expect(this.page.getByTestId("sidebar-add-project")).toBeVisible();
+    const startupUrl = this.page.url();
+    await expect(this.page.getByRole("button", { name: "Add project", exact: true })).toBeVisible();
     await expect(this.page.getByTestId("sidebar-settings")).toBeVisible();
     await expect(this.page.getByTestId("welcome-screen")).toHaveCount(0);
+    await this.page.getByTestId("sidebar-settings").click();
+    await expect(this.page.getByTestId("settings-sidebar")).toBeVisible();
+    await openSettingsHost(this.page, input.serverId);
+    await expect(this.page.getByTestId(`settings-environment-${input.serverId}`)).toContainText(
+      input.label,
+    );
+    await goBackInSettings(this.page);
+    await goBackInSettings(this.page);
+    await expect(this.page).toHaveURL(startupUrl);
     return this;
   }
 
