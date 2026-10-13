@@ -4,7 +4,7 @@ const desktopRow = {
   minHeight: 32,
   paddingTop: 0,
   paddingBottom: 0,
-  paddingRight: 4,
+  paddingRight: 6,
   marginBottom: 2,
 };
 const touchRow = { ...desktopRow, minHeight: 44 };
