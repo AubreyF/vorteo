@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/app",
-  "version": "0.11.0-beta.3.vorteo.416",
+  "version": "0.11.0-beta.3.vorteo.417",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -164,7 +164,7 @@
     "typescript": "~5.9.2",
     "vitest": "^4.1.6",
     "wrangler": "^4.105.0",
-    "ws": "^8.20.0"
+    "ws": "^8.21.0"
   },
   "reanimated": {
     "staticFeatureFlags": {

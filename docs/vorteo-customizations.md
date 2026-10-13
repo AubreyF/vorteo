@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Direct WebSocket dependencies require ws 8.21.0 or later; the lockfile resolves the shared transport to 8.22.0. This includes the upstream fragment-count protection for [GHSA-96hv-2xvq-fx4p](https://github.com/advisories/GHSA-96hv-2xvq-fx4p). A finite loopback test verifies rejection before message delivery and preserves ordinary fragmented-message compatibility. Host delivery requires the tracked lifecycle workflow; static web publication cannot replace an installed Node transport. README overview and onboarding are unchanged.
+
 Assistant message rows share fixed completed and streaming Markdown parsers so virtualization does not repeatedly compile linkifier rules. Each parse still receives fresh document state; reference isolation, streaming formatting and unsafe-link rejection have focused coverage. README scope is unchanged.
 
 Timeline scroll checks follow the bottom edge of an image that shrinks across the reading line after loading, where the following text begins. Regression cases still reject text movement in either direction. This measurement correction does not change runtime scrolling or README scope.
