@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+An oxfmt-scoped override selects Tinypool 2.1.2 to reject inherited worker options while retaining the existing formatter. A bounded regression verifies inherited task filenames cannot redirect worker selection; representative formatting output is unchanged. This addresses the dependency gadget without claiming an application prototype-pollution entry point was found. Remove the override when an independently validated formatter update includes the fix. README overview and onboarding are unchanged.
+
 Workspace Vitest dependencies require 4.1.11 within the version 4 series, including browser, Playwright and UI companions. Usage browser checks save screenshots under the project's existing screenshot directory instead of requesting writes outside the allowed filesystem boundary. This tooling update leaves production behavior, README overview and onboarding unchanged.
 
 Desktop packaging uses electron-builder 26.15.3 and the lock resolves electron-updater 6.8.9 with builder-util-runtime 9.7.0. Redirect regressions cover known sensitive headers across host, protocol and port changes and retain same-origin authentication. The newer build tool removes the old rebuild and cacache tar consumers; tests continue covering all four remaining tar 7 consumers. An unsigned synthetic application packages successfully, but this does not establish signed Vorteo distribution or installed update behavior. README overview and onboarding are unchanged.

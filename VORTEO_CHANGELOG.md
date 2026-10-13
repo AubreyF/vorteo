@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.427 - 2026-10-13
+
+### Security
+
+- Override only oxfmt's Tinypool dependency to 2.1.2, preserving the existing formatter version. A bounded worker test reproduces inherited filename selection before the update and rejects it afterward. TypeScript, Markdown, YAML, JSON and HTML formatting samples remain byte-identical.
+
 ## 0.11.0-beta.3.vorteo.426 - 2026-10-13
 
 ### Security
