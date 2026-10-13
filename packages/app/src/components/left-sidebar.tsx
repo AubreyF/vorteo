@@ -1,3 +1,4 @@
+import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useLayoutEffect } from "react";
 import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import {
@@ -845,6 +846,7 @@ function MobileSidebar({
             />
           )}
 
+          <SidebarSyncNotice />
           <InstallationRestartBanner placement="sidebar" />
           <DemoControls />
           {<SidebarFooterRows onBeforeNavigate={closeSidebar} />}
@@ -1152,6 +1154,7 @@ function DesktopSidebar({
             </>
           )}
 
+          <SidebarSyncNotice compact={compact} />
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}
           {!compact ? <SidebarFooterRows /> : null}

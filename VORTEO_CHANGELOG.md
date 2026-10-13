@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.387 - 2026-10-12
+
+### Changed
+
+- Move Host connection and sidebar sync notices into a neutral, clickable sidebar footer tile, including the compact rail and mobile overlay.
+
 ## 0.11.0-beta.3.vorteo.386 - 2026-10-12
 
 ### Fixed

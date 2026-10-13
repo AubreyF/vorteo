@@ -513,3 +513,5 @@ The collapsed sidebar places expand, search, schedules and history above project
 Left project and status lists inherit the panel inset without an extra fixed horizontal gutter. Both sidebars use zero adaptive inset through 300px, increasing to 8px at 420px; compact highlights reach the inside border.
 
 The sidebar toggle has two desktop states: the saved normal width and compact icon rail. Dragging remains continuous with snapping near the rail. Below the existing 720px viewport breakpoint, touch and pointer devices both use the top-toolbar button and full mobile overlay; the old intermediate-width preference is ignored.
+
+Host unavailability and sidebar sync failures appear in the left sidebar footer beside maintenance status. The whole tile retries sidebar synchronization; the compact rail retains an icon and explanatory tooltip. These notices no longer use a floating red toast.

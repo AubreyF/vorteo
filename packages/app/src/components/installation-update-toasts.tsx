@@ -1,4 +1,3 @@
-import { SidebarSyncNotice } from "@/sidebar-state/status";
 import { useMemo } from "react";
 import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,7 +49,6 @@ function OperationalNotices() {
       >
         <View>
           <FloatingCalloutPresentation>
-            <SidebarSyncNotice />
             <InstallationRestartBanner />
             <SidebarCalloutViewport />
           </FloatingCalloutPresentation>
