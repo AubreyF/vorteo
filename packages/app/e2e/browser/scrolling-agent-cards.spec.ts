@@ -2074,7 +2074,7 @@ test("shared card group and thread resize independently and preserve saved width
         expect(input.width).toBeCloseTo(t.width - 16, 0);
         expect(input.y).toBeGreaterThanOrEqual(transcript.y + transcript.height - 1);
         expect(Math.abs(c.y + c.height - (page.viewportSize()!.height - 8))).toBeLessThanOrEqual(1);
-        expect(c.y + c.height).toBeGreaterThan(input.y + input.height);
+        expect(c.y + c.height).toBeCloseTo(input.y + input.height, 0);
       }).toPass({ timeout: 5000 });
     };
     await alignedComposer();
@@ -2166,7 +2166,7 @@ test("shared card group and thread resize independently and preserve saved width
         expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
       }
     }).toPass();
-    await cards.getByTestId("workspace-explorer-toggle").click();
+    await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     await expect(cards).toBeHidden();
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();

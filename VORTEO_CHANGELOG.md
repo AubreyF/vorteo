@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.473 - 2026-10-13
+
+### Validation
+
+- Refresh the column resize check for aligned composer and sidebar bottoms and the shared toolbar toggle location. The resize-handle interface change is unchanged.
+
 ## 0.11.0-beta.3.vorteo.472 - 2026-10-13
 
 ### Appearance
