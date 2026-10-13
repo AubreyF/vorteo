@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Sidebar toolbar hit targets meet edge to edge within the leading and trailing groups. Only the flexible middle spacer separates the groups; the compact rail also has no inter-button gap. README overview and onboarding are unchanged.
+
 Passive tooltip anchors preserve the parent row’s press target instead of creating a separate text press handler. Truncated card and row text uses a shared tooltip that measures clipping when opened, including multiline queue messages. Task titles include available description and owner context; subagent titles include their metadata. Tooltips preserve text geometry, do not accept pointer interaction and do not intercept touch actions. README overview and onboarding are unchanged.
 
 Three-task flowers use the same narrow petal shape and center gap as four-task flowers, with even radial spacing. README overview and onboarding are unchanged.

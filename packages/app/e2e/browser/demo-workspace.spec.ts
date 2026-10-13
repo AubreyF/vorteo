@@ -1258,6 +1258,20 @@ test("sidebar controls align with project icons and expose hover and menu feedba
     await page.mouse.up();
     await expect(collapse).toHaveCSS("width", "44px");
     await expect(collapse).toHaveCSS("height", "44px");
+    const toolbarButtons = page.getByTestId("sidebar-toolbar").getByRole("button");
+    const targets = await toolbarButtons.evaluateAll((buttons) =>
+      buttons
+        .map((button) => {
+          const rect = button.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+        })
+        .filter((rect) => rect.right > rect.left)
+        .sort((a, b) => a.left - b.left),
+    );
+    for (let index = 0; index < targets.length - 1; index++) {
+      if (index === 1) continue; // Flexible space separates the leading and trailing groups.
+      expect(targets[index + 1].left).toBeCloseTo(targets[index].right, 1);
+    }
     const project = sidebar.locator('[data-testid^="sidebar-project-row-"]').first();
     const icon = project
       .locator('[data-testid="project-icon-only"], [data-testid^="project-status-indicator-"]')

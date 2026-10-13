@@ -1242,7 +1242,7 @@ const staticStyles = RNStyleSheet.create({
 const styles = StyleSheet.create((theme) => ({
   narrowNavigation: { gap: 2, padding: 2 },
   narrowNavigationRow: { justifyContent: "flex-start", minHeight: 36 },
-  railToolbar: { alignItems: "center", gap: 2, paddingTop: 2 },
+  railToolbar: { alignItems: "center", gap: 0, paddingTop: 2 },
   sidebarContent: {
     flex: 1,
     minHeight: 0,
@@ -1286,7 +1286,7 @@ const styles = StyleSheet.create((theme) => ({
   themeMenu: { paddingHorizontal: 16, paddingVertical: 8 },
   sidebarToolbar: {
     paddingHorizontal: 0,
-    gap: theme.spacing[2],
+    gap: 0,
     height: FLOATING_PANEL_CONTROL_HEIGHT,
     paddingTop: 0,
     paddingBottom: 0,
