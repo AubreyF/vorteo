@@ -1,3 +1,4 @@
+import { expectAgentTabActive } from "../support/helpers/launcher";
 import { expect, test } from "../support/fixtures";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
@@ -77,6 +78,7 @@ test("truncated card values reveal non-interactive details without changing row 
     await childLabel.hover();
     await expect(tooltip).toContainText(childTitle);
     await childLabel.click();
+    await expectAgentTabActive(page, child.id);
     await expect(tooltip).toBeHidden();
     await openAgentRoute(page, agent);
     await page.setViewportSize({ width: 390, height: 900 });

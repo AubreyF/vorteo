@@ -32,7 +32,9 @@ export function TruncatedText({
   if (!isWeb || !label) return text;
   return (
     <Tooltip open={open} onOpenChange={changeOpen} delayDuration={250} enabledOnMobile={false}>
-      <TooltipTrigger asChild>{text}</TooltipTrigger>
+      <TooltipTrigger asChild passive>
+        {text}
+      </TooltipTrigger>
       <TooltipContent maxWidth={440}>
         <TooltipText label={label} description={tooltipDescription} />
       </TooltipContent>
