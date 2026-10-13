@@ -1,3 +1,5 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { InlineFilesCard } from "./inline-files-card";
 import { JournalCard } from "@/journal/card";
 import { AgentHistoryTracks } from "@/panels/agent-tracks";
 import { useCallback, useState } from "react";
@@ -25,6 +27,7 @@ export function AgentTaskCards({
   cwd: string;
   queueHostName?: string;
 }) {
+  const compact = useIsCompactFormFactor();
   const queue = useMessageQueue(serverId, agentId);
   const goal = useAgentGoal(serverId, agentId);
   const [queueReviewRequest, setQueueReviewRequest] = useState(0);
@@ -62,6 +65,9 @@ export function AgentTaskCards({
       ) : (
         <JournalCard serverId={serverId} agentId={agentId} />
       )}
+      {compact && workspaceId ? (
+        <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
+      ) : null}
       {queueHostName ? <PanePortal hostName={queueHostName}>{queueCards}</PanePortal> : queueCards}
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />

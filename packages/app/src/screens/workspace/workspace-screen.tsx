@@ -1021,24 +1021,18 @@ function WorkspaceHeaderTitleBar({
             onCreateTerminal={onCreateTerminal}
             onCreateTerminalWithProfile={onCreateTerminalWithProfile}
             onCreateBrowser={onCreateBrowser}
-          />
-        ) : null}
-
-        {isMobile && (
-          <WorkspaceDiffCounter serverId={normalizedServerId} workspaceId={normalizedWorkspaceId} />
-        )}
-        {isMobile && workspaceScripts.length > 0 ? (
-          <WorkspaceScriptsButton
-            serverId={normalizedServerId}
-            workspaceId={normalizedWorkspaceId}
-            scripts={workspaceScripts}
-            liveTerminalIds={liveTerminalIds}
-            onScriptTerminalStarted={onScriptTerminalStarted}
-            onViewTerminal={onViewScriptTerminal}
-            onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
-            hideLabels
-            presentation="ghost"
-          />
+          >
+            <WorkspaceScriptsButton
+              serverId={normalizedServerId}
+              workspaceId={normalizedWorkspaceId}
+              scripts={workspaceScripts}
+              liveTerminalIds={liveTerminalIds}
+              onScriptTerminalStarted={onScriptTerminalStarted}
+              onViewTerminal={onViewScriptTerminal}
+              onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+              presentation="menu"
+            />
+          </WorkspaceHeaderMenuMobile>
         ) : null}
       </View>
     </View>
@@ -3875,21 +3869,7 @@ function WorkspaceScreenContent({
   );
   const headerRight = useMemo(() => {
     let headerContent: ReactNode = null;
-    if (isMobile) {
-      headerContent = (
-        <View style={styles.headerRight}>
-          <PluginHeaderButtons serverId={normalizedServerId} workspaceId={normalizedWorkspaceId} />
-          <WorkspaceExplorerToggle
-            onPress={handleToggleExplorerSidebar}
-            label={explorerSidebarToggleLabel}
-            tooltipLabel={t("workspace.tabs.explorerSidebar.toggle")}
-            tooltipKeys={EXPLORER_TOGGLE_KEYS}
-            accessibilityState={explorerSidebarToggleAccessibilityState}
-            mobile
-          />
-        </View>
-      );
-    } else if (!supportsDesktopPaneSplits()) {
+    if (!isMobile && !supportsDesktopPaneSplits()) {
       headerContent = (
         <View style={styles.headerRight}>
           {collapsedExplorerToggle}
@@ -3899,17 +3879,7 @@ function WorkspaceScreenContent({
     }
 
     return headerContent;
-  }, [
-    isMobile,
-    normalizedServerId,
-    normalizedWorkspaceId,
-    handleToggleExplorerSidebar,
-    explorerSidebarToggleLabel,
-    explorerSidebarToggleAccessibilityState,
-    collapsedExplorerToggle,
-    workspaceMenu,
-    t,
-  ]);
+  }, [isMobile, collapsedExplorerToggle, workspaceMenu]);
 
   const showScreenHeader = useMemo(() => shouldShowWorkspaceScreenHeader({ isMobile }), [isMobile]);
   const renderExplorerSidebarHeaderAction = useCallback(

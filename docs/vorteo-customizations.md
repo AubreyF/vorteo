@@ -517,3 +517,5 @@ The sidebar toggle has two desktop states: the saved normal width and compact ic
 Host unavailability and sidebar sync failures appear in the left sidebar footer beside maintenance status. The whole tile retries sidebar synchronization; the compact rail retains an icon and explanatory tooltip. These notices no longer use a floating red toast.
 
 Desktop composer outer padding uses the same 8px inset as the floating sidebar frames, keeping their bottom edges aligned. Mobile keyboard and safe-area spacing remain independently handled.
+
+Mobile workspace headers retain only the left navigation and right workspace menu controls. Script actions live inside the workspace menu, and Files appears before Queue among inline conversation cards with device-local inline disclosure memory.

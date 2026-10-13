@@ -50,7 +50,7 @@ interface WorkspaceScriptsButtonProps {
   onViewTerminal?: (terminalId: string) => void;
   onOpenUrlInBrowserTab?: (url: string) => void;
   hideLabels?: boolean;
-  presentation?: "split" | "ghost";
+  presentation?: "split" | "ghost" | "menu";
 }
 
 const ThemedPlay = withUnistyles(Play);
@@ -676,6 +676,30 @@ export function WorkspaceScriptsButton({
   const triggerPlayProps =
     presentation === "ghost" ? { ...playFillTransparent, ...ghostPlayStroke } : playFillTransparent;
 
+  const scriptRows = (
+    <>
+      {scripts.map((script) => (
+        <ScriptRow
+          key={script.scriptName}
+          script={script}
+          liveTerminalIdSet={liveTerminalIdSet}
+          activeConnection={activeConnection}
+          isStartPending={startScriptMutation.isPending}
+          isStopPending={stopScriptMutation.isPending}
+          onStartScript={handleStartScript}
+          onStopScript={handleStopScript}
+          onRestartScript={handleRestartScript}
+          onCopyUrl={handleCopyUrl}
+          preferredRouteKind={preferredRouteKind}
+          onSelectRouteKind={handleSelectRouteKind}
+          onViewTerminal={onViewTerminal}
+          onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+        />
+      ))}
+    </>
+  );
+  if (presentation === "menu") return scriptRows;
+
   return (
     <View style={styles.row}>
       <View style={presentation === "ghost" ? styles.ghostButtonFrame : styles.splitButton}>
@@ -706,24 +730,7 @@ export function WorkspaceScriptsButton({
             maxWidth={280}
             testID="workspace-scripts-menu"
           >
-            {scripts.map((script) => (
-              <ScriptRow
-                key={script.scriptName}
-                script={script}
-                liveTerminalIdSet={liveTerminalIdSet}
-                activeConnection={activeConnection}
-                isStartPending={startScriptMutation.isPending}
-                isStopPending={stopScriptMutation.isPending}
-                onStartScript={handleStartScript}
-                onStopScript={handleStopScript}
-                onRestartScript={handleRestartScript}
-                onCopyUrl={handleCopyUrl}
-                preferredRouteKind={preferredRouteKind}
-                onSelectRouteKind={handleSelectRouteKind}
-                onViewTerminal={onViewTerminal}
-                onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
-              />
-            ))}
+            {scriptRows}
           </DropdownMenuContent>
         </DropdownMenu>
       </View>
