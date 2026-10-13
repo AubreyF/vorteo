@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.421 - 2026-10-13
+
+### Security
+
+- Resolve Seroval to 1.6.9 and proxy-addr to 2.0.8 without changing unrelated dependencies. Add bounded regressions for malformed typed-array deserialization and IPv4 trust under short mapped IPv6 subnets, alongside valid serialization and proxy configuration checks. The website production build and focused server/website tests pass; deployment remains separate from source preparation.
+
 ## 0.11.0-beta.3.vorteo.420 - 2026-10-13
 
 ### Security
