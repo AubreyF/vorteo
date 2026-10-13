@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Certificate tooling resolves node-forge 1.4.0, including EAS through a scoped override. Ordinary Expo certificate, CSR and signing operations and EAS password-protected archive reading pass tests using generated in-memory keys. Node independently verifies the produced signature. Retire the override when a validated EAS parent supplies the required version. The remaining upstream signature-verification advisory is unresolved; compatibility tests do not prove its remediation. README overview and onboarding are unchanged.
+
 The older Expo property-list package has a scoped xmldom 0.8.15 override. Its EAS file helpers and provisioning-metadata helpers pass synthetic round-trip and rejection checks, alongside property-list escaping and identifier matching. Retire the override when the older package is replaced by a validated parent update with a patched XML dependency. No Apple request, real credential or installed service is involved in validation. README overview and onboarding are unchanged.
 
 Compatible Expo and property-list XML dependencies resolve xmldom 0.8.15. Tests exercise standard and Expo property-list parsing and building, preserving nested values and escaped text, and reject CDATA markup injection through their resolved XML implementations. The reviewed serialization regression does not establish that project property-list input reaches that injection API. README overview and onboarding are unchanged.
