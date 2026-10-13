@@ -109,7 +109,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     () => (
       <CountBadge
         count={progress.total}
-        label={`${progress.completed} / ${progress.total} open`}
+        label={`${progress.completed} / ${progress.total}`}
         accessibilityLabel={t("message.todo.tasksProgress", {
           completed: progress.completed,
           total: progress.total,

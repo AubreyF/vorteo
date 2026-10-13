@@ -88,7 +88,8 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     touchHeader: { height: 44 },
     touchAccordionTrigger: { height: 44 },
     accordionTrigger: {
-      flex: 1,
+      // The enclosing disclosure owns horizontal flex; this button has a fixed height.
+      flexShrink: 0,
       minWidth: 0,
       height: FLOATING_PANEL_CONTROL_HEIGHT,
       flexDirection: "row",

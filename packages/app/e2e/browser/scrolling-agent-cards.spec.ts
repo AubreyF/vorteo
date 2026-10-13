@@ -163,6 +163,10 @@ for (const width of [1400, 390]) {
       await expect(status(0)).toHaveAttribute("aria-label", "Seen journal entry");
       await expect(status(11)).toHaveAttribute("aria-label", "Unread journal entry");
       await expect(card.getByTestId("journal-unread-count")).toBeVisible();
+      await expect(async () => {
+        const read = await card.getByLabel("Seen journal entry", { exact: true }).count();
+        await expect(card.getByTestId("journal-unread-count")).toHaveText(`${read} / 12`);
+      }).toPass();
       await expectJournalRowGeometry(page.getByTestId(`journal-entry-${ids[0]}`), width);
       await card.screenshot({ path: info.outputPath(`spark-${width}.png`) });
 
@@ -1367,6 +1371,8 @@ for (const width of [1400, 390]) {
     });
     try {
       await openAgentRoute(page, agent);
+      await page.getByTestId(/^worktree-setup-callout-.*-dismiss$/).click();
+      await revealSupportingCards(page, width);
       const expectCenteredHeader = async () => {
         const clearance = await page.getByTestId("agent-task-progress-card").evaluate((card) => {
           const box = card.getBoundingClientRect();

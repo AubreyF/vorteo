@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.480 - 2026-10-13
+
+### Fixed
+
+- Show completed / total task counts and read / total journal counts without visible status suffixes.
+- Preserve the fixed disclosure-button height on native platforms so card titles and count text render correctly.
+- Verify journal progress against read rows in desktop and phone browser checks.
+
 ## 0.11.0-beta.3.vorteo.479 - 2026-10-13
 
 ### Maintenance

@@ -223,8 +223,10 @@ function JournalCount({ count, unread, ready }: { count: number; unread: number;
   return (
     <CountBadge
       count={count}
-      label={hasUnread ? `${count} / ${unread} new` : String(count)}
-      accessibilityLabel={`${count} journal entries${hasUnread ? `, ${unread} unread journal entries` : ""}`}
+      label={ready ? `${count - unread} / ${count}` : String(count)}
+      accessibilityLabel={
+        ready ? `${count - unread} of ${count} journal entries read` : `${count} journal entries`
+      }
       testID={hasUnread ? "journal-unread-count" : undefined}
     />
   );

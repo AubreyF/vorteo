@@ -123,9 +123,6 @@ export function CollapsibleCardBody({
 const styles = StyleSheet.create((theme) => ({
   hoverTarget: { flex: 1, minWidth: 0 },
   trigger: {
-    flexGrow: 0,
-    flexShrink: 0,
-    flexBasis: "auto",
     borderRadius: FLOATING_PANEL_RADIUS,
     paddingLeft: TASK_CARD_ICON_CENTER - 10,
     paddingRight: theme.spacing[2],
