@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.477 - 2026-10-13
+
+### Appearance
+
+- Add 12px above question answer controls and below the action row, keeping prompts, inputs and buttons clear of each other and the card edge. Verify desktop and phone spacing alongside question navigation and submission.
+
 ## 0.11.0-beta.3.vorteo.476 - 2026-10-13
 
 ### Appearance

@@ -63,6 +63,13 @@ for (const width of [390, 1280]) {
       await card.getByRole("radio", { name: "Behind feature flag", exact: true }).click();
       await expect(card).toContainText("What success criteria should we use?");
       await card.getByRole("textbox").fill("Answers remain reachable without nested scrolling.");
+      const prompt = (await card.getByTestId("question-form-current-question").boundingBox())!;
+      const input = (await card.getByRole("textbox").boundingBox())!;
+      const submit = (await card.getByTestId("question-form-primary-action").boundingBox())!;
+      const bounds = (await card.boundingBox())!;
+      expect(input.y - prompt.y - prompt.height).toBeGreaterThanOrEqual(12);
+      expect(bounds.y + bounds.height - submit.y - submit.height).toBeGreaterThanOrEqual(12);
+      await page.screenshot({ path: info.outputPath(`question-input-spacing-${width}.png`) });
       await card.getByTestId("question-form-primary-action").click();
       await expect(card).toHaveCount(0);
     } finally {

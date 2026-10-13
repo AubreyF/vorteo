@@ -629,6 +629,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
 
 const styles = StyleSheet.create((theme) => ({
   questionBlock: {
+    marginTop: theme.spacing[3],
     gap: theme.spacing[2],
   },
   questionText: {
@@ -715,6 +716,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
   },
   actionsContainer: {
+    paddingBottom: theme.spacing[3],
     gap: theme.spacing[2],
     flexDirection: "row",
     flexWrap: "wrap",
