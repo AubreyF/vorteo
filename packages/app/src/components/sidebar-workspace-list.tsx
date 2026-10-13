@@ -216,6 +216,8 @@ function activeWorkspaceSelectionKey(selection: ActiveWorkspaceSelection | null)
 }
 
 interface SidebarWorkspaceListProps {
+  /** Project flyouts fit short lists while retaining the shared scrolling list. */
+  onContentSizeChange?: (width: number, height: number) => void;
   onScrolledChange?: (scrolled: boolean) => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   /** What `useProjectIcons` is asked for, straight from the projection. See `SidebarProjection`. */
@@ -2122,6 +2124,7 @@ function areProjectBlockSelectionsEqual(
 const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
+  onContentSizeChange,
   onScrolledChange,
   workspaceGroups,
   projectIconTargets,
@@ -2226,6 +2229,7 @@ export function SidebarWorkspaceList({
       />
     ) : (
       <ProjectModeList
+        onContentSizeChange={onContentSizeChange}
         onScrolledChange={onScrolledChange}
         projects={projects}
         pinnedGroups={pinnedGroups}
@@ -2338,6 +2342,7 @@ function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
 }
 
 function ProjectModeListContent({
+  onContentSizeChange,
   onScrolledChange,
   projects,
   pinnedGroups,
@@ -2739,6 +2744,7 @@ function ProjectModeListContent({
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          onContentSizeChange={onContentSizeChange}
           testID="sidebar-project-workspace-list-scroll"
         >
           <NestableScrollDivider onChange={onScrolledChange} />
@@ -2751,6 +2757,7 @@ function ProjectModeListContent({
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          onContentSizeChange={onContentSizeChange}
           testID="sidebar-project-workspace-list-scroll"
         >
           {content}

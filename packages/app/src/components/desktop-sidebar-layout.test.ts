@@ -69,7 +69,7 @@ describe("desktop sidebar layout", () => {
 
   it("snaps at 160px while retaining fluid widths above the boundary", () => {
     expect(resolveDesktopSidebarWidth({ requestedWidth: 161, viewportWidth: 1800 })).toBe(161);
-    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(48);
+    expect(resolveDesktopSidebarWidth({ requestedWidth: 160, viewportWidth: 1800 })).toBe(56);
     expect(resolveDesktopSidebarWidth({ requestedWidth: 310, viewportWidth: 1800 })).toBe(310);
   });
 
@@ -100,7 +100,7 @@ describe("desktop sidebar layout", () => {
   it("lets the compact rail share space without consuming the saved expanded width", () => {
     expect(
       resolveDesktopSidebarWidth({ requestedWidth: 600, viewportWidth: 900, compact: true }),
-    ).toBe(48);
+    ).toBe(56);
     expect(
       canDesktopAppSidebarShare({
         contentMinimumWidth: 720,

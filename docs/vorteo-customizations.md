@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Project flyouts fit the shared list's measured content up to a bounded scrolling height. Compact sidebar validation covers its 56px width, current navigation menu placement, shared row indicators, tail alignment, nested Rename dialog and touch navigation.
+
 Compact project popups reuse the full sidebar project list and its existing actions, with an anchored tail and a 56px rail around 44px buttons. Hover opens a preview; clicking keeps it open until navigation, Escape or an outside click. Nested menus and dialogs retain the parent popup. README overview and onboarding are unchanged.
 
 The right sidebar resize handle belongs to its card body, so its hit target and highlight start at the card stack rather than extending through the toolbar. The shared resize interaction is unchanged. README overview and onboarding are unchanged.

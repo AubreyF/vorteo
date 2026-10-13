@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.475 - 2026-10-13
+
+### Appearance and validation
+
+- Fit short project popups to their measured content while keeping long lists scrollable.
+- Update compact sidebar sizing and browser checks for the 56px rail, current navigation menu placement, and workspace action labels. Verify project popup indicators, tail alignment, nested Rename dialog and touch navigation.
+
 ## 0.11.0-beta.3.vorteo.474 - 2026-10-13
 
 ### Appearance

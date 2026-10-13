@@ -40,6 +40,11 @@ export function ProjectRailPreview({
   const request = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number; centerY: number } | null>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  const measureContent = useCallback(
+    (_width: number, height: number) => setContentHeight(height),
+    [],
+  );
   const touch = useVortonTouch();
   const { width, height } = useWindowDimensions();
   const clear = useCallback(() => {
@@ -138,7 +143,8 @@ export function ProjectRailPreview({
       document.removeEventListener("focusin", outside);
     };
   }, [anchor, close]);
-  const previewHeight = Math.min(480, height - 24);
+  // The footer target (44), body padding and border (18), and gap (8) surround the list.
+  const previewHeight = Math.min(480, height - 24, contentHeight ? contentHeight + 70 : 480);
   const frame = useMemo(
     () => ({
       position: "absolute" as const,
@@ -195,6 +201,7 @@ export function ProjectRailPreview({
                   workspaceEntries={workspaceEntries}
                   width={previewWidth - 16}
                   onNavigate={close}
+                  onContentSizeChange={measureContent}
                 />
               </OverlayLayerProvider>
               <Button variant="ghost" onPress={selectProject}>

@@ -14,11 +14,13 @@ export function ProjectRailList({
   workspaceEntries,
   width,
   onNavigate,
+  onContentSizeChange,
 }: {
   project: SidebarProjectEntry;
   workspaceEntries: ReadonlyMap<string, SidebarWorkspaceEntry>;
   width: number;
   onNavigate: () => void;
+  onContentSizeChange: (width: number, height: number) => void;
 }) {
   const projects = useMemo(() => [project], [project]);
   const targets = useMemo(() => resolveSidebarProjectIconTargets(projects), [projects]);
@@ -38,6 +40,7 @@ export function ProjectRailList({
     <SidebarWidthContext.Provider value={width}>
       <SidebarInsetContext.Provider value={2}>
         <SidebarWorkspaceList
+          onContentSizeChange={onContentSizeChange}
           workspaceGroups={EMPTY_GROUPS}
           projectIconTargets={targets}
           pinnedGroups={pinned}

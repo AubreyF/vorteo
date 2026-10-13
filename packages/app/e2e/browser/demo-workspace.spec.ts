@@ -1031,9 +1031,10 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByTestId("sidebar-search")).toBeVisible();
   await expect(page.getByTestId("sidebar-schedules")).toHaveCount(0);
   await page.getByTestId("sidebar-footer-overflow").click();
-  await expect(page.getByRole("menuitem", { name: "Schedules", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "History", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem").first()).toHaveText("Settings");
+  await expect(sidebar.getByRole("button", { name: "Schedules", exact: true })).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: "History", exact: true })).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Settings", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await dragTo(180);
   await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
@@ -1066,14 +1067,18 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await project.click();
   const preview = page.getByTestId("project-rail-preview");
   await expect(preview).toBeVisible();
+  await expect.poll(async () => (await preview.boundingBox())!.height).toBeLessThan(300);
   const tail = await preview.getByTestId("project-rail-tail").boundingBox();
-  expect(tail!.y + tail!.height / 2).toBeCloseTo(projectBounds.y + projectBounds.height / 2, 0);
+  // The absolute tail is positioned inside the one-pixel surface border.
+  expect(
+    Math.abs(tail!.y + tail!.height / 2 - projectBounds.y - projectBounds.height / 2),
+  ).toBeLessThanOrEqual(1);
   const previewRow = preview.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
   await expect(previewRow.locator('[data-testid^="workspace-status-indicator-"]')).toBeVisible();
   await expect(previewRow.getByTestId("sidebar-trailing-rail")).toBeVisible();
   await previewRow.hover();
   await preview.getByTestId("sidebar-workspace-kebab-vorteo-demo:demo-workspace-0-0").click();
-  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Rename workspace", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(preview).toBeVisible();
