@@ -74,8 +74,8 @@ export function CardDisclosure({
         </View>
         {count || trailing ? (
           <View style={styles.metadata} testID={`${testID}-metadata`}>
-            {count}
             {trailing}
+            {count}
           </View>
         ) : null}
       </Pressable>

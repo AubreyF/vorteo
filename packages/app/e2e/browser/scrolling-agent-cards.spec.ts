@@ -37,7 +37,7 @@ async function revealSupportingCards(page: Page, width: number) {
   if ((await explorer.getAttribute("aria-expanded")) === "false") await explorer.click();
 }
 
-async function expectJournalRowGeometry(row: Locator, width: number) {
+async function expectJournalRowGeometry(row: Locator, _width: number) {
   await expect(async () => {
     const rowGeometry = await row.evaluate((node) => {
       const timestamp = node
@@ -90,7 +90,7 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
     expect(rowGeometry.clearAbove).toBe(true);
     expect(rowGeometry.clearBelow).toBe(true);
     expect(rowGeometry.timestampBottom).toBeLessThanOrEqual(rowGeometry.textTop);
-    expect(rowGeometry.markerInset).toBe(width === 390 ? 12 : 10);
+    expect(rowGeometry.markerInset).toBe(12);
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
     expect(rowGeometry.textTop - rowGeometry.timestampBottom).toBe(2);
     expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
@@ -503,6 +503,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       );
       await expect(goalCard.getByTestId("agent-goal-toggle-status")).toHaveCount(0);
       const notice = goalCard.getByTestId("agent-goal-notice");
+      await expect(notice).toBeVisible();
       const noticeTop = (await notice.boundingBox())!.y;
       const scroll = goalCard.getByTestId("agent-goal-bar-body-scroll");
       await scroll.evaluate((node) => {
@@ -891,6 +892,16 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
       return heading.right - chip.right;
     });
     expect(metadataGap, id).toBeCloseTo(8, 0);
+    if (id === "message-queue-toggle") {
+      const countGap = await toggle
+        .getByTestId("message-queue-card-count")
+        .evaluate(
+          (node) =>
+            node.parentElement!.getBoundingClientRect().right - node.getBoundingClientRect().right,
+        );
+      expect(countGap).toBeCloseTo(0, 0);
+    }
+
     if (id === "agent-goal-toggle") {
       await expect(toggle.getByTestId("agent-goal-elapsed")).toBeVisible();
     }

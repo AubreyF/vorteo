@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.454 - 2026-10-13
+
+### Appearance
+
+- Keep Queue status before its count so every heading chip occupies the trailing edge of the disclosure.
+- Update journal inset checks for the shared 44px geometry and wait for the visible goal notice before measuring it during viewport changes.
+
 ## 0.11.0-beta.3.vorteo.453 - 2026-10-13
 
 ### Appearance
