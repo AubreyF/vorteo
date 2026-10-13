@@ -531,3 +531,5 @@ Mobile menu pages add eight pixels of horizontal breathing room around their sha
 Shared screen titles use the extra-large typography token (18px at default scaling) for clearer Schedules, History and related page headings.
 
 Workspace menu and explorer controls have 40px minimum targets. A single script gets a direct start or preview action; its management controls remain in the workspace menu. Multiple scripts retain the chooser.
+
+The split-pane overflow menu shares the larger target and includes single-script management alongside workspace actions.

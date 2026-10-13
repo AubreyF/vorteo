@@ -332,6 +332,7 @@ function WorkspacePaneToolbarActions({
       <ToolbarButton
         kind="menu"
         label={t("workspace.git.actions.moreActions")}
+        style={styles.workspaceMenuTarget}
         testID="workspace-split-pane-menu"
       >
         <ThemedMoreVertical size={14} uniProps={extraMutedColorMapping} />
@@ -345,6 +346,7 @@ function WorkspacePaneToolbarActions({
         pages={workspaceItems?.pages}
       >
         {workspaceItems?.items}
+        {workspaceItems?.extraItems}
         <DropdownMenuItem
           leading={splitRightLeading}
           trailing={splitRightTrailing}
@@ -1550,6 +1552,7 @@ function ResolvedDesktopTabChip({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  workspaceMenuTarget: { minWidth: 40, minHeight: 40 },
   tabsContainer: {
     minWidth: 0,
     height: VORTON_HEADER_HEIGHT,

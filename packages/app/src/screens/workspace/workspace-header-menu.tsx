@@ -41,11 +41,13 @@ export const WorkspaceToolbarToggleContext = createContext<ReactNode>(null);
 
 export const WorkspaceOverflowItemsContext = createContext<{
   items: ReactNode;
+  extraItems?: ReactNode;
   pages: ReturnType<typeof useWorkspaceLabelMenuPages>;
 } | null>(null);
 
 interface WorkspaceMenuPresentation {
   children?: ReactNode;
+  extraItems?: ReactNode;
   overflow?: boolean;
   enabled?: boolean;
 }
@@ -91,6 +93,7 @@ function WorkspaceHeaderActionsMenu({
   normalizedServerId,
   normalizedWorkspaceId,
   children,
+  extraItems,
   overflow = false,
   enabled = true,
 }: WorkspaceHeaderWorkspaceActions & WorkspaceMenuPresentation) {
@@ -109,7 +112,12 @@ function WorkspaceHeaderActionsMenu({
       </WorkspaceOverflowItemsContext.Provider>
     ) : null;
   return (
-    <WorkspaceHeaderActionsMenuLoaded workspace={workspace} overflow={overflow} enabled={enabled}>
+    <WorkspaceHeaderActionsMenuLoaded
+      workspace={workspace}
+      overflow={overflow}
+      enabled={enabled}
+      extraItems={extraItems}
+    >
       {children}
     </WorkspaceHeaderActionsMenuLoaded>
   );
@@ -118,6 +126,7 @@ function WorkspaceHeaderActionsMenu({
 function WorkspaceHeaderActionsMenuLoaded({
   workspace,
   children,
+  extraItems,
   overflow,
   enabled,
 }: WorkspaceMenuPresentation & {
@@ -180,7 +189,10 @@ function WorkspaceHeaderActionsMenuLoaded({
       {sessionMenu.sheet}
     </>
   );
-  const overflowValue = useMemo(() => (enabled ? { items, pages } : null), [enabled, items, pages]);
+  const overflowValue = useMemo(
+    () => (enabled ? { items, pages, extraItems } : null),
+    [enabled, items, pages, extraItems],
+  );
   if (overflow) {
     return (
       <WorkspaceOverflowItemsContext.Provider value={overflowValue}>

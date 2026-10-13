@@ -3792,26 +3792,20 @@ function WorkspaceScreenContent({
     workspaceKey: persistenceKey,
   });
 
-  const workspaceMenu = useMemo(
-    () => (
-      <WorkspaceHeaderMenuDesktop
-        normalizedServerId={normalizedServerId}
-        normalizedWorkspaceId={normalizedWorkspaceId}
-      >
-        {workspaceDescriptor?.scripts.length === 1 ? (
-          <WorkspaceScriptsButton
-            serverId={normalizedServerId}
-            workspaceId={normalizedWorkspaceId}
-            scripts={workspaceDescriptor.scripts}
-            liveTerminalIds={liveTerminalIds}
-            onScriptTerminalStarted={handleScriptTerminalStarted}
-            onViewTerminal={handleViewScriptTerminal}
-            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
-            presentation="menu"
-          />
-        ) : null}
-      </WorkspaceHeaderMenuDesktop>
-    ),
+  const singleScriptMenu = useMemo(
+    () =>
+      workspaceDescriptor?.scripts.length === 1 ? (
+        <WorkspaceScriptsButton
+          serverId={normalizedServerId}
+          workspaceId={normalizedWorkspaceId}
+          scripts={workspaceDescriptor.scripts}
+          liveTerminalIds={liveTerminalIds}
+          onScriptTerminalStarted={handleScriptTerminalStarted}
+          onViewTerminal={handleViewScriptTerminal}
+          onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
+          presentation="menu"
+        />
+      ) : null,
     [
       normalizedServerId,
       normalizedWorkspaceId,
@@ -3821,6 +3815,18 @@ function WorkspaceScreenContent({
       handleViewScriptTerminal,
       handleOpenUrlInBrowserTab,
     ],
+  );
+
+  const workspaceMenu = useMemo(
+    () => (
+      <WorkspaceHeaderMenuDesktop
+        normalizedServerId={normalizedServerId}
+        normalizedWorkspaceId={normalizedWorkspaceId}
+      >
+        {singleScriptMenu}
+      </WorkspaceHeaderMenuDesktop>
+    ),
+    [normalizedServerId, normalizedWorkspaceId, singleScriptMenu],
   );
 
   const desktopToolbarActions = useMemo(
@@ -4026,6 +4032,7 @@ function WorkspaceScreenContent({
         value={supportingCardsVisible ? null : collapsedExplorerToggle}
       >
         <WorkspaceOverflowProvider
+          extraItems={singleScriptMenu}
           normalizedServerId={normalizedServerId}
           normalizedWorkspaceId={normalizedWorkspaceId}
         >
@@ -4076,6 +4083,7 @@ function WorkspaceScreenContent({
     renderWorkspaceScreenHeader,
     renderExplorerSidebarHeaderAction,
     persistenceKey,
+    singleScriptMenu,
     normalizedServerId,
     normalizedWorkspaceId,
     isRouteFocused,
