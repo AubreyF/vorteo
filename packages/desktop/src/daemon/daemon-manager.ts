@@ -1,6 +1,7 @@
+import { handleDesktopCommand } from "../desktop-ipc.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { app, ipcMain, powerMonitor } from "electron";
+import { app, powerMonitor } from "electron";
 import log from "electron-log/main";
 import {
   resolvePaseoHome,
@@ -477,7 +478,7 @@ export function createDaemonCommandHandlers(): Record<string, DesktopCommandHand
 export function registerDaemonManager(): void {
   const handlers = createDaemonCommandHandlers();
 
-  ipcMain.handle(
+  handleDesktopCommand(
     "paseo:invoke",
     async (_event, command: string, args?: Record<string, unknown>) => {
       const handler = handlers[command];

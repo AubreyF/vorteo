@@ -35,13 +35,21 @@ await writeFile(
   path.join(fixture, "main.cjs"),
   `const { app, BrowserWindow } = require('electron');
    const { registerAppNavigationGuards } = require(${JSON.stringify(path.join(desktop, "dist/window/navigation.js"))});
+   const { handleDesktopCommand, registerTrustedDesktopWindow } = require(${JSON.stringify(path.join(desktop, "dist/desktop-ipc.js"))});
    app.setPath('userData', ${JSON.stringify(path.join(fixture, "profile"))});
    globalThis.navigationEvents = [];
+   globalThis.commandCalls = 0;
+   handleDesktopCommand('paseo:invoke', (_event, command) => {
+     if (command !== 'security-probe') throw new Error('Unexpected test command');
+     globalThis.commandCalls++;
+     return 'allowed';
+   });
    app.whenReady().then(async () => {
      const win = new BrowserWindow({show:false, webPreferences:{
        preload:${JSON.stringify(path.join(desktop, "dist/preload.js"))},
        contextIsolation:true, nodeIntegration:false, webviewTag:true
      }});
+     registerTrustedDesktopWindow(win.webContents, ${JSON.stringify(trustedUrl)});
      registerAppNavigationGuards(win.webContents, ${JSON.stringify(trustedUrl)});
      for (const name of ['will-navigate', 'will-redirect']) {
        win.webContents.on(name, (event,url) => globalThis.navigationEvents.push({name,url,blocked:event.defaultPrevented}));
@@ -86,7 +94,38 @@ try {
     1,
   );
   assert.equal(externalRequests, 0);
-  console.log("Main-window navigation, redirects, popup isolation and application routes passed.");
+  assert.equal(await page.evaluate(() => window.paseoDesktop.invoke("security-probe")), "allowed");
+
+  const strangerResult = await electron.evaluate(
+    async ({ BrowserWindow }, input) => {
+      const stranger = new BrowserWindow({
+        show: false,
+        webPreferences: { preload: input.preload, contextIsolation: true, nodeIntegration: false },
+      });
+      try {
+        await stranger.loadURL(input.url);
+        return await stranger.webContents.executeJavaScript(
+          "window.paseoDesktop.invoke('security-probe').then(() => 'unexpected success', error => error.message)",
+        );
+      } finally {
+        stranger.destroy();
+      }
+    },
+    { url: trustedUrl, preload: path.join(desktop, "dist/preload.js") },
+  );
+  assert.match(strangerResult, /Desktop commands require the trusted application window/);
+
+  // Main-process loadURL bypasses navigation events. The independent IPC gate
+  // must still reject a registered renderer whose current document is outside.
+  await electron.evaluate(async ({ BrowserWindow }, url) => {
+    await BrowserWindow.getAllWindows()[0].loadURL(url);
+  }, externalUrl);
+  await assert.rejects(
+    page.evaluate(() => window.paseoDesktop.invoke("security-probe")),
+    /Desktop commands require the trusted application window/,
+  );
+  assert.equal(await electron.evaluate(() => globalThis.commandCalls), 1);
+  console.log("Navigation, redirects, popups and trusted desktop command boundaries passed.");
 } finally {
   await electron?.close();
   await Promise.all([
