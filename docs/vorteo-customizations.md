@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Tag catalog equality includes explicit-color intent, so selecting a hue identical to the stored legacy default still persists the choice. Reload tests cover this case. Browser geometry checks follow the 40px control centerline. This Host persistence fix remains subject to tracked lifecycle approval; README scope is unchanged.
+
 Sidebar metadata and default custom tags use neutral theme colors. Completed task petals use secondary gray between pending and active tones. Text badges precede trailing image icons; managed workspaces and their group headings use secondary text. Header controls are 40px on desktop and 44px on touch, with vertical insets of 2px, 3px and 4px for the existing horizontal 2px, 4px and 8px tiers. Both dimensions use the same 180ms animation. README scope is unchanged.
 
 Custom tag catalogs retain their legacy hue for wire compatibility. An optional explicit-color marker distinguishes deliberately chosen hues from defaults; absent or false markers display neutral. The Host advertises support before the client enables custom color selection. Static publication delivers the neutral display and layout; persistence of explicit choices requires the prepared Host capability through the tracked lifecycle workflow.

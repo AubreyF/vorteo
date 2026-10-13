@@ -589,7 +589,7 @@ test("quiet card chrome keeps compact geometry across themes", async ({ page }, 
       const icon = node.firstElementChild!.getBoundingClientRect();
       return { left: icon.left - box.left, top: icon.top - box.top };
     });
-    expect(inset.left).toBe(6);
+    expect(inset.left).toBe(10);
     expect(inset.left).toBe(inset.top);
     const fills = await tasks
       .getByTestId("checklist-progress")

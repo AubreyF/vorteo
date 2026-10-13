@@ -56,6 +56,8 @@ describe("workspace labels", () => {
       { name: "Review", color: "violet", explicitColor: false },
     ]);
     await labels.update({ name: "Review", color: "red", explicitColor: true });
+    await labels.update({ name: "Review", explicitColor: false });
+    await labels.update({ name: "Review", explicitColor: true });
     const reloaded = createWorkspaceLabelService({ paseoHome, workspaceRegistry: registry });
     await reloaded.initialize();
     expect((await reloaded.list()).labels).toEqual([
@@ -64,6 +66,21 @@ describe("workspace labels", () => {
     await reloaded.update({ name: "Review", newName: "Later", explicitColor: false });
     expect((await reloaded.list()).labels).toEqual([
       { name: "Later", color: "red", explicitColor: false },
+    ]);
+  });
+
+  test("persists explicit intent when the chosen hue matches a legacy default", async () => {
+    await labels.initialize();
+    await labels.setAssignment({
+      workspaceId: "wks_one",
+      label: { name: "Default", color: "red" },
+      assigned: true,
+    });
+    await labels.update({ name: "Default", color: "red", explicitColor: true });
+    const reloaded = createWorkspaceLabelService({ paseoHome, workspaceRegistry: registry });
+    await reloaded.initialize();
+    expect((await reloaded.list()).labels).toEqual([
+      { name: "Default", color: "red", explicitColor: true },
     ]);
   });
 

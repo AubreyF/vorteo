@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.405 - 2026-10-12
+
+### Fixed
+
+- Persist explicit tag-color intent even when the chosen hue matches the legacy default. Add a reload regression and update browser geometry assertions for 40px controls.
+
 ## 0.11.0-beta.3.vorteo.404 - 2026-10-12
 
 ### Changed
