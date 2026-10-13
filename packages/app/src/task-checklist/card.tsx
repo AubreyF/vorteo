@@ -172,7 +172,7 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
           />
         ) : null}
         {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
             {error}
           </Text>
         ) : null}
@@ -293,7 +293,7 @@ function ChecklistRows({
         touchActivation="movement"
       />
       {reorderError ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
           {reorderError}
         </Text>
       ) : null}

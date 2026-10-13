@@ -122,13 +122,13 @@ function QueueViewContent({
           <QueueDeliveryError control={control} />
         ) : null}
         {edits.error ? (
-          <Text style={styles.error} accessibilityRole="alert">
+          <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
             {edits.error.message}
           </Text>
         ) : null}
         {control.error ? (
           <View style={styles.row}>
-            <Text style={styles.error} accessibilityRole="alert">
+            <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
               {control.error}
             </Text>
             <Button variant="ghost" size="sm" style={styles.inlineAction} onPress={control.refresh}>
@@ -307,7 +307,7 @@ function QueueRows({
         touchActivation="movement"
       />
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -353,7 +353,7 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   if (!snapshot?.deliveryError) return null;
   return (
     <View style={styles.row}>
-      <Text style={styles.error} accessibilityRole="alert">
+      <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
         {snapshot.deliveryError}
       </Text>
       {!isQueueGoalError(snapshot.deliveryError) ? (
@@ -432,18 +432,20 @@ function PendingRecovery({
   return (
     <View>
       {record.error && !record.dismissed ? (
-        <Text style={styles.secondary}>Could not synchronize</Text>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>Could not synchronize</Text>
       ) : null}
       {record.dismissed ? (
-        <Text style={styles.secondary}>Kept locally. This change will not be sent.</Text>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>
+          Kept locally. This change will not be sent.
+        </Text>
       ) : null}
       {record.error && !record.dismissed ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {record.error.message}
         </Text>
       ) : null}
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -506,7 +508,7 @@ function ReviewRejectedEdit({
           : "Review saved copy"}
       </Button>
       {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
@@ -613,20 +615,20 @@ function QueueRow({
         />
       ) : null}
       {item?.delivery.status === "dispatching" ? (
-        <Text style={styles.secondary}>Sending...</Text>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>Sending...</Text>
       ) : null}
       {item && "reason" in item.delivery ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {item.delivery.reason}
         </Text>
       ) : null}
       {item?.delivery.status === "uncertain" ? (
-        <Text style={styles.secondary}>
+        <Text style={[styles.secondary, taskCardStyles.proseInset]}>
           The host could not confirm delivery. Retrying may send this message again.
         </Text>
       ) : null}
       {editError ? (
-        <Text style={styles.error} accessibilityRole="alert">
+        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
           {editError}
         </Text>
       ) : null}

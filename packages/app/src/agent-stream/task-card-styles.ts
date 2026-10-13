@@ -5,6 +5,7 @@ import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/f
 export const TASK_CARD_ICON_CENTER = FLOATING_PANEL_CONTROL_HEIGHT / 2;
 export const TASK_CARD_TOUCH_ICON_CENTER = TASK_CARD_ICON_CENTER;
 
+export const TASK_CARD_BODY_INSET = 12;
 export const TASK_CARD_ROW_HEIGHT = 40;
 export const TASK_CARD_TOUCH_ROW_HEIGHT = 44;
 
@@ -20,7 +21,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     // TaskCard adds the shared width-adaptive inset around headers and body content.
     scrollContent: { minHeight: 0, flexShrink: 1 },
     bodyContent: {
-      paddingHorizontal: theme.spacing[3],
+      paddingHorizontal: TASK_CARD_BODY_INSET,
       paddingVertical: theme.spacing[1],
       gap: 2,
     },
@@ -28,6 +29,9 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     rowHandle: { width: 24, marginLeft: TASK_CARD_ICON_CENTER - 12, minHeight: 32 },
     touchRowHandle: { width: 32, marginLeft: TASK_CARD_ICON_CENTER - 16, minHeight: 44 },
     flushBody: { paddingHorizontal: 0 },
+    // Restore prose clearance inside flush list bodies without shifting their controls.
+    proseInset: { paddingHorizontal: TASK_CARD_BODY_INSET },
+    proseEndInset: { paddingRight: TASK_CARD_BODY_INSET },
     fixedHeader: { flexShrink: 0 },
     headerDivider: {
       position: "absolute",

@@ -4,6 +4,7 @@ import { StyleSheet } from "react-native-unistyles";
 import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
 import { useVortonTouch } from "@/vorton-touch";
 import {
+  taskCardStyles,
   TASK_CARD_ICON_CENTER,
   TASK_CARD_TOUCH_ICON_CENTER,
 } from "@/agent-stream/task-card-styles";
@@ -38,7 +39,10 @@ export function JournalRow({
     [entry.id, timestamps],
   );
   return (
-    <View testID={`journal-entry-${entry.id}`} style={[styles.row, touch && styles.touchRow]}>
+    <View
+      testID={`journal-entry-${entry.id}`}
+      style={[styles.row, taskCardStyles.proseEndInset, touch && styles.touchRow]}
+    >
       {!first ? (
         <View testID="journal-line-above" style={[styles.lineAbove, touch && styles.touchLine]} />
       ) : null}

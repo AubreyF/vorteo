@@ -17,6 +17,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
 import { useSessionStore } from "@/stores/session-store";
 import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { BrushCleaning, History } from "lucide-react-native";
@@ -139,7 +140,7 @@ function JournalContent({
         />
       </TaskCardHeader>
       {expanded && count === 0 ? (
-        <Text style={styles.empty}>
+        <Text style={[styles.empty, taskCardStyles.proseInset]}>
           Journal cleared on this device. New entries will appear here.
         </Text>
       ) : null}
@@ -179,7 +180,9 @@ function JournalSeenError({ failed, onRetry }: { failed: boolean; onRetry: () =>
   if (!failed) return null;
   return (
     <View style={styles.readError}>
-      <Text style={styles.empty}>Could not save or load seen entries on this device.</Text>
+      <Text style={[styles.empty, taskCardStyles.proseInset]}>
+        Could not save or load seen entries on this device.
+      </Text>
       <Button variant="ghost" size={touch ? "md" : "xs"} onPress={onRetry}>
         Retry
       </Button>

@@ -42,7 +42,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
-import { taskCardStyles } from "./task-card-styles";
+import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
 
 /** Bound the entire card, including its header, as the viewport resizes. */
 function TaskCardView({
@@ -186,7 +186,7 @@ function TaskCardView({
                   taskCardStyles.bodyContent,
                   flushBody && taskCardStyles.flushBody,
                   inlineUnistylesStyle({
-                    paddingHorizontal: (flushBody ? 0 : 12) + spacingInset,
+                    paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + spacingInset,
                     paddingVertical: 2,
                   }),
                 ]}
@@ -249,7 +249,7 @@ function ContentTaskCard({
           style={[
             taskCardStyles.bodyContent,
             inlineUnistylesStyle({
-              paddingHorizontal: (flushBody ? 0 : 12) + inset,
+              paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + inset,
               paddingVertical: 2,
             }),
             !bodyVisible && taskCardStyles.hiddenBody,
