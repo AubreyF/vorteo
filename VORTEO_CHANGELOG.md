@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.423 - 2026-10-13
+
+### Security
+
+- Update the compatible Concurrently dependency to 9.2.5, shell-quote to 1.12.0 and six tooling tar dependencies to 7.5.22. Add bounded argument-quoting and archive-extraction checks through their actual consumers. EAS CLI's separate tar dependency remains affected; this preparation does not update the installed application.
+
 ## 0.11.0-beta.3.vorteo.421 - 2026-10-13
 
 ### Security
