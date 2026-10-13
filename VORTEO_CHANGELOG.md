@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.420 - 2026-10-13
+
+### Security
+
+- Prompt embedded desktop sites for camera, microphone, location and notification access, with an optional remembered Allow or Block choice. Isolate choices by permission and site context; discard responses after navigation or reset. Add a Settings reset control that retains sign-ins, atomic local persistence and unit and real Electron coverage using synthetic media devices. Desktop delivery remains pending; the installed web interface is unchanged.
+
 ## 0.11.0-beta.3.vorteo.419 - 2026-10-13
 
 ### Security

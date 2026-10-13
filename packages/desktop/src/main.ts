@@ -51,6 +51,11 @@ import {
 } from "./features/notifications.js";
 import { createExternalUrlOpener } from "./features/opener.js";
 import { createBrowserCaptureService } from "./features/browser-capture.js";
+import {
+  createBrowserPermissionStore,
+  type BrowserPermissionStore,
+} from "./features/browser-permissions.js";
+import { installBrowserPermissionHandlers } from "./features/browser-permissions-electron.js";
 import { registerEditorTargetHandlers } from "./features/editor-targets/ipc.js";
 import { resolveAppIconPath } from "./features/stamped-icon.js";
 import { setupApplicationMenu } from "./features/menu.js";
@@ -516,9 +521,22 @@ handleDesktopCommand("paseo:browser:open-devtools", (event, browserId: unknown) 
   return result;
 });
 
+let browserPermissions: BrowserPermissionStore;
+
+handleDesktopCommand("paseo:browser:reset-permissions", async () => {
+  await browserPermissions.reset();
+  for (const guest of listPaseoBrowserProfileGuests({
+    profileSession: getPaseoBrowserProfileSession(session),
+    webContents: webContents.getAllWebContents(),
+  })) {
+    if (!guest.isDestroyed()) guest.reload();
+  }
+});
+
 handleDesktopCommand(
   "paseo:browser:clear-profile",
   async (_event, rawLegacyBrowserIds: unknown) => {
+    await browserPermissions.reset();
     const profileSessions = getPaseoBrowserProfileSessions(
       session,
       readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
@@ -938,6 +956,12 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.whenReady();
+
+  browserPermissions = await createBrowserPermissionStore(app.getPath("userData"));
+  installBrowserPermissionHandlers(
+    session.fromPartition(PASEO_BROWSER_PROFILE_PARTITION),
+    browserPermissions,
+  );
 
   const appDistDir = getAppDistDir();
   protocol.handle(APP_SCHEME, (request) => {
