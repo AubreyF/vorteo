@@ -13,7 +13,7 @@ import {
 const Down = withUnistyles(ChevronDown, (theme) => ({ color: theme.colors.foregroundMuted }));
 const Right = withUnistyles(ChevronRight, (theme) => ({ color: theme.colors.foregroundMuted }));
 
-/** Consistent disclosure order: title, arrow, then the optional count. */
+/** Counts stay at the trailing edge inside the complete heading hover target. */
 export function CardDisclosure({
   title,
   status,
@@ -23,7 +23,6 @@ export function CardDisclosure({
   testID,
   icon,
   trailing,
-  fullWidth = false,
 }: {
   title: string;
   status?: string;
@@ -33,7 +32,6 @@ export function CardDisclosure({
   testID: string;
   icon: ReactNode;
   trailing?: ReactNode;
-  fullWidth?: boolean;
 }) {
   const touch = useVortonTouch();
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
@@ -46,8 +44,6 @@ export function CardDisclosure({
         style={[
           taskCardStyles.accordionTrigger,
           styles.trigger,
-          expanded && styles.expandedTrigger,
-          expanded && fullWidth && styles.fullWidthExpandedTrigger,
           hovered && styles.hovered,
           touch && taskCardStyles.touchAccordionTrigger,
           touch && styles.touchTrigger,
@@ -76,8 +72,12 @@ export function CardDisclosure({
         <View testID={`${testID}-arrow`} style={styles.arrow}>
           {expanded ? <Down size={16} /> : <Right size={16} />}
         </View>
-        {count}
-        {trailing}
+        {count || trailing ? (
+          <View style={styles.metadata} testID={`${testID}-metadata`}>
+            {count}
+            {trailing}
+          </View>
+        ) : null}
       </Pressable>
     </View>
   );
@@ -109,13 +109,13 @@ const styles = StyleSheet.create((theme) => ({
     paddingRight: theme.spacing[2],
   },
   touchTrigger: { paddingLeft: TASK_CARD_TOUCH_ICON_CENTER - 10 },
-  // Match the card's outer corner without rounding back into the adjoining header/body.
-  expandedTrigger: {
-    borderTopRightRadius: 0,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+  metadata: {
+    marginLeft: "auto",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    flexShrink: 0,
   },
-  fullWidthExpandedTrigger: { borderTopRightRadius: FLOATING_PANEL_RADIUS },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),

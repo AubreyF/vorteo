@@ -94,7 +94,7 @@ async function expectJournalRowGeometry(row: Locator, width: number) {
     expect(rowGeometry.markerCenter).toBeCloseTo(rowGeometry.timestampCenter, 0);
     expect(rowGeometry.textTop - rowGeometry.timestampBottom).toBe(2);
     expect(rowGeometry.markerRight).toBeLessThan(rowGeometry.timestampLeft);
-    expect(rowGeometry.timestampInset).toBe(width === 390 ? 40 : 38);
+    expect(rowGeometry.timestampInset).toBe(40);
     expect(rowGeometry.textWidth).toBe(rowGeometry.rowWidth - rowGeometry.timestampInset);
     expect(rowGeometry.overflow).toBe(false);
   }).toPass({ timeout: 5000 });
@@ -624,7 +624,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const clearFinished = stack.getByTestId("subagents-track-archive-finished");
       await expect(clearFinished).toBeVisible();
       expect((await clearFinished.boundingBox())?.height).toBe(headerHeight);
-      expect(headerHeight).toBe(width === 390 ? 44 : 40);
+      expect(headerHeight).toBe(44);
       if (width === 1200) {
         await toggle.hover();
         expect((await toggle.boundingBox())?.height).toBe(headerHeight);
@@ -878,11 +878,23 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
         height: box.height,
       };
     });
-    expect(geometry.height, id).toBe(width === 390 ? 44 : 40);
+    expect(geometry.height, id).toBe(44);
     expect(geometry.leftInset, id).toBeCloseTo(1 + geometry.panelInset, 0);
     expect(geometry.iconInset, id).toBeCloseTo((geometry.height - 20) / 2, 0);
     expect(geometry.iconInset, id).toBeCloseTo(geometry.iconTopInset, 0);
     expect(geometry.rightGap, id).toBeLessThanOrEqual(8);
+    const metadata = toggle.getByTestId(`${id}-metadata`);
+    await expect(metadata).toBeVisible();
+    const metadataGap = await metadata.evaluate((node) => {
+      const heading = node.parentElement!.getBoundingClientRect();
+      const chip = node.getBoundingClientRect();
+      return heading.right - chip.right;
+    });
+    expect(metadataGap, id).toBeCloseTo(8, 0);
+    if (id === "agent-goal-toggle") {
+      await expect(toggle.getByTestId("agent-goal-elapsed")).toBeVisible();
+    }
+
     await toggle.hover({ position: { x: 4, y: geometry.height / 2 } });
     await expect
       .poll(() => toggle.evaluate((node) => getComputedStyle(node).backgroundColor))
@@ -890,11 +902,10 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     const color = await toggle.evaluate((node) => getComputedStyle(node).backgroundColor);
     highlight ??= color;
     expect(color, id).toBe(highlight);
-    const expanded = (await toggle.getAttribute("aria-expanded")) === "true";
-    await expect(toggle).toHaveCSS("border-top-right-radius", expanded ? "0px" : "16px");
-    await expect(toggle).toHaveCSS("border-bottom-left-radius", expanded ? "0px" : "16px");
+    await expect(toggle).toHaveCSS("border-top-right-radius", "16px");
+    await expect(toggle).toHaveCSS("border-bottom-left-radius", "16px");
     await expect(toggle).toHaveCSS("border-top-left-radius", "16px");
-    await expect(toggle).toHaveCSS("border-bottom-right-radius", expanded ? "0px" : "16px");
+    await expect(toggle).toHaveCSS("border-bottom-right-radius", "16px");
     await toggle.hover({
       position: { x: geometry.width - 4, y: geometry.height / 2 },
     });
@@ -917,7 +928,7 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
 }
 
 // Check every action in each rendered header so newly added controls inherit the contract.
-async function checkHeadingActions(root: Locator, width: number) {
+async function checkHeadingActions(root: Locator, _width: number) {
   const actions = await root
     .getByTestId(
       /^(agent-goal-bar|agent-task-progress-card|agent-journal-card|subagents-card|message-queue)-header$/,
@@ -940,7 +951,7 @@ async function checkHeadingActions(root: Locator, width: number) {
     );
   expect(actions.length).toBeGreaterThan(0);
   for (const action of actions) {
-    expect(action.height, action.id ?? "heading action").toBe(width === 390 ? 44 : 40);
+    expect(action.height, action.id ?? "heading action").toBe(44);
     expect(action.borderWidth).toBe("1px");
     expect(action.borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(action.borderColor).toBe(actions[0].borderColor);
@@ -949,7 +960,7 @@ async function checkHeadingActions(root: Locator, width: number) {
 }
 
 // Measure the rendered contract, not component-specific padding implementations.
-async function checkHeadingGeometry(stack: Locator, width: number) {
+async function checkHeadingGeometry(stack: Locator, _width: number) {
   const ids = [
     "subagents-card",
     "agent-task-progress-card",
@@ -998,7 +1009,7 @@ async function checkHeadingGeometry(stack: Locator, width: number) {
     ids,
   );
   for (const card of geometry) {
-    expect(card.height, card.id).toBe(width === 390 ? 44 : 40);
+    expect(card.height, card.id).toBe(44);
     expect(card.titleWidth, card.id).toBeGreaterThan(10);
     expect(card.iconX - card.panelInset, card.id).toBeCloseTo(
       geometry[0].iconX - geometry[0].panelInset,
@@ -2217,7 +2228,7 @@ test("quiet queue and subagent rows align with header actions without hover fill
       }
       const cardBox = (await card.boundingBox())!;
       const rowBox = (await row.boundingBox())!;
-      expect(rowBox.height).toBe(width > 600 ? 40 : 44);
+      expect(rowBox.height).toBe(44);
       const headingBox = (await card.getByTestId("subagents-group-paseo-toggle").boundingBox())!;
       expect(rowBox.y - headingBox.y - headingBox.height).toBeLessThanOrEqual(
         expectedHeaderInset(cardBox.width) + 3,

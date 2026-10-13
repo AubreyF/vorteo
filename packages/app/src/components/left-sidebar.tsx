@@ -71,7 +71,11 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { Button } from "@/components/ui/button";
 import { CompactProjectRail } from "./sidebar/compact-project-rail";
-import { FLOATING_PANEL_RADIUS, floatingPanelStyles } from "@/styles/floating-panel";
+import {
+  FLOATING_PANEL_RADIUS,
+  FLOATING_PANEL_CONTROL_HEIGHT,
+  floatingPanelStyles,
+} from "@/styles/floating-panel";
 import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
@@ -85,7 +89,6 @@ import { SidebarSeparator, SidebarInsetContext } from "@/components/sidebar/side
 import { SidebarNavRows } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
-import { buttonControlHeight } from "@/components/ui/control-geometry";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HEADER_INNER_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
@@ -374,11 +377,11 @@ function FooterIconButton({
   const iconSize = isCompact ? theme.iconSize.xl : theme.iconSize.md;
   const buttonStyle = useCallback(
     ({ hovered }: { hovered?: boolean }) => [
-      styles.footerIconButton(isCompact),
+      styles.footerIconButton,
       (touch || rail) && styles.touchIconButton,
       (active || hovered) && styles.activeIconButton,
     ],
-    [isCompact, touch, rail, active],
+    [touch, rail, active],
   );
 
   return (
@@ -536,7 +539,7 @@ function SidebarToolbar({
   } = sidebarNavigationVisibility(width, rail);
   const moreStyle = useCallback(
     ({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) => [
-      styles.footerIconButton(false),
+      styles.footerIconButton,
       (touch || rail) && styles.touchIconButton,
       (hovered || pressed) && styles.activeIconButton,
     ],
@@ -688,7 +691,7 @@ function SidebarToolbar({
           <SidebarMenuToggle
             insideSidebar
             testID="sidebar-collapse"
-            style={[styles.footerIconButton(false), touch && styles.touchIconButton]}
+            style={[styles.footerIconButton, touch && styles.touchIconButton]}
           />
         )}
         <FooterIconButton
@@ -1284,7 +1287,7 @@ const styles = StyleSheet.create((theme) => ({
   sidebarToolbar: {
     paddingHorizontal: 0,
     gap: theme.spacing[2],
-    height: 40,
+    height: FLOATING_PANEL_CONTROL_HEIGHT,
     paddingTop: 0,
     paddingBottom: 0,
     borderTopWidth: 0,
@@ -1325,15 +1328,15 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[1.5],
     gap: 2,
   },
-  footerIconButton: (isCompact: boolean) => ({
+  footerIconButton: {
     borderRadius: FLOATING_PANEL_RADIUS,
-    width: isCompact ? buttonControlHeight.md : 40,
-    height: isCompact ? buttonControlHeight.md : 40,
+    width: FLOATING_PANEL_CONTROL_HEIGHT,
+    height: FLOATING_PANEL_CONTROL_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: theme.spacing[1],
     paddingHorizontal: theme.spacing[1],
-  }),
+  },
   touchIconButton: { width: 44, height: 44 },
   activeIconButton: {
     backgroundColor: theme.colors.interactionHighlight,

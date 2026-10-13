@@ -37,7 +37,6 @@ export function InlineFilesCard({
           expanded={expanded}
           onPress={toggle}
           icon={icon}
-          fullWidth
           testID="supporting-card-files-toggle"
         />
       </TaskCardHeader>

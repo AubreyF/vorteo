@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Sidebar card headings use fixed 44px controls and 16px rounding on all four hover corners in every spacing tier and input mode. Count chips and goal elapsed time sit at the right inside the heading disclosure, before separate action buttons, so the heading hover and click target includes them. The left navigation toolbar uses the same control height and keeps its leading icon aligned with project icons. README overview and onboarding are unchanged.
+
 General settings expansions use a shared shaded region within their parent section. Coordinator history, restart history, shared workflows, recovery details and request details have no internal section dividers; nested expansions use a second surface shade. Historical restart links reveal the containing history without moving the request into the active list. This changes presentation only; lifecycle approval requirements remain unchanged. README overview and onboarding are unchanged.
 
 Queue rows use their action height without extra vertical padding. Sidebar action tooltips are hover-only; touch activates their menus directly. Browser checks cover heading clearance, sidebar icon alignment, action hover feedback, both row-menu tooltips and conditional Settings placement. README overview and onboarding are unchanged.

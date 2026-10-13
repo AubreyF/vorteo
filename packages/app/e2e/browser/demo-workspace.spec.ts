@@ -1221,7 +1221,7 @@ test("tabs retain Latest geometry while toolbar keeps equal outer margins", asyn
         const right = document.querySelector('[data-testid="workspace-shared-toolbar"]')!;
         const rightBox = right.getBoundingClientRect();
         result.push([
-          left.getBoundingClientRect().height - 40,
+          left.getBoundingClientRect().height - 44,
           tabNode.getBoundingClientRect().height - 44,
           rightBox.top - (window.innerWidth - rightBox.right),
         ]);
@@ -1256,8 +1256,8 @@ test("sidebar controls align with project icons and expose hover and menu feedba
     await page.mouse.down();
     await page.mouse.move(grip.x + grip.width / 2 + width - before.width, grip.y + grip.height / 2);
     await page.mouse.up();
-    await expect(collapse).toHaveCSS("width", "40px");
-    await expect(collapse).toHaveCSS("height", "40px");
+    await expect(collapse).toHaveCSS("width", "44px");
+    await expect(collapse).toHaveCSS("height", "44px");
     const project = sidebar.locator('[data-testid^="sidebar-project-row-"]').first();
     const icon = project
       .locator('[data-testid="project-icon-only"], [data-testid^="project-status-indicator-"]')

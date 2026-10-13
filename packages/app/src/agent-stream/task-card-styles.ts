@@ -1,9 +1,9 @@
 import { StyleSheet } from "react-native-unistyles";
-import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
+import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/floating-panel";
 
 // Shared leading centerline for heading icons, row handles and journal markers.
-export const TASK_CARD_ICON_CENTER = 20;
-export const TASK_CARD_TOUCH_ICON_CENTER = 22;
+export const TASK_CARD_ICON_CENTER = FLOATING_PANEL_CONTROL_HEIGHT / 2;
+export const TASK_CARD_TOUCH_ICON_CENTER = TASK_CARD_ICON_CENTER;
 
 export const TASK_CARD_ROW_HEIGHT = 40;
 export const TASK_CARD_TOUCH_ROW_HEIGHT = 44;
@@ -45,7 +45,13 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     separator: { borderTopWidth: theme.borderWidth[1], borderTopColor: theme.colors.divider },
     rowText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
     actions: { flexDirection: "row", alignItems: "center", gap: 0, flexShrink: 0 },
-    headingAction: { borderRadius: FLOATING_PANEL_RADIUS, flexShrink: 0 },
+    headingAction: {
+      borderRadius: FLOATING_PANEL_RADIUS,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
+      minHeight: FLOATING_PANEL_CONTROL_HEIGHT,
+      paddingVertical: 0,
+      flexShrink: 0,
+    },
     headingInfoText: {
       color: theme.colors.foreground,
       fontSize: theme.fontSize.base,
@@ -55,9 +61,9 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     headingActionText: { fontSize: theme.fontSize.sm },
     actionInset: { paddingRight: theme.spacing[1] },
     iconAction: {
-      width: 40,
-      height: 40,
-      minHeight: 40,
+      width: FLOATING_PANEL_CONTROL_HEIGHT,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
+      minHeight: FLOATING_PANEL_CONTROL_HEIGHT,
       paddingHorizontal: 0,
       paddingVertical: 0,
       borderRadius: FLOATING_PANEL_RADIUS,
@@ -66,7 +72,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     header: {
       flexDirection: "row",
       alignItems: "center",
-      height: 40,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
       gap: 0,
       flexShrink: 0,
     },
@@ -77,7 +83,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     accordionTrigger: {
       flex: 1,
       minWidth: 0,
-      height: 40,
+      height: FLOATING_PANEL_CONTROL_HEIGHT,
       flexDirection: "row",
       alignItems: "center",
       gap: theme.spacing[2],

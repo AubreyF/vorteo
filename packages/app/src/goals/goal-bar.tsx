@@ -1,3 +1,4 @@
+import { CountBadge } from "@/components/ui/count-badge";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
@@ -43,6 +44,18 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
     ),
     [expanded, notice, onExpand, onReviewMessages],
   );
+  const hasGoal = !!control.state?.goal;
+  const elapsedBadge = useMemo(
+    () =>
+      hasGoal ? (
+        <CountBadge
+          label={formatGoalElapsed(elapsed)}
+          accessibilityLabel={`Goal elapsed time: ${formatGoalElapsed(elapsed)}`}
+          testID="agent-goal-elapsed"
+        />
+      ) : null,
+    [hasGoal, elapsed],
+  );
   if (!control.supported) return null;
   const goal = control.state?.goal;
   if (!goal && !control.error && !queueNotice) return null;
@@ -58,22 +71,13 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
           status={goalNoticeStatus(notice)}
           expanded={expanded}
           onPress={toggleExpanded}
+          count={elapsedBadge}
           testID="agent-goal-toggle"
         />
-        {goal && !compact ? (
-          <Text
-            style={[styles.elapsed, styles.headerElapsed]}
-            numberOfLines={1}
-            accessibilityLabel={`Goal elapsed time: ${formatGoalElapsed(elapsed)}`}
-          >
-            {formatGoalElapsed(elapsed)}
-          </Text>
-        ) : null}
         <GoalActions control={control} onExpand={onExpand} compact={compact} />
       </TaskCardHeader>
 
       <CollapsibleCardBody expanded={expanded} testID="agent-goal-body">
-        {goal && compact ? <Text style={styles.elapsed}>{formatGoalElapsed(elapsed)}</Text> : null}
         {goal && !paused ? (
           <Text style={styles.help}>
             Pause goal prevents the goal from continuing automatically.
@@ -219,12 +223,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
   },
-  elapsed: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    fontVariant: ["tabular-nums"],
-  },
-  headerElapsed: { marginRight: theme.spacing[2] },
   touch: { minWidth: 44, minHeight: 44 },
   errorRow: { alignItems: "flex-start", gap: theme.spacing[1] },
   notice: { paddingHorizontal: 12, paddingBottom: 4 },

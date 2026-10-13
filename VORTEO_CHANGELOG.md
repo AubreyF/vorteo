@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.452 - 2026-10-13
+
+### Appearance
+
+- Give sidebar card heading buttons a fixed 44px height and the containing card's 16px radius on all four corners, whether expanded or collapsed.
+- Align count chips at the right inside each heading's hover target. Show goal elapsed time in the same chip on desktop and mobile.
+- Preserve the shared icon centerline for sidebar projects, journal markers and row handles; validate heading geometry and chip alignment in browser checks.
+
 ## 0.11.0-beta.3.vorteo.451 - 2026-10-13
 
 ### Appearance

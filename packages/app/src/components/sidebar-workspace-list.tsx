@@ -2839,7 +2839,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
-    paddingLeft: 12,
+    paddingLeft: 14,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",
