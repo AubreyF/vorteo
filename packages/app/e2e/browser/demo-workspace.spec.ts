@@ -1258,7 +1258,9 @@ test("sidebar controls align with project icons and expose hover and menu feedba
     await page.mouse.up();
     await expect(collapse).toHaveCSS("width", "44px");
     await expect(collapse).toHaveCSS("height", "44px");
-    const toolbarButtons = page.getByTestId("sidebar-toolbar").getByRole("button");
+    const toolbarButtons = page
+      .getByTestId("sidebar-toolbar")
+      .getByTestId(/^sidebar-(collapse|search|sessions|schedules|settings|footer-overflow)$/);
     const targets = await toolbarButtons.evaluateAll((buttons) =>
       buttons
         .map((button) => {
