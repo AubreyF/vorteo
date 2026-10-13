@@ -1239,3 +1239,31 @@ test("tab and toolbar centerlines share every sidebar spacing animation frame", 
       for (const offset of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.6);
   }
 });
+
+test("composer and sidebar frames share the same outer inset", async ({ page }, info) => {
+  for (const width of [1800, 1200]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/?demo=1");
+    await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+    const sidebar = page.getByTestId("floating-sidebar");
+    const cards = page.getByTestId("workspace-supporting-cards");
+    if (!(await cards.isVisible())) await page.getByTestId("workspace-explorer-toggle").click();
+    const composer = page.getByTestId("message-input-surface").filter({ visible: true });
+    await expect(composer).toBeVisible();
+    await expect
+      .poll(async () => {
+        const left = (await sidebar.boundingBox())!;
+        const right = (await cards.boundingBox())!;
+        const message = (await composer.boundingBox())!;
+        return {
+          leftInset: left.x,
+          leftBottom: 1000 - left.y - left.height,
+          rightInset: width - right.x - right.width,
+          rightBottom: 1000 - right.y - right.height,
+          composerBottom: 1000 - message.y - message.height,
+        };
+      })
+      .toEqual({ leftInset: 8, leftBottom: 8, rightInset: 8, rightBottom: 8, composerBottom: 8 });
+    await page.screenshot({ path: info.outputPath(`outer-spacing-${width}.png`) });
+  }
+});

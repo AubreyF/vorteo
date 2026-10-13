@@ -515,3 +515,5 @@ Left project and status lists inherit the panel inset without an extra fixed hor
 The sidebar toggle has two desktop states: the saved normal width and compact icon rail. Dragging remains continuous with snapping near the rail. Below the existing 720px viewport breakpoint, touch and pointer devices both use the top-toolbar button and full mobile overlay; the old intermediate-width preference is ignored.
 
 Host unavailability and sidebar sync failures appear in the left sidebar footer beside maintenance status. The whole tile retries sidebar synchronization; the compact rail retains an icon and explanatory tooltip. These notices no longer use a floating red toast.
+
+Desktop composer outer padding uses the same 8px inset as the floating sidebar frames, keeping their bottom edges aligned. Mobile keyboard and safe-area spacing remain independently handled.

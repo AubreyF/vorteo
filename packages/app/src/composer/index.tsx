@@ -1,3 +1,4 @@
+import { FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import { StreamColumnWidthContext } from "@/agent-stream/columns/layout";
 import { KeyboardTranslateView } from "@/keyboard/shift";
 import { ProfilePermissionWarning } from "@/agent-profiles/permission-warning";
@@ -2546,8 +2547,8 @@ const styles = StyleSheet.create((theme: Theme) => ({
     alignItems: "center",
     width: "100%",
     overflow: "visible",
-    paddingHorizontal: theme.spacing[4],
-    paddingBottom: theme.spacing[4],
+    paddingHorizontal: FLOATING_PANEL_INSET,
+    paddingBottom: FLOATING_PANEL_INSET,
   },
   columnInputArea: { paddingHorizontal: theme.spacing[2] },
   columnInputContent: { maxWidth: "100%" },
