@@ -683,4 +683,4 @@ The left sidebar toolbar reserves 4px below its controls before the full-width d
 
 The early loading emblem has no visible caption. A thin conic-gradient sweep fades behind its bright leading edge around the stationary V; an accessible progress label and delayed recovery help remain available.
 
-Column resize checks follow the aligned composer/card bottoms and locate the explorer toggle in the shared toolbar. This is test maintenance; README scope is unchanged.
+Checklist browser checks reveal supporting cards after reload before inspecting persisted progress and controls. Column resize checks follow the aligned composer/card bottoms and locate the explorer toggle in the shared toolbar. This is test maintenance; README scope is unchanged.

@@ -1426,6 +1426,7 @@ for (const width of [1400, 390]) {
       await expect(spinner).not.toBeAttached();
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 1");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(firstRow.getByText("Blocked", { exact: true })).toBeVisible();
       const blockedControl = firstRow.getByRole("checkbox");
       const blockedIcon = blockedControl.locator("svg");
@@ -1555,6 +1556,7 @@ for (const width of [1400, 390]) {
         .click();
       await expect(page.getByTestId("checklist-count")).toHaveText("1 / 2");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(
         page.getByTestId("agent-task-progress-card").getByRole("checkbox", {
           name: "Complete Agent revision",
@@ -1691,6 +1693,7 @@ for (const width of [1400, 390]) {
       expect(remaining[0].blockedBy).toEqual([]);
       expect(remaining[1].status).toBe("in_progress");
       await page.reload();
+      await revealSupportingCards(page, width);
       await expect(page.getByTestId("checklist-count")).toHaveText("0 / 2");
       await client.mutateAgentChecklist(agent.agentId, {
         operation: "delete",
