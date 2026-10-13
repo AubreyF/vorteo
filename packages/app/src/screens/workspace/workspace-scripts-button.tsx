@@ -534,6 +534,78 @@ function ScriptRow({
   );
 }
 
+function SingleScriptButton({
+  script,
+  activeConnection,
+  preferredRouteKind,
+  liveTerminalIdSet,
+  onStartScript,
+  onViewTerminal,
+  onOpenUrlInBrowserTab,
+  pending,
+}: Pick<
+  ScriptRowProps,
+  | "script"
+  | "activeConnection"
+  | "preferredRouteKind"
+  | "liveTerminalIdSet"
+  | "onStartScript"
+  | "onViewTerminal"
+  | "onOpenUrlInBrowserTab"
+> & { pending: boolean }) {
+  const { t } = useTranslation();
+  const running = script.lifecycle === "running";
+  const links = resolveWorkspaceScriptLink({ script, activeConnection });
+  const link = links.targets.find((target) => target.kind === preferredRouteKind) ?? links.primary;
+  const terminalId =
+    script.terminalId && liveTerminalIdSet.has(script.terminalId) ? script.terminalId : null;
+  let labelKey = "workspace.scripts.accessibility.runScript" as
+    | "workspace.scripts.accessibility.runScript"
+    | "workspace.scripts.accessibility.openService"
+    | "workspace.scripts.accessibility.viewTerminal";
+  if (running)
+    labelKey = link
+      ? "workspace.scripts.accessibility.openService"
+      : "workspace.scripts.accessibility.viewTerminal";
+  const label = t(labelKey, { scriptName: script.scriptName });
+  const handlePress = useCallback(() => {
+    if (!running) onStartScript(script.scriptName);
+    else if (link) void openServiceUrl(link.url, { openInApp: onOpenUrlInBrowserTab });
+    else if (terminalId) onViewTerminal?.(terminalId);
+  }, [
+    running,
+    script.scriptName,
+    link,
+    terminalId,
+    onStartScript,
+    onOpenUrlInBrowserTab,
+    onViewTerminal,
+  ]);
+  return (
+    <Tooltip enabledOnDesktop enabledOnMobile>
+      <TooltipTrigger asChild>
+        <Pressable
+          testID="workspace-scripts-button"
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          disabled={pending || (running && !link && !terminalId)}
+          onPress={handlePress}
+          style={styles.singleButton}
+        >
+          <ThemedPlay
+            size={18}
+            uniProps={running ? blueColorMapping : mutedColorMapping}
+            {...playFillTransparent}
+          />
+        </Pressable>
+      </TooltipTrigger>
+      <TooltipContent>
+        <Text style={styles.tooltipText}>{label}</Text>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function WorkspaceScriptsButton({
   serverId,
   workspaceId,
@@ -699,6 +771,19 @@ export function WorkspaceScriptsButton({
     </>
   );
   if (presentation === "menu") return scriptRows;
+  if (scripts.length === 1 && presentation === "split")
+    return (
+      <SingleScriptButton
+        script={scripts[0]}
+        activeConnection={activeConnection}
+        preferredRouteKind={preferredRouteKind}
+        liveTerminalIdSet={liveTerminalIdSet}
+        onStartScript={handleStartScript}
+        onViewTerminal={onViewTerminal}
+        onOpenUrlInBrowserTab={onOpenUrlInBrowserTab}
+        pending={startScriptMutation.isPending}
+      />
+    );
 
   return (
     <View style={styles.row}>
@@ -739,6 +824,15 @@ export function WorkspaceScriptsButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  singleButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.borderAccent,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

@@ -529,3 +529,5 @@ Mobile card geometry checks include the inline Files card when measuring adjacen
 Mobile menu pages add eight pixels of horizontal breathing room around their shared rows, labels and custom contents, including nested pages. Internal card and menu dividers use a separate color at 55 percent of the outer border opacity across themes; rules remain full width.
 
 Shared screen titles use the extra-large typography token (18px at default scaling) for clearer Schedules, History and related page headings.
+
+Workspace menu and explorer controls have 40px minimum targets. A single script gets a direct start or preview action; its management controls remain in the workspace menu. Multiple scripts retain the chooser.

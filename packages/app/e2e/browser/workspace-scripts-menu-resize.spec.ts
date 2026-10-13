@@ -20,6 +20,7 @@ test("scripts menu resizes when a service row grows after launch", async ({ page
         setup: ["sh -c 'echo setup complete'"],
       },
       scripts: {
+        build: { type: "script", command: "echo built" },
         web: {
           type: "service",
           command:
@@ -48,6 +49,12 @@ test("scripts menu resizes when a service row grows after launch", async ({ page
       await page.getByTestId("workspace-explorer-toggle").click();
     await expect(toolbar.getByTestId("workspace-scripts-button")).toBeVisible();
     const toggle = toolbar.getByTestId("workspace-explorer-toggle");
+    const menuTrigger = toolbar.getByTestId("workspace-header-menu-trigger");
+    for (const target of [toggle, menuTrigger]) {
+      const bounds = (await target.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(40);
+      expect(bounds.height).toBeGreaterThanOrEqual(40);
+    }
     const toggleBounds = (await toggle.boundingBox())!;
     const scriptsBounds = (await toolbar.getByTestId("workspace-scripts-button").boundingBox())!;
     expect(scriptsBounds.x + scriptsBounds.width).toBeLessThanOrEqual(toggleBounds.x);

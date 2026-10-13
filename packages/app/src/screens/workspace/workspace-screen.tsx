@@ -3797,9 +3797,30 @@ function WorkspaceScreenContent({
       <WorkspaceHeaderMenuDesktop
         normalizedServerId={normalizedServerId}
         normalizedWorkspaceId={normalizedWorkspaceId}
-      />
+      >
+        {workspaceDescriptor?.scripts.length === 1 ? (
+          <WorkspaceScriptsButton
+            serverId={normalizedServerId}
+            workspaceId={normalizedWorkspaceId}
+            scripts={workspaceDescriptor.scripts}
+            liveTerminalIds={liveTerminalIds}
+            onScriptTerminalStarted={handleScriptTerminalStarted}
+            onViewTerminal={handleViewScriptTerminal}
+            onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}
+            presentation="menu"
+          />
+        ) : null}
+      </WorkspaceHeaderMenuDesktop>
     ),
-    [normalizedServerId, normalizedWorkspaceId],
+    [
+      normalizedServerId,
+      normalizedWorkspaceId,
+      workspaceDescriptor,
+      liveTerminalIds,
+      handleScriptTerminalStarted,
+      handleViewScriptTerminal,
+      handleOpenUrlInBrowserTab,
+    ],
   );
 
   const desktopToolbarActions = useMemo(

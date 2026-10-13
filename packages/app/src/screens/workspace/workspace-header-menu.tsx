@@ -217,6 +217,8 @@ function WorkspaceHeaderActionsMenuLoaded({
   );
 }
 
+const workspaceMenuTarget = { minWidth: 40, minHeight: 40 };
+
 function workspaceHeaderMenuButtonStyle({
   hovered,
   pressed,
@@ -226,13 +228,18 @@ function workspaceHeaderMenuButtonStyle({
   pressed: boolean;
   open: boolean;
 }) {
-  return iconButtonChromeStyle({ size: "large", state: { hovered, pressed, open } });
+  return [
+    iconButtonChromeStyle({ size: "large", state: { hovered, pressed, open } }),
+    workspaceMenuTarget,
+  ];
 }
 
 /**
  * Wide layouts make tabs from the tab strip's `+` menu, so this one carries workspace actions only.
  */
-export function WorkspaceHeaderMenuDesktop(props: WorkspaceHeaderWorkspaceActions) {
+export function WorkspaceHeaderMenuDesktop(
+  props: WorkspaceHeaderWorkspaceActions & { children?: ReactNode },
+) {
   return <WorkspaceHeaderActionsMenu {...props} />;
 }
 

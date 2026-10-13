@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/icon-button-chrome";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 
+const desktopTarget = { minWidth: 40, minHeight: 40 };
+
 const ThemedPanelRight = withUnistyles(PanelRight);
 
 interface WorkspaceExplorerToggleProps {
@@ -50,7 +52,7 @@ export function WorkspaceExplorerToggle({
       tooltipLabel={tooltipLabel}
       tooltipKeys={tooltipKeys}
       tooltipSide="left"
-      style={style}
+      style={[style, desktopTarget]}
       accessible
       accessibilityRole="button"
       accessibilityLabel={label}
