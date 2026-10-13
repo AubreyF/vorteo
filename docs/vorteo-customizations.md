@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Assistant message rows share fixed completed and streaming Markdown parsers so virtualization does not repeatedly compile linkifier rules. Each parse still receives fresh document state; reference isolation, streaming formatting and unsafe-link rejection have focused coverage. README scope is unchanged.
+
 Timeline scroll checks follow the bottom edge of an image that shrinks across the reading line after loading, where the following text begins. Regression cases still reject text movement in either direction. This measurement correction does not change runtime scrolling or README scope.
 
 Integration review (2026-10-12): queueing, image downloads and icon rollback preserve the published question-card and usage-label behavior. Fixed-header tests exclude natural-height questions; page-scroll submission coverage remains. README scope is unchanged.

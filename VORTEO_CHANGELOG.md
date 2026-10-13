@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.416 - 2026-10-13
+
+### Changed
+
+- Reuse assistant Markdown parser rules across virtualized message rows, avoiding repeated linkifier compilation during scrolling. Keep completed and streaming parsers separate, with document references isolated between parses.
+
 ## 0.11.0-beta.3.vorteo.415 - 2026-10-13
 
 ### Maintenance

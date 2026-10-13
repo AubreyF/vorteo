@@ -1506,6 +1506,11 @@ function MarkdownListView({
   );
 }
 
+// Virtualized rows remount while scrolling. Parser rules are fixed, and each
+// parse owns its document state, so reuse the compiled linkifier across rows.
+const assistantMarkdownParser = createAssistantMarkdownParser();
+const streamingAssistantMarkdownParser = createAssistantMarkdownParser({ streaming: true });
+
 export const AssistantMessage = memo(function AssistantMessage({
   renderFullContent = false,
   occurrenceKey,
@@ -1518,11 +1523,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   phase,
 }: AssistantMessageProps) {
   const { t } = useTranslation();
-  const markdownParser = useMemo(createAssistantMarkdownParser, []);
-  const streamingMarkdownParser = useMemo(
-    () => createAssistantMarkdownParser({ streaming: true }),
-    [],
-  );
+  const markdownParser = assistantMarkdownParser;
+  const streamingMarkdownParser = streamingAssistantMarkdownParser;
   const renderedMessage = useMemo(
     () =>
       renderFullContent ? { text: message, capped: false } : capAssistantMessageForRender(message),
