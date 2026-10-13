@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Miniflare-scoped overrides select Undici 7.30.0 and Sharp 0.35.5 because the reviewed upstream releases still pin affected versions. Keep these overrides until a validated Miniflare update supplies patched dependencies itself. All three consumers pass local worker and image checks on macOS, including SVG conversion and malformed metadata rejection; the website production build passes. The actual Sharp binary reports librsvg 2.63.2. These are development-tool fixes, not proof of a deployed Images binding or cross-platform validation. README overview and onboarding are unchanged.
+
 Expo CLI resolves Undici 6.29.0 within its declared range, and wait-on resolves Axios 1.20.0 with compatible transport dependencies. Loopback tests cover JSON fetching, HEAD and GET readiness, unavailable resources, and safe failure on an unrequested WebSocket subprotocol. The old Expo dependency crashes the isolated worker on that handshake. This tooling finding does not establish a production application WebSocket path. Miniflare's exact Undici pins remain separate; README overview and onboarding are unchanged.
 
 Diagram viewport controls stay visible on touch and compact layouts, using 44-pixel targets. Empty overlay space passes input to the canvas; visible controls retain their own hit targets. Production validation found the former invisible overlay blocking touches. A browser regression opens and closes fullscreen directly by touch, without hover or a preliminary canvas tap. README overview and onboarding are unchanged.
