@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.439 - 2026-10-13
+
+### Security
+
+- Refresh compatible file-pattern dependencies. Focused checks cover inherited POSIX class names, bounded brace expansion, file discovery, exclusions and hidden files. EAS's pinned matcher and the separate Braces dependency remain under review. These source changes do not update installed services.
+
 ## 0.11.0-beta.3.vorteo.438 - 2026-10-13
 
 ### Security
