@@ -533,3 +533,5 @@ Shared screen titles use the extra-large typography token (18px at default scali
 Workspace menu and explorer controls have 40px minimum targets. A single script gets a direct start or preview action; its management controls remain in the workspace menu. Multiple scripts retain the chooser.
 
 The split-pane overflow menu shares the larger target and includes single-script management alongside workspace actions.
+
+Web views restore their shared CSS if the last mounted owner released it while a replacement view was still pending. Restoration preserves theme updates and normal cleanup, so delayed labels do not fall back to browser black. Browser coverage exercises the style lifecycle and the Latest control across all six palettes and desktop and compact widths.

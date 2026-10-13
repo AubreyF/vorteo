@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.397 - 2026-10-12
+
+### Fixed
+
+- Restore shared styles when a pending view attaches after its CSS rule was released, preventing labels from falling back to black. Preserve theme subscriptions and normal rule cleanup across the interface.
+
 ## 0.11.0-beta.3.vorteo.396 - 2026-10-12
 
 ### Fixed

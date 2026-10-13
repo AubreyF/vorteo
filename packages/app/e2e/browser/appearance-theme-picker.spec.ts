@@ -1,3 +1,10 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import {
+  seedLongMockAgentTimeline,
+  openAgentTimeline,
+  scrollTimelineToOldestLoadedEdge,
+} from "../support/helpers/timeline-pagination";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -393,4 +400,68 @@ test("keeps System appearance available without plugin themes", async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.getByTestId("theme-preview-ember").click();
   await expect(page.getByRole("button", { name: "Theme: Ember", exact: true })).toBeVisible();
+});
+
+test("keeps shared button labels themed across palette changes", async ({ page }, info) => {
+  const agent = await seedLongMockAgentTimeline({ turns: 16 });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "button-colors" });
+  try {
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "pause",
+      paused: true,
+      expectedRevision: 0,
+      operationId: "pause-colors",
+    });
+    await client.mutateMessageQueue(agent.agentId, {
+      kind: "enqueue",
+      operationId: "enqueue-colors",
+      messageId: "color-message",
+      text: "Queued appearance check",
+      attachments: [],
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openAgentTimeline(page, agent);
+    const setupNotice = page
+      .getByTestId("installation-update-toasts")
+      .filter({ hasText: "Set up worktree scripts" });
+    if (await setupNotice.isVisible())
+      await setupNotice.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await scrollTimelineToOldestLoadedEdge(page);
+    const latest = page.getByTestId("scroll-to-bottom-button");
+    await expect(latest).toBeVisible();
+    for (const theme of [
+      "starship-dark",
+      "starship-light",
+      "scriptorium",
+      "midas",
+      "ember",
+      "neon",
+      "starship-dark",
+    ]) {
+      await page.getByTestId("sidebar-footer-overflow").click();
+      await page.getByTestId(`theme-preview-${theme}`).click();
+      await page.mouse.move(900, 400);
+      const backdrop = page.getByRole("button", { name: "Menu backdrop", exact: true });
+      if (await backdrop.isVisible()) await backdrop.click({ position: { x: 900, y: 400 } });
+      await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
+      for (const width of [1440, 390, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await scrollTimelineToOldestLoadedEdge(page);
+        await expect(latest).toBeVisible();
+        await latest.hover();
+        await page.mouse.move(900, 400);
+        const expectedColor = await latest
+          .locator("svg")
+          .evaluate((el) => getComputedStyle(el).stroke);
+        await expect(latest.getByText("Latest", { exact: true })).toHaveCSS("color", expectedColor);
+        await latest.click();
+        await expect(latest).toBeHidden();
+      }
+    }
+    await scrollTimelineToOldestLoadedEdge(page);
+    await page.screenshot({ path: info.outputPath("latest.png") });
+  } finally {
+    await client.close();
+    await agent.cleanup();
+  }
 });

@@ -405,3 +405,7 @@ The welcome-screen investigation used this approach to prove the white layer was
 - [GitHub issue #550: ScrollView sticky-header theme updates](https://github.com/jpudysz/react-native-unistyles/issues/550)
 - [GitHub issue #817: `UnistylesRuntime.themeName` does not re-render](https://github.com/jpudysz/react-native-unistyles/issues/817)
 - [GitHub issue #1030: `Image.tintColor` and native style update edge case](https://github.com/jpudysz/react-native-unistyles/issues/1030)
+
+## Pending view attachment
+
+The maintained web patch restores a missing CSS rule when a view attaches. Class creation happens during render, while the last committed owner can unmount before a pending replacement commits. Cleanup can therefore release a rule that the replacement already references, leaving text at the browser's default black. The attachment callback rebuilds missing styles, updates the affected class when theme values changed, and registers the restored rule for normal cleanup. An old cleanup callback must only dispose its own theme listener, never a replacement listener registered in the meantime.
