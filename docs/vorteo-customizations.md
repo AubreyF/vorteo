@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-12): the sidebar toolbar has a 2px right inset; workspace rows use 6px in project groups and 10px in status groups. The desktop overflow glyph and final workspace indicator share a centerline. Project add buttons retain their current placement. README scope is unchanged.
+
 Maintenance review (2026-10-12): card disclosures, shared header icon controls and sidebar controls use the outer 16px card radius. Expanded disclosures retain their square adjoining edges; full-width headings retain both upper corners. README scope is unchanged.
 
 Maintenance review (2026-10-12): desktop sidebar padding, tab heights, shared toolbar height and supporting-card header clearance use one spacing animation. The shared 180ms cubic ease-out preserves matching centerlines through all three tiers and interrupted resizing. The sidebar divider remains an overlay without a spare transparent border consuming height. README scope is unchanged.

@@ -1232,6 +1232,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   themeMenu: { paddingHorizontal: 16, paddingVertical: 8 },
   sidebarToolbar: {
+    paddingRight: 2,
     gap: theme.spacing[2],
     height: VORTON_HEADER_HEIGHT,
     paddingTop: 0,
