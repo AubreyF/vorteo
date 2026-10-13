@@ -48,9 +48,9 @@ export interface DesktopSidebarState {
 export type SortOption = "name" | "modified" | "size";
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
-export const MIN_SIDEBAR_WIDTH = 48;
+export const MIN_SIDEBAR_WIDTH = 56;
 export const MAX_SIDEBAR_WIDTH = 600;
-export const COMPACT_SIDEBAR_WIDTH = 48;
+export const COMPACT_SIDEBAR_WIDTH = 56;
 export const SIDEBAR_COMPACT_SNAP_WIDTH = 160;
 export const COMPACT_LABELED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_OUTER_GAP = 8;

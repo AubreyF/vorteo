@@ -106,7 +106,7 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   const expandedWidth = (await sidebar.boundingBox())!.width;
   await expect(page.getByText("Compact", { exact: true })).toHaveCount(0);
   await page.getByTestId("sidebar-collapse").click();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
   const railProject = page
     .getByTestId("compact-project-rail")
@@ -116,9 +116,13 @@ test("opens a populated demo without connecting to a real host", async ({ page }
   const railHelp = page.getByTestId("project-rail-preview");
   await expect(railHelp).toBeVisible();
   await expect(railHelp).toContainText("Atlas");
-  await expect(railHelp.getByRole("button", { name: "Design review", exact: true })).toBeVisible();
+  await expect(
+    railHelp.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
+  ).toBeVisible();
   await page.keyboard.press("ArrowRight");
-  await expect(railHelp.getByRole("button", { name: "Design review", exact: true })).toBeFocused();
+  await expect(
+    railHelp.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0"),
+  ).toBeFocused();
   await page.mouse.move(900, 800);
   await page.waitForTimeout(350);
   await expect(railHelp).toBeVisible();
@@ -422,7 +426,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await expect(cards).toBeHidden();
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
   await expect(cards).toBeHidden();
   await rail.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(expandedWidth);
@@ -457,7 +461,7 @@ test("restores responsive sidebars without replacing manual preferences", async 
   await page.setViewportSize({ width: 800, height: 1000 });
   await expect(rail).toBeVisible();
   await page.setViewportSize({ width: 1800, height: 1000 });
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(48);
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(56);
   await expect(cards).toBeHidden();
 });
 
@@ -1035,7 +1039,7 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByTestId("compact-project-rail")).toHaveCount(0);
   await dragTo(155);
   await expect(page.getByTestId("compact-project-rail")).toBeVisible();
-  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(48);
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(56);
   const ids = ["sidebar-expand", "sidebar-search", "sidebar-schedules", "sidebar-sessions"];
   let previous = -1;
   for (const id of ids) {
@@ -1059,12 +1063,26 @@ test("sidebar drags into a compact rail with persistent controls and interactive
   await expect(page.getByRole("menuitem").first()).toHaveText("Settings");
   await page.keyboard.press("Escape");
 
-  await project.hover();
+  await project.click();
   const preview = page.getByTestId("project-rail-preview");
   await expect(preview).toBeVisible();
-  await preview.getByRole("button", { name: "Design review", exact: true }).hover();
+  const tail = await preview.getByTestId("project-rail-tail").boundingBox();
+  expect(tail!.y + tail!.height / 2).toBeCloseTo(projectBounds.y + projectBounds.height / 2, 0);
+  const previewRow = preview.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0");
+  await expect(previewRow.locator('[data-testid^="workspace-status-indicator-"]')).toBeVisible();
+  await expect(previewRow.getByTestId("sidebar-trailing-rail")).toBeVisible();
+  await previewRow.hover();
+  await preview.getByTestId("sidebar-workspace-kebab-vorteo-demo:demo-workspace-0-0").click();
+  await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
   await expect(preview).toBeVisible();
-  await preview.getByRole("button", { name: "Design review", exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(preview).toBeVisible();
+  await page.screenshot({ path: info.outputPath("compact-project-full-rows.png") });
+  await previewRow.hover();
+  await expect(preview).toBeVisible();
+  await preview.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
   await expect(preview).toBeHidden();
   await expect(page.getByText("Changes ready for review", { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("compact-rail.png") });
@@ -1111,7 +1129,7 @@ test.describe("touch project rail", () => {
     const preview = page.getByTestId("project-rail-preview");
     await expect(preview).toBeVisible();
     await page.screenshot({ path: info.outputPath("touch-project-preview.png") });
-    await preview.getByRole("button", { name: "Design review", exact: true }).tap();
+    await preview.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").tap();
     await expect(preview).toHaveCount(0);
     await expect(page.getByText("Changes ready for review", { exact: true })).toBeVisible();
   });

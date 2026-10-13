@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Compact project popups reuse the full sidebar project list and its existing actions, with an anchored tail and a 56px rail around 44px buttons. Hover opens a preview; clicking keeps it open until navigation, Escape or an outside click. Nested menus and dialogs retain the parent popup. README overview and onboarding are unchanged.
+
 The right sidebar resize handle belongs to its card body, so its hit target and highlight start at the card stack rather than extending through the toolbar. The shared resize interaction is unchanged. README overview and onboarding are unchanged.
 
 Details-card prose uses a shared 12px base inset inside the adaptive card inset. Journal restores this clearance on its right edge without moving timeline markers; task errors and queue status and recovery text restore both text insets inside flush list bodies. README overview and onboarding are unchanged.

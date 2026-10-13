@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import { useBottomSheetModalInternal } from "@gorhom/bottom-sheet";
 import { Portal } from "@gorhom/portal";
-import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { FloatingSurface } from "@/components/ui/floating";
 import { useHoverSafeZone } from "@/hooks/use-hover-safe-zone";
 import { useVortonTouch } from "@/vorton-touch";
-import { OVERLAY_Z, useWebOverlayRegistration } from "@/lib/overlay-root";
+import {
+  OVERLAY_Z,
+  OverlayLayerProvider,
+  hasActiveWebOverlay,
+  useWebOverlayRegistration,
+} from "@/lib/overlay-root";
 import { isWeb } from "@/constants/platform";
-import { buildHostWorkspaceRoute } from "@/utils/host-routes";
+import { ProjectRailList } from "./project-rail-list";
 import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
@@ -32,9 +36,10 @@ export function ProjectRailPreview({
   const triggerRef = useRef<View>(null);
   const contentRef = useRef<View>(null);
   const restoringFocus = useRef(false);
+  const pinned = useRef(false);
   const request = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [anchor, setAnchor] = useState<{ x: number; y: number; centerY: number } | null>(null);
   const touch = useVortonTouch();
   const { width, height } = useWindowDimensions();
   const clear = useCallback(() => {
@@ -44,18 +49,20 @@ export function ProjectRailPreview({
   const close = useCallback(() => {
     clear();
     request.current += 1;
+    pinned.current = false;
     setAnchor(null);
   }, [clear]);
   const open = useCallback(() => {
     clear();
     const current = ++request.current;
-    triggerRef.current?.measureInWindow((x, y, w) => {
-      if (current === request.current) setAnchor({ x: x + w + 8, y });
+    triggerRef.current?.measureInWindow((x, y, w, h) => {
+      if (current === request.current) setAnchor({ x: x + w + 8, y, centerY: y + h / 2 });
     });
   }, [clear]);
   const leave = useCallback(() => {
     clear();
     timer.current = setTimeout(() => {
+      if (pinned.current || (isWeb && hasActiveWebOverlay())) return;
       // A pointer departure must not dismiss a preview still being used by keyboard.
       if (isWeb) {
         const focused = document.activeElement;
@@ -89,7 +96,7 @@ export function ProjectRailPreview({
       ) {
         event.preventDefault();
         (contentRef.current as unknown as HTMLElement | null)
-          ?.querySelector<HTMLElement>("button")
+          ?.querySelector<HTMLElement>('[data-testid^="sidebar-workspace-row-"]')
           ?.focus();
         return true;
       }
@@ -117,6 +124,7 @@ export function ProjectRailPreview({
   useEffect(() => {
     if (!isWeb || !anchor) return;
     const outside = (event: Event) => {
+      if (hasActiveWebOverlay()) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
       const contains = (ref: typeof triggerRef) =>
@@ -134,7 +142,7 @@ export function ProjectRailPreview({
   const frame = useMemo(
     () => ({
       position: "absolute" as const,
-      left: Math.max(8, Math.min(anchor?.x ?? 8, width - 368)),
+      left: Math.max(8, Math.min(anchor?.x ?? 8, width - 408)),
       top: Math.max(8, Math.min(anchor?.y ?? 8, height - previewHeight - 8)),
     }),
     [anchor, width, height, previewHeight],
@@ -143,20 +151,20 @@ export function ProjectRailPreview({
     close();
     onSelect(project.viewKey);
   }, [close, onSelect, project.viewKey]);
-  const rows = project.workspaces.map((workspace) => (
-    <ProjectWorkspaceRow
-      key={workspace.workspaceKey}
-      workspace={workspace}
-      name={workspaceEntries.get(workspace.workspaceKey)?.name ?? workspace.name}
-      close={close}
-    />
-  ));
+  const click = useCallback(() => {
+    pinned.current = true;
+    open();
+  }, [open]);
+  const previewWidth = Math.min(400, width - 16);
+  const tailStyle = {
+    top: Math.max(16, Math.min((anchor?.centerY ?? 0) - frame.top - 5, previewHeight - 26)),
+  };
   return (
     <View ref={triggerRef} collapsable={false} onPointerEnter={enter} onPointerLeave={leave}>
       <Button
         variant="ghost"
         accessibilityLabel={`${project.projectName}, ${project.workspaces.length} workspaces`}
-        onPress={anchor ? close : open}
+        onPress={click}
         onFocus={enter}
         style={styles.tile}
         testID={`project-rail-${project.viewKey}`}
@@ -168,22 +176,27 @@ export function ProjectRailPreview({
           <View ref={setOverlayScope} pointerEvents="box-none" style={styles.overlay}>
             <FloatingSurface
               ref={contentRef}
-              style={[styles.card, { width: Math.min(360, width - 16), maxHeight: previewHeight }]}
+              style={[styles.card, { width: previewWidth, height: previewHeight }]}
               frameStyle={frame}
               onPointerEnter={clear}
               onPointerLeave={leave}
-              accessibilityRole="menu"
+              accessibilityRole="none"
               accessibilityLabel={`${project.projectName} workspaces`}
               testID="project-rail-preview"
             >
-              <Text style={styles.title}>{project.projectName}</Text>
-              <Text style={styles.description}>{project.workspaces.length} active workspaces</Text>
-              <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-                {rows}
-                {!project.workspaces.length ? (
-                  <Text style={styles.description}>No active workspaces</Text>
-                ) : null}
-              </ScrollView>
+              <View
+                pointerEvents="none"
+                testID="project-rail-tail"
+                style={[styles.tail, tailStyle]}
+              />
+              <OverlayLayerProvider layer={OVERLAY_Z.tooltip}>
+                <ProjectRailList
+                  project={project}
+                  workspaceEntries={workspaceEntries}
+                  width={previewWidth - 16}
+                  onNavigate={close}
+                />
+              </OverlayLayerProvider>
               <Button variant="ghost" onPress={selectProject}>
                 Show project in sidebar
               </Button>
@@ -194,42 +207,26 @@ export function ProjectRailPreview({
     </View>
   );
 }
-function ProjectWorkspaceRow({
-  workspace,
-  name,
-  close,
-}: {
-  workspace: SidebarProjectEntry["workspaces"][number];
-  name: string;
-  close: () => void;
-}) {
-  const select = useCallback(() => {
-    close();
-    router.push(buildHostWorkspaceRoute(workspace.serverId, workspace.workspaceId));
-  }, [close, workspace.serverId, workspace.workspaceId]);
-  return (
-    <Button variant="ghost" style={styles.row} onPress={select}>
-      {name}
-    </Button>
-  );
-}
 const styles = StyleSheet.create((theme) => ({
   tile: { width: 44, height: 44, paddingHorizontal: 0 },
   overlay: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 1000 },
   card: {
-    padding: 12,
+    padding: 8,
     gap: 8,
     borderRadius: theme.borderRadius["2xl"],
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: theme.colors.surfaceSidebar,
   },
-  title: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
+  tail: {
+    position: "absolute",
+    left: -6,
+    width: 10,
+    height: 10,
+    backgroundColor: theme.colors.surfaceSidebar,
+    borderColor: theme.colors.border,
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    transform: [{ rotate: "45deg" }],
   },
-  description: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
-  list: { flexShrink: 1 },
-  row: { minHeight: 44, justifyContent: "flex-start" },
 }));
