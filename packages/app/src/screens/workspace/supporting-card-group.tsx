@@ -45,8 +45,8 @@ export function SupportingCardGroup({
           </RetainedPanel>
           <PortalHost name={`${hostName}:queue`} />
         </CardColumn>
+        {resizeHandle}
       </View>
-      {resizeHandle}
     </RetainedPanel>
   );
 }

@@ -2038,6 +2038,10 @@ test("shared card group and thread resize independently and preserve saved width
         expect(c.x).toBeGreaterThanOrEqual(all.x + all.width);
         const expectedLeft = all.x + (all.width - t.width) / 2;
         expect(t.x).toBeCloseTo(expectedLeft, 0);
+        const handle = await box(page.getByTestId("workspace-explorer-sidebar-resize-handle"));
+        const stack = await box(cards.getByTestId("thread-cards-stack"));
+        expect(handle.y).toBeCloseTo(stack.y, 0);
+        expect(handle.y + handle.height).toBeCloseTo(stack.y + stack.height, 0);
       }).toPass({ timeout: 5000 });
     };
     const drag = async (id: string, delta: number) => {

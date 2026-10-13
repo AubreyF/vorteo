@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The right sidebar resize handle belongs to its card body, so its hit target and highlight start at the card stack rather than extending through the toolbar. The shared resize interaction is unchanged. README overview and onboarding are unchanged.
+
 Details-card prose uses a shared 12px base inset inside the adaptive card inset. Journal restores this clearance on its right edge without moving timeline markers; task errors and queue status and recovery text restore both text insets inside flush list bodies. README overview and onboarding are unchanged.
 
 On compact and touch layouts, task and queue rows group the drag handle with its adjacent checkbox or attachment summary. Shared 32px-wide, 44px-tall handle slots and zero internal group gap bring the neighboring element 10px closer while preserving the heading icon centerline. Task checkboxes remain 44px square. Browser coverage measures editable task rows alongside keyboard reordering and uploaded queue media in the shared card fixture. Mobile web exempts only these marked handle and pending-status columns from the global button width minimum; height and other touch targets retain their normal minimums. Desktop spacing and subagent leading slots are unchanged.
