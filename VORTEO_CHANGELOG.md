@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.431 - 2026-10-13
+
+### Security
+
+- Pin the server and Nova bridge MCP SDK to 1.32.1, which includes the OAuth authorization-server validation fix. Recheck the internal schema helpers and run MCP server, bridge and tool regressions. No current application OAuth-provider configuration was found; installation remains pending.
+
 ## 0.11.0-beta.3.vorteo.430 - 2026-10-13
 
 ### Security

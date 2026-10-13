@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Server and Nova bridge pin MCP SDK 1.32.1. The internal JSON-schema conversion helper is byte-identical to the prior pin; the compatibility helper changes error formatting, while the imported normalization behavior remains unchanged. MCP server and bridge tests cover schemas and calls. Reviewed application transports do not configure an OAuth authProvider, so the dependency advisory is not evidence of an observed credential leak. README overview and onboarding are unchanged.
+
 The dependency lock and generated Mermaid runtime include DOMPurify 3.4.17. The runtime imports Mermaid's core module, which uses the external sanitizer; updating the lock must be followed by regenerating the runtime for native and web consumers. Existing closed-network policy and diagram checks remain in force. The reviewed application path did not establish use of the affected in-place sanitization mode. README overview and onboarding are unchanged.
 
 Chat search requires markdown-it 14.3.2, and a scoped react-native-markdown-display override selects the same parser for default rendering. The lock resolves linkify-it 5.0.2 across these consumers. Search and parser tests plus a default-renderer browser check cover compatibility and unsafe markup rejection. Remove the scoped override when the renderer declares a compatible patched parser itself. This prepared dependency update does not change README overview or onboarding.
