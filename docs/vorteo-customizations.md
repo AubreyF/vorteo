@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Expo CLI resolves Undici 6.29.0 within its declared range, and wait-on resolves Axios 1.20.0 with compatible transport dependencies. Loopback tests cover JSON fetching, HEAD and GET readiness, unavailable resources, and safe failure on an unrequested WebSocket subprotocol. The old Expo dependency crashes the isolated worker on that handshake. This tooling finding does not establish a production application WebSocket path. Miniflare's exact Undici pins remain separate; README overview and onboarding are unchanged.
+
 Diagram viewport controls stay visible on touch and compact layouts, using 44-pixel targets. Empty overlay space passes input to the canvas; visible controls retain their own hit targets. Production validation found the former invisible overlay blocking touches. A browser regression opens and closes fullscreen directly by touch, without hover or a preliminary canvas tap. README overview and onboarding are unchanged.
 
 The security candidate preserves the installed repair-notification suppression. Static publication can deliver compatible Markdown and diagram changes without applying server or desktop binaries. Permission-reset controls remain hidden unless the desktop bridge supplies that capability. Source integration and a web build do not establish installation of the prepared transport, permission or desktop security fixes.

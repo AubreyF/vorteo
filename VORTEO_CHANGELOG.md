@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.436 - 2026-10-13
+
+### Security
+
+- Refresh Expo's compatible Undici dependency and wait-on's Axios dependency. A bounded worker regression reproduces the old invalid WebSocket handshake crash and verifies safe rejection after the update; normal JSON and readiness checks pass. Miniflare's separately pinned clients remain under review. No installed service is updated.
+
 ## 0.11.0-beta.3.vorteo.435 - 2026-10-13
 
 ### Fixes
