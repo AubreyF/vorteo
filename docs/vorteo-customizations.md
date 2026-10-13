@@ -527,3 +527,5 @@ Goal cards keep queue-priority notices directly below the heading and outside th
 Mobile card geometry checks include the inline Files card when measuring adjacent gaps.
 
 Mobile menu pages add eight pixels of horizontal breathing room around their shared rows, labels and custom contents, including nested pages. Internal card and menu dividers use a separate color at 55 percent of the outer border opacity across themes; rules remain full width.
+
+Shared screen titles use the extra-large typography token (18px at default scaling) for clearer Schedules, History and related page headings.

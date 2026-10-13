@@ -34,7 +34,7 @@ const styles = StyleSheet.create((theme) => ({
   text: {
     flexShrink: 1,
     minWidth: 0,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.xl,
     fontFamily: theme.fontFamily.display,
     fontWeight: {
       xs: "400",
