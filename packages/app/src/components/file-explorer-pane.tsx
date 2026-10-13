@@ -1,3 +1,4 @@
+import { smallIconButtonChromeFrameSize } from "@/components/ui/icon-button-chrome";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { ScrollDividerContext, type CardScrollHandler } from "./use-scroll-divider";
 import {
@@ -1234,7 +1235,10 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
       <PaneContentToolbar
         style={[
           styles.paneHeader,
-          { paddingRight: paneContentToolbarTrailingPadding(isCompact, "glyph") },
+          {
+            paddingRight: paneContentToolbarTrailingPadding(isCompact, "glyph"),
+            height: Math.max(24, smallIconButtonChromeFrameSize(isCompact)) + 1,
+          },
         ]}
         testID="files-pane-header"
       >
@@ -1724,7 +1728,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   entriesContent: {
     flexGrow: 1,
-    paddingTop: theme.spacing[2],
+    paddingTop: theme.spacing[0.5],
     paddingBottom: theme.spacing[4],
   },
   rootContextTarget: {
