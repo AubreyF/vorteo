@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.441 - 2026-10-13
+
+### Security
+
+- Add a local Braces 3.0.3 patch that bounds parser nesting and recursive syntax-tree traversal. Excessively nested patterns now fail with a deliberate syntax error before exhausting the stack. Normal ranges, alternatives, escaping, quotes and file discovery pass regression checks. The standard postinstall workflow reapplies the patch; version-based audits still report the upstream dependency. Installed services are unchanged.
+
 ## 0.11.0-beta.3.vorteo.440 - 2026-10-13
 
 ### Security
