@@ -62,6 +62,7 @@ export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
   private daemonAutomationSupported = false;
+  private devRepairSupported = false;
   private monitorRetryAt = 0;
   sessionsSupported = false;
   passwordFile: string | null = null;
@@ -205,6 +206,38 @@ export class InstallationClient {
     return result;
   }
 
+  async devRepairStatus(): Promise<{
+    available: boolean;
+    preparingIds: string[];
+  }> {
+    try {
+      const result = z
+        .strictObject({
+          available: z.boolean(),
+          preparingIds: z.array(z.string().uuid()),
+        })
+        .parse(await this.request("dev-repair/query", {}));
+      this.devRepairSupported = true;
+      return result;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.devRepairSupported)
+        return { available: false, preparingIds: [] };
+      throw error;
+    }
+  }
+
+  async prepareDevRepair(job: RestartJob): Promise<void> {
+    if (!this.devRepairSupported) throw new Error("Update the coordinator to prepare Dev repairs");
+    const receipt = z.strictObject({ id: z.string().uuid(), revision: z.string().uuid() }).parse(
+      await this.request("dev-repair/prepare", {
+        id: job.id,
+        revision: job.revision,
+      }),
+    );
+    if (receipt.id !== job.id)
+      throw new Error("Dev repair receipt changed. Refresh before another action.");
+  }
+
   async listRestarts(): Promise<RestartJob[]> {
     return z.array(RestartJobSchema).parse(await this.request("restarts/query", {}));
   }
@@ -306,11 +339,11 @@ export async function requestInstallationOwner(
   // Older coordinators may serve their SPA fallback for an unknown owner query.
   // A client that already observed support still treats this as a lost capability.
   if (
-    path === "daemon-automation/query" &&
+    ["daemon-automation/query", "dev-repair/query"].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
   ) {
-    throw new InstallationRouteUnavailable("Automatic daemon maintenance is unavailable");
+    throw new InstallationRouteUnavailable("Installation maintenance operation is unavailable");
   }
   if (response.status === 401)
     throw path === "unlock"

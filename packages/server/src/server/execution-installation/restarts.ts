@@ -18,6 +18,7 @@ import {
 import type { LifecycleJob } from "./lifecycle-journal.js";
 import { createHash, randomUUID } from "node:crypto";
 import type {
+  DevRepairCapture,
   RestartImpact,
   RestartDecision,
   RestartJob,
@@ -66,6 +67,11 @@ export interface RestartExecutor {
     contributions: SourceContribution[],
     target: RestartJob["target"],
   ): Promise<{ batch: SourceBatch; update?: SourceUpdate }>;
+  captureDevRepair?(contributions: SourceContribution[]): DevRepairCapture;
+  prepareDevRepair?(
+    capture: DevRepairCapture,
+    contributions: SourceContribution[],
+  ): Promise<SourceUpdate>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
@@ -124,6 +130,23 @@ export class InstallationRestarts {
       throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     const recovered = this.jobs.map((job): RestartJob => {
+      if (job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing") {
+        return {
+          ...job,
+          revision: randomUUID(),
+          devRepairs: job.devRepairs.map((attempt) =>
+            attempt.status === "preparing"
+              ? {
+                  ...attempt,
+                  status: "failed" as const,
+                  detail: "Preparation interrupted. Capture a new repair.",
+                }
+              : attempt,
+          ),
+          detail:
+            "Dev repair preparation interrupted. Capture a new repair; no restart was approved.",
+        };
+      }
       // Retry inert validation once after a coordinator upgrade. Never carry an
       // approval into a recomputed batch or replay dispatched installation work.
       if (job.status === "pending" && job.sourceBatch?.status === "conflict") {
@@ -855,6 +878,15 @@ export class InstallationRestarts {
       revision: randomUUID(),
       status: "pending",
       update: undefined,
+      devRepairs: job?.devRepairs?.map((attempt) =>
+        attempt.status === "preparing"
+          ? {
+              ...attempt,
+              status: "failed" as const,
+              detail: "Source contributions changed. Capture a new repair.",
+            }
+          : attempt,
+      ),
       sourceBatch: { status: "preparing", contributions },
       detail: "Combining submitted source. Approval is unavailable until preparation completes.",
     };
@@ -969,6 +1001,113 @@ export class InstallationRestarts {
     return this.executor.supportsUpdate?.(target) ?? target === "host";
   }
 
+  /** Owner preparation captures source once; it grants no lifecycle approval. */
+  requestDevRepair(id: string, revision: string): RestartJob {
+    this.requireActive();
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job || job.revision !== revision)
+      throw new RestartRequestError("Restart request is missing or changed");
+    if (
+      job.target !== "container-daemon" ||
+      job.status !== "pending" ||
+      job.sourceBatch?.status !== "conflict" ||
+      job.factoryRuntimePlanSha256 ||
+      job.supervisorPlanSha256
+    )
+      throw new RestartRequestError(
+        "Only a pending Dev source conflict can be prepared for repair",
+      );
+    if (!this.executor.captureDevRepair || !this.executor.prepareDevRepair)
+      throw new RestartRequestError("Owner Dev repair preparation is unavailable");
+    if (job.devRepairs?.at(-1)?.status === "preparing")
+      throw new RestartRequestError("Dev repair preparation is already running");
+    if ((job.devRepairs?.length ?? 0) >= 100 || job.sourceBatch.contributions.length >= 100)
+      throw new RestartRequestError("Repair history limit reached");
+    const capture = this.executor.captureDevRepair(structuredClone(job.sourceBatch.contributions));
+    const next: RestartJob = {
+      ...job,
+      revision: randomUUID(),
+      requireOwnerApproval: true,
+      update: undefined,
+      devRepairs: [
+        ...(job.devRepairs ?? []),
+        {
+          id: randomUUID(),
+          capturedRevision: job.revision,
+          createdAt: new Date(this.now()).toISOString(),
+          capture,
+          status: "preparing",
+          detail: "Preparing captured source without restarting Dev",
+        },
+      ],
+      detail: "Preparing Dev repair from captured source. You can cancel before installation.",
+    };
+    this.replace(next);
+    return structuredClone(next);
+  }
+
+  private async prepareOwnerDevRepair(job: RestartJob): Promise<void> {
+    const attempt = job.devRepairs?.at(-1);
+    if (
+      !attempt ||
+      attempt.status !== "preparing" ||
+      !job.sourceBatch ||
+      !this.executor.prepareDevRepair
+    )
+      return;
+    try {
+      const update = await this.executor.prepareDevRepair(
+        structuredClone(attempt.capture),
+        structuredClone(job.sourceBatch.contributions),
+      );
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "pending" || current.revision !== job.revision) return;
+      // Retain every original contribution. Normal batch validation proves the
+      // new owner source contains them before any exact installation review.
+      const contribution: SourceContribution = {
+        id: attempt.id,
+        update,
+        reason: "Repair Dev from the captured installed Host source",
+        requestedBy: "owner",
+        createdAt: attempt.createdAt,
+        requireOwnerApproval: true,
+        status: "queued",
+        detail: "Awaiting integration",
+      };
+      this.replace({
+        ...current,
+        revision: randomUUID(),
+        devRepairs: current.devRepairs!.map((item) =>
+          item.id === attempt.id
+            ? Object.assign({}, item, {
+                status: "prepared" as const,
+                detail: "Captured source prepared for installation review",
+              })
+            : item,
+        ),
+        sourceBatch: {
+          status: "preparing",
+          contributions: [...current.sourceBatch!.contributions, contribution],
+        },
+        detail: "Checking captured repair source before installation review",
+      });
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "pending" || current.revision !== job.revision) return;
+      const detail = error instanceof Error ? error.message : "Dev repair preparation failed";
+      this.replace({
+        ...current,
+        revision: randomUUID(),
+        devRepairs: current.devRepairs!.map((item) =>
+          item.id === attempt.id
+            ? Object.assign({}, item, { status: "failed" as const, detail })
+            : item,
+        ),
+        detail: `Dev repair preparation failed: ${detail}. Capture a new repair after correcting the cause.`,
+      });
+    }
+  }
+
   async prepareBatches(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing || !this.executor.prepareUpdate) return;
@@ -984,6 +1123,10 @@ export class InstallationRestarts {
 
   private async prepareBatch(job: RestartJob): Promise<void> {
     if (!job.sourceBatch || !this.executor.prepareUpdate) return;
+    if (job.devRepairs?.at(-1)?.status === "preparing") {
+      await this.prepareOwnerDevRepair(job);
+      return;
+    }
     const blocked = this.jobs.some(
       (item) =>
         item.id !== job.id &&

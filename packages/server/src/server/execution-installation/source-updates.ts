@@ -17,6 +17,8 @@ import path from "node:path";
 import { z } from "zod";
 import {
   SourceUpdateSchema,
+  DevRepairCaptureSchema,
+  type DevRepairCapture,
   type SourceUpdate,
   type RestartJob,
   type SourceContribution,
@@ -26,13 +28,13 @@ import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
 import { installContainerSource } from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
-import { DevRepairSourceSchema, prepareDevRepairBundle } from "./dev-source-repair.js";
+import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { isDeepStrictEqual } from "node:util";
 
-export const DevRepairCaptureSchema = DevRepairSourceSchema.extend({
-  hostReleaseDirectory: z.string().startsWith("/"),
-});
-export type DevRepairCapture = z.infer<typeof DevRepairCaptureSchema>;
+export {
+  DevRepairCaptureSchema,
+  type DevRepairCapture,
+} from "@getpaseo/protocol/execution-installation";
 
 const execute = promisify(execFile);
 const ReceiptSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });

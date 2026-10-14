@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.504 - 2026-10-14
+
+### Added
+
+- Add owner-started Dev source repair preparation in Installation controls. Capture the installed Host source and queued contributions, persist preparation history, and require a separate exact installation review.
+
+### Fixed
+
+- Discard late repair results after cancellation or changed contributions, and report interrupted preparation without replaying it. Preserve finite and uncapped worker profile source in the same delivery ancestry.
+
 ## 0.11.0-beta.3.vorteo.503 - 2026-10-14
 
 ### Added
