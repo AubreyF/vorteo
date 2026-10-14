@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
+
 Compact account reset controls center their outlines within the actual button height, keeping labels aligned when touch accessibility enlarges the tap target. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
 
 The mobile workspace and radar-ring delivery preserves the installed coordinator history and Dev repair controls. This integration also preserves the installed details-card footer, tooltip, count and height refinements. Interface-only integration does not activate another daemon update.
@@ -8,7 +10,7 @@ Mobile New workspace pages place the title above the selected project inside the
 
 Adjacent collapsed details cards share responsive rows in both sidebar and conversation layouts. Narrow tiles progressively hide heading actions and titles while retaining the icon, count and accessible name. Collapsed buttons expose their labels on hover, keyboard focus and long press. Expanding a tile restores its full-width card and controls without moving the other cards in the React tree.
 
-App startup preserves the original shaded white Vorteo artwork inside its radar ring. The shared page loader uses a 60px ring around the unchanged 43.2px artwork. Shared loaders, sidebar status rings and queued-message saving rings use a bright-leading, dim-trailing 120-degree radar sweep; small status indicators retain their existing footprint and synchronized clocks. Production checks verify centered artwork and the transition to visible conversation content while allowing hidden retained panels.
+App startup uses the selected theme’s Vorteo artwork inside its radar ring. The shared page loader uses a 60px ring around the unchanged 43.2px artwork. Shared loaders, sidebar status rings and queued-message saving rings use a bright-leading, dim-trailing 120-degree radar sweep; small status indicators retain their existing footprint and synchronized clocks. Production checks verify centered artwork and the transition to visible conversation content while allowing hidden retained panels.
 
 The queue controller reads activity at its visible destination, keeping actions enabled outside a hidden dock. The queue portal is keyed by destination because its transport captures the host when mounted. Every desktop details card moves to the conversation footer when the sidebar closes and returns when it opens, including Files and Changes. Both destinations share the same collapse preferences; narrow mobile layouts retain their own preferences. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.
 

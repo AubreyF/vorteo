@@ -1,3 +1,4 @@
+import { applyBootLogo } from "./apply-logo.web";
 import type { Theme } from "@/styles/theme";
 
 const STYLE_ID = "vorteo-appearance-shell";
@@ -24,6 +25,7 @@ const CSS = `
 /** Keep browser chrome hints and the entire canvas on the central content color. */
 export function applyShellAppearance(theme: Theme): void {
   if (typeof document === "undefined") return;
+  applyBootLogo(theme);
   const root = document.documentElement;
   root.dataset.vorteoAppearance = theme.appearance?.id ?? "plugin";
   root.style.colorScheme = theme.colorScheme;

@@ -81,3 +81,58 @@ test("sidebar running dots keep a bright leading edge and dim radar tail", async
     await session.cleanup();
   }
 });
+
+for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", "ember", "neon"]) {
+  test(`embedded and startup logos follow ${theme}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 1133, height: 744 });
+    await page.addInitScript((selected) => {
+      localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: selected }));
+    }, theme);
+    const session = await seedMockAgentWorkspace({
+      repoPrefix: "logo-palette-",
+      title: "Logo palette",
+      initialPrompt: "Hello",
+    });
+    const gate = await delayAgentBootstrapTailResponse(page, session.agentId);
+    try {
+      await openAgentRoute(page, session);
+      await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
+      const mark = page.getByTestId("loading-brand-mark").first();
+      await expect(mark).toBeVisible();
+      expect((await mark.boundingBox())!.width).toBeCloseTo(43.2, 1);
+      if (theme.startsWith("starship")) {
+        await expect(mark.locator("img")).toHaveAttribute(
+          "src",
+          new RegExp(theme === "starship-light" ? "vorteo-color" : "vorteo-white"),
+        );
+      } else {
+        await expect(mark.locator("svg path")).toHaveAttribute("fill", /^url\(#vorteo-/);
+        expect(await mark.locator("stop").count()).toBe(2);
+      }
+      await page.screenshot({ path: info.outputPath(`logo-${theme}.png`) });
+      const brand = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("vorteo-boot-brand-v1")!),
+      );
+      let expectedMode = "gradient";
+      if (theme === "starship-light") expectedMode = "rainbow";
+      if (theme === "starship-dark") expectedMode = "white";
+      expect(brand.mode).toBe(expectedMode);
+      await page.route("**/_expo/static/js/web/*.js", (route) => route.abort());
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.locator("#boot-status")).toBeVisible();
+      if (brand.mode === "gradient") {
+        await expect(page.locator("#boot-tinted-mark")).toBeVisible();
+        await expect(page.locator("img.boot-mark")).toBeHidden();
+      } else {
+        await expect(page.locator("img.boot-mark")).toBeVisible();
+        if (brand.mode === "rainbow")
+          await expect(page.locator("img.boot-mark")).toHaveAttribute("src", /vorteo-logo-color/);
+      }
+      await page.screenshot({ path: info.outputPath(`startup-logo-${theme}.png`) });
+    } finally {
+      gate.release();
+      gate.releaseCatchUp();
+      await session.cleanup();
+    }
+  });
+}

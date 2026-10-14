@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
-import { Image, View, type ActivityIndicatorProps } from "react-native";
+import { View, type ActivityIndicatorProps } from "react-native";
+import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { RadarRing } from "./radar-ring";
 import Animated, {
   cancelAnimation,
@@ -45,13 +46,9 @@ export function LoadingSpinner({ color, size = "small", style }: LoadingSpinnerP
       style={[{ alignItems: "center", justifyContent: "center" }, style]}
     >
       {size === "large" ? (
-        <Image
-          source={require("../../../assets/brand/vorteo-white.png")}
-          resizeMode="contain"
-          accessible={false}
-          testID="loading-brand-mark"
-          style={brandMarkStyle}
-        />
+        <View testID="loading-brand-mark" style={brandMarkStyle}>
+          <VorteoLogo size={LOADING_INDICATOR.large * 0.9} />
+        </View>
       ) : null}
       {/* Keep theme props off the animated carrier so native theme changes remain safe. */}
       <Animated.View style={[{ width: diameter, height: diameter }, animatedStyle]}>

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.513 - 2026-10-14
+
+### Changed
+
+- Match embedded Vorteo marks to the selected theme: original rainbow artwork for Starship, shaded white for Dark Star, and palette gradients for Scriptorium, Midas, Ember and Neon.
+- Share logo selection across page loaders, welcome and project screens, and retain validated palette colors for the early startup loader.
+
 ## 0.11.0-beta.3.vorteo.512 - 2026-10-14
 
 ### Fixed

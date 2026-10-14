@@ -1,3 +1,4 @@
+import { logoPalette } from "../components/icons/vorteo-logo-palette";
 import { describe, expect, it } from "vitest";
 import { darkTheme, FONT_SIZE, getNextThemePreference, lightTheme, THEME_OPTIONS } from "./theme";
 import { APPEARANCE_DEFINITIONS } from "./appearance-catalog";
@@ -100,6 +101,22 @@ describe("Theme catalog", () => {
     const values = [luminance(a), luminance(b)].sort((x, y) => y - x);
     return (values[0] + 0.05) / (values[1] + 0.05);
   }
+
+  it("keeps palette logo gradients distinct against every working surface", () => {
+    for (const option of THEME_OPTIONS) {
+      if (!("theme" in option)) continue;
+      const palette = logoPalette(option.theme);
+      if (option.name === "starship-light") {
+        expect(palette.mode).toBe("rainbow");
+        continue;
+      }
+      for (const color of [palette.start, palette.end]) {
+        for (const surface of [option.theme.colors.surface0, option.theme.colors.surface3]) {
+          expect(contrast(color, surface), option.name).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+  });
 
   it("keeps normal text and primary button labels readable in every palette", () => {
     for (const option of THEME_OPTIONS) {
