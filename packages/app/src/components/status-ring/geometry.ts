@@ -19,9 +19,9 @@ export const STATUS_RING_SIZE =
 export const STATUS_RING_HALO_INSET = 1;
 export const STATUS_RING_FRAME_SIZE = STATUS_RING_SIZE + STATUS_RING_HALO_INSET * 2;
 
-// The track and the quarter riding it are the same color and differ only here. The track is low
-// enough that the quarter is unmistakably the thing moving, high enough that the ring still reads
-// as a ring when the quarter is on the far side of it. The quarter is held off full so the centre
+// The track and the sweep riding it are the same color and differ only here. The track is low
+// enough that the sweep is unmistakably the thing moving, high enough that the ring still reads
+// as a ring when the sweep is on the far side of it. The sweep is held off full so the centre
 // dot stays the solid part of the mark — the ring is what the dot is doing, not a second dot.
 export const STATUS_RING_TRACK_OPACITY = 0.3;
 export const STATUS_RING_HEAD_OPACITY = 0.9;

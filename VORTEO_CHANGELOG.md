@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.506 - 2026-10-14
+
+### Changed
+
+- Enlarge the page-loading ring by 25% while preserving the shaded V size.
+- Use a shared radar fade for loading rings, including sidebar activity dots and queued-message saving indicators.
+
+### Fixed
+
+- Place the mobile New workspace title and selected project in the standard two-line header, clear of the menu button.
+- Fill the available mobile height without blank metadata spacer rows or duplicate bottom safe-area padding.
 
 ## 0.11.0-beta.3.vorteo.505 - 2026-10-14
 
