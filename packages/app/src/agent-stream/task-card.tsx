@@ -26,7 +26,13 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import { ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  ScrollView,
+  View,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import Animated, {
   Easing,
@@ -86,18 +92,20 @@ function cardHeight({
   compact,
   id,
   naturalHeight,
+  viewportHeight,
 }: {
   column: React.ContextType<typeof CardColumnContext>;
   compact: boolean;
   id: string;
   naturalHeight: number;
+  viewportHeight: number;
 }) {
   if (compact) return naturalHeight;
   if (column) return column.heights.get(id) ?? naturalHeight;
-  return naturalHeight;
+  return Math.min(naturalHeight, viewportHeight / 2);
 }
 
-/** Fit sidebar cards to their shared height budget; embedded cards use their natural height. */
+/** Fit sidebar cards to their shared height budget; embedded cards cap at half the viewport. */
 function TaskCardView({
   insets = 0,
   flushBody = false,
@@ -163,7 +171,8 @@ function TaskCardView({
   const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
-  const maxHeight = cardHeight({ column, compact, id, naturalHeight });
+  const { height: viewportHeight } = useWindowDimensions();
+  const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight });
   // Animate only height. Positional layout transitions treat a retained hidden
   // card's zero DOM rect as its origin and fly it across the page on reactivation.
   const animationStyle = useAnimatedStyle(

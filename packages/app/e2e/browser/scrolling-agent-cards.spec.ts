@@ -499,10 +499,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     });
 
     await checkCollapsedGrid(page, info);
-    for (const [width, expectedDivider] of [
-      [1200, "1"],
-      [390, "0"],
-    ] as const) {
+    for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 650 });
       await revealSupportingCards(page, width);
       const goalCard = stack.getByTestId("agent-goal-bar");
@@ -527,10 +524,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       await scroll.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
-      await expect(goalCard.getByTestId("agent-goal-bar-scroll-divider")).toHaveCSS(
-        "opacity",
-        expectedDivider,
-      );
+      await expect(goalCard.getByTestId("agent-goal-bar-scroll-divider")).toHaveCSS("opacity", "1");
       expect((await notice.boundingBox())!.y).toBeCloseTo(noticeTop, 0);
       const noticeBox = (await notice.boundingBox())!;
       const dividerBox = (await goalCard
@@ -1322,11 +1316,8 @@ async function checkFixedHeaders(
           movement: contentTop - first.getBoundingClientRect().top,
         };
       });
-      if (width === 390) {
-        expect(result.offset).toBe(0);
-        continue;
-      }
-      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(400);
+      const maxHeight = width === 390 ? 200 : 400;
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(maxHeight);
       expect(result.offset).toBeGreaterThan(0);
       const divider = card.getByTestId(`${id}-scroll-divider`);
       await expect(divider).toHaveCSS("opacity", "1");
@@ -2299,6 +2290,15 @@ test("shared card group and thread resize independently and preserve saved width
     await expect
       .poll(async () => (await box(text.getByTestId("shared-message-queue"))).height)
       .toBeCloseTo((await box(text.getByTestId("supporting-card-files"))).height, 0);
+    await page.getByTestId("agent-chat-scroll").evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await expect(async () => {
+      const lastCard = await box(text.getByTestId("shared-message-queue"));
+      const input = await box(composer);
+      expect(input.y - lastCard.y - lastCard.height).toBeLessThanOrEqual(32);
+      expect(input.y - lastCard.y - lastCard.height).toBeGreaterThanOrEqual(0);
+    }).toPass();
     await page.screenshot({ path: info.outputPath("all-cards-footer.png") });
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();

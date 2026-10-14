@@ -1222,8 +1222,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
         auxiliary.turnFooter && !auxiliary.pendingPermissions ? TURN_FOOTER_BOTTOM_SPACING : 0;
+      const reserveColumnFade = splitColumns && !inlineCardsHost;
       const bottomOverlayInset = resolveBottomOverlayTailInset({
-        requiredTailClearance: splitColumns ? COLUMN_FADE_HEIGHT : bottomOverlayTailClearance,
+        requiredTailClearance: reserveColumnFade ? COLUMN_FADE_HEIGHT : bottomOverlayTailClearance,
         existingTailSpacing,
       });
       return renderLiveAuxiliaryNode({
@@ -1238,6 +1239,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
+      inlineCardsHost,
       inlineCards,
       taskCards,
     ]);

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.514 - 2026-10-14
+
+### Maintenance
+
+- Preserve the installed embedded-card spacing and viewport limits while integrating reset-label alignment and theme-aware logos.
+
 ## 0.11.0-beta.3.vorteo.513 - 2026-10-14
 
 ### Changed
@@ -17,6 +23,13 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Center compact account reset outlines with their labels when touch accessibility enlarges the button target.
 - Keep reset-dialog browser screenshots inside the test workspace.
+
+## 0.11.0-beta.3.vorteo.512 - 2026-10-14
+
+### Changed
+
+- Restore the half-viewport height limit for cards embedded in the main content region while allowing sidebar cards to fill available height.
+- Remove redundant fade clearance below embedded cards to reduce the gap above the message box.
 
 ## 0.11.0-beta.3.vorteo.511 - 2026-10-14
 
