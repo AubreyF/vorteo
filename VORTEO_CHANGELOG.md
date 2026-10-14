@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.487 - 2026-10-14
+
+### Changed
+
+- Keep queued messages at the bottom of the conversation when the desktop details sidebar is closed, with other details remaining in their sidebar.
+- Show saving progress in the row and sending progress around its Send arrow. Preserve action positions and remove transient progress text from the heading and below rows.
+- Add queue visibility and stable-height progress coverage. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.486 - 2026-10-14
 
 ### Fixed

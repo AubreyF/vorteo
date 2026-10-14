@@ -59,7 +59,15 @@ function Orbit({ spinning, color }: { spinning: boolean; color: string }) {
     <Animated.View style={[animationStyles.glyph, rotationStyle]} testID="queue-orbit-rotation">
       <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
         <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.5} opacity={0.22} />
-        <Circle cx={12} cy={4} r={2} fill={color} />
+        <Circle
+          cx={12}
+          cy={12}
+          r={8}
+          stroke={color}
+          strokeWidth={1.5}
+          strokeDasharray="13 38"
+          strokeLinecap="round"
+        />
       </Svg>
     </Animated.View>
   );
@@ -81,7 +89,10 @@ export function QueueMessageIndicator({
   const orbitOpacity = useSharedValue(0);
   const initialHandleOpacity = !local && reduceMotion ? 1 : 0;
   const handleOpacity = useSharedValue(initialHandleOpacity);
-  const status = record?.dismissed ? "Kept on this device" : "Queued on this device";
+  let status = "Queued on this device";
+  if (record?.operation.kind === "edit") status = "Saving queued message";
+  if (record?.error) status = "Could not save queued message";
+  if (record?.dismissed) status = "Kept on this device";
   const spinning = active && !reduceMotion && !record?.dismissed && !record?.error;
 
   useLayoutEffect(() => {

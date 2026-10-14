@@ -25,6 +25,8 @@ const state = vi.hoisted(() => ({
   empty: false,
   paused: false,
   pending: false,
+  dispatching: false,
+  pendingEdit: false,
   media: true,
   goalError: false,
   mutate: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock("./use-message-queue", () => ({
     visible: state.visible,
     supported: true,
     connected: true,
+    canSendNow: true,
     canMutate: true,
     mutate: state.mutate,
     snapshot: {
@@ -46,7 +49,12 @@ vi.mock("./use-message-queue", () => ({
       items: state.empty
         ? []
         : [
-            { id: "text", text: "Text only", attachments: [], delivery: { status: "queued" } },
+            {
+              id: "text",
+              text: "Text only",
+              attachments: [],
+              delivery: { status: state.dispatching ? "dispatching" : "queued" },
+            },
             {
               id: "media",
               text: "With attachment",
@@ -55,22 +63,39 @@ vi.mock("./use-message-queue", () => ({
             },
           ],
     },
-    pending: state.pending
-      ? [
-          {
-            operation: {
-              kind: "enqueue",
-              operationId: "local",
-              text: "Local image",
-              attachments: [],
+    pending: [
+      ...(state.pendingEdit
+        ? [
+            {
+              operation: {
+                kind: "edit",
+                messageId: "text",
+                operationId: "edit",
+                text: "Text only",
+                attachments: [],
+              },
+              localAttachments: [],
+              error: null,
             },
-            localAttachments: [{ kind: "image", metadata: { fileName: "photo.png" } }],
-            // Uploaded copies must not count twice while waiting for acknowledgement.
-            prepared: { kind: "enqueue", attachments: [{ id: "uploaded", kind: "image" }] },
-            error: null,
-          },
-        ]
-      : [],
+          ]
+        : []),
+      ...(state.pending
+        ? [
+            {
+              operation: {
+                kind: "enqueue",
+                operationId: "local",
+                text: "Local image",
+                attachments: [],
+              },
+              localAttachments: [{ kind: "image", metadata: { fileName: "photo.png" } }],
+              // Uploaded copies must not count twice while waiting for acknowledgement.
+              prepared: { kind: "enqueue", attachments: [{ id: "uploaded", kind: "image" }] },
+              error: null,
+            },
+          ]
+        : []),
+    ],
   }),
 }));
 vi.mock("@/constants/platform", () => ({ isNative: false, isWeb: true }));
@@ -99,8 +124,17 @@ vi.mock("./edit-draft-runtime", () => ({
 }));
 vi.mock("./shared-attachments", () => ({ SharedQueueAttachments: () => null }));
 // Animation is covered separately; these checks exercise queue content and actions.
+vi.mock("@/components/ui/loading-spinner", () => ({
+  LoadingSpinner: () => <span role="progressbar" />,
+}));
 vi.mock("./queue-indicator", () => ({
-  QueueMessageIndicator: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  QueueMessageIndicator: ({
+    children,
+    record,
+  }: {
+    children?: React.ReactNode;
+    record: unknown;
+  }) => <div data-testid={record ? "saving-indicator" : undefined}>{children}</div>,
 }));
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
@@ -193,6 +227,8 @@ vi.mock("react-native-reanimated", () => ({
     }),
   },
   ReduceMotion: { System: "system" },
+  useReducedMotion: () => true,
+  useSharedValue: (value: unknown) => ({ value }),
   useAnimatedStyle: () => ({}),
   withTiming: (value: unknown) => value,
 }));
@@ -247,6 +283,8 @@ beforeEach(() => {
   state.empty = false;
   state.paused = false;
   state.pending = false;
+  state.dispatching = false;
+  state.pendingEdit = false;
   state.media = true;
   state.goalError = false;
   vi.clearAllMocks();
@@ -365,4 +403,31 @@ it("hides an empty paused queue after Stop while preserving locally pending mess
     ),
   );
   expect(container.textContent).toContain("Local image");
+});
+
+it("keeps row actions in place while dispatching and shows progress around Send", async () => {
+  await render();
+  const row = () => container.querySelector('[data-testid="queue-message-text"]')!;
+  const buttons = row().querySelectorAll("button").length;
+  state.dispatching = true;
+  await render();
+  expect(row().querySelectorAll("button")).toHaveLength(buttons);
+  expect(row().querySelector('[data-testid="queue-send-progress"]')).not.toBeNull();
+  expect(row().querySelector('[aria-label="Sending queued message"]')).not.toBeNull();
+  expect(row().textContent).not.toContain("Sending...");
+  expect(
+    container.querySelector(
+      '[data-testid="queue-message-media"] [data-testid="queue-send-progress"]',
+    ),
+  ).toBeNull();
+});
+
+it("shows a pending edit on its message row without a header status or extra row", async () => {
+  state.pendingEdit = true;
+  await render();
+  expect(container.querySelectorAll('[data-testid^="queue-message-"]')).toHaveLength(2);
+  expect(
+    container.querySelector('[data-testid="queue-message-text"] [data-testid="saving-indicator"]'),
+  ).not.toBeNull();
+  expect(container.textContent).not.toContain("Saving message");
 });

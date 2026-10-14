@@ -468,11 +468,11 @@ export function SplitContainer({
   const supportingCardsValue = useMemo(
     () => ({
       agentId: cardsAgentId,
-      // Desktop cards always belong to their dock, including while it is hidden
-      // or awaiting its first layout event. Inline fallback is for compact hosts.
+      // Other details stay in the dock; the queue remains reachable inline when hidden.
       hostName: cardHostName,
+      queueInline: !renderExplorerSidebarDock,
     }),
-    [cardsAgentId, cardHostName],
+    [cardsAgentId, cardHostName, renderExplorerSidebarDock],
   );
   const { toolbarMenuHost, toolbarContext, sharedToolbarStyle, measureToolbar } =
     useSharedToolbarGeometry(
@@ -1475,7 +1475,7 @@ function WorkspaceChromeProviders({
   children,
 }: {
   toolbar: { menuHost: string; reservedWidth: number; paneId: string | null };
-  cards: { agentId: string | null; hostName: string };
+  cards: { agentId: string | null; hostName: string; queueInline: boolean };
   children: ReactNode;
 }) {
   return (
