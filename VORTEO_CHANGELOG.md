@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.484 - 2026-10-13
+
+### Maintenance
+
+- Check the shared 44px touch minimum in the tablet Commit-button regression. The packaged tablet, wide-desktop and phone flow passes; application behavior is unchanged.
+- README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.483 - 2026-10-13
 
 ### Fixed

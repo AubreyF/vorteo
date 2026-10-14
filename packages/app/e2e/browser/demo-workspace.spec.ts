@@ -1424,7 +1424,8 @@ test("tablet composer, tabs and touch gutters retain their geometry", async ({ p
   expect(gripBounds.y).toBeCloseTo(cardBounds.y, 0);
   await drag("workspace-explorer-sidebar-resize-handle", -40);
   const commit = page.getByTestId("changes-primary-cta");
-  await expect(commit).toHaveCSS("min-height", "42px");
+  // Coarse-pointer CSS preserves the shared 44px touch minimum.
+  await expect(commit).toHaveCSS("min-height", "44px");
   const shape = await commit.evaluate((el) => {
     const frame = el.parentElement!.parentElement!;
     return {
