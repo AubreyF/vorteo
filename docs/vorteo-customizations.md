@@ -718,3 +718,5 @@ A cancellation or changed request revision invalidates a late result. Interrupte
 Maintenance review: reconciled managed-worker capacity with the installed Host recovery release for a separate tracked Host contribution. Dev recovery and compatible coordinator delivery still gate activation; existing root capacity stays frozen.
 
 Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.
+
+Coordinator startup reads promoted requests plus only their exactly bound recovered ancestry. A fenced predecessor can remain in the pending journal without preventing its approved successor from starting. Unrelated pending claims retain no startup authority, and observation leaves both journals unchanged.

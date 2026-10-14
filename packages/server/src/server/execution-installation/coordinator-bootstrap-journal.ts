@@ -24,6 +24,7 @@ import {
 import { writePrivateFileAtomicSync } from "../private-files.js";
 import {
   BootstrapRequestConflict,
+  assertRecoveredBootstrapBase,
   coordinatorPlanDigest,
   type BootstrapRequestJournal,
 } from "./coordinator-bootstrap.js";
@@ -201,6 +202,38 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   /** Startup authority comes only from the promoted main journal. */
   readPromoted(): CoordinatorBootstrapRequest[] {
     return this.snapshots().main.requests;
+  }
+
+  /** Promoted requests alone confer startup authority. An exact recovered
+   * predecessor may remain in the pending sidecar after its claim was fenced.
+   * Include only that bound history, without promoting it or admitting unrelated
+   * pending work. The startup verifier still validates every digest and chain. */
+  readStartupHistory(): CoordinatorBootstrapRequest[] {
+    const { main, pending } = this.snapshots();
+    const history = [...main.requests];
+    const included = new Set(history.map((record) => record.id));
+    const combined = [
+      ...main.requests,
+      ...pending.requests.filter((record) => !included.has(record.id)),
+    ];
+    for (const request of main.requests) {
+      if (!request.execution) continue;
+      const seen = new Set([request.id]);
+      let current = request;
+      for (;;) {
+        const previous = assertRecoveredBootstrapBase(current.plan, combined);
+        if (!previous) break;
+        if (seen.has(previous.id))
+          throw new BootstrapRequestConflict("Cyclic bootstrap startup history");
+        seen.add(previous.id);
+        if (!included.has(previous.id)) {
+          history.push(previous);
+          included.add(previous.id);
+        }
+        current = previous;
+      }
+    }
+    return history;
   }
 
   private write(file: string, value: unknown): void {
