@@ -468,9 +468,9 @@ export function SplitContainer({
   const supportingCardsValue = useMemo(
     () => ({
       agentId: cardsAgentId,
-      // Other details stay in the dock; the queue remains reachable inline when hidden.
+      // The focused conversation hosts every card while the sidebar is closed.
       hostName: cardHostName,
-      queueInline: !renderExplorerSidebarDock,
+      cardsInline: !renderExplorerSidebarDock,
     }),
     [cardsAgentId, cardHostName, renderExplorerSidebarDock],
   );
@@ -774,6 +774,7 @@ export function SplitContainer({
               visible={renderExplorerSidebarDock}
               supportingVisible={Boolean(explorerSidebarPane?.tabIds.length)}
               hostName={cardHostName}
+              inline={Boolean(cardsAgentId) && !renderExplorerSidebarDock}
               style={explorerSidebarDockStyle}
             >
               {supportingCards}
@@ -1475,7 +1476,7 @@ function WorkspaceChromeProviders({
   children,
 }: {
   toolbar: { menuHost: string; reservedWidth: number; paneId: string | null };
-  cards: { agentId: string | null; hostName: string; queueInline: boolean };
+  cards: { agentId: string | null; hostName: string; cardsInline: boolean };
   children: ReactNode;
 }) {
   return (

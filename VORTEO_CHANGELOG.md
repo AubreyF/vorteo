@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.504 - 2026-10-14
+
+### Changed
+
+- Add collapsed-card tooltips on hover, keyboard focus and long press.
+- Move every details card into the focused conversation's footer when the sidebar closes, including files and changes. Restore the sidebar placement when it opens.
+- Keep collapse preferences across these moves, so minimized cards remain a compact grid row. Keep queue actions active at their visible destination.
+
 ## 0.11.0-beta.3.vorteo.503 - 2026-10-14
 
 ### Changed

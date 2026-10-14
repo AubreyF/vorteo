@@ -1138,7 +1138,7 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
     "agent-journal-toggle",
     "subagents-group-paseo-toggle",
   ];
-  for (const width of [1400, 390, 320]) {
+  for (const width of [1800, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await revealSupportingCards(page, width);
     for (const id of ids) {
@@ -1158,8 +1158,30 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
       await expect(page.getByTestId(`${id}-metadata`).filter({ visible: true })).toBeVisible();
     }
     await expect(page.getByTestId("checklist-add").filter({ visible: true })).toHaveCount(0);
+    if (width === 1800) {
+      await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
+      const footer = page.getByTestId("thread-text-column");
+      for (const id of ids) {
+        await expect(footer.getByTestId(id)).toBeVisible();
+        await expect(footer.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+      }
+      await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
+    }
     const task = page.getByTestId("checklist-toggle").filter({ visible: true });
+    if (width === 390) {
+      await task.scrollIntoViewIfNeeded();
+      const target = (await task.boundingBox())!;
+      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(650); // Hold long enough to exercise the native long-press threshold.
+      await page.mouse.up();
+      await expect(task).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByRole("tooltip")).toContainText("Tasks");
+      await page.keyboard.press("Escape");
+    }
+    await page.keyboard.press("Tab");
     await task.focus();
+    await expect(page.getByRole("tooltip")).toContainText("Tasks");
     await page.keyboard.press("Enter");
     await expect(task).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByTestId("checklist-add").filter({ visible: true })).toBeVisible();
@@ -2229,10 +2251,47 @@ test("shared card group and thread resize independently and preserve saved width
         expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
       }
     }).toPass();
+    const movedToggles = [
+      "checklist-toggle",
+      "subagents-group-paseo-toggle",
+      "supporting-card-files-toggle",
+      "supporting-card-changes_tree-toggle",
+      "message-queue-toggle",
+    ];
+    for (const id of movedToggles) {
+      const toggle = cards.getByTestId(id);
+      if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
+    }
     await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     await expect(cards).toBeHidden();
+    for (const id of movedToggles) {
+      await expect(text.getByTestId(id)).toBeVisible();
+      await expect(text.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByTestId(id)).toHaveCount(1);
+      await text.getByTestId(id).hover();
+      const label = await text.getByTestId(id).getAttribute("aria-label");
+      await expect(page.getByRole("tooltip")).toContainText(label!);
+      await page.mouse.move(0, 0);
+      await expect(page.getByRole("tooltip")).toHaveCount(0);
+    }
+    await expect(async () => {
+      const tiles = await Promise.all(movedToggles.map((id) => box(text.getByTestId(id))));
+      expect(
+        Math.max(...tiles.map((tile) => tile.y)) - Math.min(...tiles.map((tile) => tile.y)),
+      ).toBeLessThan(1);
+    }).toPass();
+    await text.getByTestId("message-queue-toggle").click();
+    await expect(text.getByTestId("message-queue-pause-resume")).toBeEnabled();
+    await expect(text.getByText("Queued message 0:", { exact: false })).toBeVisible();
+    await text.getByTestId("message-queue-toggle").click();
+    await expect
+      .poll(async () => (await box(text.getByTestId("shared-message-queue"))).height)
+      .toBeCloseTo((await box(text.getByTestId("supporting-card-files"))).height, 0);
+    await page.screenshot({ path: info.outputPath("all-cards-footer.png") });
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();
+    for (const id of movedToggles)
+      await expect(cards.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
     await drag("left-sidebar-resize-handle", 160);
     // Explicitly opened Files keeps the supporting group available below the
     // automatic task-card breakpoint until the layout switches to mobile.
