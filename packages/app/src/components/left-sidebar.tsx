@@ -1233,6 +1233,8 @@ const staticStyles = RNStyleSheet.create({
   desktopSidebar: {
     position: "relative" as const,
     margin: SIDEBAR_OUTER_GAP,
+    // Keep the gutter grip above the adjacent composited scroller for touch hit-testing.
+    zIndex: 10,
   },
   desktopSidebarHidden: {
     display: "none",
