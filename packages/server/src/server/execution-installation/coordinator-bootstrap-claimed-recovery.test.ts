@@ -2441,7 +2441,7 @@ test("successor native admission independently requires both executors to have e
           if (pid === livePid) throw new Error("Independent absence is unproven");
         },
       }),
-    ).rejects.toThrow("absence is unproven");
+    ).rejects.toThrow("lifetime exit is unproven");
   }
 });
 

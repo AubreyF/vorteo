@@ -720,3 +720,5 @@ Maintenance review: reconciled managed-worker capacity with the installed Host r
 Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.
 
 Coordinator startup reads promoted requests plus only their exactly bound recovered ancestry. A fenced predecessor can remain in the pending journal without preventing its approved successor from starting. Unrelated pending claims retain no startup authority, and observation leaves both journals unchanged.
+
+Retained coordinator recovery verifies that the original process lifetime has ended. When a process number is reused, two matching native observations must prove a strictly later birth with the same user and boot identity. Changed arguments, failed inspection and unstable observations remain insufficient. This read-only successor check performs no process effects. Maintenance review: 167 owning tests, native fixture checks, server build, typecheck and lint passed; delivery remains separate. README overview and onboarding are unchanged.

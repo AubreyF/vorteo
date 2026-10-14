@@ -46,6 +46,7 @@ import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-b
 import {
   createNativeBootstrapServiceReader,
   readBootstrapLauncher,
+  verifyRetainedProcessExited,
 } from "./coordinator-bootstrap-service.js";
 
 import * as serviceCollector from "./coordinator-bootstrap-service.js";
@@ -180,6 +181,13 @@ test.runIf(process.platform === "darwin")(
         stopped: false,
       });
       await expect(reader.verifyProcessExited(child.pid!)).rejects.toThrow();
+      await expect(verifyRetainedProcessExited(reader, identity)).rejects.toThrow("unproven");
+      // Synthetic retained birth; both current observations use the native helper.
+      const [seconds, micros] = identity.startIdentity.split(":");
+      await verifyRetainedProcessExited(reader, {
+        ...identity,
+        startIdentity: `${BigInt(seconds) - 1n}:${micros}`,
+      });
       await expect(reader.inspectStoppedProcess(child.pid!)).rejects.toThrow();
       child.kill("SIGSTOP");
       await expect
@@ -674,10 +682,16 @@ test.runIf(process.platform === "darwin")(
     const journalRead = vi
       .spyOn(FileBootstrapRequestJournal.prototype, "read")
       .mockReturnValue([recovered]);
+    const retainedIdentity = {
+      ...expectedProcess,
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: node,
+    };
     const evidence = {
       recoveredFrom,
-      request: { plan: { executor: { identity: { pid: 456 } } } },
-      executor: { pid: 789 },
+      request: { plan: { executor: { identity: { ...retainedIdentity, pid: 456 } } } },
+      executor: { ...retainedIdentity, pid: 789 },
     } as unknown as NonNullable<
       Awaited<ReturnType<typeof claimedSuccessor.readClaimedSuccessorEvidence>>
     >;
@@ -696,7 +710,9 @@ test.runIf(process.platform === "darwin")(
     });
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
     verifyProcessExited.mockRejectedValueOnce(new Error("Updater remains live"));
-    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("Updater remains live");
+    await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow(
+      "lifetime exit is unproven",
+    );
     claimedRead.mockResolvedValueOnce(evidence).mockResolvedValueOnce(undefined);
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
     journalRead.mockReturnValueOnce([recovered, { ...recovered, id: randomUUID() }]);
@@ -2216,4 +2232,72 @@ test("failed post-recovery validation retries only on a later status read", asyn
   expect(initialize).toHaveBeenCalledTimes(2);
   service.claimedRecovery!.list();
   expect(initialize).toHaveBeenCalledTimes(2);
+});
+
+test("retained process exit accepts only independent absence or stable later native birth", async () => {
+  const original = {
+    pid: 123,
+    parentPid: 1,
+    uid: 501,
+    bootId: randomUUID(),
+    startIdentity: "100:123456",
+    argumentsSha256: "a".repeat(64),
+    executable: "/node",
+  };
+  const later = { ...original, startIdentity: "101:123456", executable: "/other" };
+  const absent = vi.fn(async () => {});
+  const noInspection = vi.fn(async () => {
+    throw Error("must not inspect");
+  });
+  await verifyRetainedProcessExited(
+    { verifyProcessExited: absent, inspectProcess: noInspection },
+    original,
+  );
+  expect(noInspection).not.toHaveBeenCalled();
+  const present = async () => {
+    throw Error("PID exists");
+  };
+  await verifyRetainedProcessExited(
+    { verifyProcessExited: present, inspectProcess: async () => later },
+    original,
+  );
+  for (const current of [
+    original,
+    { ...original, argumentsSha256: "b".repeat(64) },
+    { ...later, pid: 124 },
+    { ...later, uid: 502 },
+    { ...later, bootId: randomUUID() },
+    { ...later, startIdentity: "99:123456" },
+    { ...later, startIdentity: "101:1000000" },
+  ]) {
+    await expect(
+      verifyRetainedProcessExited(
+        { verifyProcessExited: present, inspectProcess: async () => current },
+        original,
+      ),
+    ).rejects.toThrow();
+  }
+  let reads = 0;
+  await expect(
+    verifyRetainedProcessExited(
+      {
+        verifyProcessExited: present,
+        inspectProcess: async () =>
+          ++reads === 1 ? later : { ...later, startIdentity: "102:123456" },
+      },
+      original,
+    ),
+  ).rejects.toThrow("unproven");
+  await expect(
+    verifyRetainedProcessExited(
+      {
+        verifyProcessExited: present,
+        inspectProcess: async () => {
+          throw Error("inspection denied");
+        },
+      },
+      original,
+    ),
+  ).rejects.toThrow("inspection denied");
+  await expect(verifyRetainedProcessExited({}, original)).rejects.toThrow("native exit proof");
 });

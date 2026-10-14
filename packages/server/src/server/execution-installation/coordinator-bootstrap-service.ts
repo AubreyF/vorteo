@@ -46,6 +46,46 @@ export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
   inspectStoppedProcess(pid: number): Promise<z.infer<typeof FrozenProcessObservationSchema>>;
 }
 
+/** Retained recovery needs the old lifetime to be gone, not its numeric PID to
+ * remain unused forever. Only stable native birth observations establish reuse;
+ * exec/argv changes and inspection failures do not establish process exit. */
+export async function verifyRetainedProcessExited(
+  reader: {
+    verifyProcessExited?(pid: number): Promise<void>;
+    inspectProcess?(pid: number): Promise<unknown>;
+  },
+  expectedValue: z.infer<typeof ProcessObservationSchema>,
+): Promise<void> {
+  const expected = ProcessObservationSchema.parse(expectedValue);
+  if (!reader.verifyProcessExited)
+    throw new BootstrapRequestConflict("Retained process native exit proof is unavailable");
+  try {
+    await reader.verifyProcessExited(expected.pid);
+    return;
+  } catch {
+    // An absence failure alone proves nothing. A separate native observation
+    // may prove the PID now belongs to a later lifetime in the same boot.
+  }
+  if (!reader.inspectProcess)
+    throw new BootstrapRequestConflict("Retained process lifetime exit is unproven");
+  const first = ProcessObservationSchema.parse(await reader.inspectProcess(expected.pid));
+  const second = ProcessObservationSchema.parse(await reader.inspectProcess(expected.pid));
+  const birth = (value: string) => {
+    if (!/^[0-9]+:[0-9]{1,6}$/.test(value))
+      throw new BootstrapRequestConflict("Retained process birth identity is invalid");
+    const [seconds, micros] = value.split(":").map(BigInt);
+    return seconds * 1_000_000n + micros;
+  };
+  if (
+    !isDeepStrictEqual(first, second) ||
+    first.pid !== expected.pid ||
+    first.uid !== expected.uid ||
+    first.bootId !== expected.bootId ||
+    birth(first.startIdentity) <= birth(expected.startIdentity)
+  )
+    throw new BootstrapRequestConflict("Retained process lifetime exit is unproven");
+}
+
 export async function readBootstrapLauncher(
   file: CoordinatorBootstrapPlan["candidate"]["launcher"],
   writableMountRoots: readonly string[],
