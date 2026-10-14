@@ -1,5 +1,6 @@
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { createContext, useCallback, useId, useMemo, useReducer, type ReactNode } from "react";
-import { Text, View, type LayoutChangeEvent } from "react-native";
+import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
@@ -132,6 +133,9 @@ export function StreamColumns({
   children: [ReactNode, ReactNode];
 }) {
   const { split, sizedText, widths, onLayout } = layout;
+  const { width: viewportWidth } = useWindowDimensions();
+  const compact = useIsCompactFormFactor();
+  const narrowDesktop = !compact && viewportWidth <= 1200;
   const textOffset = layout.standaloneText
     ? Math.max(COLUMN_MARGIN, (layout.containerWidth - widths.text) / 2)
     : resolveTextOffset(layout.containerWidth, widths);
@@ -145,9 +149,11 @@ export function StreamColumns({
   const composerStyle = useMemo(
     () => [
       styles.composer,
-      sizedText && inlineUnistylesStyle({ width: widths.text, marginLeft: textOffset }),
+      sizedText &&
+        !narrowDesktop &&
+        inlineUnistylesStyle({ width: widths.text, marginLeft: textOffset }),
     ],
-    [sizedText, widths.text, textOffset],
+    [sizedText, widths.text, textOffset, narrowDesktop],
   );
   const cardsStyle = useMemo(
     () => [

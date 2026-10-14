@@ -1,3 +1,4 @@
+import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/floating-panel";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -298,23 +299,19 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    height: FLOATING_PANEL_CONTROL_HEIGHT,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.borderAccent,
     overflow: "hidden",
   },
   splitButtonPrimary: {
-    flex: 1,
-    paddingHorizontal: {
-      xs: theme.spacing[3],
-      md: theme.spacing[2],
-    },
+    minHeight: FLOATING_PANEL_CONTROL_HEIGHT - 2,
+    flexShrink: 0,
+    paddingHorizontal: theme.spacing[3],
     justifyContent: "center",
     position: "relative",
   },
@@ -357,10 +354,7 @@ const styles = StyleSheet.create((theme) => ({
     transform: [{ scale: 0.8 }],
   },
   splitButtonCaret: {
-    width: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    width: FLOATING_PANEL_CONTROL_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     borderLeftWidth: theme.borderWidth[1],

@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.482 - 2026-10-13
+
+### Changed
+
+- Widen and lower the narrow-desktop composer, align it with the first tab, and show workspace context in taller selected tabs when navigation is collapsed.
+- Preserve the conversation fade behind taller tabs and increase icon-to-text spacing.
+- Support browser touch and pen resizing with handles centered in sidebar gutters.
+- Give the Commit split button sufficient content height, padding and rounded corners.
+
+### Maintenance
+
+- Add tablet touch, alignment, clipping and responsive regression coverage. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.481 - 2026-10-13
 
 ### Maintenance

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+At narrow desktop widths up to 1200px, the composer fills its pane, aligns with the first tab and reaches the bottom edge. With navigation collapsed, the selected tab shows the workspace above its task in a 60px chip over the unchanged conversation fade. Browser fingers, pens and mice share captured sidebar resizing, with visible grips in the gutters. The Commit split button uses 44px height and 16px corners. Tablet regression coverage checks touch drags, alignment, transparent overlap, label clearance and phone/wide-desktop behavior. README overview and onboarding are unchanged.
+
 The demo acceptance check includes the default shared outer inset in its desktop tab-row height. Navigation, theme selection and keyboard access to the compact project rail pass against the existing production build. This maintenance changes no interface behavior or README onboarding.
 
 Question cards add 12px between their prompt and answer controls and 12px below the action row, in addition to the shared card inset. They continue to grow with their contents and scroll with the conversation. README overview and onboarding are unchanged.

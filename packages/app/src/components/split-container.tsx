@@ -1556,6 +1556,7 @@ const styles = StyleSheet.create((theme) => ({
     overflow: "hidden",
   },
   paneTabs: {
+    zIndex: 2,
     position: "relative",
     minWidth: 0,
   },

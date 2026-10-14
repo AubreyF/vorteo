@@ -1370,3 +1370,75 @@ test("composer and sidebar frames share the same outer inset", async ({ page }, 
     await page.screenshot({ path: info.outputPath(`outer-spacing-${width}.png`) });
   }
 });
+
+test("tablet composer, tabs and touch gutters retain their geometry", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1133, height: 744 });
+  await page.goto("/h/vorteo-demo/workspace/demo-workspace-0-0?demo=1");
+  const composer = page.getByTestId("message-input-surface");
+  await expect(composer).toBeVisible();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  const drag = async (id: string, delta: number) => {
+    const handle = page.getByTestId(id);
+    await expect(handle).toHaveCSS("width", "24px");
+    const before = (await handle.boundingBox())!;
+    const x = before.x + before.width / 2;
+    const y = before.y + 100;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let step = 1; step <= 6; step++) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: x + (delta * step) / 6, y }],
+      });
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(async () => (await handle.boundingBox())!.x).toBeCloseTo(before.x + delta, 0);
+  };
+  await drag("left-sidebar-resize-handle", 40);
+  await page.getByRole("button", { name: "Use compact sidebar", exact: true }).click();
+  await expect(page.getByTestId("tablet-tab-workspace")).toHaveText("Design review");
+  const tab = page.getByTestId("workspace-tab-agent_demo-agent-0");
+  await expect(tab).toHaveCSS("height", "60px");
+  // The larger chip must not paint an opaque strip over the original fade.
+  await expect(page.getByTestId("workspace-tabs-row").first()).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  const spacing = await tab.evaluate((el) => {
+    const label = el.querySelector('[data-testid="tablet-tab-workspace"]')!;
+    const text = label.parentElement!;
+    const icon = text.previousElementSibling!;
+    return text.getBoundingClientRect().left - icon.getBoundingClientRect().right;
+  });
+  expect(spacing).toBe(10);
+  const tabBounds = (await tab.boundingBox())!;
+  const input = (await composer.boundingBox())!;
+  expect(input.x).toBe(tabBounds.x);
+  expect(input.y + input.height).toBe(744);
+  await page.getByRole("button", { name: "Open Explorer sidebar", exact: true }).click();
+  const grip = page.getByTestId("workspace-explorer-sidebar-resize-handle-highlight");
+  const card = page.getByTestId("agent-task-progress-card");
+  const gripBounds = (await grip.boundingBox())!;
+  const cardBounds = (await card.boundingBox())!;
+  expect(gripBounds.x + gripBounds.width).toBeLessThan(cardBounds.x);
+  expect(gripBounds.y).toBeCloseTo(cardBounds.y, 0);
+  await drag("workspace-explorer-sidebar-resize-handle", -40);
+  const commit = page.getByTestId("changes-primary-cta");
+  await expect(commit).toHaveCSS("min-height", "42px");
+  const shape = await commit.evaluate((el) => {
+    const frame = el.parentElement!.parentElement!;
+    return {
+      radius: getComputedStyle(frame).borderRadius,
+      height: frame.getBoundingClientRect().height,
+      clipped: el.scrollHeight > el.clientHeight,
+    };
+  });
+  expect(shape).toEqual({ radius: "16px", height: 44, clipped: false });
+  await page.screenshot({ path: info.outputPath("tablet.png") });
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await expect(page.getByTestId("tablet-tab-workspace")).toHaveCount(0);
+  await expect(tab).toHaveCSS("height", "44px");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(composer).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});

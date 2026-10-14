@@ -1,3 +1,5 @@
+import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
+import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import { HostBadge } from "@/hosts/host-badge";
 import { useHostBadges } from "@/hosts/use-host-badges";
@@ -10,6 +12,7 @@ import {
 import { floatingControlSurface } from "@/styles/floating-control";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
+  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -98,6 +101,7 @@ import {
 } from "@/components/ui/horizontal-scroll-boundary";
 import { useSessionStore } from "@/stores/session-store";
 
+const TabletWorkspaceNameContext = createContext<string | null>(null);
 const DROPDOWN_WIDTH = 220;
 const DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH = 36;
 const PANE_SPLIT_ACTIONS_HORIZONTAL_PADDING = 2;
@@ -116,7 +120,7 @@ const TAB_CHIP_HORIZONTAL_PADDING = 12;
 const TAB_CHIP_GAP = 4;
 const TAB_ROW_PADDING_HORIZONTAL = 4;
 const TAB_ICON_WIDTH = 14;
-const TAB_CONTENT_GAP = 4;
+const TAB_CONTENT_GAP = 10;
 const TAB_DROP_INDICATOR_WIDTH = 4;
 const TAB_MODIFIED_DOT_SIZE = 8;
 const TAB_MIN_WIDTH = 120;
@@ -671,6 +675,7 @@ function resolveChipBackdrop({
 
 function TabHandleContent({
   presentation,
+  workspaceName,
   isHighlighted,
   showLabel,
   backdrop,
@@ -679,6 +684,7 @@ function TabHandleContent({
   modifiedTestId,
 }: {
   presentation: WorkspaceTabPresentation;
+  workspaceName?: string | null;
   isHighlighted: boolean;
   showLabel: boolean;
   backdrop: SurfaceBackdrop;
@@ -701,9 +707,16 @@ function TabHandleContent({
         <View style={tabLabelSkeletonStyle} />
       ) : null}
       {showLabel && presentation.titleState !== "loading" ? (
-        <Text style={tabLabelStyle} selectable={false} numberOfLines={1} ellipsizeMode="tail">
-          {presentation.label}
-        </Text>
+        <View style={styles.tabText}>
+          {workspaceName ? (
+            <Text testID="tablet-tab-workspace" style={styles.workspaceName} numberOfLines={1}>
+              {workspaceName}
+            </Text>
+          ) : null}
+          <Text style={tabLabelStyle} selectable={false} numberOfLines={1} ellipsizeMode="tail">
+            {presentation.label}
+          </Text>
+        </View>
       ) : null}
       {/* The dot is a laid-out sibling of the label, not an overlay, so a truncated label ends
           before it instead of running underneath it. */}
@@ -716,6 +729,15 @@ function TabHandleContent({
       ) : null}
     </View>
   );
+}
+
+function useSelectedWorkspaceName(active: boolean) {
+  const name = useContext(TabletWorkspaceNameContext);
+  return active ? name : null;
+}
+
+function tabletTabStyle(name: string | null) {
+  return name ? styles.tabletTab : undefined;
 }
 
 function TabChip({
@@ -763,6 +785,7 @@ function TabChip({
     useCallback(() => void onCloseTab(tab.tabId), [onCloseTab, tab.tabId]),
   );
   const isCompact = useIsCompactFormFactor();
+  const workspaceName = useSelectedWorkspaceName(isActive);
   const [hovered, setHovered] = useState(false);
   // Only the focused pane's selected tab receives the floating surface treatment.
   const isActiveFocused = isActive && isFocused;
@@ -787,6 +810,7 @@ function TabChip({
   const tabChipStyle = useCallback(
     () => [
       styles.tab,
+      tabletTabStyle(workspaceName),
       isActiveFocused && styles.tabActive,
       !isActiveFocused && isHovered && styles.tabHovered,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
@@ -796,7 +820,7 @@ function TabChip({
         maxWidth: resolvedTabWidth,
       },
     ],
-    [isActiveFocused, isDragging, isHovered, resolvedTabWidth],
+    [isActiveFocused, isDragging, isHovered, resolvedTabWidth, workspaceName],
   );
 
   const handleTabPointerEnter = useCallback(() => {
@@ -864,6 +888,7 @@ function TabChip({
               aria-selected={isActive}
             >
               <TabHandleContent
+                workspaceName={workspaceName}
                 presentation={presentation}
                 isHighlighted={isHighlighted}
                 showLabel={showLabel}
@@ -946,6 +971,12 @@ function TabChip({
 }
 
 export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
+  const { sidebarCompact, viewportWidth } = useResponsiveSidebar();
+  const workspace = useWorkspace(props.normalizedServerId, props.normalizedWorkspaceId);
+  const workspaceName =
+    sidebarCompact && viewportWidth <= 1200 && props.host !== "explorer"
+      ? workspace?.title || workspace?.name || null
+      : null;
   const [presentations, setPresentations] = useState(
     () => new Map<string, WorkspaceTabPresentation>(),
   );
@@ -990,7 +1021,9 @@ export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
 
   return (
     <>
-      <ResolvedWorkspaceDesktopTabsRow {...props} tabs={resolvedTabs} />
+      <TabletWorkspaceNameContext.Provider value={workspaceName}>
+        <ResolvedWorkspaceDesktopTabsRow {...props} tabs={resolvedTabs} />
+      </TabletWorkspaceNameContext.Provider>
       {props.tabs.map(({ tab }) => (
         <WorkspaceDesktopTabPresentationSlot
           key={`${tab.key}:${tab.kind}`}
@@ -1050,7 +1083,9 @@ function ResolvedWorkspaceDesktopTabsRow({
   );
   const [trackSnapshot, setTrackSnapshot] = useState<WorkspaceTabTrackSnapshot | null>(null);
 
-  const { headerHeight } = useSidebarSpacing();
+  const { headerHeight: baseHeaderHeight } = useSidebarSpacing();
+  const workspaceName = useContext(TabletWorkspaceNameContext);
+  const headerHeight = baseHeaderHeight + (workspaceName ? 16 : 0);
   const handleTabsContainerLayout = useCallback((event: LayoutChangeEvent) => {
     updateMeasuredWidth(setTabsContainerWidth, event);
   }, []);
@@ -1332,7 +1367,14 @@ function ResolvedWorkspaceDesktopTabsRow({
 
   const row = (
     <View
-      style={[styles.tabsContainer, { paddingRight: toolbarInset, height: headerHeight }]}
+      style={[
+        styles.tabsContainer,
+        {
+          paddingRight: toolbarInset,
+          height: headerHeight,
+          marginBottom: workspaceName ? -16 : 0,
+        },
+      ]}
       testID="workspace-tabs-row"
       onLayout={handleTabsContainerLayout}
     >
@@ -1554,7 +1596,8 @@ const styles = StyleSheet.create((theme) => ({
   tabsContainer: {
     minWidth: 0,
     height: VORTON_HEADER_HEIGHT,
-    backgroundColor: theme.colors.surface0,
+    // The taller tablet chip overlaps the unchanged conversation fade.
+    backgroundColor: "transparent",
     flexDirection: "row",
     alignItems: "center",
     overflow: "visible",
@@ -1603,6 +1646,12 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
     userSelect: "none",
   },
+  tabletTab: { height: buttonControlHeight.md + 16 },
+  tabText: { flex: 1, minWidth: 0 },
+  workspaceName: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.sm,
+  },
   tabHovered: {
     backgroundColor: theme.colors.surface1,
   },
@@ -1620,7 +1669,7 @@ const styles = StyleSheet.create((theme) => ({
   tabHandle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.spacing[1],
+    gap: TAB_CONTENT_GAP,
     flex: 1,
     minWidth: 0,
     userSelect: "none",
