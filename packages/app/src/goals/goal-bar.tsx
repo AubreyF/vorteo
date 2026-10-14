@@ -50,6 +50,7 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
       hasGoal ? (
         <CountBadge
           label={formatGoalElapsed(elapsed)}
+          narrowLabel={formatGoalElapsed(elapsed, true)}
           accessibilityLabel={`Goal elapsed time: ${formatGoalElapsed(elapsed)}`}
           testID="agent-goal-elapsed"
         />
@@ -63,7 +64,7 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
   const label = notice ? "Goal" : goalBarLabel(control);
 
   return (
-    <TaskCard testID="agent-goal-bar" bodyVisible={expanded} notice={fixedNotice}>
+    <TaskCard bottomInset={8} testID="agent-goal-bar" bodyVisible={expanded} notice={fixedNotice}>
       <TaskCardHeader>
         <CardDisclosure
           icon={HEADING_ICON}

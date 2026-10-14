@@ -1,10 +1,11 @@
+import { CardDisclosureLayoutContext } from "./use-card-disclosure";
 import { CardGrid } from "./card-grid";
 import { PortalHost } from "@gorhom/portal";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
 import {
   useWorkspaceCardHost,
-  useInlineQueueHost,
+  useInlineCardsHost,
   WorkspaceCardsPortal,
 } from "@/screens/workspace/supporting-cards-context";
 import { CARD_GAP, COLUMN_FADE_HEIGHT } from "./columns/geometry";
@@ -156,6 +157,10 @@ interface WorkspaceStreamColumnsInput {
   showTaskCards?: boolean;
   trailingCards?: ReactNode;
   contentMaxWidth: number;
+}
+
+function resolveCardsHost(inline: string | null, sidebar: string | null) {
+  return inline ?? sidebar;
 }
 
 function useWorkspaceStreamColumns({
@@ -1178,10 +1183,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
-    const inlineQueueHost = useInlineQueueHost(agentId);
-    const inlineQueue = useMemo(
-      () => (inlineQueueHost ? <PortalHost name={inlineQueueHost} /> : null),
-      [inlineQueueHost],
+    const inlineCardsHost = useInlineCardsHost(agentId);
+    const cardsPortalHost = resolveCardsHost(inlineCardsHost, workspaceCardHost);
+    const inlineCards = useMemo(
+      () =>
+        inlineCardsHost ? (
+          <CardDisclosureLayoutContext value="sidebar">
+            <PortalHost name={inlineCardsHost} />
+            <PortalHost name={`${inlineCardsHost}:supporting`} />
+            <PortalHost name={`${inlineCardsHost}:queue`} />
+          </CardDisclosureLayoutContext>
+        ) : null,
+      [inlineCardsHost],
     );
     const taskCards = useMemo(() => {
       if (trailingCards) return trailingCards;
@@ -1192,9 +1205,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           agentId={agentId}
           workspaceId={context.workspaceId}
           cwd={context.cwd}
-          queueHostName={
-            inlineQueueHost ?? (workspaceCardHost ? `${workspaceCardHost}:queue` : undefined)
-          }
+          hasWorkspaceCards={Boolean(workspaceCardHost)}
+          queueHostName={cardsPortalHost ? `${cardsPortalHost}:queue` : undefined}
         />
       );
     }, [
@@ -1205,7 +1217,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       context.workspaceId,
       context.cwd,
       workspaceCardHost,
-      inlineQueueHost,
+      cardsPortalHost,
     ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
@@ -1217,7 +1229,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       return renderLiveAuxiliaryNode({
         pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
-        taskCards: splitColumns ? inlineQueue : taskCards,
+        taskCards: splitColumns ? inlineCards : taskCards,
         bottomOverlayInset,
       });
     }, [
@@ -1226,7 +1238,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       pendingQuestionsNode,
       bottomOverlayTailClearance,
       splitColumns,
-      inlineQueue,
+      inlineCards,
       taskCards,
     ]);
 
@@ -1283,7 +1295,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <WorkspaceCardsPortal hostName={workspaceCardHost}>
+          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost}>
             {taskCards}
             {pendingActionPermissionsNode}
           </WorkspaceCardsPortal>
