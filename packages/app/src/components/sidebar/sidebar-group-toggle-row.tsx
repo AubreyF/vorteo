@@ -24,7 +24,7 @@ const ThemedChevronUp = withUnistyles(ChevronUp);
  * rather than as a distinction.
  *
  * `indented` because the two groupings disagree: status rows sit on their header's label rail and
- * project rows sit flush, so the caller says which list this row is ending. The indent itself is
+ * project rows sit inside their project heading, so the caller says which list this row is ending. The indent itself is
  * the workspace row's, imported rather than re-derived.
  */
 export function SidebarGroupToggleRow({
@@ -47,7 +47,7 @@ export function SidebarGroupToggleRow({
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.row,
       density,
-      density && !indented && styles.projectChildRow,
+      !indented && sidebarWorkspaceRowStyles.projectIndented,
       indented && sidebarWorkspaceRowStyles.rowIndented,
       hovered && !pressed && styles.rowHovered,
       pressed && styles.rowPressed,
@@ -101,7 +101,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     userSelect: "none",
   },
-  projectChildRow: { paddingLeft: theme.spacing[4] },
   rowHovered: {
     backgroundColor: theme.colors.surfaceSidebarHover,
   },

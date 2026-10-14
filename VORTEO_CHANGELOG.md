@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.517 - 2026-10-14
+
+### Maintenance
+
+- Preserve the installed project-child indentation while integrating compact card hover labels, balanced button spacing and full-width collapsed sidebar headers.
+
 ## 0.11.0-beta.3.vorteo.516 - 2026-10-14
 
 ### Fixed
@@ -15,6 +21,7 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Show full-width accordion headers and actions when every sidebar card is collapsed; retain grids for mixed sidebar layouts and embedded footers.
 - Preserve the installed theme-aware logos, reset alignment and startup recovery contrast.
+- Restore visible project-child indentation for workspace rows and their New workspace and Show more controls, including touch tablets.
 
 ## 0.11.0-beta.3.vorteo.515 - 2026-10-14
 
