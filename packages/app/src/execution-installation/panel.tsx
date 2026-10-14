@@ -1214,11 +1214,11 @@ export function InstallationRestartBanner({
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
-      {placement === "floating" ? <ClaimedRepairProvisioning banner /> : null}
-      {placement === "floating" && claimedRecovery ? (
+      {placement !== "floating" ? <ClaimedRepairProvisioning banner /> : null}
+      {placement !== "floating" && claimedRecovery ? (
         <ClaimedRecoveryBanner model={claimedRecovery} />
       ) : null}
-      {placement === "floating" && recovery ? <PreclaimRecoveryBanner model={recovery} /> : null}
+      {placement !== "floating" && recovery ? <PreclaimRecoveryBanner model={recovery} /> : null}
       {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
       {model ? <RestartBanner model={model} /> : null}
     </MaintenanceNoticePlacement.Provider>
