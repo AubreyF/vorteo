@@ -33,7 +33,11 @@ for (const width of [390, 1133]) {
       await page.screenshot({ path: info.outputPath(`medium-loader-${width}.png`) });
       gate.release();
       gate.releaseCatchUp();
-      await expect(mark).toHaveCount(0);
+      await expect(mark).not.toBeVisible();
+      await expect(page.getByTestId("agent-chat-scroll")).toBeVisible();
+    } catch (error) {
+      await page.screenshot({ path: info.outputPath("before-cleanup.png") });
+      throw error;
     } finally {
       gate.release();
       gate.releaseCatchUp();
