@@ -1,3 +1,4 @@
+import { CardGrid } from "./card-grid";
 import { PortalHost } from "@gorhom/portal";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
@@ -200,7 +201,7 @@ function renderLiveAuxiliaryNode(input: {
         style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
         testID={input.taskCards ? "agent-history-task-cards" : undefined}
       >
-        {input.taskCards}
+        <CardGrid>{input.taskCards}</CardGrid>
         {input.pendingPermissions}
       </View>
       {input.bottomOverlayInset > 0 ? (

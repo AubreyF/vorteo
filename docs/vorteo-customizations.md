@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Adjacent collapsed details cards share responsive rows in both sidebar and conversation layouts. Narrow tiles progressively hide heading actions and titles while retaining the icon, count and accessible name. Expanding a tile restores its full-width card and controls without moving the other cards in the React tree.
+
 App startup preserves the original shaded white Vorteo artwork inside its radar ring. The shared 48px page loader centers the same stationary artwork inside its rotating ring; small status indicators retain their existing footprint. Production checks verify centered artwork and the transition to visible conversation content while allowing hidden retained panels.
 
 The queue controller reads activity at its visible destination, keeping actions enabled outside a hidden dock. The queue portal is keyed by destination because its transport captures the host when mounted. The desktop queue moves to the bottom of the conversation when the details dock is hidden and returns to the dock when opened. Other details stay in the dock. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.

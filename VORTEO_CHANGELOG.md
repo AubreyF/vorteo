@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.503 - 2026-10-14
+
+### Changed
+
+- Tile adjacent collapsed details cards into responsive rows in the sidebar and conversation footer. Expanded cards occupy a full row.
+- Hide heading actions, then titles, as collapsed tiles narrow. Keep icons and counts visible, with full controls restored on expansion.
 
 ## 0.11.0-beta.3.vorteo.502 - 2026-10-14
 
