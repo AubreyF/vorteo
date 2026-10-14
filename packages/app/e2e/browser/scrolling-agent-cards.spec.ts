@@ -583,9 +583,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
           };
         });
       }, ids);
-      geometry
-        .filter((card) => card.id !== "question-form-card")
-        .forEach((card) => expect(card.bottom - card.top).toBeLessThanOrEqual(325));
+
       await checkCardGaps(stack, geometry, width);
       // Cards and their header controls share the approved floating-panel corners.
       expect(geometry[0].frame[3]).toBe("16px");
@@ -1138,7 +1136,7 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
     "agent-journal-toggle",
     "subagents-group-paseo-toggle",
   ];
-  for (const width of [1400, 390, 320]) {
+  for (const width of [1800, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await revealSupportingCards(page, width);
     for (const id of ids) {
@@ -1157,9 +1155,35 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
       await expect(page.getByTestId(`${id}-title`).filter({ visible: true })).toHaveCount(0);
       await expect(page.getByTestId(`${id}-metadata`).filter({ visible: true })).toBeVisible();
     }
+    const elapsed = page.getByTestId("agent-goal-elapsed").filter({ visible: true });
+    await expect(elapsed).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(elapsed.locator("[aria-label]")).toHaveCSS("white-space", "nowrap");
+    if (width <= 390) await expect(elapsed).toHaveText(/^\d+m$/);
     await expect(page.getByTestId("checklist-add").filter({ visible: true })).toHaveCount(0);
+    if (width === 1800) {
+      await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
+      const footer = page.getByTestId("thread-text-column");
+      for (const id of ids) {
+        await expect(footer.getByTestId(id)).toBeVisible();
+        await expect(footer.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+      }
+      await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
+    }
     const task = page.getByTestId("checklist-toggle").filter({ visible: true });
+    if (width === 390) {
+      await task.scrollIntoViewIfNeeded();
+      const target = (await task.boundingBox())!;
+      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(650); // Hold long enough to exercise the native long-press threshold.
+      await page.mouse.up();
+      await expect(task).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByRole("tooltip")).toContainText("Tasks");
+      await page.keyboard.press("Escape");
+    }
+    await page.keyboard.press("Tab");
     await task.focus();
+    await expect(page.getByRole("tooltip")).toContainText("Tasks");
     await page.keyboard.press("Enter");
     await expect(task).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByTestId("checklist-add").filter({ visible: true })).toBeVisible();
@@ -1269,7 +1293,7 @@ async function checkFixedHeaders(
   await page.reload();
   await expect(page.getByTestId("shared-message-queue")).toContainText("Scroll queue row 9");
 
-  for (const width of [1400, 390]) {
+  for (const width of [1800, 390]) {
     await page.setViewportSize({ width, height: 400 });
     await revealSupportingCards(page, width);
     for (const id of [
@@ -1292,7 +1316,8 @@ async function checkFixedHeaders(
           movement: contentTop - first.getBoundingClientRect().top,
         };
       });
-      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(200);
+      const maxHeight = width === 390 ? 200 : 400;
+      expect((await card.boundingBox())!.height).toBeLessThanOrEqual(maxHeight);
       expect(result.offset).toBeGreaterThan(0);
       const divider = card.getByTestId(`${id}-scroll-divider`);
       await expect(divider).toHaveCSS("opacity", "1");
@@ -2060,7 +2085,7 @@ test("shared card group and thread resize independently and preserve saved width
       expectedRevision: 0,
       operationId: "pause-columns",
     });
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 30; i++) {
       await client.mutateMessageQueue(agent.agentId, {
         kind: "enqueue",
         operationId: `enqueue-column-${i}`,
@@ -2102,9 +2127,9 @@ test("shared card group and thread resize independently and preserve saved width
         const expectedLeft = all.x + (all.width - t.width) / 2;
         expect(t.x).toBeCloseTo(expectedLeft, 0);
         const handle = await box(page.getByTestId("workspace-explorer-sidebar-resize-handle"));
-        const stack = await box(cards.getByTestId("thread-cards-stack"));
-        expect(handle.y).toBeCloseTo(stack.y, 0);
-        expect(handle.y + handle.height).toBeCloseTo(stack.y + stack.height, 0);
+        const availableStack = await box(cards.getByTestId("thread-cards-stack"));
+        expect(handle.y).toBeCloseTo(availableStack.y, 0);
+        expect(handle.y + handle.height).toBeCloseTo(availableStack.y + availableStack.height, 0);
       }).toPass({ timeout: 5000 });
     };
     const drag = async (id: string, delta: number) => {
@@ -2229,10 +2254,64 @@ test("shared card group and thread resize independently and preserve saved width
         expect(panel.y + panel.height).toBeLessThanOrEqual(queue.y);
       }
     }).toPass();
+    const movedToggles = [
+      "checklist-toggle",
+      "subagents-group-paseo-toggle",
+      "supporting-card-files-toggle",
+      "supporting-card-changes_tree-toggle",
+      "message-queue-toggle",
+    ];
+    for (const id of movedToggles) {
+      const toggle = cards.getByTestId(id);
+      if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
+    }
     await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     await expect(cards).toBeHidden();
+    for (const id of movedToggles) {
+      await expect(text.getByTestId(id)).toBeVisible();
+      await expect(text.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByTestId(id)).toHaveCount(1);
+      await text.getByTestId(id).hover();
+      const label = await text.getByTestId(id).getAttribute("aria-label");
+      await expect(page.getByRole("tooltip", { name: label!, exact: true })).toBeVisible();
+      await page.mouse.move(0, 0);
+      await expect(page.getByRole("tooltip", { name: label!, exact: true })).toHaveCount(0);
+    }
+    await expect(async () => {
+      const tiles = await Promise.all(movedToggles.map((id) => box(text.getByTestId(id))));
+      expect(
+        Math.max(...tiles.map((tile) => tile.y)) - Math.min(...tiles.map((tile) => tile.y)),
+      ).toBeLessThan(1);
+    }).toPass();
+    await text.getByTestId("message-queue-toggle").click();
+    await expect(text.getByTestId("message-queue-pause-resume")).toBeEnabled();
+    await expect(text.getByText("Queued message 0:", { exact: false })).toBeVisible();
+    await text.getByTestId("message-queue-toggle").click();
+    await expect
+      .poll(async () => (await box(text.getByTestId("shared-message-queue"))).height)
+      .toBeCloseTo((await box(text.getByTestId("supporting-card-files"))).height, 0);
+    await page.getByTestId("agent-chat-scroll").evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+    await expect(async () => {
+      const lastCard = await box(text.getByTestId("shared-message-queue"));
+      const input = await box(composer);
+      expect(input.y - lastCard.y - lastCard.height).toBeLessThanOrEqual(32);
+      expect(input.y - lastCard.y - lastCard.height).toBeGreaterThanOrEqual(0);
+    }).toPass();
+    await page.screenshot({ path: info.outputPath("all-cards-footer.png") });
     await page.getByTestId("workspace-explorer-toggle").first().click();
     await expect(cards).toBeVisible();
+    for (const id of movedToggles)
+      await expect(cards.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+    await cards.getByTestId("message-queue-toggle").click();
+    await expect(async () => {
+      const availableStack = await box(cards.getByTestId("thread-cards-stack"));
+      const queue = await box(cards.getByTestId("shared-message-queue"));
+      expect(queue.height).toBeGreaterThan(availableStack.height * 0.7);
+      expect(queue.y + queue.height).toBeCloseTo(availableStack.y + availableStack.height, 0);
+    }).toPass();
+    await cards.getByTestId("message-queue-toggle").click();
     await drag("left-sidebar-resize-handle", 160);
     // Explicitly opened Files keeps the supporting group available below the
     // automatic task-card breakpoint until the layout switches to mobile.

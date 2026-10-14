@@ -4,7 +4,7 @@ import {
   StatusRingFrame,
   type StatusRingProps,
   rotatorStyles,
-  styles,
+  StatusRingArc,
 } from "@/components/status-ring/frame";
 import { useStatusRingAnimationRef } from "@/components/status-ring/clock.web";
 
@@ -19,7 +19,7 @@ export const StatusRing = memo(function StatusRing({ backdrop, variant }: Status
   return (
     <StatusRingFrame backdrop={backdrop} variant={variant}>
       <View ref={rotatorRef} style={rotatorStyles.rotator}>
-        <View style={[styles.arc, variant === "task" && styles.taskArc]} />
+        <StatusRingArc variant={variant} />
       </View>
     </StatusRingFrame>
   );

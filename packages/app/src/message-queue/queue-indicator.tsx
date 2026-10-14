@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { Text, View, StyleSheet as NativeStyleSheet } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import { RadarRing } from "@/components/ui/radar-ring";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -57,18 +57,7 @@ function Orbit({ spinning, color }: { spinning: boolean; color: string }) {
   const rotationStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${angle.value}deg` }] }));
   return (
     <Animated.View style={[animationStyles.glyph, rotationStyle]} testID="queue-orbit-rotation">
-      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-        <Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={1.5} opacity={0.22} />
-        <Circle
-          cx={12}
-          cy={12}
-          r={8}
-          stroke={color}
-          strokeWidth={1.5}
-          strokeDasharray="13 38"
-          strokeLinecap="round"
-        />
-      </Svg>
+      <RadarRing size={(17.5 * 14) / 24} strokeWidth={0.875} color={color} trackOpacity={0.22} />
     </Animated.View>
   );
 }
@@ -163,7 +152,7 @@ export function QueueMessageIndicator({
 }
 
 const animationStyles = NativeStyleSheet.create({
-  glyph: { width: 14, height: 14 },
+  glyph: { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
   overlay: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" },
 });
 const styles = StyleSheet.create((theme) => ({
