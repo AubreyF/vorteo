@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, type ActivityIndicatorProps } from "react-native";
+import { Image, View, type ActivityIndicatorProps } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import Animated, {
   cancelAnimation,
@@ -16,6 +16,12 @@ interface LoadingSpinnerProps {
   size?: ActivityIndicatorProps["size"];
   style?: ActivityIndicatorProps["style"];
 }
+
+const brandMarkStyle = {
+  position: "absolute" as const,
+  width: LOADING_INDICATOR.large * 0.9,
+  height: LOADING_INDICATOR.large * 0.9,
+};
 
 export function LoadingSpinner({ color, size = "small", style }: LoadingSpinnerProps) {
   const diameter = typeof size === "number" ? size : LOADING_INDICATOR[size];
@@ -39,6 +45,15 @@ export function LoadingSpinner({ color, size = "small", style }: LoadingSpinnerP
       accessibilityLabel="Loading"
       style={[{ alignItems: "center", justifyContent: "center" }, style]}
     >
+      {size === "large" ? (
+        <Image
+          source={require("../../../assets/brand/vorteo-white.png")}
+          resizeMode="contain"
+          accessible={false}
+          testID="loading-brand-mark"
+          style={brandMarkStyle}
+        />
+      ) : null}
       {/* Keep theme props off the animated carrier so native theme changes remain safe. */}
       <Animated.View style={[{ width: diameter, height: diameter }, animatedStyle]}>
         <Svg width={diameter} height={diameter} viewBox={`0 0 ${diameter} ${diameter}`}>

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.500 - 2026-10-14
+
+### Maintenance
+
+- Preserve the published loading-indicator refinement alongside coordinator recovery and Dev source-queue corrections
+
 ## 0.11.0-beta.3.vorteo.499 - 2026-10-14
 
 ### Fixed
@@ -15,6 +21,13 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Fixed
 
 - Reconciled stale source conflicts when a later validated contribution contains the exact original commit, retaining provenance and rejecting damaged bundles
+
+## 0.11.0-beta.3.vorteo.498 - 2026-10-14
+
+### Changed
+
+- Preserve the standard white V's light shading in the startup loader and center the same stationary mark inside medium page-loading rings.
+- Keep small status spinners unchanged. README overview and onboarding are unchanged.
 
 ## 0.11.0-beta.3.vorteo.497 - 2026-10-14
 
