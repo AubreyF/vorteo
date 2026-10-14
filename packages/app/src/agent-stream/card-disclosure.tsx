@@ -209,8 +209,8 @@ const styles = StyleSheet.create((theme) => ({
   stackedTrigger: {
     flexDirection: "column",
     height: "auto",
-    minHeight: 56,
-    paddingVertical: 4,
+    minHeight: 44,
+    paddingVertical: 2,
     gap: 2,
   },
   compactMetadata: { marginLeft: 0, minWidth: 0, flexShrink: 1 },

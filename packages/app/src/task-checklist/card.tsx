@@ -101,9 +101,10 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
         active={progress.active}
         total={progress.total}
         testID="checklist-progress"
+        tooltip={expanded}
       />
     ),
-    [progress.completed, progress.active, progress.total],
+    [progress.completed, progress.active, progress.total, expanded],
   );
   const countBadge = useMemo(
     () => (

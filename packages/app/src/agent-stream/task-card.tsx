@@ -360,7 +360,7 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
         taskCardStyles.header,
         staticHeading && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
         touch && taskCardStyles.touchHeader,
-        stacked && { height: "auto", minHeight: 56 },
+        stacked && { height: "auto", minHeight: 44 },
       ]}
     >
       {children}

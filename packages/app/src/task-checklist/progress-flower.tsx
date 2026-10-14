@@ -48,7 +48,8 @@ export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
   active,
   total,
   testID,
-}: ChecklistProgress & { testID?: string }) {
+  tooltip = true,
+}: ChecklistProgress & { testID?: string; tooltip?: boolean }) {
   const { t } = useTranslation();
   if (total === 0) return null;
   const percent = Math.round((completed / total) * 100);
@@ -56,13 +57,13 @@ export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
   const detail = `${label} · ${t("message.todo.activeCount", { count: active })}`;
   const petals = taskPetals({ completed, active, total });
   return (
-    <Tooltip>
+    <Tooltip enabledOnDesktop={tooltip}>
       <TooltipTrigger asChild>
         <View
           style={styles.frame}
           testID={testID}
           accessible
-          tabIndex={0}
+          tabIndex={tooltip ? 0 : -1}
           accessibilityRole="progressbar"
           accessibilityLabel={detail}
           aria-valuemin={0}

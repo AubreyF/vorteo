@@ -4,12 +4,50 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.516 - 2026-10-14
+
+### Fixed
+
+- Show compact details-card tooltips when using a mouse or trackpad on narrow and touch-capable screens, while preserving long-press labels.
+- Shorten stacked compact card buttons while keeping their hover insets balanced and touch targets at least 44 pixels tall.
+
+### Changed
+
+- Show full-width accordion headers and actions when every sidebar card is collapsed; retain grids for mixed sidebar layouts and embedded footers.
+- Preserve the installed theme-aware logos, reset alignment and startup recovery contrast.
+
+## 0.11.0-beta.3.vorteo.515 - 2026-10-14
+
+### Fixed
+
+- Keep early startup recovery text readable against the remembered theme background.
+
+## 0.11.0-beta.3.vorteo.514 - 2026-10-14
+
+### Maintenance
+
+- Preserve the installed embedded-card spacing and viewport limits while integrating reset-label alignment and theme-aware logos.
+
+## 0.11.0-beta.3.vorteo.513 - 2026-10-14
+
+### Changed
+
+- Match embedded Vorteo marks to the selected theme: original rainbow artwork for Starship, shaded white for Dark Star, and palette gradients for Scriptorium, Midas, Ember and Neon.
+- Share logo selection across page loaders, welcome and project screens, and retain validated palette colors for the early startup loader.
+
 ## 0.11.0-beta.3.vorteo.513 - 2026-10-14
 
 ### Changed
 
 - Show full-width accordion headers with actions when every sidebar details card is collapsed.
 - Keep compact grids for mixed sidebar layouts and embedded footer cards.
+
+## 0.11.0-beta.3.vorteo.512 - 2026-10-14
+
+### Fixed
+
+- Center compact account reset outlines with their labels when touch accessibility enlarges the button target.
+- Keep reset-dialog browser screenshots inside the test workspace.
 
 ## 0.11.0-beta.3.vorteo.512 - 2026-10-14
 

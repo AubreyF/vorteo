@@ -1170,6 +1170,34 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
       await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     }
     const task = page.getByTestId("checklist-toggle").filter({ visible: true });
+    await expect(async () => {
+      const gaps = await task.evaluate((button) => {
+        const card = button.closest('[data-testid="agent-task-progress-card"]')!;
+        const outer = card.getBoundingClientRect();
+        const inner = button.getBoundingClientRect();
+        return {
+          top: inner.top - outer.top,
+          bottom: outer.bottom - inner.bottom,
+          left: inner.left - outer.left,
+          right: outer.right - inner.right,
+          height: inner.height,
+        };
+      });
+      expect(gaps.height).toBeGreaterThanOrEqual(44);
+      expect(gaps.height).toBeLessThanOrEqual(48);
+      expect(gaps.top).toBeCloseTo(gaps.left, 0);
+      expect(gaps.bottom).toBeCloseTo(gaps.left, 0);
+      expect(gaps.right).toBeCloseTo(gaps.left, 0);
+    }).toPass();
+    for (const id of ids) {
+      const button = page.getByTestId(id).filter({ visible: true });
+      await button.hover();
+      const label = await button.getAttribute("aria-label");
+      await expect(page.getByRole("tooltip")).toHaveText(label!);
+      await page.screenshot({ path: info.outputPath(`compact-hover-${width}-${id}.png`) });
+      await page.mouse.move(0, 0);
+      await expect(page.getByRole("tooltip")).toHaveCount(0);
+    }
     if (width === 390) {
       await task.scrollIntoViewIfNeeded();
       const target = (await task.boundingBox())!;
