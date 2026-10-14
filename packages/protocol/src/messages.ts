@@ -4070,6 +4070,7 @@ export const ServerInfoStatusPayloadSchema = z
         sharedProviderPreferences: z.boolean().optional(),
         accountIndependentProfiles: z.boolean().optional(),
         explicitWorkerAccounts: z.boolean().optional(),
+        uncappedManagedWorkers: z.boolean().optional(),
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),

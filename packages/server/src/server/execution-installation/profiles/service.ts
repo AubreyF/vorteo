@@ -75,6 +75,7 @@ export interface ProfileEnvironment {
   serverId: string;
   kind: "host" | "container";
   workerAccounts?: boolean;
+  uncappedManagedWorkers?: boolean;
   read(): Promise<MutableDaemonConfig>;
   patch(patch: MutableDaemonConfigPatch): Promise<MutableDaemonConfig>;
 }
@@ -147,6 +148,9 @@ export class InstallationProfiles {
       ...status,
       providers: structuredClone(this.state.providers),
       workerAccounts: this.environments.every((environment) => environment.workerAccounts === true),
+      uncappedManagedWorkers: this.environments.every(
+        (environment) => environment.uncappedManagedWorkers === true,
+      ),
     };
   }
 
@@ -165,6 +169,33 @@ export class InstallationProfiles {
       throw new ProfileSharingConflict(["revision"]);
     const next = structuredClone(state);
     next.providers = ProvidersSchema.parse(input.providers);
+    // COMPAT(uncappedProfile): added in vorteo.494, remove after 2027-04-14 once editors preserve this flag.
+    // Omission from an older editor is not permission to restore a finite cap.
+    for (const [type, group] of Object.entries(next.providers)) {
+      const previous = state.providers[type];
+      if (
+        group.defaults.uncappedWorkers === undefined &&
+        previous?.defaults.uncappedWorkers !== undefined
+      ) {
+        group.defaults.uncappedWorkers = previous.defaults.uncappedWorkers;
+      }
+      for (const workflow of group.workflows) {
+        const prior = previous?.workflows.find((item) => item.id === workflow.id);
+        if (workflow.uncappedWorkers === undefined && prior?.uncappedWorkers !== undefined) {
+          workflow.uncappedWorkers = prior.uncappedWorkers;
+        }
+      }
+    }
+    if (
+      Object.values(next.providers).some((group) =>
+        [group.defaults, ...group.workflows].some((profile) => profile.uncappedWorkers === true),
+      ) &&
+      !this.environments.every((environment) => environment.uncappedManagedWorkers === true)
+    ) {
+      throw new ProfileSharingConflict([
+        "Update every environment before selecting uncapped workers.",
+      ]);
+    }
     for (const [type, group] of Object.entries(next.providers)) {
       const previous = state.providers[type];
       const changed = [group.defaults, ...group.workflows].some((profile, index) => {

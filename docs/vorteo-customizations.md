@@ -704,3 +704,5 @@ Coordinator recovery and repair setup share the sidebar maintenance rows, includ
 Claimed recovery initialization and admission can reconstruct authority from their own modules in the selected immutable Host release. Unrelated modules and stale releases remain rejected; process identity, retained recovery evidence and artifact verification are unchanged. README overview and onboarding are unchanged.
 
 Source batching recognizes an earlier merge conflict or ambiguous merge history as resolved when a later validated contribution includes its exact source commit. The original receipt and provenance remain in the combined update. Corrupt bundles and invalid release metadata remain rejected. This source reconciliation does not approve installation or clear Factory runtime recovery requirements. README overview and onboarding are unchanged.
+
+Maintenance: validated explicit uncapped managed-worker profiles with synchronized capability gating, old-editor preservation, intentional defaults resets and frozen-task limits. Independent code review passed; installation remains separate.

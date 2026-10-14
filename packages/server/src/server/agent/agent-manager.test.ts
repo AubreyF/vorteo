@@ -13980,3 +13980,71 @@ test.each([
     }
   },
 );
+
+test("uncapped frozen profiles admit more than eight managed fake workers and still enforce quota", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "uncapped-worker-test-"));
+  const sessions: SteeringTestSession[] = [];
+  class Client extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const s = new SteeringTestSession(config);
+      sessions.push(s);
+      return s;
+    }
+  }
+  const manager = new AgentManager({ clients: { codex: new Client() }, logger });
+  const drains: Promise<void>[] = [];
+  try {
+    const root = await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+        profileLaunch: {
+          profile: {
+            id: "team",
+            name: "Team",
+            provider: "codex",
+            uncappedWorkers: true,
+            maxWorkers: 1,
+          },
+          worker: { id: "worker", name: "Worker", provider: "codex", model: "gpt-5.4" },
+        },
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    for (let i = 0; i < 9; i++) {
+      const child = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+        labels: { [PARENT_AGENT_ID_LABEL]: root.id },
+      });
+      const stream = manager.streamAgent(child.id, "synthetic work");
+      drains.push(
+        (async () => {
+          for await (const _event of stream) {
+          }
+        })(),
+      );
+      await vi.waitFor(() => expect(sessions[i + 1].startCount).toBe(1));
+    }
+    expect(manager.listRunningWorkerCounts()).toEqual({ codex: 9 });
+    sessions[0].pushEvent({
+      type: "turn_failed",
+      provider: "codex",
+      code: "quota_exhausted",
+      error: "Quota exhausted",
+    });
+    await vi.waitFor(() =>
+      expect(manager.getAgent(root.id)?.config.quotaPausedAt).not.toBeUndefined(),
+    );
+    await Promise.all(drains);
+    await expect(
+      manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+        labels: { [PARENT_AGENT_ID_LABEL]: root.id },
+      }),
+    ).rejects.toThrow("paused");
+  } finally {
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

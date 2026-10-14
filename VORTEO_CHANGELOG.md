@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.503 - 2026-10-14
+
+### Added
+
+- Add an explicit Uncapped option to managed-worker profiles on compatible installations. Keep finite limits, quota handling and frozen running-task policies intact.
+- Require every configured environment to support uncapped profiles before saving or projecting that policy.
+
+### Fixed
+
+- Preserve uncapped policies when older editors omit the new field, while honoring intentional defaults resets and explicit finite overrides.
+
+### Maintenance
+
+- Validate finite and uncapped admission, profile editing, synchronization and quota boundaries. Existing tasks require the reviewed successor workflow to change their frozen worker policy.
+
 ## 0.11.0-beta.3.vorteo.502 - 2026-10-14
 
 ### Development

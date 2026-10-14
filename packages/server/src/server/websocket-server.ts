@@ -2133,6 +2133,7 @@ export class VoiceAssistantWebSocketServer {
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         explicitWorkerAccounts: true,
+        uncappedManagedWorkers: true,
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,

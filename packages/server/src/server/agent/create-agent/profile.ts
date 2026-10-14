@@ -1,3 +1,4 @@
+import { managedWorkerLimit } from "../worker-limit.js";
 import type {
   AgentProfile,
   MutableDaemonConfig,
@@ -185,7 +186,9 @@ function resolveProfileConfiguration(
         `and provider ${JSON.stringify(`${worker.provider}/${worker.model}`)}. ` +
         `Assign bounded tasks with explicit file ownership. Use separate worktrees for concurrent edits. ` +
         `Review each worker's diff and run relevant tests before accepting it. ` +
-        `At most ${profile.maxWorkers ?? 2} managed workers may run at once. ` +
+        (managedWorkerLimit(profile) === null
+          ? "This profile imposes no managed-worker count cap. Provider limits, quota, ownership and authorization still apply. "
+          : `At most ${managedWorkerLimit(profile)} managed workers may run at once. `) +
         `Worker instructions and tools do not grant permission beyond the user's task. ` +
         `On quota exhaustion stop, preserve progress, and ask the user to select another profile.`,
     );
