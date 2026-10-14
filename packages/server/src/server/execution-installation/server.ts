@@ -130,7 +130,9 @@ function restartReply(
   factoryRuntimeAdoption?: boolean,
   requireOwnerApproval?: boolean,
 ) {
-  job = ownerApprovalReply(job, requireOwnerApproval);
+  // Captures are retained in the protected journal, not sent to legacy strict clients.
+  const { devRepairs: _devRepairs, ...publicJob } = job;
+  job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
@@ -251,6 +253,9 @@ export function createInstallationServer(
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,
     prepareUpdate: (items, target) => forTarget(target).prepare(items),
+    captureDevRepair: (items) => forTarget("container-daemon").captureDevRepair(items),
+    prepareDevRepair: (capture, items) =>
+      forTarget("container-daemon").prepareDevRepair(capture, items),
     installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
   };
   const daemonAutomation = new DaemonAutomation(
@@ -1055,6 +1060,26 @@ export function createInstallationServer(
     restarts.refreshApprovalPolicy();
     res.json(preference);
     void drainRestarts();
+  });
+  app.post("/api/installation/owner/dev-repair/query", (_req, res) => {
+    res.json({
+      available: Boolean(updates["container-daemon"] && updates.host),
+      preparingIds: restarts
+        .list()
+        .filter((job) => job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing")
+        .map((job) => job.id),
+    });
+  });
+  app.post("/api/installation/owner/dev-repair/prepare", (req, res) => {
+    const input = z
+      .strictObject({ id: z.string().uuid(), revision: z.string().uuid() })
+      .parse(req.body);
+    const job = restarts.requestDevRepair(input.id, input.revision);
+    // Durable capture is visible before asynchronous object preparation starts.
+    res.status(202).json({ id: job.id, revision: job.revision });
+    void restarts
+      .prepareBatches()
+      .catch((error) => logger.error({ err: error }, "Dev repair preparation failed"));
   });
   app.post("/api/installation/owner/restarts/impact", (_req, res, next) => {
     void restarts.impacts().then((impacts) => res.json(impacts), next);

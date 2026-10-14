@@ -147,7 +147,26 @@ export const AutomaticRestartApprovalSchema = z.strictObject({
     .optional(),
 });
 
+// COMPAT(devSourceRepair): retained privately; legacy replies omit repair captures.
+export const DevRepairCaptureSchema = z.strictObject({
+  hostReleaseDirectory: z.string().startsWith("/"),
+  baseCommit: SourceUpdateSchema.shape.baseCommit,
+  sourceCommit: SourceUpdateSchema.shape.sourceCommit,
+  integrationRef: z.string().startsWith("refs/heads/"),
+  contributionCommits: z.array(SourceUpdateSchema.shape.sourceCommit).max(100),
+});
+export type DevRepairCapture = z.infer<typeof DevRepairCaptureSchema>;
+export const DevRepairAttemptSchema = z.strictObject({
+  id: z.string().uuid(),
+  capturedRevision: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  capture: DevRepairCaptureSchema,
+  status: z.enum(["preparing", "prepared", "failed"]),
+  detail: z.string(),
+});
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  devRepairs: z.array(DevRepairAttemptSchema).max(100).optional(),
   factoryRuntimeRecoveryRequired: z.boolean().optional(),
   factoryRuntimeRecoveredBy: z.string().uuid().optional(),
   automaticApproval: AutomaticRestartApprovalSchema.optional(),

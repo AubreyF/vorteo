@@ -194,7 +194,7 @@ function restartStatus(job: RestartJob, historical = false) {
       const labels = {
         preparing: "Combining source",
         waiting: "Next batch",
-        conflict: "Awaiting agent repair",
+        conflict: "Source repair needed",
       };
       return { label: labels[batchStatus], variant: "warning" as const };
     }
@@ -890,6 +890,38 @@ function RestartActionButton({
   );
 }
 
+function DevRepairAction({
+  job,
+  model,
+  busy,
+}: {
+  job: RestartJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const prepare = useCallback(() => {
+    void model.prepareDevRepair(job);
+  }, [job, model]);
+  if (
+    job.target !== "container-daemon" ||
+    job.sourceBatch?.status !== "conflict" ||
+    !state.devRepair.available
+  )
+    return null;
+  const preparing = state.devRepair.preparingIds.includes(job.id);
+  return (
+    <Button
+      variant="outline"
+      disabled={busy || preparing}
+      onPress={prepare}
+      testID={`dev-repair-${job.id}`}
+    >
+      {preparing ? "Preparing repair" : "Prepare Dev repair"}
+    </Button>
+  );
+}
+
 function RestartActions({
   job,
   model,
@@ -930,6 +962,7 @@ function RestartActions({
           >
             Install update and restart
           </RestartActionButton>
+          <DevRepairAction job={job} model={model} busy={busy} />
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel update
           </Button>
