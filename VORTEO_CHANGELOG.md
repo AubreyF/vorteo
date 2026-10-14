@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.512 - 2026-10-14
+
+### Fixed
+
+- Center compact account reset outlines with their labels when touch accessibility enlarges the button target.
+- Keep reset-dialog browser screenshots inside the test workspace.
+
 ## 0.11.0-beta.3.vorteo.511 - 2026-10-14
 
 ### Maintenance

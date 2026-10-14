@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Compact account reset controls center their outlines within the actual button height, keeping labels aligned when touch accessibility enlarges the tap target. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
+
 The mobile workspace and radar-ring delivery preserves the installed coordinator history and Dev repair controls. This integration also preserves the installed details-card footer, tooltip, count and height refinements. Interface-only integration does not activate another daemon update.
 
 Mobile New workspace pages place the title above the selected project inside the standard menu header. Compact metadata controls wrap without blank spacer rows, and the constrained body reaches the available bottom edge without duplicating the web safe-area inset. Phone safe-area and desktop metadata regression checks cover this layout. README overview and onboarding are unchanged.
