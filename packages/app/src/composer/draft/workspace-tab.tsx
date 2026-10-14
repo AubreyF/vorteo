@@ -5,7 +5,6 @@ import { TaskEnvironmentSelection } from "@/task-environments/selection";
 import type { WorkspaceEnvironmentReference } from "@/task-environments/workspaces";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
-import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
@@ -337,7 +336,6 @@ export function WorkspaceDraftAgentTab({
 }: WorkspaceDraftAgentTabProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const mobileComposer = useMobileComposerLayout();
 
   const workspaceFields = useWorkspaceFields(serverId, workspaceId, (w) => ({
     workspaceDirectory: w.workspaceDirectory,
@@ -650,11 +648,8 @@ export function WorkspaceDraftAgentTab({
   }, []);
 
   const inputAreaWrapperStyle = useMemo(
-    () => [
-      animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: isNative || !mobileComposer.enabled ? insets.bottom : 0 },
-    ],
-    [insets.bottom, mobileComposer.enabled],
+    () => [animatedStaticStyles.inputAreaWrapper, { paddingBottom: isNative ? insets.bottom : 0 }],
+    [insets.bottom],
   );
 
   const handleDropdownCloseFocus = useCallback(() => {

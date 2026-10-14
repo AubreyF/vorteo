@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Web thread and draft composer wrappers do not add a second bottom safe-area inset. The shared composer margin aligns their bottom edge with the sidebar, including browsers with a nonzero bottom safe area. Native wrappers retain their safe-area padding. Packaged browser coverage emulates a 20px bottom inset across portrait, landscape and short windows.
+
 At narrow desktop widths up to 1200px, the composer fills its pane, aligns with the first tab and retains the shared 8px bottom inset at every desktop height. With navigation collapsed, the selected tab shows the workspace above its task in a 60px chip over the unchanged conversation fade. Browser fingers, pens and mice share captured sidebar resizing, with visible grips in the gutters. The left sidebar stacks above the adjacent scrolling pane so touch hit-testing reaches its outward grip. The Commit split button uses 44px height and 16px corners. Tablet regression coverage checks touch drags, alignment, transparent overlap, label clearance, the shared 44px touch-button minimum and phone/wide-desktop behavior. README overview and onboarding are unchanged.
 
 The demo acceptance check includes the default shared outer inset in its desktop tab-row height. Navigation, theme selection and keyboard access to the compact project rail pass against the existing production build. This maintenance changes no interface behavior or README onboarding.

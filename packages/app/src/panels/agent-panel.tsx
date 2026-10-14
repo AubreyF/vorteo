@@ -1,6 +1,5 @@
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardDock } from "@/components/keyboard-dock";
-import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -1527,7 +1526,6 @@ function ActiveAgentComposer({
   onMessageSent: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const mobileComposer = useMobileComposerLayout();
 
   const isCompactFormFactor = useIsCompactFormFactor();
   const { onLayout: onInputAreaLayout, isBelow: isCompactComposerLayout } = useContainerWidthBelow(
@@ -1605,11 +1603,8 @@ function ActiveAgentComposer({
   );
 
   const inputAreaStyle = useMemo(
-    () => [
-      animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: isNative || !mobileComposer.enabled ? insets.bottom : 0 },
-    ],
-    [insets.bottom, mobileComposer.enabled],
+    () => [animatedStaticStyles.inputAreaWrapper, { paddingBottom: isNative ? insets.bottom : 0 }],
+    [insets.bottom],
   );
 
   return (

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.486 - 2026-10-14
+
+### Fixed
+
+- Remove duplicate bottom safe-area padding from web thread and draft composers so their bottom edges align with the sidebar on iPad. Preserve native safe-area padding and the desktop 8px margin.
+- Reproduce the previous 20px offset using browser safe-area emulation and check tablet portrait, landscape and short desktop windows. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.485 - 2026-10-13
 
 ### Fixed

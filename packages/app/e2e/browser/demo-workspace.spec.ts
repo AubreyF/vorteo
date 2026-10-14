@@ -1459,3 +1459,49 @@ test("tablet composer, tabs and touch gutters retain their geometry", async ({ p
   await expect(composer).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
+
+test("desktop composer aligns with sidebar with nonzero safe areas", async ({ page }, info) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+    insets: { top: 24, bottom: 20, left: 0, right: 0 },
+  });
+  await page.setViewportSize({ width: 1133, height: 744 });
+  await page.goto("/h/vorteo-demo/workspace/demo-workspace-0-0?demo=1");
+  const composer = page.getByTestId("message-input-surface");
+  const sidebar = page.getByTestId("floating-sidebar");
+  await expect(composer).toBeVisible();
+  // Confirm the browser actually supplies the inset that zero-safe-area tests missed.
+  expect(
+    await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.paddingBottom = "env(safe-area-inset-bottom)";
+      document.body.appendChild(probe);
+      const inset = getComputedStyle(probe).paddingBottom;
+      probe.remove();
+      return inset;
+    }),
+  ).toBe("20px");
+  for (const [width, height] of [
+    [1133, 744],
+    [1024, 768],
+    [1180, 820],
+    [744, 1133],
+    [1366, 1024],
+    [1133, 500],
+    [1600, 500],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect
+      .poll(
+        async () => {
+          const box = (await composer.boundingBox())!;
+          const rail = (await sidebar.boundingBox())!;
+          return Math.round(box.y + box.height - rail.y - rail.height);
+        },
+        { message: `Composer and sidebar bottom alignment at ${width}x${height}` },
+      )
+      .toBe(0);
+    await page.screenshot({ path: info.outputPath(`safe-area-${width}x${height}.png`) });
+  }
+});
