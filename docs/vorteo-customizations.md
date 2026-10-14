@@ -706,3 +706,5 @@ Claimed recovery initialization and admission can reconstruct authority from the
 Source batching recognizes an earlier merge conflict or ambiguous merge history as resolved when a later validated contribution includes its exact source commit. The original receipt and provenance remain in the combined update. Corrupt bundles and invalid release metadata remain rejected. This source reconciliation does not approve installation or clear Factory runtime recovery requirements. README overview and onboarding are unchanged.
 
 Maintenance: validated explicit uncapped managed-worker profiles with synchronized capability gating, old-editor preservation, intentional defaults resets and frozen-task limits. Independent code review passed; installation remains separate.
+
+Maintenance review: reconciled managed-worker capacity with the installed Host recovery release for a separate tracked Host contribution. Dev recovery and compatible coordinator delivery still gate activation; existing root capacity stays frozen.
