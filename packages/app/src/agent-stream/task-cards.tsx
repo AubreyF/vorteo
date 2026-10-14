@@ -68,7 +68,14 @@ export function AgentTaskCards({
       {compact && workspaceId ? (
         <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
       ) : null}
-      {queueHostName ? <PanePortal hostName={queueHostName}>{queueCards}</PanePortal> : queueCards}
+      {/* The portal transport captures its host on mount; remount when moving the queue. */}
+      {queueHostName ? (
+        <PanePortal key={queueHostName} hostName={queueHostName}>
+          {queueCards}
+        </PanePortal>
+      ) : (
+        queueCards
+      )}
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}

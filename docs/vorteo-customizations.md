@@ -1,6 +1,6 @@
 # Vorteo customizations beyond Paseo
 
-The desktop queue moves to the bottom of the conversation when the details dock is hidden and returns to the dock when opened. Other details stay in the dock. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.
+The queue portal is keyed by destination because its transport captures the host when mounted. The desktop queue moves to the bottom of the conversation when the details dock is hidden and returns to the dock when opened. Other details stay in the dock. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.
 
 Web thread and draft composer wrappers do not add a second bottom safe-area inset. The shared composer margin aligns their bottom edge with the sidebar, including browsers with a nonzero bottom safe area. Native wrappers retain their safe-area padding. Packaged browser coverage emulates a 20px bottom inset across portrait, landscape and short windows.
 
