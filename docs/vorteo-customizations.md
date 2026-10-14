@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Coordinator preparation clients can choose a longer response timeout for protected release verification. The default remains fifteen minutes; capability checks, exact request identity and separate owner approval are unchanged. Delayed success and validation errors are covered by client tests. README overview and onboarding are unchanged.
+
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.
 
 Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.

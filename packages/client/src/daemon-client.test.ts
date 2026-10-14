@@ -8534,6 +8534,67 @@ test.each(["enable", "remove"] as const)(
   },
 );
 
+test.each([null, "Prepared artifact changed"])(
+  "bootstrap preparation retains a delayed response with an explicit timeout: %s",
+  async (responseError) => {
+    useHeartbeatClock();
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-long-preparation",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = bootstrapMonitorPreparation();
+    const preparing = client.prepareCoordinatorBootstrap(input, { timeout: 60 * 60_000 });
+    let settled = false;
+    void preparing.then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      () => {
+        settled = true;
+        return undefined;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(16 * 60_000);
+    expect(settled).toBe(false);
+    const sessionFrames = () =>
+      mock.sent
+        .filter((data) => JSON.parse(assertStr(data)).type === "session")
+        .map(parseSentFrame);
+    const frames = sessionFrames().filter(
+      (frame) => frame.type === "installation.bootstrap.prepare.request",
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0].input).toEqual(input);
+    expect(frames[0].previewMonitor).toBe(true);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: {
+          requestId: frames[0].requestId,
+          requests: responseError ? null : [],
+          error: responseError,
+        },
+      }),
+    );
+    if (responseError) await expect(preparing).rejects.toThrow(responseError);
+    else await expect(preparing).resolves.toEqual([]);
+    expect(
+      sessionFrames().some((frame) => frame.type === "installation.bootstrap.decide.request"),
+    ).toBe(false);
+  },
+);
+
 test("source tooling preparation refuses an older Host before sending", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({
