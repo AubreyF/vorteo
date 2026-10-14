@@ -102,6 +102,10 @@ export function CardDisclosure({
     width,
     metadataWidth,
   );
+  const countLayout = useMemo(
+    () => ({ compact: tile.compact, narrow: stacked }),
+    [tile.compact, stacked],
+  );
   const label = status ? `${title} (${status})` : title;
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const [hovered, setHovered] = useState(false);
@@ -162,7 +166,7 @@ export function CardDisclosure({
               testID={`${testID}-metadata`}
             >
               {renderTrailing(trailing, compactTile)}
-              <CompactCountBadgeContext value={stacked}>{count}</CompactCountBadgeContext>
+              <CompactCountBadgeContext value={countLayout}>{count}</CompactCountBadgeContext>
             </View>
           ) : null}
         </Pressable>

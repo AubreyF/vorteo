@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.505 - 2026-10-14
+
+### Changed
+
+- Keep card counts on one line, remove collapsed count backgrounds and show minutes in narrow goal buttons.
+- Allocate sidebar height by collapsed grid row so expanded cards fill the remaining space. Remove the half-viewport limit for embedded cards.
+- Add bottom padding to Goal and Journal.
+
 ## 0.11.0-beta.3.vorteo.504 - 2026-10-14
 
 ### Changed
