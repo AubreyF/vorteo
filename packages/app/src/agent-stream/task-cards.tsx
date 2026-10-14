@@ -36,16 +36,13 @@ export function AgentTaskCards({
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
   const queueCards = (
-    <>
-      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
-      <SharedQueueView
-        serverId={serverId}
-        agentId={agentId}
-        control={queue}
-        goalErrorHandled={goal.supported}
-        reviewRequest={queueReviewRequest}
-      />
-    </>
+    <AgentQueueCards
+      serverId={serverId}
+      agentId={agentId}
+      cwd={cwd}
+      goalErrorHandled={goal.supported}
+      reviewRequest={queueReviewRequest}
+    />
   );
   return (
     <>
@@ -79,6 +76,35 @@ export function AgentTaskCards({
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}
+    </>
+  );
+}
+
+/** Read queue activity at its visible destination, not inside the retained hidden dock. */
+function AgentQueueCards({
+  serverId,
+  agentId,
+  cwd,
+  goalErrorHandled,
+  reviewRequest,
+}: {
+  serverId: string;
+  agentId: string;
+  cwd: string;
+  goalErrorHandled: boolean;
+  reviewRequest: number;
+}) {
+  const queue = useMessageQueue(serverId, agentId);
+  return (
+    <>
+      <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
+      <SharedQueueView
+        serverId={serverId}
+        agentId={agentId}
+        control={queue}
+        goalErrorHandled={goalErrorHandled}
+        reviewRequest={reviewRequest}
+      />
     </>
   );
 }

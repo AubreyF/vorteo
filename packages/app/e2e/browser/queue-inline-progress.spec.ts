@@ -77,7 +77,9 @@ for (const width of [1133, 1600, 390]) {
       const first = page.getByTestId("queue-message-first");
       const before = (await first.boundingBox())!;
       const countBefore = await first.getByRole("button").count();
-      await first.getByRole("button", { name: "Send queued message now", exact: true }).click();
+      const send = first.getByRole("button", { name: "Send queued message now", exact: true });
+      await expect(send).toBeEnabled();
+      await send.click();
       await expect(first.getByTestId("queue-send-progress")).toBeVisible();
       expect((await first.boundingBox())!.height).toBeCloseTo(before.height, 0);
       await expect(first.getByRole("button")).toHaveCount(countBefore);
