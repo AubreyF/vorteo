@@ -2,7 +2,7 @@
 
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.
 
-Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
+Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
 
 Compact account reset controls center their outlines within the actual button height, keeping labels aligned when touch accessibility enlarges the tap target. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
 
