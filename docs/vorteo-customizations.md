@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Project workspace rows and their group controls share an icon-width inset beneath project headings, including touch tablets. Row selection backgrounds remain full width; pinned and status grouping retain their existing geometry. README overview and onboarding are unchanged.
+
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.
 
 Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.

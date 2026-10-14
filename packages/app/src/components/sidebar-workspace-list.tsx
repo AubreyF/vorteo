@@ -118,6 +118,7 @@ import { PinnedSectionHeader } from "@/components/sidebar/pinned-section-header"
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { useLimitedSidebarGroup } from "@/components/sidebar/use-limited-sidebar-group";
 import {
+  sidebarWorkspaceRowStyles,
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
   SidebarWorkspaceShortcutBadge,
@@ -912,6 +913,7 @@ function NewWorkspaceGhostRow({
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.newWorkspaceGhostRow,
       density,
+      sidebarWorkspaceRowStyles.projectIndented,
       hovered && !pressed && styles.newWorkspaceGhostRowHovered,
       pressed && styles.newWorkspaceGhostRowPressed,
     ],
@@ -1307,7 +1309,7 @@ function WorkspaceRowInner({
               style={[
                 workspaceRowStyle,
                 density,
-                density && !leadingProjectName && styles.workspaceRowIndented,
+                !leadingProjectName && sidebarWorkspaceRowStyles.projectIndented,
               ]}
               highlightStyle={styles.workspaceRowPressed}
               onPressIn={handleWorkspacePressIn}
@@ -2794,7 +2796,6 @@ const styles = StyleSheet.create((theme) => ({
   // Padding on the block rather than margin, and only while it has children: the gap belongs to
   // the rows underneath the header, so a collapsed project gives it back and a column of collapsed
   // headers closes up to the pitch of a list instead of staying spaced for content that is gone.
-  workspaceRowIndented: { paddingLeft: theme.spacing[4] },
   workspaceListContainer: {},
   // Kept in step with `workspaceRow` above. It stands in a project's list where a workspace row
   // would be, so it takes that row's geometry and both of its fills.

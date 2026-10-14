@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.516 - 2026-10-14
+
+### Fixed
+
+- Restore visible project-child indentation for workspace rows and their New workspace and Show more controls, including touch tablets.
+
 ## 0.11.0-beta.3.vorteo.515 - 2026-10-14
 
 ### Fixed
