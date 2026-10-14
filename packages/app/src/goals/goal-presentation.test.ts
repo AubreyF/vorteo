@@ -19,6 +19,11 @@ const state: AgentGoalState = {
 };
 
 describe("goal elapsed time", () => {
+  it("uses minutes without seconds in narrow tiles", () => {
+    expect(formatGoalElapsed(45, true)).toBe("<1m");
+    expect(formatGoalElapsed(125, true)).toBe("2m");
+    expect(formatGoalElapsed(53640, true)).toBe("894m");
+  });
   it("includes native uncheckpointed time and local monotonic time", () => {
     expect(goalElapsedAt(state, true, 3)).toBe(10);
     expect(goalElapsedAt({ ...state, observedAt: new Date(15000).toISOString() }, true, 0)).toBe(

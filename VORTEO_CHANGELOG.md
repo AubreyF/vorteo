@@ -4,11 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.511 - 2026-10-14
+
+### Maintenance
+
+- Preserve installed details-card refinements while integrating the mobile New workspace layout and radar loading rings.
+
 ## 0.11.0-beta.3.vorteo.510 - 2026-10-14
 
 ### Maintenance
 
 - Reconcile the validated mobile workspace layout and radar loading rings with the installed coordinator history and Dev repair controls, preserving both source histories.
+- Preserve the latest installed recovery controls while delivering the card footer, tooltip, count and height refinements.
 
 ## 0.11.0-beta.3.vorteo.506 - 2026-10-14
 
@@ -21,6 +28,8 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Place the mobile New workspace title and selected project in the standard two-line header, clear of the menu button.
 - Fill the available mobile height without blank metadata spacer rows or duplicate bottom safe-area padding.
+- Integrate footer placement, collapsed-card tooltips, single-line counts and full sidebar height allocation with the latest installed source.
+- Preserve the reviewed managed-worker and recovery updates.
 
 ## 0.11.0-beta.3.vorteo.509 - 2026-10-14
 
@@ -101,6 +110,22 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Development
 
 - Added inert Dev repair bundle preparation from captured installed source, rejecting lost contributions and changed source selection; owner controls are not yet connected
+
+## 0.11.0-beta.3.vorteo.505 - 2026-10-14
+
+### Changed
+
+- Keep card counts on one line, remove collapsed count backgrounds and show minutes in narrow goal buttons.
+- Allocate sidebar height by collapsed grid row so expanded cards fill the remaining space. Remove the half-viewport limit for embedded cards.
+- Add bottom padding to Goal and Journal.
+
+## 0.11.0-beta.3.vorteo.504 - 2026-10-14
+
+### Changed
+
+- Add collapsed-card tooltips on hover, keyboard focus and long press.
+- Move every details card into the focused conversation's footer when the sidebar closes, including files and changes. Restore the sidebar placement when it opens.
+- Keep collapse preferences across these moves, so minimized cards remain a compact grid row. Keep queue actions active at their visible destination.
 
 ## 0.11.0-beta.3.vorteo.503 - 2026-10-14
 

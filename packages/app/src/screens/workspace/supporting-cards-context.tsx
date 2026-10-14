@@ -5,7 +5,7 @@ import { createContext, useContext, type ReactNode } from "react";
 export const SupportingCardsContext = createContext<{
   agentId: string | null;
   hostName: string | null;
-  queueInline?: boolean;
+  cardsInline?: boolean;
 } | null>(null);
 
 export function useWorkspaceCardHost(agentId: string): string | null {
@@ -13,11 +13,11 @@ export function useWorkspaceCardHost(agentId: string): string | null {
   return value?.agentId === agentId ? value.hostName : null;
 }
 
-/** Desktop queues remain reachable when their details dock is collapsed. */
-export function useInlineQueueHost(agentId: string): string | null {
+/** All details remain reachable when their sidebar is closed. */
+export function useInlineCardsHost(agentId: string): string | null {
   const value = useContext(SupportingCardsContext);
-  return value?.agentId === agentId && value.queueInline && value.hostName
-    ? `${value.hostName}:inline-queue`
+  return value?.agentId === agentId && value.cardsInline && value.hostName
+    ? `${value.hostName}:inline-cards`
     : null;
 }
 

@@ -4,6 +4,7 @@ import {
   resizeColumn,
   resolveTextOffset,
   allocateCardHeights,
+  allocateGridCardHeights,
   resolveStandaloneTextWidth,
 } from "./geometry";
 
@@ -104,4 +105,28 @@ it("allows narrow cards to restore full-region message centering", () => {
   expect(widths).toEqual({ text: 700, cards: 220 });
   expect(resolveTextOffset(1200, widths)).toBe(232);
   expect(resolveTextOffset(1300, widths)).toBe(300);
+});
+
+describe("collapsed grid height allocation", () => {
+  it("lets one open card fill the space between two collapsed rows", () => {
+    const demands = new Map([
+      ["goal", { height: 50, row: 0 }],
+      ["tasks", { height: 1800 }],
+      ["journal", { height: 50, row: 700 }],
+      ["files", { height: 50, row: 700 }],
+      ["queue", { height: 50, row: 700 }],
+    ]);
+    expect(allocateGridCardHeights(800, demands).get("tasks")).toBe(684);
+  });
+  it("budgets wrapped rows separately and redistributes short open cards", () => {
+    const demands = new Map([
+      ["goal", { height: 50, row: 0 }],
+      ["journal", { height: 50, row: 58 }],
+      ["tasks", { height: 1800 }],
+      ["files", { height: 100 }],
+    ]);
+    const heights = allocateGridCardHeights(800, demands);
+    expect(heights.get("files")).toBe(100);
+    expect(heights.get("tasks")).toBe(576);
+  });
 });

@@ -119,6 +119,7 @@ function JournalContent({
     <TaskCard
       flushBody
       testID="agent-journal-card"
+      bottomInset={8}
       bodyVisible={expanded}
       bodyRef={viewport}
       notice={notice}
