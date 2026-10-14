@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Recording controls expose Queue whenever the conversation supports queuing, including tablets in desktop layout. Queue sits immediately left of Submit along the bottom action row and uses the existing explicit transcription-to-queue intent. Processing and failed recordings retain their existing retry controls. README overview and onboarding are unchanged.
+
 Project workspace rows and their group controls share an icon-width inset beneath project headings, including touch tablets. Row selection backgrounds remain full width; pinned and status grouping retain their existing geometry. README overview and onboarding are unchanged.
 
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.

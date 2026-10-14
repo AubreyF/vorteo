@@ -2027,8 +2027,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize, highlightQueue],
     );
     const queueRecordingAction = useMemo(
-      () => (showMobileQueue ? handleAcceptAndQueueRecording : undefined),
-      [showMobileQueue, handleAcceptAndQueueRecording],
+      () => (onQueue && !readOnly ? handleAcceptAndQueueRecording : undefined),
+      [onQueue, readOnly, handleAcceptAndQueueRecording],
     );
     const dictationPlacement = placeDictationButton(
       voiceButton,
