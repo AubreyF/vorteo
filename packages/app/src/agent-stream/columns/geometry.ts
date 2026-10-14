@@ -74,6 +74,8 @@ export function allocateCardHeights(available: number, demands: readonly number[
 
 export interface CardGridDemand {
   height: number;
+  /** Undefined for accessory rows, which do not participate in disclosure layout. */
+  expanded?: boolean;
   /** Collapsed tiles on the same measured flex line consume one row. */
   row?: number;
 }

@@ -2304,10 +2304,25 @@ test("shared card group and thread resize independently and preserve saved width
     await expect(cards).toBeVisible();
     for (const id of movedToggles)
       await expect(cards.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+    await expect(async () => {
+      const firstCard = await box(cards.getByTestId("agent-task-progress-card"));
+      const lastCard = await box(cards.getByTestId("shared-message-queue"));
+      const column = await box(cards.getByTestId("thread-cards-stack"));
+      expect(firstCard.width).toBeCloseTo(column.width, 0);
+      expect(lastCard.width).toBeCloseTo(column.width, 0);
+      expect(lastCard.y).toBeGreaterThan(firstCard.y + firstCard.height);
+    }).toPass();
+    await expect(cards.getByTestId("checklist-add")).toBeVisible();
+    await expect(cards.getByTestId("message-queue-pause-resume")).toBeEnabled();
+    await page.screenshot({ path: info.outputPath("all-collapsed-sidebar.png") });
     await cards.getByTestId("message-queue-toggle").click();
     await expect(async () => {
       const availableStack = await box(cards.getByTestId("thread-cards-stack"));
       const queue = await box(cards.getByTestId("shared-message-queue"));
+      const tasks = await box(cards.getByTestId("checklist-toggle"));
+      const agents = await box(cards.getByTestId("subagents-group-paseo-toggle"));
+      expect(tasks.y).toBeCloseTo(agents.y, 0);
+      expect(tasks.width).toBeLessThan(availableStack.width / 2);
       expect(queue.height).toBeGreaterThan(availableStack.height * 0.7);
       expect(queue.y + queue.height).toBeCloseTo(availableStack.y + availableStack.height, 0);
     }).toPass();

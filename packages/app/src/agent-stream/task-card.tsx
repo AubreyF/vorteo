@@ -81,7 +81,8 @@ function useCardTile(bodyVisible: boolean) {
   const onGridLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     if (event.nativeEvent.layout.width > 0) setRow(Math.round(event.nativeEvent.layout.y));
   }, []);
-  const compact = grid && !bodyVisible;
+  const column = useContext(CardColumnContext);
+  const compact = grid && !bodyVisible && !column?.allCollapsed;
   const tile = useMemo(() => ({ compact, width }), [compact, width]);
   const rootStyle = [grid && cardGridExpandedStyle, compact && cardGridCollapsedStyle];
   return { tile, setWidth, rootStyle, row, onGridLayout };
@@ -155,8 +156,8 @@ function TaskCardView({
   const bodySpace = bodyVisible ? (panelHeight ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
-    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined);
-  }, [measure, id, naturalHeight, retainedActive, compact, row]);
+    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined, bodyVisible);
+  }, [measure, id, naturalHeight, retainedActive, compact, row, bodyVisible]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
