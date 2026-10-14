@@ -4102,7 +4102,7 @@ test("disabled restart explains the correction on hover, focus and touch without
   await expect(card).toContainText("Source repair needed");
   await expect(page.getByTestId(`restart-notice-${id}`)).toHaveCount(0);
   await expect(card).toContainText("Prepare Dev repair captures the installed Host source");
-  await expect(card).toContainText("Your running version is unchanged");
+  await expect(card).toContainText("your running version is unchanged");
   await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
   await expect(
     card.getByText("Existing release notes were edited; resolve explicitly", { exact: true }),
