@@ -1414,7 +1414,16 @@ test("tablet composer, tabs and touch gutters retain their geometry", async ({ p
   const tabBounds = (await tab.boundingBox())!;
   const input = (await composer.boundingBox())!;
   expect(input.x).toBe(tabBounds.x);
-  expect(input.y + input.height).toBe(744);
+  expect(input.y + input.height).toBe(744 - 8);
+  for (const height of [500, 900, 744]) {
+    await page.setViewportSize({ width: 1133, height });
+    await expect
+      .poll(async () => {
+        const bounds = (await composer.boundingBox())!;
+        return height - bounds.y - bounds.height;
+      })
+      .toBe(8);
+  }
   await page.getByRole("button", { name: "Open Explorer sidebar", exact: true }).click();
   const grip = page.getByTestId("workspace-explorer-sidebar-resize-handle-highlight");
   const card = page.getByTestId("agent-task-progress-card");
@@ -1439,6 +1448,13 @@ test("tablet composer, tabs and touch gutters retain their geometry", async ({ p
   await page.setViewportSize({ width: 1600, height: 1000 });
   await expect(page.getByTestId("tablet-tab-workspace")).toHaveCount(0);
   await expect(tab).toHaveCSS("height", "44px");
+  await page.setViewportSize({ width: 1600, height: 500 });
+  await expect
+    .poll(async () => {
+      const bounds = (await composer.boundingBox())!;
+      return 500 - bounds.y - bounds.height;
+    })
+    .toBe(8);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(composer).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);

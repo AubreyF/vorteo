@@ -2554,7 +2554,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     paddingHorizontal: FLOATING_PANEL_INSET,
     paddingBottom: FLOATING_PANEL_INSET,
   },
-  narrowDesktopInputArea: { paddingLeft: 6, paddingRight: 8, paddingBottom: 0 },
+  narrowDesktopInputArea: { paddingLeft: 6, paddingRight: 8 },
   columnInputArea: { paddingHorizontal: theme.spacing[2] },
   columnInputContent: { maxWidth: "100%" },
   mobileQueueArea: {
