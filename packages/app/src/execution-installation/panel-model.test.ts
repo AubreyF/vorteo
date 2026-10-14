@@ -618,3 +618,52 @@ test("daemon automation shows saved state and retains the prior value on failure
   expect(model.getState().daemonAutomation).toBeNull();
   expect(model.getState().daemonAutomationError).toBeNull();
 });
+
+test("Dev repair prepares the current revision without approving and prevents duplicate preparation", async () => {
+  const job: RestartJob = {
+    id: "dev-request",
+    revision: "current",
+    target: "container-daemon",
+    requestedBy: "container-agent",
+    reason: "Repair",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Conflict",
+    sourceBatch: { status: "conflict", contributions: [] },
+  };
+  let prepared = 0;
+  let preparingIds: string[] = [];
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => true,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
+    listRestarts: async () => [job],
+    decide: async () => {
+      throw new Error("Unexpected approval");
+    },
+    devRepairStatus: async () => ({ available: true, preparingIds }),
+    prepareDevRepair: async (current) => {
+      expect(current.revision).toBe("current");
+      prepared++;
+      preparingIds = [job.id];
+    },
+  });
+  await model.initialize();
+  await model.prepareDevRepair({ ...job, revision: "old" });
+  expect(prepared).toBe(0);
+  expect(model.getState().error).toContain("changed");
+  await model.prepareDevRepair(job);
+  await model.prepareDevRepair(job);
+  expect(prepared).toBe(1);
+  expect(model.getState().notice).toContain("no restart is approved");
+});

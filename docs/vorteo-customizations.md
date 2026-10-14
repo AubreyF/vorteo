@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The mobile workspace and radar-ring delivery preserves the installed coordinator history and Dev repair controls. Interface-only integration does not activate another daemon update.
+
 Mobile New workspace pages place the title above the selected project inside the standard menu header. Compact metadata controls wrap without blank spacer rows, and the constrained body reaches the available bottom edge without duplicating the web safe-area inset. Phone safe-area and desktop metadata regression checks cover this layout. README overview and onboarding are unchanged.
 
 Adjacent collapsed details cards share responsive rows in both sidebar and conversation layouts. Narrow tiles progressively hide heading actions and titles while retaining the icon, count and accessible name. Expanding a tile restores its full-width card and controls without moving the other cards in the React tree.
@@ -711,4 +713,14 @@ Source batching recognizes an earlier merge conflict or ambiguous merge history 
 
 Maintenance: validated explicit uncapped managed-worker profiles with synchronized capability gating, old-editor preservation, intentional defaults resets and frozen-task limits. Independent code review passed; installation remains separate.
 
+### Owner-started Dev source repair
+
+Installation controls can prepare a pending Dev source conflict from the exact installed Host source. Preparation records the selected source, Dev base and queued contribution commits before creating an inert Git bundle. It does not build code, change the selected release, place a finish-turns hold or approve a restart. Existing contribution history remains intact.
+
+A cancellation or changed request revision invalidates a late result. Interrupted preparation stays visible and requires a new capture, with prior attempts retained. Normal batch validation and exact installation approval still apply. A Factory runtime recovery fence remains a separate prerequisite; source preparation does not clear it. Older coordinators hide the preparation action until the managed coordinator update is installed.
+
 Maintenance review: reconciled managed-worker capacity with the installed Host recovery release for a separate tracked Host contribution. Dev recovery and compatible coordinator delivery still gate activation; existing root capacity stays frozen.
+
+Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.
+
+Coordinator startup reads promoted requests plus only their exactly bound recovered ancestry. A fenced predecessor can remain in the pending journal without preventing its approved successor from starting. Unrelated pending claims retain no startup authority, and observation leaves both journals unchanged.

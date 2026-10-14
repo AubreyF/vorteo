@@ -12,6 +12,7 @@ import type {
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  devRepair: { available: boolean; preparingIds: string[] };
   daemonAutomation: DaemonAutomationPreference | null;
   daemonAutomationError: string | null;
   restartSummary: RestartSummary | null;
@@ -35,6 +36,7 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    devRepair: { available: false, preparingIds: [] },
     daemonAutomation: null,
     daemonAutomationError: null,
     restartSummary: null,
@@ -80,7 +82,12 @@ export class InstallationPanelModel {
       Partial<
         Pick<
           InstallationClient,
-          "listMonitors" | "decideMonitor" | "daemonAutomation" | "changeDaemonAutomation"
+          | "listMonitors"
+          | "decideMonitor"
+          | "daemonAutomation"
+          | "changeDaemonAutomation"
+          | "devRepairStatus"
+          | "prepareDevRepair"
         >
       >,
     private readonly options: {
@@ -182,13 +189,16 @@ export class InstallationPanelModel {
       const restartSummary = await this.client.restartSummary();
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
-      const [jobs, profileSharing, helperJobs, monitorJobs, daemonAutomation] = await Promise.all([
-        this.client.listRestarts(),
-        this.client.profileSharingStatus(),
-        this.client.listHelpers(),
-        this.client.listMonitors?.() ?? Promise.resolve([]),
-        this.client.daemonAutomation?.() ?? Promise.resolve(null),
-      ]);
+      const [jobs, profileSharing, helperJobs, monitorJobs, daemonAutomation, devRepair] =
+        await Promise.all([
+          this.client.listRestarts(),
+          this.client.profileSharingStatus(),
+          this.client.listHelpers(),
+          this.client.listMonitors?.() ?? Promise.resolve([]),
+          this.client.daemonAutomation?.() ?? Promise.resolve(null),
+          this.client.devRepairStatus?.() ??
+            Promise.resolve({ available: false, preparingIds: [] }),
+        ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
         jobs
@@ -210,6 +220,7 @@ export class InstallationPanelModel {
       });
       this.publish({
         jobs,
+        devRepair,
         helperJobs,
         monitorJobs,
         pendingJobs: pending,
@@ -330,6 +341,37 @@ export class InstallationPanelModel {
             ? error.message
             : "Helper decision unconfirmed. Refresh before retrying.",
       });
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
+  async prepareDevRepair(job: RestartJob): Promise<void> {
+    if (
+      this.state.busy ||
+      !this.state.unlocked ||
+      !this.state.devRepair.available ||
+      this.state.devRepair.preparingIds.includes(job.id) ||
+      !this.client.prepareDevRepair
+    )
+      return;
+    const current = this.state.jobs.find((item) => item.id === job.id);
+    if (!current || current.revision !== job.revision) {
+      this.publish({
+        error: "Dev request changed. Refresh before preparing repair.",
+      });
+      return;
+    }
+    this.publish({ busy: true, error: null, notice: null });
+    try {
+      await this.client.prepareDevRepair(current);
+      this.publish({
+        notice:
+          "Dev repair preparation started. Review the resulting source before installation; no restart is approved.",
+      });
+      await this.refresh();
+    } catch (error) {
+      this.fail(error);
     } finally {
       this.publish({ busy: false });
     }
@@ -467,7 +509,9 @@ export function restartBlockingReason(job: RestartJob): string | null {
 
 export function restartRepairGuidance(job: RestartJob): string | null {
   if (!restartBlockingReason(job)) return null;
-  return "The requesting agent must repair this update before you can approve it. Leave it queued for repair, or choose Cancel update if you no longer want it. Your running version is unchanged.";
+  if (job.target === "host")
+    return "The requesting agent must repair this update before you can approve it. Leave it queued for repair, or choose Cancel update if you no longer want it. Your running version is unchanged.";
+  return "On a compatible coordinator, Prepare Dev repair captures the installed Host source and preserves queued contributions for a new installation review. Otherwise the requesting agent must correct the source. You can cancel the update; your running version is unchanged.";
 }
 
 export function restartActionDisabledReason(
