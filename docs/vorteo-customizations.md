@@ -8,6 +8,8 @@ At narrow desktop widths up to 1200px, the composer fills its pane, aligns with 
 
 The demo acceptance check includes the default shared outer inset in its desktop tab-row height. Navigation, theme selection and keyboard access to the compact project rail pass against the existing production build. This maintenance changes no interface behavior or README onboarding.
 
+Question-card actions use fully rounded corners, a shared 44px minimum height and centered icon-label groups. Packaged browser checks cover phone, iPad and desktop action geometry and submission.
+
 Question cards add 12px between their prompt and answer controls and 12px below the action row, in addition to the shared card inset. They continue to grow with their contents and scroll with the conversation. README overview and onboarding are unchanged.
 
 The collapsed right sidebar toggle uses the left-pointing panel-open icon, mirroring the left sidebar's right-pointing open icon. The expanded right sidebar retains the plain panel icon. README overview and onboarding are unchanged.

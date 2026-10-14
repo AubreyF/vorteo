@@ -1,4 +1,5 @@
 import { tabShape } from "@/styles/tab-shape";
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "@/agent-stream/task-card";
@@ -724,9 +725,11 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
   },
   actionButton: {
-    paddingHorizontal: theme.spacing[3],
+    minHeight: CONTROL_HEIGHTS.field,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.full,
     alignItems: "center",
     borderWidth: theme.borderWidth[1],
   },
