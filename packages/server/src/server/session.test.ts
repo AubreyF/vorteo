@@ -5964,3 +5964,70 @@ test("bootstrap review refuses unconfigured daemons and returns only protected s
   });
   expect(JSON.stringify(messages)).not.toContain("private configuration contents");
 });
+
+test.each(["denied", "unavailable", "ready"])(
+  "claimed recovery session route preserves independent permission and readiness: %s",
+  async (mode) => {
+    const messages: SessionOutboundMessage[] = [];
+    const list = vi.fn(() => []);
+    const reconcile = vi.fn(async () => {});
+    const session = createSessionForTest({
+      messages,
+      permissions: mode === "denied" ? ["workspace.write"] : ["daemon.manage"],
+      coordinatorBootstrap: {
+        list: vi.fn(() => []),
+        prepare: vi.fn(),
+        decide: vi.fn(),
+        claimedRecovery: {
+          available: mode !== "unavailable",
+          list,
+          reconcile,
+          prepare: vi.fn(),
+          decide: vi.fn(),
+        },
+      },
+    });
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      generation: "00000000-0000-4000-8000-000000000003",
+      planSha256: "a".repeat(64),
+    };
+    await session.handleMessage({
+      type: "installation.claimed_recovery.list_requests.request",
+      requestId: "claimed-route",
+      reconcile: input,
+    });
+    if (mode === "ready") {
+      expect(reconcile).toHaveBeenCalledExactlyOnceWith(input);
+      expect(list).toHaveBeenCalledOnce();
+      expect(messages).toContainEqual({
+        type: "installation.claimed_recovery.list_requests.response",
+        payload: { requestId: "claimed-route", requests: [], error: null },
+      });
+    } else {
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(list).not.toHaveBeenCalled();
+      if (mode === "denied")
+        expect(messages).toContainEqual({
+          type: "rpc_error",
+          payload: {
+            requestId: "claimed-route",
+            requestType: "installation.claimed_recovery.list_requests.request",
+            code: "access_denied",
+            error:
+              "Session is not authorized for installation.claimed_recovery.list_requests.request",
+          },
+        });
+      else
+        expect(messages).toContainEqual({
+          type: "installation.claimed_recovery.list_requests.response",
+          payload: {
+            requestId: "claimed-route",
+            requests: null,
+            error: "Claimed coordinator recovery is unavailable on this Host.",
+          },
+        });
+    }
+  },
+);

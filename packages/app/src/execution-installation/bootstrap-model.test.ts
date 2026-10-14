@@ -4,6 +4,7 @@ import type {
   CoordinatorBootstrapRequest,
   CoordinatorBootstrapDecision,
   BootstrapPreclaimRecoveryRequest,
+  BootstrapClaimedRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   BootstrapPanelModel,
@@ -14,6 +15,7 @@ import {
   preclaimRecoveryStatus,
   preclaimRecoveryNeedsAttention,
   preclaimDispatchDescription,
+  recoveryTargetDescription,
 } from "./bootstrap-model";
 
 function request(): CoordinatorBootstrapRequest {
@@ -495,4 +497,73 @@ test("automatic status recovery clears transport failures but retains decision f
   await model.decide(item, "approve");
   await model.refresh(true);
   expect(model.getState().error).toContain("Decision unconfirmed");
+});
+
+test("claimed recovery preserves original approval and observes the retained generation", async () => {
+  const legacy = recoveryRequest();
+  const { canceled: _canceled, ownerCancellation: _cancellation, ...plan } = legacy.plan;
+  let current: BootstrapClaimedRecoveryRequestView = {
+    ...legacy,
+    execution: undefined,
+    plan: {
+      ...plan,
+      operation: "bootstrap-claimed-recovery",
+      dispatchApprovalRevision: randomUUID(),
+      retainedObservation: plan.setup,
+    },
+  };
+  const pending = current;
+  const decisions: CoordinatorBootstrapDecision[] = [];
+  const observations: unknown[] = [];
+  const model = new BootstrapPanelModel<BootstrapClaimedRecoveryRequestView>(() => ({
+    listCoordinatorBootstrapRequests: async () => [current],
+    decideCoordinatorBootstrap: async (input) => {
+      decisions.push(input);
+      current = { ...current, revision: randomUUID(), status: "approved" };
+      return [current];
+    },
+    verifyRetainedOutcome: async (input) => {
+      observations.push(input);
+      return [current];
+    },
+  }));
+  await model.refresh();
+  expect(recoveryTargetDescription(current)).toContain("Preserve its original approval");
+  expect(recoveryTargetDescription(current)).not.toContain("Cancel original operation");
+  model.setPassword("fixture");
+  await model.decide(pending, "approve");
+  expect(decisions).toEqual([
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+  ]);
+  expect(model.getState().hasPassword).toBe(false);
+  current = {
+    ...current,
+    revision: randomUUID(),
+    execution: {
+      generation: randomUUID(),
+      stage: "claim_fenced",
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  await model.refresh();
+  expect(preclaimRecoveryStatus(current)).toBe("Original operation cannot dispatch");
+  expect(bootstrapDecisionDisabledReason(current, { busy: false, hasPassword: true })).toContain(
+    "dispatched",
+  );
+  await model.reconcile(current);
+  expect(observations).toEqual([
+    {
+      id: current.id,
+      revision: current.revision,
+      planSha256: current.planSha256,
+      generation: current.execution!.generation,
+    },
+  ]);
+  expect(decisions).toHaveLength(1);
+  expect(current.plan.original).toEqual(pending.plan.original);
 });

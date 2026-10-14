@@ -563,7 +563,7 @@ async function persistPreclaimLaunchSnapshot(
     state,
     `coordinator-preclaim-launch-${request.id}-${request.revision}.json`,
   );
-  await writePreclaimSnapshot(file, snapshot);
+  await writeRecoverySnapshot(file, snapshot);
   const directory = await open(state, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     await directory.sync();
@@ -693,10 +693,7 @@ export async function prepareNativePreclaimLaunch(
   };
 }
 
-async function writePreclaimSnapshot(
-  file: string,
-  snapshot: z.infer<typeof PreclaimRunnerSetupSchema>,
-) {
+export async function writeRecoverySnapshot(file: string, snapshot: unknown) {
   const bytes = Buffer.from(JSON.stringify(snapshot));
   let handle;
   let created = true;
@@ -1138,6 +1135,15 @@ export function deferBootstrapReview(
     .then(
       (result) => {
         service = result;
+        service?.subscribeAvailability?.(() => {
+          for (const listener of listeners) {
+            try {
+              listener();
+            } catch {
+              /* Keep independent listeners isolated. */
+            }
+          }
+        });
         return undefined;
       },
       () => {
@@ -1170,6 +1176,9 @@ export function deferBootstrapReview(
     get preclaimRecovery() {
       return pending || failure ? undefined : service?.preclaimRecovery;
     },
+    get claimedRecovery() {
+      return pending || failure ? undefined : service?.claimedRecovery;
+    },
     list: () => ready().list(),
     prepare: async (input) => ready().prepare(input),
     decide: async (input, password) => ready().decide(input, password),
@@ -1199,15 +1208,107 @@ export async function createConfiguredBootstrapReview(
       throw error;
     }
   }
-  const [ordinary, recovery] = await Promise.all([
+  const { createManagedClaimedRecoveryReview } =
+    await import("./coordinator-bootstrap-claimed-launch.js");
+  const [ordinary, recovery, claimed] = await Promise.all([
     createSafeManagedBootstrapReview(setup, daemonId),
     createManagedPreclaimRecoveryReview(setup, daemonId).then(
       (service) => service,
       () => undefined,
     ),
+    createManagedClaimedRecoveryReview(setup, daemonId).then(
+      (service) => service,
+      () => undefined,
+    ),
   ]);
   if (ordinary && recovery) ordinary.preclaimRecovery = recovery;
-  return ordinary;
+  if (ordinary && claimed) ordinary.claimedRecovery = claimed;
+  return ordinary && claimed
+    ? refreshBootstrapReviewAfterClaimedRecovery(ordinary, claimed, () =>
+        createSafeManagedBootstrapReview(setup, daemonId),
+      )
+    : ordinary;
+}
+
+/** An owner status read may revalidate readiness after completed recovery. It
+ * never replays a decision or launches an executor. Failed validation stays
+ * unavailable; another explicit read can retry after native exit is provable. */
+export function refreshBootstrapReviewAfterClaimedRecovery(
+  initial: BootstrapReviewService,
+  claimed: NonNullable<BootstrapReviewService["claimedRecovery"]>,
+  initialize: () => Promise<BootstrapReviewService | undefined>,
+): BootstrapReviewService {
+  let current = initial;
+  let pending = false;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        /* One client cannot suppress other notifications. */
+      }
+    }
+  };
+  const ready = () => {
+    if (pending || current.available === false || current.unavailableReason)
+      throw new BootstrapRequestConflict(
+        current.unavailableReason ?? "Checking coordinator maintenance after recovery.",
+      );
+    return current;
+  };
+  const recoveries = {
+    ...claimed,
+    list: () => {
+      const records = claimed.list();
+      if (
+        !pending &&
+        (current.available === false || current.unavailableReason) &&
+        records.some(
+          (record) => record.status === "approved" && record.execution?.stage === "succeeded",
+        )
+      ) {
+        pending = true;
+        notify();
+        void Promise.resolve()
+          .then(initialize)
+          .then(
+            (result) => {
+              if (result) current = result;
+              return undefined;
+            },
+            () => undefined,
+          )
+          .then(() => {
+            pending = false;
+            notify();
+            return undefined;
+          });
+      }
+      return records;
+    },
+  };
+  return {
+    get available() {
+      return !pending && current.available !== false && !current.unavailableReason;
+    },
+    get unavailableReason() {
+      return pending
+        ? "Checking coordinator maintenance after recovery."
+        : current.unavailableReason;
+    },
+    get preclaimRecovery() {
+      return initial.preclaimRecovery;
+    },
+    claimedRecovery: recoveries,
+    subscribeAvailability(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    list: () => ready().list(),
+    prepare: async (input) => ready().prepare(input),
+    decide: async (input, password) => ready().decide(input, password),
+  };
 }
 
 async function createSafeManagedBootstrapReview(

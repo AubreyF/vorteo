@@ -1,4 +1,8 @@
 import type {
+  BootstrapClaimedRecoveryInbound,
+  BootstrapClaimedRecoveryOutbound,
+  BootstrapClaimedRecoveryRequestView,
+  BootstrapClaimedObservation,
   CoordinatorBootstrapInbound,
   CoordinatorBootstrapOutbound,
   CoordinatorBootstrapRequest,
@@ -7,6 +11,7 @@ import type {
   BootstrapPreclaimRecoveryOutbound,
   BootstrapPreclaimRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
+import type { ClaimedRecoveryReviews } from "./coordinator-bootstrap-claimed-recovery.js";
 import type { PreclaimRecoveryReviews } from "./coordinator-bootstrap-preclaim-recovery.js";
 import {
   BootstrapAuthenticationRequired,
@@ -20,6 +25,12 @@ export type PreclaimRecoveryReviewService = Pick<PreclaimRecoveryReviews, "prepa
   list(): BootstrapPreclaimRecoveryRequestView[];
 };
 
+export type ClaimedRecoveryReviewService = Pick<ClaimedRecoveryReviews, "prepare" | "decide"> & {
+  available: boolean;
+  list(): BootstrapClaimedRecoveryRequestView[];
+  reconcile?(input: BootstrapClaimedObservation): Promise<void>;
+};
+
 export type BootstrapReviewService = Pick<
   CoordinatorBootstrapRequests,
   "list" | "prepare" | "decide"
@@ -28,6 +39,7 @@ export type BootstrapReviewService = Pick<
   unavailableReason?: string;
   subscribeAvailability?(listener: () => void): () => void;
   preclaimRecovery?: PreclaimRecoveryReviewService;
+  claimedRecovery?: ClaimedRecoveryReviewService;
 };
 
 export function bootstrapReviewFeatures(service: BootstrapReviewService | undefined) {
@@ -35,6 +47,10 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     service !== undefined && service.available !== false && service.unavailableReason === undefined;
   return {
     coordinatorBootstrapReview: available,
+    coordinatorBootstrapClaimedRecovery: service?.claimedRecovery?.available === true,
+    coordinatorBootstrapClaimedObservation:
+      service?.claimedRecovery?.available === true &&
+      typeof service.claimedRecovery.reconcile === "function",
     coordinatorBootstrapPreclaimRecovery: service?.preclaimRecovery?.available === true,
     coordinatorBootstrapPreclaimOwnerCancellation: service?.preclaimRecovery?.available === true,
     coordinatorBootstrapPreclaimObservation:
@@ -275,4 +291,63 @@ function sourceUpdateToolingReply(
     reason:
       "Reload the client to review this source update tooling selection. Cancellation remains available.",
   };
+}
+
+/** Claimed recovery never inherits ordinary or legacy recovery readiness.
+ * Caller permissions still gate the route before this owner-authenticated service. */
+export async function handleClaimedRecoveryReview(
+  message: BootstrapClaimedRecoveryInbound,
+  service: ClaimedRecoveryReviewService | undefined,
+): Promise<BootstrapClaimedRecoveryOutbound> {
+  const responses = {
+    "installation.claimed_recovery.list_requests.request":
+      "installation.claimed_recovery.list_requests.response",
+    "installation.claimed_recovery.prepare.request":
+      "installation.claimed_recovery.prepare.response",
+    "installation.claimed_recovery.decide.request": "installation.claimed_recovery.decide.response",
+  } as const;
+  const type = responses[message.type];
+  const requestId = message.requestId;
+  if (service?.available !== true)
+    return {
+      type,
+      payload: {
+        requestId,
+        requests: null,
+        error: "Claimed coordinator recovery is unavailable on this Host.",
+      },
+    };
+  try {
+    if (
+      message.type === "installation.claimed_recovery.list_requests.request" &&
+      message.reconcile
+    ) {
+      if (!service.reconcile)
+        throw new BootstrapRequestConflict("Retained claimed recovery observation is unavailable");
+      await service.reconcile(message.reconcile);
+    }
+    if (message.type === "installation.claimed_recovery.prepare.request")
+      await service.prepare(message.input);
+    if (message.type === "installation.claimed_recovery.decide.request") {
+      if (message.input.decision === "approve" && message.claimedRecovery !== true)
+        throw new BootstrapRequestConflict(
+          "Reload to review exact claimed recovery before approval",
+        );
+      await service.decide(message.input, message.ownerPassword, message.claimedRecovery === true);
+    }
+    return { type, payload: { requestId, requests: service.list(), error: null } };
+  } catch (error) {
+    const safe =
+      error instanceof BootstrapRequestConflict || error instanceof BootstrapAuthenticationRequired;
+    return {
+      type,
+      payload: {
+        requestId,
+        requests: null,
+        error: safe
+          ? error.message
+          : "Claimed recovery validation failed. Inspect its retained status before retrying.",
+      },
+    };
+  }
 }

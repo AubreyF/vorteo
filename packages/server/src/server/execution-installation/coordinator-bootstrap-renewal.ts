@@ -35,6 +35,7 @@ import {
   readBootstrapLauncher,
   verifyLoadedBootstrapService,
   type BootstrapServiceReader,
+  type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
@@ -61,6 +62,15 @@ export const BootstrapRenewalSchema = z.strictObject({
   originalSetup: FileSchema,
   originalAdmission: FileSchema,
   terminal: ReferenceSchema,
+  claimedRecovery: z
+    .strictObject({
+      recovery: ReferenceSchema,
+      original: ReferenceSchema,
+      fence: FileSchema,
+      birth: FileSchema,
+      setup: FileSchema,
+    })
+    .optional(),
   configuration: FileSchema,
   sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
   source: FileSchema,
@@ -199,7 +209,8 @@ function readCompatibleJournal(directory: string) {
 }
 
 export interface BootstrapRenewalPorts {
-  reader: BootstrapServiceReader;
+  reader: BootstrapServiceReader &
+    Partial<Pick<NativeBootstrapServiceReader, "verifyProcessExited">>;
   hostPid(config: InstallationConfig): Promise<number>;
   writableMountRoots?(): Promise<string[]>;
 }
@@ -261,14 +272,16 @@ async function readRenewalAuthority(input: RenewalInput) {
     if (!own || own.status !== "approved" || own.planSha256 !== input.dispatchedRequest.planSha256)
       throw new BootstrapRequestConflict("Renewal dispatch approval changed");
   }
-  const terminal = terminalBootstrapRelease(
+  const history = await readRenewalHistory(
     records.filter((item) => item.id !== input.dispatchedRequest?.id),
     {
       installationId: anchor.binding.installationId,
       service: anchor.binding.service,
       stateDirectory: anchor.stateDirectory,
     },
+    roots,
   );
+  const terminal = history.terminal;
   if (!terminal) return undefined;
   const selected = terminal.release;
   await verifyBootstrapReleaseArtifacts(selected, roots);
@@ -303,7 +316,17 @@ async function readRenewalAuthority(input: RenewalInput) {
     readPrivateBootstrapConfiguration(configurationFile, uid),
   );
   verifyAdmissionDocker(config, admission);
-  return { uid, admission, roots, anchor, terminal, selected, configurationFile, config };
+  return {
+    uid,
+    admission,
+    roots,
+    anchor,
+    terminal,
+    selected,
+    configurationFile,
+    config,
+    claimed: history.claimed,
+  };
 }
 
 function verifyAdmissionDocker(
@@ -458,6 +481,17 @@ async function verifyTerminalProcess(authority: RenewalAuthority, ports: Bootstr
   }
 }
 
+async function readRenewalHistory(
+  records: CoordinatorBootstrapRequest[],
+  identity: { installationId: string; stateDirectory: string; service: string },
+  roots: readonly string[],
+) {
+  const { readClaimedSuccessorEvidence } =
+    await import("./coordinator-bootstrap-claimed-successor.js");
+  const claimed = await readClaimedSuccessorEvidence({ records, identity, roots });
+  return { terminal: claimed?.terminal ?? terminalBootstrapRelease(records, identity), claimed };
+}
+
 async function verifyStableRenewal(
   input: RenewalInput,
   authority: RenewalAuthority,
@@ -495,7 +529,7 @@ async function verifyStableRenewal(
     finalRoots,
   );
   await readBootstrapPreparedFile(renewal.configuration, finalRoots);
-  const finalTerminal = terminalBootstrapRelease(
+  const finalHistory = await readRenewalHistory(
     new FileBootstrapRequestJournal(anchor.stateDirectory)
       .read()
       .filter((item) => item.id !== input.dispatchedRequest?.id),
@@ -504,8 +538,13 @@ async function verifyStableRenewal(
       service: anchor.binding.service,
       stateDirectory: anchor.stateDirectory,
     },
+    finalRoots,
   );
-  if (!finalTerminal || !isDeepStrictEqual(reference(finalTerminal.request), renewal.terminal))
+  if (
+    !finalHistory.terminal ||
+    !isDeepStrictEqual(reference(finalHistory.terminal.request), renewal.terminal) ||
+    !isDeepStrictEqual(finalHistory.claimed?.witness, renewal.claimedRecovery)
+  )
     throw new BootstrapRequestConflict("Renewal terminal history changed during reconstruction");
 }
 
@@ -530,6 +569,19 @@ export async function deriveBootstrapRenewal(input: {
   );
   const ports = input.ports ?? (await nativePorts(admission, roots));
   await verifyTerminalProcess(authority, ports);
+  if (authority.claimed) {
+    const { verifyClaimedSuccessorExit } =
+      await import("./coordinator-bootstrap-claimed-successor.js");
+    await verifyClaimedSuccessorExit(authority.claimed, ports.reader);
+    const retained = authority.claimed.setup.renewal;
+    if (
+      retained.originalSetup.path !== input.setupFile ||
+      retained.originalAdmission.path !== input.setup.admissionSetupFile
+    )
+      throw new BootstrapRequestConflict("Claimed recovery belongs to another renewal anchor");
+    await readBootstrapPreparedFile(retained.originalSetup, roots);
+    await readBootstrapPreparedFile(retained.originalAdmission, roots);
+  }
   const pid = input.hostPid ?? (await ports.hostPid(config));
   const hostProcess = verifyRenewalHostProcess({
     observed: await ports.reader.inspectProcess(pid),
@@ -547,6 +599,7 @@ export async function deriveBootstrapRenewal(input: {
     originalSetup: await observeFile(input.setupFile, roots),
     originalAdmission: await observeFile(input.setup.admissionSetupFile, roots),
     terminal: reference(terminal.request),
+    ...(authority.claimed ? { claimedRecovery: authority.claimed.witness } : {}),
     configuration: { path: configurationFile, sha256: selected.configuration.sha256 },
     sourceCommit: receipt.sourceCommit,
     source,
@@ -598,6 +651,11 @@ async function observeExecutable(file: string, roots: readonly string[]) {
 export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBootstrapPlan) {
   if (!setup.renewal) return;
   const renewal = setup.renewal;
+  if (
+    renewal.claimedRecovery &&
+    !isDeepStrictEqual(plan.recoveredFrom, renewal.claimedRecovery.original)
+  )
+    throw new BootstrapRequestConflict("Renewal must reference the exact recovered claim");
   if (plan.automaticRecovery !== "restore-compatible" || !plan.compatibleRecovery)
     throw new BootstrapRequestConflict("Renewal requires an exact compatible recovery reader");
   for (const release of [plan.candidate, plan.compatibleRecovery]) {
@@ -685,13 +743,16 @@ export async function verifyRetainedRenewal(
   const records = new FileBootstrapRequestJournal(anchor.stateDirectory)
     .read()
     .filter((item) => item.id !== renewal.request?.id);
-  const terminal = terminalBootstrapRelease(records, {
-    installationId: anchor.binding.installationId,
-    stateDirectory: anchor.stateDirectory,
-    service: anchor.binding.service,
-  });
-  if (!terminal || !isDeepStrictEqual(reference(terminal.request), renewal.terminal))
-    throw new BootstrapRequestConflict("Retained renewal terminal history changed");
+  const history = await readRenewalHistory(
+    records,
+    {
+      installationId: anchor.binding.installationId,
+      stateDirectory: anchor.stateDirectory,
+      service: anchor.binding.service,
+    },
+    roots,
+  );
+  const terminal = await verifyRetainedRecoveryHistory(history, renewal, admission, roots, request);
   await verifyRetainedAuthority(setup, terminal.release, roots);
 }
 
@@ -871,4 +932,34 @@ export async function retainRenewalGeneration(input: {
     )
   )
     throw new BootstrapRequestConflict("Renewal snapshot substitution or generation mismatch");
+}
+
+async function verifyRetainedRecoveryHistory(
+  history: Awaited<ReturnType<typeof readRenewalHistory>>,
+  renewal: BootstrapRenewal,
+  admission: z.infer<typeof BootstrapAdmissionSetupSchema>,
+  roots: readonly string[],
+  request?: CoordinatorBootstrapRequest,
+) {
+  const terminal = history.terminal;
+  if (
+    !terminal ||
+    !isDeepStrictEqual(reference(terminal.request), renewal.terminal) ||
+    !isDeepStrictEqual(history.claimed?.witness, renewal.claimedRecovery)
+  )
+    throw new BootstrapRequestConflict("Retained renewal terminal history changed");
+  if (history.claimed) {
+    const { verifyClaimedSuccessorExit } =
+      await import("./coordinator-bootstrap-claimed-successor.js");
+    const reader = await createNativeBootstrapServiceReader({
+      ...admission,
+      writableMountRoots: roots,
+    });
+    await verifyClaimedSuccessorExit(history.claimed, reader);
+    if (request && !isDeepStrictEqual(request.plan.recoveredFrom, history.claimed.recoveredFrom))
+      throw new BootstrapRequestConflict(
+        "Retained successor does not reference the recovered claim",
+      );
+  }
+  return terminal;
 }

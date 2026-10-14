@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.491 - 2026-10-14
+
+### Added
+
+- Add owner-authenticated provisioning for a protected coordinator repair runtime when the installed Host cannot recover a claimed executor. Bind repair review to the exact original approval, process identity and immutable artifact.
+- Show independently provisioned repair requests in existing Installation controls and the sidebar. Preserve cancellation before dispatch and observation-only reconciliation after uncertain completion.
+
+### Fixed
+
+- Fence an unpromoted coordinator claim under the existing journal lock before bounded recovery effects, preserving approval history, selected configuration and successor verification.
+- Integrate the current interface changes and both branches' release history. Native disposable recovery, retained-effect observation and successor checks pass; installation acceptance remains separate. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.490 - 2026-10-14
 
 ### Fixed
@@ -39,6 +51,25 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Remove duplicate bottom safe-area padding from web thread and draft composers so their bottom edges align with the sidebar on iPad. Preserve native safe-area padding and the desktop 8px margin.
 - Reproduce the previous 20px offset using browser safe-area emulation and check tablet portrait, landscape and short desktop windows. README overview and onboarding are unchanged.
+
+## 0.11.0-beta.3.vorteo.486 - 2026-10-14
+
+### Added
+
+- Add separately reviewed recovery for a claimed coordinator executor, with exact native identity checks, atomic exclusion against promotion and durable one-shot effects.
+- Expose capability-gated recovery review and observation controls. Preserve original approval history and reject implicit approval from older clients.
+- Require the verified recovery witness in successor renewal and watchdog checks, and refresh maintenance readiness after recovery.
+
+### Fixed
+
+- Retain recovery-required status when coordinator ownership validation fails.
+- Keep status readers out of the executor's mutation lock while preserving protected-directory checks.
+- Resolve the browser provider beside the shared test runner on fresh workspace installs.
+
+### Validation and limits
+
+- Validate disposable native recovery and retained observation without replay, plus current-source owning, client and desktop/compact browser checks.
+- Safe managed installation and live Factory activation remain unfinished. README overview and onboarding are unchanged.
 
 ## 0.11.0-beta.3.vorteo.485 - 2026-10-13
 

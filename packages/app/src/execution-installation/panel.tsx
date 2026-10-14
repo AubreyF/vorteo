@@ -38,6 +38,9 @@ import {
   BootstrapReview,
   BootstrapBanner,
   getPreclaimRecoveryPanel,
+  getClaimedRecoveryPanel,
+  ClaimedRecoveryReview,
+  ClaimedRecoveryBanner,
   PreclaimRecoveryReview,
   PreclaimRecoveryBanner,
 } from "./bootstrap-panel";
@@ -164,10 +167,12 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
     void model.initialize();
     void getBootstrapPanel()?.refresh();
     void getPreclaimRecoveryPanel()?.refresh();
+    void getClaimedRecoveryPanel()?.refresh();
     const timer = setInterval(() => {
       void model.refresh();
       void getBootstrapPanel()?.refresh(true);
       void getPreclaimRecoveryPanel()?.refresh(true);
+      void getClaimedRecoveryPanel()?.refresh(true);
     }, 5000);
     return () => clearInterval(timer);
   }, [model]);
@@ -213,8 +218,10 @@ function restartStatus(job: RestartJob, historical = false) {
 function CoordinatorMaintenanceReviews() {
   const bootstrap = getBootstrapPanel();
   const recovery = getPreclaimRecoveryPanel();
+  const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <>
+      {claimedRecovery ? <ClaimedRecoveryReview model={claimedRecovery} /> : null}
       {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
       {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
     </>
@@ -1202,8 +1209,12 @@ export function InstallationRestartBanner({
   const model = getInstallationPanel(useHostRegistryLoaded());
   const bootstrap = getBootstrapPanel();
   const recovery = getPreclaimRecoveryPanel();
+  const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement === "floating" && claimedRecovery ? (
+        <ClaimedRecoveryBanner model={claimedRecovery} />
+      ) : null}
       {placement === "floating" && recovery ? <PreclaimRecoveryBanner model={recovery} /> : null}
       {bootstrap ? <BootstrapBanner model={bootstrap} /> : null}
       {model ? <RestartBanner model={model} /> : null}

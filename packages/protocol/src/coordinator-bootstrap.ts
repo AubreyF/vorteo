@@ -212,6 +212,19 @@ export const BootstrapPreclaimRecoveryPlanSchema = z.strictObject({
   }),
 });
 export type BootstrapPreclaimRecoveryPlan = z.infer<typeof BootstrapPreclaimRecoveryPlanSchema>;
+// Claimed recovery has different authority from legacy preclaim cancellation.
+// Its distinct discriminator prevents old review controls accepting hidden scope.
+export const BootstrapClaimedRecoveryPlanSchema = BootstrapPreclaimRecoveryPlanSchema.omit({
+  canceled: true,
+  ownerCancellation: true,
+  originalApproval: true,
+}).extend({
+  operation: z.literal("bootstrap-claimed-recovery"),
+  dispatchApprovalRevision: z.string().uuid(),
+  retainedObservation: FileIdentitySchema,
+});
+export type BootstrapClaimedRecoveryPlan = z.infer<typeof BootstrapClaimedRecoveryPlanSchema>;
+
 export const BootstrapPreclaimRecoveryRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -238,6 +251,26 @@ export const BootstrapPreclaimRecoveryRequestSchema = z.strictObject({
     })
     .optional(),
 });
+export const BootstrapClaimedRecoveryRequestSchema = BootstrapPreclaimRecoveryRequestSchema.extend({
+  plan: BootstrapClaimedRecoveryPlanSchema,
+  execution: z
+    .strictObject({
+      generation: z.string().uuid(),
+      stage: z.enum([
+        "claimed",
+        "claim_fenced",
+        "effect_pending",
+        "verifying",
+        "succeeded",
+        "recovery_required",
+        "aborted_before_effects",
+      ]),
+      updatedAt: z.string().datetime(),
+    })
+    .optional(),
+});
+export type BootstrapClaimedRecoveryRequest = z.infer<typeof BootstrapClaimedRecoveryRequestSchema>;
+
 export type BootstrapPreclaimRecoveryRequest = z.infer<
   typeof BootstrapPreclaimRecoveryRequestSchema
 >;
@@ -329,4 +362,75 @@ export type BootstrapPreclaimRecoveryOutbound = z.infer<
   | typeof BootstrapPreclaimRecoveryListResponseSchema
   | typeof BootstrapPreclaimRecoveryPrepareResponseSchema
   | typeof BootstrapPreclaimRecoveryDecideResponseSchema
+>;
+
+export const BootstrapClaimedRecoveryRequestViewSchema =
+  BootstrapClaimedRecoveryRequestSchema.extend({
+    dispatch: BootstrapPreclaimDispatchObservationSchema.optional(),
+  });
+export type BootstrapClaimedRecoveryRequestView = z.infer<
+  typeof BootstrapClaimedRecoveryRequestViewSchema
+>;
+export const BootstrapClaimedRecoveryPreparationSchema = z.strictObject({
+  id: z.string().uuid(),
+  reason: z.string().min(1).max(4000),
+  plan: BootstrapClaimedRecoveryPlanSchema,
+});
+export type BootstrapClaimedRecoveryPreparation = z.infer<
+  typeof BootstrapClaimedRecoveryPreparationSchema
+>;
+export const BootstrapClaimedObservationSchema = BootstrapPreclaimObservationSchema;
+export type BootstrapClaimedObservation = z.infer<typeof BootstrapClaimedObservationSchema>;
+
+/** Independently provisioned repair transport, separate from Host capabilities. */
+export const BootstrapClaimedRepairStatusSchema = z.strictObject({
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  available: z.boolean(),
+  requests: z.number().int().nonnegative(),
+});
+
+export const BootstrapClaimedRecoveryListRequestSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.list_requests.request"),
+  requestId: z.string(),
+  reconcile: BootstrapClaimedObservationSchema.optional(),
+});
+export const BootstrapClaimedRecoveryPrepareRequestSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.prepare.request"),
+  requestId: z.string(),
+  input: BootstrapClaimedRecoveryPreparationSchema,
+});
+export const BootstrapClaimedRecoveryDecideRequestSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.decide.request"),
+  requestId: z.string(),
+  input: CoordinatorBootstrapDecisionSchema,
+  claimedRecovery: z.literal(true).optional(),
+  ownerPassword: z.string().min(1).max(1024),
+});
+const ClaimedRecoveryResultSchema = z.strictObject({
+  requestId: z.string(),
+  requests: z.array(BootstrapClaimedRecoveryRequestViewSchema).nullable(),
+  error: z.string().nullable(),
+});
+export const BootstrapClaimedRecoveryListResponseSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.list_requests.response"),
+  payload: ClaimedRecoveryResultSchema,
+});
+export const BootstrapClaimedRecoveryPrepareResponseSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.prepare.response"),
+  payload: ClaimedRecoveryResultSchema,
+});
+export const BootstrapClaimedRecoveryDecideResponseSchema = z.strictObject({
+  type: z.literal("installation.claimed_recovery.decide.response"),
+  payload: ClaimedRecoveryResultSchema,
+});
+export type BootstrapClaimedRecoveryInbound = z.infer<
+  | typeof BootstrapClaimedRecoveryListRequestSchema
+  | typeof BootstrapClaimedRecoveryPrepareRequestSchema
+  | typeof BootstrapClaimedRecoveryDecideRequestSchema
+>;
+export type BootstrapClaimedRecoveryOutbound = z.infer<
+  | typeof BootstrapClaimedRecoveryListResponseSchema
+  | typeof BootstrapClaimedRecoveryPrepareResponseSchema
+  | typeof BootstrapClaimedRecoveryDecideResponseSchema
 >;

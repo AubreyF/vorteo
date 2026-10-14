@@ -5,6 +5,8 @@ import type {
   CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
   BootstrapPreclaimRecoveryPreparation,
+  BootstrapClaimedRecoveryPreparation,
+  BootstrapClaimedRecoveryRequestView as BootstrapClaimedRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import type {
   PluginDirectoryBinding,
@@ -3988,6 +3990,96 @@ export class DaemonClient {
             ownerPassword,
             preclaimRecovery: true,
             ...this.preclaimOwnerCancellationCapability(),
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  private assertClaimedRecoveryReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapClaimedRecovery !== true)
+      throw new Error(
+        "Managed bootstrap recovery is unavailable. Update the Host to use this review.",
+      );
+  }
+
+  async reconcileClaimedRecovery(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapClaimedObservation !== true)
+      throw new Error("Update the Host to verify a retained recovery outcome.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.list_requests.request",
+            reconcile: input,
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery observation unconfirmed");
+    return result.requests;
+  }
+
+  async listClaimedRecoveryRequests(): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.list_requests.request",
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery status unavailable");
+    return result.requests;
+  }
+
+  async prepareClaimedRecovery(
+    input: BootstrapClaimedRecoveryPreparation,
+  ): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.prepare.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.prepare.request",
+            input,
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery preparation unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  async decideClaimedRecovery(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.decide.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.decide.request",
+            input,
+            ownerPassword,
+            claimedRecovery: true,
           },
           timeout: 15 * 60_000,
         },
