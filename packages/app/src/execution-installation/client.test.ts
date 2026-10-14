@@ -352,4 +352,9 @@ test("Dev repair capability loss fails closed and preparation sends only the exa
   });
   available = false;
   await expect(client.devRepairStatus()).rejects.toThrow("Unavailable");
+  const before = sent.length;
+  await expect(
+    client.prepareDevRepair({ id, revision } as Parameters<typeof client.prepareDevRepair>[0]),
+  ).rejects.toThrow("Update the coordinator");
+  expect(sent).toHaveLength(before);
 });

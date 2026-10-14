@@ -4080,6 +4080,16 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.route("**/api/installation/owner/restarts/query?*", (route) =>
     route.fulfill({ json: [job] }),
   );
+  const preparations: unknown[] = [];
+  let preparingIds: string[] = [];
+  await page.route("**/api/installation/owner/dev-repair/query", (route) =>
+    route.fulfill({ json: { available: true, preparingIds } }),
+  );
+  await page.route("**/api/installation/owner/dev-repair/prepare", (route) => {
+    preparations.push(route.request().postDataJSON());
+    preparingIds = [id];
+    return route.fulfill({ status: 202, json: { id, revision: job.revision } });
+  });
   const decisions: unknown[] = [];
   await page.route(`**/api/installation/owner/restarts/${id}/decision?*`, (route) => {
     decisions.push(route.request().postDataJSON());
@@ -4089,10 +4099,10 @@ test("disabled restart explains the correction on hover, focus and touch without
   await page.getByTestId("installation-password").fill(ownerPassword);
   await page.getByTestId("installation-unlock").click();
   const card = page.getByTestId(`restart-request-${id}`);
-  await expect(card).toContainText("Awaiting agent repair");
+  await expect(card).toContainText("Source repair needed");
   await expect(page.getByTestId(`restart-notice-${id}`)).toHaveCount(0);
-  await expect(card).toContainText("The requesting agent must repair this update");
-  await expect(card).toContainText("Leave it queued for repair");
+  await expect(card).toContainText("Prepare Dev repair captures the installed Host source");
+  await expect(card).toContainText("Your running version is unchanged");
   await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeVisible();
   await expect(
     card.getByText("Existing release notes were edited; resolve explicitly", { exact: true }),
@@ -4117,6 +4127,14 @@ test("disabled restart explains the correction on hover, focus and touch without
   }
   expect(decisions).toEqual([]);
   await expect(button).toBeDisabled();
+  const prepare = page.getByTestId(`dev-repair-${id}`);
+  await expect(prepare).toBeEnabled();
+  await prepare.click();
+  expect(preparations).toEqual([{ id, revision: job.revision }]);
+  await expect(prepare).toHaveText("Preparing repair");
+  await expect(prepare).toBeDisabled();
+  await expect(card.getByRole("button", { name: "Cancel update", exact: true })).toBeEnabled();
+  expect(decisions).toEqual([]);
   job.sourceBatch.status = "ready";
   job.revision = randomUUID();
   await expect(page.getByTestId(`restart-notice-${id}`)).toBeVisible();

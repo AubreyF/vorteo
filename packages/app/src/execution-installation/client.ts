@@ -63,6 +63,7 @@ export class InstallationClient {
   private helperRetryAt = 0;
   private daemonAutomationSupported = false;
   private devRepairSupported = false;
+  private devRepairAvailable = false;
   private monitorRetryAt = 0;
   sessionsSupported = false;
   passwordFile: string | null = null;
@@ -218,8 +219,10 @@ export class InstallationClient {
         })
         .parse(await this.request("dev-repair/query", {}));
       this.devRepairSupported = true;
+      this.devRepairAvailable = result.available;
       return result;
     } catch (error) {
+      this.devRepairAvailable = false;
       if (error instanceof InstallationRouteUnavailable && !this.devRepairSupported)
         return { available: false, preparingIds: [] };
       throw error;
@@ -227,7 +230,7 @@ export class InstallationClient {
   }
 
   async prepareDevRepair(job: RestartJob): Promise<void> {
-    if (!this.devRepairSupported) throw new Error("Update the coordinator to prepare Dev repairs");
+    if (!this.devRepairAvailable) throw new Error("Update the coordinator to prepare Dev repairs");
     const receipt = z.strictObject({ id: z.string().uuid(), revision: z.string().uuid() }).parse(
       await this.request("dev-repair/prepare", {
         id: job.id,
