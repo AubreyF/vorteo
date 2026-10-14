@@ -388,6 +388,20 @@ export const BootstrapClaimedRepairStatusSchema = z.strictObject({
   installationId: z.string().uuid(),
   available: z.boolean(),
   requests: z.number().int().nonnegative(),
+  provisioning: z
+    .strictObject({
+      admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+      artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      originalId: z.string().uuid(),
+    })
+    .optional(),
+});
+
+export const BootstrapClaimedRepairProvisionRequestSchema = z.strictObject({
+  type: z.literal("installation.claimed_repair.provision.request"),
+  admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  ownerPassword: z.string().min(1).max(4096),
 });
 
 export const BootstrapClaimedRecoveryListRequestSchema = z.strictObject({

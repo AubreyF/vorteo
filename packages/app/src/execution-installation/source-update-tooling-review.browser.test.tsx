@@ -8,6 +8,7 @@ import type {
   BootstrapClaimedRecoveryRequestView,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
+import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { BootstrapPanelModel } from "./bootstrap-model";
 import { BootstrapReview, PreclaimRecoveryReview, ClaimedRecoveryReview } from "./bootstrap-panel";
 
@@ -15,7 +16,13 @@ vi.mock("expo-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/runtime/host-runtime", () => ({
   getHostRuntimeStore: () => ({ getClient: () => null }),
 }));
-vi.mock("./policy", () => ({ readExecutionInstallation: () => null }));
+const repairInstallation = vi.hoisted(() => ({ enabled: false }));
+vi.mock("./policy", () => ({
+  readExecutionInstallation: () =>
+    repairInstallation.enabled
+      ? { installationId: "22222222-2222-4222-8222-222222222222", origin: window.location.origin }
+      : null,
+}));
 
 // Match the existing monitor review fixture: the shared Unistyles stub omits this native constant.
 vi.mock("react-native-unistyles", async (original) => {
@@ -490,6 +497,79 @@ test.each([1280, 390])(
     } finally {
       act(() => root.unmount());
       container.remove();
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test.each([1280, 390])(
+  "repair provisioning remains separate from recovery at %ipx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    repairInstallation.enabled = true;
+    await page.viewport(width, 1100);
+    const sent: unknown[] = [];
+    let admitted = false;
+    const proposal = {
+      admissionSha256: "a".repeat(64),
+      sourceCommit: "b".repeat(40),
+      artifactSha256: "c".repeat(64),
+      originalId: "33333333-3333-4333-8333-333333333333",
+    };
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      if (url.endsWith("/status"))
+        return new Response(
+          JSON.stringify({
+            version: 1,
+            installationId: "22222222-2222-4222-8222-222222222222",
+            available: admitted,
+            requests: admitted ? 1 : 0,
+            ...(!admitted ? { provisioning: proposal } : {}),
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      sent.push(JSON.parse(String(init.body)));
+      expect(init.credentials).toBe("same-origin");
+      expect(init.redirect).toBe("error");
+      admitted = true;
+      return new Response(JSON.stringify({ provisioned: true }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const container = document.createElement("div");
+    container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ClaimedRepairProvisioning />));
+      await expect
+        .element(page.getByRole("button", { name: "Enable repair controls" }))
+        .toBeVisible();
+      expect(sent).toEqual([]);
+      expect(
+        page
+          .getByRole("button", { name: "Enable repair controls" })
+          .element()
+          .getAttribute("aria-disabled"),
+      ).toBe("true");
+      await page.getByLabelText("Repair setup owner password").fill("fixture-owner");
+      await page.screenshot({
+        path: `../../../../output/playwright/repair-provision-${width}.png`,
+      });
+      await act(async () => page.getByRole("button", { name: "Enable repair controls" }).click());
+      expect(sent).toEqual([
+        {
+          type: "installation.claimed_repair.provision.request",
+          admissionSha256: proposal.admissionSha256,
+          ownerPassword: "fixture-owner",
+        },
+      ]);
+      await expect.element(page.getByTestId("claimed-repair-provisioning")).not.toBeInTheDocument();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      repairInstallation.enabled = false;
       vi.unstubAllGlobals();
     }
   },

@@ -46,13 +46,31 @@ describe("provisioned claimed repair HTTP controls", () => {
   let endpoint: string;
   let service: ReviewService;
   let configurationChanged: boolean;
+  let provisioned: unknown[];
+  let proposalEnabled: boolean;
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), "claimed-control-"));
     service = new ReviewService();
     configurationChanged = false;
+    provisioned = [];
+    proposalEnabled = false;
     const app = createClaimedRepairControlApp({
       installationId,
       service,
+      provisioning: () =>
+        proposalEnabled
+          ? {
+              admissionSha256: "a".repeat(64),
+              sourceCommit: "b".repeat(40),
+              artifactSha256: "c".repeat(64),
+              originalId: installationId,
+            }
+          : undefined,
+      provision: async (request) => {
+        if (!proposalEnabled || request.admissionSha256 !== "a".repeat(64))
+          throw new BootstrapRequestConflict("Proposal changed");
+        provisioned.push(request);
+      },
       readOwnerConfiguration: async () => {
         if (configurationChanged) throw new Error("private-fixture-path-and-password");
         return {
@@ -87,6 +105,62 @@ describe("provisioned claimed repair HTTP controls", () => {
       body: JSON.stringify(body),
     });
   }
+  it("requires owner authentication before provisioning and never delegates recovery", async () => {
+    proposalEnabled = true;
+    const body = {
+      type: "installation.claimed_repair.provision.request",
+      admissionSha256: "a".repeat(64),
+      ownerPassword: password,
+    };
+    expect((await post(body)).status).toBe(401);
+    expect(provisioned).toEqual([]);
+    expect(
+      (
+        await post(body, {
+          Authorization: `Bearer ${password}`,
+          origin: "https://outside.example.test",
+        })
+      ).status,
+    ).toBe(403);
+    expect(provisioned).toEqual([]);
+    const response = await post(body, { Authorization: `Bearer ${password}` });
+    expect(await response.json()).toEqual({ provisioned: true });
+    expect(provisioned).toEqual([body]);
+    expect(service.decisions).toEqual([]);
+    expect(service.observations).toEqual([]);
+  });
+  it("refuses malformed and changed provisioning proposals", async () => {
+    proposalEnabled = true;
+    const headers = { Authorization: `Bearer ${password}` };
+    expect(
+      (await post({ type: "installation.claimed_repair.provision.request" }, headers)).status,
+    ).toBe(400);
+    expect(
+      (
+        await post(
+          {
+            type: "installation.claimed_repair.provision.request",
+            admissionSha256: "d".repeat(64),
+            ownerPassword: password,
+          },
+          headers,
+        )
+      ).status,
+    ).toBe(503);
+    expect(provisioned).toEqual([]);
+  });
+  it("advertises the exact proposal without exposing credentials or paths", async () => {
+    proposalEnabled = true;
+    const status = await (await fetch(`${endpoint}/status`)).json();
+    expect(status.provisioning).toEqual({
+      admissionSha256: "a".repeat(64),
+      sourceCommit: "b".repeat(40),
+      artifactSha256: "c".repeat(64),
+      originalId: installationId,
+    });
+    expect(JSON.stringify(status)).not.toContain(password);
+    expect(JSON.stringify(status)).not.toContain(directory);
+  });
   it("exposes only numeric public status and performs no decision", async () => {
     const result = await fetch(`${endpoint}/status`);
     expect(await result.json()).toEqual({

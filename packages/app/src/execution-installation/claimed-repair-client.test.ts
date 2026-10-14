@@ -48,6 +48,26 @@ function fixture() {
 }
 
 describe("independently provisioned repair client", () => {
+  it("waits for initial owner provisioning without sending a recovery request", async () => {
+    const f = fixture();
+    f.status(() =>
+      json({
+        ...status,
+        available: false,
+        provisioning: {
+          admissionSha256: "a".repeat(64),
+          sourceCommit: "b".repeat(40),
+          artifactSha256: "c".repeat(64),
+          originalId: identity.id,
+        },
+      }),
+    );
+    expect(await f.client.listCoordinatorBootstrapRequests()).toEqual([]);
+    expect(f.requests).toHaveLength(1);
+    f.status(() => json(status));
+    expect(await f.client.listCoordinatorBootstrapRequests()).toEqual([]);
+    expect(f.requests).toHaveLength(3);
+  });
   it("discovers this installation and reads with same-origin owner session", async () => {
     const f = fixture();
     expect(await f.client.listCoordinatorBootstrapRequests()).toEqual([]);

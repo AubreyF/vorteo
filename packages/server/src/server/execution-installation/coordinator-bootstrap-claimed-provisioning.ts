@@ -92,6 +92,25 @@ export async function verifyClaimedRepairProvisioning(input: ClaimedRepairProvis
   };
 }
 
+/** Inspect a fixed proposal without admitting its runtime or granting effects. */
+export async function verifyClaimedRepairProposal(input: ClaimedRepairProvisioningInput) {
+  const file = path.join(input.installationRoot, "claimed-repair-proposal.json");
+  const bytes = await readBootstrapPreparedFile(
+    { path: file, sha256: input.admissionSha256 },
+    input.writableMountRoots,
+  );
+  const receipt = ClaimedRepairProvisioningSchema.parse(JSON.parse(bytes.toString("utf8")));
+  // Admission serializes exactly this canonical representation. A proposal may
+  // not pin one byte sequence and later admit a different representation.
+  if (createHash("sha256").update(JSON.stringify(receipt)).digest("hex") !== input.admissionSha256)
+    throw new BootstrapRequestConflict("Repair proposal is not canonical");
+  await verifyProvisioningReceipt(input, receipt);
+  new FileBootstrapRequestJournal(input.plan.original.plan.state.directory).verifyUnpromotedClaim(
+    input.plan.original,
+  );
+  return { receipt };
+}
+
 async function verifyProvisioningReceipt(
   input: Omit<ClaimedRepairProvisioningInput, "admissionSha256">,
   receipt: z.infer<typeof ClaimedRepairProvisioningSchema>,

@@ -49,6 +49,7 @@ export class ClaimedRepairClient implements BootstrapReviewClient<BootstrapClaim
     const status = BootstrapClaimedRepairStatusSchema.parse(await response.json());
     if (status.installationId !== this.installationId)
       throw new Error("Repair belongs to another installation");
+    if (!status.available && status.provisioning && !this.observed) return false;
     this.observed = true;
     if (!status.available) throw new Error("Provisioned repair is unavailable");
     return true;

@@ -1,3 +1,4 @@
+import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { SettingsExpansion } from "@/components/settings/settings-expansion";
 import { Switch } from "@/components/ui/switch";
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
@@ -221,6 +222,7 @@ function CoordinatorMaintenanceReviews() {
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <>
+      <ClaimedRepairProvisioning />
       {claimedRecovery ? <ClaimedRecoveryReview model={claimedRecovery} /> : null}
       {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
       {bootstrap ? <BootstrapReview model={bootstrap} /> : null}
@@ -1212,6 +1214,7 @@ export function InstallationRestartBanner({
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement === "floating" ? <ClaimedRepairProvisioning banner /> : null}
       {placement === "floating" && claimedRecovery ? (
         <ClaimedRecoveryBanner model={claimedRecovery} />
       ) : null}

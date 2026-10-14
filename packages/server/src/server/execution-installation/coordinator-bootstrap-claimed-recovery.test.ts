@@ -58,6 +58,7 @@ import {
   provisionClaimedRepair,
   assertProvisionedClaimedRuntimeBinding,
   verifyClaimedRepairProvisioning,
+  verifyClaimedRepairProposal,
 } from "./coordinator-bootstrap-claimed-provisioning.js";
 import {
   ClaimedRecoveryReviews,
@@ -624,6 +625,22 @@ async function provisioningOwnerFixture() {
   rmSync(path.join(f.root, "claimed-repair-admission.json"));
   return { ...f, pendingFile };
 }
+
+test.each([false, true])(
+  "repair proposal is read-only and requires canonical pinned bytes (%s)",
+  async (noncanonical) => {
+    const f = await provisioningOwnerFixture();
+    const bytes = noncanonical ? JSON.stringify(f.receipt, null, 2) : JSON.stringify(f.receipt);
+    const proposal = path.join(f.root, "claimed-repair-proposal.json");
+    writeFileSync(proposal, bytes, { mode: 0o600 });
+    const before = readFileSync(f.pendingFile);
+    const input = { ...f.input, admissionSha256: createHash("sha256").update(bytes).digest("hex") };
+    if (noncanonical) await expect(verifyClaimedRepairProposal(input)).rejects.toThrow("canonical");
+    else expect((await verifyClaimedRepairProposal(input)).receipt).toEqual(f.receipt);
+    expect(readFileSync(f.pendingFile)).toEqual(before);
+    expect(() => readFileSync(path.join(f.root, "claimed-repair-admission.json"))).toThrow();
+  },
+);
 
 test("first repair provisioning authenticates owner and preserves the exact pending operation", async () => {
   const f = await provisioningOwnerFixture();
