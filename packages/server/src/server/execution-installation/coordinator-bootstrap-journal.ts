@@ -22,7 +22,11 @@ import {
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { writePrivateFileAtomicSync } from "../private-files.js";
-import { BootstrapRequestConflict, type BootstrapRequestJournal } from "./coordinator-bootstrap.js";
+import {
+  BootstrapRequestConflict,
+  coordinatorPlanDigest,
+  type BootstrapRequestJournal,
+} from "./coordinator-bootstrap.js";
 
 const RecordsSchema = z.strictObject({
   version: z.literal(1),
@@ -36,6 +40,52 @@ const PendingSchema = z.strictObject({
   // main-file rename and authenticates stale sidecar copies after later progress.
   promotions: z.array(CoordinatorBootstrapRequestSchema),
 });
+
+const ClaimFenceRecoverySchema = z.strictObject({
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  generation: z.string().uuid(),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const ClaimFenceSchema = z.strictObject({
+  version: z.literal(1),
+  recovery: ClaimFenceRecoverySchema,
+  original: CoordinatorBootstrapRequestSchema,
+  fenced: CoordinatorBootstrapRequestSchema,
+});
+
+/** Retained evidence is useful only if it preserves the complete original
+ * approval and generation. Parsing the shape alone cannot establish a fence. */
+export function validateClaimFence(value: unknown): z.infer<typeof ClaimFenceSchema> {
+  const record = ClaimFenceSchema.parse(value);
+  const { original, fenced, recovery } = record;
+  if (
+    original.status !== "approved" ||
+    !original.decisionAt ||
+    original.execution?.stage !== "claimed" ||
+    original.execution.rollbackAttemptedAt !== undefined ||
+    original.plan.automaticRecovery !== "restore-compatible" ||
+    !original.plan.compatibleRecovery ||
+    original.planSha256 !== coordinatorPlanDigest(original.plan) ||
+    original.id === recovery.id ||
+    fenced.revision === original.revision ||
+    fenced.execution?.stage !== "recovery_required" ||
+    !isDeepStrictEqual(
+      {
+        ...fenced.execution,
+        stage: original.execution?.stage,
+        updatedAt: original.execution?.updatedAt,
+      },
+      original.execution,
+    ) ||
+    !isDeepStrictEqual(
+      { ...fenced, revision: original.revision, execution: original.execution },
+      original,
+    )
+  )
+    throw new BootstrapRequestConflict("Retained claim fence changed");
+  return record;
+}
 
 /** Owns only bootstrap requests, never the coordinator's restart journal. */
 export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
@@ -196,6 +246,93 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
         });
       // No lifecycle effect is permitted until this replacement and directory fsync return.
       this.write(this.file, { ...main, requests: [...main.requests, source] });
+    });
+  }
+
+  /** Read-only admission. This cannot reserve dispatch; the eventual fence must
+   * repeat the comparison under the same lock immediately before its write. */
+  verifyUnpromotedClaim(expected: CoordinatorBootstrapRequest): void {
+    const original = CoordinatorBootstrapRequestSchema.parse(expected);
+    this.withLock(() => {
+      const { main, pending } = this.snapshots();
+      if (
+        original.status !== "approved" ||
+        original.execution?.stage !== "claimed" ||
+        main.requests.some((record) => record.id === original.id) ||
+        pending.promotions.some((record) => record.id === original.id) ||
+        !isDeepStrictEqual(
+          pending.requests.find((record) => record.id === original.id),
+          original,
+        )
+      )
+        throw new BootstrapRequestConflict("Exact unpromoted bootstrap claim required");
+    });
+  }
+
+  /** Only a separately authenticated recovery executor may call this boundary.
+   * It invalidates an unpromoted claim under the same lock as promotion, retaining
+   * the full approval and claim first. It grants no process or service authority. */
+  fenceUnpromotedClaim(
+    expected: CoordinatorBootstrapRequest,
+    recovery: z.infer<typeof ClaimFenceRecoverySchema>,
+    verifyRecovery?: () => void,
+  ): CoordinatorBootstrapRequest {
+    const original = CoordinatorBootstrapRequestSchema.parse(expected);
+    const binding = ClaimFenceRecoverySchema.parse(recovery);
+    if (
+      original.status !== "approved" ||
+      original.execution?.stage !== "claimed" ||
+      original.plan.automaticRecovery !== "restore-compatible" ||
+      !original.plan.compatibleRecovery ||
+      original.planSha256 !== coordinatorPlanDigest(original.plan) ||
+      original.id === binding.id
+    )
+      throw new BootstrapRequestConflict("Exact compatible claim required for recovery fencing");
+    return this.withLock(() => {
+      // The managed recovery journal checks its exact durable claim while this
+      // same lock excludes cancellation, recovery progress and old promotion.
+      const verification: unknown = verifyRecovery?.();
+      if (verification instanceof Promise)
+        throw new BootstrapRequestConflict("Recovery claim verification must be synchronous");
+      const { main, pending } = this.snapshots();
+      if (
+        main.requests.some((record) => record.id === original.id) ||
+        pending.promotions.some((record) => record.id === original.id)
+      )
+        throw new BootstrapRequestConflict(
+          "Bootstrap promotion already started; recovery must reconcile it",
+        );
+      const file = path.join(this.directory, `coordinator-claim-fence-${binding.generation}.json`);
+      const value = this.readFile(file);
+      const retained = value === undefined ? undefined : validateClaimFence(value);
+      if (
+        retained &&
+        (!isDeepStrictEqual(retained.original, original) ||
+          !isDeepStrictEqual(retained.recovery, binding))
+      )
+        throw new BootstrapRequestConflict("Claim fence recovery binding changed");
+      const fenced: CoordinatorBootstrapRequest = retained?.fenced ?? {
+        ...original,
+        revision: randomUUID(),
+        execution: {
+          ...original.execution!,
+          stage: "recovery_required",
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      validateClaimFence({ version: 1, recovery: binding, original, fenced });
+      const current = pending.requests.find((record) => record.id === original.id);
+      const alreadyFenced = retained !== undefined && isDeepStrictEqual(current, fenced);
+      if (!alreadyFenced && !isDeepStrictEqual(current, original))
+        throw new BootstrapRequestConflict("Bootstrap claim changed before recovery fencing");
+      // Rewriting identical evidence reconciles an earlier uncertain fsync. A
+      // caller must still prove process exit and selection before native effects.
+      this.write(file, { version: 1, recovery: binding, original, fenced });
+      this.write(this.pendingFile, {
+        ...pending,
+        requests: pending.requests.map((record) => (record.id === original.id ? fenced : record)),
+      });
+      return structuredClone(fenced);
     });
   }
 

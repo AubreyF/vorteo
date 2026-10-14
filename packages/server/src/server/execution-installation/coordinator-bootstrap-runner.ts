@@ -420,7 +420,33 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && identifier && (role === "preclaim-executor" || role === "preclaim-observer")) {
+  if (setup && identifier && (role === "claimed-executor" || role === "claimed-observer")) {
+    const [, , , , , revision, planSha256, generation] = process.argv;
+    void import("./coordinator-bootstrap-claimed-runner.js")
+      .then(async ({ runNativeClaimedRecovery }) => {
+        if (role === "claimed-observer") z.string().uuid().parse(generation);
+        const result = await runNativeClaimedRecovery(
+          {
+            setupFile: setup,
+            identity: { id: identifier, revision: revision ?? "", planSha256: planSha256 ?? "" },
+            recoveryDescriptor: Number(process.env.VORTEO_CLAIMED_LOCK_FD),
+          },
+          undefined,
+          role === "claimed-observer" ? generation : undefined,
+        );
+        if (result.execution?.stage !== "succeeded")
+          throw new BootstrapRequestConflict("Recovery did not establish a terminal result");
+        return result;
+      })
+      .catch(() => {
+        process.stderr.write("Bootstrap recovery requires recorded status inspection.\n");
+        process.exitCode = 1;
+      });
+  } else if (
+    setup &&
+    identifier &&
+    (role === "preclaim-executor" || role === "preclaim-observer")
+  ) {
     const [, , , , , revision, planSha256, generation] = process.argv;
     void import("./coordinator-bootstrap-launch.js")
       .then(async ({ runNativePreclaimRecovery }) => {

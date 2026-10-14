@@ -188,6 +188,16 @@ A trusted governed-runtime module can export `quotaGovernorDirectory` to select 
 
 ## Reviewed source updates
 
+### Recovery after a coordinator executor has claimed dispatch
+
+Claimed recovery is separate from ordinary cancellation and recovery of an unclaimed operation. Compatible Host releases expose a dedicated review containing the original approval, exact executor identity, unchanged selected coordinator and signal policy. The owner must approve that recovery revision. Legacy clients cannot supply approval implicitly.
+
+The recovery runner competes atomically with coordinator promotion. It refuses recovery after promotion and durably fences the original claim before reserving any process effect. Each effect has a single durable reservation and an independently audited target; uncertain results are not replayed. Status reads do not acquire the writer lock, but still validate protected storage. Observation of the same retained generation proves process exit, unchanged selection and release of execution ownership before recording success.
+
+Successful recovery preserves the original approval and failed execution history. A subsequent maintenance plan must name that exact recovered request. Renewal and its retained watchdog validate the recovery witness alongside the actual previous terminal transfer receipt. Maintenance readiness can refresh after verified recovery without an extra Host restart; readiness never approves another operation.
+
+These controls require an installed compatible Host release. They do not make an older source-update queue safe to run concurrently with a claimed executor. If the installed queue lacks shared exclusion and its cancellation controls reject the claimed request, ordinary source delivery is not a recovery shortcut. Preserve the operation and prepare a supported managed installation path. Disposable native, transport and browser tests do not establish live recovery or Factory activation.
+
 ### Bootstrap runner renewal
 
 A Host source update can install a new coordinator bootstrap runner without rewriting the installed runner setup or admission files. Renewal uses the existing coordinator preparation and exact owner decision controls. Installing the capability does not approve or dispatch coordinator maintenance.

@@ -3,9 +3,13 @@ import type {
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapStage,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
+  BootstrapClaimedRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 
-type BootstrapReviewRequest = CoordinatorBootstrapRequest | BootstrapPreclaimRecoveryRequest;
+export type BootstrapRecoveryRequest =
+  | BootstrapPreclaimRecoveryRequest
+  | BootstrapClaimedRecoveryRequestView;
+type BootstrapReviewRequest = CoordinatorBootstrapRequest | BootstrapRecoveryRequest;
 
 export interface BootstrapReviewClient<
   Request extends BootstrapReviewRequest = CoordinatorBootstrapRequest,
@@ -289,19 +293,17 @@ export function currentBootstrapRequests(
   return requests.filter((request) => !superseded.has(request.id));
 }
 
-export function preclaimRecoveryStatus(request: BootstrapPreclaimRecoveryRequest): string {
+export function preclaimRecoveryStatus(request: BootstrapRecoveryRequest): string {
   if (!request.execution) {
     if (request.status === "canceled") return "Canceled";
     return request.status === "approved"
       ? "Approved; awaiting recorded claim"
       : "Recovery approval needed";
   }
-  const labels: Record<
-    NonNullable<BootstrapPreclaimRecoveryRequest["execution"]>["stage"],
-    string
-  > = {
+  const labels: Record<NonNullable<BootstrapRecoveryRequest["execution"]>["stage"], string> = {
     claimed: "Checking recovery",
     cancellation_fenced: "Original operation canceled",
+    claim_fenced: "Original operation cannot dispatch",
     effect_pending: "Stopping the reviewed executor",
     verifying: "Verifying exit and preserved selection",
     succeeded: "Recovery verified",
@@ -311,9 +313,7 @@ export function preclaimRecoveryStatus(request: BootstrapPreclaimRecoveryRequest
   return labels[request.execution.stage];
 }
 
-export function preclaimDispatchDescription(
-  request: BootstrapPreclaimRecoveryRequest,
-): string | null {
+export function preclaimDispatchDescription(request: BootstrapRecoveryRequest): string | null {
   const observation = request.dispatch;
   if (!observation) return null;
   switch (observation.state) {
@@ -328,10 +328,20 @@ export function preclaimDispatchDescription(
   }
 }
 
-export function preclaimRecoveryNeedsAttention(request: BootstrapPreclaimRecoveryRequest): boolean {
+export function preclaimRecoveryNeedsAttention(request: BootstrapRecoveryRequest): boolean {
   return (
     request.status !== "canceled" &&
     request.execution?.stage !== "succeeded" &&
     request.execution?.stage !== "aborted_before_effects"
   );
+}
+
+export function recoveryTargetDescription(request: BootstrapRecoveryRequest): string {
+  const { plan } = request;
+  if (plan.operation === "bootstrap-claimed-recovery")
+    return `Prevent the stalled operation from dispatching and stop only its reviewed executor, PID ${plan.executor.identity.pid}. Preserve its original approval and recovery history. The selected coordinator and configuration stay in place. Host and Dev tasks keep running.`;
+  const action = plan.ownerCancellation
+    ? `Preserve owner cancellation ${plan.ownerCancellation.revision} recorded ${plan.ownerCancellation.decisionAt} for operation ${plan.original.id}`
+    : `Cancel original operation ${plan.original.id}`;
+  return `${action} and stop only its reviewed executor, PID ${plan.executor.identity.pid}. The selected coordinator and configuration stay in place. Host and Dev tasks keep running.`;
 }

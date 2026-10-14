@@ -21,10 +21,13 @@ import {
   preclaimRecoveryStatus,
   preclaimRecoveryNeedsAttention,
   preclaimDispatchDescription,
+  recoveryTargetDescription,
+  type BootstrapRecoveryRequest,
 } from "./bootstrap-model";
 import type {
   CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
+  BootstrapClaimedRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 
 const expanded = { expanded: true };
@@ -63,6 +66,42 @@ export function getPreclaimRecoveryPanel(): RecoveryPanelModel | null {
       };
     });
     recoveryModels.set(key, model);
+  }
+  return model;
+}
+type ClaimedRecoveryPanelModel = BootstrapPanelModel<BootstrapClaimedRecoveryRequestView>;
+const claimedRecoveryModels = new Map<string, ClaimedRecoveryPanelModel>();
+export function getClaimedRecoveryPanel(): ClaimedRecoveryPanelModel | null {
+  const installation = readExecutionInstallation();
+  const host = installation?.environments.find((environment) => environment.kind === "host");
+  if (!installation || !host) return null;
+  const key = `${installation.installationId}:${host.serverId}`;
+  let model = claimedRecoveryModels.get(key);
+  if (!model) {
+    model = new BootstrapPanelModel<BootstrapClaimedRecoveryRequestView>(() => {
+      const client = getHostRuntimeStore().getClient(host.serverId);
+      if (
+        client?.getLastServerInfoMessage()?.features?.coordinatorBootstrapClaimedRecovery !== true
+      )
+        return null;
+      return {
+        listCoordinatorBootstrapRequests: () => client.listClaimedRecoveryRequests(),
+        ...(client.getLastServerInfoMessage()?.features?.coordinatorBootstrapClaimedObservation ===
+        true
+          ? {
+              verifyRetainedOutcome: (input: {
+                id: string;
+                revision: string;
+                planSha256: string;
+                generation: string;
+              }) => client.reconcileClaimedRecovery(input),
+            }
+          : {}),
+        decideCoordinatorBootstrap: (input, password) =>
+          client.decideClaimedRecovery(input, password),
+      };
+    });
+    claimedRecoveryModels.set(key, model);
   }
   return model;
 }
@@ -429,13 +468,25 @@ export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
 }
 
 export function PreclaimRecoveryReview({ model }: { model: RecoveryPanelModel }) {
+  return <RecoveryReview model={model} kind="preclaim" />;
+}
+export function ClaimedRecoveryReview({ model }: { model: ClaimedRecoveryPanelModel }) {
+  return <RecoveryReview model={model} kind="claimed" />;
+}
+function RecoveryReview<Request extends BootstrapRecoveryRequest>({
+  model,
+  kind,
+}: {
+  model: BootstrapPanelModel<Request>;
+  kind: "preclaim" | "claimed";
+}) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const refresh = useCallback(() => {
     void model.refresh();
   }, [model]);
   if (!state.available) return null;
   return (
-    <View testID="bootstrap-recovery-review">
+    <View testID={kind === "claimed" ? "claimed-recovery-review" : "bootstrap-recovery-review"}>
       {state.error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.error}
@@ -453,12 +504,12 @@ export function PreclaimRecoveryReview({ model }: { model: RecoveryPanelModel })
   );
 }
 
-function PreclaimRecoveryCard({
+function PreclaimRecoveryCard<Request extends BootstrapRecoveryRequest>({
   request,
   model,
 }: {
-  request: BootstrapPreclaimRecoveryRequest;
-  model: RecoveryPanelModel;
+  request: Request;
+  model: BootstrapPanelModel<Request>;
 }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const [details, setDetails] = useState(false);
@@ -483,7 +534,11 @@ function PreclaimRecoveryCard({
       testID={`bootstrap-recovery-${request.id}`}
     >
       <View style={styles.row}>
-        <Text style={settingsStyles.rowTitle}>Recover coordinator preparation</Text>
+        <Text style={settingsStyles.rowTitle}>
+          {plan.operation === "bootstrap-claimed-recovery"
+            ? "Recover stalled coordinator executor"
+            : "Recover coordinator preparation"}
+        </Text>
         <StatusBadge
           label={preclaimRecoveryStatus(request)}
           variant={request.execution?.stage === "recovery_required" ? "error" : "muted"}
@@ -496,11 +551,7 @@ function PreclaimRecoveryCard({
         </Text>
       ) : null}
       <Text selectable style={styles.text}>
-        {plan.ownerCancellation
-          ? `Preserve owner cancellation ${plan.ownerCancellation.revision} recorded ${plan.ownerCancellation.decisionAt} for operation ${plan.original.id} and stop only its reviewed executor, PID `
-          : `Cancel original operation ${plan.original.id} and stop only its reviewed executor, PID `}
-        {plan.executor.identity.pid}. The selected coordinator and configuration stay in place. Host
-        and Dev tasks keep running.
+        {recoveryTargetDescription(request)}
       </Text>
       <Text style={styles.text}>
         {plan.signalPolicy.escalation === "SIGKILL"
@@ -624,6 +675,34 @@ export function PreclaimRecoveryBanner({ model }: { model: RecoveryPanelModel })
         description={
           state.error ??
           "Review the exact executor and cancellation. Existing coordinator selection is preserved."
+        }
+        actions={[{ label: "Review recovery", onPress: open }]}
+      />
+    </View>
+  );
+}
+
+export function ClaimedRecoveryBanner({ model }: { model: ClaimedRecoveryPanelModel }) {
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const router = useRouter();
+  const request = state.requests.find(preclaimRecoveryNeedsAttention);
+  const requestId = request?.id;
+  const open = useCallback(
+    () =>
+      router.push({
+        pathname: "/settings/[section]",
+        params: { section: "general", installation: "1", claimedRecovery: requestId },
+      }),
+    [router, requestId],
+  );
+  if (!request) return null;
+  return (
+    <View testID="claimed-recovery-banner">
+      <SidebarCallout
+        title={`Coordinator recovery: ${preclaimRecoveryStatus(request)}`}
+        description={
+          state.error ??
+          "Review the stalled executor recovery. Original approval history and coordinator selection are preserved."
         }
         actions={[{ label: "Review recovery", onPress: open }]}
       />

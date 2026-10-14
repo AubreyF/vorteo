@@ -3,6 +3,7 @@ import {
   createManagedBootstrapReview,
   createConfiguredBootstrapReview,
   deferBootstrapReview,
+  refreshBootstrapReviewAfterClaimedRecovery,
 } from "./coordinator-bootstrap-launch.js";
 import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
 import { afterEach, test, expect, vi } from "vitest";
@@ -1078,6 +1079,10 @@ test.runIf(process.platform === "darwin")(
     expect(bootstrapReviewFeatures(unavailable)).toEqual({
       coordinatorBootstrapReview: false,
       coordinatorBootstrapPreclaimRecovery: false,
+      coordinatorBootstrapPreclaimObservation: false,
+      coordinatorBootstrapPreclaimOwnerCancellation: false,
+      coordinatorBootstrapClaimedRecovery: false,
+      coordinatorBootstrapClaimedObservation: false,
       coordinatorBootstrapFactoryAdoption: false,
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
@@ -1766,6 +1771,40 @@ test("validated recovery readiness survives ordinary maintenance unavailability"
   expect(actions).toBe(0);
 });
 
+test("validated claimed recovery readiness survives ordinary maintenance unavailability", async () => {
+  let actions = 0;
+  const unavailable = () => {
+    throw new Error("ordinary maintenance blocked");
+  };
+  const recovery = {
+    available: true,
+    list: () => [],
+    prepare: async () => {
+      actions++;
+      throw new Error("not requested");
+    },
+    decide: async () => {
+      actions++;
+      throw new Error("not requested");
+    },
+  };
+  const service = deferBootstrapReview(async () => ({
+    unavailableReason: "ordinary maintenance blocked",
+    list: unavailable,
+    prepare: async () => unavailable(),
+    decide: async () => unavailable(),
+    claimedRecovery: recovery,
+  }));
+  expect(service.claimedRecovery).toBeUndefined();
+  await vi.waitFor(() => expect(service.claimedRecovery).toBe(recovery));
+  expect(bootstrapReviewFeatures(service)).toMatchObject({
+    coordinatorBootstrapReview: false,
+    coordinatorBootstrapClaimedRecovery: true,
+  });
+  expect(service.claimedRecovery!.list()).toEqual([]);
+  expect(actions).toBe(0);
+});
+
 test("absent background maintenance remains unadvertised after verification", async () => {
   const service = deferBootstrapReview(async () => undefined);
   await vi.waitFor(() => expect(service.unavailableReason).toBeUndefined());
@@ -2042,3 +2081,80 @@ test.runIf(process.platform === "darwin")(
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
   },
 );
+
+test("completed claimed recovery refreshes readiness without dispatch and broadcasts through deferral", async () => {
+  const validation = Promise.withResolvers<BootstrapReviewService | undefined>();
+  const initialize = vi.fn(() => validation.promise);
+  const list = vi.fn(() => []);
+  const prepare = vi.fn(async () => {
+    throw new Error("Unexpected preparation");
+  });
+  const decide = vi.fn(async () => {
+    throw new Error("Unexpected decision");
+  });
+  const recovered = { status: "approved", execution: { stage: "succeeded" } } as ReturnType<
+    NonNullable<BootstrapReviewService["claimedRecovery"]>["list"]
+  >[number];
+  const claimed = { available: true, list: () => [recovered], prepare, decide };
+  const wrapped = refreshBootstrapReviewAfterClaimedRecovery(
+    { unavailableReason: "Recovery required", list, prepare, decide },
+    claimed,
+    initialize,
+  );
+  const service = deferBootstrapReview(async () => wrapped);
+  await vi.waitFor(() => expect(service.claimedRecovery).toBeDefined());
+  service.subscribeAvailability!(() => {
+    throw new Error("Disconnected listener");
+  });
+  const notify = vi.fn();
+  service.subscribeAvailability!(notify);
+  service.claimedRecovery!.list();
+  service.claimedRecovery!.list();
+  await vi.waitFor(() => expect(initialize).toHaveBeenCalledTimes(1));
+  await expect(service.prepare({} as never)).rejects.toThrow("Checking coordinator maintenance");
+  expect(prepare).not.toHaveBeenCalled();
+  expect(decide).not.toHaveBeenCalled();
+  validation.resolve({ list, prepare, decide });
+  await vi.waitFor(() =>
+    expect(bootstrapReviewFeatures(service).coordinatorBootstrapReview).toBe(true),
+  );
+  service.list();
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(notify).toHaveBeenCalledTimes(2);
+  expect(decide).not.toHaveBeenCalled();
+});
+
+test("failed post-recovery validation retries only on a later status read", async () => {
+  const ready = {
+    list: () => [],
+    prepare: async () => {
+      throw new Error("Unexpected preparation");
+    },
+    decide: async () => {
+      throw new Error("Unexpected decision");
+    },
+  };
+  const failed = { ...ready, unavailableReason: "Native exit unproven" };
+  const initialize = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Not exited"))
+    .mockResolvedValue(ready);
+  const recovered = { status: "approved", execution: { stage: "succeeded" } } as ReturnType<
+    NonNullable<BootstrapReviewService["claimedRecovery"]>["list"]
+  >[number];
+  const rows = [recovered];
+  const service = refreshBootstrapReviewAfterClaimedRecovery(
+    failed,
+    { ...ready, available: true, list: () => rows },
+    initialize,
+  );
+  expect(initialize).not.toHaveBeenCalled();
+  service.claimedRecovery!.list();
+  await vi.waitFor(() => expect(service.unavailableReason).toBe("Native exit unproven"));
+  expect(initialize).toHaveBeenCalledTimes(1);
+  service.claimedRecovery!.list();
+  await vi.waitFor(() => expect(service.available).toBe(true));
+  expect(initialize).toHaveBeenCalledTimes(2);
+  service.claimedRecovery!.list();
+  expect(initialize).toHaveBeenCalledTimes(2);
+});
