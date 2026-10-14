@@ -88,7 +88,7 @@ import {
   useSupportingCardRequests,
 } from "@/workspace-tabs/supporting-card-requests";
 
-const column = { heights: new Map<string, number>(), measure: () => {} };
+const column = { heights: new Map<string, number>(), allCollapsed: false, measure: () => {} };
 
 describe("supporting view cards", () => {
   let container: HTMLDivElement;

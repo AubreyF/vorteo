@@ -189,6 +189,35 @@ describe("TooltipTrigger", () => {
     pressTrigger();
     expect(changed).toHaveBeenLastCalledWith(false);
   });
+  it.each(["wide touch", "compact"])("shows pointer hover labels on a %s screen", (mode) => {
+    touchState.enabled = mode === "wide touch";
+    touchState.compact = mode === "compact";
+    const changed = vi.fn();
+    act(() =>
+      root?.render(
+        <Tooltip enabledOnMobile onOpenChange={changed}>
+          <TooltipTrigger asChild passive>
+            <Pressable testID="trigger">
+              <Text>Tasks</Text>
+            </Pressable>
+          </TooltipTrigger>
+        </Tooltip>,
+      ),
+    );
+    const trigger = container?.querySelector('[data-testid="trigger"]');
+    const pointer = (type: string, pointerType: string) => {
+      const event = new window.MouseEvent(type, { bubbles: true });
+      Object.defineProperty(event, "pointerType", { value: pointerType });
+      act(() => trigger?.dispatchEvent(event));
+    };
+    pointer("pointerover", "touch");
+    expect(changed).not.toHaveBeenCalled();
+    pointer("pointerout", "touch");
+    pointer("pointerover", "mouse");
+    expect(changed).toHaveBeenLastCalledWith(true);
+    pointer("pointerout", "mouse");
+    expect(changed).toHaveBeenLastCalledWith(false);
+  });
   it("activates a Vorton touch control with one tap", () => {
     touchState.enabled = true;
     const onPress = vi.fn();
