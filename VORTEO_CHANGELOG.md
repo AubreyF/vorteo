@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.507 - 2026-10-14
+
+### Maintenance
+
+- Reconcile validated Dev repair controls with the prepared capacity update and latest published card layout, preserving both source and release histories.
+- Keep this preparation isolated from the pending Host update. Installed repair acceptance still requires compatible coordinator delivery and Dev recovery.
+
 ## 0.11.0-beta.3.vorteo.506 - 2026-10-14
 
 ### Maintenance
@@ -30,6 +37,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Discard late repair results after cancellation or changed contributions, and report interrupted preparation without replaying it. Preserve finite and uncapped worker profile source in the same delivery ancestry.
 
+## 0.11.0-beta.3.vorteo.505 - 2026-10-14
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.504 - 2026-10-14
+
+### Maintenance
+
+- Reconcile reviewed managed-worker capacity with the installed Host recovery release, preserving both source histories and the current interface.
+- Prepare Host delivery only. Dev recovery, coordinator compatibility, explicit profile selection and a reviewed successor remain required before uncapped operation.
+
 ## 0.11.0-beta.3.vorteo.503 - 2026-10-14
 
 ### Added
@@ -50,6 +70,19 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Development
 
 - Added inert Dev repair bundle preparation from captured installed source, rejecting lost contributions and changed source selection; owner controls are not yet connected
+
+## 0.11.0-beta.3.vorteo.503 - 2026-10-14
+
+### Changed
+
+- Tile adjacent collapsed details cards into responsive rows in the sidebar and conversation footer. Expanded cards occupy a full row.
+- Hide heading actions, then titles, as collapsed tiles narrow. Keep icons and counts visible, with full controls restored on expansion.
+
+## 0.11.0-beta.3.vorteo.502 - 2026-10-14
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.501 - 2026-10-14
 

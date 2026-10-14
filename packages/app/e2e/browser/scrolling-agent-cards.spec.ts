@@ -498,6 +498,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       path: info.outputPath("questions-left-column.png"),
     });
 
+    await checkCollapsedGrid(page, info);
     for (const width of [1200, 390]) {
       await page.setViewportSize({ width, height: 650 });
       await revealSupportingCards(page, width);
@@ -921,6 +922,13 @@ async function checkCardGaps(
           ].sort((a, b) => a.top - b.top);
         }, geometry);
   for (let index = 1; index < adjacent.length; index++) {
+    if (Math.abs(adjacent[index].top - adjacent[index - 1].top) < 1) {
+      expect([adjacent[index - 1].id, adjacent[index].id]).toEqual([
+        "supporting-card-files",
+        "supporting-card-changes_tree",
+      ]);
+      continue;
+    }
     expect(
       adjacent[index].top - adjacent[index - 1].bottom,
       `${adjacent[index - 1].id} to ${adjacent[index].id}`,
@@ -1013,8 +1021,9 @@ async function checkHeadingHover(page: Page, stack: Locator, width: number, info
     });
     await toggle.click({ position: { x: 4, y: geometry.height / 2 } });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const collapsed = (await toggle.boundingBox())!;
     await toggle.click({
-      position: { x: geometry.width - 4, y: geometry.height / 2 },
+      position: { x: collapsed.width - 4, y: collapsed.height / 2 },
     });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
   }
@@ -1120,6 +1129,49 @@ async function checkHeadingGeometry(stack: Locator, _width: number) {
     expect(card.overflow, card.id).toBe(false);
   }
   expect(geometry[0].topClearance).toBeCloseTo(geometry[0].rightClearance!, 1);
+}
+
+async function checkCollapsedGrid(page: Page, info: TestInfo) {
+  const ids = [
+    "agent-goal-toggle",
+    "checklist-toggle",
+    "agent-journal-toggle",
+    "subagents-group-paseo-toggle",
+  ];
+  for (const width of [1400, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await revealSupportingCards(page, width);
+    for (const id of ids) {
+      const button = page.getByTestId(id).filter({ visible: true });
+      if ((await button.getAttribute("aria-expanded")) === "true") await button.click();
+    }
+    await expect(async () => {
+      const boxes = await Promise.all(
+        ids.map((id) => page.getByTestId(id).filter({ visible: true }).boundingBox()),
+      );
+      expect(boxes.every(Boolean)).toBe(true);
+      expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
+      expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x + boxes[0]!.width);
+    }).toPass();
+    for (const id of ids) {
+      await expect(page.getByTestId(`${id}-title`).filter({ visible: true })).toHaveCount(0);
+      await expect(page.getByTestId(`${id}-metadata`).filter({ visible: true })).toBeVisible();
+    }
+    await expect(page.getByTestId("checklist-add").filter({ visible: true })).toHaveCount(0);
+    const task = page.getByTestId("checklist-toggle").filter({ visible: true });
+    await task.focus();
+    await page.keyboard.press("Enter");
+    await expect(task).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("checklist-add").filter({ visible: true })).toBeVisible();
+    await task.click();
+    await info.attach(`collapsed-grid-${width}`, {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    for (const id of ids) await page.getByTestId(id).filter({ visible: true }).click();
+  }
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await revealSupportingCards(page, 1400);
 }
 
 async function captureConsistentCards(page: Page, info: TestInfo) {
@@ -1974,7 +2026,9 @@ async function checkDisclosures(stack: Locator, width: number, info: TestInfo) {
     await disclosure.click();
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     await expect(body).toBeHidden();
-    await expect(stack.getByTestId(actionId)).toBeVisible();
+    if ((await card.boundingBox())!.width < 322)
+      await expect(stack.getByTestId(actionId)).toBeHidden();
+    else await expect(stack.getByTestId(actionId)).toBeVisible();
     expect((await card.boundingBox())!.height).toBeLessThan(expandedHeight);
     await card.screenshot({
       path: info.outputPath(`${cardId}-collapsed-${width}.png`),

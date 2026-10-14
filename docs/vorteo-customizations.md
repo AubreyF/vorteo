@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Adjacent collapsed details cards share responsive rows in both sidebar and conversation layouts. Narrow tiles progressively hide heading actions and titles while retaining the icon, count and accessible name. Expanding a tile restores its full-width card and controls without moving the other cards in the React tree.
+
 App startup preserves the original shaded white Vorteo artwork inside its radar ring. The shared 48px page loader centers the same stationary artwork inside its rotating ring; small status indicators retain their existing footprint. Production checks verify centered artwork and the transition to visible conversation content while allowing hidden retained panels.
 
 The queue controller reads activity at its visible destination, keeping actions enabled outside a hidden dock. The queue portal is keyed by destination because its transport captures the host when mounted. The desktop queue moves to the bottom of the conversation when the details dock is hidden and returns to the dock when opened. Other details stay in the dock. Local saving and pending edits use the leading row spinner; send requests and server dispatch use a thin spinner around the unchanged Send arrow. Transient progress does not add heading text or a row below the message. Persistent offline, paused and recovery information remains available.
@@ -712,3 +714,7 @@ Maintenance: validated explicit uncapped managed-worker profiles with synchroniz
 Installation controls can prepare a pending Dev source conflict from the exact installed Host source. Preparation records the selected source, Dev base and queued contribution commits before creating an inert Git bundle. It does not build code, change the selected release, place a finish-turns hold or approve a restart. Existing contribution history remains intact.
 
 A cancellation or changed request revision invalidates a late result. Interrupted preparation stays visible and requires a new capture, with prior attempts retained. Normal batch validation and exact installation approval still apply. A Factory runtime recovery fence remains a separate prerequisite; source preparation does not clear it. Older coordinators hide the preparation action until the managed coordinator update is installed.
+
+Maintenance review: reconciled managed-worker capacity with the installed Host recovery release for a separate tracked Host contribution. Dev recovery and compatible coordinator delivery still gate activation; existing root capacity stays frozen.
+
+Maintenance review: Dev repair controls retain their validated implementation while incorporating the current published card layout and prepared capacity ancestry. This isolated integration does not change the pending Host request.

@@ -1,3 +1,4 @@
+import { cardGridGroupStyle } from "@/agent-stream/card-grid";
 import { useSidebarSpacing } from "@/styles/sidebar-spacing";
 import { StyleSheet } from "react-native-unistyles";
 import { VORTON_HEADER_HEIGHT } from "@/constants/layout";
@@ -6,7 +7,6 @@ import { View, type StyleProp, type ViewStyle } from "react-native";
 import { PortalHost } from "@gorhom/portal";
 import { RetainedPanel } from "@/components/retained-panel";
 import { CardColumn } from "@/agent-stream/columns/card-column";
-import { CARD_GAP } from "@/agent-stream/columns/geometry";
 
 /** Keep workspace panels at one React location when the focused conversation changes. */
 export function SupportingCardGroup({
@@ -40,7 +40,7 @@ export function SupportingCardGroup({
       <View style={styles.body}>
         <CardColumn>
           <PortalHost name={hostName} />
-          <RetainedPanel active={supportingVisible} style={supportingStyle}>
+          <RetainedPanel active={supportingVisible} style={cardGridGroupStyle}>
             {children}
           </RetainedPanel>
           <PortalHost name={`${hostName}:queue`} />
@@ -62,10 +62,3 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, minHeight: 0 },
 });
-
-const supportingStyle = {
-  flexGrow: 0,
-  flexShrink: 0,
-  flexBasis: "auto",
-  gap: CARD_GAP,
-} as const;

@@ -1,6 +1,8 @@
+import { CardTileContext } from "./card-grid";
+import { CompactCountBadgeContext } from "@/components/ui/count-badge";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useContext, type ReactNode } from "react";
 import { Pressable, Text, View, type LayoutChangeEvent } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -13,6 +15,10 @@ import {
 
 const Down = withUnistyles(ChevronDown, (theme) => ({ color: theme.colors.foregroundMuted }));
 const Right = withUnistyles(ChevronRight, (theme) => ({ color: theme.colors.foregroundMuted }));
+
+function renderTrailing(trailing: ReactNode, compact: boolean) {
+  return compact ? null : trailing;
+}
 
 /** Counts stay at the trailing edge inside the complete heading hover target. */
 export function CardDisclosure({
@@ -35,6 +41,8 @@ export function CardDisclosure({
   trailing?: ReactNode;
 }) {
   const touch = useVortonTouch();
+  const tile = useContext(CardTileContext);
+  const stacked = tile.compact && tile.width < 100;
   const [width, setWidth] = useState(Infinity);
   const [metadataWidth, setMetadataWidth] = useState(0);
   const measure = useCallback((event: LayoutChangeEvent) => {
@@ -44,8 +52,10 @@ export function CardDisclosure({
     if (event.nativeEvent.layout.width > 0) setMetadataWidth(event.nativeEvent.layout.width);
   }, []);
   // Reserve the icon, insets and gaps before admitting text or trailing chips.
-  const compact = width < 132 + metadataWidth;
-  const hideMetadata = width < 48 + metadataWidth;
+  const compact = tile.compact ? tile.width < 190 : width < 132 + metadataWidth;
+  const hideMetadata = !tile.compact && width < 48 + metadataWidth;
+  const compactTile = tile.compact && compact;
+  const label = status ? `${title} (${status})` : title;
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const [hovered, setHovered] = useState(false);
   const enter = useCallback(() => setHovered(true), []);
@@ -64,9 +74,11 @@ export function CardDisclosure({
           hovered && styles.hovered,
           touch && taskCardStyles.touchAccordionTrigger,
           touch && styles.touchTrigger,
+          compactTile && styles.compactTrigger,
+          stacked && styles.stackedTrigger,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={status ? `${title} (${status})` : title}
+        accessibilityLabel={label}
         aria-expanded={expanded}
         accessibilityState={accessibilityState}
         onPress={onPress}
@@ -74,7 +86,7 @@ export function CardDisclosure({
       >
         {icon}
         <TruncatedText
-          tooltipLabel={status ? `${title} (${status})` : title}
+          tooltipLabel={label}
           style={[taskCardStyles.heading, styles.title, compact && styles.collapsed]}
           numberOfLines={1}
           testID={`${testID}-title`}
@@ -93,11 +105,16 @@ export function CardDisclosure({
         {count || trailing ? (
           <View
             onLayout={measureMetadata}
-            style={[styles.metadata, hideMetadata && styles.collapsed]}
+            style={[
+              styles.metadata,
+              compactTile && styles.compactMetadata,
+              stacked && styles.stackedMetadata,
+              hideMetadata && styles.collapsed,
+            ]}
             testID={`${testID}-metadata`}
           >
-            {trailing}
-            {count}
+            {renderTrailing(trailing, compactTile)}
+            <CompactCountBadgeContext value={stacked}>{count}</CompactCountBadgeContext>
           </View>
         ) : null}
       </Pressable>
@@ -135,6 +152,16 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     flexShrink: 0,
   },
+  compactTrigger: { justifyContent: "center", paddingHorizontal: 2, gap: 4 },
+  stackedTrigger: {
+    flexDirection: "column",
+    height: "auto",
+    minHeight: 56,
+    paddingVertical: 4,
+    gap: 2,
+  },
+  compactMetadata: { marginLeft: 0, minWidth: 0, flexShrink: 1 },
+  stackedMetadata: { maxWidth: "100%", justifyContent: "center", flexWrap: "wrap", gap: 2 },
   hovered: { backgroundColor: theme.colors.interactionHighlight },
   status: {
     fontSize: Math.round(theme.fontSize.sm * 0.8),
