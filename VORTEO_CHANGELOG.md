@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.493 - 2026-10-14
+
+### Fixed
+
+- Keep repair setup available if pending-review verification fails after runtime admission. A retry reuses the same protected receipt without repeating recovery effects or hiding the unfinished setup.
+- Preserve the existing interface and repair review behavior. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.492 - 2026-10-14
 
 ### Added

@@ -220,9 +220,9 @@ export async function runProvisionedClaimedRepairControl(input: {
     },
   };
   let provisioning = false;
-  const prepareReview = async () => {
-    if (service && service.list().length === 0)
-      await service.prepare({
+  const prepareReview = async (candidate: ClaimedRecoveryReviewService) => {
+    if (candidate.list().length === 0)
+      await candidate.prepare({
         id: randomUUID(),
         plan,
         reason:
@@ -230,7 +230,7 @@ export async function runProvisionedClaimedRepairControl(input: {
       });
   };
   // Preparing a review has no process effects and cannot replay an approval.
-  if (service) await prepareReview();
+  if (service) await prepareReview(service);
   const app = createClaimedRepairControlApp({
     installationId: plan.original.plan.installationId,
     get service() {
@@ -262,8 +262,11 @@ export async function runProvisionedClaimedRepairControl(input: {
           ownerPassword: request.ownerPassword,
           writableMountRoots: roots,
         });
-        service = await createProvisionedClaimedRecoveryReview(input);
-        await prepareReview();
+        const candidate = await createProvisionedClaimedRecoveryReview(input);
+        await prepareReview(candidate);
+        // Do not hide setup controls if pending-review verification failed after
+        // admission. Retrying setup reuses the exact immutable receipt, never effects.
+        service = candidate;
       } finally {
         provisioning = false;
       }
