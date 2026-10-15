@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.553 - 2026-10-15
+
+### Fixed
+
+- Admit the separately reviewed newer claimed runner by exact source, module and ownership-helper digests, preserving the previous runner pins.
+- Keep unknown sources and altered runner bytes rejected. Recovery still requires full artifact, native identity, selected-service and retained-history verification plus its own visible approval.
+- Verify both fencing orderings against the installed journal in disposable storage. Installed recovery acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.552 - 2026-10-15
 
 ### Maintenance

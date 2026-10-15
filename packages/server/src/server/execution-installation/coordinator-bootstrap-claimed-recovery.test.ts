@@ -25,6 +25,7 @@ import {
   verifyClaimedLiveProcesses,
   observeClaimedExecutor,
   verifyClaimedExecutionLock,
+  verifySupportedClaimedRunner,
 } from "./coordinator-bootstrap-claimed-verification.js";
 import {
   chmodSync,
@@ -394,6 +395,52 @@ test("recovery required can only enter observation, never reenter an effect stag
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+test.each([
+  "dc66750776e2534cd65f051e6aefa11dbfbe5513",
+  "1bc87b11e3e6f42970d314b0319d4393d09d0d09",
+  "f".repeat(40),
+])("claimed runner admission refuses unverified bytes for source %s", async (sourceCommit) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "claimed-runner-pin-")));
+  roots.push(root);
+  const { plan } = fixture(path.join(root, "state"));
+  plan.runner.sourceCommit = sourceCommit;
+  plan.runner.directory = root;
+  plan.original.plan.candidate = plan.runner;
+  plan.executorEntrypoint.path = path.join(
+    root,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+  );
+  plan.runner.entrypoint = plan.executorEntrypoint;
+  plan.original.planSha256 = coordinatorPlanDigest(plan.original.plan);
+  plan.executor.identity.argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([
+        plan.runner.node.path,
+        plan.executorEntrypoint.path,
+        plan.setup.path,
+        "executor",
+        plan.original.id,
+      ]),
+    )
+    .digest("hex");
+  mkdirSync(path.dirname(plan.executorEntrypoint.path), { recursive: true, mode: 0o700 });
+  writeFileSync(plan.executorEntrypoint.path, "unreviewed runner", { mode: 0o600 });
+  const expected = sourceCommit === "f".repeat(40) ? "not supported" : "digest changed";
+  await expect(
+    verifySupportedClaimedRunner({
+      plan,
+      daemonId: "fixture",
+      admissionSetupFile: plan.setup.path,
+      anchor: {
+        originalSetup: plan.setup,
+        originalAdmission: plan.setup,
+        terminal: { ...identity(plan.original), generation: plan.original.execution!.generation },
+      },
+      writableMountRoots: [],
+    }),
+  ).rejects.toThrow(expected);
 });
 
 async function provisioningFixture() {
