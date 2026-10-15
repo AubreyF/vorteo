@@ -1,3 +1,4 @@
+import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
 import { InstallationRestartBanner } from "@/execution-installation/panel";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
@@ -1200,6 +1201,7 @@ export default function SettingsScreen({
         case "general":
           return (
             <>
+              <InstallationConnectionCheck />
               {installationRequested ? <InstallationControls requestId={restartRequestId} /> : null}
               <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
               <WorkspaceDefaultsSection />

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.558 - 2026-10-15
+
+### Added
+
+- Put a connection check at the top of General settings. Test the current device's routes to the installation, Host and Dev without typing addresses or sending daemon credentials.
+- Show network health separately from app authentication and initialization, with endpoint addresses, check times and bounded failures.
+- Verify real HTTP behavior and compact and desktop rendering. Keep daemon restart and maintenance approval separate from this interface change.
+
 ## 0.11.0-beta.3.vorteo.557 - 2026-10-15
 
 ### Added
