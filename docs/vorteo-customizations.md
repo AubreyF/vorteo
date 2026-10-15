@@ -1,6 +1,10 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): preserve both published sidebar card sizing and queue independence histories in source integration. The merge retains existing implementations; daemon activation and static publication remain separate delivery steps.
+
 Supporting card grids use their parent width for header insets, so single-line tiles and full-width accordion headers have equal height. Embedded Files and Changes panels request the available height from the shared allocator; expanded cards still share space with other cards and keep their own scrolling. README overview and onboarding are unchanged.
+
+Manual Stop pauses goal continuation and interrupts the current run without changing the message queue's pause state. An active queue can deliver its next message; an explicitly paused queue stays paused. Stopping also revokes queue-owned goal resumption so draining the queue cannot restart the stopped goal.
 
 Maintenance review (2026-10-14): integrate tested coordinator recovery corrections with the published interface while preserving both histories and all app behavior. Installed recovery acceptance remains pending; README overview and onboarding are unchanged.
 

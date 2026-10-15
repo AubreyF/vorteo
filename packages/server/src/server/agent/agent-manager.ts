@@ -4451,11 +4451,12 @@ export class AgentManager {
     }
     if (options?.reason === "manual") {
       try {
-        await this.messageQueueControl?.pause(agentId);
+        // Revoke automatic goal resumption without changing queue delivery.
+        await this.releaseQueueGoalHold(agentId);
         await this.pauseGoalForManualStop(agentId);
       } catch (error) {
-        // Queue persistence and goal confirmation failures must not prevent
-        // the user's stop from reaching the current provider turn.
+        // Goal confirmation failures must not prevent the user's stop from
+        // reaching the current provider turn.
         if (this.hasInFlightRun(agentId)) {
           await this.runForegroundMutation(agentId, () => this.cancelAgentRunNow(agentId));
         }

@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.527 - 2026-10-14
+
+### Maintenance
+
+- Reconcile the published sidebar card sizing and queue independence source histories while preserving both implementations and all release notes. Runtime activation remains a separate delivery step.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-15
+
+### Fixed
+
+- Keep message-queue delivery independent from manual Stop: stopping a goal leaves an active queue running and preserves an explicitly paused queue.
+- Revoke automatic goal resumption on Stop without changing queued messages, including when the provider cannot confirm the goal pause.
+
 ## 0.11.0-beta.3.vorteo.526 - 2026-10-14
 
 ### Fixed
