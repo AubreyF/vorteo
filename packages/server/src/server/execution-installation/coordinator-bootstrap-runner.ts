@@ -27,6 +27,7 @@ import {
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
 import {
   createNativeBootstrapServiceReader,
+  inspectBootstrapPythonExecutable,
   verifyRetainedProcessExited,
   loadedCoordinatorPid,
 } from "./coordinator-bootstrap-service.js";
@@ -575,8 +576,10 @@ export async function runNativeBootstrap(
         if (!isDeepStrictEqual(current, claimed) || current?.execution?.stage !== "claimed")
           throw new BootstrapRequestConflict("Startup recovery lost its claimed generation");
       };
+      const pythonExecutable = await inspectBootstrapPythonExecutable();
+      const [, ...pythonArguments] = bootstrapRecoveryLauncher(claimed.plan).ProgramArguments;
       const expectedArguments = createHash("sha256")
-        .update(JSON.stringify(bootstrapRecoveryLauncher(claimed.plan).ProgramArguments))
+        .update(JSON.stringify([pythonExecutable, ...pythonArguments]))
         .digest("hex");
       await registerBootstrapRecovery({
         request: claimed,
@@ -602,6 +605,7 @@ export async function runNativeBootstrap(
                 !service.includes("\n\tprogram = /usr/bin/python3\n") ||
                 observed.pid !== pid ||
                 observed.uid !== uid ||
+                observed.executable !== pythonExecutable ||
                 observed.parentPid !== 1 ||
                 observed.bootId !== claimed.plan.expectedProcess.bootId ||
                 observed.argumentsSha256 !== expectedArguments ||

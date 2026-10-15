@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.532 - 2026-10-15
+
+### Fixed
+
+- Allow read-only inspection of request-specific recovery services while retaining the Host account boundary. Startup registration previously used a label the inspector rejected.
+- Resolve Apple's system-selected Python executable before verifying recovery startup. The launcher rewrites the executable and first process argument, so comparing against the wrapper path rejected valid startup.
+
+### Maintenance
+
+- Verify recovery-label refusal boundaries and actual interpreter identity in focused native tests. A disposable launchd job also passed identity checks and was removed; installed reboot recovery and automatic controller authorization remain open.
+
 ## 0.11.0-beta.3.vorteo.531 - 2026-10-15
 
 ### Fixed

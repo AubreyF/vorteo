@@ -45,6 +45,7 @@ import {
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   createNativeBootstrapServiceReader,
+  inspectBootstrapPythonExecutable,
   readBootstrapLauncher,
   verifyRetainedProcessExited,
 } from "./coordinator-bootstrap-service.js";
@@ -216,6 +217,53 @@ test.runIf(process.platform === "darwin")(
       "--require-exited",
     ]);
     expect(JSON.parse(exited.stdout)).toEqual({ pid: child.pid, exited: true });
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "startup inspection accepts scoped recovery labels and the native Python executable",
+  async () => {
+    const { root } = fixture();
+    const helperPath = path.join(root, "inspector.py");
+    const bytes = readFileSync(
+      new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+    );
+    writeFileSync(helperPath, bytes, { mode: 0o600 });
+    const reader = await createNativeBootstrapServiceReader({
+      helperPath,
+      helperSha256: createHash("sha256").update(bytes).digest("hex"),
+      writableMountRoots: [],
+    });
+    const service = `gui/${process.getuid!()}/local.vorteo.fixture.installation-recovery-${randomUUID()}`;
+    await reader.verifyServiceAbsent(service);
+    await expect(reader.readService(service)).rejects.toMatchObject({ code: 113 });
+    await expect(reader.verifyServiceAbsent(`${service}-other`)).rejects.toThrow();
+    await expect(
+      reader.verifyServiceAbsent(service.replace(`gui/${process.getuid!()}/`, "gui/999999/")),
+    ).rejects.toThrow("another Host account");
+    const executable = await inspectBootstrapPythonExecutable();
+    const probe = path.join(root, "probe.py");
+    writeFileSync(probe, "import time; print('ready',flush=True); time.sleep(30)", { mode: 0o600 });
+    const args = ["-I", "-B", probe];
+    const child = spawn("/usr/bin/python3", args, {
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { PATH: "/usr/bin:/bin" },
+    });
+    const closed = once(child, "close");
+    try {
+      await once(child.stdout!, "data");
+      const observed = await reader.inspectProcess(child.pid!);
+      expect(observed).toMatchObject({
+        pid: child.pid,
+        executable,
+        argumentsSha256: createHash("sha256")
+          .update(JSON.stringify([executable, ...args]))
+          .digest("hex"),
+      });
+    } finally {
+      child.kill();
+      await closed;
+    }
   },
 );
 
