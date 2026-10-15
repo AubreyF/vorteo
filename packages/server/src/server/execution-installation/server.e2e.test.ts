@@ -1,4 +1,5 @@
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
+import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
 import { DaemonAutomation } from "./daemon-automation.js";
 import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
 import { execFile, execFileSync } from "node:child_process";
@@ -50,6 +51,24 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 
 const cleanups: Array<() => Promise<void>> = [];
+
+test("enrollment status is owner-only and reading it cannot approve or dispatch maintenance", async () => {
+  const f = await fixture();
+  const route = "/api/installation/owner/enrollment/query";
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, credential, {})).status).toBe(401);
+  const response = await f.request(route, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  const status = InstallationEnrollmentStatusSchema.parse(await response.json());
+  expect(status).toMatchObject({
+    authority: "not-enrolled",
+    activation: "not-enrolled",
+    services: [],
+    steps: [],
+  });
+  expect(f.calls).toEqual([]);
+  expect(existsSync(path.join(f.root, "maintenance-enrollment.json"))).toBe(false);
+});
 
 test("only the owner can prepare a pinned plugin source and preparation does not save settings", async () => {
   const host = new SettingsEnvironmentFake("host-id");

@@ -1,4 +1,6 @@
 import { DaemonAutomation } from "./daemon-automation.js";
+import { FileEnrollmentJournal } from "./maintenance/authorization.js";
+import { projectEnrollmentStatus } from "./maintenance/status.js";
 import {
   coordinatorAutomaticStatus,
   BootstrapRequestConflict,
@@ -1296,6 +1298,20 @@ export function createInstallationServer(
   });
   app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
     void maintenanceStatus().then((status) => res.json(status), next);
+  });
+  app.post("/api/installation/owner/enrollment/query", (_req, res) => {
+    const enrollment = new FileEnrollmentJournal(config.stateDir).read();
+    // Native controller inspection is a separate readiness source. Missing
+    // observations remain unknown; saved activation receipts never imply health.
+    res.json(
+      projectEnrollmentStatus({
+        installationId: config.public.installationId,
+        state: enrollment,
+        checkedAt: new Date().toISOString(),
+        observations: [],
+        freshnessMs: 30_000,
+      }),
+    );
   });
   const legacyAutomation = () => {
     const { services: _services, ...legacy } = daemonAutomation.read();

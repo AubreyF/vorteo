@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.557 - 2026-10-15
+
+### Added
+
+- Define exact installation enrollment, standing maintenance scope and durable activation steps, with revocation and retained recovery observations.
+- Synchronize enrollment storage before selection and reconcile uncertain writes without repeating effects. Bound retained state and preserve failed generations.
+- Add owner-only enrollment status, guarded client refresh and a responsive installation health component. Cached health expires, and readiness requires fresh observations of the enrolled native target.
+- Bind native identity to protected Host registration or an immutable container and numeric user/group identity, independently of process and release observations.
+
+### Maintenance
+
+- Cover storage failures, recovery, revocation, lock contention, owner access and dashboard rendering with focused tests.
+- Keep native execution, dashboard mounting and managed installation acceptance open. Document pre-login recovery as future work; this source checkpoint does not activate maintenance authority.
+
 ## 0.11.0-beta.3.vorteo.556 - 2026-10-15
 
 ### Fixed

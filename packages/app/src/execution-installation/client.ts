@@ -3,6 +3,10 @@ import {
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
 import {
+  InstallationEnrollmentStatusSchema,
+  type InstallationEnrollmentStatus,
+} from "@getpaseo/protocol/installation-enrollment";
+import {
   PreviewMonitorJobSchema,
   type PreviewMonitorJob,
 } from "@getpaseo/protocol/preview-monitor-maintenance";
@@ -67,6 +71,7 @@ export class InstallationClient {
   private daemonAutomationSupported = false;
   private servicePermissionsSupported = false;
   private maintenanceStatusSupported = false;
+  private enrollmentStatusSupported = false;
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
@@ -283,6 +288,22 @@ export class InstallationClient {
       return status;
     } catch (error) {
       if (error instanceof InstallationRouteUnavailable && !this.maintenanceStatusSupported)
+        return null;
+      throw error;
+    }
+  }
+
+  async enrollmentStatus(): Promise<InstallationEnrollmentStatus | null> {
+    try {
+      const status = InstallationEnrollmentStatusSchema.parse(
+        await this.request("enrollment/query", {}),
+      );
+      if (status.installationId !== this.installation.installationId)
+        throw new Error("Installation status belongs to another installation");
+      this.enrollmentStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.enrollmentStatusSupported)
         return null;
       throw error;
     }

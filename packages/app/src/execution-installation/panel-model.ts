@@ -1,4 +1,5 @@
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
+import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
@@ -14,6 +15,9 @@ import type {
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  enrollmentStatus: InstallationEnrollmentStatus | null;
+  enrollmentError: string | null;
+  enrollmentRefreshing: boolean;
   devRepair: { available: boolean; preparingIds: string[] };
   daemonAutomation: DaemonAutomationPreference | null;
   maintenanceStatus: InstallationMaintenanceStatus | null;
@@ -39,6 +43,9 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    enrollmentStatus: null,
+    enrollmentError: null,
+    enrollmentRefreshing: false,
     devRepair: { available: false, preparingIds: [] },
     daemonAutomation: null,
     maintenanceStatus: null,
@@ -90,6 +97,7 @@ export class InstallationPanelModel {
           | "decideMonitor"
           | "daemonAutomation"
           | "maintenanceStatus"
+          | "enrollmentStatus"
           | "changeDaemonAutomation"
           | "devRepairStatus"
           | "prepareDevRepair"
@@ -143,6 +151,9 @@ export class InstallationPanelModel {
         profileSharing: null,
         daemonAutomation: null,
         maintenanceStatus: null,
+        enrollmentStatus: null,
+        enrollmentError: null,
+        enrollmentRefreshing: false,
         daemonAutomationError: null,
       });
     } catch (error) {
@@ -192,7 +203,10 @@ export class InstallationPanelModel {
     const generation = this.accessGeneration;
     const automationGeneration = this.automationGeneration;
     try {
-      const restartSummary = await this.client.restartSummary();
+      const [restartSummary] = await Promise.all([
+        this.client.restartSummary(),
+        this.refreshEnrollmentStatus(),
+      ]);
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
       const [
@@ -250,6 +264,28 @@ export class InstallationPanelModel {
       this.refreshing = false;
     }
   }
+
+  refreshEnrollmentStatus = async (): Promise<void> => {
+    if (!this.state.unlocked || !this.client.enrollmentStatus || this.state.enrollmentRefreshing)
+      return;
+    const generation = this.accessGeneration;
+    this.publish({ enrollmentRefreshing: true });
+    try {
+      const status = await this.client.enrollmentStatus();
+      if (generation !== this.accessGeneration) return;
+      this.publish({ enrollmentStatus: status, enrollmentError: null });
+    } catch (error) {
+      if (generation !== this.accessGeneration) return;
+      if (error instanceof OwnerAccessExpired) this.fail(error);
+      else
+        this.publish({
+          enrollmentError:
+            "Unable to refresh installation status. Last known observations are retained.",
+        });
+    } finally {
+      if (generation === this.accessGeneration) this.publish({ enrollmentRefreshing: false });
+    }
+  };
 
   async changeDaemonAutomation(enabled: boolean, service?: MaintenanceService): Promise<void> {
     const preference = this.state.daemonAutomation;
@@ -439,7 +475,8 @@ export class InstallationPanelModel {
   }
 
   private fail(error: unknown): void {
-    if (error instanceof OwnerAccessExpired)
+    if (error instanceof OwnerAccessExpired) {
+      this.accessGeneration++;
       this.publish({
         unlocked: false,
         visible: false,
@@ -454,7 +491,11 @@ export class InstallationPanelModel {
         daemonAutomation: null,
         maintenanceStatus: null,
         daemonAutomationError: null,
+        enrollmentStatus: null,
+        enrollmentError: null,
+        enrollmentRefreshing: false,
       });
+    }
     this.publish({ error: error instanceof Error ? error.message : "Installation request failed" });
   }
   private publish(update: Partial<InstallationPanelState>): void {

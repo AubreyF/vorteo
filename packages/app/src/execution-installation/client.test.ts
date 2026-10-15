@@ -1,4 +1,5 @@
 import { helperReviewFixture } from "./helper-review.fixture";
+import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { InstallationRouteUnavailable } from "./client";
 import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
@@ -395,4 +396,56 @@ test("maintenance status distinguishes an older coordinator from a failed observ
   await expect(client.maintenanceStatus()).rejects.toThrow("Update coordinator");
   outcome = "failed";
   await expect(client.maintenanceStatus()).rejects.toThrow("Observation failed");
+});
+
+test("enrollment status binds the installation and distinguishes missing routes from later failures", async () => {
+  let outcome: "old" | "ready" | "wrong-installation" = "old";
+  const status: InstallationEnrollmentStatus = {
+    version: 1,
+    installationId: installation.installationId,
+    checkedAt: new Date().toISOString(),
+    authority: "not-enrolled",
+    grantRevision: null,
+    activation: "not-enrolled",
+    completedSteps: 0,
+    totalSteps: 0,
+    services: [],
+    steps: [],
+  };
+  const resources: string[] = [];
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      resources.push(resource);
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (outcome === "old") throw new InstallationRouteUnavailable("Route unavailable");
+      if (outcome === "wrong-installation")
+        return { ...status, installationId: "00000000-0000-4000-8000-000000000099" };
+      return status;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.enrollmentStatus()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect(await client.enrollmentStatus()).toBeNull();
+  outcome = "ready";
+  expect(await client.enrollmentStatus()).toEqual(status);
+  outcome = "old";
+  await expect(client.enrollmentStatus()).rejects.toThrow("Route unavailable");
+  outcome = "wrong-installation";
+  await expect(client.enrollmentStatus()).rejects.toThrow("another installation");
+  expect(
+    resources
+      .filter((resource) => resource !== "unlock")
+      .every((resource) => resource === "enrollment/query"),
+  ).toBe(true);
 });
