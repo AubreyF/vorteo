@@ -1,5 +1,7 @@
 import { helperReviewFixture } from "../../src/execution-installation/helper-review.fixture";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { FileBootstrapRequestJournal } from "../../../server/dist/server/server/execution-installation/coordinator-bootstrap-journal";
 import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
 import { InstallationSkillPackages } from "../../../server/src/server/execution-installation/settings/skill-packages";
 import type { SkillFiles } from "../../../server/src/server/orchestration-skills/internal/inventory";
@@ -221,6 +223,7 @@ test.beforeAll(async () => {
         detail: "Approval required",
       },
     ]),
+    { mode: 0o600 },
   );
   const profiles = createInstallationProfiles(config);
   const settings = createInstallationSettings(config);
@@ -389,6 +392,85 @@ test.afterAll(async () => {
     await closed;
   }
   if (root) await rm(root, { recursive: true, force: true });
+});
+
+test("owner maintenance queue shows cancellation failures and cancels the exact request", async ({
+  page,
+}, testInfo) => {
+  const id = randomUUID();
+  const job = MaintenanceServiceJobSchema.parse({
+    id,
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    proposal: {
+      id,
+      installationId: config.public.installationId,
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      repository: "https://example.test/maintenance",
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+    },
+    reason: "Review the replacement controller",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    detail: "Awaiting independently verified native evidence.",
+    evidence: [],
+  });
+  const journal = new FileBootstrapRequestJournal(root);
+  journal.mutateLifecycle((jobs) => [...jobs, job], undefined);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await expect(page.getByTestId("maintenance-request-queue")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "controller or launcher maintenance requests",
+  );
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const queue = page.getByTestId("maintenance-request-queue");
+  const row = page.getByTestId(`maintenance-request-${id}`);
+  await expect(queue).toBeVisible();
+  await expect(row).toContainText(job.reason);
+  await expect(row).toContainText("Requested");
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "Controller maintenance",
+  );
+  if (testInfo.project.name === "desktop")
+    await expect(
+      page.getByTestId("settings-sidebar").getByTestId(`maintenance-service-notice-${id}`),
+    ).toBeVisible();
+  await page.route("**/api/installation/owner/maintenance-services/cancel", async (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Fixture cancellation unavailable" }),
+    }),
+  );
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(queue.getByRole("alert")).toContainText("Fixture cancellation unavailable");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeDisabled();
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("pending");
+  await page.unroute("**/api/installation/owner/maintenance-services/cancel");
+  await queue.getByRole("button", { name: "Refresh requests" }).click();
+  await expect(queue.getByRole("alert")).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeEnabled();
+  // Keep the unrelated historical restart fixture out of this control screenshot.
+  await page
+    .getByTestId("installation-update-toasts")
+    .getByRole("alert")
+    .filter({ hasText: "Restart Host to enable protected workspaces" })
+    .getByRole("button", { name: "Dismiss", exact: true })
+    .last()
+    .click();
+  await queue.screenshot({ path: testInfo.outputPath("maintenance-request-queue.png") });
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(row).toContainText("Maintenance cancelled before dispatch.");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toHaveCount(0);
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("rejected");
 });
 
 test("welcome signs in with the owner password and restores both environments", async ({

@@ -23,10 +23,13 @@ import {
   verifyMaintenanceLauncherArtifacts,
   verifyMaintenanceLauncherProcess,
 } from "./coordinator-bootstrap-maintenance-launcher.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { readEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
   MaintenanceLauncherSelectionSchema,
+  MaintenanceServiceSelectionSchema,
+  inspectMaintenanceServiceSelection,
   inspectMaintenanceLauncherSelection,
 } from "./coordinator-bootstrap-maintenance-selection.js";
 
@@ -39,6 +42,11 @@ export const MaintenanceLauncherSetupSchema = z.strictObject({
   identitySha256: z.string().regex(/^[a-f0-9]{64}$/),
   target: z.enum(["maintenance-controller", "recovery-launcher"]),
   sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  control: z
+    .strictObject({
+      admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
   nativeAdmission: z.strictObject({
     path: z.string().startsWith("/"),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -66,24 +74,49 @@ export async function readMaintenanceLauncherStartup(input: {
     !identity.selectionPath
   )
     throw new BootstrapRequestConflict("Launcher setup differs from enrolled native identity");
-  const selection = MaintenanceLauncherSelectionSchema.parse(await read(identity.selectionPath));
+  const selection = z
+    .union([MaintenanceLauncherSelectionSchema, MaintenanceServiceSelectionSchema])
+    .parse(await read(identity.selectionPath));
   const base = path.join(setup.installationRoot, "maintenance-services", setup.target);
   if (identity.selectionPath !== path.join(base, "selection.json"))
     throw new BootstrapRequestConflict("Launcher selection path differs from enrolled custody");
   const planFile = path.join(base, "plans", `${selection.planSha256}.json`);
-  const intentFile = path.join(
-    setup.enrollmentStateDirectory,
-    `maintenance-launcher-${selection.stepId}-${selection.generation}.json`,
-  );
+  const intentFile =
+    selection.version === 1
+      ? path.join(
+          setup.enrollmentStateDirectory,
+          `maintenance-launcher-${selection.stepId}-${selection.generation}.json`,
+        )
+      : path.join(setup.enrollmentStateDirectory, "restart-jobs.json");
   const journal = new FileEnrollmentJournal(setup.enrollmentStateDirectory);
   const enrollment = journal.read();
-  const context = inspectMaintenanceLauncherSelection({
-    plan: await read(planFile),
-    account: input.account,
-    enrollment,
-    intent: await read(intentFile),
-    selection,
-  });
+  const plan = await read(planFile);
+  const readRetained = () => {
+    if (selection.version !== 2) return undefined;
+    const matches = new FileBootstrapRequestJournal(setup.enrollmentStateDirectory)
+      .readLifecycle()
+      .filter((job) => job.id === selection.requestId);
+    if (matches.length !== 1)
+      throw new BootstrapRequestConflict("Selected maintenance job is missing or ambiguous");
+    return matches[0];
+  };
+  const retained = readRetained();
+  const context =
+    selection.version === 1
+      ? inspectMaintenanceLauncherSelection({
+          plan,
+          account: input.account,
+          enrollment,
+          intent: await read(intentFile),
+          selection,
+        })
+      : inspectMaintenanceServiceSelection({
+          plan,
+          account: input.account,
+          enrollment,
+          retained,
+          selection,
+        });
   if (
     !isDeepStrictEqual(identity, context.plan.identity) ||
     setup.sourceCommit !== context.selected.sourceCommit ||
@@ -94,7 +127,8 @@ export async function readMaintenanceLauncherStartup(input: {
   // observation; the native verifier must re-read this binding before effects.
   if (
     !isDeepStrictEqual(selection, await read(identity.selectionPath)) ||
-    !isDeepStrictEqual(enrollment, journal.read())
+    !isDeepStrictEqual(enrollment, journal.read()) ||
+    !isDeepStrictEqual(retained, readRetained())
   )
     throw new BootstrapRequestConflict("Launcher selection changed during startup");
   return { ...context, setup, planFile, intentFile };

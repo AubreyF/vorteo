@@ -103,6 +103,8 @@ export function assertCoordinatorLifecycleIdle(journal: unknown): void {
 
 export function coordinatorLifecycleWork(journal: unknown) {
   return parseLifecycleJournal(journal).filter((job) => {
+    if (job.target === "maintenance-controller" || job.target === "recovery-launcher")
+      return job.status === "approved" || job.status === "running";
     if (job.target === "native-helper" || job.target === "preview-monitor") {
       return (
         ["approved", "running"].includes(job.status) ||
@@ -110,10 +112,13 @@ export function coordinatorLifecycleWork(journal: unknown) {
         job.stage === "recovery_required"
       );
     }
-    const active = job.status === "approved" || job.status === "running";
-    const held = job.finishCurrentTurns === true && job.holdReleased !== true;
-    const preparing = job.sourceBatch?.status === "preparing";
-    return active || held || preparing;
+    if (job.target === "host" || job.target === "container-daemon") {
+      const active = job.status === "approved" || job.status === "running";
+      const held = job.finishCurrentTurns === true && job.holdReleased !== true;
+      const preparing = job.sourceBatch?.status === "preparing";
+      return active || held || preparing;
+    }
+    return false;
   });
 }
 

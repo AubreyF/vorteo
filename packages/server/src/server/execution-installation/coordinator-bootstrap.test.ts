@@ -4121,3 +4121,75 @@ test("completed observation permits normal state writes but retains exact transf
   rmSync(file);
   await expect(verifyCompletedBootstrapState(completed)).rejects.toThrow("receipt is missing");
 });
+
+test("lifecycle mutation preserves intervening jobs and rejects stale reservation CAS", () => {
+  const f = fixture();
+  const queue = new InstallationRestarts(
+    { read: () => f.journal.readLifecycle(), write: (jobs) => f.journal.writeLifecycle(jobs) },
+    { restart: async () => "unused" },
+  );
+  const first = queue.request({ target: "host", reason: "First retained job" }, "owner");
+  const stale = f.journal.readLifecycle();
+  const second = queue.request({ target: "container-daemon", reason: "Intervening job" }, "owner");
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  const revised = randomUUID();
+  reopened.mutateLifecycle(
+    (current) => {
+      expect(current).toHaveLength(stale.length + 1);
+      return current.map((job) => (job.id === first.id ? { ...job, revision: revised } : job));
+    },
+    (previous, next) => {
+      expect(previous.find((job) => job.id === first.id)?.revision).toBe(first.revision);
+      expect(next.find((job) => job.id === second.id)).toEqual(second);
+    },
+  );
+  const retained = reopened.readLifecycle();
+  const staleRevision = (current: readonly { id: string; revision: string }[]) =>
+    current.find((job) => job.id === first.id)?.revision !== first.revision;
+  expect(() =>
+    f.journal.mutateLifecycle(
+      (current) => {
+        if (staleRevision(current)) throw new Error("Exact reservation revision changed");
+        return [];
+      },
+      () => undefined,
+    ),
+  ).toThrow("Exact reservation revision changed");
+  expect(f.journal.readLifecycle()).toEqual(retained);
+  f.journal.mutateLifecycle(
+    (current) => current.filter((job) => job.id !== first.id),
+    () => undefined,
+  );
+  expect(reopened.readLifecycle()).toEqual([second]);
+});
+
+test("lifecycle mutation and admission share exclusion and isolate rejected mutations", () => {
+  const f = fixture();
+  const queue = new InstallationRestarts(
+    { read: () => f.journal.readLifecycle(), write: (jobs) => f.journal.writeLifecycle(jobs) },
+    { restart: async () => "unused" },
+  );
+  queue.request({ target: "host", reason: "Retained job" }, "owner");
+  const before = f.journal.readLifecycle();
+  const competing = () =>
+    new FileBootstrapRequestJournal(f.root).mutateLifecycle(
+      () => [],
+      () => undefined,
+    );
+  expect(() =>
+    f.journal.mutateLifecycle(
+      (current) => {
+        expect(competing).toThrow("storage is busy");
+        current[0].reason = "Only detached update input";
+        return [...current];
+      },
+      (previous, next) => {
+        expect(competing).toThrow("storage is busy");
+        expect(previous).toEqual(before);
+        expect(next[0].reason).toBe("Only detached update input");
+        throw new Error("Grant revoked");
+      },
+    ),
+  ).toThrow("Grant revoked");
+  expect(f.journal.readLifecycle()).toEqual(before);
+});

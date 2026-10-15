@@ -1,4 +1,18 @@
+import type {
+  MaintenanceServiceExecutor,
+  MaintenanceServiceNativeObservation,
+} from "./service-execution.js";
+import { InstallationRestarts } from "../restarts.js";
 import { inspectStandingSourceProvenance } from "./source-provenance.js";
+import {
+  maintenanceServiceEvidenceDigest,
+  maintenanceServiceProposalDigest,
+  type MaintenanceServiceAdmissionEvidence,
+} from "./service-admission.js";
+import type {
+  MaintenanceServiceJob,
+  MaintenanceServiceEvidenceRecord,
+} from "@getpaseo/protocol/maintenance-service";
 import { createDaemonStandingRuntime } from "./daemon-standing-runtime.js";
 import type { InstallationConfig } from "../config.js";
 import { execFileSync } from "node:child_process";
@@ -31,7 +45,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   InstallationEnrollmentApprovalSchema,
   type InstallationEnrollmentManifest,
@@ -1878,4 +1892,694 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
   releaseSource();
   await Promise.all([collecting, forced]);
   expect(inspectedBirths).toEqual(["replacement-birth", "changed-at-forced-boundary"]);
+});
+
+function serviceAdmissionFixture() {
+  const f = restartAdmissionFixture();
+  let now = Date.parse("2026-10-15T02:00:00Z");
+  const pending: MaintenanceServiceJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    reason: "Replace the enrolled controller",
+    createdAt: new Date(now).toISOString(),
+    status: "pending",
+    detail: "Prepared",
+    evidence: [],
+    proposal: {
+      id: randomUUID(),
+      installationId: f.manifest.installationId,
+      requestedBy: "container-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      repository: f.manifest.trustedRepositories[0],
+      previous: { sourceCommit: "e".repeat(40), artifactSha256: "f".repeat(64) },
+    },
+  };
+  pending.proposal.id = pending.id;
+  const bootId = randomUUID();
+  const processIdentity = {
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    bootId,
+    startIdentity: "1:0",
+    argumentsSha256: "a".repeat(64),
+    executable: process.execPath,
+  };
+  function proof(
+    job: MaintenanceServiceJob,
+    approvedRevision = job.revision,
+  ): MaintenanceServiceAdmissionEvidence {
+    const record: MaintenanceServiceEvidenceRecord = {
+      requestId: job.id,
+      requestRevision: approvedRevision,
+      planSha256: job.proposal.planSha256,
+      identitySha256: job.proposal.identitySha256,
+      sourceCommit: job.proposal.sourceCommit,
+      artifactSha256: job.proposal.artifactSha256,
+      observedAt: new Date(now).toISOString(),
+      native: {
+        bootId,
+        process: processIdentity,
+        service: {
+          domain: `gui/${process.getuid!()}`,
+          label: "local.vorteo.fixture.installation",
+          registered: true,
+          launcherPath: path.join(f.directory, "launcher.plist"),
+          launcherSha256: "1".repeat(64),
+          registrationSha256: "2".repeat(64),
+        },
+        selection: {
+          path: path.join(f.directory, "selection.json"),
+          receiptSha256: "3".repeat(64),
+          sourceCommit: job.proposal.previous!.sourceCommit,
+          artifactSha256: job.proposal.previous!.artifactSha256,
+        },
+      },
+    };
+    return {
+      expectedRevision: job.revision,
+      record,
+      sha256: maintenanceServiceEvidenceDigest(record),
+      assertCurrent() {},
+    };
+  }
+  function retain(job: MaintenanceServiceJob, evidence: MaintenanceServiceAdmissionEvidence) {
+    return {
+      ...job,
+      evidence: [...job.evidence, { sha256: evidence.sha256, record: evidence.record }],
+    };
+  }
+  const adapter = createStandingRestartAdapter({
+    directory: f.directory,
+    installationId: f.manifest.installationId,
+    credentialBindingSha256: "9".repeat(64),
+    now: () => now,
+    ports: {
+      evidence: () => null,
+      assertEvidence() {
+        throw new Error("Not a daemon request");
+      },
+    },
+  });
+  adapter.journal.write([pending]);
+  function approve() {
+    const evidence = proof(pending),
+      revision = randomUUID();
+    const job: MaintenanceServiceJob = {
+      ...retain(pending, evidence),
+      revision,
+      status: "approved",
+      approval: {
+        grantId: f.state.grant.id,
+        grantRevision: f.state.grant.revision,
+        manifestSha256: enrollmentManifestDigest(f.manifest),
+        proposalSha256: maintenanceServiceProposalDigest(pending.proposal),
+        reviewedRevision: pending.revision,
+        requestRevision: revision,
+        nativeEvidenceSha256: evidence.sha256,
+        approvedAt: new Date(now).toISOString(),
+        dispatchAfter: new Date(now + 30_000).toISOString(),
+      },
+    };
+    adapter.journal.write([job], evidence);
+    return job;
+  }
+  function reserve(approved: MaintenanceServiceJob) {
+    now += 30_000;
+    const evidence = proof(approved),
+      approval = approved.approval!;
+    const job: MaintenanceServiceJob = {
+      ...retain(approved, evidence),
+      revision: randomUUID(),
+      status: "running",
+      reservation: {
+        requestId: approved.id,
+        requestRevision: approval.requestRevision,
+        generation: randomUUID(),
+        target: approved.target,
+        operation: approved.operation,
+        grantId: approval.grantId,
+        grantRevision: approval.grantRevision,
+        manifestSha256: approval.manifestSha256,
+        proposalSha256: approval.proposalSha256,
+        planSha256: approved.proposal.planSha256,
+        identitySha256: approved.proposal.identitySha256,
+        sourceCommit: approved.proposal.sourceCommit,
+        artifactSha256: approved.proposal.artifactSha256,
+        previous: approved.proposal.previous,
+        nativeEvidenceSha256: evidence.sha256,
+        reservedAt: new Date(now).toISOString(),
+      },
+    };
+    adapter.journal.write([job], evidence);
+    return job;
+  }
+  function claim(running: MaintenanceServiceJob, consumedAt = new Date(now).toISOString()) {
+    const evidence = proof(running);
+    const job: MaintenanceServiceJob = {
+      ...retain(running, evidence),
+      revision: randomUUID(),
+      effectIntent: {
+        id: randomUUID(),
+        generation: running.reservation!.generation,
+        requestRevision: running.reservation!.requestRevision,
+        nativeEvidenceSha256: evidence.sha256,
+        executor: processIdentity,
+        consumedAt,
+      },
+    };
+    adapter.journal.write([job], evidence);
+    return job;
+  }
+  function observe(
+    running: MaintenanceServiceJob,
+    outcome: "candidate" | "previous" | "unknown",
+    ready: boolean,
+  ) {
+    const evidence = proof(running, running.reservation!.requestRevision);
+    const selected = outcome === "previous" ? running.proposal.previous! : running.proposal;
+    evidence.record.sourceCommit = selected.sourceCommit;
+    evidence.record.artifactSha256 = selected.artifactSha256;
+    evidence.record.native.selection.sourceCommit = selected.sourceCommit;
+    evidence.record.native.selection.artifactSha256 = selected.artifactSha256;
+    evidence.sha256 = maintenanceServiceEvidenceDigest(evidence.record);
+    let status: MaintenanceServiceJob["status"] = "running";
+    if (ready) status = outcome === "candidate" ? "succeeded" : "failed";
+    const job: MaintenanceServiceJob = {
+      ...retain(running, evidence),
+      revision: randomUUID(),
+      status,
+      observation: {
+        requestId: running.id,
+        requestRevision: running.reservation!.requestRevision,
+        generation: running.reservation!.generation,
+        planSha256: running.proposal.planSha256,
+        identitySha256: running.proposal.identitySha256,
+        outcome,
+        sourceCommit: selected.sourceCommit,
+        artifactSha256: selected.artifactSha256,
+        ready,
+        evidenceSha256: evidence.sha256,
+        observedAt: evidence.record.observedAt,
+      },
+    };
+    return { job, evidence };
+  }
+  return {
+    ...f,
+    adapter,
+    pending,
+    proof,
+    retain,
+    approve,
+    reserve,
+    claim,
+    observe,
+    now: () => now,
+    advance: (milliseconds: number) => {
+      now += milliseconds;
+    },
+  };
+}
+
+test("service authority projects base policy fields and retains the full reviewed proposal", () => {
+  const f = serviceAdmissionFixture();
+  const approved = f.approve(),
+    running = f.reserve(approved),
+    claimed = f.claim(running);
+  expect(running.revision).not.toBe(approved.revision);
+  expect(running.reservation?.requestRevision).toBe(approved.revision);
+  expect(claimed.effectIntent?.requestRevision).toBe(approved.revision);
+  expect(claimed.proposal.previous).toEqual(f.pending.proposal.previous);
+  const observed = f.observe(claimed, "candidate", true);
+  f.adapter.journal.write([observed.job], observed.evidence);
+  expect(f.adapter.journal.read()[0].status).toBe("succeeded");
+  expect(observed.job.observation?.requestRevision).toBe(approved.revision);
+  expect(() => f.adapter.journal.write([running], f.proof(claimed))).toThrow();
+});
+
+test("service custody and current revision are checked before durable reservation", () => {
+  const f = serviceAdmissionFixture(),
+    approved = f.approve();
+  const running = f.reserve(approved);
+  const proof = f.proof(running);
+  proof.assertCurrent = () => {
+    throw new Error("Native custody changed");
+  };
+  const next = f.retain(
+    {
+      ...running,
+      revision: randomUUID(),
+      effectIntent: {
+        id: randomUUID(),
+        generation: running.reservation!.generation,
+        requestRevision: approved.revision,
+        nativeEvidenceSha256: proof.sha256,
+        executor: proof.record.native.process!,
+        consumedAt: proof.record.observedAt,
+      },
+    },
+    proof,
+  );
+  expect(() => f.adapter.journal.write([next], proof)).toThrow("custody changed");
+  expect(f.adapter.journal.read()).toEqual([running]);
+  const stale = { ...proof, assertCurrent() {}, expectedRevision: approved.revision };
+  expect(() => f.adapter.journal.write([next], stale)).toThrow("journal revision changed");
+  expect(f.adapter.journal.read()).toEqual([running]);
+});
+
+test("revoked services permit native observation but cannot reserve another effect", () => {
+  const f = serviceAdmissionFixture(),
+    approved = f.approve(),
+    running = f.reserve(approved),
+    claimed = f.claim(running);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const unknown = f.observe(claimed, "unknown", false);
+  f.adapter.journal.write([unknown.job], unknown.evidence);
+  const candidate = f.observe(unknown.job, "candidate", true);
+  f.adapter.journal.write([candidate.job], candidate.evidence);
+  expect(f.adapter.journal.read()[0].status).toBe("succeeded");
+});
+
+test("unknown and previous service observations cannot masquerade as candidate success", () => {
+  const f = serviceAdmissionFixture(),
+    running = f.claim(f.reserve(f.approve()));
+  const unknown = f.observe(running, "unknown", true);
+  expect(() => f.adapter.journal.write([unknown.job], unknown.evidence)).toThrow(
+    "Unknown service readiness",
+  );
+  const previous = f.observe(running, "previous", true);
+  expect(() =>
+    f.adapter.journal.write([{ ...previous.job, status: "succeeded" }], previous.evidence),
+  ).toThrow("rollback readiness");
+  f.adapter.journal.write([previous.job], previous.evidence);
+  expect(f.adapter.journal.read()[0].status).toBe("failed");
+});
+
+test("service reservation pins approved identity after a later journal metadata revision", () => {
+  const f = serviceAdmissionFixture(),
+    approved = f.approve();
+  const retry = { ...approved, revision: randomUUID(), detail: "Native inspection delayed" };
+  f.adapter.journal.write([retry]);
+  const running = f.reserve(retry);
+  expect(running.reservation?.requestRevision).toBe(approved.revision);
+  expect(running.reservation?.requestRevision).not.toBe(retry.revision);
+});
+test("service native claims reject revoked authority and asynchronous custody", () => {
+  const f = serviceAdmissionFixture(),
+    running = f.reserve(f.approve());
+  const result = f.observe(running, "previous", false);
+  result.evidence.assertCurrent = async () => {};
+  expect(() => f.adapter.journal.write([result.job], result.evidence)).toThrow("synchronous");
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => f.claim(running)).toThrow();
+  expect(f.adapter.journal.read()).toEqual([running]);
+});
+test("service candidate readiness requires a consumed native intent", () => {
+  const f = serviceAdmissionFixture(),
+    running = f.reserve(f.approve());
+  const result = f.observe(running, "candidate", true);
+  expect(() => f.adapter.journal.write([result.job], result.evidence)).toThrow(
+    "consumed native intent",
+  );
+  expect(f.adapter.journal.read()).toEqual([running]);
+});
+test("service readiness refuses mismatched boot and missing native custody receipts", () => {
+  const f = serviceAdmissionFixture(),
+    running = f.claim(f.reserve(f.approve()));
+  const observed = f.observe(running, "candidate", true);
+  const mutations: Array<(record: MaintenanceServiceEvidenceRecord) => void> = [
+    (record) => {
+      record.native.bootId = randomUUID();
+    },
+    (record) => {
+      record.native.service.launcherSha256 = null;
+    },
+    (record) => {
+      record.native.service.registrationSha256 = null;
+    },
+    (record) => {
+      record.native.selection.receiptSha256 = null;
+    },
+  ];
+  for (const mutate of mutations) {
+    const record = structuredClone(observed.evidence.record);
+    mutate(record);
+    const proof = {
+      ...observed.evidence,
+      record,
+      sha256: maintenanceServiceEvidenceDigest(record),
+    };
+    const job = {
+      ...observed.job,
+      evidence: f.retain(running, proof).evidence,
+      observation: { ...observed.job.observation!, evidenceSha256: proof.sha256 },
+    };
+    expect(() => f.adapter.journal.write([job], proof)).toThrow("rollback readiness");
+    expect(f.adapter.journal.read()).toEqual([running]);
+  }
+});
+
+test("service approval cannot share one durable write with competing daemon approval", () => {
+  const f = serviceAdmissionFixture();
+  // The real daemon fixture supplies the ordinary legacy request shape.
+  const daemon = restartAdmissionFixture().pending;
+  daemon.standingDecision = undefined;
+  daemon.automaticApproval = undefined;
+  f.adapter.journal.write([f.pending, daemon]);
+  const evidence = f.proof(f.pending);
+  const revision = randomUUID();
+  const approved: MaintenanceServiceJob = {
+    ...f.retain(f.pending, evidence),
+    revision,
+    status: "approved",
+    approval: {
+      grantId: f.state.grant.id,
+      grantRevision: f.state.grant.revision,
+      manifestSha256: enrollmentManifestDigest(f.manifest),
+      proposalSha256: maintenanceServiceProposalDigest(f.pending.proposal),
+      reviewedRevision: f.pending.revision,
+      requestRevision: revision,
+      nativeEvidenceSha256: evidence.sha256,
+      approvedAt: evidence.record.observedAt,
+      dispatchAfter: new Date(Date.parse(evidence.record.observedAt) + 30_000).toISOString(),
+    },
+  };
+  expect(() =>
+    f.adapter.journal.write(
+      [approved, { ...daemon, status: "approved", revision: randomUUID() }],
+      evidence,
+    ),
+  ).toThrow("lifecycle admission");
+  expect(f.adapter.journal.read()).toEqual([f.pending, daemon]);
+});
+test("service claims reject future intent and candidate evidence collected before consumption", () => {
+  const f = serviceAdmissionFixture(),
+    running = f.reserve(f.approve());
+  const before = f.proof(running).record.observedAt;
+  expect(() => f.claim(running, new Date(Date.parse(before) + 1).toISOString())).toThrow(
+    "exact retained reservation",
+  );
+  expect(f.adapter.journal.read()).toEqual([running]);
+  const claimed = f.claim(running),
+    observed = f.observe(claimed, "candidate", true);
+  const record = {
+    ...observed.evidence.record,
+    observedAt: new Date(Date.parse(before) - 1).toISOString(),
+  };
+  const proof = { ...observed.evidence, record, sha256: maintenanceServiceEvidenceDigest(record) };
+  const job = {
+    ...observed.job,
+    evidence: f.retain(claimed, proof).evidence,
+    observation: {
+      ...observed.job.observation!,
+      evidenceSha256: proof.sha256,
+      observedAt: record.observedAt,
+    },
+  };
+  expect(() => f.adapter.journal.write([job], proof)).toThrow("predates native effect consumption");
+  expect(f.adapter.journal.read()).toEqual([claimed]);
+});
+
+function serviceQueueFixture() {
+  const f = serviceAdmissionFixture();
+  let executed = 0,
+    observed = 0;
+  let beforeInspect: (() => void) | undefined;
+  const native: MaintenanceServiceExecutor = {
+    inspect: async (job: MaintenanceServiceJob) => {
+      const proof = f.proof(job);
+      beforeInspect?.();
+      return { ...proof.record, evidenceSha256: proof.sha256, assertCurrent: proof.assertCurrent };
+    },
+    execute: async (job: MaintenanceServiceJob) => {
+      executed++;
+      f.claim(job);
+      throw new Error("Native start reply was lost");
+    },
+    observe: async (job: MaintenanceServiceJob) => {
+      observed++;
+      const result = f.observe(job, "candidate", true);
+      return {
+        ...result.job.observation!,
+        record: result.evidence.record,
+        assertCurrent: result.evidence.assertCurrent,
+      };
+    },
+  };
+  const create = () =>
+    new InstallationRestarts(
+      f.adapter.journal,
+      {
+        restart: async () => {
+          throw new Error("Daemon dispatch is outside this test");
+        },
+        maintenanceServices: native,
+      },
+      f.now,
+      { serviceAuthority: f.adapter.serviceAuthority },
+    );
+  return {
+    ...f,
+    create,
+    counts: () => ({ executed, observed }),
+    setNative: (overrides: Partial<MaintenanceServiceExecutor>) => Object.assign(native, overrides),
+    onInspect: (callback: () => void) => {
+      beforeInspect = callback;
+    },
+  };
+}
+test("service queue observes lost native replies after reopening without repeating execution", async () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  await queue.drain();
+  const approved = queue.listServices()[0];
+  expect(approved.status).toBe("approved");
+  await queue.drain();
+  expect(f.counts()).toEqual({ executed: 0, observed: 0 });
+  f.advance(30_000);
+  await queue.drain();
+  expect(f.counts()).toEqual({ executed: 1, observed: 0 });
+  const running = queue.listServices()[0];
+  expect(running.status).toBe("running");
+  expect(running.effectIntent?.requestRevision).toBe(approved.revision);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const reopened = f.create();
+  f.advance(5000);
+  await reopened.drain();
+  expect(reopened.listServices()[0].status).toBe("succeeded");
+  expect(f.counts()).toEqual({ executed: 1, observed: 1 });
+  await reopened.drain();
+  expect(f.counts()).toEqual({ executed: 1, observed: 1 });
+});
+test("service queue cancellation during asynchronous inspection prevents approval and dispatch", async () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  f.onInspect(() => queue.cancelService(f.pending.id, f.pending.revision));
+  await queue.drain();
+  expect(queue.listServices()[0].status).toBe("rejected");
+  expect(f.counts()).toEqual({ executed: 0, observed: 0 });
+});
+
+test("service queue cancellation preserves an unrelated request added after startup", () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  const daemon = restartAdmissionFixture().pending;
+  f.adapter.journal.mutate!((jobs) => [...jobs, daemon]);
+  const cancelled = queue.cancelService(f.pending.id, f.pending.revision);
+  expect(f.adapter.journal.read()).toEqual([cancelled, daemon]);
+});
+test("service queue revocation cancels approval before native dispatch", async () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  await queue.drain();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.advance(30_000);
+  await queue.drain();
+  expect(queue.listServices()[0].status).toBe("rejected");
+  expect(f.counts()).toEqual({ executed: 0, observed: 0 });
+});
+test("service queue submission preserves requester origin and exact retry identity", () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  expect(queue.requestService(f.pending.proposal, f.pending.reason, "container-agent").id).toBe(
+    f.pending.id,
+  );
+  expect(
+    queue.requestService(f.pending.proposal, f.pending.reason, "container-agent").revision,
+  ).toBe(f.pending.revision);
+  expect(() => queue.requestService(f.pending.proposal, f.pending.reason, "host-agent")).toThrow(
+    "requester",
+  );
+  expect(() =>
+    queue.requestService(
+      { ...f.pending.proposal, sourceCommit: "0".repeat(40) },
+      f.pending.reason,
+      "container-agent",
+    ),
+  ).toThrow("different maintenance");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
+});
+
+test("service queue cancels revoked approval after exhausting inspection checks", async () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  await queue.drain();
+  let inspected = 0;
+  f.setNative({
+    inspect: async () => {
+      inspected++;
+      throw new Error("Native inspection unavailable");
+    },
+  });
+  for (const delay of [30_000, 15_000, 45_000]) {
+    f.advance(delay);
+    await queue.drain();
+  }
+  expect(queue.listServices()[0].reconciliation?.attempts).toBe(3);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  await queue.drain();
+  expect(queue.listServices()[0].status).toBe("rejected");
+  expect(inspected).toBe(3);
+  expect(f.counts()).toEqual({ executed: 0, observed: 0 });
+});
+test("service queue bounds a hung inspection and permits later drain cycles", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = serviceQueueFixture(),
+      queue = f.create();
+    f.setNative({ inspect: () => new Promise(() => {}) });
+    const drain = queue.drain();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await drain;
+    expect(queue.listServices()[0].reconciliation?.attempts).toBe(1);
+    f.advance(5000);
+    const retry = queue.drain();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await retry;
+    expect(queue.listServices()[0].reconciliation?.attempts).toBe(2);
+    expect(f.counts()).toEqual({ executed: 0, observed: 0 });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("service queue ignores late execute replies after timeout and observes the retained generation", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = serviceQueueFixture(),
+      queue = f.create();
+    await queue.drain();
+    f.advance(30_000);
+    let executed = 0;
+    let complete: ((value: MaintenanceServiceNativeObservation) => void) | undefined;
+    let late: MaintenanceServiceNativeObservation | undefined;
+    f.setNative({
+      execute: async (job) => {
+        executed++;
+        const claimed = f.claim(job),
+          result = f.observe(claimed, "candidate", true);
+        late = {
+          ...result.job.observation!,
+          record: result.evidence.record,
+          assertCurrent: result.evidence.assertCurrent,
+        };
+        return new Promise((resolve) => {
+          complete = resolve;
+        });
+      },
+    });
+    const drain = queue.drain();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await drain;
+    expect(queue.listServices()[0].status).toBe("running");
+    f.advance(5000);
+    await queue.drain();
+    expect(queue.listServices()[0].status).toBe("succeeded");
+    const retained = f.adapter.journal.read();
+    complete!(late!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.adapter.journal.read()).toEqual(retained);
+    expect(executed).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+test("service queue bounds a hung observation without replaying native execution", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = serviceQueueFixture(),
+      queue = f.create();
+    await queue.drain();
+    f.advance(30_000);
+    await queue.drain();
+    f.advance(5000);
+    f.setNative({ observe: () => new Promise(() => {}) });
+    const drain = queue.drain();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await drain;
+    expect(queue.listServices()[0].reconciliation?.attempts).toBe(2);
+    await queue.drain();
+    expect(f.counts().executed).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("service queue gives post-dispatch observation its own bounded check budget", async () => {
+  const f = serviceQueueFixture(),
+    queue = f.create();
+  await queue.drain();
+  const inspect = f.setNative({}).inspect;
+  f.setNative({
+    inspect: async () => {
+      throw new Error("Temporary inspection failure");
+    },
+  });
+  f.advance(30_000);
+  await queue.drain();
+  f.advance(5000);
+  await queue.drain();
+  expect(queue.listServices()[0].reconciliation?.attempts).toBe(2);
+  f.setNative({ inspect });
+  f.advance(15_000);
+  await queue.drain();
+  expect(queue.listServices()[0].status).toBe("running");
+  expect(queue.listServices()[0].reconciliation?.attempts).toBe(1);
+  f.advance(5000);
+  await queue.drain();
+  expect(queue.listServices()[0].status).toBe("succeeded");
+  expect(f.counts()).toEqual({ executed: 1, observed: 1 });
 });

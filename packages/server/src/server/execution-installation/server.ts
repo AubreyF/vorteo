@@ -1,4 +1,7 @@
 import { DaemonAutomation } from "./daemon-automation.js";
+import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
+import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
+import { maintenanceServiceView } from "./maintenance/service-view.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { projectEnrollmentStatus } from "./maintenance/status.js";
 import { createDaemonStandingRuntime } from "./maintenance/daemon-standing-runtime.js";
@@ -323,6 +326,7 @@ export function createInstallationServer(
     {
       ...config.restartApprovalPolicy,
       standingDecision: standingRuntime.standingDecision,
+      serviceAuthority: standingRuntime.serviceAuthority,
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
       supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
@@ -624,6 +628,10 @@ export function createInstallationServer(
             ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
+            maintenanceServices: {
+              available: host && restarts.serviceMaintenanceAvailable(),
+              operations: host && restarts.serviceMaintenanceAvailable() ? ["replacement"] : [],
+            },
             coordinatorMaintenance: {
               ...coordinator,
               ownerApprovalRequired: !(host && daemonAutomation.activation("coordinator")),
@@ -850,7 +858,22 @@ export function createInstallationServer(
     const jobs = restarts.list();
     const helpers = restarts.listHelpers();
     const monitors = restarts.listMonitors();
+    const services = restarts.listServices();
     res.json({
+      ...(services.length
+        ? {
+            serviceMaintenance: {
+              requested: services.filter((job) => job.status === "pending").length,
+              queued: services.filter((job) => job.status === "approved").length,
+              unverified: services.filter((job) => job.status === "running").length,
+              attention: services.filter(
+                (job) =>
+                  ["pending", "approved", "running"].includes(job.status) &&
+                  job.reconciliation?.attempts === 3,
+              ).length,
+            },
+          }
+        : {}),
       ...(monitors.length
         ? {
             previewMonitor: {
@@ -968,6 +991,44 @@ export function createInstallationServer(
       .then((job) => res.status(201).json(job), next);
   });
   // Request-only credentials never authorize login, approval, delegation, or another daemon.
+  app.get("/api/installation/service-maintenance-requests/:id", authenticateUpdate, (req, res) => {
+    if (res.locals.updateRequester !== "host-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    const job = restarts.listServices().find((item) => item.id === req.params.id);
+    if (!job) {
+      res.sendStatus(404);
+      return;
+    }
+    res.json(maintenanceServiceView(job));
+  });
+  app.post("/api/installation/service-maintenance-requests", authenticateUpdate, (req, res) => {
+    if (res.locals.updateRequester !== "host-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    if (!restarts.serviceMaintenanceAvailable()) {
+      res.status(503).json({ error: "Native maintenance is unavailable" });
+      return;
+    }
+    const input = z
+      .strictObject({
+        proposal: MaintenanceServiceProposalSchema,
+        reason: z.string().min(1).max(4096),
+        requester: z.string().min(1).max(256).optional(),
+      })
+      .parse(req.body);
+    if (input.proposal.installationId !== config.public.installationId)
+      throw new RestartRequestError("Maintenance proposal belongs to another installation");
+    const job = restarts.requestService(
+      input.proposal,
+      input.reason,
+      "host-agent",
+      input.requester,
+    );
+    res.status(201).json(maintenanceServiceView(job));
+  });
   app.get("/api/installation/helper-requests/:id", (req, res) => {
     const token = extractHttpBearerToken(req.header("authorization"));
     if (!matchesToken(token, config.hostAgentTokenHash)) {
@@ -1174,6 +1235,17 @@ export function createInstallationServer(
         next(error);
       }
     })();
+  });
+  app.post("/api/installation/owner/maintenance-services/query", (_req, res) => {
+    res.json({
+      installationId: config.public.installationId,
+      available: restarts.serviceMaintenanceAvailable(),
+      jobs: restarts.listServices().map(maintenanceServiceView),
+    });
+  });
+  app.post("/api/installation/owner/maintenance-services/cancel", (req, res) => {
+    const input = MaintenanceServiceCancellationSchema.parse(req.body);
+    res.json(maintenanceServiceView(restarts.cancelService(input.id, input.revision)));
   });
   app.post("/api/installation/owner/monitors/query", (_req, res) =>
     res.json({ jobs: restarts.listMonitors() }),

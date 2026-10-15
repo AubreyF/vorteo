@@ -1,4 +1,6 @@
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
 import { DaemonAutomation } from "./daemon-automation.js";
 import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
@@ -51,6 +53,89 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 
 const cleanups: Array<() => Promise<void>> = [];
+
+test("service maintenance status and cancellation require owner access", async () => {
+  const f = await fixture();
+  const query = "/api/installation/owner/maintenance-services/query";
+  const cancel = "/api/installation/owner/maintenance-services/cancel";
+  const agentRequests = "/api/installation/service-maintenance-requests";
+  expect((await f.request(agentRequests, undefined, {})).status).toBe(401);
+  expect((await f.request(agentRequests, "guest-agent-test-token", {})).status).toBe(403);
+  expect((await f.request(agentRequests, "host-agent-test-token", {})).status).toBe(503);
+  const capabilities = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capabilities.maintenanceServices).toEqual({ available: false, operations: [] });
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"]) {
+    expect((await f.request(query, credential, {})).status).toBe(401);
+    expect((await f.request(cancel, credential, {})).status).toBe(401);
+  }
+  const response = await f.request(query, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ available: false, jobs: [] });
+  const missing = await f.request(cancel, "owner-test-password", {
+    id: randomUUID(),
+    revision: randomUUID(),
+  });
+  expect(missing.status).toBe(409);
+  const job = MaintenanceServiceJobSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    proposal: {
+      id: randomUUID(),
+      installationId: randomUUID(),
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      repository: "https://example.test/private-repository",
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+    },
+    reason: "Private operator reason",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    detail: "Awaiting native inspection",
+    evidence: [],
+  });
+  job.proposal.id = job.id;
+  new FileBootstrapRequestJournal(f.root).writeLifecycle([job]);
+  const publicResponse = await f.request("/api/installation/restart-summary");
+  const summary = await publicResponse.json();
+  expect(summary).toMatchObject({
+    serviceMaintenance: { requested: 1, queued: 0, unverified: 0, attention: 0 },
+  });
+  expect(JSON.stringify(summary)).not.toContain("Private operator reason");
+  const listing = await (await f.request(query, "owner-test-password", {})).json();
+  expect(listing.jobs[0]).toMatchObject({ id: job.id, revision: job.revision, cancelable: true });
+  expect(listing.jobs[0]).not.toHaveProperty("proposal");
+  expect(listing.jobs[0]).not.toHaveProperty("evidence");
+  const agentView = await (
+    await f.request(`${agentRequests}/${job.id}`, "host-agent-test-token")
+  ).json();
+  expect(agentView).toEqual(listing.jobs[0]);
+  expect((await f.request(`${agentRequests}/${job.id}`, "guest-agent-test-token")).status).toBe(
+    403,
+  );
+  const cancelled = await f.request(cancel, "owner-test-password", {
+    id: job.id,
+    revision: job.revision,
+  });
+  expect(cancelled.status).toBe(200);
+  expect(await cancelled.json()).toMatchObject({
+    id: job.id,
+    status: "rejected",
+    cancelable: false,
+  });
+  expect(
+    (await f.request(cancel, "owner-test-password", { id: job.id, revision: job.revision })).status,
+  ).toBe(409);
+  expect(f.calls).toEqual([]);
+});
 
 test("enrollment status is owner-only and reading it cannot approve or dispatch maintenance", async () => {
   const f = await fixture();

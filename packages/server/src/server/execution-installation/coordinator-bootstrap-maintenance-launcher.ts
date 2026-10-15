@@ -12,6 +12,7 @@ import {
   assertBootstrapPathsProtected,
   digestBootstrapArtifact,
   readBootstrapPreparedFile,
+  verifyBootstrapPreparedDependency,
 } from "./coordinator-bootstrap-artifact.js";
 import {
   EnrollmentNativeIdentitySchema,
@@ -138,8 +139,9 @@ export async function verifyMaintenanceLauncherArtifacts(input: {
   );
   for (const release of [inspected.plan.previous, inspected.plan.candidate]) {
     if (!release) continue;
-    for (const file of [release.node, release.entrypoint, release.setup])
-      await readBootstrapPreparedFile(file, input.writableMountRoots);
+    for (const file of [release.node, release.entrypoint])
+      await verifyBootstrapPreparedDependency(file, input.writableMountRoots);
+    await readBootstrapPreparedFile(release.setup, input.writableMountRoots);
     if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
       throw new BootstrapRequestConflict("Maintenance launcher runtime changed");
   }
@@ -185,4 +187,48 @@ export async function verifyMaintenanceLauncherProcess(input: {
   if (!isDeepStrictEqual(first, second))
     throw new BootstrapRequestConflict("Maintenance launcher lifetime changed during observation");
   return second;
+}
+
+/** Generate the exact reviewed user-service plist without shell interpolation.
+ * Selection is a separate durable effect; rendering never registers a service. */
+export function renderMaintenanceUserLauncher(
+  plan: MaintenanceLauncherPlan,
+  selected: "previous" | "candidate",
+): Buffer {
+  const launcher = maintenanceUserLauncher(plan, selected);
+  const escape = (value: string) =>
+    value.replace(/[&<>"']/g, (character) => {
+      switch (character) {
+        case "&":
+          return "&amp;";
+        case "<":
+          return "&lt;";
+        case ">":
+          return "&gt;";
+        case '"':
+          return "&quot;";
+        default:
+          return "&apos;";
+      }
+    });
+  const string = (value: string) => `<string>${escape(value)}</string>`;
+  const bytes = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>',
+    "<key>Label</key>",
+    string(launcher.Label),
+    "<key>ProgramArguments</key><array>",
+    ...launcher.ProgramArguments.map(string),
+    "</array>",
+    "<key>RunAtLoad</key><true/>",
+    "<key>KeepAlive</key><false/>",
+    "<key>ProcessType</key>",
+    string(launcher.ProcessType),
+    `<key>Umask</key><integer>${launcher.Umask}</integer>`,
+    "<key>StandardErrorPath</key>",
+    string(launcher.StandardErrorPath),
+    "</dict></plist>",
+  ].join("\n");
+  return Buffer.from(bytes);
 }

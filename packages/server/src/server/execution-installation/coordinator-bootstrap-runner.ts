@@ -743,7 +743,23 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && identifier && role === "maintenance-control") {
+  if (setup && role === "maintenance-service") {
+    void import("./coordinator-bootstrap-maintenance-service-runner.js")
+      .then(({ runNativeMaintenanceService }) =>
+        runNativeMaintenanceService(setup, process.argv.slice(4)),
+      )
+      .catch(() => {
+        process.stderr.write("Native maintenance attempt requires retained observation.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && role === "maintenance-launcher" && process.argv.length === 4) {
+    void import("./coordinator-bootstrap-maintenance-controller.js")
+      .then(({ runPersistentMaintenanceController }) => runPersistentMaintenanceController(setup))
+      .catch(() => {
+        process.stderr.write("Selected maintenance controller could not establish readiness.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "maintenance-control") {
     void import("./coordinator-bootstrap-maintenance-controller.js")
       .then(({ runMaintenanceControl }) =>
         runMaintenanceControl({

@@ -28,6 +28,8 @@ export function reserveMaintenanceLauncherEffect(input: {
   grantRevision: string;
   stepId: string;
   generation: string;
+  /** Synchronous independent custody recheck inside lifecycle exclusion. */
+  assertCurrent(): void;
 }) {
   const inspected = inspectMaintenanceLauncherPlan(input.plan, input.account);
   const directory = input.enrollmentStateDirectory;
@@ -60,6 +62,8 @@ export function reserveMaintenanceLauncherEffect(input: {
     )
       throw new BootstrapRequestConflict("Standing grant no longer admits launcher replacement");
     assertLauncherStep(input, inspected.planSha256, step, progress);
+    if (typeof input.assertCurrent !== "function" || input.assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Launcher custody requires a synchronous native recheck");
     const intent = MaintenanceLauncherIntentSchema.parse({
       version: 1,
       id: randomUUID(),
@@ -105,7 +109,10 @@ function assertLauncherStep(
   progress: import("@getpaseo/protocol/installation-enrollment").EnrollmentStepProgress | undefined,
 ) {
   const artifact = (slot: MaintenanceLauncherPlan["candidate"] | null) =>
-    slot && { sourceCommit: slot.sourceCommit, artifactSha256: slot.artifactSha256 };
+    slot && {
+      sourceCommit: slot.sourceCommit,
+      artifactSha256: slot.artifactSha256,
+    };
   if (
     step?.target !== input.plan.identity.target ||
     step.operation !== "replacement" ||

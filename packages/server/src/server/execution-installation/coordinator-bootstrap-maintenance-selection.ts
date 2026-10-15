@@ -5,6 +5,8 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { enrollmentManifestDigest } from "./maintenance/authorization.js";
 import { inspectMaintenanceLauncherPlan } from "./coordinator-bootstrap-maintenance-launcher.js";
 
+import { inspectRetainedMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-binding.js";
+
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const MaintenanceLauncherIntentSchema = z.strictObject({
   version: z.literal(1),
@@ -97,4 +99,53 @@ function assertSelectionAuthority(
     intent.planSha256 !== inspected.planSha256
   )
     throw new BootstrapRequestConflict("Launcher selection authority differs from enrollment");
+}
+
+/** Later replacements refer to the existing lifecycle job, never an activation
+ * step synthesized to bypass the initial enrollment transaction. */
+export const MaintenanceServiceSelectionSchema = z.strictObject({
+  version: z.literal(2),
+  requestId: z.uuid(),
+  requestRevision: z.uuid(),
+  intentId: z.uuid(),
+  generation: z.uuid(),
+  planSha256: digest,
+  slot: z.enum(["candidate", "previous"]),
+});
+
+export function inspectMaintenanceServiceSelection(input: {
+  plan: unknown;
+  account: { uid: number; home: string };
+  enrollment: unknown;
+  retained: unknown;
+  selection: unknown;
+}) {
+  const context = inspectRetainedMaintenanceServiceEffect(input);
+  const selection = MaintenanceServiceSelectionSchema.parse(input.selection);
+  const state = InstallationEnrollmentStateSchema.parse(input.enrollment);
+  if (state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Service selection has no enrollment");
+  const { grant } = state;
+  const target = grant.manifest.targets.find(
+    (item) => item.target === context.plan.identity.target,
+  );
+  if (
+    grant.id !== context.reservation.grantId ||
+    grant.manifest.installationId !== context.plan.identity.installationId ||
+    enrollmentManifestDigest(grant.manifest) !== context.reservation.manifestSha256 ||
+    target?.identitySha256 !== context.identitySha256 ||
+    !target.operations.includes("replacement")
+  )
+    throw new BootstrapRequestConflict("Service selection differs from enrolled identity");
+  const selected = context.plan[selection.slot];
+  if (
+    !selected ||
+    selection.requestId !== context.job.id ||
+    selection.requestRevision !== context.reservation.requestRevision ||
+    selection.intentId !== context.intent.id ||
+    selection.generation !== context.reservation.generation ||
+    selection.planSha256 !== context.planSha256
+  )
+    throw new BootstrapRequestConflict("Service selection differs from retained effect");
+  return { ...context, selection, selected };
 }

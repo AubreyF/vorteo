@@ -4,6 +4,11 @@ import { afterEach, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { MaintenanceDashboard } from "./maintenance-dashboard";
+import {
+  MaintenanceServiceQueue,
+  type MaintenanceServiceQueueProps,
+} from "./maintenance-service-queue";
+import type { MaintenanceServiceView } from "@getpaseo/protocol/maintenance-service-status";
 
 const mounted: Array<{ root: Root; container: HTMLElement }> = [];
 let refreshCount = 0;
@@ -128,3 +133,73 @@ test("cached readiness expires without a server response", async () => {
   await expect.poll(() => headline?.textContent).toContain("Readiness unverified");
   expect(view.container.textContent).toContain("Last known observation has expired");
 });
+
+test.each([390, 1133])(
+  "maintenance requests show durable uncertainty and cancellation at width %s",
+  async (width) => {
+    await page.viewport(width, 900);
+    const job: MaintenanceServiceView = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      target: "maintenance-controller",
+      operation: "replacement",
+      reason: "Update maintenance controller",
+      createdAt: "2026-10-15T20:00:00.000Z",
+      status: "approved",
+      detail: "Cancellation remains available before dispatch.",
+      cancelable: true,
+      dispatchAfter: "2026-10-15T20:00:30.000Z",
+      generation: null,
+      outcome: null,
+      observedAt: null,
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+    let cancelled: MaintenanceServiceView | null = null;
+    function recordCancel(value: MaintenanceServiceView) {
+      cancelled = value;
+    }
+    function render(error: string | null, current = job) {
+      const queueStatus = { installationId: job.id, available: true, jobs: [current] };
+      renderServiceQueue(root, {
+        status: queueStatus,
+        error,
+        refreshing: false,
+        busy: false,
+        onRefresh: recordRefresh,
+        onCancel: recordCancel,
+      });
+    }
+    render(null);
+    await page.getByRole("button", { name: "Cancel maintenance" }).click();
+    expect(cancelled).toEqual(job);
+    render("Connection lost during cancellation. Refresh before another attempt.");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Connection lost");
+    await expect.element(page.getByRole("button", { name: "Cancel maintenance" })).toBeDisabled();
+    render(null, {
+      ...job,
+      status: "running",
+      cancelable: false,
+      detail: "Retained generation will only be observed.",
+      outcome: "unknown",
+      observedAt: "2026-10-15T20:01:00.000Z",
+    });
+    expect(container.textContent).toContain("Outcome unverified");
+    expect(container.textContent).toContain("Last checked");
+    expect(container.textContent).not.toContain("Last verified");
+    expect(container.textContent).not.toContain("Candidate verified");
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    const bounds = container
+      .querySelector('[data-testid="maintenance-request-queue"]')!
+      .getBoundingClientRect();
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(width);
+    if (width === 390) await page.screenshot({ path: "maintenance-requests-phone.png" });
+  },
+);
+
+function renderServiceQueue(root: Root, props: MaintenanceServiceQueueProps) {
+  act(() => root.render(<MaintenanceServiceQueue {...props} />));
+}

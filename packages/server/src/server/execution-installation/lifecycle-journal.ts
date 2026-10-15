@@ -5,6 +5,7 @@ import { PreviewMonitorJobSchema } from "@getpaseo/protocol/preview-monitor-main
 import { z } from "zod";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 
 // The existing coordinator owns this single ledger. Legacy readers reject helper
 // entries rather than dropping their operation and executing a daemon restart.
@@ -12,6 +13,7 @@ const LifecycleJobSchema = z.discriminatedUnion("target", [
   RestartJobSchema,
   NativeHelperJobSchema,
   PreviewMonitorJobSchema,
+  MaintenanceServiceJobSchema,
 ]);
 const LifecycleJournalSchema = z.array(LifecycleJobSchema);
 export type LifecycleJob = z.infer<typeof LifecycleJobSchema>;

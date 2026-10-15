@@ -65,6 +65,14 @@ export const RestartRequestSchema = z.strictObject({
 export type RestartRequest = z.infer<typeof RestartRequestSchema>;
 
 export const RestartSummarySchema = z.object({
+  serviceMaintenance: z
+    .object({
+      requested: z.number().int().nonnegative(),
+      queued: z.number().int().nonnegative(),
+      unverified: z.number().int().nonnegative(),
+      attention: z.number().int().nonnegative(),
+    })
+    .optional(),
   // COMPAT(previewMonitorMaintenance): older clients ignore distinct monitor counts.
   previewMonitor: z
     .object({

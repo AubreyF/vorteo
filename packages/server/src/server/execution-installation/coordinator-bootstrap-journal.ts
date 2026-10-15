@@ -298,9 +298,19 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     admission?: LifecycleWriteAdmission,
     activationChild?: LifecycleActivationChild,
   ): void {
+    this.mutateLifecycle(() => value, admission, activationChild);
+  }
+
+  /** Compute a change from the current protected journal, not a caller's stale
+   * snapshot. Both callbacks run synchronously under the existing kernel lock. */
+  mutateLifecycle(
+    update: (previous: readonly LifecycleJob[]) => LifecycleJob[],
+    admission: LifecycleWriteAdmission | undefined,
+    activationChild?: LifecycleActivationChild,
+  ): void {
     this.withLock(() => {
-      const next = parseLifecycleJournal(value);
       const priorJobs = this.readLifecycle();
+      const next = parseLifecycleJournal(update(structuredClone(priorJobs)));
       if (admission && admission(structuredClone(priorJobs), structuredClone(next)) !== undefined)
         throw new BootstrapRequestConflict("Lifecycle admission must complete synchronously");
       const retained = coordinatorLifecycleWork(priorJobs);

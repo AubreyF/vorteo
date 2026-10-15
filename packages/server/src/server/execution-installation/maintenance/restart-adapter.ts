@@ -8,6 +8,10 @@ import type { LifecycleActivationChild } from "../coordinator-bootstrap-maintena
 import { BootstrapRequestConflict } from "../coordinator-bootstrap.js";
 import { FileEnrollmentJournal } from "./authorization.js";
 import {
+  assertMaintenanceServiceAdmission,
+  evaluateMaintenanceServiceAuthority,
+} from "./service-admission.js";
+import {
   assertStandingRestartAdmission,
   evaluateStandingRestart,
   type StandingRestartPhase,
@@ -33,6 +37,7 @@ export function createStandingRestartAdapter(input: {
   installationId: string;
   credentialBindingSha256: string;
   ports: StandingRestartAdmissionPorts;
+  now?: () => number;
 }) {
   const enrollment = new FileEnrollmentJournal(input.directory);
   const lifecycle = new FileBootstrapRequestJournal(input.directory);
@@ -49,10 +54,23 @@ export function createStandingRestartAdapter(input: {
     return retainAuthorizedDecision(job, state, input);
   };
   const journal: RestartJournal = {
+    mutate: (update, evidence) =>
+      lifecycle.mutateLifecycle(update, (previous, next) => {
+        const state = enrollment.readUnderLifecycleLock();
+        assertStandingRestartAdmission({ ...input.ports, previous, next, state, evaluate });
+        assertMaintenanceServiceAdmission({
+          previous,
+          next,
+          state,
+          evidence,
+          now: input.now?.() ?? Date.now(),
+        });
+        return undefined;
+      }),
     read: () => lifecycle.readLifecycle(),
     admissionAvailable: () => lifecycle.lifecycleAdmissionAvailable(),
     activationChildAdmissionAvailable: (job) => Boolean(standingDecision(job)?.activationStep),
-    write: (jobs) => {
+    write: (jobs, serviceEvidence) => {
       const children = jobs.filter(
         (job): job is RestartJob =>
           (job.target === "host" || job.target === "container-daemon") &&
@@ -67,6 +85,13 @@ export function createStandingRestartAdapter(input: {
         (previous, next) => {
           const state = enrollment.readUnderLifecycleLock();
           assertStandingRestartAdmission({ ...input.ports, previous, next, state, evaluate });
+          assertMaintenanceServiceAdmission({
+            previous,
+            next,
+            state,
+            evidence: serviceEvidence,
+            now: input.now?.() ?? Date.now(),
+          });
           // Initial candidates were built for the exact combined review. They must
           // remain bound even on an authenticated manual supersession of that child.
           const retainedChild = child
@@ -94,7 +119,17 @@ export function createStandingRestartAdapter(input: {
       );
     },
   };
-  return { journal, standingDecision };
+  const serviceAuthority = (
+    job: import("@getpaseo/protocol/maintenance-service").MaintenanceServiceJob,
+  ) => {
+    try {
+      return evaluateMaintenanceServiceAuthority(enrollment.readPolicySnapshot(), job);
+    } catch (error) {
+      if (error instanceof BootstrapRequestConflict) return null;
+      throw error;
+    }
+  };
+  return { journal, standingDecision, serviceAuthority };
 }
 
 function activationChild(job: RestartJob): LifecycleActivationChild {

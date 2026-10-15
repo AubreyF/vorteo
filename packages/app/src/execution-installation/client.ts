@@ -3,6 +3,12 @@ import {
   type NativeHelperJob,
 } from "@getpaseo/protocol/native-helper-maintenance";
 import {
+  MaintenanceServiceQueueStatusSchema,
+  MaintenanceServiceViewSchema,
+  type MaintenanceServiceView,
+  type MaintenanceServiceQueueStatus,
+} from "@getpaseo/protocol/maintenance-service-status";
+import {
   InstallationEnrollmentStatusSchema,
   type InstallationEnrollmentStatus,
 } from "@getpaseo/protocol/installation-enrollment";
@@ -291,6 +297,25 @@ export class InstallationClient {
         return null;
       throw error;
     }
+  }
+
+  async maintenanceServices(): Promise<MaintenanceServiceQueueStatus> {
+    const status = MaintenanceServiceQueueStatusSchema.parse(
+      await this.request("maintenance-services/query", {}),
+    );
+    if (status.installationId !== this.installation.installationId)
+      throw new Error("Maintenance queue belongs to another installation");
+    return status;
+  }
+
+  async cancelMaintenanceService(job: MaintenanceServiceView): Promise<MaintenanceServiceView> {
+    if (!job.cancelable) throw new Error("Maintenance was already dispatched");
+    const result = MaintenanceServiceViewSchema.parse(
+      await this.request("maintenance-services/cancel", { id: job.id, revision: job.revision }),
+    );
+    if (result.id !== job.id || result.status !== "rejected" || result.cancelable)
+      throw new Error("Maintenance cancellation was not confirmed. Refresh its receipt.");
+    return result;
   }
 
   async enrollmentStatus(): Promise<InstallationEnrollmentStatus | null> {

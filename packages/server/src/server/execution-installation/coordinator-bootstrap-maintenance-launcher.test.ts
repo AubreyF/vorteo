@@ -1,9 +1,26 @@
-import { afterEach, expect, test } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { verifyPersistentMaintenanceReview } from "./coordinator-bootstrap-maintenance-controller.js";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  linkSync,
+  symlinkSync,
+  truncateSync,
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import {
+  digestBootstrapArtifact,
+  verifyBootstrapPreparedDependency,
+} from "./coordinator-bootstrap-artifact.js";
 import { inspectMaintenanceLauncherSelection } from "./coordinator-bootstrap-maintenance-selection.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
@@ -17,6 +34,7 @@ import {
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 const roots: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 async function fixture(separateEnrollment = false) {
@@ -38,7 +56,10 @@ async function fixture(separateEnrollment = false) {
   const pin = (file: string, bytes: string) => {
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     writeFileSync(file, bytes, { mode: 0o600 });
-    return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+    return {
+      path: file,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
   };
   const release = async (sourceCommit: string) => {
     const directory = path.join(root, "maintenance-runtimes", sourceCommit);
@@ -92,7 +113,10 @@ async function fixture(separateEnrollment = false) {
       identitySha256: enrollmentNativeIdentityDigest(plan.identity),
       target: plan.identity.target,
       sourceCommit: selected.sourceCommit,
-      nativeAdmission: { path: path.join(state, "native-admission.json"), sha256: "a".repeat(64) },
+      nativeAdmission: {
+        path: path.join(state, "native-admission.json"),
+        sha256: "a".repeat(64),
+      },
     });
     selected.setup = pin(selected.setup.path, bytes);
   }
@@ -120,7 +144,9 @@ test.each([
   const f = await fixture();
   const selected = mode === "previous" ? "previous" : "candidate";
   const slot = f.plan[selected]!;
-  const service = `${f.plan.identity.environment === "host" ? f.plan.identity.serviceDomain : ""}/${f.plan.identity.environment === "host" ? f.plan.identity.serviceLabel : ""}`;
+  const service = `${f.plan.identity.environment === "host" ? f.plan.identity.serviceDomain : ""}/${
+    f.plan.identity.environment === "host" ? f.plan.identity.serviceLabel : ""
+  }`;
   const process = {
     pid: 4312,
     parentPid: 1,
@@ -145,7 +171,9 @@ test.each([
       readService: async () => {
         reads++;
         const pid = mode === "service-change" && reads > 1 ? 4313 : process.pid;
-        return `${service} = {\n\tpid = ${pid}\n${mode === "ambiguous-service" ? "\tpid = 9999\n" : ""}}`;
+        return `${service} = {\n\tpid = ${pid}\n${
+          mode === "ambiguous-service" ? "\tpid = 9999\n" : ""
+        }}`;
       },
       inspectProcess: async () => ({
         ...process,
@@ -157,6 +185,46 @@ test.each([
   if (["candidate", "previous", "new-boot"].includes(mode))
     await expect(result).resolves.toEqual(process);
   else await expect(result).rejects.toThrow();
+});
+test.each(["hardlink", "symlink", "oversized", "writable", "mount", "deadline"])(
+  "streamed dependency refuses %s without relaxing custody",
+  async (mode) => {
+    const f = await fixture();
+    const file = f.plan.candidate.node;
+    if (mode === "hardlink") linkSync(file.path, `${file.path}.alias`);
+    if (mode === "symlink") {
+      const original = file.path;
+      file.path = `${original}.alias`;
+      symlinkSync(original, file.path);
+    }
+    if (mode === "oversized") truncateSync(file.path, 256 * 1024 * 1024 + 1);
+    if (mode === "writable") chmodSync(file.path, 0o622);
+    const mounts = mode === "mount" ? [f.plan.candidate.directory] : [];
+    const clock =
+      mode === "deadline"
+        ? vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(30_000)
+        : null;
+    try {
+      await expect(verifyBootstrapPreparedDependency(file, mounts)).rejects.toThrow();
+    } finally {
+      clock?.mockRestore();
+    }
+  },
+);
+test("native runtime dependencies exceed document size without relaxing setup bounds", async () => {
+  const f = await fixture();
+  const bytes = Buffer.alloc(2 * 1024 * 1024, 7);
+  const candidate = f.plan.candidate;
+  writeFileSync(candidate.node.path, bytes);
+  candidate.node.sha256 = createHash("sha256").update(bytes).digest("hex");
+  candidate.artifactSha256 = await digestBootstrapArtifact(candidate.directory);
+  await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({ plan: f.plan });
+  writeFileSync(candidate.node.path, Buffer.alloc(bytes.length, 8));
+  await expect(verifyMaintenanceLauncherArtifacts(f)).rejects.toThrow("digest changed");
+  writeFileSync(candidate.node.path, bytes);
+  writeFileSync(candidate.setup.path, bytes);
+  candidate.setup.sha256 = candidate.node.sha256;
+  await expect(verifyMaintenanceLauncherArtifacts(f)).rejects.toThrow("bounded regular file");
 });
 test("both immutable slots retain the same login-only service identity", async () => {
   const f = await fixture();
@@ -198,6 +266,9 @@ test.each([
   "valid",
   "separate-storage",
   "separate-lock",
+  "changed-custody",
+  "async-custody",
+  "missing-custody",
   "revoked",
   "generation",
   "artifact",
@@ -286,7 +357,18 @@ test.each([
     grantRevision: enrolled.grant.revision,
     stepId: manifest.steps[0].id,
     generation: reserved.activation.steps[0].generation,
+    assertCurrent: () => {
+      // Native custody must be checked inside the same lock as the reservation.
+      expect(() =>
+        new FileBootstrapRequestJournal(f.enrollmentStateDirectory).withRecoveryTransaction(
+          () => undefined,
+        ),
+      ).toThrow("storage is busy");
+      if (mode === "changed-custody") throw new Error("Native selection changed");
+      if (mode === "async-custody") return Promise.resolve();
+    },
   };
+  if (mode === "missing-custody") Object.assign(input, { assertCurrent: undefined });
   if (mode === "revoked")
     changeStandingGrant(journal, {
       expectedRevision: enrolled.grant.revision,
@@ -304,6 +386,16 @@ test.each([
   }
   if (mode !== "valid" && mode !== "separate-storage") {
     expect(() => reserveMaintenanceLauncherEffect(input)).toThrow();
+    expect(journal.read()).toEqual(mode === "revoked" ? journal.read() : reserved);
+    const { existsSync } = await import("node:fs");
+    expect(
+      existsSync(
+        path.join(
+          f.enrollmentStateDirectory,
+          `maintenance-launcher-${input.stepId}-${input.generation}.json`,
+        ),
+      ),
+    ).toBe(false);
     return;
   }
   const { InstallationRestarts } = await import("./restarts.js");
@@ -337,6 +429,17 @@ test.each([
   queue.decide(pending.id, pending.revision, "reject");
   writeFileSync(enrollmentFile, retainedEnrollment, { mode: 0o600 });
   expect(queue.list()[0]?.status).toBe("rejected");
+  const review = { id: randomUUID(), revision: manifest.revision, manifest };
+  expect(() => verifyPersistentMaintenanceReview(f.enrollmentStateDirectory, review)).not.toThrow();
+  expect(() => verifyPersistentMaintenanceReview(f.enrollmentStateDirectory, undefined)).toThrow(
+    "retained enrollment",
+  );
+  expect(() =>
+    verifyPersistentMaintenanceReview(f.enrollmentStateDirectory, {
+      ...review,
+      manifest: { ...manifest, revision: randomUUID() },
+    }),
+  ).toThrow("retained enrollment");
   const receipt = reserveMaintenanceLauncherEffect(input);
   expect(receipt.intent.generation).toBe(input.generation);
   const startup = {
@@ -438,3 +541,1124 @@ test.each([
   });
   expect(bootstrap.lifecycleAdmissionAvailable()).toBe(true);
 });
+
+test.each(["complete", "partial", "custody", "symlink", "hardlink", "missing"] as const)(
+  "launcher file publication retains a nonreplayable attempt: %s",
+  async (mode) => {
+    const { selectMaintenanceFiles } =
+      await import("./coordinator-bootstrap-maintenance-file-selection.js");
+    const { existsSync, unlinkSync } = await import("node:fs");
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-publication-")));
+    roots.push(root);
+    const launcher = path.join(root, "launcher.plist");
+    const selection = path.join(root, "selection.json");
+    const attemptFile = path.join(root, "attempt.json");
+    const old = Buffer.from("retained old bytes");
+    const next = Buffer.from("reviewed candidate bytes");
+    const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    writeFileSync(launcher, old, { mode: 0o600 });
+    writeFileSync(selection, old, { mode: 0o600 });
+    if (mode === "symlink") {
+      unlinkSync(selection);
+      symlinkSync(launcher, selection);
+    }
+    if (mode === "hardlink") {
+      unlinkSync(selection);
+      linkSync(launcher, selection);
+    }
+    if (mode === "missing") {
+      unlinkSync(launcher);
+      unlinkSync(selection);
+    }
+    const input = {
+      attemptFile,
+      reservationSha256: "a".repeat(64),
+      launcher: {
+        path: launcher,
+        previousSha256: mode === "missing" ? null : sha(old),
+        bytes: next,
+      },
+      selection: {
+        path: selection,
+        previousSha256: mode === "missing" ? null : sha(old),
+        bytes: next,
+      },
+      assertCurrent: () => {
+        if (mode === "custody") throw new Error("Native process changed");
+        // A write arriving after the initial read must not be overwritten.
+        if (mode === "partial") writeFileSync(selection, "concurrent change");
+      },
+    };
+    if (["custody", "symlink", "hardlink"].includes(mode)) {
+      expect(() => selectMaintenanceFiles(input)).toThrow();
+      expect(existsSync(attemptFile)).toBe(false);
+      expect(readFileSync(launcher)).toEqual(old);
+      return;
+    }
+    if (mode === "partial") {
+      expect(() => selectMaintenanceFiles(input)).toThrow("changed before publication");
+      expect(readFileSync(launcher)).toEqual(next);
+      expect(readFileSync(selection, "utf8")).toBe("concurrent change");
+    } else {
+      selectMaintenanceFiles(input);
+      expect(readFileSync(launcher)).toEqual(next);
+      expect(readFileSync(selection)).toEqual(next);
+    }
+    const retained = readFileSync(attemptFile);
+    expect(JSON.parse(retained.toString()).reservationSha256).toBe(input.reservationSha256);
+    // Even restoring every original byte cannot make this effect replayable.
+    writeFileSync(launcher, old);
+    writeFileSync(selection, old);
+    expect(() =>
+      selectMaintenanceFiles({
+        ...input,
+        launcher: { ...input.launcher, previousSha256: sha(old) },
+        selection: { ...input.selection, previousSha256: sha(old) },
+        assertCurrent: () => undefined,
+      }),
+    ).toThrow();
+    expect(readFileSync(attemptFile)).toEqual(retained);
+    expect(readFileSync(launcher)).toEqual(old);
+  },
+);
+
+test.each([
+  "valid",
+  "request",
+  "identity",
+  "approved-revision",
+  "plan",
+  "source",
+  "previous",
+  "grant",
+  "manifest",
+  "native-evidence",
+  "proposal",
+  "interval",
+  "future",
+  "not-running",
+  "consumed",
+  "recovery",
+  "native-success",
+  "native-runtime-readiness",
+  "native-grant-revoked",
+  "native-stop-failure",
+  "native-start-failure",
+  "native-bad-health",
+  "native-custody-changed",
+  "native-observation-timeout",
+] as const)("native service independently binds retained reservation: %s", async (mode) => {
+  const f = await fixture();
+  const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
+  const { inspectMaintenanceServiceExecution } =
+    await import("./coordinator-bootstrap-maintenance-service-binding.js");
+  const native = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const id = randomUUID();
+  const approvedRevision = randomUUID();
+  const proposal = {
+    id,
+    installationId: f.plan.identity.installationId,
+    requestedBy: "host-agent",
+    target: f.plan.identity.target,
+    identitySha256: native.identitySha256,
+    operation: "replacement",
+    planSha256: native.planSha256,
+    repository: "https://example.test/fixture",
+    sourceCommit: f.plan.candidate.sourceCommit,
+    artifactSha256: f.plan.candidate.artifactSha256,
+    previous: {
+      sourceCommit: f.plan.previous!.sourceCommit,
+      artifactSha256: f.plan.previous!.artifactSha256,
+    },
+  };
+  const proposalSha256 = createHash("sha256").update(JSON.stringify(proposal)).digest("hex");
+  const {
+    FileEnrollmentJournal,
+    enrollInstallation,
+    enrollmentManifestDigest,
+    changeStandingGrant,
+  } = await import("./maintenance/authorization.js");
+  const manifest = {
+    version: 1 as const,
+    operation: "installation-enrollment" as const,
+    installationId: f.plan.identity.installationId,
+    revision: randomUUID(),
+    createdAt: new Date(Date.now() - 240_000).toISOString(),
+    trustedRepositories: [proposal.repository],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 5 },
+    retryLimit: 3 as const,
+    rollback: "previous-compatible-runtime" as const,
+    recovery: "after-login" as const,
+    targets: (["recovery-launcher", "maintenance-controller", "coordinator"] as const).map(
+      (target) => ({
+        target,
+        identitySha256: target === proposal.target ? native.identitySha256 : "a".repeat(64),
+        operations: ["replacement" as const],
+      }),
+    ),
+    steps: [
+      {
+        id: randomUUID(),
+        target: proposal.target,
+        operation: "replacement" as const,
+        planSha256: native.planSha256,
+        candidate: { sourceCommit: proposal.sourceCommit, artifactSha256: proposal.artifactSha256 },
+        previous: proposal.previous,
+        dependsOn: [],
+      },
+    ],
+  };
+  if (
+    [
+      "native-success",
+      "native-runtime-readiness",
+      "native-grant-revoked",
+      "native-stop-failure",
+      "native-start-failure",
+      "native-bad-health",
+      "native-custody-changed",
+      "native-observation-timeout",
+    ].includes(mode)
+  ) {
+    const initialPlan = { ...f.plan, previous: null, candidate: f.plan.previous! };
+    manifest.steps[0] = {
+      ...manifest.steps[0]!,
+      planSha256: inspectMaintenanceLauncherPlan(initialPlan, f.account).planSha256,
+      candidate: {
+        sourceCommit: initialPlan.candidate.sourceCommit,
+        artifactSha256: initialPlan.candidate.artifactSha256,
+      },
+      previous: null,
+    };
+  }
+  const enrollmentJournal = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+  const enrolled = enrollInstallation(enrollmentJournal, {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: new Date(Date.now() - 180_000).toISOString(),
+    },
+  });
+  if (enrolled.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const binding = {
+    grantId: enrolled.grant.id,
+    grantRevision: enrolled.grant.revision,
+    manifestSha256: enrollmentManifestDigest(manifest),
+    proposalSha256,
+    requestRevision: approvedRevision,
+    nativeEvidenceSha256: "d".repeat(64),
+  };
+  const reservation = {
+    ...binding,
+    requestId: id,
+    generation: randomUUID(),
+    target: proposal.target,
+    operation: proposal.operation,
+    planSha256: native.planSha256,
+    identitySha256: native.identitySha256,
+    sourceCommit: proposal.sourceCommit,
+    artifactSha256: proposal.artifactSha256,
+    previous: proposal.previous,
+    reservedAt: new Date(Date.now() - 1000).toISOString(),
+  };
+  const job = MaintenanceServiceJobSchema.parse({
+    id,
+    revision: randomUUID(),
+    target: proposal.target,
+    operation: proposal.operation,
+    proposal,
+    reason: "Native fixture",
+    createdAt: new Date(Date.now() - 120_000).toISOString(),
+    status: "running",
+    detail: "Reserved",
+    evidence: [],
+    reservation,
+    approval: {
+      ...binding,
+      reviewedRevision: randomUUID(),
+      approvedAt: new Date(Date.now() - 90_000).toISOString(),
+      dispatchAfter: new Date(Date.now() - 60_000).toISOString(),
+    },
+  });
+  const mutations: Record<string, () => void> = {
+    request: () => {
+      job.proposal.id = randomUUID();
+    },
+    identity: () => {
+      job.proposal.identitySha256 = "e".repeat(64);
+    },
+    "approved-revision": () => {
+      job.approval!.requestRevision = randomUUID();
+    },
+    plan: () => {
+      job.proposal.planSha256 = "e".repeat(64);
+    },
+    source: () => {
+      job.proposal.sourceCommit = "e".repeat(40);
+    },
+    previous: () => {
+      job.proposal.previous = null;
+    },
+    grant: () => {
+      job.approval!.grantRevision = randomUUID();
+    },
+    manifest: () => {
+      job.approval!.manifestSha256 = "e".repeat(64);
+    },
+    "native-evidence": () => {
+      job.approval!.nativeEvidenceSha256 = "e".repeat(64);
+    },
+    proposal: () => {
+      job.approval!.proposalSha256 = "e".repeat(64);
+    },
+    interval: () => {
+      job.approval!.dispatchAfter = job.approval!.approvedAt;
+    },
+  };
+  mutations[mode]?.();
+  if (mode === "future") {
+    reservation.reservedAt = new Date(Date.now() + 60_000).toISOString();
+    job.reservation!.reservedAt = reservation.reservedAt;
+  }
+  if (mode === "not-running") job.status = "approved";
+  if (mode === "consumed")
+    job.effectIntent = {
+      id: randomUUID(),
+      generation: reservation.generation,
+      requestRevision: approvedRevision,
+      nativeEvidenceSha256: "d".repeat(64),
+      consumedAt: new Date().toISOString(),
+      executor: {
+        pid: 10,
+        parentPid: 1,
+        uid: process.getuid!(),
+        bootId: randomUUID(),
+        startIdentity: "100:1",
+        argumentsSha256: "f".repeat(64),
+        executable: "/fixture/node",
+      },
+    };
+  if (mode === "recovery") job.operation = "recovery";
+  const inspect = () =>
+    inspectMaintenanceServiceExecution({
+      retained: job,
+      reservation,
+      plan: f.plan,
+      account: f.account,
+    });
+  const nativeCase = mode.startsWith("native-") && mode !== "native-evidence";
+  if (mode !== "valid" && !nativeCase) {
+    expect(inspect).toThrow();
+    return;
+  }
+  expect(inspect().reservation.requestRevision).toBe(approvedRevision);
+  const { inspectMaintenanceServiceInvocation } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const invocation = [job.id, approvedRevision, reservation.generation, native.planSha256];
+  const invoke = (args: string[]) =>
+    inspectMaintenanceServiceInvocation(args, {
+      retained: job,
+      reservation,
+      plan: f.plan,
+      account: f.account,
+    });
+  expect(invoke(invocation).job.revision).toBe(job.revision);
+  for (const args of [
+    [job.id, job.revision, reservation.generation, native.planSha256],
+    [randomUUID(), ...invocation.slice(1)],
+    [job.id, approvedRevision, randomUUID(), native.planSha256],
+    [job.id, approvedRevision, reservation.generation, "0".repeat(64)],
+    invocation.slice(0, 3),
+    [...invocation, "unexpected"],
+    ["../another-request", ...invocation.slice(1)],
+  ])
+    expect(() => invoke(args)).toThrow();
+  // Later journal revisions do not silently replace the approved revision.
+  expect(job.revision).not.toBe(approvedRevision);
+  const { claimMaintenanceServiceEffect } =
+    await import("./coordinator-bootstrap-maintenance-service-claim.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const { MaintenanceServiceEvidenceRecordSchema } =
+    await import("@getpaseo/protocol/maintenance-service");
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  journal.writeLifecycle([job]);
+  const bootId = randomUUID();
+  const executor = {
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    bootId,
+    startIdentity: "100:1",
+    argumentsSha256: "f".repeat(64),
+    executable: "/fixture/node",
+  };
+  const record = MaintenanceServiceEvidenceRecordSchema.parse({
+    requestId: job.id,
+    requestRevision: job.revision,
+    planSha256: native.planSha256,
+    identitySha256: native.identitySha256,
+    sourceCommit: proposal.sourceCommit,
+    artifactSha256: proposal.artifactSha256,
+    observedAt: new Date().toISOString(),
+    native: {
+      bootId,
+      process: null,
+      service: {
+        domain: `gui/${process.getuid!()}`,
+        label: "local.vorteo.fixture.installation",
+        registered: false,
+        launcherPath: f.plan.identity.launcherPath,
+        launcherSha256: null,
+        registrationSha256: null,
+      },
+      selection: {
+        path: f.plan.identity.selectionPath,
+        receiptSha256: null,
+        sourceCommit: null,
+        artifactSha256: null,
+      },
+    },
+  });
+  let rejectAdmission = true;
+  const evidence = {
+    ...record,
+    evidenceSha256: createHash("sha256").update(JSON.stringify(record)).digest("hex"),
+    assertCurrent: () => {
+      expect(() =>
+        journal.mutateLifecycle(
+          () => [],
+          () => undefined,
+        ),
+      ).toThrow("storage is busy");
+    },
+  };
+  const claimInput = {
+    stateDirectory: f.enrollmentStateDirectory,
+    requestId: job.id,
+    expectedRevision: job.revision,
+    reservation: job.reservation!,
+    plan: f.plan,
+    account: f.account,
+    executor,
+    evidence,
+    admission: () => {
+      if (rejectAdmission) throw new Error("Grant revoked before effect");
+    },
+  };
+  if (nativeCase) {
+    rejectAdmission = false;
+    await exerciseNativeReplacement(f, claimInput, mode);
+    return;
+  }
+  expect(() => claimMaintenanceServiceEffect(claimInput)).toThrow("Grant revoked before effect");
+  expect(journal.readLifecycle()).toEqual([job]);
+  rejectAdmission = false;
+  expect(() =>
+    claimMaintenanceServiceEffect({ ...claimInput, expectedRevision: randomUUID() }),
+  ).toThrow("revision changed");
+  expect(() =>
+    claimMaintenanceServiceEffect({
+      ...claimInput,
+      evidence: { ...evidence, evidenceSha256: "e".repeat(64) },
+    }),
+  ).toThrow("native admission");
+  const claimed = claimMaintenanceServiceEffect(claimInput);
+  expect(claimed.effectIntent?.generation).toBe(reservation.generation);
+  expect(claimed.effectIntent?.requestRevision).toBe(approvedRevision);
+  expect(claimed.revision).not.toBe(job.revision);
+  expect(new FileBootstrapRequestJournal(f.enrollmentStateDirectory).readLifecycle()).toEqual([
+    claimed,
+  ]);
+  expect(() => claimMaintenanceServiceEffect(claimInput)).toThrow("revision changed");
+  expect(() =>
+    claimMaintenanceServiceEffect({ ...claimInput, expectedRevision: claimed.revision }),
+  ).toThrow("unconsumed");
+  expect(journal.readLifecycle()).toEqual([claimed]);
+  const { inspectRetainedMaintenanceServiceEffect } =
+    await import("./coordinator-bootstrap-maintenance-service-binding.js");
+  const observe = (retained: unknown) =>
+    inspectRetainedMaintenanceServiceEffect({
+      retained,
+      plan: f.plan,
+      account: f.account,
+    });
+  expect(observe(claimed).intent.id).toBe(claimed.effectIntent!.id);
+  expect(() => observe(job)).toThrow("Retained service effect");
+  [
+    { ...claimed, effectIntent: { ...claimed.effectIntent, generation: randomUUID() } },
+    { ...claimed, evidence: [] },
+    { ...claimed, evidence: [...claimed.evidence, ...claimed.evidence] },
+    {
+      ...claimed,
+      evidence: claimed.evidence.map((item) => ({
+        ...item,
+        record: { ...item.record, sourceCommit: "e".repeat(40) },
+      })),
+    },
+  ].forEach((forged) => expect(() => observe(forged)).toThrow());
+  retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
+  const plans = path.join(path.dirname(f.plan.identity.selectionPath!), "plans");
+  mkdirSync(plans, { mode: 0o700 });
+  writeFileSync(path.join(plans, `${native.planSha256}.json`), JSON.stringify(f.plan), {
+    mode: 0o600,
+  });
+  const selection = {
+    version: 2,
+    requestId: claimed.id,
+    requestRevision: reservation.requestRevision,
+    intentId: claimed.effectIntent!.id,
+    generation: reservation.generation,
+    planSha256: native.planSha256,
+    slot: "candidate",
+  };
+  const select = (value: unknown) =>
+    writeFileSync(f.plan.identity.selectionPath!, JSON.stringify(value), { mode: 0o600 });
+  select(selection);
+  const startup = () =>
+    readMaintenanceLauncherStartup({ setupFile: f.plan.candidate.setup.path, account: f.account });
+  await expect(startup()).resolves.toMatchObject({ selected: f.plan.candidate, job: claimed });
+  // Revocation allows retained observation, never another effect claim.
+  changeStandingGrant(enrollmentJournal, {
+    expectedRevision: enrolled.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  await expect(startup()).resolves.toMatchObject({ selected: f.plan.candidate });
+  const rejectOtherSelections = async () => {
+    for (const field of ["requestId", "requestRevision", "intentId", "generation"] as const) {
+      select({ ...selection, [field]: randomUUID() });
+      await expect(startup()).rejects.toThrow();
+    }
+  };
+  await rejectOtherSelections();
+  select({ ...selection, slot: "previous" });
+  await expect(startup()).rejects.toThrow("selected reviewed slot");
+  await expect(
+    readMaintenanceLauncherStartup({ setupFile: f.plan.previous!.setup.path, account: f.account }),
+  ).resolves.toMatchObject({ selected: f.plan.previous });
+  expect(journal.readLifecycle()).toEqual([claimed]);
+});
+
+test("reviewed launcher rendering survives native plist parsing without argument expansion", async () => {
+  const f = await fixture();
+  const { renderMaintenanceUserLauncher } =
+    await import("./coordinator-bootstrap-maintenance-launcher.js");
+  const { readBootstrapLauncher } = await import("./coordinator-bootstrap-service.js");
+  // Shell metacharacters are literal argv bytes, never an executable command.
+  f.plan.candidate.setup.path = path.join(
+    f.plan.identity.installationRoot,
+    "literal & <'\" $HOME `value`.json",
+  );
+  const bytes = renderMaintenanceUserLauncher(f.plan, "candidate");
+  const file = path.join(f.plan.identity.stateDirectory, "rendered-fixture.plist");
+  writeFileSync(file, bytes, { mode: 0o600 });
+  const decoded = await readBootstrapLauncher(
+    {
+      path: file,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    [],
+  );
+  expect(decoded).toEqual(maintenanceUserLauncher(f.plan, "candidate"));
+  expect(renderMaintenanceUserLauncher(f.plan, "candidate")).toEqual(bytes);
+});
+
+async function exerciseNativeReplacement(
+  f: Awaited<ReturnType<typeof fixture>>,
+  claim: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-claim.js").claimMaintenanceServiceEffect
+  >[0],
+  mode: string,
+) {
+  const { MaintenanceServiceEvidenceRecordSchema } =
+    await import("@getpaseo/protocol/maintenance-service");
+  const { executeMaintenanceServiceReplacement } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const { FileEnrollmentJournal, reserveActivationStep, observeActivationStep } =
+    await import("./maintenance/authorization.js");
+  const { reserveMaintenanceLauncherEffect } =
+    await import("./coordinator-bootstrap-maintenance-launcher-state.js");
+  const { renderMaintenanceUserLauncher } =
+    await import("./coordinator-bootstrap-maintenance-launcher.js");
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const jobs = journal.readLifecycle();
+  // Establish disposable prior-selection history before restoring the fixture's
+  // later running job. This is test setup, not a production history rewrite.
+  journal.writeLifecycle([]);
+  const enrollment = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+  const state = enrollment.read();
+  if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const stepId = state.grant.manifest.steps[0]!.id;
+  const reserved = reserveActivationStep(enrollment, {
+    grantRevision: state.grant.revision,
+    stepId,
+  });
+  if (reserved.status !== "enrolled" || reserved.activation.steps[0]!.status !== "reserved")
+    throw new Error("Fixture activation absent");
+  const initialPlan = { ...f.plan, previous: null, candidate: f.plan.previous! };
+  const initialNative = inspectMaintenanceLauncherPlan(initialPlan, f.account);
+  const initial = reserveMaintenanceLauncherEffect({
+    ...f,
+    plan: initialPlan,
+    grantId: state.grant.id,
+    grantRevision: state.grant.revision,
+    stepId,
+    generation: reserved.activation.steps[0]!.generation,
+    assertCurrent: () => undefined,
+  });
+  const native = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
+  const plans = path.join(path.dirname(f.plan.identity.selectionPath!), "plans");
+  mkdirSync(plans, { mode: 0o700 });
+  writeFileSync(path.join(plans, `${native.planSha256}.json`), JSON.stringify(f.plan), {
+    mode: 0o600,
+  });
+  const initialSelection = {
+    version: 1,
+    intentId: initial.intent.id,
+    stepId,
+    generation: initial.intent.generation,
+    planSha256: initialNative.planSha256,
+    slot: "candidate",
+  };
+  writeFileSync(path.join(plans, `${initialNative.planSha256}.json`), JSON.stringify(initialPlan), {
+    mode: 0o600,
+  });
+  writeFileSync(f.plan.identity.selectionPath!, JSON.stringify(initialSelection), { mode: 0o600 });
+  writeFileSync(f.plan.identity.launcherPath, renderMaintenanceUserLauncher(f.plan, "previous"), {
+    mode: 0o600,
+  });
+  observeActivationStep(enrollment, {
+    stepId,
+    generation: initial.intent.generation,
+    outcome: "succeeded",
+    observationSha256: "a".repeat(64),
+  });
+  journal.writeLifecycle(jobs);
+  const identity = f.plan.identity;
+  if (identity.environment !== "host") throw new Error("Fixture Host required");
+  const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
+  const processFor = (slot: "previous" | "candidate") => ({
+    pid: slot === "previous" ? 43120 : 43121,
+    parentPid: 1,
+    uid: f.account.uid,
+    bootId: claim.evidence.native.bootId,
+    startIdentity: slot === "previous" ? "100:1" : "101:2",
+    executable: f.plan[slot]!.node.path,
+    argumentsSha256: digest(JSON.stringify(maintenanceUserLauncher(f.plan, slot).ProgramArguments)),
+  });
+  const previous = processFor("previous");
+  const { assertCurrent: _assertCurrent, evidenceSha256: _sha, ...oldRecord } = claim.evidence;
+  const record = MaintenanceServiceEvidenceRecordSchema.parse({
+    ...oldRecord,
+    native: {
+      ...oldRecord.native,
+      process: previous,
+      service: {
+        ...oldRecord.native.service,
+        registered: true,
+        label: identity.serviceLabel,
+        launcherSha256: digest(readFileSync(identity.launcherPath)),
+        registrationSha256: digest(readFileSync(identity.launcherPath)),
+      },
+      selection: {
+        ...oldRecord.native.selection,
+        receiptSha256: digest(readFileSync(identity.selectionPath!)),
+        sourceCommit: f.plan.previous!.sourceCommit,
+        artifactSha256: f.plan.previous!.artifactSha256,
+      },
+    },
+  });
+  let loaded: "previous" | "candidate" | null = "previous";
+  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+  const commands: string[][] = [];
+  const unused = async (): Promise<never> => {
+    throw new Error("Unexpected native reader method");
+  };
+  const reader = {
+    readService: async () => {
+      if (!loaded) throw new Error("Fixture service absent");
+      return `${service} = {\n\tpid = ${processFor(loaded).pid}\n}`;
+    },
+    inspectProcess: async (pid: number) => {
+      if (pid === process.pid) return claim.executor;
+      if (!loaded) throw new Error("Absent");
+      return processFor(loaded);
+    },
+    inspectAuditedProcess: unused,
+    inspectRunningProcess: unused,
+    inspectStoppedProcess: unused,
+    verifyProcessExited: async (pid: number) => {
+      expect(pid).toBe(previous.pid);
+      expect(loaded).toBeNull();
+    },
+    verifyServiceAbsent: async (name: string) => {
+      expect(name).toBe(service);
+      expect(loaded).toBeNull();
+    },
+  };
+  let executorChecks = 0;
+  let observationAborted = false;
+  const deferredObservation = Promise.withResolvers<never>();
+  const input = {
+    ...claim,
+    reader,
+    writableMountRoots: [],
+    evidence: {
+      ...record,
+      evidenceSha256: digest(JSON.stringify(record)),
+      assertCurrent: claim.evidence.assertCurrent,
+    },
+    requireExecutor: async () => {
+      executorChecks++;
+      if (mode === "native-custody-changed" && executorChecks === 2)
+        throw new Error("Executor custody changed");
+      return claim.executor;
+    },
+    readCandidateObservation: async (signal: AbortSignal) => {
+      if (mode === "native-observation-timeout") {
+        signal.addEventListener(
+          "abort",
+          () => {
+            observationAborted = true;
+          },
+          { once: true },
+        );
+        queueMicrotask(() => {
+          void vi.advanceTimersByTimeAsync(30_000);
+        });
+        return deferredObservation.promise;
+      }
+      const candidate = processFor("candidate");
+      if (mode === "native-runtime-readiness") {
+        const server = createServer((request, response) => {
+          response.setHeader("content-type", "application/json");
+          response.end(
+            JSON.stringify({
+              version: 1,
+              nonce: new URL(request.url!, "http://localhost").searchParams.get("nonce"),
+              installationId: identity.installationId,
+              target: identity.target,
+              identitySha256: native.identitySha256,
+              sourceCommit: f.plan.candidate.sourceCommit,
+              artifactSha256: f.plan.candidate.artifactSha256,
+              process: candidate,
+              ready: true,
+            }),
+          );
+        });
+        server.listen(0, "127.0.0.1");
+        await once(server, "listening");
+        try {
+          const address = server.address();
+          if (!address || typeof address === "string") throw new Error("Fixture listener absent");
+          writeFileSync(
+            path.join(identity.installationRoot, `maintenance-control-${candidate.pid}.json`),
+            JSON.stringify({
+              version: 1,
+              admissionSha256: "a".repeat(64),
+              requestId: claim.requestId,
+              process: candidate,
+              address: "127.0.0.1",
+              port: address.port,
+            }),
+            { mode: 0o600 },
+          );
+          const { inspectMaintenanceServiceReadiness } =
+            await import("./coordinator-bootstrap-maintenance-service-inspection.js");
+          return await inspectMaintenanceServiceReadiness({
+            stateDirectory: f.enrollmentStateDirectory,
+            requestId: claim.requestId,
+            plan: f.plan,
+            account: f.account,
+            writableMountRoots: [],
+            signal,
+            ports: {
+              reader,
+              assertCurrent: (name, observed) => {
+                expect(name).toBe(service);
+                expect(observed).toEqual(candidate);
+              },
+            },
+          });
+        } finally {
+          server.closeAllConnections();
+          const closed = once(server, "close");
+          server.close();
+          await closed;
+        }
+      }
+      const now = new Date().toISOString();
+      const proof = MaintenanceServiceEvidenceRecordSchema.parse({
+        ...record,
+        requestRevision: claim.reservation.requestRevision,
+        observedAt: now,
+        native: {
+          ...record.native,
+          process: candidate,
+          service: {
+            ...record.native.service,
+            launcherSha256: digest(readFileSync(identity.launcherPath)),
+          },
+          selection: {
+            ...record.native.selection,
+            receiptSha256: digest(readFileSync(identity.selectionPath!)),
+            sourceCommit: f.plan.candidate.sourceCommit,
+            artifactSha256: f.plan.candidate.artifactSha256,
+          },
+        },
+      });
+      return {
+        requestId: claim.requestId,
+        requestRevision: claim.reservation.requestRevision,
+        generation: claim.reservation.generation,
+        planSha256: native.planSha256,
+        identitySha256: native.identitySha256,
+        outcome: "candidate" as const,
+        sourceCommit: f.plan.candidate.sourceCommit,
+        artifactSha256: f.plan.candidate.artifactSha256,
+        ready: mode !== "native-bad-health",
+        evidenceSha256: digest(JSON.stringify(proof)),
+        observedAt: now,
+        record: proof,
+        assertCurrent: () => undefined,
+      };
+    },
+  };
+  const command = {
+    run: async (args: readonly string[]) => {
+      // The shared lifecycle lock must be free for every native command.
+      journal.withRecoveryTransaction(() => undefined);
+      commands.push([...args]);
+      const retained = journal.readLifecycle()[0];
+      expect(retained && "effectIntent" in retained && retained.effectIntent).toBeTruthy();
+      if (args[0] === "bootout") {
+        expect(args).toEqual(["bootout", service]);
+        loaded = null;
+        if (mode === "native-stop-failure") throw new Error("Lost stop reply");
+      } else {
+        expect(args).toEqual(["bootstrap", identity.serviceDomain, identity.launcherPath]);
+        loaded = "candidate";
+        if (mode === "native-observation-timeout")
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        if (mode === "native-start-failure") throw new Error("Lost start reply");
+      }
+    },
+  };
+  const { readMaintenanceServiceInvocation } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const invocation = {
+    executorSetupFile: f.plan.previous!.setup.path,
+    args: [
+      claim.requestId,
+      claim.reservation.requestRevision,
+      claim.reservation.generation,
+      claim.reservation.planSha256,
+    ],
+    account: f.account,
+  };
+  const loadedInvocation = await readMaintenanceServiceInvocation(invocation);
+  expect(loadedInvocation.expectedRevision).toBe(claim.expectedRevision);
+  expect(loadedInvocation.reservation).toEqual(claim.reservation);
+  await verifyChildIdentityCases(loadedInvocation, invocation.args, claim.executor);
+
+  await expect(
+    readMaintenanceServiceInvocation({
+      ...invocation,
+      args: [
+        claim.requestId,
+        claim.expectedRevision,
+        claim.reservation.generation,
+        claim.reservation.planSha256,
+      ],
+    }),
+  ).rejects.toThrow("invocation differs");
+  const { maintenanceServiceClaimAdmission } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const { inspectMaintenanceServiceNative } =
+    await import("./coordinator-bootstrap-maintenance-service-inspection.js");
+  let nativeRechecks = 0;
+  const nativeEvidence = await inspectMaintenanceServiceNative({
+    request: journal.readLifecycle()[0],
+    plan: f.plan,
+    account: f.account,
+    stateDirectory: f.enrollmentStateDirectory,
+    writableMountRoots: [],
+    ports: {
+      reader,
+      assertCurrent: (name, observed) => {
+        expect(name).toBe(service);
+        expect(observed).toEqual(previous);
+        nativeRechecks++;
+      },
+    },
+  });
+  expect(nativeRechecks).toBe(1);
+  expect(nativeEvidence.requestRevision).toBe(claim.expectedRevision);
+  expect(nativeEvidence.native.process).toEqual(previous);
+  expect(nativeEvidence.native.selection.sourceCommit).toBe(f.plan.previous!.sourceCommit);
+  expect(nativeEvidence.sourceCommit).toBe(f.plan.candidate.sourceCommit);
+  input.evidence = nativeEvidence;
+  const { evidenceSha256, assertCurrent, ...nativeRecord } = input.evidence;
+  input.admission = maintenanceServiceClaimAdmission({
+    stateDirectory: input.stateDirectory,
+    evidence: {
+      expectedRevision: input.expectedRevision,
+      record: nativeRecord,
+      sha256: evidenceSha256,
+      assertCurrent,
+    },
+  });
+  const run = () => executeMaintenanceServiceReplacement(input, command);
+  if (mode === "native-grant-revoked") {
+    const { changeStandingGrant } = await import("./maintenance/authorization.js");
+    changeStandingGrant(enrollment, {
+      expectedRevision: state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+    const before = journal.readLifecycle();
+    await expect(run()).rejects.toThrow();
+    expect(journal.readLifecycle()).toEqual(before);
+    expect(commands).toHaveLength(0);
+    return;
+  }
+
+  if (mode === "native-success" || mode === "native-runtime-readiness")
+    await expect(run()).resolves.toMatchObject({ outcome: "candidate", ready: true });
+  else if (mode === "native-observation-timeout") {
+    await expect(run()).rejects.toThrow("Candidate readiness observation timed out");
+    expect(observationAborted).toBe(true);
+    vi.useRealTimers();
+    deferredObservation.reject(new Error("Late transport failure"));
+    await Promise.resolve();
+  } else if (mode === "native-bad-health")
+    await expect(run()).rejects.toThrow("Candidate observation differs");
+  else if (mode === "native-custody-changed")
+    await expect(run()).rejects.toThrow("Executor custody changed");
+  else await expect(run()).rejects.toThrow(/Lost (stop|start) reply/);
+  const retained = journal.readLifecycle();
+  const calls = commands.length;
+  if (mode === "native-custody-changed") expect(calls).toBe(0);
+  await expect(run()).rejects.toThrow("unconsumed");
+  expect(commands).toHaveLength(calls);
+  expect(journal.readLifecycle()).toEqual(retained);
+  if (mode === "native-observation-timeout") return;
+  await exerciseNativeObservation(
+    f,
+    input,
+    loaded,
+    mode,
+    processFor,
+    commands,
+    enrollment,
+    state.grant.revision,
+  );
+}
+
+async function exerciseNativeObservation(
+  f: Awaited<ReturnType<typeof fixture>>,
+  input: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-native.js").executeMaintenanceServiceReplacement
+  >[0],
+  loaded: "previous" | "candidate" | null,
+  mode: string,
+  processFor: (
+    slot: "previous" | "candidate",
+  ) => ReturnType<
+    typeof import("@getpaseo/protocol/coordinator-bootstrap").BootstrapProcessIdentitySchema.parse
+  >,
+  commands: string[][],
+  enrollment: import("./maintenance/authorization.js").FileEnrollmentJournal,
+  grantRevision: string,
+) {
+  const { MaintenanceServiceEvidenceRecordSchema } =
+    await import("@getpaseo/protocol/maintenance-service");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const retained = journal.readLifecycle();
+  const calls = commands.length;
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const { observeMaintenanceServiceReplacement } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  const { changeStandingGrant } = await import("./maintenance/authorization.js");
+  changeStandingGrant(enrollment, {
+    expectedRevision: grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observedSlot = loaded;
+  const outcome = observedSlot ?? "unknown";
+  const selected = observedSlot ? f.plan[observedSlot]! : null;
+  const candidate = await input.readCandidateObservation(new AbortController().signal);
+  const observedRecord = MaintenanceServiceEvidenceRecordSchema.parse({
+    ...candidate.record,
+    sourceCommit: selected?.sourceCommit ?? null,
+    artifactSha256: selected?.artifactSha256 ?? null,
+    native: {
+      ...candidate.record.native,
+      process: observedSlot ? processFor(observedSlot) : null,
+      service: { ...candidate.record.native.service, registered: observedSlot !== null },
+      selection: {
+        ...candidate.record.native.selection,
+        sourceCommit: selected?.sourceCommit ?? f.plan.previous!.sourceCommit,
+        artifactSha256: selected?.artifactSha256 ?? f.plan.previous!.artifactSha256,
+      },
+    },
+  });
+  const observedValue = {
+    ...candidate,
+    outcome,
+    sourceCommit: selected?.sourceCommit ?? null,
+    artifactSha256: selected?.artifactSha256 ?? null,
+    ready: observedSlot !== null && mode !== "native-bad-health",
+    record: observedRecord,
+    evidenceSha256: digest(JSON.stringify(observedRecord)),
+  };
+  const observerInput = { ...input, readObservation: async () => observedValue };
+  const observed = await observeMaintenanceServiceReplacement(observerInput);
+  expect(observed.outcome).toBe(outcome === "previous" ? "unknown" : outcome);
+  expect(observed.ready).toBe(outcome === "previous" ? false : observedValue.ready);
+  await verifyTerminalObservation(observerInput, observedValue, observed);
+  expect(observed.requestRevision).toBe(input.reservation.requestRevision);
+  observed.assertCurrent();
+  expect(commands).toHaveLength(calls);
+  expect(journal.readLifecycle()).toEqual(retained);
+  await expect(
+    observeMaintenanceServiceReplacement({
+      ...observerInput,
+      reservation: { ...input.reservation, generation: randomUUID() },
+    }),
+  ).rejects.toThrow("reservation changed");
+  await expect(
+    observeMaintenanceServiceReplacement({
+      ...observerInput,
+      readObservation: async () => ({ ...observedValue, generation: randomUUID() }),
+    }),
+  ).rejects.toThrow("differs from reserved");
+  journal.mutateLifecycle(
+    (current) =>
+      current.map((job) => (job.id === input.requestId ? { ...job, revision: randomUUID() } : job)),
+    () => undefined,
+  );
+  expect(() => observed.assertCurrent()).toThrow(
+    mode === "native-runtime-readiness"
+      ? "Native readiness custody changed"
+      : "Retained native observation changed",
+  );
+  expect(commands).toHaveLength(calls);
+}
+
+async function verifyChildIdentityCases(
+  invocation: Awaited<
+    ReturnType<
+      typeof import("./coordinator-bootstrap-maintenance-service-runner.js").readMaintenanceServiceInvocation
+    >
+  >,
+  args: string[],
+  lifetime: unknown,
+) {
+  const { inspectMaintenanceServiceChildIdentity } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const { BootstrapProcessIdentitySchema } =
+    await import("@getpaseo/protocol/coordinator-bootstrap");
+  const selected = invocation.startup.selected;
+  const argv = [
+    selected.node.path,
+    selected.entrypoint.path,
+    selected.setup.path,
+    "maintenance-service",
+    ...args,
+  ];
+  const observation = {
+    ...BootstrapProcessIdentitySchema.parse(lifetime),
+    executable: selected.node.path,
+    argumentsSha256: createHash("sha256").update(JSON.stringify(argv)).digest("hex"),
+  };
+  const runtime = {
+    modulePath: path.join(
+      selected.directory,
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-service-runner.js",
+    ),
+    executable: selected.node.path,
+    argv,
+    pid: observation.pid,
+    parentPid: observation.parentPid,
+    uid: observation.uid,
+  };
+  const input = { invocation, args, observation, runtime };
+  expect(inspectMaintenanceServiceChildIdentity(input)).toEqual(observation);
+  for (const changed of [
+    { modulePath: "/unselected/module.js" },
+    { executable: "/unselected/node" },
+    { argv: [...argv, "extra"] },
+    { pid: observation.pid + 1 },
+    { parentPid: observation.parentPid + 1 },
+    { uid: observation.uid + 1 },
+  ])
+    expect(() =>
+      inspectMaintenanceServiceChildIdentity({ ...input, runtime: { ...runtime, ...changed } }),
+    ).toThrow("outside its selected runtime");
+  for (const changed of [{ argumentsSha256: "f".repeat(64) }, { executable: "/unselected/node" }])
+    expect(() =>
+      inspectMaintenanceServiceChildIdentity({
+        ...input,
+        observation: { ...observation, ...changed },
+      }),
+    ).toThrow("outside its selected runtime");
+}
+
+async function verifyTerminalObservation(
+  observerInput: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-native.js").observeMaintenanceServiceReplacement
+  >[0],
+  observedValue: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation,
+  observed: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation,
+) {
+  const { observeMaintenanceServiceReplacement } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const journal = new FileBootstrapRequestJournal(observerInput.stateDirectory);
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  if (observedValue.outcome === "previous") {
+    const afterExit = await observeMaintenanceServiceReplacement({
+      ...observerInput,
+      reader: {
+        ...observerInput.reader,
+        verifyProcessExited: async (pid) => {
+          expect(pid).toBe(process.pid);
+        },
+      },
+    });
+    expect(afterExit.outcome).toBe("previous");
+    expect(afterExit.ready).toBe(true);
+    expect(observed.sourceCommit).toBeNull();
+    expect(observed.record.native.process).toEqual(observedValue.record.native.process);
+  }
+  if (observedValue.outcome === "candidate") {
+    const job = journal.readLifecycle()[0];
+    if (!job || !("effectIntent" in job) || !job.effectIntent)
+      throw new Error("Fixture intent missing");
+    const observedAt = new Date(Date.parse(job.effectIntent.consumedAt) - 1).toISOString();
+    const record = { ...observedValue.record, observedAt };
+    await expect(
+      observeMaintenanceServiceReplacement({
+        ...observerInput,
+        readObservation: async () => ({
+          ...observedValue,
+          observedAt,
+          record,
+          evidenceSha256: digest(JSON.stringify(record)),
+        }),
+      }),
+    ).rejects.toThrow("predates its consumed intent");
+  }
+}

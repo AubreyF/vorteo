@@ -1,7 +1,8 @@
 import { helperReviewFixture } from "./helper-review.fixture";
 import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { expect, test } from "vitest";
-import { OwnerAccessExpired } from "./client";
+import { OwnerAccessExpired, type InstallationClient } from "./client";
+import type { MaintenanceServiceView } from "@getpaseo/protocol/maintenance-service-status";
 import {
   InstallationPanelModel,
   restartExplanation,
@@ -16,6 +17,9 @@ import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 function enrollmentStatusModel(
   read: () => Promise<InstallationEnrollmentStatus | null>,
   restartSummary: () => Promise<null> = async () => null,
+  services: Partial<
+    Pick<InstallationClient, "maintenanceServices" | "cancelMaintenanceService">
+  > = {},
 ) {
   return new InstallationPanelModel({
     restartSummary,
@@ -35,6 +39,7 @@ function enrollmentStatusModel(
       throw new Error("Unexpected helper decision");
     },
     enrollmentStatus: read,
+    ...services,
   });
 }
 
@@ -786,4 +791,95 @@ test("enrollment status refresh still runs when restart summary fails", async ()
   await model.refresh();
   expect(reads).toBe(previousReads + 1);
   expect(model.getState().enrollmentError).toContain("Last known");
+});
+
+test("service queue refresh survives summary failure and cancellation retains actionable errors", async () => {
+  const job = serviceViewFixture();
+  let cancelled = false;
+  let fail = true;
+  let reads = 0;
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => {
+      throw new Error("Summary unavailable");
+    },
+    {
+      maintenanceServices: async () => {
+        reads++;
+        return {
+          installationId: enrollmentStatusFixture.installationId,
+          available: true,
+          jobs: [{ ...job, status: cancelled ? "rejected" : "approved", cancelable: !cancelled }],
+        };
+      },
+      cancelMaintenanceService: async () => {
+        if (fail) throw new Error("Connection lost during cancellation");
+        cancelled = true;
+        return { ...job, status: "rejected", cancelable: false };
+      },
+    },
+  );
+  await model.initialize();
+  expect(reads).toBe(1);
+  expect(model.getState().serviceQueue?.jobs[0]?.id).toBe(job.id);
+  await model.cancelMaintenanceService(job);
+  expect(model.getState().serviceQueueError).toContain("Connection lost");
+  expect(model.getState().busy).toBe(false);
+  fail = false;
+  await model.refreshServiceQueue();
+  await model.cancelMaintenanceService(job);
+  expect(model.getState().serviceQueue?.jobs[0]?.status).toBe("rejected");
+  expect(model.getState().notice).toContain("cancelled before dispatch");
+  await model.lock();
+  expect(model.getState().serviceQueue).toBeNull();
+});
+
+function serviceViewFixture(): MaintenanceServiceView {
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    revision: "00000000-0000-4000-8000-000000000002",
+    target: "maintenance-controller",
+    operation: "replacement",
+    reason: "Update controller",
+    createdAt: "2026-10-15T20:00:00.000Z",
+    status: "approved",
+    detail: "Waiting",
+    cancelable: true,
+    dispatchAfter: null,
+    generation: null,
+    outcome: null,
+    observedAt: null,
+  };
+}
+
+test("service cancellation expiry clears private state and permits unlocking again", async () => {
+  const job = serviceViewFixture();
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      maintenanceServices: async () => ({
+        installationId: enrollmentStatusFixture.installationId,
+        available: true,
+        jobs: [job],
+      }),
+      cancelMaintenanceService: async () => {
+        throw new OwnerAccessExpired("Owner session expired");
+      },
+    },
+  );
+  await model.initialize();
+  await model.cancelMaintenanceService(job);
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    busy: false,
+    serviceQueue: null,
+    serviceQueueError: null,
+    serviceQueueRefreshing: false,
+  });
+  model.setPassword("owner-password");
+  await model.unlock();
+  expect(model.getState().unlocked).toBe(true);
+  expect(model.getState().busy).toBe(false);
+  expect(model.getState().serviceQueue?.jobs).toEqual([job]);
 });

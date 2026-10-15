@@ -20,6 +20,26 @@ import {
   type NativeHelperPlan,
 } from "@getpaseo/protocol/native-helper-maintenance";
 import type { LifecycleJob } from "./lifecycle-journal.js";
+import {
+  MaintenanceServiceJobSchema,
+  type MaintenanceServiceJob,
+} from "@getpaseo/protocol/maintenance-service";
+import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
+import {
+  isMaintenanceService,
+  unresolvedMaintenanceService,
+  type MaintenanceServiceAdmissionEvidence,
+} from "./maintenance/service-admission.js";
+import { isDeepStrictEqual } from "node:util";
+import {
+  approveServiceJob,
+  reserveServiceJob,
+  observeServiceJob,
+  serviceInspectionProof,
+  serviceCheckDue,
+  failedServiceCheck,
+} from "./maintenance/service-progress.js";
+import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import { createHash, randomUUID } from "node:crypto";
 import type {
   DevRepairCapture,
@@ -33,6 +53,9 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 
 export interface RestartApprovalPolicy {
+  serviceAuthority?: (
+    job: MaintenanceServiceJob,
+  ) => import("./maintenance/service-admission.js").MaintenanceServiceStandingAuthority | null;
   /** Undefined is verified never-enrolled legacy behavior; null denies enrolled work.
    * Evaluation is policy only. The shared journal must verify each effect admission. */
   standingDecision?: (
@@ -50,12 +73,17 @@ export interface RestartApprovalPolicy {
 
 export interface RestartJournal {
   read(): LifecycleJob[];
-  write(jobs: LifecycleJob[]): void;
+  mutate?(
+    update: (previous: readonly LifecycleJob[]) => LifecycleJob[],
+    evidence?: MaintenanceServiceAdmissionEvidence,
+  ): void;
+  write(jobs: LifecycleJob[], evidence?: MaintenanceServiceAdmissionEvidence): void;
   admissionAvailable?(): boolean;
   activationChildAdmissionAvailable?(job: RestartJob): boolean;
 }
 
 export interface RestartExecutor {
+  maintenanceServices?: MaintenanceServiceExecutor;
   inspectMonitor?(): Promise<
     import("@getpaseo/protocol/preview-monitor-maintenance").PreviewMonitorSelection
   >;
@@ -264,6 +292,88 @@ export class InstallationRestarts {
     return structuredClone(
       this.jobs.map((job) => ({ ...job, impact: this.impactCache.get(job.target) })),
     );
+  }
+
+  serviceMaintenanceAvailable(): boolean {
+    return Boolean(
+      this.executor.maintenanceServices &&
+      this.journal.mutate &&
+      this.approvalPolicy.serviceAuthority,
+    );
+  }
+
+  private hasServiceWork(): boolean {
+    return (
+      this.serviceMaintenanceAvailable() &&
+      this.listServices().some((job) => ["pending", "approved", "running"].includes(job.status))
+    );
+  }
+
+  requestService(
+    proposal: unknown,
+    reason: string,
+    requestedBy: string,
+    requester?: string,
+  ): MaintenanceServiceJob {
+    this.requireActive();
+    if (!this.serviceMaintenanceAvailable())
+      throw new RestartRequestError("Native maintenance is unavailable");
+    const job = MaintenanceServiceJobSchema.parse({
+      id: (proposal as { id?: unknown })?.id,
+      revision: randomUUID(),
+      target: (proposal as { target?: unknown })?.target,
+      operation: (proposal as { operation?: unknown })?.operation,
+      proposal,
+      reason,
+      requester,
+      createdAt: new Date(this.now()).toISOString(),
+      status: "pending",
+      detail: "Native maintenance requested. Verifying source and standing authority.",
+      evidence: [],
+    });
+    if (
+      job.proposal.requestedBy !== requestedBy ||
+      job.operation !== "replacement" ||
+      job.proposal.recoveryOf
+    )
+      throw new RestartRequestError(
+        "Native maintenance requester or supported operation does not match",
+      );
+    this.journal.mutate!((previous) => {
+      const retained = previous.find((item) => item.id === job.id);
+      if (retained) {
+        if (
+          !isMaintenanceService(retained) ||
+          !isDeepStrictEqual(retained.proposal, job.proposal) ||
+          retained.reason !== reason ||
+          retained.requester !== requester
+        )
+          throw new RestartRequestError("Request identity belongs to different maintenance");
+        return [...previous];
+      }
+      return [...previous, job];
+    });
+    return structuredClone(this.listServices().find((item) => item.id === job.id)!);
+  }
+
+  cancelService(id: string, revision: string): MaintenanceServiceJob {
+    this.requireActive();
+    const job = this.listServices().find((item) => item.id === id);
+    if (
+      !job ||
+      job.revision !== revision ||
+      !["pending", "approved"].includes(job.status) ||
+      job.reservation
+    )
+      throw new RestartRequestError("Maintenance changed or was already dispatched");
+    const next = {
+      ...job,
+      revision: randomUUID(),
+      status: "rejected" as const,
+      detail: "Maintenance cancelled before dispatch.",
+    };
+    this.replaceService(job, next);
+    return structuredClone(next);
   }
 
   listMonitors(): PreviewMonitorJob[] {
@@ -1760,6 +1870,7 @@ export class InstallationRestarts {
   }
 
   private lifecycleAdmitted(job?: RestartJob): boolean {
+    if (this.listServices().some(unresolvedMaintenanceService)) return false;
     if (this.journal.admissionAvailable?.() !== false) return true;
     return job !== undefined && this.journal.activationChildAdmissionAvailable?.(job) === true;
   }
@@ -1812,6 +1923,8 @@ export class InstallationRestarts {
           ["rejected", "failed", "succeeded"].includes(candidate.status),
       ))
         await this.releaseCompletedHold(job);
+      if (this.hasServiceWork()) await this.drainServices();
+      if (this.listServices().some(unresolvedMaintenanceService)) return;
       if (!this.lifecycleAdmitted()) {
         await this.drainActivationChildren();
         return;
@@ -2030,7 +2143,7 @@ export class InstallationRestarts {
         job.automaticApproval.sourceSha256 !== job.update?.sha256)
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
-    await this.executor.verifyDispatch?.(job);
+    if (this.executor.verifyDispatch) await this.executor.verifyDispatch(job);
     if (job.factoryRuntimePlanSha256) {
       if (
         !this.executor.adoptFactoryRuntime ||
@@ -2138,9 +2251,11 @@ export class InstallationRestarts {
     jobs: RestartJob[],
     helpers: NativeHelperJob[],
     monitors: PreviewMonitorJob[] = this.monitors,
+    services: MaintenanceServiceJob[] = this.listServices(),
+    evidence?: MaintenanceServiceAdmissionEvidence,
   ): void {
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers, ...monitors].map((job) => [job.id, job]),
+      [...jobs, ...helpers, ...monitors, ...services].map((job) => [job.id, job]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {
@@ -2151,11 +2266,154 @@ export class InstallationRestarts {
       }
     }
     next.push(...remaining.values());
-    this.journal.write(next);
+    this.journal.write(next, evidence);
     this.snapshot = next;
     this.jobs = jobs;
     this.helpers = helpers;
     this.monitors = monitors;
+  }
+
+  private replaceService(
+    previous: MaintenanceServiceJob,
+    next: MaintenanceServiceJob,
+    evidence?: MaintenanceServiceAdmissionEvidence,
+  ): void {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic maintenance journal is unavailable");
+    this.journal.mutate((jobs) => {
+      const retained = jobs.find((job) => job.id === previous.id);
+      if (!retained || !isDeepStrictEqual(retained, previous))
+        throw new RestartRequestError("Maintenance journal changed; inspect its current receipt");
+      return jobs.map((job) => (job.id === previous.id ? next : job));
+    }, evidence);
+  }
+
+  private async drainServices(): Promise<void> {
+    if (!this.serviceMaintenanceAvailable()) return;
+    const jobs = this.listServices();
+    const running = jobs.find((job) => job.status === "running");
+    if (running) {
+      if (serviceCheckDue(running, this.now())) await this.observeService(running);
+      return;
+    }
+    if (this.journal.admissionAvailable?.() === false) return;
+    const job =
+      jobs.find((item) => item.status === "approved") ??
+      jobs.find((item) => item.status === "pending" && serviceCheckDue(item, this.now()));
+    if (!job) return;
+    try {
+      const authority = this.approvalPolicy.serviceAuthority!(job);
+      if (!authority) {
+        if (job.status === "approved") this.cancelService(job.id, job.revision);
+        return;
+      }
+      if (!serviceCheckDue(job, this.now())) return;
+      if (job.status === "approved" && this.now() < Date.parse(job.approval!.dispatchAfter)) return;
+      const proof = serviceInspectionProof(
+        job,
+        await this.serviceCall(() =>
+          this.executor.maintenanceServices!.inspect(structuredClone(job)),
+        ),
+      );
+      if (
+        !isDeepStrictEqual(
+          this.listServices().find((item) => item.id === job.id),
+          job,
+        )
+      )
+        return;
+      if (job.status === "pending") {
+        this.replaceService(job, approveServiceJob(job, authority, proof, this.now()), proof);
+        return;
+      }
+      const reserved = reserveServiceJob(job, proof, this.now());
+      this.replaceService(job, reserved, proof);
+      await this.executeService(reserved);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private async serviceCall<T>(call: () => Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new RestartRequestError(
+              "Native maintenance response timed out; inspect the retained generation",
+            ),
+          ),
+        30_000,
+      );
+      timer.unref();
+    });
+    try {
+      return await Promise.race([call(), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async executeService(job: MaintenanceServiceJob): Promise<void> {
+    try {
+      // This call is made only on the transition that created the reservation.
+      // Reopened or uncertain generations enter observeService exclusively.
+      const result = await this.serviceCall(() =>
+        this.executor.maintenanceServices!.execute(
+          structuredClone(job),
+          structuredClone(job.reservation!),
+        ),
+      );
+      this.retainServiceObservation(job, result);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private async observeService(job: MaintenanceServiceJob): Promise<void> {
+    try {
+      const result = await this.serviceCall(() =>
+        this.executor.maintenanceServices!.observe(
+          structuredClone(job),
+          structuredClone(job.reservation!),
+        ),
+      );
+      this.retainServiceObservation(job, result);
+    } catch {
+      this.recordServiceCheckFailure(job.id);
+    }
+  }
+
+  private retainServiceObservation(
+    job: MaintenanceServiceJob,
+    result: MaintenanceServiceNativeObservation,
+  ): void {
+    const current = this.listServices().find((item) => item.id === job.id);
+    if (
+      !current ||
+      current.status !== "running" ||
+      !isDeepStrictEqual(current.reservation, job.reservation)
+    )
+      throw new RestartRequestError("Maintenance generation changed during native observation");
+    const observed = observeServiceJob(current, result, this.now());
+    this.replaceService(current, observed.job, observed.proof);
+  }
+
+  private recordServiceCheckFailure(id: string): void {
+    const current = this.listServices().find((item) => item.id === id);
+    if (
+      current &&
+      ["pending", "approved", "running"].includes(current.status) &&
+      serviceCheckDue(current, this.now())
+    )
+      this.replaceService(current, failedServiceCheck(current, this.now()));
+  }
+
+  listServices(): MaintenanceServiceJob[] {
+    // Factory may have consumed the native intent independently. Preserve that
+    // fresh receipt when ordinary daemon progress writes the shared journal.
+    return this.journal.read().filter(isMaintenanceService);
   }
 }
 

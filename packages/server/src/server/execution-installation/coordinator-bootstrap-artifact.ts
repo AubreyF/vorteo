@@ -100,6 +100,8 @@ interface FileDigestOptions {
   verifyLinksInTree?: boolean;
   buffer?: Buffer;
   checkBudget?: () => void;
+  maxBytes?: number;
+  deadline?: number;
 }
 
 async function digestFile(
@@ -109,6 +111,8 @@ async function digestFile(
     verifyLinksInTree = false,
     buffer = Buffer.alloc(64 * 1024),
     checkBudget,
+    maxBytes,
+    deadline,
   }: FileDigestOptions = {},
 ): Promise<string> {
   if (!verifyLinksInTree && expected.nlink !== 1n)
@@ -117,17 +121,46 @@ async function digestFile(
   try {
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     const hash = createHash("sha256");
+    let totalBytes = 0;
     for (;;) {
       checkBudget?.();
+      if (deadline !== undefined && Date.now() >= deadline)
+        throw new BootstrapRequestConflict("Prepared dependency verification timed out");
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      totalBytes += bytesRead;
+      if (maxBytes !== undefined && totalBytes > maxBytes)
+        throw new BootstrapRequestConflict("Prepared dependency exceeds byte limit");
       if (bytesRead === 0) break;
       hash.update(buffer.subarray(0, bytesRead));
     }
+    if (deadline !== undefined && Date.now() >= deadline)
+      throw new BootstrapRequestConflict("Prepared dependency verification timed out");
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     return hash.digest("hex");
   } finally {
     await handle.close();
   }
+}
+
+/** Executables are streamed separately from small configuration documents.
+ * Retain the same custody checks and bound both file growth and scan duration. */
+export async function verifyBootstrapPreparedDependency(
+  file: CoordinatorBootstrapPlan["candidate"]["node"],
+  writableMountRoots: readonly string[],
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  const maxBytes = 256 * 1024 * 1024;
+  await assertBootstrapPathsProtected([file.path], writableMountRoots);
+  if ((await realpath(file.path)) !== file.path)
+    throw new BootstrapRequestConflict("Prepared file requires a canonical path");
+  const before = await lstat(file.path, { bigint: true });
+  requireOwned(before);
+  if (!before.isFile() || before.nlink !== 1n || before.size > BigInt(maxBytes))
+    throw new BootstrapRequestConflict("Prepared dependency must be a bounded regular file");
+  const digest = await digestFile(file.path, before, { maxBytes, deadline });
+  requireUnchanged(before, await lstat(file.path, { bigint: true }));
+  if (digest !== file.sha256)
+    throw new BootstrapRequestConflict("Prepared dependency digest changed");
 }
 
 /** Return the reviewed buffer so parsers never reopen a substitutable pathname. */

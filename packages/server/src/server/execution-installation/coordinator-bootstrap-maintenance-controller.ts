@@ -1,3 +1,5 @@
+import { userInfo } from "node:os";
+import { verifyNativeMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
   observeEnrolledCoordinator,
   verifyEnrolledCoordinatorCandidate,
@@ -31,6 +33,7 @@ import {
   enrollAndProvisionCoordinatorMaintenance,
 } from "./coordinator-bootstrap-maintenance-provisioning.js";
 import {
+  FileEnrollmentJournal,
   validateEnrollmentManifest,
   enrollmentManifestDigest,
 } from "./maintenance/authorization.js";
@@ -44,11 +47,110 @@ import { writeRecoverySnapshot } from "./coordinator-bootstrap-launch.js";
 
 /** Start only the pinned review controller. No opening path approves or resumes
  * a lifecycle decision, including when an earlier response was lost. */
-export async function runMaintenanceControl(input: {
+interface MaintenanceControlInput {
   installationRoot: string;
   admissionSha256: string;
   enrollmentSha256?: string;
-}) {
+}
+type SelectedStartup = Awaited<ReturnType<typeof verifyNativeMaintenanceLauncherStartup>>;
+
+export async function runMaintenanceControl(input: MaintenanceControlInput) {
+  return startMaintenanceControl(input);
+}
+
+/** The persistent role inherits only its reviewed setup, never invocation-supplied
+ * admission or enrollment digests. Native startup verification precedes listening. */
+export async function runPersistentMaintenanceController(setupFile: string) {
+  const account = userInfo();
+  const startupInput = { setupFile, account: { uid: account.uid, home: account.homedir } };
+  const selected = await verifyNativeMaintenanceLauncherStartup(startupInput);
+  if (selected.setup.target !== "maintenance-controller" || !selected.setup.control)
+    throw new BootstrapRequestConflict("Selected controller lacks its pinned enrollment review");
+  return startMaintenanceControl(
+    {
+      installationRoot: selected.setup.installationRoot,
+      ...selected.setup.control,
+    },
+    { selected, inspect: () => verifyNativeMaintenanceLauncherStartup(startupInput) },
+  );
+}
+
+async function verifyControlRuntime(
+  context: Awaited<ReturnType<typeof verifyMaintenanceProposalFiles>>,
+  identity: z.infer<typeof ProcessObservationSchema>,
+  args: string[],
+  persistent?: { selected: SelectedStartup },
+) {
+  const expectedModule = path.join(
+    persistent?.selected.selected.directory ?? context.receipt.runtime.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-controller.js",
+  );
+  if (
+    persistent &&
+    (persistent.selected.plan.identity.installationId !== context.receipt.installationId ||
+      persistent.selected.setup.enrollmentStateDirectory !== context.plan.state.directory ||
+      !isDeepStrictEqual(identity, persistent.selected.process))
+  )
+    throw new BootstrapRequestConflict(
+      "Persistent controller differs from its retained installation",
+    );
+  if (
+    fileURLToPath(import.meta.url) !== expectedModule ||
+    (await realpath(process.execPath)) !==
+      (persistent?.selected.selected.node.path ?? context.runner.node.path) ||
+    (!persistent && !isDeepStrictEqual(process.argv, args)) ||
+    identity.uid !== process.getuid?.() ||
+    identity.executable !== (persistent?.selected.selected.node.path ?? context.runner.node.path) ||
+    (!persistent &&
+      identity.argumentsSha256 !== createHash("sha256").update(JSON.stringify(args)).digest("hex"))
+  )
+    throw new BootstrapRequestConflict(
+      "Maintenance control identity differs from its pinned runtime",
+    );
+}
+
+/** Retained owner review must describe this enrollment, including after grant
+ * revocation. This validates observation context and grants no new dispatch. */
+export function verifyPersistentMaintenanceReview(
+  stateDirectory: string,
+  review: Awaited<ReturnType<typeof readMaintenanceEnrollmentReview>> | undefined,
+) {
+  const state = new FileEnrollmentJournal(stateDirectory).read();
+  if (
+    !review ||
+    state.status !== "enrolled" ||
+    enrollmentManifestDigest(state.grant.manifest) !== enrollmentManifestDigest(review.manifest)
+  )
+    throw new BootstrapRequestConflict(
+      "Persistent controller review differs from retained enrollment",
+    );
+}
+
+/** Read the original approved review from the durable journal. Pinning its
+ * digest in setup would cycle through manifest, plan, setup and review hashes. */
+export function readPersistentMaintenanceReview(
+  stateDirectory: string,
+  admissionSha256: string,
+  installationId: string,
+) {
+  const state = new FileEnrollmentJournal(stateDirectory).read();
+  if (state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Persistent controller requires retained enrollment");
+  const { manifest, approval } = state.grant;
+  if (
+    manifest.installationId !== installationId ||
+    manifest.provisioning?.admissionSha256 !== admissionSha256 ||
+    approval.reviewRevision !== manifest.revision ||
+    approval.manifestSha256 !== enrollmentManifestDigest(manifest)
+  )
+    throw new BootstrapRequestConflict("Persistent controller enrollment provenance changed");
+  return { id: approval.requestId, revision: approval.reviewRevision, manifest };
+}
+
+async function startMaintenanceControl(
+  input: MaintenanceControlInput,
+  persistent?: { selected: SelectedStartup; inspect(): Promise<SelectedStartup> },
+) {
   const digest = z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -80,18 +182,25 @@ export async function runMaintenanceControl(input: {
     receiptFile: { path: path.join(directory, "proposal.json"), sha256: digest },
     writableMountRoots: roots,
   });
-  const expectedModule = path.join(
-    context.receipt.runtime.directory,
-    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-controller.js",
-  );
-  const enrollment = input.enrollmentSha256
-    ? await readMaintenanceEnrollmentReview(
-        directory,
-        input.enrollmentSha256,
-        digest,
-        context.receipt.installationId,
-      )
-    : undefined;
+  let enrollment: Awaited<ReturnType<typeof readMaintenanceEnrollmentReview>> | undefined;
+  if (persistent)
+    enrollment = readPersistentMaintenanceReview(
+      persistent.selected.setup.enrollmentStateDirectory,
+      digest,
+      context.receipt.installationId,
+    );
+  else if (input.enrollmentSha256)
+    enrollment = await readMaintenanceEnrollmentReview(
+      directory,
+      input.enrollmentSha256,
+      digest,
+      context.receipt.installationId,
+    );
+  if (persistent)
+    verifyPersistentMaintenanceReview(
+      persistent.selected.setup.enrollmentStateDirectory,
+      enrollment,
+    );
   const args = [
     context.runner.node.path,
     context.runner.entrypoint.path,
@@ -105,17 +214,7 @@ export async function runMaintenanceControl(input: {
     writableMountRoots: roots,
   });
   const identity = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
-  if (
-    fileURLToPath(import.meta.url) !== expectedModule ||
-    (await realpath(process.execPath)) !== context.runner.node.path ||
-    !isDeepStrictEqual(process.argv, args) ||
-    identity.uid !== process.getuid?.() ||
-    identity.executable !== context.runner.node.path ||
-    identity.argumentsSha256 !== createHash("sha256").update(JSON.stringify(args)).digest("hex")
-  )
-    throw new BootstrapRequestConflict(
-      "Maintenance control identity differs from its pinned runtime",
-    );
+  await verifyControlRuntime(context, identity, args, persistent);
   const journal = new FileBootstrapRequestJournal(context.plan.state.directory);
   const state = createMaintenanceReviewState({
     preparation: {
@@ -151,6 +250,34 @@ export async function runMaintenanceControl(input: {
     });
   }
   const app = createMaintenanceControlApp({
+    ...(persistent
+      ? {
+          runtimeStatus: async () => {
+            const current = await persistent.inspect();
+            // Queue bookkeeping may complete after startup. Compare native selection
+            // and runtime custody, while the startup reader verifies current history.
+            if (
+              ["planSha256", "selection", "selected", "setup", "process"].some(
+                (key) =>
+                  !isDeepStrictEqual(
+                    current[key as keyof SelectedStartup],
+                    persistent.selected[key as keyof SelectedStartup],
+                  ),
+              )
+            )
+              throw new BootstrapRequestConflict("Persistent controller selection changed");
+            return {
+              installationId: current.plan.identity.installationId,
+              target: current.setup.target,
+              identitySha256: current.identitySha256,
+              sourceCommit: current.selected.sourceCommit,
+              artifactSha256: current.selected.artifactSha256,
+              process: current.process,
+              ready: true,
+            };
+          },
+        }
+      : {}),
     installationId: context.receipt.installationId,
     ...(enrollment
       ? {
@@ -173,6 +300,8 @@ export async function runMaintenanceControl(input: {
               });
             },
             enroll: async (decision) => {
+              if (persistent)
+                throw new BootstrapRequestConflict("Installation enrollment is already retained");
               const current = await readMaintenanceEnrollmentReview(
                 directory,
                 input.enrollmentSha256!,

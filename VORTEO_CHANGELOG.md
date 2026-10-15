@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+
+### Added
+
+- Add controller and recovery-launcher jobs to the existing lifecycle journal with exact standing approval, a visible cancellation interval and one reserved generation. Native execution consumes a durable intent; lost replies and reopened generations permit observation only.
+- Expose owner-only maintenance status and exact cancellation in General controls, with public sidebar counts that omit private evidence. Distinguish recorded outcomes from current service health.
+- Validate native evidence, source and artifact identity, approved revisions, shared lifecycle exclusion and observation chronology under the existing journal lock.
+
+### Fixed
+
+- Bound native callback waits and retries so an unavailable response cannot wedge queue reconciliation. Reconcile revocation before retry limits and retain uncertain execution without replay.
+- Preserve plain restart timing when optional native verification is absent. Clear busy state and private maintenance data on expired owner access, allowing sign-in again.
+
+### Validation and delivery
+
+- Focused queue, admission, owner HTTP, client, model and responsive browser checks pass. Persistent native startup, production execution, recovery and installed acceptance remain incomplete. This source checkpoint enables no native maintenance capability.
+
 ## 0.11.0-beta.3.vorteo.560 - 2026-10-15
 
 ### Added

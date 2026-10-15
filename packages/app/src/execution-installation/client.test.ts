@@ -449,3 +449,66 @@ test("enrollment status binds the installation and distinguishes missing routes 
       .every((resource) => resource === "enrollment/query"),
   ).toBe(true);
 });
+
+test("maintenance queue binds installation identity and cancellation uses the reviewed revision", async () => {
+  const job = {
+    id: "00000000-0000-4000-8000-000000000001",
+    revision: "00000000-0000-4000-8000-000000000002",
+    target: "maintenance-controller",
+    operation: "replacement",
+    reason: "Install reviewed controller",
+    createdAt: "2026-10-15T20:00:00.000Z",
+    status: "approved",
+    detail: "Waiting for cancellation interval",
+    cancelable: true,
+    dispatchAfter: "2026-10-15T20:00:30.000Z",
+    generation: null,
+    outcome: null,
+    observedAt: null,
+  } as const;
+  let wrongInstallation = false;
+  let failCancellation = false;
+  const calls: { path: string; body: unknown }[] = [];
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (path === "maintenance-services/query")
+        return {
+          installationId: wrongInstallation
+            ? "00000000-0000-4000-8000-000000000099"
+            : installation.installationId,
+          available: true,
+          jobs: [job],
+        };
+      if (failCancellation) throw new Error("Maintenance changed before cancellation");
+      return { ...job, status: "rejected", cancelable: false };
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.maintenanceServices()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect((await client.maintenanceServices()).jobs).toEqual([job]);
+  wrongInstallation = true;
+  await expect(client.maintenanceServices()).rejects.toThrow("another installation");
+  expect((await client.cancelMaintenanceService(job)).status).toBe("rejected");
+  expect(calls.at(-1)).toEqual({
+    path: "maintenance-services/cancel",
+    body: { id: job.id, revision: job.revision },
+  });
+  failCancellation = true;
+  await expect(client.cancelMaintenanceService(job)).rejects.toThrow("changed before cancellation");
+  await expect(
+    client.cancelMaintenanceService({ ...job, status: "running", cancelable: false }),
+  ).rejects.toThrow("already dispatched");
+});

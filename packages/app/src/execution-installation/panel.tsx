@@ -1,3 +1,4 @@
+import { MaintenanceServiceQueue } from "./maintenance-service-queue";
 import { MaintenanceDashboard } from "./maintenance-dashboard";
 import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
@@ -68,6 +69,7 @@ import type {
   MaintenanceService,
   ProfileSharingStatus,
   RestartJob,
+  RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
@@ -303,6 +305,14 @@ function InstallationPanel({
               error={state.enrollmentError}
               refreshing={state.enrollmentRefreshing}
               onRefresh={model.refreshEnrollmentStatus}
+            />
+            <MaintenanceServiceQueue
+              status={state.serviceQueue}
+              error={state.serviceQueueError}
+              refreshing={state.serviceQueueRefreshing}
+              busy={state.busy}
+              onRefresh={model.refreshServiceQueue}
+              onCancel={model.cancelMaintenanceService}
             />
             <DaemonAutomationControl model={model} state={state} />
             {state.monitorJobs.map((job) => (
@@ -1416,6 +1426,18 @@ export function InstallationRestartBanner({
   );
 }
 
+function restartSummaryNeedsAction(summary: RestartSummary) {
+  return [
+    summary.requested,
+    summary.serviceMaintenance?.requested,
+    summary.serviceMaintenance?.attention,
+    summary.nativeHelper?.requested,
+    summary.nativeHelper?.recovery,
+    summary.previewMonitor?.requested,
+    summary.previewMonitor?.recovery,
+  ].some((count) => (count ?? 0) > 0);
+}
+
 function RestartBanner({ model }: { model: InstallationPanelModel }) {
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const router = useRouter();
@@ -1427,18 +1449,18 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   });
   if (!state.unlocked && state.restartSummary) {
     const summary = state.restartSummary;
+    const serviceCount = summary.serviceMaintenance
+      ? summary.serviceMaintenance.requested +
+        summary.serviceMaintenance.queued +
+        summary.serviceMaintenance.unverified
+      : 0;
     const description = lockedMaintenanceSummary(summary);
     if (!description) return null;
     return (
       <View testID="installation-restart-banner">
         <MaintenanceNotice
-          needsAction={
-            summary.requested > 0 ||
-            (summary.nativeHelper?.requested ?? 0) > 0 ||
-            (summary.nativeHelper?.recovery ?? 0) > 0 ||
-            (summary.previewMonitor?.requested ?? 0) > 0 ||
-            (summary.previewMonitor?.recovery ?? 0) > 0
-          }
+          sidebarOnly={serviceCount > 0}
+          needsAction={restartSummaryNeedsAction(summary)}
           revision={description}
           title="Installation maintenance"
           description={description}
@@ -1456,7 +1478,10 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     (job) =>
       ["pending", "approved", "running"].includes(job.status) || job.stage === "recovery_required",
   );
-  if (!jobs.length && !helpers.length && !monitors.length) return null;
+  const services = (state.serviceQueue?.jobs ?? []).filter((job) =>
+    ["pending", "approved", "running", "failed"].includes(job.status),
+  );
+  if (!jobs.length && !helpers.length && !monitors.length && !services.length) return null;
   return (
     <View testID="installation-restart-banner">
       {state.error ? (
@@ -1464,6 +1489,23 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           {state.error}
         </Text>
       ) : null}
+      {services.map((job) => (
+        <MaintenanceNotice
+          sidebarOnly
+          testID={`maintenance-service-notice-${job.id}`}
+          key={job.id}
+          needsAction={job.status === "pending" || job.status === "failed"}
+          revision={`${job.id}:${job.revision}:${job.status}`}
+          title={
+            job.target === "maintenance-controller"
+              ? "Controller maintenance"
+              : "Recovery launcher maintenance"
+          }
+          description={job.status === "running" ? `Outcome unverified. ${job.detail}` : job.detail}
+          reviewLabel="Review maintenance"
+          onReview={open}
+        />
+      ))}
       {monitors.map((job) => (
         <View key={job.id}>
           <MaintenanceNotice

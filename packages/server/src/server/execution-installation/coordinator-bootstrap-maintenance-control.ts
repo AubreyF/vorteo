@@ -1,3 +1,7 @@
+import {
+  MaintenanceRuntimeStatusSchema,
+  type MaintenanceRuntimeIdentity,
+} from "./coordinator-bootstrap-maintenance-service-status.js";
 import path from "node:path";
 import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
 import express, { type ErrorRequestHandler } from "express";
@@ -36,6 +40,8 @@ interface MaintenanceControlInput {
     enroll(value: z.infer<typeof CoordinatorMaintenanceEnrollmentRequestSchema>): Promise<void>;
   };
   status(): z.infer<typeof CoordinatorMaintenanceStatusSchema>;
+  /** Supplied only after selected persistent startup and native identity checks. */
+  runtimeStatus?(): Promise<MaintenanceRuntimeIdentity & { ready: boolean }>;
   service(): BootstrapReviewService | undefined;
   readOwnerConfiguration(): Promise<z.infer<typeof MaintenanceOwnerConfigurationSchema>>;
   provision(value: z.infer<typeof CoordinatorMaintenanceProvisionRequestSchema>): Promise<void>;
@@ -50,6 +56,27 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
   app.use((_request, response, next) => {
     response.setHeader("Cache-Control", "no-store");
     next();
+  });
+  app.get("/api/installation/maintenance/runtime-status", (request, response, next) => {
+    const nonce = z.string().uuid().safeParse(request.query.nonce);
+    if (!input.runtimeStatus) {
+      response.sendStatus(404);
+      return;
+    }
+    if (!nonce.success) {
+      response.sendStatus(400);
+      return;
+    }
+    void (async () => {
+      try {
+        const status = await input.runtimeStatus!();
+        response.json(
+          MaintenanceRuntimeStatusSchema.parse({ ...status, version: 1, nonce: nonce.data }),
+        );
+      } catch (error) {
+        next(error);
+      }
+    })();
   });
   app.get("/api/installation/maintenance/status", (_request, response) => {
     response.json(CoordinatorMaintenanceStatusSchema.parse(input.status()));

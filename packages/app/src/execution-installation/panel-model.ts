@@ -1,5 +1,9 @@
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
 import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
+import type {
+  MaintenanceServiceQueueStatus,
+  MaintenanceServiceView,
+} from "@getpaseo/protocol/maintenance-service-status";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
@@ -15,6 +19,9 @@ import type {
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 
 interface InstallationPanelState {
+  serviceQueue: MaintenanceServiceQueueStatus | null;
+  serviceQueueError: string | null;
+  serviceQueueRefreshing: boolean;
   enrollmentStatus: InstallationEnrollmentStatus | null;
   enrollmentError: string | null;
   enrollmentRefreshing: boolean;
@@ -43,6 +50,9 @@ interface InstallationPanelState {
 
 export class InstallationPanelModel {
   private state: InstallationPanelState = {
+    serviceQueue: null,
+    serviceQueueError: null,
+    serviceQueueRefreshing: false,
     enrollmentStatus: null,
     enrollmentError: null,
     enrollmentRefreshing: false,
@@ -98,6 +108,8 @@ export class InstallationPanelModel {
           | "daemonAutomation"
           | "maintenanceStatus"
           | "enrollmentStatus"
+          | "maintenanceServices"
+          | "cancelMaintenanceService"
           | "changeDaemonAutomation"
           | "devRepairStatus"
           | "prepareDevRepair"
@@ -154,6 +166,9 @@ export class InstallationPanelModel {
         enrollmentStatus: null,
         enrollmentError: null,
         enrollmentRefreshing: false,
+        serviceQueue: null,
+        serviceQueueError: null,
+        serviceQueueRefreshing: false,
         daemonAutomationError: null,
       });
     } catch (error) {
@@ -206,6 +221,7 @@ export class InstallationPanelModel {
       const [restartSummary] = await Promise.all([
         this.client.restartSummary(),
         this.refreshEnrollmentStatus(),
+        this.refreshServiceQueue(),
       ]);
       this.publish({ restartSummary });
       if (!this.state.unlocked) return;
@@ -264,6 +280,61 @@ export class InstallationPanelModel {
       this.refreshing = false;
     }
   }
+
+  refreshServiceQueue = async (): Promise<void> => {
+    if (
+      !this.state.unlocked ||
+      !this.client.maintenanceServices ||
+      this.state.serviceQueueRefreshing
+    )
+      return;
+    const generation = this.accessGeneration;
+    this.publish({ serviceQueueRefreshing: true });
+    try {
+      const serviceQueue = await this.client.maintenanceServices();
+      if (generation === this.accessGeneration)
+        this.publish({ serviceQueue, serviceQueueError: null });
+    } catch (error) {
+      if (generation !== this.accessGeneration) return;
+      if (error instanceof OwnerAccessExpired) this.fail(error);
+      else
+        this.publish({
+          serviceQueueError:
+            "Unable to refresh maintenance requests. Refresh before cancelling a request.",
+        });
+    } finally {
+      if (generation === this.accessGeneration) this.publish({ serviceQueueRefreshing: false });
+    }
+  };
+
+  cancelMaintenanceService = async (job: MaintenanceServiceView): Promise<void> => {
+    if (this.state.busy || !this.state.unlocked || !this.client.cancelMaintenanceService) return;
+    const current = this.state.serviceQueue?.jobs.find((item) => item.id === job.id);
+    if (this.state.serviceQueueError || current?.revision !== job.revision || !current.cancelable) {
+      this.publish({
+        serviceQueueError: "Maintenance changed. Refresh and review its current receipt.",
+      });
+      return;
+    }
+    const generation = this.accessGeneration;
+    this.publish({ busy: true, serviceQueueError: null });
+    try {
+      await this.client.cancelMaintenanceService(job);
+      if (generation !== this.accessGeneration) return;
+      this.publish({ notice: "Maintenance cancelled before dispatch." });
+      await this.refreshServiceQueue();
+    } catch (error) {
+      if (generation !== this.accessGeneration) return;
+      if (error instanceof OwnerAccessExpired) this.fail(error);
+      else
+        this.publish({
+          serviceQueueError:
+            error instanceof Error ? error.message : "Maintenance cancellation failed.",
+        });
+    } finally {
+      if (generation === this.accessGeneration) this.publish({ busy: false });
+    }
+  };
 
   refreshEnrollmentStatus = async (): Promise<void> => {
     if (!this.state.unlocked || !this.client.enrollmentStatus || this.state.enrollmentRefreshing)
@@ -480,6 +551,10 @@ export class InstallationPanelModel {
       this.publish({
         unlocked: false,
         visible: false,
+        busy: false,
+        serviceQueue: null,
+        serviceQueueError: null,
+        serviceQueueRefreshing: false,
         lastUpdatedAt: null,
         password: "",
         jobs: [],
