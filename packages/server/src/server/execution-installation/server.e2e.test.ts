@@ -1502,7 +1502,9 @@ test("automatic Host approval uses authenticated origin and hides metadata from 
   expect(modern.automaticApproval?.requestRevision).toBe(modern.revision);
   const legacy = await (await request(`${route}/${host.id}`, "host-agent-test-token")).json();
   expect(legacy).not.toHaveProperty("automaticApproval");
-  expect(calls).toEqual(["hold"]);
+  expect(calls).toEqual([]);
+  expect(modern).not.toHaveProperty("automaticAuthority");
+  expect(modern).not.toHaveProperty("automaticDispatchAfter");
   const canceled = await request(
     `/api/installation/owner/restarts/${host.id}/decision`,
     "owner-test-password",
@@ -1513,7 +1515,7 @@ test("automatic Host approval uses authenticated origin and hides metadata from 
   );
   expect(canceled.status).toBe(200);
   await drain();
-  expect(calls).toEqual(["hold", "release"]);
+  expect(calls).toEqual(["release"]);
 });
 
 test("Claude setup login accepts only owner access and sanitizes code failures", async () => {
@@ -1824,7 +1826,7 @@ test("scoped helper CLI prepares inert requests and returns their exact review r
   const preparation = helperHttpPreparation();
   writeFileSync(requestFile, JSON.stringify(preparation), { mode: 0o600 });
   const command = promisify(execFile);
-  const script = path.resolve("../../scripts/installation-agent.mjs");
+  const script = path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs");
   const run = (config: string, ...args: string[]) =>
     command(process.execPath, [script, "--config", config, ...args]);
   await expect(run(guest, "request-helper", "--request-file", requestFile)).rejects.toThrow(
@@ -2012,7 +2014,7 @@ test("Host CLI requests truthful manual review and returns the exact owner revie
   );
   writeFileSync(reason, "Review explicitly", { mode: 0o600 });
   const result = await promisify(execFile)(process.execPath, [
-    path.resolve("../../scripts/installation-agent.mjs"),
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
     "--config",
     config,
     "request-restart",
@@ -2061,7 +2063,7 @@ test.each([false, true])(
       writeFileSync(reason, "Review explicitly");
       await expect(
         promisify(execFile)(process.execPath, [
-          path.resolve("../../scripts/installation-agent.mjs"),
+          path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
           "--config",
           config,
           "request-restart",
@@ -2159,7 +2161,7 @@ test("Host CLI source contributions carry the advertised owner-review requiremen
     writeFileSync(reason, "Review source explicitly");
     const id = randomUUID();
     await promisify(execFile)(process.execPath, [
-      path.resolve("../../scripts/installation-agent.mjs"),
+      path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
       "--config",
       config,
       "request-restart",
@@ -2399,4 +2401,51 @@ test("owner HTTP repair captures and stages real Git source without approving or
   } finally {
     prepareBatch.mockRestore();
   }
+});
+
+test("maintenance readiness separates legacy authority, broad opt-in and source readiness", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const route = "/api/installation/maintenance-status";
+  expect((await f.request(route, "wrong")).status).toBe(401);
+  const initial = await (await f.request(route, "guest-agent-test-token")).json();
+  expect(initial.version).toBe(1);
+  expect(initial.paths).toHaveLength(8);
+  expect(initial.paths).toContainEqual(
+    expect.objectContaining({
+      requester: "host-agent",
+      target: "host",
+      operation: "restart",
+      authorization: "automatic",
+      readiness: "ready",
+    }),
+  );
+  expect(initial.paths).toContainEqual(
+    expect.objectContaining({
+      requester: "container-agent",
+      target: "host",
+      operation: "restart",
+      authorization: "manual",
+      readiness: "ready",
+    }),
+  );
+  expect(
+    initial.paths
+      .filter((item: { operation: string }) => item.operation === "source-update")
+      .every(
+        (item: { readiness: string; selectedSource: string | null }) =>
+          item.readiness === "blocked" && item.selectedSource === null,
+      ),
+  ).toBe(true);
+  const ownerRoute = "/api/installation/owner/maintenance-status/query";
+  expect((await f.request(ownerRoute, "guest-agent-test-token", {})).status).toBe(401);
+  await f.request("/api/installation/owner/daemon-automation/change", "owner-test-password", {
+    expectedRevision: null,
+    enabled: true,
+  });
+  const enabled = await (await f.request(ownerRoute, "owner-test-password", {})).json();
+  expect(enabled.preference).toMatchObject({ enabled: true, legacyHostOnly: false });
+  expect(
+    enabled.paths.every((item: { authorization: string }) => item.authorization === "automatic"),
+  ).toBe(true);
+  expect(f.calls).toEqual([]);
 });

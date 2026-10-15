@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { observeBootstrapExecutorExit } from "./coordinator-bootstrap-runner.js";
 
 test.each([false, true])("dispatch notification survives a closed observer: %s", async (closed) => {
   const moduleUrl = new URL("./coordinator-bootstrap-runner.ts", import.meta.url).href;
@@ -40,5 +41,83 @@ test.each([false, true])("dispatch notification survives a closed observer: %s",
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited;
+  }
+});
+
+test("exit observation has a durable three-attempt budget and never repeats an exhausted probe", async () => {
+  const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const root = mkdtempSync(path.join(tmpdir(), "exit-observation-"));
+  let now = 1000;
+  let attempts = 0;
+  const delays: number[] = [];
+  const input = {
+    file: path.join(root, "observation.json"),
+    now: () => now,
+    wait: async (milliseconds: number) => {
+      delays.push(milliseconds);
+      now += milliseconds;
+    },
+    verifyExited: async () => {
+      attempts++;
+      throw new Error("uncertain");
+    },
+  };
+  try {
+    await expect(observeBootstrapExecutorExit(input)).rejects.toThrow("three observations");
+    expect(delays).toEqual([5000, 15000, 45000]);
+    expect(attempts).toBe(3);
+    expect(JSON.parse(readFileSync(input.file, "utf8")).attempts).toBe(3);
+    await expect(observeBootstrapExecutorExit(input)).rejects.toThrow("three observations");
+    expect(attempts).toBe(3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("exit observation resumes a consumed attempt after interruption without resetting its delay", async () => {
+  const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const root = mkdtempSync(path.join(tmpdir(), "exit-interruption-"));
+  let now = 1000;
+  let probes = 0;
+  let waits = 0;
+  const file = path.join(root, "observation.json");
+  try {
+    await expect(
+      observeBootstrapExecutorExit({
+        file,
+        now: () => now,
+        wait: async (milliseconds) => {
+          if (++waits === 2) throw new Error("observer stopped");
+          now += milliseconds;
+        },
+        verifyExited: async () => {
+          probes++;
+          throw new Error("still present");
+        },
+      }),
+    ).rejects.toThrow("observer stopped");
+    expect(JSON.parse(readFileSync(file, "utf8")).attempts).toBe(1);
+    now += 4000;
+    const resumedDelays: number[] = [];
+    await observeBootstrapExecutorExit({
+      file,
+      now: () => now,
+      wait: async (milliseconds) => {
+        resumedDelays.push(milliseconds);
+        now += milliseconds;
+      },
+      verifyExited: async () => {
+        probes++;
+      },
+    });
+    expect(resumedDelays).toEqual([11000]);
+    expect(probes).toBe(2);
+    expect(JSON.parse(readFileSync(file, "utf8")).attempts).toBe(2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

@@ -166,6 +166,13 @@ export const DevRepairAttemptSchema = z.strictObject({
 });
 
 export const RestartJobSchema = RestartRequestSchema.extend({
+  updatePreparation: z.enum(["preparing", "prepared"]).optional(),
+  // Protected ledger metadata; projected out of legacy HTTP receipts.
+  automaticAuthority: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  automaticDispatchAfter: z.string().datetime().optional(),
   devRepairs: z.array(DevRepairAttemptSchema).max(100).optional(),
   factoryRuntimeRecoveryRequired: z.boolean().optional(),
   factoryRuntimeRecoveredBy: z.string().uuid().optional(),
@@ -298,3 +305,25 @@ export const DaemonAutomationChangeSchema = z.strictObject({
   expectedRevision: z.string().uuid().nullable(),
   enabled: z.boolean(),
 });
+
+// COMPAT(maintenanceStatus): separate versioned route; older coordinators return 404.
+export const InstallationMaintenanceStatusSchema = z.object({
+  version: z.literal(1),
+  checkedAt: z.string().datetime(),
+  preference: DaemonAutomationPreferenceSchema,
+  paths: z.array(
+    z.object({
+      requester: z.enum(["host-agent", "container-agent"]),
+      target: RestartTargetSchema,
+      operation: z.enum(["restart", "source-update"]),
+      authorization: z.enum(["automatic", "manual"]),
+      readiness: z.enum(["ready", "blocked"]),
+      reason: z.string(),
+      selectedSource: z
+        .string()
+        .regex(/^[a-f0-9]{40}$/)
+        .nullable(),
+    }),
+  ),
+});
+export type InstallationMaintenanceStatus = z.infer<typeof InstallationMaintenanceStatusSchema>;

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { open } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { realpathSync, existsSync, readFileSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { writePrivateFileAtomicSync } from "../private-files.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -26,7 +27,11 @@ import {
   readBootstrapHealth,
   createBootstrapNativeOperations,
 } from "./coordinator-bootstrap-runtime.js";
-import { executeCoordinatorBootstrap } from "./coordinator-bootstrap-executor.js";
+import {
+  executeCoordinatorBootstrap,
+  type BootstrapExecutorFailure,
+  type BootstrapExecutorOperations,
+} from "./coordinator-bootstrap-executor.js";
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import {
@@ -36,6 +41,54 @@ import {
   verifyRenewalPlan,
   verifyRetainedRenewal,
 } from "./coordinator-bootstrap-renewal.js";
+
+const ExitObservationSchema = z.object({
+  attempts: z.number().int().min(0).max(3),
+  nextAttemptAt: z.number().finite(),
+});
+interface ExitObservation {
+  file: string;
+  verifyExited(): Promise<void>;
+  now(): number;
+  wait(milliseconds: number): Promise<void>;
+}
+
+/** Consume a durable read-only attempt before observing. A crash never resets the budget. */
+export async function observeBootstrapExecutorExit(input: ExitObservation): Promise<void> {
+  const backoff = [5_000, 15_000, 45_000];
+  let state = existsSync(input.file)
+    ? ExitObservationSchema.parse(JSON.parse(readFileSync(input.file, "utf8")))
+    : { attempts: 0, nextAttemptAt: input.now() + backoff[0] };
+  const retain = () => {
+    writePrivateFileAtomicSync(input.file, JSON.stringify(state));
+    for (const file of [input.file, path.dirname(input.file)]) {
+      const descriptor = openSync(file, "r");
+      try {
+        fsyncSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
+    }
+  };
+  retain();
+  while (state.attempts < backoff.length) {
+    await input.wait(Math.max(0, Math.min(45_000, state.nextAttemptAt - input.now())));
+    state = {
+      attempts: state.attempts + 1,
+      nextAttemptAt: input.now() + (backoff[state.attempts + 1] ?? 0),
+    };
+    retain();
+    try {
+      await input.verifyExited();
+      return;
+    } catch {
+      // An uncertain process remains untouched. Only read-only observation retries.
+    }
+  }
+  throw new BootstrapRequestConflict(
+    "Executor exit could not be verified after three observations. Inspect the retained recovery request; no lifecycle effect was retried.",
+  );
+}
 
 function watchdogRecoveryArguments(request: CoordinatorBootstrapRequest): string[] {
   return request.plan.automaticRecovery !== undefined ? ["automatic-recovery"] : [];
@@ -311,20 +364,16 @@ export async function runNativeBootstrap(
           await requireOwnership();
           return operation();
         },
-        verifyExecutorExited: async () => {
-          // Lock release can precede native process reaping. Observe the same PID
-          // briefly; timeout never establishes death and never triggers a signal.
-          const deadline = performance.now() + 5000;
-          for (;;) {
-            try {
-              await reader.verifyProcessExited(record.pid);
-              return;
-            } catch (error) {
-              if (performance.now() >= deadline) throw error;
-            }
-            await delay(50);
-          }
-        },
+        verifyExecutorExited: () =>
+          observeBootstrapExecutorExit({
+            file: path.join(
+              request.plan.state.directory,
+              `coordinator-exit-observation-${identifier}.json`,
+            ),
+            verifyExited: () => reader.verifyProcessExited(record.pid),
+            now: Date.now,
+            wait: delay,
+          }),
         resumePrevious: native.resumePrevious,
         restorePrevious: native.restorePrevious,
       },
@@ -399,7 +448,7 @@ export async function runNativeBootstrap(
     await requireOwnership();
     acknowledgeBootstrapDispatch();
   };
-  const operations = await createBootstrapNativeOperations({
+  const operations: BootstrapExecutorOperations = await createBootstrapNativeOperations({
     requests,
     approved: request,
     host,
@@ -409,6 +458,40 @@ export async function runNativeBootstrap(
     verifySetup,
     armWatchdog,
   });
+  operations.recordFailure = async (
+    failed: CoordinatorBootstrapRequest,
+    failure: BootstrapExecutorFailure,
+  ) => {
+    if (!failed.execution)
+      throw new BootstrapRequestConflict("Failed execution identity is missing");
+    const diagnostic = path.join(
+      failed.plan.state.directory,
+      `coordinator-failure-${failed.execution.generation}.json`,
+    );
+    const file = await open(diagnostic, "wx", 0o600);
+    try {
+      await file.writeFile(
+        JSON.stringify({
+          version: 1,
+          requestId: failed.id,
+          generation: failed.execution.generation,
+          planSha256: failed.planSha256,
+          recordedAt: new Date().toISOString(),
+          operation: failure.operation,
+          stage: failure.stage,
+        }),
+      );
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    const directory = await open(failed.plan.state.directory, "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  };
   const result = await executeCoordinatorBootstrap(
     requests,
     { id: request.id, revision: request.revision, planSha256: request.planSha256 },

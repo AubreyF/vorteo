@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Changed
+
+- Show maintenance authority and readiness for every Host and Dev requester/target path, including unsupported coordinator behavior and distinct executor cleanup status.
+- Bind automatic grants to policy and credential revisions, preserve a cancellation interval across queue recovery, and prepare approved source before holding turns.
+- Retain durable preparation and activation receipts, refuse changed installed sources and repeated activation, and use atomic idle admission for automatic updates.
+- Retain bounded coordinator failure diagnostics and a persisted three-attempt exit-observation budget; allow up to two minutes for replacement readiness.
+
+### Maintenance
+
+- Add queue cancellation, credential rotation, interrupted preparation and recovery tests; verify preference persistence and revocation in desktop and phone browser fixtures.
+- Document readiness, operator actions and rollout limits. Reboot-persistent recovery and live installation acceptance remain unfinished; these changes are source preparation only.
 
 ## 0.11.0-beta.3.vorteo.525 - 2026-10-15
 

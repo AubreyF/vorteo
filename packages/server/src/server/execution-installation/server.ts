@@ -25,6 +25,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import {
   DaemonAutomationChangeSchema,
+  type InstallationMaintenanceStatus,
   SourceUpdateSchema,
   type RestartJob,
   type SourceContribution,
@@ -35,7 +36,12 @@ import {
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
 import { writePrivateFileAtomicSync } from "../private-files.js";
 import { createWebUiMiddleware } from "../web-ui.js";
-import { InstallationRestarts, RestartRequestError, type RestartExecutor } from "./restarts.js";
+import {
+  InstallationRestarts,
+  RestartRequestError,
+  supportsAutomaticMaintenance,
+  type RestartExecutor,
+} from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
 import { connectInstallationDaemon } from "./daemon.js";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
@@ -131,7 +137,13 @@ function restartReply(
   requireOwnerApproval?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
-  const { devRepairs: _devRepairs, ...publicJob } = job;
+  const {
+    updatePreparation: _preparation,
+    devRepairs: _devRepairs,
+    automaticAuthority: _authority,
+    automaticDispatchAfter: _dispatchAfter,
+    ...publicJob
+  } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   if (!hostAutomaticRestarts) {
@@ -256,7 +268,19 @@ export function createInstallationServer(
     captureDevRepair: (items) => forTarget("container-daemon").captureDevRepair(items),
     prepareDevRepair: (capture, items) =>
       forTarget("container-daemon").prepareDevRepair(capture, items),
-    installUpdate: (job) => forTarget(job.target).install(job, executor.restart),
+    prepareInstallation: (job) => forTarget(job.target).prepareInstallation(job),
+    installUpdate: (job) =>
+      forTarget(job.target).install(job, async (target) => {
+        if (!job.finishCurrentTurns) return executor.restart(target);
+        if (!executor.restartWhenIdle)
+          throw new RestartRequestError("Safe update admission is unavailable");
+        const detail = await executor.restartWhenIdle(target);
+        if (detail === null)
+          throw new RestartRequestError(
+            "Target admitted new work before replacement. No restart dispatched.",
+          );
+        return detail;
+      }),
   };
   const daemonAutomation = new DaemonAutomation(
     config.stateDir,
@@ -281,7 +305,23 @@ export function createInstallationServer(
     },
     restartExecutor,
     Date.now,
-    { ...config.restartApprovalPolicy, daemonRequestsAfter: () => daemonAutomation.activation() },
+    {
+      ...config.restartApprovalPolicy,
+      daemonRequestsAfter: () => daemonAutomation.activation(),
+      cancellationDelayMs: 30_000,
+      authority: () =>
+        createHash("sha256")
+          .update(
+            JSON.stringify({
+              installation: config.public.installationId,
+              host: config.hostAgentTokenHash,
+              container: config.containerAgentTokenHash,
+              preference: daemonAutomation.read().revision,
+              legacy: config.restartApprovalPolicy?.hostRequestsAfter,
+            }),
+          )
+          .digest("hex"),
+    },
     { fenced: startupFence !== undefined },
   );
   const startupReleased = () => {
@@ -390,6 +430,53 @@ export function createInstallationServer(
       };
     }
   }
+  async function maintenanceStatus(): Promise<InstallationMaintenanceStatus> {
+    const preference = daemonAutomation.read();
+    const impacts = await restarts.impacts();
+    const paths: InstallationMaintenanceStatus["paths"] = [];
+    const executorReady = supportsAutomaticMaintenance(executor);
+    for (const target of ["host", "container-daemon"] as const) {
+      const sourceUpdate = await updateCapability(target);
+      const selectedSource = sourceUpdate.available ? forTarget(target).source().baseCommit : null;
+      const impact = impacts.find((item) => item.target === target);
+      const recoveryBlocker = restarts.maintenanceBlocker(target);
+      for (const requester of ["host-agent", "container-agent"] as const) {
+        const automatic =
+          preference.enabled || (preference.legacyHostOnly && requester === "host-agent");
+        for (const operation of ["restart", "source-update"] as const) {
+          let blocker: string | null = null;
+          if (recoveryBlocker) blocker = recoveryBlocker;
+          else if (!executorReady)
+            blocker = "Update the coordinator to support safe maintenance admission.";
+          else if (!impact || impact.error || !impact.idleRestartSupported)
+            blocker =
+              "Cannot verify safe admission. Check the target daemon's connection and compatibility.";
+          else if (operation === "source-update" && !sourceUpdate.available)
+            blocker = "Repair the target source updater before submitting an update.";
+          const authorization = automatic ? "automatic" : "manual";
+          const readiness = blocker ? "blocked" : "ready";
+          const reason =
+            blocker ??
+            (automatic
+              ? "Fresh routine requests may be approved automatically. Current turns finish before dispatch."
+              : "An exact owner approval is required. Maintenance policy does not authorize this requester.");
+          paths.push({
+            requester,
+            target,
+            operation,
+            authorization,
+            readiness,
+            reason,
+            selectedSource,
+          });
+        }
+      }
+    }
+    return { version: 1, checkedAt: new Date().toISOString(), preference, paths };
+  }
+  app.get("/api/installation/maintenance-status", authenticateUpdate, (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
   app.get("/api/installation/capabilities", authenticateUpdate, (req, res, next) => {
     const host = matchesToken(
       extractHttpBearerToken(req.header("authorization")),
@@ -1040,17 +1127,15 @@ export function createInstallationServer(
       .parse(req.body);
     void profiles.resolve(input).then(() => res.json(profiles.status()), next);
   });
+  app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
+    void maintenanceStatus().then((status) => res.json(status), next);
+  });
   app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {
     res.json(daemonAutomation.read());
   });
   app.post("/api/installation/owner/daemon-automation/change", (req, res) => {
     const change = DaemonAutomationChangeSchema.parse(req.body);
-    const executorReady = Boolean(
-      executor.inspect &&
-      executor.holdCurrentTurns &&
-      executor.releaseCurrentTurns &&
-      executor.restartWhenIdle,
-    );
+    const executorReady = supportsAutomaticMaintenance(executor);
     if (change.enabled && !executorReady) {
       throw new RestartRequestError(
         "Update the coordinator before enabling automatic daemon maintenance",

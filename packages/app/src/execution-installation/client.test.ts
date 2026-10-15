@@ -358,3 +358,41 @@ test("Dev repair capability loss fails closed and preparation sends only the exa
   ).rejects.toThrow("Update the coordinator");
   expect(sent).toHaveLength(before);
 });
+
+test("maintenance status distinguishes an older coordinator from a failed observation", async () => {
+  let outcome: "old" | "ready" | "failed" = "old";
+  const status = {
+    version: 1,
+    checkedAt: new Date().toISOString(),
+    paths: [],
+    preference: { revision: null, enabled: false, enabledAfter: null, legacyHostOnly: true },
+  };
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (outcome === "old") throw new InstallationRouteUnavailable("Update coordinator");
+      if (outcome === "failed") throw new Error("Observation failed");
+      return status;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.maintenanceStatus()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect(await client.maintenanceStatus()).toBeNull();
+  outcome = "ready";
+  expect(await client.maintenanceStatus()).toEqual(status);
+  outcome = "old";
+  await expect(client.maintenanceStatus()).rejects.toThrow("Update coordinator");
+  outcome = "failed";
+  await expect(client.maintenanceStatus()).rejects.toThrow("Observation failed");
+});

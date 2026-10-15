@@ -4353,3 +4353,26 @@ for (const width of [1280, 390]) {
     }
   });
 }
+
+test("automatic maintenance shows readiness and preserves owner opt-in across reload", async ({
+  page,
+}, testInfo) => {
+  await page.goto(origin);
+  await page.getByTestId("welcome-direct-connection").click();
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  await expect(page.getByTestId("installation-password")).not.toBeVisible();
+  await page.goto(`${origin}/settings/general?installation=1`);
+  const control = page.getByTestId("daemon-automation-switch");
+  await expect(control).toBeVisible();
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
+  await control.click();
+  await expect(control).toHaveAttribute("aria-checked", "true");
+  await page.reload();
+  await expect(control).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("automatic");
+  await page.screenshot({ path: testInfo.outputPath("maintenance-readiness.png"), fullPage: true });
+  await control.click();
+  await expect(control).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
+});

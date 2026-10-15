@@ -29,6 +29,9 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 
 export interface RestartApprovalPolicy {
+  /** Binds grants to the installed policy revision and authenticated credential set. */
+  authority?: () => string;
+  cancellationDelayMs?: number;
   hostRequestsAfter?: string;
   // Undefined retains legacy Host-only policy; null explicitly disables automation.
   daemonRequestsAfter?: () => string | null | undefined;
@@ -72,12 +75,22 @@ export interface RestartExecutor {
     capture: DevRepairCapture,
     contributions: SourceContribution[],
   ): Promise<SourceUpdate>;
+  prepareInstallation?(job: RestartJob): Promise<void>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
   holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+}
+
+export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean {
+  return Boolean(
+    executor.inspect &&
+    executor.holdCurrentTurns &&
+    executor.releaseCurrentTurns &&
+    executor.restartWhenIdle,
+  );
 }
 
 export class RestartRequestError extends Error {}
@@ -158,6 +171,13 @@ export class InstallationRestarts {
           detail: "Rechecking source contributions",
         };
       }
+      if (job.status === "approved" && job.updatePreparation === "preparing")
+        return {
+          ...job,
+          status: "failed",
+          detail:
+            "Source preparation interrupted before activation. Prepare a new update; the running release was not changed.",
+        };
       if (job.status === "approved" && job.whenIdle) return job;
       if (job.status !== "running" && job.status !== "approved") return job;
       return {
@@ -1410,6 +1430,10 @@ export class InstallationRestarts {
             ...(job.update ? { sourceSha256: job.update.sha256 } : {}),
           }
         : undefined,
+      automaticAuthority: policyActivatedAt ? this.approvalPolicy.authority?.() : undefined,
+      automaticDispatchAfter: policyActivatedAt
+        ? new Date(this.now() + (this.approvalPolicy.cancellationDelayMs ?? 0)).toISOString()
+        : undefined,
       status: "approved",
       approvedAt: new Date(this.now()).toISOString(),
       whenIdle: true,
@@ -1475,6 +1499,17 @@ export class InstallationRestarts {
     }
   }
 
+  maintenanceBlocker(target: RestartJob["target"]): string | null {
+    if (!this.active) return "Coordinator startup must be verified before maintenance can proceed.";
+    if (this.helperRecoveryRequired())
+      return "Native helper recovery must finish before maintenance can proceed.";
+    if (this.monitorRecoveryRequired())
+      return "Preview monitor recovery must finish before maintenance can proceed.";
+    if (this.factoryRecoveryRequired(target))
+      return "Factory recovery must verify this environment before maintenance can proceed.";
+    return null;
+  }
+
   private automaticApprovalCandidate(job: RestartJob, includeContainer: boolean): boolean {
     return (
       job.status === "pending" &&
@@ -1488,12 +1523,16 @@ export class InstallationRestarts {
 
   /** Revoke only undispatched automatic grants; explicit owner approvals remain exact. */
   refreshApprovalPolicy(): void {
-    if (!this.active || !this.approvalPolicy.daemonRequestsAfter) return;
-    const enabledAfter = this.approvalPolicy.daemonRequestsAfter();
-    if (enabledAfter === undefined) return;
+    if (!this.active) return;
+    const activation = this.approvalPolicy.daemonRequestsAfter?.();
+    const enabledAfter =
+      activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
+    const authority = this.approvalPolicy.authority?.();
     for (const job of this.jobs) {
       if (job.status !== "approved" || !job.automaticApproval) continue;
-      if (job.automaticApproval.policyActivatedAt === enabledAfter) continue;
+      const policyChanged = job.automaticApproval.policyActivatedAt !== enabledAfter;
+      const credentialsChanged = authority !== undefined && job.automaticAuthority !== authority;
+      if (!policyChanged && !credentialsChanged) continue;
       this.decide(job.id, job.revision, "cancel");
     }
   }
@@ -1574,7 +1613,90 @@ export class InstallationRestarts {
     }
   }
 
+  private automaticDispatchReady(job: RestartJob): boolean {
+    this.refreshApprovalPolicy();
+    const admitted = this.jobs.find((item) => item.id === job.id);
+    if (admitted?.status !== "approved" || admitted.revision !== job.revision) return false;
+    if (job.automaticDispatchAfter && this.now() < Date.parse(job.automaticDispatchAfter)) {
+      const detail = `Automatically approved. Cancellation is available before ${job.automaticDispatchAfter}; no restart hold has begun.`;
+      if (job.detail !== detail) this.replace({ ...job, detail });
+      return false;
+    }
+    return true;
+  }
+
+  private async prepareApprovedUpdate(job: RestartJob): Promise<RestartJob | null> {
+    if (
+      !job.update ||
+      !job.finishCurrentTurns ||
+      !this.executor.prepareInstallation ||
+      job.updatePreparation === "prepared"
+    )
+      return job;
+    this.replace({
+      ...job,
+      updatePreparation: "preparing",
+      detail:
+        "Building and validating approved source. Current work remains admissible; cancellation is available.",
+    });
+    try {
+      await this.executor.prepareInstallation(job);
+    } catch (error) {
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status === "approved")
+        this.replace({
+          ...current,
+          status: "failed",
+          detail: restartFailureDetail(current, error),
+        });
+      return null;
+    }
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((item) => item.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return null;
+    const prepared: RestartJob = { ...current, updatePreparation: "prepared" };
+    this.replace(prepared);
+    return prepared;
+  }
+
+  private async readyAfterInspection(job: RestartJob): Promise<boolean> {
+    if (!job.whenIdle) return true;
+    let impact: RestartImpact;
+    try {
+      impact = await this.inspectBeforeRestart(job);
+    } catch {
+      impact = {
+        target: job.target,
+        agents: [],
+        pendingStarts: 0,
+        checkedAt: new Date(this.now()).toISOString(),
+        idleRestartSupported: false,
+        error: "Cannot verify agent activity. Waiting for the target.",
+      };
+    }
+    // Policy and credentials may change while the target is being inspected.
+    this.refreshApprovalPolicy();
+    const current = this.jobs.find((candidate) => candidate.id === job.id);
+    if (current?.status !== "approved" || current.revision !== job.revision) return false;
+    const waiting =
+      impact.error ||
+      !impact.idleRestartSupported ||
+      impact.agents.length > 0 ||
+      impact.pendingStarts > 0;
+    if (waiting) {
+      const detail =
+        impact.error ||
+        (!impact.idleRestartSupported
+          ? "Waiting for a daemon update that supports safe idle restarts"
+          : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
+      if (job.detail !== detail) this.replace({ ...job, detail });
+      return false;
+    }
+    return true;
+  }
+
   private async dispatch(job: RestartJob): Promise<void> {
+    if (!this.automaticDispatchReady(job)) return;
     if (this.factoryDispatchBlocked(job)) {
       this.replace({
         ...job,
@@ -1591,38 +1713,13 @@ export class InstallationRestarts {
       });
       return;
     }
-    if (job.whenIdle) {
-      let impact: RestartImpact;
-      try {
-        impact = await this.inspectBeforeRestart(job);
-      } catch {
-        impact = {
-          target: job.target,
-          agents: [],
-          pendingStarts: 0,
-          checkedAt: new Date(this.now()).toISOString(),
-          idleRestartSupported: false,
-          error: "Cannot verify agent activity. Waiting for the target.",
-        };
-      }
-      // Owner cancellation may arrive while the target is being inspected.
-      const current = this.jobs.find((candidate) => candidate.id === job.id);
-      if (current?.status !== "approved" || current.revision !== job.revision) return;
-      const waiting =
-        impact.error ||
-        !impact.idleRestartSupported ||
-        impact.agents.length > 0 ||
-        impact.pendingStarts > 0;
-      if (waiting) {
-        const detail =
-          impact.error ||
-          (!impact.idleRestartSupported
-            ? "Waiting for a daemon update that supports safe idle restarts"
-            : `Waiting for ${impact.agents.length} active agents and ${impact.pendingStarts} starting operations`);
-        if (job.detail !== detail) this.replace({ ...job, detail });
-        return;
-      }
+    if (job.update && job.finishCurrentTurns && this.executor.prepareInstallation) {
+      const prepared = await this.prepareApprovedUpdate(job);
+      if (!prepared) return;
+      job = prepared;
+      if (!this.automaticDispatchReady(job)) return;
     }
+    if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
     job = runningRestart(job);
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.

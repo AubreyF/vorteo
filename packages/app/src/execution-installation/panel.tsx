@@ -390,7 +390,19 @@ function DaemonAutomationControl({
     },
     [model],
   );
-  if (!state.daemonAutomation) return null;
+  if (!state.daemonAutomation)
+    return (
+      <View
+        style={[styles.cardBody, settingsStyles.rowBorder]}
+        testID="daemon-automation-unavailable"
+      >
+        <Text style={settingsStyles.rowTitle}>Automatic daemon updates and restarts</Text>
+        <Text style={styles.text}>
+          The selected coordinator does not support this preference. Update the coordinator through
+          Installation controls. Existing approval rules remain in effect.
+        </Text>
+      </View>
+    );
   return (
     <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
       <View style={styles.requestHeader}>
@@ -404,14 +416,33 @@ function DaemonAutomationControl({
         />
       </View>
       <Text style={styles.text}>
-        Applies to Host and Dev. Current turns finish before restart. Turning off cancels automatic
-        requests that have not dispatched.
+        Authenticated Host and Dev threads may install routine source updates, including their build
+        scripts, and restart either daemon after current turns finish. Turning off cancels automatic
+        requests that have not dispatched. Coordinator and supervisor maintenance still require
+        exact review.
       </Text>
       {state.daemonAutomation.legacyHostOnly ? (
         <Text style={styles.text}>
-          The existing trusted Host policy remains active until you save this preference.
+          Host-only legacy policy is active. Broader automation is not enabled until you save this
+          preference.
         </Text>
       ) : null}
+      {state.maintenanceStatus ? (
+        <View testID="maintenance-readiness">
+          {state.maintenanceStatus.paths.map((item) => (
+            <Text key={`${item.requester}-${item.target}-${item.operation}`} style={styles.text}>
+              {item.requester === "host-agent" ? "Host" : "Dev"} request for{" "}
+              {item.target === "host" ? "Host" : "Dev"}{" "}
+              {item.operation === "restart" ? "restart" : "update"}:{" "}
+              {item.readiness === "blocked" ? "blocked" : item.authorization}. {item.reason}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.text}>
+          Detailed maintenance readiness requires a coordinator update.
+        </Text>
+      )}
       {state.daemonAutomationError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.daemonAutomationError}

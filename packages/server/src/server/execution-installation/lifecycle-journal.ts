@@ -1,3 +1,6 @@
+import { openSync, closeSync, fsyncSync } from "node:fs";
+import path from "node:path";
+import { writePrivateFileAtomicSync } from "../private-files.js";
 import { PreviewMonitorJobSchema } from "@getpaseo/protocol/preview-monitor-maintenance";
 import { z } from "zod";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
@@ -21,4 +24,17 @@ export function parseLifecycleJournal(input: unknown): LifecycleJob[] {
     identities.add(job.id);
   }
   return jobs;
+}
+
+/** Durable selection intent must precede a lifecycle effect, including directory rename. */
+export function writeLifecycleReceipt(file: string, value: unknown): void {
+  writePrivateFileAtomicSync(file, JSON.stringify(value));
+  for (const target of [file, path.dirname(file)]) {
+    const descriptor = openSync(target, "r");
+    try {
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+  }
 }

@@ -915,11 +915,15 @@ test.each([
       ownerPassword,
     );
     const calls: string[] = [];
+    const failures: string[] = [];
     const call = async (name: string) => {
       calls.push(name);
       if (name === failure) throw new Error("private diagnostic must not escape");
     };
     const operations: BootstrapExecutorOperations = {
+      recordFailure: async (_request, diagnostic) => {
+        failures.push(JSON.stringify(diagnostic));
+      },
       withOwnership: async (_request, operation) => operation(),
       armWatchdog: () => call("armWatchdog"),
       freeze: () => call("freeze"),
@@ -958,6 +962,9 @@ test.each([
       ...(canResume ? ["resumePrevious"] : []),
     ]);
     expect(JSON.stringify(f.service().list())).not.toContain("private diagnostic");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).not.toContain("private diagnostic");
+    expect(failures[0]).toContain("operation");
   },
 );
 

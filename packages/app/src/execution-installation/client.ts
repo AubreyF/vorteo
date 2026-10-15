@@ -10,6 +10,8 @@ import type { MonitorAction } from "./preview-monitor-review";
 import type { HelperReviewAction } from "./helper-review";
 import { z } from "zod";
 import {
+  InstallationMaintenanceStatusSchema,
+  type InstallationMaintenanceStatus,
   DaemonAutomationPreferenceSchema,
   type DaemonAutomationPreference,
   InstallationUnlockSchema,
@@ -62,6 +64,7 @@ export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
   private daemonAutomationSupported = false;
+  private maintenanceStatusSupported = false;
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
@@ -267,6 +270,20 @@ export class InstallationClient {
           : {}),
       }),
     );
+  }
+
+  async maintenanceStatus(): Promise<InstallationMaintenanceStatus | null> {
+    try {
+      const status = InstallationMaintenanceStatusSchema.parse(
+        await this.request("maintenance-status/query", {}),
+      );
+      this.maintenanceStatusSupported = true;
+      return status;
+    } catch (error) {
+      if (error instanceof InstallationRouteUnavailable && !this.maintenanceStatusSupported)
+        return null;
+      throw error;
+    }
   }
 
   async daemonAutomation(): Promise<DaemonAutomationPreference | null> {

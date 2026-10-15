@@ -146,7 +146,7 @@ test("recovery keeps uncertain effects visible and only a verified receipt repor
   expect(preclaimRecoveryStatus(item)).toBe("Outcome requires inspection");
   expect(preclaimRecoveryNeedsAttention(item)).toBe(true);
   item.execution.stage = "succeeded";
-  expect(preclaimRecoveryStatus(item)).toBe("Recovery verified");
+  expect(preclaimRecoveryStatus(item)).toBe("Executor cleanup verified");
   expect(preclaimRecoveryNeedsAttention(item)).toBe(false);
 });
 

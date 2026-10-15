@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): automatic maintenance source now binds grants to policy and credentials, allows a cancellation interval, prepares source before holds, and retains durable activation intent. Installation controls distinguish readiness from authority and executor cleanup from coordinator recovery. Focused queue, server, app, native recovery and desktop/phone browser tests pass locally. Independent reboot recovery and installed acceptance remain unfinished; this source is not yet deployed. README overview and onboarding are unchanged. See [maintenance readiness and operator actions](execution-installation.md#maintenance-readiness-and-operator-actions).
+
 Maintenance review (2026-10-14): integrate tested coordinator recovery corrections with the published interface while preserving both histories and all app behavior. Installed recovery acceptance remains pending; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-14): coordinator renewal can prepare a separately reviewed successor for an exact failed, unpromoted compatible generation. Protected journal checks preserve its approval and failure, reject promotion or competing repair, and bind the successor to the unchanged native coordinator. Exact recovery references retain predecessor ordering across main and pending journals. This is source preparation; installed delivery and Factory operating acceptance remain open. README overview is unchanged.

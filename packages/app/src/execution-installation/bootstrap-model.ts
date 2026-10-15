@@ -306,7 +306,7 @@ export function preclaimRecoveryStatus(request: BootstrapRecoveryRequest): strin
     claim_fenced: "Original operation cannot dispatch",
     effect_pending: "Stopping the reviewed executor",
     verifying: "Verifying exit and preserved selection",
-    succeeded: "Recovery verified",
+    succeeded: "Executor cleanup verified",
     recovery_required: "Outcome requires inspection",
     aborted_before_effects: "Stopped before effects",
   };
