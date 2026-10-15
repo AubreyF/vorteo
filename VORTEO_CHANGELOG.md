@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.530 - 2026-10-15
+
+### Fixed
+
+- Match GitHub and Commit toolbar controls to the adjacent 40px controls, with aligned centers, rounded hover backgrounds and no solid borders or split divider.
+
 ## 0.11.0-beta.3.vorteo.529 - 2026-10-14
 
 ### Maintenance
