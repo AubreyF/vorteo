@@ -2,7 +2,7 @@ import {
   derivePreclaimHostRuntime,
   createManagedPreclaimRecoveryReview,
 } from "./coordinator-bootstrap-launch.js";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdtempSync,
@@ -48,6 +48,7 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -1301,6 +1302,8 @@ test
     "spawn-only",
     "initialize",
     "initialize-fenced",
+    "initialize-completed-verified",
+    "initialize-completed-forged",
     "initialize-ambiguous",
     "initialize-changed",
     "initialize-anchor-changed",
@@ -1458,6 +1461,69 @@ test
           promotions: [],
         });
       }
+      let verifiedRenewal;
+      if (mode.startsWith("initialize-completed")) {
+        const terminalRuntime = await deriveBootstrapRenewal({
+          setupFile: input.setupFile,
+          setup: f.original,
+          moduleFile: input.ports.moduleFile,
+          hostPid: input.ports.hostProcessId,
+          ports: input.ports,
+          dispatchedRequest: { id: original.id, planSha256: original.planSha256 },
+        });
+        const historical = {
+          ...original,
+          id: randomUUID(),
+          revision: randomUUID(),
+          execution: { ...original.execution!, generation: randomUUID() },
+        };
+        const historicalPlan = {
+          ...request.plan,
+          original: historical,
+          executor: {
+            ...request.plan.executor,
+            identity: {
+              ...request.plan.executor.identity,
+              argumentsSha256: sha(
+                JSON.stringify([f.node.path, entry.path, setup.path, "executor", historical.id]),
+              ),
+            },
+          },
+        };
+        const completed = {
+          ...request,
+          id: randomUUID(),
+          revision: randomUUID(),
+          plan: historicalPlan,
+          planSha256: claimedRecoveryPlanDigest(historicalPlan),
+          execution: {
+            generation: randomUUID(),
+            stage: "succeeded" as const,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        journal.replaceReviews([request], [completed, request]);
+        f.save(path.join(f.state, "coordinator-bootstrap-pending.json"), {
+          version: 1,
+          requests: [
+            {
+              ...historical,
+              revision: randomUUID(),
+              execution: { ...historical.execution, stage: "recovery_required" },
+            },
+            original,
+          ],
+          promotions: [],
+        });
+        if (mode === "initialize-completed-verified") {
+          // Isolate target classification from the existing terminal-evidence verifier.
+          // The forged case below uses the real verifier and must fail closed.
+          const renewalModule = await import("./coordinator-bootstrap-renewal.js");
+          verifiedRenewal = vi
+            .spyOn(renewalModule, "deriveBootstrapRenewal")
+            .mockResolvedValue(terminalRuntime);
+        }
+      }
       const beforeRecords = new FileBootstrapRequestJournal(f.state).read();
       const beforeReviews = journal.readReviews();
       const beforeSetup = readFileSync(f.setupFile);
@@ -1480,7 +1546,9 @@ test
           return [];
         },
       });
-      if (
+      if (mode === "initialize-completed-forged")
+        await expect(service).rejects.toThrow(/ENOENT|fence/);
+      else if (
         ["initialize-ambiguous", "initialize-changed", "initialize-anchor-changed"].includes(mode)
       )
         await expect(service).rejects.toThrow();
@@ -1492,6 +1560,13 @@ test
           beforeReviews,
         );
         expect(journal.readReviews()).toEqual(beforeReviews);
+      }
+      if (verifiedRenewal) {
+        expect(verifiedRenewal).toHaveBeenCalledOnce();
+        expect(verifiedRenewal.mock.calls[0][0].dispatchedRequest).toEqual({
+          id: original.id,
+          planSha256: original.planSha256,
+        });
       }
       expect(new FileBootstrapRequestJournal(f.state).read()).toEqual(beforeRecords);
       expect(readFileSync(f.setupFile)).toEqual(beforeSetup);
