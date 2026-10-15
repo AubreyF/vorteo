@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.530 - 2026-10-14
+
+### Changed
+
+- Give startup recovery three persisted read-only dependency observations with five, fifteen and forty-five second delays. Require an approved, unchanged recovery generation before observing; exhausting the budget never retries a lifecycle operation.
+- Retain startup diagnostics in a private request-specific log selected by the approved launcher.
+
+### Maintenance
+
+- Verify dependency readiness, exhaustion across observer restarts, and unchanged executor-exit observation behavior. Native startup-service acceptance and automatic controller authorization remain open.
+
 ## 0.11.0-beta.3.vorteo.529 - 2026-10-14
 
 ### Fixed

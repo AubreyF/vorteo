@@ -1,7 +1,10 @@
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { observeBootstrapExecutorExit } from "./coordinator-bootstrap-runner.js";
+import {
+  observeBootstrapExecutorExit,
+  observeBootstrapReadiness,
+} from "./coordinator-bootstrap-runner.js";
 
 test.each([false, true])("dispatch notification survives a closed observer: %s", async (closed) => {
   const moduleUrl = new URL("./coordinator-bootstrap-runner.ts", import.meta.url).href;
@@ -121,3 +124,43 @@ test("exit observation resumes a consumed attempt after interruption without res
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.each([true, false])(
+  "startup dependency observation is bounded across observer restarts: %s",
+  async (becomesReady) => {
+    const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const root = mkdtempSync(path.join(tmpdir(), "startup-observation-"));
+    const file = path.join(root, "readiness.json");
+    let now = 1000;
+    let observations = 0;
+    const waits: number[] = [];
+    const input = {
+      file,
+      now: () => now,
+      wait: async (milliseconds: number) => {
+        waits.push(milliseconds);
+        now += milliseconds;
+      },
+      inspect: async () => {
+        observations++;
+        if (!becomesReady || observations < 3) throw new Error("Dependency is starting");
+      },
+    };
+    try {
+      if (becomesReady) await observeBootstrapReadiness(input);
+      else
+        await expect(observeBootstrapReadiness(input)).rejects.toThrow(
+          "Startup dependencies were unavailable",
+        );
+      expect(waits).toEqual([5000, 15000, 45000]);
+      expect(observations).toBe(3);
+      expect(JSON.parse(readFileSync(file, "utf8")).attempts).toBe(3);
+      await expect(observeBootstrapReadiness(input)).rejects.toThrow("three observations");
+      expect(observations).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

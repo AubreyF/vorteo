@@ -9,10 +9,13 @@ import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { BootstrapRequestConflict, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   BootstrapAdmissionSetupSchema,
   readPrivateBootstrapConfiguration,
+  readBootstrapHostBinding,
+  type BootstrapAdmissionHost,
   createBootstrapReviewService,
   inspectBootstrapWritableMountRoots,
 } from "./coordinator-bootstrap-host.js";
@@ -60,15 +63,31 @@ const ExitObservationSchema = z.object({
   attempts: z.number().int().min(0).max(3),
   nextAttemptAt: z.number().finite(),
 });
-interface ExitObservation {
+interface ReadOnlyObservation {
   file: string;
-  verifyExited(): Promise<void>;
+  inspect(): Promise<void>;
   now(): number;
   wait(milliseconds: number): Promise<void>;
 }
 
+export async function observeBootstrapExecutorExit(
+  input: Omit<ReadOnlyObservation, "inspect"> & { verifyExited(): Promise<void> },
+): Promise<void> {
+  await observeBootstrap(
+    { ...input, inspect: input.verifyExited },
+    "Executor exit could not be verified after three observations. Inspect the retained recovery request; no lifecycle effect was retried.",
+  );
+}
+
+export async function observeBootstrapReadiness(input: ReadOnlyObservation): Promise<void> {
+  await observeBootstrap(
+    input,
+    "Startup dependencies were unavailable after three observations. Inspect the retained recovery request; no lifecycle effect was retried.",
+  );
+}
+
 /** Consume a durable read-only attempt before observing. A crash never resets the budget. */
-export async function observeBootstrapExecutorExit(input: ExitObservation): Promise<void> {
+async function observeBootstrap(input: ReadOnlyObservation, failureMessage: string): Promise<void> {
   const backoff = [5_000, 15_000, 45_000];
   let state = existsSync(input.file)
     ? ExitObservationSchema.parse(JSON.parse(readFileSync(input.file, "utf8")))
@@ -93,15 +112,13 @@ export async function observeBootstrapExecutorExit(input: ExitObservation): Prom
     };
     retain();
     try {
-      await input.verifyExited();
+      await input.inspect();
       return;
     } catch {
-      // An uncertain process remains untouched. Only read-only observation retries.
+      // Observation failures grant no lifecycle authority. Only read-only work retries.
     }
   }
-  throw new BootstrapRequestConflict(
-    "Executor exit could not be verified after three observations. Inspect the retained recovery request; no lifecycle effect was retried.",
-  );
+  throw new BootstrapRequestConflict(failureMessage);
 }
 
 function watchdogRecoveryArguments(request: CoordinatorBootstrapRequest): string[] {
@@ -298,7 +315,7 @@ export async function runNativeBootstrap(
     admission,
   );
   const host = { ...renewal.admission, daemonId: setup.daemonId };
-  const roots = await inspectBootstrapWritableMountRoots(host);
+  const roots = await readRunnerMounts({ host, setupFile, setup, identifier, role });
   await assertBootstrapPathsProtected(
     [setupFile, setup.admissionSetupFile, setup.runtimeDirectory],
     roots,
@@ -757,4 +774,55 @@ function bootRecoveryInactive(
     request !== undefined &&
     (!request.execution || request.status !== "approved")
   );
+}
+
+/** Docker may become available after login. Retry only mount observation before
+ * constructing any lifecycle capability; a persisted budget survives restart. */
+async function readRunnerMounts(input: {
+  role: "executor" | "watchdog" | "boot-watchdog";
+  host: BootstrapAdmissionHost;
+  setupFile: string;
+  setup: RunnerSetup;
+  identifier: string;
+}): Promise<string[]> {
+  const { host } = input;
+  if (input.role !== "boot-watchdog") return inspectBootstrapWritableMountRoots(host);
+  const currentHost = () => readBootstrapHostBinding(host.configurationFile, host.daemonId);
+  const initial = currentHost();
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(initial.stateDirectory),
+    () => currentHost().binding,
+    async () => {
+      throw new BootstrapRequestConflict("Startup observation cannot approve maintenance");
+    },
+  );
+  const request = requests.list().find((entry) => entry.id === input.identifier);
+  if (
+    !request?.execution ||
+    request.status !== "approved" ||
+    request.plan.state.directory !== initial.stateDirectory
+  )
+    throw new BootstrapRequestConflict("Startup readiness has no approved recovery generation");
+  verifyBootRunnerBinding(request, input.setupFile, input.setup);
+  let roots: string[] = [];
+  await observeBootstrapReadiness({
+    file: path.join(
+      initial.stateDirectory,
+      `coordinator-boot-readiness-${request.execution.generation}.json`,
+    ),
+    now: Date.now,
+    wait: delay,
+    inspect: async () => {
+      const current = requests.list().find((entry) => entry.id === input.identifier);
+      if (
+        !current ||
+        current.planSha256 !== request.planSha256 ||
+        current.execution?.generation !== request.execution?.generation ||
+        currentHost().stateDirectory !== initial.stateDirectory
+      )
+        throw new BootstrapRequestConflict("Startup readiness ownership changed");
+      roots = await inspectBootstrapWritableMountRoots(host);
+    },
+  });
+  return roots;
 }

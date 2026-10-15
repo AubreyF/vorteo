@@ -39,6 +39,11 @@ export function bootstrapRecoveryLauncher(plan: CoordinatorBootstrapPlan) {
     // turn a failed or completed operation into an unlimited execution loop.
     KeepAlive: false,
     ProcessType: "Background",
+    Umask: 0o077,
+    StandardErrorPath: path.join(
+      plan.state.directory,
+      `coordinator-boot-${recovery.requestId}.stderr`,
+    ),
   };
 }
 
