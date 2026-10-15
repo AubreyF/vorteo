@@ -1,3 +1,7 @@
+import {
+  createBootstrapRunnerEvidence,
+  type RunnerPhase,
+} from "./coordinator-bootstrap-evidence.js";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { open } from "node:fs/promises";
 import { realpathSync, existsSync, readFileSync, openSync, fsyncSync, closeSync } from "node:fs";
@@ -213,6 +217,7 @@ function runnerRenewal(
   setupFile: string,
   role: "executor" | "watchdog",
   admission: z.infer<typeof BootstrapAdmissionSetupSchema>,
+  trace: ReturnType<typeof createBootstrapRunnerEvidence>["run"],
 ) {
   const uid = process.getuid!();
   const effectiveAdmission = setup.renewal
@@ -221,21 +226,29 @@ function runnerRenewal(
   let armed = role === "watchdog";
   let dispatched: CoordinatorBootstrapRequest | undefined;
   const verifyRenewal = async () => {
-    if (!setup.renewal) return;
-    await verifyRetainedRenewal(setup, undefined, role === "watchdog");
-    if (dispatched)
-      await retainRenewalGeneration({ setup, setupFile, request: dispatched, watchdog: true });
+    const renewal = setup.renewal;
+    if (!renewal) return;
+    await trace("renewal-retained", () =>
+      verifyRetainedRenewal(setup, undefined, role === "watchdog"),
+    );
+    const retained = dispatched;
+    if (retained)
+      await trace("renewal-generation", () =>
+        retainRenewalGeneration({ setup, setupFile, request: retained, watchdog: true }),
+      );
     if (!armed) {
       const original = BootstrapRunnerSetupSchema.parse(
-        readPrivateBootstrapConfiguration(setup.renewal.originalSetup.path, uid),
+        readPrivateBootstrapConfiguration(renewal.originalSetup.path, uid),
       );
-      const reconstructed = await deriveBootstrapRenewal({
-        setupFile: setup.renewal.originalSetup.path,
-        setup: original,
-        moduleFile: fileURLToPath(import.meta.url),
-        dispatchedRequest: setup.renewal.request,
-      });
-      const expected = { ...setup.renewal, request: undefined };
+      const reconstructed = await trace("renewal-derive", () =>
+        deriveBootstrapRenewal({
+          setupFile: renewal.originalSetup.path,
+          setup: original,
+          moduleFile: fileURLToPath(import.meta.url),
+          dispatchedRequest: renewal.request,
+        }),
+      );
+      const expected = { ...renewal, request: undefined };
       if (
         !reconstructed?.renewal ||
         !isDeepStrictEqual({ ...reconstructed.renewal, request: undefined }, expected)
@@ -255,12 +268,14 @@ function runnerRenewal(
           setup: effectiveAdmission,
           verify: async (plan: CoordinatorBootstrapRequest["plan"]) => {
             await verifyRenewal();
-            await verifyRenewalPlan(setup, plan);
+            await trace("renewal-plan", () => verifyRenewalPlan(setup, plan));
           },
         }
       : undefined,
     async verifyApproval(request: CoordinatorBootstrapRequest) {
-      await verifyRetainedRenewal(setup, request, role === "watchdog");
+      await trace("renewal-retained", () =>
+        verifyRetainedRenewal(setup, request, role === "watchdog"),
+      );
       if (!setup.renewal) return;
       if (role === "executor" && setup.renewal.request?.revision !== request.revision)
         throw new BootstrapRequestConflict(
@@ -318,11 +333,16 @@ export async function runNativeBootstrap(
   const admission = BootstrapAdmissionSetupSchema.parse(
     readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
   );
+  let evidence: ReturnType<typeof createBootstrapRunnerEvidence> | undefined;
+  function trace<T>(phase: RunnerPhase, operation: () => Promise<T>): Promise<T> {
+    return evidence ? evidence.run(phase, operation) : operation();
+  }
   const renewal = runnerRenewal(
     setup,
     setupFile,
     role === "executor" ? "executor" : "watchdog",
     admission,
+    trace,
   );
   const host = { ...renewal.admission, daemonId: setup.daemonId };
   const roots = await readRunnerMounts({ host, setupFile, setup, identifier, role });
@@ -341,332 +361,372 @@ export async function runNativeBootstrap(
   if (bootRecoveryInactive(request, role)) return;
   if (!request || request.status !== "approved")
     throw new BootstrapRequestConflict("Exact bootstrap approval is unavailable");
-  if (role === "boot-watchdog") {
-    await verifyBootRunnerBinding(request, setupFile, setup);
-    await verifyBootstrapRecoveryArtifacts(request.plan, roots);
-  }
-  await renewal.verifyApproval(request);
-  if (
-    request.plan.candidate.directory !== setup.runtimeDirectory ||
-    request.plan.candidate.artifactSha256 !== setup.runtimeSha256 ||
-    !isDeepStrictEqual(request.plan.candidate.node, setup.node)
-  )
-    throw new BootstrapRequestConflict("Runner does not belong to the approved candidate");
-  // The watchdog must not depend on reading the failed candidate tree to restore service.
-  if (role === "executor") await verifyBootstrapReleaseArtifacts(request.plan.candidate, roots);
-  const lockFile = path.join(request.plan.state.directory, "coordinator-bootstrap-execution.lock");
-  const verifySetup = async () => {
+  await assertBootstrapPathsProtected([request.plan.state.directory], roots);
+  evidence = createBootstrapRunnerEvidence({
+    directory: request.plan.state.directory,
+    request,
+    role,
+  });
+  const runnerEvidence = evidence;
+  return trace("runner", async () => {
+    if (role === "boot-watchdog") {
+      await trace("boot-binding", () => verifyBootRunnerBinding(request, setupFile, setup));
+      await trace("boot-artifacts", () => verifyBootstrapRecoveryArtifacts(request.plan, roots));
+    }
+    await trace("approval", () => renewal.verifyApproval(request));
     if (
-      !isDeepStrictEqual(readSetup(), setup) ||
-      !isDeepStrictEqual(
-        BootstrapAdmissionSetupSchema.parse(
-          readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
-        ),
-        admission,
-      )
+      request.plan.candidate.directory !== setup.runtimeDirectory ||
+      request.plan.candidate.artifactSha256 !== setup.runtimeSha256 ||
+      !isDeepStrictEqual(request.plan.candidate.node, setup.node)
     )
-      throw new BootstrapRequestConflict("Bootstrap runner setup changed");
-    await renewal.verify();
-  };
-  const requireOwnership = async () => {
-    await verifySetup();
-    await requireBootstrapOwnership({
-      descriptor,
-      lockFile,
-      verifier: setup.ownershipVerifier,
-      writableMountRoots: await inspectBootstrapWritableMountRoots(host),
-    });
-  };
-  await requireOwnership();
-  const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
-  const executorFile = (generation: string) =>
-    path.join(request.plan.state.directory, `coordinator-executor-${generation}.json`);
-  const removeCompletedRecovery = async (terminal: CoordinatorBootstrapRequest) => {
-    await removeCompletedBootstrapRecovery({
-      request: terminal,
-      writableMountRoots: await inspectBootstrapWritableMountRoots(host),
-      requireTerminal: async () => {
-        await requireOwnership();
+      throw new BootstrapRequestConflict("Runner does not belong to the approved candidate");
+    // The watchdog must not depend on reading the failed candidate tree to restore service.
+    if (role === "executor")
+      await trace("candidate-artifacts", () =>
+        verifyBootstrapReleaseArtifacts(request.plan.candidate, roots),
+      );
+    const lockFile = path.join(
+      request.plan.state.directory,
+      "coordinator-bootstrap-execution.lock",
+    );
+    const verifySetup = async () =>
+      trace("setup-files", async () => {
         if (
+          !isDeepStrictEqual(readSetup(), setup) ||
           !isDeepStrictEqual(
-            requests.list().find((item) => item.id === terminal.id),
-            terminal,
+            BootstrapAdmissionSetupSchema.parse(
+              readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
+            ),
+            admission,
           )
         )
-          throw new BootstrapRequestConflict("Completed recovery ownership changed");
-      },
-    });
-  };
-  const recoverGeneration = async () => {
-    const generation = request.execution?.generation;
-    if (!generation) throw new BootstrapRequestConflict("Recovery generation is missing");
-    if (["succeeded", "resumed", "rolled_back"].includes(request.execution!.stage)) {
-      await removeCompletedRecovery(request);
-      return;
-    }
-    const runnerIdentity = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
-    const changedBoot = runnerIdentity.bootId !== request.plan.expectedProcess.bootId;
-    if (changedBoot && role !== "boot-watchdog")
-      throw new BootstrapRequestConflict(
-        "Only the approved startup runner can recover another boot",
+          throw new BootstrapRequestConflict("Bootstrap runner setup changed");
+        await trace("renewal-validation", () => renewal.verify());
+      });
+    const requireOwnership = async () => {
+      await verifySetup();
+      const writableMountRoots = await trace("ownership-mounts", () =>
+        inspectBootstrapWritableMountRoots(host),
       );
-    const verifyBootChanged = async () => {
-      const current = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
-      if (
-        !changedBoot ||
-        current.pid !== process.pid ||
-        current.uid !== uid ||
-        !isDeepStrictEqual(current, runnerIdentity)
-      )
-        throw new BootstrapRequestConflict("Startup recovery native boot changed");
+      await trace("ownership-lock", () =>
+        requireBootstrapOwnership({
+          descriptor,
+          lockFile,
+          verifier: setup.ownershipVerifier,
+          writableMountRoots,
+        }),
+      );
     };
-    const record = BootstrapExecutorRecordSchema.parse(
-      readPrivateBootstrapConfiguration(executorFile(generation), uid),
-    );
-    if (record.id !== request.id || record.generation !== generation)
-      throw new BootstrapRequestConflict("Watchdog executor identity changed");
-    renewal.verifyExecutorRecord(record, request);
-    if (
-      changedBoot &&
-      (!record.process ||
-        record.process.bootId !== request.plan.expectedProcess.bootId ||
-        record.planSha256 !== request.planSha256)
-    )
-      throw new BootstrapRequestConflict("Startup recovery executor boot receipt is unavailable");
-    const native = createBootstrapNativeLifecycle({
-      requests,
-      reader,
-      configurationFile: host.configurationFile,
-      launcherFile: host.launcherFile,
-      writableMountRoots: () => inspectBootstrapWritableMountRoots(host),
-      requireOwnership,
-      recoveryBootId: changedBoot ? runnerIdentity.bootId : undefined,
-      readHealth: async () => {
-        const config = readPrivateBootstrapConfiguration(
-          request.plan.previous.configuration.path,
-          uid,
-        );
-        const port = z.object({ listenPort: z.number().int().positive() }).parse(config).listenPort;
-        return readBootstrapHealth(port);
-      },
-    });
-    const recovered = await recoverAbandonedBootstrap(
-      requests,
-      { id: record.id, generation },
-      {
-        withOwnership: async (operation) => {
-          await requireOwnership();
-          return operation();
-        },
-        verifyBootChanged: changedBoot ? verifyBootChanged : undefined,
-        verifyExecutorExited: () =>
-          changedBoot
-            ? verifyBootChanged()
-            : observeBootstrapExecutorExit({
-                file: path.join(
-                  request.plan.state.directory,
-                  `coordinator-exit-observation-${generation}.json`,
-                ),
-                verifyExited: () =>
-                  record.process
-                    ? verifyRetainedProcessExited(reader, record.process)
-                    : reader.verifyProcessExited(record.pid),
-                now: Date.now,
-                wait: delay,
-              }),
-        verifyReplacement: native.verifyReplacement,
-        verifyRollback: native.verifyRollback,
-        resumePrevious: native.resumePrevious,
-        restorePrevious: native.restorePrevious,
-      },
-    );
-    if (["succeeded", "resumed", "rolled_back"].includes(recovered.execution!.stage))
-      await removeCompletedRecovery(recovered);
-    return;
-  };
-  if (role !== "executor") {
-    await recoverGeneration();
-    return;
-  }
-  if (request.execution)
-    throw new BootstrapRequestConflict("Bootstrap execution cannot be replayed");
-  const armWatchdog = async (claimed: CoordinatorBootstrapRequest) => {
-    if (!claimed.execution)
-      throw new BootstrapRequestConflict("Bootstrap dispatch generation is missing");
     await requireOwnership();
-    const audited = await reader.inspectAuditedProcess(process.pid);
-    const record = BootstrapExecutorRecordSchema.parse({
-      id: claimed.id,
-      generation: claimed.execution.generation,
-      pid: process.pid,
-      planSha256: claimed.planSha256,
-      process: audited.identity,
-      auditToken: audited.auditToken,
-    });
-    const file = await open(executorFile(record.generation), "wx", 0o600);
-    try {
-      await file.writeFile(JSON.stringify(record));
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    const directory = await open(request.plan.state.directory, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-    if (setup.renewal)
-      await retainRenewalGeneration({ setup, setupFile, request: claimed, watchdog: false });
-    const source = await readBootstrapPreparedFile(
-      setup.ownerLauncher,
-      await inspectBootstrapWritableMountRoots(host),
-    );
-    const child = spawn(
-      "/usr/bin/python3",
-      [
-        "-I",
-        "-B",
-        "-c",
-        source.toString("utf8"),
-        lockFile,
-        setup.node.path,
-        setup.entrypoint.path,
-        setupFile,
-        "watchdog",
-        record.generation,
-        ...watchdogRecoveryArguments(claimed),
-      ],
-      { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin" } },
-    );
-    // Keep an error listener after readiness so a detached child's later failure
-    // cannot crash the executor. Recovery remains bound to durable stages.
-    child.on("error", () => {});
-    try {
-      await waitForBootstrapWatchdog(child);
-      renewal.markDispatched(claimed);
-    } finally {
-      child.stdout?.destroy();
-      child.unref();
-    }
-    if (!child.pid) throw new BootstrapRequestConflict("Watchdog process identity is unavailable");
-    await reader.inspectProcess(child.pid);
-    if (child.exitCode !== null || child.signalCode !== null)
-      throw new BootstrapRequestConflict("Watchdog exited before dispatch");
-    await requireOwnership();
-    acknowledgeBootstrapDispatch();
-  };
-  const operations: BootstrapExecutorOperations = await createBootstrapNativeOperations({
-    requests,
-    approved: request,
-    host,
-    descriptor,
-    lockFile,
-    ownershipVerifier: setup.ownershipVerifier,
-    verifySetup,
-    armWatchdog,
-  });
-  if (request.plan.bootRecovery)
-    operations.armBootRecovery = async (claimed) => {
-      const recovery = claimed.plan.bootRecovery!;
-      await verifyBootRunnerBinding(claimed, setupFile, setup);
-      const requireClaim = async () => {
-        await requireOwnership();
-        const current = requests.list().find((item) => item.id === claimed.id);
-        if (!isDeepStrictEqual(current, claimed) || current?.execution?.stage !== "claimed")
-          throw new BootstrapRequestConflict("Startup recovery lost its claimed generation");
-      };
-      const pythonExecutable = await inspectBootstrapPythonExecutable();
-      const [, ...pythonArguments] = bootstrapRecoveryLauncher(claimed.plan).ProgramArguments;
-      const expectedArguments = createHash("sha256")
-        .update(JSON.stringify([pythonExecutable, ...pythonArguments]))
-        .digest("hex");
-      await registerBootstrapRecovery({
-        request: claimed,
+    const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
+    const executorFile = (generation: string) =>
+      path.join(request.plan.state.directory, `coordinator-executor-${generation}.json`);
+    const removeCompletedRecovery = async (terminal: CoordinatorBootstrapRequest) => {
+      await removeCompletedBootstrapRecovery({
+        request: terminal,
         writableMountRoots: await inspectBootstrapWritableMountRoots(host),
-        requireClaim,
-        verifyServiceAbsent: () => reader.verifyServiceAbsent(recovery.service),
-        register: async (domain, launcherFile) => {
-          await promisify(execFile)("/bin/launchctl", ["bootstrap", domain, launcherFile], {
-            env: { PATH: "/usr/bin:/bin" },
-            timeout: 10_000,
-            maxBuffer: 8192,
-          });
-        },
-        verifyRegistered: async () => {
-          const deadline = performance.now() + 15_000;
-          for (;;) {
-            await requireClaim();
-            try {
-              const service = await reader.readService(recovery.service);
-              const pid = loadedCoordinatorPid(recovery.service, service);
-              const observed = ProcessObservationSchema.parse(await reader.inspectProcess(pid));
-              if (
-                !service.includes("\n\tprogram = /usr/bin/python3\n") ||
-                observed.pid !== pid ||
-                observed.uid !== uid ||
-                observed.executable !== pythonExecutable ||
-                observed.parentPid !== 1 ||
-                observed.bootId !== claimed.plan.expectedProcess.bootId ||
-                observed.argumentsSha256 !== expectedArguments ||
-                !isDeepStrictEqual(observed, await reader.inspectProcess(pid)) ||
-                loadedCoordinatorPid(
-                  recovery.service,
-                  await reader.readService(recovery.service),
-                ) !== pid
-              )
-                throw new BootstrapRequestConflict("Startup recovery service identity changed");
-              return;
-            } catch {
-              if (performance.now() >= deadline)
-                throw new BootstrapRequestConflict("Startup recovery did not establish readiness");
-            }
-            await delay(50);
-          }
+        requireTerminal: async () => {
+          await requireOwnership();
+          if (
+            !isDeepStrictEqual(
+              requests.list().find((item) => item.id === terminal.id),
+              terminal,
+            )
+          )
+            throw new BootstrapRequestConflict("Completed recovery ownership changed");
         },
       });
     };
-  operations.recordFailure = async (
-    failed: CoordinatorBootstrapRequest,
-    failure: BootstrapExecutorFailure,
-  ) => {
-    if (!failed.execution)
-      throw new BootstrapRequestConflict("Failed execution identity is missing");
-    const diagnostic = path.join(
-      failed.plan.state.directory,
-      `coordinator-failure-${failed.execution.generation}.json`,
-    );
-    const file = await open(diagnostic, "wx", 0o600);
-    try {
-      await file.writeFile(
-        JSON.stringify({
-          version: 1,
-          requestId: failed.id,
-          generation: failed.execution.generation,
-          planSha256: failed.planSha256,
-          recordedAt: new Date().toISOString(),
-          operation: failure.operation,
-          stage: failure.stage,
-        }),
+    const recoverGeneration = async () => {
+      const generation = request.execution?.generation;
+      if (!generation) throw new BootstrapRequestConflict("Recovery generation is missing");
+      if (["succeeded", "resumed", "rolled_back"].includes(request.execution!.stage)) {
+        await removeCompletedRecovery(request);
+        return;
+      }
+      const runnerIdentity = ProcessObservationSchema.parse(
+        await reader.inspectProcess(process.pid),
       );
-      await file.sync();
-    } finally {
-      await file.close();
+      const changedBoot = runnerIdentity.bootId !== request.plan.expectedProcess.bootId;
+      if (changedBoot && role !== "boot-watchdog")
+        throw new BootstrapRequestConflict(
+          "Only the approved startup runner can recover another boot",
+        );
+      const verifyBootChanged = async () => {
+        const current = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
+        if (
+          !changedBoot ||
+          current.pid !== process.pid ||
+          current.uid !== uid ||
+          !isDeepStrictEqual(current, runnerIdentity)
+        )
+          throw new BootstrapRequestConflict("Startup recovery native boot changed");
+      };
+      const record = BootstrapExecutorRecordSchema.parse(
+        readPrivateBootstrapConfiguration(executorFile(generation), uid),
+      );
+      if (record.id !== request.id || record.generation !== generation)
+        throw new BootstrapRequestConflict("Watchdog executor identity changed");
+      renewal.verifyExecutorRecord(record, request);
+      if (
+        changedBoot &&
+        (!record.process ||
+          record.process.bootId !== request.plan.expectedProcess.bootId ||
+          record.planSha256 !== request.planSha256)
+      )
+        throw new BootstrapRequestConflict("Startup recovery executor boot receipt is unavailable");
+      const native = createBootstrapNativeLifecycle({
+        requests,
+        reader,
+        configurationFile: host.configurationFile,
+        launcherFile: host.launcherFile,
+        writableMountRoots: () => inspectBootstrapWritableMountRoots(host),
+        requireOwnership,
+        recoveryBootId: changedBoot ? runnerIdentity.bootId : undefined,
+        readHealth: async () => {
+          const config = readPrivateBootstrapConfiguration(
+            request.plan.previous.configuration.path,
+            uid,
+          );
+          const port = z
+            .object({ listenPort: z.number().int().positive() })
+            .parse(config).listenPort;
+          return readBootstrapHealth(port);
+        },
+      });
+      const recovered = await recoverAbandonedBootstrap(
+        requests,
+        { id: record.id, generation },
+        {
+          withOwnership: async (operation) => {
+            await requireOwnership();
+            return operation();
+          },
+          verifyBootChanged: changedBoot ? verifyBootChanged : undefined,
+          verifyExecutorExited: () =>
+            changedBoot
+              ? verifyBootChanged()
+              : observeBootstrapExecutorExit({
+                  file: path.join(
+                    request.plan.state.directory,
+                    `coordinator-exit-observation-${generation}.json`,
+                  ),
+                  verifyExited: () =>
+                    record.process
+                      ? verifyRetainedProcessExited(reader, record.process)
+                      : reader.verifyProcessExited(record.pid),
+                  now: Date.now,
+                  wait: delay,
+                }),
+          verifyReplacement: native.verifyReplacement,
+          verifyRollback: native.verifyRollback,
+          resumePrevious: native.resumePrevious,
+          restorePrevious: native.restorePrevious,
+        },
+      );
+      if (["succeeded", "resumed", "rolled_back"].includes(recovered.execution!.stage))
+        await removeCompletedRecovery(recovered);
+      return;
+    };
+    if (role !== "executor") {
+      await trace("recovery", recoverGeneration);
+      return;
     }
-    const directory = await open(failed.plan.state.directory, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-  };
-  const result = await executeCoordinatorBootstrap(
-    requests,
-    { id: request.id, revision: request.revision, planSha256: request.planSha256 },
-    operations,
-  );
-  if (result.execution?.stage !== "succeeded")
-    throw new BootstrapRequestConflict("Bootstrap did not activate the replacement");
+    if (request.execution)
+      throw new BootstrapRequestConflict("Bootstrap execution cannot be replayed");
+    const armWatchdog = async (claimed: CoordinatorBootstrapRequest) => {
+      if (!claimed.execution)
+        throw new BootstrapRequestConflict("Bootstrap dispatch generation is missing");
+      runnerEvidence.bind(claimed);
+      await requireOwnership();
+      const audited = await trace("watchdog-audit", () =>
+        reader.inspectAuditedProcess(process.pid),
+      );
+      const record = BootstrapExecutorRecordSchema.parse({
+        id: claimed.id,
+        generation: claimed.execution.generation,
+        pid: process.pid,
+        planSha256: claimed.planSha256,
+        process: audited.identity,
+        auditToken: audited.auditToken,
+      });
+      await trace("watchdog-record", async () => {
+        const file = await open(executorFile(record.generation), "wx", 0o600);
+        try {
+          await file.writeFile(JSON.stringify(record));
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+        const directory = await open(request.plan.state.directory, "r");
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
+      });
+      if (setup.renewal)
+        await trace("generation-retention", () =>
+          retainRenewalGeneration({ setup, setupFile, request: claimed, watchdog: false }),
+        );
+      const source = await readBootstrapPreparedFile(
+        setup.ownerLauncher,
+        await inspectBootstrapWritableMountRoots(host),
+      );
+      const child = spawn(
+        "/usr/bin/python3",
+        [
+          "-I",
+          "-B",
+          "-c",
+          source.toString("utf8"),
+          lockFile,
+          setup.node.path,
+          setup.entrypoint.path,
+          setupFile,
+          "watchdog",
+          record.generation,
+          ...watchdogRecoveryArguments(claimed),
+        ],
+        { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin" } },
+      );
+      // Keep an error listener after readiness so a detached child's later failure
+      // cannot crash the executor. Recovery remains bound to durable stages.
+      child.on("error", () => {});
+      try {
+        await trace("watchdog-readiness", () => waitForBootstrapWatchdog(child));
+        renewal.markDispatched(claimed);
+      } finally {
+        child.stdout?.destroy();
+        child.unref();
+      }
+      if (!child.pid)
+        throw new BootstrapRequestConflict("Watchdog process identity is unavailable");
+      await reader.inspectProcess(child.pid);
+      if (child.exitCode !== null || child.signalCode !== null)
+        throw new BootstrapRequestConflict("Watchdog exited before dispatch");
+      await requireOwnership();
+      acknowledgeBootstrapDispatch();
+    };
+    const operations: BootstrapExecutorOperations = await trace("native-operations", () =>
+      createBootstrapNativeOperations({
+        requests,
+        approved: request,
+        host,
+        descriptor,
+        lockFile,
+        ownershipVerifier: setup.ownershipVerifier,
+        verifySetup,
+        armWatchdog,
+        evidence: runnerEvidence,
+      }),
+    );
+    if (request.plan.bootRecovery)
+      operations.armBootRecovery = async (claimed) => {
+        const recovery = claimed.plan.bootRecovery!;
+        await verifyBootRunnerBinding(claimed, setupFile, setup);
+        const requireClaim = async () => {
+          await requireOwnership();
+          const current = requests.list().find((item) => item.id === claimed.id);
+          if (!isDeepStrictEqual(current, claimed) || current?.execution?.stage !== "claimed")
+            throw new BootstrapRequestConflict("Startup recovery lost its claimed generation");
+        };
+        const pythonExecutable = await inspectBootstrapPythonExecutable();
+        const [, ...pythonArguments] = bootstrapRecoveryLauncher(claimed.plan).ProgramArguments;
+        const expectedArguments = createHash("sha256")
+          .update(JSON.stringify([pythonExecutable, ...pythonArguments]))
+          .digest("hex");
+        await registerBootstrapRecovery({
+          request: claimed,
+          writableMountRoots: await inspectBootstrapWritableMountRoots(host),
+          requireClaim,
+          verifyServiceAbsent: () => reader.verifyServiceAbsent(recovery.service),
+          register: async (domain, launcherFile) => {
+            await promisify(execFile)("/bin/launchctl", ["bootstrap", domain, launcherFile], {
+              env: { PATH: "/usr/bin:/bin" },
+              timeout: 10_000,
+              maxBuffer: 8192,
+            });
+          },
+          verifyRegistered: async () => {
+            const deadline = performance.now() + 15_000;
+            for (;;) {
+              await requireClaim();
+              try {
+                const service = await reader.readService(recovery.service);
+                const pid = loadedCoordinatorPid(recovery.service, service);
+                const observed = ProcessObservationSchema.parse(await reader.inspectProcess(pid));
+                if (
+                  !service.includes("\n\tprogram = /usr/bin/python3\n") ||
+                  observed.pid !== pid ||
+                  observed.uid !== uid ||
+                  observed.executable !== pythonExecutable ||
+                  observed.parentPid !== 1 ||
+                  observed.bootId !== claimed.plan.expectedProcess.bootId ||
+                  observed.argumentsSha256 !== expectedArguments ||
+                  !isDeepStrictEqual(observed, await reader.inspectProcess(pid)) ||
+                  loadedCoordinatorPid(
+                    recovery.service,
+                    await reader.readService(recovery.service),
+                  ) !== pid
+                )
+                  throw new BootstrapRequestConflict("Startup recovery service identity changed");
+                return;
+              } catch {
+                if (performance.now() >= deadline)
+                  throw new BootstrapRequestConflict(
+                    "Startup recovery did not establish readiness",
+                  );
+              }
+              await delay(50);
+            }
+          },
+        });
+      };
+    operations.recordFailure = async (
+      failed: CoordinatorBootstrapRequest,
+      failure: BootstrapExecutorFailure,
+    ) => {
+      if (!failed.execution)
+        throw new BootstrapRequestConflict("Failed execution identity is missing");
+      const diagnostic = path.join(
+        failed.plan.state.directory,
+        `coordinator-failure-${failed.execution.generation}.json`,
+      );
+      const file = await open(diagnostic, "wx", 0o600);
+      try {
+        await file.writeFile(
+          JSON.stringify({
+            version: 1,
+            requestId: failed.id,
+            generation: failed.execution.generation,
+            planSha256: failed.planSha256,
+            recordedAt: new Date().toISOString(),
+            operation: failure.operation,
+            stage: failure.stage,
+          }),
+        );
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      const directory = await open(failed.plan.state.directory, "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    };
+    const result = await trace("executor-dispatch", () =>
+      executeCoordinatorBootstrap(
+        requests,
+        { id: request.id, revision: request.revision, planSha256: request.planSha256 },
+        operations,
+      ),
+    );
+    if (result.execution?.stage !== "succeeded")
+      throw new BootstrapRequestConflict("Bootstrap did not activate the replacement");
+  });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

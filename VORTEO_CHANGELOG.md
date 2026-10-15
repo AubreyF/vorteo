@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.546 - 2026-10-15
+
+### Added
+
+- Retain private coordinator runner phase evidence for renewal validation, ownership checks and watchdog readiness, with separate files for each attempt and bounded event history.
+- Preserve the first failure category without exception text or stacks. Keep diagnostics outside lifecycle authority and allow recovery to continue when diagnostic storage fails.
+- Test interrupted runners, pending validation, bounded records and unavailable storage. Document diagnostic limits; installed acceptance and delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.545 - 2026-10-15
 
 ### Added

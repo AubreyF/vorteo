@@ -1,3 +1,4 @@
+import type { createBootstrapRunnerEvidence } from "./coordinator-bootstrap-evidence.js";
 import { isDeepStrictEqual } from "node:util";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 import type { BootstrapExecutorOperations } from "./coordinator-bootstrap-executor.js";
@@ -26,16 +27,23 @@ export async function createBootstrapNativeOperations(input: {
   ownershipVerifier: { path: string; sha256: string };
   verifySetup(): Promise<void>;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
+  evidence?: ReturnType<typeof createBootstrapRunnerEvidence>;
 }): Promise<BootstrapExecutorOperations> {
-  const writableMountRoots = () => inspectBootstrapWritableMountRoots(input.host);
+  const trace: ReturnType<typeof createBootstrapRunnerEvidence>["run"] =
+    input.evidence?.run ?? ((_phase, operation) => operation());
+  const writableMountRoots = () =>
+    trace("ownership-mounts", () => inspectBootstrapWritableMountRoots(input.host));
   const requireOwnership = async () => {
     await input.verifySetup();
-    await requireBootstrapOwnership({
-      descriptor: input.descriptor,
-      lockFile: input.lockFile,
-      verifier: input.ownershipVerifier,
-      writableMountRoots: await writableMountRoots(),
-    });
+    const roots = await writableMountRoots();
+    await trace("ownership-lock", () =>
+      requireBootstrapOwnership({
+        descriptor: input.descriptor,
+        lockFile: input.lockFile,
+        verifier: input.ownershipVerifier,
+        writableMountRoots: roots,
+      }),
+    );
   };
   await requireOwnership();
   const roots = await writableMountRoots();
@@ -73,6 +81,7 @@ export async function createBootstrapNativeOperations(input: {
   return {
     ...native,
     async withOwnership(request, operation) {
+      input.evidence?.bind(request);
       await requireRequest(request);
       return operation();
     },

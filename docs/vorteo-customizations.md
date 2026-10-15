@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): native coordinator runners retain private validation phases and sanitized failure categories per attempt. Diagnostic writes preserve existing lifecycle decisions and do not block recovery when storage is unavailable. Focused tests cover pending validation, interruption, bounded history and storage failure; installed acceptance remains open. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): scoped coordinator commands preserve the supplied preparation ID and return exact review links; durable status remains readable without a Host RPC. Readiness now probes connected Host capabilities and refuses new preparation while a retained request remains unfinished. Explicit owner review stays separate from automatic authority. HTTP, CLI and capability tests pass locally; installed acceptance and delivery remain open. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): preclaim and claimed recovery reviews negotiate retained startup plans separately from ordinary coordinator updates. Older readers receive a compatible projection and retain cancellation, while approval requires review support. The shared recovery details show the retained service and launcher evidence without authorizing a repeat update. Source validation covers transport and browser review; installed recovery acceptance remains open. README overview and onboarding are unchanged.

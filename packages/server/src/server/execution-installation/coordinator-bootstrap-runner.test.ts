@@ -1,3 +1,8 @@
+import { createBootstrapRunnerEvidence } from "./coordinator-bootstrap-evidence.js";
+import { mkdtempSync, realpathSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -48,9 +53,6 @@ test.each([false, true])("dispatch notification survives a closed observer: %s",
 });
 
 test("exit observation has a durable three-attempt budget and never repeats an exhausted probe", async () => {
-  const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
   const root = mkdtempSync(path.join(tmpdir(), "exit-observation-"));
   let now = 1000;
   let attempts = 0;
@@ -80,9 +82,6 @@ test("exit observation has a durable three-attempt budget and never repeats an e
 });
 
 test("exit observation resumes a consumed attempt after interruption without resetting its delay", async () => {
-  const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
   const root = mkdtempSync(path.join(tmpdir(), "exit-interruption-"));
   let now = 1000;
   let probes = 0;
@@ -128,9 +127,6 @@ test("exit observation resumes a consumed attempt after interruption without res
 test.each([true, false])(
   "startup dependency observation is bounded across observer restarts: %s",
   async (becomesReady) => {
-    const { mkdtempSync, rmSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const path = await import("node:path");
     const root = mkdtempSync(path.join(tmpdir(), "startup-observation-"));
     const file = path.join(root, "readiness.json");
     let now = 1000;
@@ -164,3 +160,137 @@ test.each([true, false])(
     }
   },
 );
+
+test("runner evidence survives a pending validation and retains sanitized failure without granting authority", async () => {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "runner-evidence-")));
+  const request = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+  const evidence = createBootstrapRunnerEvidence({ directory, request, role: "executor" });
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const failure = new Error("PRIVATE TOKEN AND CONFIGURATION");
+  const run = evidence.run("runner", () =>
+    evidence.run("renewal-validation", async () => {
+      await pending;
+      throw failure;
+    }),
+  );
+  const rejected = expect(run).rejects.toBe(failure);
+  try {
+    const active = JSON.parse(readFileSync(evidence.file, "utf8"));
+    expect(active).toMatchObject({
+      authority: "diagnostic-only",
+      requestId: request.id,
+      outcome: "running",
+    });
+    expect(active.active.map((entry: { phase: string }) => entry.phase)).toEqual([
+      "runner",
+      "renewal-validation",
+    ]);
+    expect(statSync(evidence.file).mode & 0o777).toBe(0o600);
+    const second = createBootstrapRunnerEvidence({ directory, request, role: "executor" });
+    expect(second.file).not.toBe(evidence.file);
+    expect(JSON.parse(readFileSync(evidence.file, "utf8"))).toEqual(active);
+    release();
+    await rejected;
+    const retained = readFileSync(evidence.file, "utf8");
+    expect(JSON.parse(retained)).toMatchObject({
+      outcome: "failed",
+      active: [],
+      failure: { phase: "renewal-validation", category: "error" },
+    });
+    expect(retained).not.toContain("PRIVATE TOKEN");
+    expect(retained).not.toContain("CONFIGURATION");
+  } finally {
+    release();
+    await rejected;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner evidence stays bounded and refuses a different approved plan", async () => {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "runner-history-")));
+  const request = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+  const evidence = createBootstrapRunnerEvidence({ directory, request, role: "executor" });
+  try {
+    const revision = randomUUID();
+    evidence.bind({ ...request, revision });
+    for (let index = 0; index < 40; index++) {
+      expect(await evidence.run("ownership-lock", async () => index)).toBe(index);
+    }
+    const retained = JSON.parse(readFileSync(evidence.file, "utf8"));
+    expect(retained).toMatchObject({ revision, sequence: 40, outcome: "completed", active: [] });
+    expect(retained.recent).toHaveLength(32);
+    expect(() => evidence.bind({ ...request, planSha256: "b".repeat(64) })).toThrow(
+      "different request",
+    );
+    expect(JSON.parse(readFileSync(evidence.file, "utf8"))).toEqual(retained);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test.each([true, false])(
+  "unavailable runner storage cannot prevent recovery or mask its error: %s",
+  async (initiallyAvailable) => {
+    const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "runner-storage-")));
+    const request = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+    if (!initiallyAvailable) rmSync(directory, { recursive: true });
+    const evidence = createBootstrapRunnerEvidence({ directory, request, role: "executor" });
+    if (initiallyAvailable) rmSync(directory, { recursive: true });
+    const failure = new Error("original operation failure");
+    expect(await evidence.run("recovery", async () => "restored")).toBe("restored");
+    await expect(
+      evidence.run("recovery", async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    expect(() => statSync(directory)).toThrow();
+  },
+);
+
+test("an interrupted runner leaves phase evidence without claiming failure or liveness", async () => {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "runner-interrupted-")));
+  const moduleUrl = new URL("./coordinator-bootstrap-evidence.ts", import.meta.url).href;
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      `
+    import { createBootstrapRunnerEvidence } from ${JSON.stringify(moduleUrl)};
+    const evidence = createBootstrapRunnerEvidence({
+      directory: ${JSON.stringify(directory)},
+      request: { id: ${JSON.stringify(randomUUID())}, revision: ${JSON.stringify(randomUUID())}, planSha256: 'a'.repeat(64) },
+      role: 'executor',
+    });
+    evidence.run('renewal-validation', () => new Promise(() => {}));
+    process.stdout.write(evidence.file);
+    setInterval(() => {}, 1000);
+  `,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const exited = once(child, "close");
+  try {
+    const [chunk] = await once(child.stdout, "data");
+    const file = chunk.toString();
+    const before = readFileSync(file, "utf8");
+    child.kill("SIGKILL");
+    await exited;
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(JSON.parse(before)).toMatchObject({
+      authority: "diagnostic-only",
+      outcome: "running",
+      failure: null,
+      active: [{ phase: "renewal-validation" }],
+    });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
