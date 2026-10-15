@@ -76,6 +76,44 @@ export const BootstrapAdmissionSetupSchema = z.strictObject({
   helperSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+/** Coordinator observation and revocation share the Host ledger. Preparation,
+ * approval and dispatch remain exclusively in the validating native Host service. */
+export function createBootstrapReconciliationLedger(
+  configurationFile: string,
+  daemonId: string,
+): Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic"> {
+  const initial = readBootstrapHostBinding(configurationFile, daemonId);
+  const readBinding = () => {
+    const current = readBootstrapHostBinding(configurationFile, daemonId);
+    if (
+      current.stateDirectory !== initial.stateDirectory ||
+      current.binding.installationId !== initial.binding.installationId ||
+      current.binding.service !== initial.binding.service
+    )
+      throw new BootstrapRequestConflict("Coordinator binding changed. Reload its service.");
+    return current.binding;
+  };
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(initial.stateDirectory),
+    readBinding,
+    async () => {
+      throw new BootstrapRequestConflict("Coordinator preparation requires native Host validation");
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(configurationFile, process.getuid!()),
+      );
+      return coordinatorAutomaticAuthority(config);
+    },
+  );
+  return {
+    list: () => requests.list(),
+    revokeAutomatic: () => requests.revokeAutomatic(),
+  };
+}
+
 /** Construct only from a private launcher-selected Host setup file. The caller
  * must not advertise the capability until review and execution are available. */
 export async function createBootstrapReviewService(

@@ -39,6 +39,7 @@ import { promisify } from "node:util";
 import { hashSync } from "bcryptjs";
 import {
   readBootstrapHostBinding,
+  createBootstrapReconciliationLedger,
   bootstrapWritableMountRoots,
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
@@ -578,6 +579,70 @@ test("bootstrap configuration preserves credentials, service targets and state w
   f.config.host.password = "new-host-password";
   f.save();
   expect(verify).toThrow("no longer matches");
+});
+
+test("coordinator reconciliation revokes protected submissions after credential rotation", async () => {
+  const f = fixture();
+  const binding = () => readBootstrapHostBinding(f.file, "host-id").binding;
+  const preferences = new DaemonAutomation(f.config.stateDir, false);
+  preferences.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const config = () => InstallationConfigSchema.parse(JSON.parse(readFileSync(f.file, "utf8")));
+  const authority = coordinatorAutomaticAuthority(config());
+  if (!authority) throw new Error("Missing fixture authority");
+  const identity = { path: f.file, sha256: "a".repeat(64) };
+  const release = {
+    directory: f.root,
+    sourceCommit: "a".repeat(40),
+    artifactSha256: "a".repeat(64),
+    node: identity,
+    entrypoint: identity,
+    configuration: identity,
+    launcher: identity,
+  };
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.config.public.installationId,
+    service: binding().service,
+    expectedProcess: {
+      pid: 123,
+      bootId: "fixture",
+      startIdentity: "fixture",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: release,
+    candidate: release,
+    state: {
+      directory: f.config.stateDir,
+      restartJournal: path.join(f.config.stateDir, "restarts.json"),
+      ownerSessions: path.join(f.config.stateDir, "owners.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const requests = new CoordinatorBootstrapRequests(
+    new FileBootstrapRequestJournal(f.config.stateDir),
+    binding,
+    async () => {},
+    () => Date.parse(authority.policyActivatedAt) + 1,
+    () => coordinatorAutomaticAuthority(config()),
+  );
+  const pending = await requests.prepareAutomatic(
+    { id: randomUUID(), reason: "Reviewed fixture", plan },
+    authority,
+  );
+  const observer = createBootstrapReconciliationLedger(f.file, "host-id");
+  expect(Object.keys(observer).sort()).toEqual(["list", "revokeAutomatic"]);
+  observer.revokeAutomatic();
+  expect(observer.list()).toEqual([pending]);
+  f.config.hostAgentTokenHash = "c".repeat(64);
+  f.save();
+  observer.revokeAutomatic();
+  expect(observer.list()).toMatchObject([{ id: pending.id, status: "canceled" }]);
+  const replacementState = path.join(f.root, "replacement-state");
+  mkdirSync(replacementState, { mode: 0o700 });
+  f.config.stateDir = replacementState;
+  f.save();
+  expect(() => observer.revokeAutomatic()).toThrow("binding changed");
 });
 
 test("bootstrap binding pins Host daemon and service, and observes owner credential changes", () => {

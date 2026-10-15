@@ -318,6 +318,8 @@ An installation without a saved preference retains its existing trusted Host pol
 
 ### Maintenance readiness and operator actions
 
+Coordinator permission changes reconcile the protected bootstrap ledger before reporting success. If ledger reconciliation fails, the saved preference remains in effect but Settings reports an error; refresh the preference and inspect the request before assuming cancellation completed. The existing maintenance tick retries revocation, including after credential rotation. This reconciliation cannot prepare, approve or launch a replacement. Coordinator automatic submission and dispatch scheduling remain unfinished.
+
 Installation controls show authorization and readiness separately for each Host or Dev requester, target daemon and operation. Automatic authority does not prove the updater is available. The versioned observation includes its check time, preference revision and selected source when available. A failed inventory, unsupported idle admission or unresolved lifecycle recovery blocks readiness.
 
 | Observation                      | Action                                                                                                                                     |

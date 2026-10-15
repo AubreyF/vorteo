@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.539 - 2026-10-15
+
+### Maintenance
+
+- Reconcile coordinator automatic grants against the protected request ledger before acknowledging permission changes and during the existing maintenance tick. Credential rotation cancels stale queued grants without launching a replacement.
+- Keep coordinator observation and revocation separate from native Host preparation, approval and dispatch. Refuse a changed installation, service or state directory.
+- Verify credential revocation and HTTP failure handling. Automatic submission, dispatch scheduling, public status and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.538 - 2026-10-15
 
 ### Maintenance

@@ -1,7 +1,10 @@
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
 import { createNativeHelperExecutor } from "./native-helper-executor.js";
-import { inspectBootstrapWritableMountRoots } from "./coordinator-bootstrap-host.js";
+import {
+  inspectBootstrapWritableMountRoots,
+  createBootstrapReconciliationLedger,
+} from "./coordinator-bootstrap-host.js";
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
@@ -58,6 +61,9 @@ function activateSynchronization() {
 }
 activateSynchronization();
 const claudeSetup = createClaudeSetupRuntime(config, settings);
+const host = config.public.environments.find((environment) => environment.kind === "host");
+if (!host) throw new Error("Installation Host identity is missing");
+const coordinatorRequests = createBootstrapReconciliationLedger(configFile, host.serverId);
 const claudeSetupTimer = setInterval(() => {
   if (!synchronizing) return;
   void claudeSetup
@@ -74,6 +80,7 @@ const app = createInstallationServer(
   undefined,
   claudeSetup,
   startupFence,
+  coordinatorRequests,
 );
 const restartTimer = setInterval(() => {
   try {

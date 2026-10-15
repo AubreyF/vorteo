@@ -1,4 +1,5 @@
 import { DaemonAutomation } from "./daemon-automation.js";
+import type { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
@@ -246,6 +247,7 @@ export function createInstallationServer(
     resolveInstallationPluginSource(config, input),
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
+  coordinatorRequests?: Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic">,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -334,7 +336,10 @@ export function createInstallationServer(
   };
   const drainRestarts = async () => {
     try {
-      if (startupReleased()) await restarts.drain();
+      if (startupReleased()) {
+        coordinatorRequests?.revokeAutomatic();
+        await restarts.drain();
+      }
     } catch {
       logger.error("Installation restart journal or startup fence failed");
     }
@@ -1200,6 +1205,7 @@ export function createInstallationServer(
     const change = DaemonAutomationChangeSchema.parse(req.body);
     if (!change.service) throw new RestartRequestError("Choose the service permission to change");
     const preference = daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
     restarts.refreshApprovalPolicy();
     res.json({ ...preference, services: daemonAutomation.servicePermissions() });
     void drainRestarts();
@@ -1216,6 +1222,7 @@ export function createInstallationServer(
       );
     }
     daemonAutomation.change(change);
+    coordinatorRequests?.revokeAutomatic();
     restarts.refreshApprovalPolicy();
     res.json(legacyAutomation());
     void drainRestarts();

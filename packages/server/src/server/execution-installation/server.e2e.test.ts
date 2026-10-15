@@ -1,4 +1,5 @@
 import { DaemonAutomation } from "./daemon-automation.js";
+import type { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -341,6 +342,7 @@ async function fixture(
     "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
   >,
   initialize?: (config: InstallationConfig) => void,
+  coordinatorRequests?: Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic">,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -464,6 +466,7 @@ async function fixture(
     resolvePluginSource,
     claudeSetup,
     startupFence,
+    coordinatorRequests,
   );
   const server: Server = await new Promise((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -2457,6 +2460,58 @@ test("maintenance readiness separates legacy authority, broad opt-in and source 
         item.authorization === (item.requester === "host-agent" ? "automatic" : "manual"),
     ),
   ).toBe(true);
+  expect(f.calls).toEqual([]);
+});
+
+test("permission changes persist revocation before success and report ledger failures", async () => {
+  let stateDirectory = "";
+  let failRevocation = false;
+  const observed: Array<string | null> = [];
+  const coordinatorRequests = {
+    list: () => [],
+    revokeAutomatic() {
+      observed.push(new DaemonAutomation(stateDirectory, false).activation("coordinator") ?? null);
+      if (failRevocation) throw new Error("Fixture journal unavailable");
+    },
+  };
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      stateDirectory = config.stateDir;
+    },
+    coordinatorRequests,
+  );
+  const route = "/api/installation/owner/maintenance-permissions/change";
+  const enabled = await f.request(route, "owner-test-password", {
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  expect(enabled.status).toBe(200);
+  const preference = await enabled.json();
+  expect(observed[0]).toBe(preference.services.coordinator);
+  observed.length = 0;
+  failRevocation = true;
+  const disabled = await f.request(route, "owner-test-password", {
+    expectedRevision: preference.revision,
+    service: "coordinator",
+    enabled: false,
+  });
+  expect(disabled.status).toBe(500);
+  expect(await disabled.json()).toEqual({ error: "Installation request failed" });
+  expect(observed).toEqual([null]);
+  expect(new DaemonAutomation(f.root, false).activation("coordinator")).toBeNull();
+  // The existing reconciliation tick retries only revocation, never a launch.
+  failRevocation = false;
+  await f.drain();
+  expect(observed).toEqual([null, null]);
   expect(f.calls).toEqual([]);
 });
 
