@@ -336,11 +336,44 @@ function assertServiceEvidence(
   const referenced = serviceEvidenceReference(next, phase);
   if (referenced !== supplied.sha256)
     throw new BootstrapRequestConflict("Service transition does not address its retained evidence");
-  if (phase !== "observation") assertNativeCandidateEvidence(record, next);
+  if (phase !== "observation") {
+    assertNativeCandidateEvidence(record, next);
+    assertServiceExecutorEvidence(input.state, previous, record, phase);
+  }
   const result: unknown = supplied.assertCurrent();
   if (result !== undefined)
     throw new BootstrapRequestConflict("Service custody recheck must be synchronous");
 }
+function assertServiceExecutorEvidence(
+  state: InstallationEnrollmentState,
+  previous: MaintenanceServiceJob,
+  record: MaintenanceServiceEvidenceRecord,
+  phase: ServicePhase,
+): void {
+  const executor = record.executor;
+  if (!executor || state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Service effects require selected executor evidence");
+  const binding = state.grant.manifest.targets.find(
+    (target) => target.target === "maintenance-controller",
+  );
+  if (
+    !binding ||
+    executor.identitySha256 !== binding.identitySha256 ||
+    executor.native.process.bootId !== executor.native.bootId ||
+    executor.native.bootId !== record.native.bootId ||
+    executor.native.selection.sourceCommit !== executor.sourceCommit ||
+    executor.native.selection.artifactSha256 !== executor.artifactSha256
+  )
+    throw new BootstrapRequestConflict("Selected executor evidence differs from enrolled custody");
+  if (phase === "intent") {
+    const reserved = previous.evidence.find(
+      (item) => item.sha256 === previous.reservation!.nativeEvidenceSha256,
+    );
+    if (!reserved?.record.executor || !isDeepStrictEqual(reserved.record.executor, executor))
+      throw new BootstrapRequestConflict("Selected executor changed after service reservation");
+  }
+}
+
 function serviceEvidenceReference(job: MaintenanceServiceJob, phase: ServicePhase): string {
   switch (phase) {
     case "approval":

@@ -28,6 +28,54 @@ export const MaintenanceServiceProposalSchema = StandingMaintenanceProposalSchem
   recoveryOf: MaintenanceServiceRecoveryLinkSchema.optional(),
 });
 
+export const MaintenanceServiceNativeEvidenceSchema = z.strictObject({
+  bootId: z.uuid(),
+  process: BootstrapProcessIdentitySchema.nullable(),
+  service: z.strictObject({
+    domain: z.string().regex(/^gui\/\d+$/),
+    label: z.string().regex(/^local\.vorteo\.[a-zA-Z0-9.-]+$/),
+    registered: z.boolean(),
+    launcherPath: physicalPath,
+    launcherSha256: digest.nullable(),
+    registrationSha256: digest.nullable(),
+  }),
+  selection: z.strictObject({
+    path: physicalPath,
+    receiptSha256: digest.nullable(),
+    sourceCommit: commit.nullable(),
+    artifactSha256: digest.nullable(),
+  }),
+});
+
+/** The selected controller is separate from the service being replaced. */
+export const MaintenanceServiceExecutorEvidenceSchema = z.strictObject({
+  target: z.literal("maintenance-controller"),
+  identitySha256: digest,
+  planSha256: digest,
+  sourceCommit: commit,
+  artifactSha256: digest,
+  runtimeDirectory: physicalPath,
+  setup: z.strictObject({ path: physicalPath, sha256: digest }),
+  node: z.strictObject({ path: physicalPath, sha256: digest }),
+  entrypoint: z.strictObject({ path: physicalPath, sha256: digest }),
+  native: MaintenanceServiceNativeEvidenceSchema.extend({
+    process: BootstrapProcessIdentitySchema,
+    service: MaintenanceServiceNativeEvidenceSchema.shape.service.extend({
+      registered: z.literal(true),
+      launcherSha256: digest,
+      registrationSha256: digest,
+    }),
+    selection: MaintenanceServiceNativeEvidenceSchema.shape.selection.extend({
+      receiptSha256: digest,
+      sourceCommit: commit,
+      artifactSha256: digest,
+    }),
+  }),
+});
+export type MaintenanceServiceExecutorEvidence = z.infer<
+  typeof MaintenanceServiceExecutorEvidenceSchema
+>;
+
 /** Retained evidence is distinct from a current native authorization check. */
 export const MaintenanceServiceEvidenceRecordSchema = z.strictObject({
   requestId: z.uuid(),
@@ -37,24 +85,10 @@ export const MaintenanceServiceEvidenceRecordSchema = z.strictObject({
   sourceCommit: commit.nullable(),
   artifactSha256: digest.nullable(),
   observedAt: z.string().datetime(),
-  native: z.strictObject({
-    bootId: z.uuid(),
-    process: BootstrapProcessIdentitySchema.nullable(),
-    service: z.strictObject({
-      domain: z.string().regex(/^gui\/\d+$/),
-      label: z.string().regex(/^local\.vorteo\.[a-zA-Z0-9.-]+$/),
-      registered: z.boolean(),
-      launcherPath: physicalPath,
-      launcherSha256: digest.nullable(),
-      registrationSha256: digest.nullable(),
-    }),
-    selection: z.strictObject({
-      path: physicalPath,
-      receiptSha256: digest.nullable(),
-      sourceCommit: commit.nullable(),
-      artifactSha256: digest.nullable(),
-    }),
-  }),
+  native: MaintenanceServiceNativeEvidenceSchema,
+  /** Absent only on legacy receipts retained for observation. New effect
+   * admission requires the independently verified selected executor. */
+  executor: MaintenanceServiceExecutorEvidenceSchema.optional(),
 });
 export type MaintenanceServiceEvidenceRecord = z.infer<
   typeof MaintenanceServiceEvidenceRecordSchema

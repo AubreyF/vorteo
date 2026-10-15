@@ -9,6 +9,10 @@ import {
   maintenanceServiceProposalDigest,
   type MaintenanceServiceAdmissionEvidence,
 } from "./service-admission.js";
+import {
+  MaintenanceServiceEvidenceRecordSchema,
+  MaintenanceServiceExecutorEvidenceSchema,
+} from "@getpaseo/protocol/maintenance-service";
 import type {
   MaintenanceServiceJob,
   MaintenanceServiceEvidenceRecord,
@@ -1963,6 +1967,33 @@ function serviceAdmissionFixture() {
         },
       },
     };
+    record.executor = {
+      target: "maintenance-controller",
+      identitySha256: "a".repeat(64),
+      planSha256: "6".repeat(64),
+      sourceCommit: record.native.selection.sourceCommit!,
+      artifactSha256: record.native.selection.artifactSha256!,
+      runtimeDirectory: path.join(f.directory, "controller-runtime"),
+      setup: { path: path.join(f.directory, "setup.json"), sha256: "7".repeat(64) },
+      node: { path: path.join(f.directory, "node"), sha256: "8".repeat(64) },
+      entrypoint: { path: path.join(f.directory, "entry.mjs"), sha256: "9".repeat(64) },
+      native: {
+        ...structuredClone(record.native),
+        process: processIdentity,
+        service: {
+          ...record.native.service,
+          registered: true,
+          launcherSha256: "1".repeat(64),
+          registrationSha256: "2".repeat(64),
+        },
+        selection: {
+          ...record.native.selection,
+          receiptSha256: "3".repeat(64),
+          sourceCommit: record.native.selection.sourceCommit!,
+          artifactSha256: record.native.selection.artifactSha256!,
+        },
+      },
+    };
     return {
       expectedRevision: job.revision,
       record,
@@ -1989,9 +2020,11 @@ function serviceAdmissionFixture() {
     },
   });
   adapter.journal.write([pending]);
-  function approve() {
+  function approve(edit?: (record: MaintenanceServiceEvidenceRecord) => void) {
     const evidence = proof(pending),
       revision = randomUUID();
+    edit?.(evidence.record);
+    evidence.sha256 = maintenanceServiceEvidenceDigest(evidence.record);
     const job: MaintenanceServiceJob = {
       ...retain(pending, evidence),
       revision,
@@ -2041,8 +2074,14 @@ function serviceAdmissionFixture() {
     adapter.journal.write([job], evidence);
     return job;
   }
-  function claim(running: MaintenanceServiceJob, consumedAt = new Date(now).toISOString()) {
+  function claim(
+    running: MaintenanceServiceJob,
+    consumedAt = new Date(now).toISOString(),
+    edit?: (record: MaintenanceServiceEvidenceRecord) => void,
+  ) {
     const evidence = proof(running);
+    edit?.(evidence.record);
+    evidence.sha256 = maintenanceServiceEvidenceDigest(evidence.record);
     const job: MaintenanceServiceJob = {
       ...retain(running, evidence),
       revision: randomUUID(),
@@ -2167,6 +2206,10 @@ test("revoked services permit native observation but cannot reserve another effe
     revoke: true,
   });
   const unknown = f.observe(claimed, "unknown", false);
+  delete unknown.evidence.record.executor;
+  unknown.evidence.sha256 = maintenanceServiceEvidenceDigest(unknown.evidence.record);
+  unknown.job.evidence[unknown.job.evidence.length - 1].sha256 = unknown.evidence.sha256;
+  unknown.job.observation!.evidenceSha256 = unknown.evidence.sha256;
   f.adapter.journal.write([unknown.job], unknown.evidence);
   const candidate = f.observe(unknown.job, "candidate", true);
   f.adapter.journal.write([candidate.job], candidate.evidence);
@@ -2582,4 +2625,103 @@ test("service queue gives post-dispatch observation its own bounded check budget
   await queue.drain();
   expect(queue.listServices()[0].status).toBe("succeeded");
   expect(f.counts()).toEqual({ executed: 1, observed: 1 });
+});
+
+test("executor evidence preserves legacy observations and rejects incomplete new bindings", () => {
+  const f = serviceAdmissionFixture();
+  const record = f.proof(f.pending).record;
+  delete record.executor;
+  expect(MaintenanceServiceEvidenceRecordSchema.parse(record)).toEqual(record);
+  const executor = {
+    target: "maintenance-controller",
+    identitySha256: "1".repeat(64),
+    planSha256: "2".repeat(64),
+    sourceCommit: "3".repeat(40),
+    artifactSha256: "4".repeat(64),
+    runtimeDirectory: "/protected/runtime",
+    setup: { path: "/protected/setup.json", sha256: "5".repeat(64) },
+    node: { path: "/protected/node", sha256: "6".repeat(64) },
+    entrypoint: { path: "/protected/entry.mjs", sha256: "7".repeat(64) },
+    native: record.native,
+  };
+  const bound = { ...record, executor };
+  expect(MaintenanceServiceEvidenceRecordSchema.parse(bound)).toEqual(bound);
+  expect(maintenanceServiceEvidenceDigest(bound)).not.toBe(
+    maintenanceServiceEvidenceDigest(record),
+  );
+  expect(
+    MaintenanceServiceExecutorEvidenceSchema.safeParse({
+      ...executor,
+      native: { ...executor.native, process: null },
+    }).success,
+  ).toBe(false);
+  expect(
+    MaintenanceServiceExecutorEvidenceSchema.safeParse({
+      ...executor,
+      native: { ...executor.native, service: { ...executor.native.service, registered: false } },
+    }).success,
+  ).toBe(false);
+  expect(
+    MaintenanceServiceExecutorEvidenceSchema.safeParse({
+      ...executor,
+      native: {
+        ...executor.native,
+        selection: { ...executor.native.selection, receiptSha256: null },
+      },
+    }).success,
+  ).toBe(false);
+  expect(
+    MaintenanceServiceExecutorEvidenceSchema.safeParse({
+      ...executor,
+      currentRevision: f.pending.revision,
+    }).success,
+  ).toBe(false);
+});
+
+test("new service effects require enrolled executor proof without changing the journal on refusal", () => {
+  const f = serviceAdmissionFixture();
+  expect(() =>
+    f.approve((record) => {
+      delete record.executor;
+    }),
+  ).toThrow("selected executor evidence");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
+  expect(() =>
+    f.approve((record) => {
+      record.executor!.identitySha256 = "0".repeat(64);
+    }),
+  ).toThrow("enrolled custody");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
+  expect(() =>
+    f.approve((record) => {
+      record.executor!.native.bootId = randomUUID();
+    }),
+  ).toThrow("enrolled custody");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
+});
+
+test("native intent refuses executor changes after reservation and permits bookkeeping changes", () => {
+  const f = serviceAdmissionFixture();
+  const running = f.reserve(f.approve());
+  expect(() =>
+    f.claim(running, undefined, (record) => {
+      record.executor!.setup.sha256 = "0".repeat(64);
+    }),
+  ).toThrow("changed after service reservation");
+  expect(f.adapter.journal.read()).toEqual([running]);
+  const updated = { ...running, detail: "Fresh bookkeeping", revision: randomUUID() };
+  f.adapter.journal.write([updated]);
+  expect(f.claim(updated).effectIntent?.requestRevision).toBe(running.reservation!.requestRevision);
+});
+
+test("service effects refuse internally consistent executor evidence from another boot", () => {
+  const f = serviceAdmissionFixture();
+  expect(() =>
+    f.approve((record) => {
+      const otherBoot = randomUUID();
+      record.executor!.native.bootId = otherBoot;
+      record.executor!.native.process = { ...record.executor!.native.process, bootId: otherBoot };
+    }),
+  ).toThrow("enrolled custody");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
 });

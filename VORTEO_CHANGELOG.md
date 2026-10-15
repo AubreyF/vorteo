@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.562 - 2026-10-15
+
+### Fixed
+
+- Bind new controller and launcher maintenance effects to the selected executor's native identity, runtime, setup and artifacts. Require target and executor evidence from the same boot, and preserve the reserved executor through native intent admission.
+- Keep legacy receipts readable for observation after revocation. Mutable queue bookkeeping does not change executor identity.
+
+### Validation and delivery
+
+- Focused journal tests cover missing executor proof, changed custody, cross-boot evidence, changed executor after reservation and legacy observation. Native producer refresh and installed acceptance remain open; capability remains disabled.
+
 ## 0.11.0-beta.3.vorteo.561 - 2026-10-15
 
 ### Added
