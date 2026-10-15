@@ -26,6 +26,7 @@ import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js"
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { InstallationConfigSchema } from "./config.js";
+import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
   readProtectedDocument,
   verifyBootstrapReleaseArtifacts,
@@ -126,6 +127,14 @@ export async function createBootstrapReviewService(
         currentRoots,
       );
       await verifyBootstrapPlan(plan, host);
+    },
+    Date.now,
+    () => {
+      readBinding();
+      const config = InstallationConfigSchema.parse(
+        readPrivateBootstrapConfiguration(setup.configurationFile, uid),
+      );
+      return coordinatorAutomaticAuthority(config);
     },
   );
 }

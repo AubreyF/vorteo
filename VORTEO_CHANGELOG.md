@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.534 - 2026-10-15
+
+### Maintenance
+
+- Add protected coordinator authorization records bound to the current permission and installation credentials. Automatic approval requires compatible independent recovery, retains a thirty-second cancellation interval, and rechecks authority before claim.
+- Preserve manual review and hide internal authorization metadata from older review clients. Tests cover cancellation during validation, revocation, credential changes and refusal of configuration or other service changes.
+- This is an internal authorization foundation. Authenticated submission, managed automatic dispatch and installed acceptance remain unfinished; no new capability is advertised. Renewal startup recovery also needs its prepared setup and execution snapshot reconciled before delivery.
+
 ## 0.11.0-beta.3.vorteo.533 - 2026-10-15
 
 ### Changed

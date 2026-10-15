@@ -3122,3 +3122,223 @@ test.each(["unhealthy", "changed ownership", "no attempt"])(
     expect(observations).toBe(failure === "no attempt" ? 0 : 1);
   },
 );
+
+function automaticCoordinatorFixture() {
+  const f = bootRecoveryFixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.previous;
+  let now = Date.parse("2026-10-15T00:00:01Z");
+  let authority: { credentialBinding: string; policyActivatedAt: string } | null = {
+    credentialBinding: "b".repeat(64),
+    policyActivatedAt: "2026-10-15T00:00:00Z",
+  };
+  let verify = async () => {};
+  const service = () =>
+    new CoordinatorBootstrapRequests(
+      f.journal,
+      () => f.binding,
+      () => verify(),
+      () => now,
+      () => authority,
+    );
+  const prepare = () =>
+    service().prepare({ id: f.id, reason: "Automatic coordinator fixture", plan: f.plan });
+  return {
+    ...f,
+    service,
+    prepare,
+    advance: () => {
+      now += 30_000;
+    },
+    disable: () => {
+      authority = null;
+    },
+    rotate: () => {
+      authority = { ...authority!, credentialBinding: "c".repeat(64) };
+    },
+    setVerify: (value: typeof verify) => {
+      verify = value;
+    },
+  };
+}
+
+test("coordinator automation requires protected Host provenance and waits before exact dispatch", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  await expect(f.service().approveAutomatic(automaticCoordinatorIdentity(pending))).rejects.toThrow(
+    "authority is missing",
+  );
+  expect(() =>
+    f.service().recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "c".repeat(64)),
+  ).toThrow("scoped Host");
+  const submitted = f
+    .service()
+    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  expect(
+    f.service().recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64)),
+  ).toEqual(submitted);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "not yet eligible",
+  );
+  const visible = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "review",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  f.advance();
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(approved));
+  expect(claimed.execution?.stage).toBe("claimed");
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(claimed);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow();
+});
+
+test.each(["pending", "approved", "validation", "claim"])(
+  "coordinator permission revocation fences the %s boundary",
+  async (boundary) => {
+    const f = automaticCoordinatorFixture();
+    const pending = await f.prepare();
+    const submitted = f
+      .service()
+      .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+    if (boundary === "validation") {
+      f.setVerify(async () => {
+        f.disable();
+        f.service().revokeAutomatic();
+      });
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("revoked");
+    } else if (boundary === "pending") {
+      f.disable();
+      f.service().revokeAutomatic();
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("pending");
+    } else {
+      const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+      f.advance();
+      if (boundary === "claim")
+        f.setVerify(async () => {
+          f.disable();
+          f.service().revokeAutomatic();
+        });
+      else {
+        f.rotate();
+        f.service().revokeAutomatic();
+      }
+      await expect(
+        f.service().claimDispatch(automaticCoordinatorIdentity(approved)),
+      ).rejects.toThrow();
+    }
+    expect(f.service().list()[0]).toMatchObject({ status: "canceled" });
+    expect(f.service().list()[0]).not.toHaveProperty("execution");
+  },
+);
+
+test("manual coordinator approval remains exact when automatic permission is revoked", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const submitted = f
+    .service()
+    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const approved = await f.service().decide(
+    {
+      id: submitted.id,
+      revision: submitted.revision,
+      planSha256: submitted.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(approved);
+  expect(approved).not.toHaveProperty("automaticApproval");
+  expect(
+    (await f.service().claimDispatch(automaticCoordinatorIdentity(approved))).execution?.stage,
+  ).toBe("claimed");
+});
+
+function automaticCoordinatorIdentity(request: CoordinatorBootstrapRequest) {
+  return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
+}
+
+test.each(["no-startup", "configuration", "other-service", "tooling"])(
+  "automatic coordinator authority refuses %s changes",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    if (change === "no-startup") delete f.plan.bootRecovery;
+    if (change === "configuration")
+      f.plan.candidate = {
+        ...f.plan.candidate,
+        configuration: { ...f.plan.candidate.configuration, sha256: "f".repeat(64) },
+      };
+    if (change === "other-service") f.plan.nativeHelperConfiguration = null;
+    if (change === "tooling") f.plan.sourceUpdateTooling = true;
+    const pending = await f.prepare();
+    const submitted = f
+      .service()
+      .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+    await expect(
+      f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+    ).rejects.toThrow();
+    expect(f.service().list()[0].status).toBe("pending");
+    expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+  },
+);
+
+test("generic coordinator preparation cannot inject provenance or grant old requests automatically", async () => {
+  const f = automaticCoordinatorFixture();
+  await expect(
+    f.service().prepare({
+      id: f.id,
+      reason: "Forged provenance",
+      plan: f.plan,
+      automaticSubmission: {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:00Z",
+        submittedAt: "2026-10-15T00:00:01Z",
+      },
+    }),
+  ).rejects.toThrow();
+  const pending = await f.prepare();
+  const later = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    () => Date.parse("2026-10-15T00:00:30Z"),
+    () => ({ credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:20Z" }),
+  );
+  expect(() =>
+    later.recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64)),
+  ).toThrow("permission");
+  expect(later.list()[0]).toEqual(pending);
+});
+
+test("owner cancellation wins over in-flight automatic coordinator validation", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const submitted = f
+    .service()
+    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  f.setVerify(async () => {
+    await f
+      .service()
+      .decide({ ...automaticCoordinatorIdentity(submitted), decision: "cancel" }, ownerPassword);
+  });
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow();
+  expect(f.service().list()[0].status).toBe("canceled");
+  expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+});

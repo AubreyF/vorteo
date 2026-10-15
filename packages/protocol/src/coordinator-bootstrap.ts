@@ -92,6 +92,12 @@ export const CoordinatorBootstrapStageSchema = z.enum([
 ]);
 export type CoordinatorBootstrapStage = z.infer<typeof CoordinatorBootstrapStageSchema>;
 
+export const CoordinatorAutomaticAuthoritySchema = z.strictObject({
+  credentialBinding: DigestSchema,
+  policyActivatedAt: z.string().datetime(),
+});
+export type CoordinatorAutomaticAuthority = z.infer<typeof CoordinatorAutomaticAuthoritySchema>;
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -102,6 +108,14 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  // Protected provenance is minted by scoped Host admission, never by plan input.
+  automaticSubmission: CoordinatorAutomaticAuthoritySchema.extend({
+    submittedAt: z.string().datetime(),
+  }).optional(),
+  automaticApproval: CoordinatorAutomaticAuthoritySchema.extend({
+    requestRevision: z.string().uuid(),
+    dispatchAfter: z.string().datetime(),
+  }).optional(),
   execution: z
     .strictObject({
       generation: z.string().uuid(),

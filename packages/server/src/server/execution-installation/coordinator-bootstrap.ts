@@ -8,6 +8,8 @@ import {
   CoordinatorBootstrapPreparationSchema,
   CoordinatorBootstrapDecisionSchema,
   CoordinatorBootstrapRequestSchema,
+  CoordinatorAutomaticAuthoritySchema,
+  type CoordinatorAutomaticAuthority,
   type CoordinatorBootstrapPlan,
   type CoordinatorBootstrapRequest,
   type CoordinatorBootstrapStage,
@@ -149,6 +151,29 @@ export function coordinatorPlanDigest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
 }
 
+function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
+  if (
+    !plan.bootRecovery ||
+    plan.automaticRecovery !== "restore-compatible" ||
+    !plan.compatibleRecovery
+  )
+    throw new BootstrapRequestConflict(
+      "Automatic coordinator maintenance requires independent compatible recovery",
+    );
+  if (
+    plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
+    plan.compatibleRecovery.configuration.sha256 !== plan.previous.configuration.sha256 ||
+    plan.recoveredFrom ||
+    plan.sourceUpdateTooling ||
+    plan.nativeHelperConfiguration !== undefined ||
+    plan.previewMonitorConfiguration !== undefined ||
+    plan.factoryRuntimeAdoptionConfiguration !== undefined
+  )
+    throw new BootstrapRequestConflict(
+      "Coordinator configuration, recovery successors and other service changes require exact owner review",
+    );
+}
+
 /** Durable decisions and dispatch stages only. This boundary performs no service operations. */
 export class CoordinatorBootstrapRequests {
   private readonly approvalChecks = new Map<string, Promise<void>>();
@@ -173,6 +198,7 @@ export class CoordinatorBootstrapRequests {
     private readonly binding: () => unknown,
     private readonly verifyPreparedBytes: (plan: CoordinatorBootstrapPlan) => Promise<void>,
     private readonly now: () => number = Date.now,
+    private readonly automaticAuthority: () => CoordinatorAutomaticAuthority | null = () => null,
   ) {
     BindingSchema.parse(binding());
   }
@@ -232,6 +258,153 @@ export class CoordinatorBootstrapRequests {
     return structuredClone(request);
   }
 
+  /** Internal scoped admission only. Generic review RPCs never expose this method
+   * or accept provenance in their preparation payload. */
+  recordAutomaticSubmission(
+    value: unknown,
+    credentialBinding: string,
+  ): CoordinatorBootstrapRequest {
+    const input = dispatchIdentity.parse(value);
+    const expected = this.read();
+    const request = expected.find((item) => item.id === input.id);
+    if (
+      !request ||
+      request.planSha256 !== input.planSha256 ||
+      request.status !== "pending" ||
+      request.execution
+    )
+      throw new BootstrapRequestConflict("Exact pending coordinator submission required");
+    this.readBinding(request.plan);
+    const authority = CoordinatorAutomaticAuthoritySchema.nullable().parse(
+      this.automaticAuthority(),
+    );
+    if (
+      !authority ||
+      credentialBinding !== authority.credentialBinding ||
+      Date.parse(request.createdAt) < Date.parse(authority.policyActivatedAt)
+    )
+      throw new BootstrapAuthenticationRequired(
+        "Current scoped Host coordinator permission required",
+      );
+    if (request.automaticSubmission) {
+      if (!this.matchesAutomaticAuthority(request.automaticSubmission, authority))
+        throw new BootstrapRequestConflict("Coordinator submission authority changed");
+      return structuredClone(request);
+    }
+    if (request.revision !== input.revision)
+      throw new BootstrapRequestConflict("Coordinator submission changed before recording origin");
+    const next: CoordinatorBootstrapRequest = {
+      ...request,
+      revision: randomUUID(),
+      automaticSubmission: { ...authority, submittedAt: new Date(this.now()).toISOString() },
+    };
+    this.journal.replace(
+      expected,
+      expected.map((item) => (item.id === next.id ? next : item)),
+    );
+    return structuredClone(next);
+  }
+
+  private matchesAutomaticAuthority(
+    recorded: CoordinatorAutomaticAuthority,
+    current: CoordinatorAutomaticAuthority | null,
+  ): boolean {
+    return (
+      current !== null &&
+      recorded.credentialBinding === current.credentialBinding &&
+      recorded.policyActivatedAt === current.policyActivatedAt
+    );
+  }
+
+  private requireAutomaticAuthority(
+    request: CoordinatorBootstrapRequest,
+  ): CoordinatorAutomaticAuthority {
+    const authority = CoordinatorAutomaticAuthoritySchema.nullable().parse(
+      this.automaticAuthority(),
+    );
+    if (
+      !authority ||
+      !request.automaticSubmission ||
+      !this.matchesAutomaticAuthority(request.automaticSubmission, authority)
+    )
+      throw new BootstrapAuthenticationRequired(
+        "Coordinator automatic authority is missing or revoked",
+      );
+    return authority;
+  }
+
+  /** No service effects. A separate managed dispatcher observes the cancellation
+   * interval and claims the exact durable approval through claimDispatch. */
+  async approveAutomatic(value: unknown): Promise<CoordinatorBootstrapRequest> {
+    const input = dispatchIdentity.parse(value);
+    const expected = this.read();
+    const request = expected.find((item) => item.id === input.id);
+    if (
+      !request ||
+      request.revision !== input.revision ||
+      request.planSha256 !== input.planSha256 ||
+      request.status !== "pending" ||
+      request.execution
+    )
+      throw new BootstrapRequestConflict("Exact pending coordinator request required");
+    const binding = this.readBinding(request.plan);
+    const authority = this.requireAutomaticAuthority(request);
+    assertAutomaticCoordinatorPlan(request.plan);
+    await this.verifyApproval(request);
+    this.requireSameBinding(binding, request.plan);
+    if (!isDeepStrictEqual(authority, this.requireAutomaticAuthority(request)))
+      throw new BootstrapAuthenticationRequired("Coordinator authority changed during validation");
+    const revision = randomUUID();
+    const now = this.now();
+    const next: CoordinatorBootstrapRequest = {
+      ...request,
+      revision,
+      status: "approved",
+      decisionAt: new Date(now).toISOString(),
+      automaticApproval: {
+        ...authority,
+        requestRevision: revision,
+        dispatchAfter: new Date(now + 30_000).toISOString(),
+      },
+    };
+    this.journal.replace(
+      expected,
+      expected.map((item) => (item.id === next.id ? next : item)),
+    );
+    return structuredClone(next);
+  }
+
+  /** Called by the preference writer before confirming revocation. CAS prevents
+   * cancellation from overwriting a concurrently claimed native execution. */
+  revokeAutomatic(): void {
+    const expected = this.read();
+    const authority = CoordinatorAutomaticAuthoritySchema.nullable().parse(
+      this.automaticAuthority(),
+    );
+    let changed = false;
+    const next = expected.map((request) => {
+      const recorded =
+        request.automaticApproval ??
+        (request.status === "pending" ? request.automaticSubmission : undefined);
+      if (
+        !recorded ||
+        request.execution ||
+        request.status === "canceled" ||
+        this.matchesAutomaticAuthority(recorded, authority)
+      )
+        return request;
+      this.readBinding(request.plan);
+      changed = true;
+      return {
+        ...request,
+        revision: randomUUID(),
+        status: "canceled" as const,
+        decisionAt: new Date(this.now()).toISOString(),
+      };
+    });
+    if (changed) this.journal.replace(expected, next);
+  }
+
   async decide(value: unknown, ownerPassword: string): Promise<CoordinatorBootstrapRequest> {
     const input = CoordinatorBootstrapDecisionSchema.parse(value);
     const expected = this.read();
@@ -251,8 +424,10 @@ export class CoordinatorBootstrapRequests {
       throw new BootstrapAuthenticationRequired("Installation owner authentication required");
     if (input.decision === "approve") await this.verifyApproval(request);
     this.requireSameBinding(binding, request.plan);
+    const { automaticApproval, ...manualRequest } = request;
     const next: CoordinatorBootstrapRequest = {
-      ...request,
+      ...manualRequest,
+      ...(input.decision === "cancel" && automaticApproval ? { automaticApproval } : {}),
       revision: randomUUID(),
       status: input.decision === "approve" ? "approved" : "canceled",
       decisionAt: new Date(this.now()).toISOString(),
@@ -281,6 +456,17 @@ export class CoordinatorBootstrapRequests {
     const binding = this.readBinding(request.plan);
     await this.verifyPreparedBytes(request.plan);
     this.requireSameBinding(binding, request.plan);
+    if (request.automaticApproval) {
+      const authority = this.requireAutomaticAuthority(request);
+      if (
+        !this.matchesAutomaticAuthority(request.automaticApproval, authority) ||
+        request.automaticApproval.requestRevision !== request.revision ||
+        this.now() < Date.parse(request.automaticApproval.dispatchAfter)
+      )
+        throw new BootstrapRequestConflict(
+          "Coordinator automatic dispatch is revoked or not yet eligible",
+        );
+    }
     const next: CoordinatorBootstrapRequest = {
       ...request,
       revision: randomUUID(),

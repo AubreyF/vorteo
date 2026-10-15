@@ -200,6 +200,11 @@ export async function handleBootstrapReview(
     }
     const requests = service
       .list()
+      // COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15
+      // and a negotiated public authorization view replaces these private fields.
+      .map(
+        ({ automaticSubmission: _submission, automaticApproval: _approval, ...request }) => request,
+      )
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
       .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
       .map((request) => previewMonitorReply(request, message.previewMonitor === true))

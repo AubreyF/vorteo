@@ -1,4 +1,6 @@
 import { bootstrapReviewFeatures } from "./coordinator-bootstrap-session.js";
+import { coordinatorAutomaticAuthority, DaemonAutomation } from "./daemon-automation.js";
+import { InstallationConfigSchema } from "./config.js";
 import {
   createManagedBootstrapReview,
   createConfiguredBootstrapReview,
@@ -2457,3 +2459,40 @@ function expectedEarlyRecoveryCommands(interruption: string, service: string, la
   commands.push(["bootstrap", `gui/${process.getuid!()}`, launcher]);
   return commands;
 }
+
+test("coordinator authority reads only its own permission and current installation credentials", () => {
+  const f = fixture();
+  const config = InstallationConfigSchema.parse(f.config);
+  const preference = new DaemonAutomation(config.stateDir, true, "2026-10-15T00:00:00Z");
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+  const daemon = preference.change({ expectedRevision: null, service: "host", enabled: true });
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+  const enabled = preference.change({
+    expectedRevision: daemon.revision,
+    service: "coordinator",
+    enabled: true,
+  });
+  const authority = coordinatorAutomaticAuthority(config)!;
+  expect(authority.policyActivatedAt).toBe(enabled.services!.coordinator);
+  expect(authority.credentialBinding).toMatch(/^[a-f0-9]{64}$/);
+  for (const key of [
+    "hostAgentTokenHash",
+    "containerAgentTokenHash",
+    "ownerPasswordHash",
+  ] as const) {
+    const changed = coordinatorAutomaticAuthority({ ...config, [key]: "changed-credential" });
+    expect(changed?.credentialBinding).not.toBe(authority.credentialBinding);
+  }
+  const unrelated = preference.change({
+    expectedRevision: enabled.revision,
+    service: "host",
+    enabled: false,
+  });
+  expect(coordinatorAutomaticAuthority(config)).toEqual(authority);
+  preference.change({
+    expectedRevision: unrelated.revision,
+    service: "coordinator",
+    enabled: false,
+  });
+  expect(coordinatorAutomaticAuthority(config)).toBeNull();
+});

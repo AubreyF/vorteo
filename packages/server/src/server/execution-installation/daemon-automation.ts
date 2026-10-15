@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -9,6 +9,29 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 import { writePrivateFileAtomicSync } from "../private-files.js";
 import { RestartRequestError } from "./restarts.js";
+import type { InstallationConfig } from "./config.js";
+import type { CoordinatorAutomaticAuthority } from "@getpaseo/protocol/coordinator-bootstrap";
+
+/** Read protected installation state on each decision and claim. No daemon or
+ * legacy permission can supply a coordinator activation epoch. */
+export function coordinatorAutomaticAuthority(
+  config: InstallationConfig,
+): CoordinatorAutomaticAuthority | null {
+  const policyActivatedAt = new DaemonAutomation(config.stateDir, false).activation("coordinator");
+  if (!policyActivatedAt) return null;
+  const credentialBinding = createHash("sha256")
+    .update(
+      JSON.stringify({
+        scope: "coordinator-maintenance-v1",
+        installation: config.public.installationId,
+        host: config.hostAgentTokenHash,
+        container: config.containerAgentTokenHash,
+        owner: config.ownerPasswordHash,
+      }),
+    )
+    .digest("hex");
+  return { credentialBinding, policyActivatedAt };
+}
 
 /** Owner preference lives with the coordinator, not a browser or a replaceable daemon. */
 export class DaemonAutomation {
