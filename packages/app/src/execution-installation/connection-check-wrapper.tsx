@@ -1,4 +1,5 @@
 import React from "react";
+import Constants from "expo-constants";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "./policy";
 import { connectionEndpointLabel, type ConnectionSession } from "./connection-check";
@@ -15,7 +16,13 @@ function currentSession(serverId: string): ConnectionSession {
 
 export function InstallationConnectionCheck() {
   const installation = readExecutionInstallation();
+  const source: unknown = Constants.expoConfig?.extra?.vortonBuildCommit;
+  const build = typeof source === "string" && /^[a-f0-9]{40}$/.test(source) ? source : null;
   return installation ? (
-    <InstallationConnectionCheckSection installation={installation} sessionFor={currentSession} />
+    <InstallationConnectionCheckSection
+      installation={installation}
+      sessionFor={currentSession}
+      build={build}
+    />
   ) : null;
 }

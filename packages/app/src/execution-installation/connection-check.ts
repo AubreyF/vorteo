@@ -13,6 +13,8 @@ export interface ConnectionCheckResult {
   detail: string;
   checkedAt: string;
   elapsedMs: number;
+  httpStatus?: number;
+  failure?: "http" | "response" | "network" | "timeout" | "cancelled";
 }
 export interface ConnectionSession {
   state: "online" | "offline" | "connecting" | "uninitialized" | "idle" | "error";
@@ -61,12 +63,14 @@ export async function checkInstallationConnection(
   const result = (
     state: ConnectionCheckResult["state"],
     detail: string,
+    extra: Pick<ConnectionCheckResult, "failure" | "httpStatus"> = {},
   ): ConnectionCheckResult => ({
     target,
     state,
     detail,
     checkedAt: new Date().toISOString(),
     elapsedMs: Date.now() - start,
+    ...extra,
   });
   try {
     const response = await fetch(target.url, {
@@ -75,17 +79,29 @@ export async function checkInstallationConnection(
       credentials: "omit",
       redirect: "error",
     });
-    if (!response.ok) return result("failed", `Health check returned HTTP ${response.status}.`);
+    if (!response.ok)
+      return result("failed", `Health check returned HTTP ${response.status}.`, {
+        failure: "http",
+        httpStatus: response.status,
+      });
     const text = await response.text();
     const failure = healthResponseFailure(text, target);
-    if (failure) return result("failed", failure);
-    return result("reachable", "This device reached the health endpoint.");
+    if (failure)
+      return result("failed", failure, { failure: "response", httpStatus: response.status });
+    return result("reachable", "This device reached the health endpoint.", {
+      httpStatus: response.status,
+    });
   } catch {
-    if (timedOut) return result("failed", `No health response within ${timeoutMs / 1000} seconds.`);
-    if (options.signal?.aborted) return result("failed", "Check cancelled.");
+    if (timedOut)
+      return result("failed", `No health response within ${timeoutMs / 1000} seconds.`, {
+        failure: "timeout",
+      });
+    if (options.signal?.aborted)
+      return result("failed", "Check cancelled.", { failure: "cancelled" });
     return result(
       "failed",
-      "This device could not reach or read the health endpoint. Check the network, certificate and browser permissions.",
+      "This device could not reach or read the health endpoint. The browser withheld the network error details.",
+      { failure: "network" },
     );
   } finally {
     clearTimeout(timer);

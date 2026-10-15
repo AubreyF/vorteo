@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.563 - 2026-10-15
+
+### Maintenance
+
+- Integrate the published connection diagnostics with the prepared maintenance source, preserving both histories and the existing runtime boundaries. No service capability or installation is activated by this merge.
+
 ## 0.11.0-beta.3.vorteo.562 - 2026-10-15
 
 ### Fixed
@@ -41,6 +47,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Project fresh native Host observations into installation health and expire unavailable observations. Refuse Dev identity until its persistent profile launcher is independently proven.
 - Prepare later coordinator standing approvals and one-shot launch reservations with a synchronous custody recheck under the existing lifecycle lock.
 - Retain the tested dual-slot launcher and startup-verification checkpoint without registering its unfinished runner role.
+
+### Changed
+
+- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
+- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
+- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.
 
 ### Validation and delivery
 
