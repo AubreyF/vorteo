@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): Host source updates retain daemon readiness before interface publication and a separate publication-failure phase with the immutable export path. Failed result storage still reports that the daemon changed, without replaying its restart. Focused updater tests cover partial publication and receipt-write failures. Installed acceptance remains open; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): combine installation reliability with the prepared sidebar, queue, replica cache, managed Claude CLI and toolbar changes. The coordinator retains its startup fence and initializes the pinned CLI independently of daemon worker markers. Both source histories and dependency pins are preserved. Publication, managed installation and owner acceptance remain separate; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): startup recovery handles a previous coordinator running in the new boot. It verifies the current process and pinned release, freezes the writer, preserves journals and verifies exit before compatible replacement. Busy state resumes only that verified writer and retains the recovery fence; unrelated identities are refused. Native adapter tests cover these paths. Installed reboot acceptance remains open; README overview and onboarding are unchanged.

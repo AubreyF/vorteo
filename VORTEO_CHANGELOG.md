@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.550 - 2026-10-15
+
+### Fixed
+
+- Persist Host daemon readiness before publishing the interface, and retain a separate interface-failure receipt with the prepared export path. A partial update no longer leaves its only phase receipt at activation intent.
+- Keep errors explicit when readiness or publication-result storage fails after a verified restart. Test publication failure, unavailable receipt storage and refusal to replay; installed acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.549 - 2026-10-15
 
 ### Maintenance
