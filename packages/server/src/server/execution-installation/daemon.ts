@@ -14,11 +14,55 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
+import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
+import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
+import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
 // Status includes provider availability probes, which can exceed three seconds.
 const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+
+interface CoordinatorSubmission {
+  config: InstallationConfig;
+  input: CoordinatorBootstrapPreparation;
+  requester: "host-agent" | "container-agent";
+  requireOwnerApproval: boolean;
+}
+
+type CoordinatorSubmissionClient = Pick<DaemonClient, "prepareCoordinatorBootstrap" | "close">;
+
+/** The requester comes from scoped HTTP authentication, never the submitted body. */
+export async function submitInstallationCoordinator(
+  submission: CoordinatorSubmission,
+  connect: () => Promise<CoordinatorSubmissionClient> = () =>
+    connectInstallationDaemon(submission.config, "host"),
+) {
+  const { config, input, requester, requireOwnerApproval } = submission;
+  const automatic =
+    requester === "host-agent" &&
+    !requireOwnerApproval &&
+    coordinatorAutomaticAuthority(config) !== null;
+  const submissionProof = automatic ? signCoordinatorSubmission(config, input) : undefined;
+  const client = await connect();
+  try {
+    const requests = await client.prepareCoordinatorBootstrap(input, { submissionProof });
+    const request = requests.find((item) => item.id === input.id);
+    if (!request) throw new BootstrapRequestConflict("Coordinator preparation is unconfirmed");
+    const approvalUrl = new URL("/settings/general", config.public.origin);
+    approvalUrl.searchParams.set("installation", "1");
+    approvalUrl.searchParams.set("bootstrap", request.id);
+    // Scoped clients receive a receipt, never private authority or another request.
+    return {
+      id: request.id,
+      revision: request.revision,
+      status: request.status,
+      approvalUrl: approvalUrl.toString(),
+    };
+  } finally {
+    await client.close();
+  }
+}
 
 export async function connectInstallationDaemon(
   config: InstallationConfig,

@@ -2463,6 +2463,16 @@ test("maintenance readiness separates legacy authority, broad opt-in and source 
   expect(f.calls).toEqual([]);
 });
 
+test("coordinator submission requires scoped authentication before parsing its preparation", async () => {
+  const f = await fixture();
+  const route = "/api/installation/coordinator-requests";
+  expect((await f.request(route, "owner-test-password", {})).status).toBe(401);
+  expect((await f.request(route, undefined, {})).status).toBe(401);
+  expect((await f.request(route, "host-agent-test-token", {})).status).toBe(400);
+  expect((await f.request(route, "guest-agent-test-token", {})).status).toBe(400);
+  expect(f.calls).toEqual([]);
+});
+
 test("permission changes persist revocation before success and report ledger failures", async () => {
   let stateDirectory = "";
   let failRevocation = false;

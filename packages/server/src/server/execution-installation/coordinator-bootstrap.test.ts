@@ -4,6 +4,7 @@ import {
   signCoordinatorSubmission,
   verifyCoordinatorSubmission,
 } from "./daemon-automation.js";
+import { submitInstallationCoordinator } from "./daemon.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -3441,6 +3442,95 @@ test.each(["disable", "rotate"] as const)(
     expect(f.service().list()).toEqual([]);
   },
 );
+
+function coordinatorSubmissionFixture() {
+  const f = fixture();
+  const config: Parameters<typeof submitInstallationCoordinator>[0]["config"] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+    listenPort: 6766,
+    webDistDir: f.root,
+    host: {
+      endpoint: "127.0.0.1:6768",
+      password: "fixture-host",
+      launchdService: "gui/501/local.vorteo.fixture.host",
+    },
+    container: { endpoint: "127.0.0.1:6769", password: "fixture-dev" },
+  };
+  const input = { id: randomUUID(), reason: "Scoped coordinator preparation", plan: f.plan };
+  const preference = new DaemonAutomation(f.root, false);
+  return { f, config, input, preference };
+}
+
+test("scoped Host submission sends an exact proof and returns only its review receipt", async () => {
+  const { f, config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const pending = await f.service().prepare(input);
+  const prepare = vi.fn(async () => [pending]);
+  const close = vi.fn(async () => {});
+  const receipt = await submitInstallationCoordinator(
+    { config, input, requester: "host-agent", requireOwnerApproval: false },
+    async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+  );
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+  expect(receipt).toEqual({
+    id: pending.id,
+    revision: pending.revision,
+    status: "pending",
+    approvalUrl: `https://fixture.example.test/settings/general?installation=1&bootstrap=${pending.id}`,
+  });
+});
+
+test.each([
+  { requester: "container-agent", requireOwnerApproval: false, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: true, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: false, enabled: false },
+] as const)(
+  "coordinator submission preserves manual review: %j",
+  async ({ requester, requireOwnerApproval, enabled }) => {
+    const { f, config, input, preference } = coordinatorSubmissionFixture();
+    preference.change({ expectedRevision: null, service: "coordinator", enabled });
+    const pending = await f.service().prepare(input);
+    const prepare = vi.fn(async () => [pending]);
+    const close = vi.fn(async () => {});
+    await submitInstallationCoordinator(
+      { config, input, requester, requireOwnerApproval },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    );
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(input, { submissionProof: undefined });
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
+
+test("unsupported authenticated coordinator submission closes without retrying as manual", async () => {
+  const { config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const prepare = vi.fn(async () => {
+    throw new Error("Host capability unavailable");
+  });
+  const close = vi.fn(async () => {});
+  await expect(
+    submitInstallationCoordinator(
+      { config, input, requester: "host-agent", requireOwnerApproval: false },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    ),
+  ).rejects.toThrow("Host capability unavailable");
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+});
 
 test("scoped coordinator proof binds the exact preparation, policy and credentials", () => {
   const f = fixture();

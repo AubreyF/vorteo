@@ -45,7 +45,8 @@ import {
   type RestartExecutor,
 } from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import { connectInstallationDaemon, submitInstallationCoordinator } from "./daemon.js";
+import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
 import {
   InstallationSettingsUpdateSchema,
@@ -935,6 +936,29 @@ export function createInstallationServer(
     void restarts
       .prepareHelper(req.body, "host-agent")
       .then((job) => res.status(201).json(job), next);
+  });
+
+  app.post("/api/installation/coordinator-requests", authenticateUpdate, (req, res) => {
+    const input = z
+      .strictObject({
+        preparation: CoordinatorBootstrapPreparationSchema,
+        requireOwnerApproval: z.boolean().optional(),
+      })
+      .parse(req.body);
+    const requester = z.enum(["host-agent", "container-agent"]).parse(res.locals.updateRequester);
+    void submitInstallationCoordinator({
+      config,
+      input: input.preparation,
+      requester,
+      requireOwnerApproval: input.requireOwnerApproval === true,
+    }).then(
+      (receipt) => res.status(201).json(receipt),
+      () =>
+        res.status(503).json({
+          error:
+            "Coordinator preparation is unconfirmed. Check Installation controls and Host compatibility before retrying the same request.",
+        }),
+    );
   });
 
   app.post("/api/installation/restart-requests", (req, res) => {

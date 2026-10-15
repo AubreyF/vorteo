@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.540 - 2026-10-15
+
+### Maintenance
+
+- Add scoped coordinator submission through the existing authenticated Host connection. Host requests can carry an exact protected proof when the separate coordinator permission is enabled; Dev requests and explicit owner-review requests remain manual.
+- Return only the submitted request's review receipt. Unsupported authenticated submission fails without retrying as manual, and the Host connection closes after either success or failure.
+- Add requester, proof, receipt and HTTP authentication tests. Automatic dispatch scheduling, public authorization status, scoped client commands and installed acceptance remain unfinished; coordinator automation is not advertised as ready.
+
 ## 0.11.0-beta.3.vorteo.539 - 2026-10-15
 
 ### Maintenance
