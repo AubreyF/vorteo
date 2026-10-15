@@ -1464,6 +1464,10 @@ test
     "during-preservation",
     "after-preservation",
     "reboot-before-preservation",
+    "reboot-stopped-previous",
+    "reboot-stopped-previous-busy",
+    "reboot-stopped-unrelated",
+    "reboot-stopped-starts",
     "reboot-after-preservation",
     "reboot-busy-journal",
     "reboot-invalid-journal",
@@ -1640,7 +1644,9 @@ test
       syncBuiltinESMExports();
     }
   }
-  if (["busy-journal", "reboot-busy-journal"].includes(interruption))
+  if (
+    ["busy-journal", "reboot-busy-journal", "reboot-stopped-previous-busy"].includes(interruption)
+  )
     save(plan.state.restartJournal, [
       {
         id: randomUUID(),
@@ -1659,7 +1665,10 @@ test
   const busy = interruption.includes("busy-");
   let observedBusy = false;
   let stopped = interruption !== "before-freeze" && interruption !== "busy-during-freeze";
-  let loaded = !rebooted;
+  const stoppedJob = interruption.startsWith("reboot-stopped-");
+  let loaded = !rebooted || stoppedJob;
+  let noProcess = stoppedJob;
+  let serviceReads = 0;
   let oldExited = false;
   let identity = {
     ...expectedProcess,
@@ -1684,6 +1693,15 @@ test
       reader: {
         readService: async () => {
           if (!loaded) throw new Error("absent");
+          serviceReads++;
+          if (interruption === "reboot-stopped-starts" && serviceReads > 1) noProcess = false;
+          if (noProcess) {
+            const entrypoint =
+              interruption === "reboot-stopped-unrelated"
+                ? "/unrelated/entry.js"
+                : previous.entrypoint.path;
+            return `${serviceName} = {\n\tprogram = ${node}\n\targuments = {\n\t\t${node}\n\t\t${entrypoint}\n\t\t${f.file}\n\t}\n}`;
+          }
           return `${serviceName} = {\n\tpid = ${identity.pid}\n}`;
         },
         inspectProcess: async (pid) => (pid === process.pid ? { ...identity, pid } : identity),
@@ -1740,6 +1758,7 @@ test
           oldExited = true;
         } else if (args[0] === "bootstrap") {
           loaded = true;
+          noProcess = false;
           stopped = false;
           identity = {
             ...identity,
@@ -1776,6 +1795,9 @@ test
       "reboot-busy-journal",
       "reboot-invalid-journal",
       "reboot-changed-journal",
+      "reboot-stopped-previous-busy",
+      "reboot-stopped-unrelated",
+      "reboot-stopped-starts",
     ].includes(interruption)
   ) {
     expect(result.execution!.stage).toBe("recovery_required");
@@ -1808,11 +1830,7 @@ test
     return;
   }
   expect(result.execution!.stage).toBe("rolled_back");
-  expect(effects).toEqual([
-    ...(interruption === "before-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
-    ...(!rebooted ? [["bootout", serviceName]] : []),
-    ["bootstrap", `gui/${process.getuid!()}`, launcherFile],
-  ]);
+  expect(effects).toEqual(expectedEarlyRecoveryCommands(interruption, serviceName, launcherFile));
   expect(readFileSync(launcherFile)).toEqual(readFileSync(recovery.launcher.path));
   await verifyBootstrapState({ request: result, writableMountRoots: [] });
   if (interruption === "after-preservation") {
@@ -2382,3 +2400,12 @@ test("retained process exit accepts only independent absence or stable later nat
   ).rejects.toThrow("inspection denied");
   await expect(verifyRetainedProcessExited({}, original)).rejects.toThrow("native exit proof");
 });
+
+function expectedEarlyRecoveryCommands(interruption: string, service: string, launcher: string) {
+  const commands: string[][] = [];
+  if (interruption === "before-freeze") commands.push(["kill", "SIGSTOP", service]);
+  if (!interruption.startsWith("reboot-") || interruption.startsWith("reboot-stopped-"))
+    commands.push(["bootout", service]);
+  commands.push(["bootstrap", `gui/${process.getuid!()}`, launcher]);
+  return commands;
+}

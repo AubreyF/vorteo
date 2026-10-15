@@ -184,6 +184,57 @@ export function createBootstrapNativeLifecycle(
       await context.reader.verifyServiceAbsent(request.plan.service);
     }
   };
+  const unloadStoppedPreviousAfterBoot = async (
+    request: CoordinatorBootstrapRequest,
+    service: string | null,
+    roots: readonly string[],
+  ): Promise<string | null> => {
+    if (
+      context.recoveryBootId === undefined ||
+      service === null ||
+      request.plan.automaticRecovery !== "restore-compatible"
+    )
+      return service;
+    const previousPlan = {
+      ...request.plan,
+      candidate: {
+        ...request.plan.previous,
+        configuration: { ...request.plan.previous.configuration, path: context.configurationFile },
+      },
+    };
+    try {
+      if (!isStoppedBootstrapCandidate(previousPlan, service)) return service;
+    } catch (error) {
+      // A candidate or unrelated job belongs to the existing recovery checks.
+      // This branch gains authority only from an exact stopped previous job.
+      if (error instanceof BootstrapRequestConflict) return service;
+      throw error;
+    }
+    const verifyStopped = async () => {
+      await requireStage(request, "rollback_pending");
+      await readBootstrapPreparedFile(
+        { path: context.launcherFile, sha256: request.plan.previous.launcher.sha256 },
+        roots,
+      );
+      if (
+        !isStoppedBootstrapCandidate(
+          previousPlan,
+          await context.reader.readService(request.plan.service),
+        )
+      )
+        throw new BootstrapRequestConflict("Previous coordinator started during startup recovery");
+    };
+    await verifyStopped();
+    // No process exists in this boot, so there is no writer to freeze. Busy or
+    // changed journals still refuse preservation before any service operation.
+    await preserveBootstrapState({ request, writableMountRoots: roots, childPids: [] });
+    await verifyStopped();
+    if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
+      throw new BootstrapRequestConflict("Writable mounts changed during startup recovery");
+    await command.run(["bootout", request.plan.service]);
+    await waitFor(() => context.reader.verifyServiceAbsent(request.plan.service));
+    return null;
+  };
   const originalService = (request: CoordinatorBootstrapRequest, service: string | null) =>
     context.recoveryBootId === undefined && isOriginalBootstrapService(request, service);
   const verify = (request: CoordinatorBootstrapRequest) =>
@@ -369,6 +420,7 @@ export function createBootstrapNativeLifecycle(
       } catch {
         await context.reader.verifyServiceAbsent(request.plan.service);
       }
+      service = await unloadStoppedPreviousAfterBoot(request, service, roots);
       await preserveAfterBootIfAbsent(request, service, roots);
       const originalLoaded = originalService(request, service);
       if (request.plan.automaticRecovery !== "restore-compatible" || !originalLoaded)

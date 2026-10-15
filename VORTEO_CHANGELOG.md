@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.531 - 2026-10-15
+
+### Fixed
+
+- Recover an approved coordinator replacement after reboot when launchd retains the exact previous job without a process. Verify its loaded arguments and selected launcher before preserving idle state and unloading it; busy state, unrelated jobs and a job starting during observation refuse recovery.
+
+### Maintenance
+
+- Extend focused recovery coverage for retained stopped jobs. Native startup acceptance, automatic controller authorization and managed delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.530 - 2026-10-14
 
 ### Changed
