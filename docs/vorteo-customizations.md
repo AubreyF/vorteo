@@ -58,6 +58,8 @@ The browser restores its validated saved display palette in the document head be
 
 Browser interface zoom sits beside both shared theme pickers. The slider ranges from 75% to 200% in five-point steps; smaller/larger controls step by ten points and the percentage resets to 100%. Dragging applies on release to keep the slider under the pointer. The browser remembers the setting locally; native clients retain operating-system display scaling. Text, icons and fixed-size controls scale together, while viewport sizing, overlays, resizing, scroll targets and embedded browser bounds use logical interface coordinates.
 
+Compact phone composers reserve 164px for three 44px right-edge controls with equal gaps; growing drafts retain their existing behavior. Collapsed Goal timers show whole hours rounded down once elapsed time reaches an hour, retaining whole minutes below that threshold.
+
 Touch tablets use a tighter composer with the existing input line height and 44px action controls, 8px top clearance and an 8px row gap. Bottom controls match their side inset in text and recording states; multiline drafts still grow and phone safe-area handling remains intact. README overview and onboarding are unchanged.
 
 Details cards share 8px of bottom body clearance for scrolling lists, prose and embedded panels. Goal and Journal use the shared value rather than local overrides; heading and row spacing remain unchanged. README overview and onboarding are unchanged.
@@ -72,7 +74,7 @@ Reset-label and theme-logo integration preserves the installed embedded-card spa
 
 Embedded logos share theme-aware selection: Starship uses the original rainbow artwork, Dark Star retains shaded white, and Scriptorium, Midas, Ember and Neon use sepia, gold, warm orange and violet-blue gradients from the existing vector mark. The early loader remembers validated display colors for its artwork, ring and recovery text, with neutral dark fallback when storage is unavailable. Loader geometry and the stationary inner mark are unchanged.
 
-Compact account reset controls center their outlines within the actual button height, keeping labels aligned when touch accessibility enlarges the tap target. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
+Compact account reset controls draw their border on the button itself, keeping labels centered when touch accessibility enlarges the tap target. Account rows reserve the full control height rather than a text-line-sized slot. Phone and tablet browser checks cover the alignment and existing reset review flow. README overview and onboarding are unchanged.
 
 The mobile workspace and radar-ring delivery preserves the installed coordinator history and Dev repair controls. This integration also preserves the installed details-card footer, tooltip, count and height refinements. Interface-only integration does not activate another daemon update.
 

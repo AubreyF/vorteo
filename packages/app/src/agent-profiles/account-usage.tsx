@@ -143,5 +143,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   fill: { height: "100%", backgroundColor: theme.colors.accent },
   criticalFill: { backgroundColor: theme.colors.destructive },
-  reset: { justifyContent: "center", height: Math.ceil(theme.fontSize.base * 1.25), flexShrink: 0 },
+  reset: {
+    justifyContent: "center",
+    minHeight: Math.ceil(theme.fontSize.base * 1.25),
+    flexShrink: 0,
+  },
 }));

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.555 - 2026-10-15
+
+### Fixed
+
+- Center account reset labels within the button border and reserve the full touch target in account rows.
+- Show whole hours rounded down in compact Goal badges instead of accumulating minutes.
+- Shorten the compact composer to balance spacing between microphone, Queue and Send controls.
+
 ## 0.11.0-beta.3.vorteo.554 - 2026-10-15
 
 ### Maintenance

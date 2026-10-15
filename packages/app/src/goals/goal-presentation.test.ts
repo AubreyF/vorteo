@@ -19,10 +19,14 @@ const state: AgentGoalState = {
 };
 
 describe("goal elapsed time", () => {
-  it("uses minutes without seconds in narrow tiles", () => {
+  it("rounds narrow tiles down to the largest supported time unit", () => {
     expect(formatGoalElapsed(45, true)).toBe("<1m");
     expect(formatGoalElapsed(125, true)).toBe("2m");
-    expect(formatGoalElapsed(53640, true)).toBe("894m");
+    expect(formatGoalElapsed(3599, true)).toBe("59m");
+    expect(formatGoalElapsed(3600, true)).toBe("1h");
+    expect(formatGoalElapsed(7199, true)).toBe("1h");
+    expect(formatGoalElapsed(53640, true)).toBe("14h");
+    expect(formatGoalElapsed(1220 * 60, true)).toBe("20h");
   });
   it("includes native uncheckpointed time and local monotonic time", () => {
     expect(goalElapsedAt(state, true, 3)).toBe(10);
