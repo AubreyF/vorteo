@@ -4,6 +4,28 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.554 - 2026-10-15
+
+### Maintenance
+
+- Combine shared lifecycle admission with independently pinned repeated repair admissions and reviewed historical runner support. Preserve both source histories and exact approval boundaries.
+- Keep Factory recovery artifacts unchanged. This source composition does not admit a repair runtime, dispatch recovery or release publication holds.
+
+## 0.11.0-beta.3.vorteo.553 - 2026-10-15
+
+### Fixed
+
+- Admit the separately reviewed newer claimed runner by exact source, module and ownership-helper digests, preserving the previous runner pins.
+- Keep unknown sources and altered runner bytes rejected. Recovery still requires full artifact, native identity, selected-service and retained-history verification plus its own visible approval.
+- Verify both fencing orderings against the installed journal in disposable storage. Installed recovery acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.552 - 2026-10-15
+
+### Maintenance
+
+- Combine repeated repair admission with completed-history target selection and partial Host publication receipts, preserving both source histories.
+- Keep independent repair delivery and installed acceptance open. This source integration does not dispatch recovery or restart services.
+
 ## 0.11.0-beta.3.vorteo.552 - 2026-10-15
 
 ### Fixed
@@ -25,6 +47,14 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Persist Host daemon readiness before publishing the interface, and retain a separate interface-failure receipt with the prepared export path. A partial update no longer leaves its only phase receipt at activation intent.
 - Keep errors explicit when readiness or publication-result storage fails after a verified restart. Test publication failure, unavailable receipt storage and refusal to replay; installed acceptance remains open.
+
+## 0.11.0-beta.3.vorteo.550 - 2026-10-15
+
+### Fixed
+
+- Allow separately pinned repair admissions for later coordinator incidents while preserving earlier immutable receipts and plans.
+- Resolve the proposal, controller and admitted runtime through the same digest-addressed directory. Invalid new records cannot fall back to historical authority.
+- Verify owner authentication, legacy receipt preservation and refusal of altered or unsafe admission paths. Controller startup, installed routing and live recovery acceptance remain open.
 
 ## 0.11.0-beta.3.vorteo.549 - 2026-10-15
 
