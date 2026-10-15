@@ -103,7 +103,7 @@ export function createBootstrapNativeLifecycle(
         runner.bootId !== context.recoveryBootId
       )
         throw new BootstrapRequestConflict("Startup recovery lost its native boot proof");
-      if (stage !== "rollback_pending" && stage !== "verifying")
+      if (stage !== "rollback_pending" && stage !== "verifying" && stage !== "recovery_required")
         throw new BootstrapRequestConflict("Startup recovery cannot replay coordinator dispatch");
     }
     const current = context.requests.list().find((item) => item.id === request.id);
@@ -127,6 +127,63 @@ export function createBootstrapNativeLifecycle(
   };
   const recoveryBoot = (request: CoordinatorBootstrapRequest) =>
     context.recoveryBootId ?? request.plan.expectedProcess.bootId;
+  const verifyRestored = async (request: CoordinatorBootstrapRequest) => {
+    const recovery = bootstrapRecoveryRelease(request.plan);
+    const output = await context.reader.readService(request.plan.service);
+    const pid = loadedCoordinatorPid(request.plan.service, output);
+    const observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
+    if (observed.bootId !== recoveryBoot(request))
+      throw new BootstrapRequestConflict("Host boot changed during recovery");
+    verifyBootstrapServiceIdentity({
+      plan: {
+        ...request.plan,
+        previous: recovery,
+        expectedProcess: observed,
+      },
+      launchctlOutput: output,
+      process: observed,
+      hostUid: uid,
+      configurationFile:
+        request.plan.automaticRecovery === "restore-compatible"
+          ? recovery.configuration.path
+          : context.configurationFile,
+    });
+    const health = await context.readHealth();
+    if (
+      !health ||
+      typeof health !== "object" ||
+      !("installationId" in health) ||
+      health.installationId !== request.plan.installationId
+    )
+      throw new BootstrapRequestConflict("Restored coordinator health identity changed");
+    if (
+      !isDeepStrictEqual(observed, await context.reader.inspectProcess(pid)) ||
+      loadedCoordinatorPid(
+        request.plan.service,
+        await context.reader.readService(request.plan.service),
+      ) !== pid
+    )
+      throw new BootstrapRequestConflict("Restored coordinator changed during readiness");
+  };
+  const preserveAfterBootIfAbsent = async (
+    request: CoordinatorBootstrapRequest,
+    service: string | null,
+    roots: readonly string[],
+  ) => {
+    if (
+      context.recoveryBootId !== undefined &&
+      service === null &&
+      request.plan.automaticRecovery === "restore-compatible"
+    ) {
+      // Reboot may precede the transfer receipt. Native boot proof establishes
+      // the former writer is gone; service absence excludes a new writer.
+      // Preservation refuses busy state and never overwrites a changed receipt.
+      await requireStage(request, "rollback_pending");
+      await context.reader.verifyServiceAbsent(request.plan.service);
+      await preserveBootstrapState({ request, writableMountRoots: roots, childPids: [] });
+      await context.reader.verifyServiceAbsent(request.plan.service);
+    }
+  };
   const originalService = (request: CoordinatorBootstrapRequest, service: string | null) =>
     context.recoveryBootId === undefined && isOriginalBootstrapService(request, service);
   const verify = (request: CoordinatorBootstrapRequest) =>
@@ -280,6 +337,27 @@ export function createBootstrapNativeLifecycle(
         throw new BootstrapRequestConflict("Writable mounts changed before startup");
       await command.run(["bootstrap", `gui/${uid}`, context.launcherFile]);
     },
+    async verifyRollback(request: CoordinatorBootstrapRequest) {
+      const stage = request.execution?.stage;
+      if (
+        !request.plan.automaticRecovery ||
+        !request.execution?.rollbackAttemptedAt ||
+        (stage !== "rollback_pending" && stage !== "recovery_required")
+      )
+        throw new BootstrapRequestConflict(
+          "No approved rollback attempt is available to reconcile",
+        );
+      await requireStage(request, stage);
+      const roots = await context.writableMountRoots();
+      const recovery = bootstrapRecoveryRelease(request.plan);
+      await verifyBootstrapReleaseArtifacts(recovery, roots);
+      await readBootstrapPreparedFile(
+        { path: context.launcherFile, sha256: recovery.launcher.sha256 },
+        roots,
+      );
+      await verifyRestored(request);
+      await requireStage(request, stage);
+    },
     async restorePrevious(request: CoordinatorBootstrapRequest) {
       await requireStage(request, "rollback_pending");
       const roots = await context.writableMountRoots();
@@ -291,6 +369,7 @@ export function createBootstrapNativeLifecycle(
       } catch {
         await context.reader.verifyServiceAbsent(request.plan.service);
       }
+      await preserveAfterBootIfAbsent(request, service, roots);
       const originalLoaded = originalService(request, service);
       if (request.plan.automaticRecovery !== "restore-compatible" || !originalLoaded)
         await verifyBootstrapState({ request, writableMountRoots: roots });
@@ -430,43 +509,7 @@ export function createBootstrapNativeLifecycle(
       await verifyBootstrapState({ request, writableMountRoots: roots });
       await authorizeSelection();
       await command.run(["bootstrap", `gui/${uid}`, context.launcherFile]);
-      await waitFor(async () => {
-        const output = await context.reader.readService(request.plan.service);
-        const pid = loadedCoordinatorPid(request.plan.service, output);
-        const observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
-        if (observed.bootId !== recoveryBoot(request))
-          throw new BootstrapRequestConflict("Host boot changed during recovery");
-        verifyBootstrapServiceIdentity({
-          plan: {
-            ...request.plan,
-            previous: recovery,
-            expectedProcess: observed,
-          },
-          launchctlOutput: output,
-          process: observed,
-          hostUid: uid,
-          configurationFile:
-            request.plan.automaticRecovery === "restore-compatible"
-              ? recovery.configuration.path
-              : context.configurationFile,
-        });
-        const health = await context.readHealth();
-        if (
-          !health ||
-          typeof health !== "object" ||
-          !("installationId" in health) ||
-          health.installationId !== request.plan.installationId
-        )
-          throw new BootstrapRequestConflict("Restored coordinator health identity changed");
-        if (
-          !isDeepStrictEqual(observed, await context.reader.inspectProcess(pid)) ||
-          loadedCoordinatorPid(
-            request.plan.service,
-            await context.reader.readService(request.plan.service),
-          ) !== pid
-        )
-          throw new BootstrapRequestConflict("Restored coordinator changed during readiness");
-      });
+      await waitFor(() => verifyRestored(request));
       await requireStage(request, "rollback_pending");
     },
     async freeze(request: CoordinatorBootstrapRequest) {

@@ -451,6 +451,7 @@ export async function runNativeBootstrap(
                 wait: delay,
               }),
         verifyReplacement: native.verifyReplacement,
+        verifyRollback: native.verifyRollback,
         resumePrevious: native.resumePrevious,
         restorePrevious: native.restorePrevious,
       },

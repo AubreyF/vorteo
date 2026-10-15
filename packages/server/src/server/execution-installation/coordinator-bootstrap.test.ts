@@ -3035,3 +3035,90 @@ test("startup cleanup keeps unresolved and altered launchers and removes only ex
     removeCompletedBootstrapRecovery({ ...input, request: completed }),
   ).resolves.toBeUndefined();
 });
+
+test.each(["rollback_pending", "recovery_required"] as const)(
+  "watchdog recognizes a completed rollback from %s without another effect",
+  async (stage) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage,
+        updatedAt: new Date().toISOString(),
+        rollbackAttemptedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async (current) => {
+          expect(current).toEqual(request);
+          observations++;
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("Rollback must not run again");
+        },
+      },
+    );
+    expect(observations).toBe(1);
+    expect(result.execution?.stage).toBe("rolled_back");
+    expect(result.execution?.rollbackAttemptedAt).toBe(request.execution.rollbackAttemptedAt);
+  },
+);
+
+test.each(["unhealthy", "changed ownership", "no attempt"])(
+  "rollback reconciliation does not invent success: %s",
+  async (failure) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "recovery_required" as const,
+        updatedAt: new Date().toISOString(),
+        ...(failure !== "no attempt" ? { rollbackAttemptedAt: new Date().toISOString() } : {}),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const recovery = recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async () => {
+          observations++;
+          if (failure === "unhealthy") throw new Error("Recovery identity does not match");
+          f.journal.replace([request], [{ ...request, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+      },
+    );
+    if (failure === "changed ownership")
+      await expect(recovery).rejects.toThrow("ownership changed");
+    else expect((await recovery).execution?.stage).toBe("recovery_required");
+    expect(observations).toBe(failure === "no attempt" ? 0 : 1);
+  },
+);

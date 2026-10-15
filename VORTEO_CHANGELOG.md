@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.529 - 2026-10-14
+
+### Fixed
+
+- Recognize an already completed coordinator rollback after its terminal receipt was lost. Verify the exact recovery runtime and launcher without repeating a lifecycle action or resetting its attempt budget.
+- Preserve coordinator state after reboot when native boot identity proves the former writer ended and service absence excludes a replacement writer. Refuse busy, malformed or changed state.
+
+### Maintenance
+
+- Cover lost rollback receipts, changed observation ownership, reboot before and after preservation, and state refusal with focused watchdog and native adapter tests.
+- Real startup-service acceptance, remaining boot interruptions, automatic controller authorization and managed delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.528 - 2026-10-14
 
 ### Changed

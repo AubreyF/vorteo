@@ -316,7 +316,14 @@ export class CoordinatorBootstrapRequests {
       request.execution?.generation !== input.generation
     )
       throw new BootstrapRequestConflict("Bootstrap dispatch ownership changed");
-    if (!transitions[request.execution.stage].includes(stage))
+    // A native observer may recognize a rollback whose terminal write was lost.
+    // This transition consumes no new attempt and grants no lifecycle effect.
+    const observedRollback =
+      stage === "rolled_back" &&
+      request.execution.stage === "recovery_required" &&
+      request.plan.automaticRecovery !== undefined &&
+      request.execution.rollbackAttemptedAt !== undefined;
+    if (!transitions[request.execution.stage].includes(stage) && !observedRollback)
       throw new BootstrapRequestConflict("Invalid bootstrap dispatch transition");
     if (
       stage === "rollback_pending" &&

@@ -24,6 +24,8 @@ export interface BootstrapWatchdogOperations {
   /** Read-only proof that the exact candidate completed replacement before the executor died. */
   verifyReplacement?(request: CoordinatorBootstrapRequest): Promise<void>;
   /** One rollback of the exact previous release, only when included in the approved plan. */
+  /** Read-only proof that an already attempted rollback completed before its receipt. */
+  verifyRollback?(request: CoordinatorBootstrapRequest): Promise<void>;
   restorePrevious?(request: CoordinatorBootstrapRequest): Promise<void>;
 }
 
@@ -52,6 +54,17 @@ export async function recoverAbandonedBootstrap(
           generation: ownership.generation,
         },
         "succeeded",
+      );
+    }
+    if (await rollbackVerified(request, operations)) {
+      return requests.advanceDispatch(
+        {
+          id: request.id,
+          revision: request.revision,
+          planSha256: request.planSha256,
+          generation: ownership.generation,
+        },
+        "rolled_back",
       );
     }
     if (request.plan.automaticRecovery === "restore-compatible") {
@@ -128,4 +141,23 @@ async function verifyBootRecovery(
   if (!request.plan.bootRecovery || request.plan.bootRecovery.requestId !== request.id)
     throw new BootstrapRequestConflict("Startup recovery is not approved for this request");
   await operations.verifyBootChanged();
+}
+
+async function rollbackVerified(
+  request: CoordinatorBootstrapRequest,
+  operations: BootstrapWatchdogOperations,
+): Promise<boolean> {
+  if (
+    !request.execution?.rollbackAttemptedAt ||
+    !request.plan.automaticRecovery ||
+    !operations.verifyRollback ||
+    !["rollback_pending", "recovery_required"].includes(request.execution.stage)
+  )
+    return false;
+  try {
+    await operations.verifyRollback(request);
+    return true;
+  } catch {
+    return false;
+  }
 }

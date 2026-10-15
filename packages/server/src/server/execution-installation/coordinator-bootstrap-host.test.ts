@@ -1463,6 +1463,11 @@ test
     "after-freeze",
     "during-preservation",
     "after-preservation",
+    "reboot-before-preservation",
+    "reboot-after-preservation",
+    "reboot-busy-journal",
+    "reboot-invalid-journal",
+    "reboot-changed-journal",
     "busy-children",
     "busy-journal",
     "busy-during-freeze",
@@ -1532,6 +1537,20 @@ test
       ownerSessions: path.join(f.config.stateDir, "owner-sessions.json"),
     },
   });
+  const rebooted = interruption.startsWith("reboot-");
+  const currentBoot = rebooted ? randomUUID() : expectedProcess.bootId;
+  const requestId = randomUUID();
+  if (rebooted)
+    plan.bootRecovery = {
+      requestId,
+      service: `${serviceName}-recovery-${requestId}`,
+      launcher: recovery.launcher,
+      installedLauncher: path.join(f.root, "startup.plist"),
+      setup: recovery.configuration,
+      ownerLauncher: recovery.entrypoint,
+      node: recovery.node,
+      entrypoint: recovery.entrypoint,
+    };
   const journal = new FileBootstrapRequestJournal(f.config.stateDir);
   const requests = new CoordinatorBootstrapRequests(
     journal,
@@ -1544,7 +1563,7 @@ test
     async () => {},
   );
   const pending = await requests.prepare({
-    id: randomUUID(),
+    id: requestId,
     reason: "fixture recovery",
     plan,
   });
@@ -1572,7 +1591,15 @@ test
     },
     "freeze_pending",
   );
-  if (interruption.endsWith("preservation"))
+  if (
+    [
+      "during-preservation",
+      "after-preservation",
+      "reboot-before-preservation",
+      "reboot-after-preservation",
+      "reboot-changed-journal",
+    ].includes(interruption)
+  )
     record = requests.advanceDispatch(
       {
         id: record.id,
@@ -1582,7 +1609,11 @@ test
       },
       "frozen",
     );
-  if (interruption === "after-preservation")
+  if (
+    ["after-preservation", "reboot-after-preservation", "reboot-changed-journal"].includes(
+      interruption,
+    )
+  )
     await preserveBootstrapState({
       request: record,
       writableMountRoots: [],
@@ -1609,7 +1640,7 @@ test
       syncBuiltinESMExports();
     }
   }
-  if (interruption === "busy-journal")
+  if (["busy-journal", "reboot-busy-journal"].includes(interruption))
     save(plan.state.restartJournal, [
       {
         id: randomUUID(),
@@ -1623,14 +1654,16 @@ test
         detail: "fixture",
       },
     ]);
-  if (interruption === "invalid-journal") save(plan.state.restartJournal, { invalid: true });
-  const busy = interruption.startsWith("busy-");
+  if (interruption.endsWith("invalid-journal")) save(plan.state.restartJournal, { invalid: true });
+  if (interruption === "reboot-changed-journal") save(plan.state.restartJournal, []);
+  const busy = interruption.includes("busy-");
   let observedBusy = false;
   let stopped = interruption !== "before-freeze" && interruption !== "busy-during-freeze";
-  let loaded = true;
+  let loaded = !rebooted;
   let oldExited = false;
   let identity = {
     ...expectedProcess,
+    bootId: currentBoot,
     parentPid: 1,
     uid: process.getuid!(),
     executable: node,
@@ -1639,6 +1672,7 @@ test
   const native = createBootstrapNativeLifecycle(
     {
       requests,
+      recoveryBootId: rebooted ? currentBoot : undefined,
       configurationFile: f.file,
       launcherFile,
       writableMountRoots: async () => [],
@@ -1652,7 +1686,7 @@ test
           if (!loaded) throw new Error("absent");
           return `${serviceName} = {\n\tpid = ${identity.pid}\n}`;
         },
-        inspectProcess: async () => identity,
+        inspectProcess: async (pid) => (pid === process.pid ? { ...identity, pid } : identity),
         inspectAuditedProcess: async () => {
           throw new Error("Unexpected audit");
         },
@@ -1725,13 +1759,25 @@ test
     {
       withOwnership: async (operation) => operation(),
       verifyExecutorExited: async () => {},
+      verifyBootChanged: rebooted ? async () => {} : undefined,
       resumePrevious: async () => {
         throw new Error("Must not resume previous");
       },
       restorePrevious: native.restorePrevious,
     },
   );
-  if (busy || interruption === "invalid-journal") {
+  if (
+    [
+      "busy-children",
+      "busy-journal",
+      "busy-during-freeze",
+      "busy-ownership-lost",
+      "invalid-journal",
+      "reboot-busy-journal",
+      "reboot-invalid-journal",
+      "reboot-changed-journal",
+    ].includes(interruption)
+  ) {
     expect(result.execution!.stage).toBe("recovery_required");
     expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
     const resumed =
@@ -1764,11 +1810,38 @@ test
   expect(result.execution!.stage).toBe("rolled_back");
   expect(effects).toEqual([
     ...(interruption === "before-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
-    ["bootout", serviceName],
+    ...(!rebooted ? [["bootout", serviceName]] : []),
     ["bootstrap", `gui/${process.getuid!()}`, launcherFile],
   ]);
   expect(readFileSync(launcherFile)).toEqual(readFileSync(recovery.launcher.path));
   await verifyBootstrapState({ request: result, writableMountRoots: [] });
+  if (interruption === "after-preservation") {
+    const effectCount = effects.length;
+    const interruptedReceipt = {
+      ...result,
+      revision: randomUUID(),
+      execution: { ...result.execution!, stage: "recovery_required" as const },
+    };
+    journal.replace([result], [interruptedReceipt]);
+    const reconciled = await recoverAbandonedBootstrap(
+      requests,
+      { id: result.id, generation: result.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: native.verifyRollback,
+        restorePrevious: async () => {
+          throw new Error("Cannot repeat completed native rollback");
+        },
+        resumePrevious: async () => {
+          throw new Error("Cannot signal completed recovery");
+        },
+      },
+    );
+    expect(reconciled.execution!.stage).toBe("rolled_back");
+    expect(effects).toHaveLength(effectCount);
+    expect(reconciled.execution!.rollbackAttemptedAt).toBe(result.execution!.rollbackAttemptedAt);
+  }
 });
 
 test("Host readiness does not await maintenance validation and all operations remain fenced", async () => {
