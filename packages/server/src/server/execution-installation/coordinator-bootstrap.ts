@@ -141,6 +141,30 @@ export function isCompletedBootstrap(request: CoordinatorBootstrapRequest): bool
   );
 }
 
+/** Preserve completed audit chains without treating them as live admission owners. */
+export function openBootstrapRequests(
+  records: CoordinatorBootstrapRequest[],
+  recovered: CoordinatorBootstrapRequest | null = null,
+): CoordinatorBootstrapRequest[] {
+  const superseded = new Set<string>();
+  const retainClosedChain = (first: CoordinatorBootstrapRequest | null) => {
+    const visited = new Set<string>();
+    for (let old = first; old; old = assertRecoveredBootstrapBase(old.plan, records)) {
+      if (visited.has(old.id))
+        throw new BootstrapRequestConflict("Cyclic bootstrap recovery history");
+      visited.add(old.id);
+      superseded.add(old.id);
+    }
+  };
+  retainClosedChain(recovered);
+  // Completion closes admission ownership, not the audit record. A verified
+  // recovery also closes its exact failed ancestry; unrelated failures remain open.
+  for (const record of records) {
+    if (isCompletedBootstrap(record)) retainClosedChain(record);
+  }
+  return records.filter((item) => item.status !== "canceled" && !superseded.has(item.id));
+}
+
 /** A fresh review can follow verified restoration without rewriting failed history. */
 export function assertRecoveredBootstrapBase(
   plan: CoordinatorBootstrapPlan,
@@ -284,23 +308,7 @@ export class CoordinatorBootstrapRequests {
       return existing;
     }
     const recovered = assertRecoveredBootstrapBase(input.plan, expected);
-    const superseded = new Set<string>();
-    const retainClosedChain = (first: CoordinatorBootstrapRequest | null) => {
-      const visited = new Set<string>();
-      for (let old = first; old; old = assertRecoveredBootstrapBase(old.plan, expected)) {
-        if (visited.has(old.id))
-          throw new BootstrapRequestConflict("Cyclic bootstrap recovery history");
-        visited.add(old.id);
-        superseded.add(old.id);
-      }
-    };
-    retainClosedChain(recovered);
-    // Completion closes admission ownership, not the audit record. A verified
-    // recovery also closes its exact failed ancestry; unrelated failures remain open.
-    for (const record of expected) {
-      if (isCompletedBootstrap(record)) retainClosedChain(record);
-    }
-    if (expected.some((item) => item.status !== "canceled" && !superseded.has(item.id)))
+    if (openBootstrapRequests(expected, recovered).length > 0)
       throw new BootstrapRequestConflict("A coordinator bootstrap request is already open");
     await this.verifyPreparedBytes(input.plan);
     this.requireSameBinding(binding, input.plan);

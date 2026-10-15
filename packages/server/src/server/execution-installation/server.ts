@@ -1,5 +1,9 @@
 import { DaemonAutomation } from "./daemon-automation.js";
-import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
+import {
+  coordinatorAutomaticStatus,
+  openBootstrapRequests,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
@@ -49,6 +53,7 @@ import {
   connectInstallationDaemon,
   submitInstallationCoordinator,
   reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
 } from "./daemon.js";
 import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
@@ -473,6 +478,53 @@ export function createInstallationServer(
         "The protected supervisor plan is available through the tracked queue. Only a separate supervisor permission can authorize it automatically.",
     };
   }
+  async function coordinatorCapability() {
+    const unavailable = { available: false, automaticAvailable: false };
+    if (!coordinatorRequests)
+      return {
+        ...unavailable,
+        reason: "Update the coordinator to expose its durable maintenance ledger.",
+      };
+    try {
+      const open = openBootstrapRequests(coordinatorRequests.list());
+      const awaitingRecovery =
+        open.length > 0 &&
+        open.every((request) => request.execution?.stage === "recovery_required");
+      if (open.length > 0 && !awaitingRecovery)
+        return {
+          ...unavailable,
+          reason: "Inspect the retained coordinator request before preparing another operation.",
+        };
+      const capability = await inspectInstallationCoordinator(config);
+      if (awaitingRecovery)
+        return {
+          ...capability,
+          automaticAvailable: false,
+          reason:
+            "Coordinator recovery requires an exact manually reviewed successor. Inspect the retained failure before preparing it.",
+        };
+      const reason = capability.automaticAvailable
+        ? "Tracked coordinator maintenance and independent recovery are available."
+        : "Update the Host to support authenticated coordinator submission and independent recovery.";
+      return { ...capability, reason };
+    } catch {
+      return {
+        ...unavailable,
+        reason:
+          "Coordinator ledger inspection failed. Inspect Installation controls before preparing maintenance.",
+      };
+    }
+  }
+  async function coordinatorMaintenanceStatus(): Promise<
+    NonNullable<InstallationMaintenanceStatus["services"]>[number]
+  > {
+    const capability = await coordinatorCapability();
+    return {
+      service: "coordinator",
+      readiness: capability.automaticAvailable ? "ready" : "blocked",
+      reason: capability.reason,
+    };
+  }
   async function maintenanceStatus(): Promise<InstallationMaintenanceStatus> {
     const preference = daemonAutomation.read();
     const impacts = await restarts.impacts();
@@ -535,15 +587,7 @@ export function createInstallationServer(
           "Routine updates and restarts are available through the tracked queue.",
       };
     });
-    services.push(
-      {
-        service: "coordinator",
-        readiness: "blocked",
-        reason:
-          "Automatic coordinator maintenance requires the independent recovery workflow. Exact owner review remains available.",
-      },
-      supervisorMaintenanceStatus(impacts),
-    );
+    services.push(await coordinatorMaintenanceStatus(), supervisorMaintenanceStatus(impacts));
     return { version: 1, checkedAt: new Date().toISOString(), preference, paths, services };
   }
   app.get("/api/installation/maintenance-status", authenticateUpdate, (_req, res, next) => {
@@ -565,6 +609,7 @@ export function createInstallationServer(
     );
     void (async () => {
       const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
+      const coordinator = await coordinatorCapability();
       return Promise.all(
         (["host", "container-daemon"] as const).map(async (target) => ({
           target,
@@ -581,6 +626,10 @@ export function createInstallationServer(
             ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
+            coordinatorMaintenance: {
+              ...coordinator,
+              ownerApprovalRequired: !(host && daemonAutomation.activation("coordinator")),
+            },
             previewMonitor: {
               available: Boolean(
                 host &&
@@ -949,6 +998,36 @@ export function createInstallationServer(
       .then((job) => res.status(201).json(job), next);
   });
 
+  app.get("/api/installation/coordinator-requests/:id", authenticateUpdate, (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    try {
+      if (!coordinatorRequests) throw new Error("Coordinator ledger unavailable");
+      const request = coordinatorRequests.list().find((item) => item.id === id);
+      if (!request) {
+        res.status(404).json({
+          error: "Coordinator request not found. Inspect Installation controls before retrying.",
+        });
+        return;
+      }
+      const approvalUrl = new URL("/settings/general", config.public.origin);
+      approvalUrl.searchParams.set("installation", "1");
+      approvalUrl.searchParams.set("bootstrap", id);
+      res.json({
+        id: request.id,
+        revision: request.revision,
+        status: request.status,
+        createdAt: request.createdAt,
+        decisionAt: request.decisionAt,
+        execution: request.execution,
+        automaticStatus: coordinatorAutomaticStatus(request, Date.now()),
+        approvalUrl: approvalUrl.toString(),
+      });
+    } catch {
+      res.status(503).json({
+        error: "Coordinator status is unavailable. Inspect Installation controls before retrying.",
+      });
+    }
+  });
   app.post("/api/installation/coordinator-requests", authenticateUpdate, (req, res) => {
     const input = z
       .strictObject({

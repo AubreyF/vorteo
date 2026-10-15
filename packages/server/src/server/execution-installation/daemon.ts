@@ -34,6 +34,35 @@ interface CoordinatorSubmission {
 }
 
 type CoordinatorSubmissionClient = Pick<DaemonClient, "prepareCoordinatorBootstrap" | "close">;
+type CoordinatorCapabilityClient = Pick<DaemonClient, "getLastServerInfoMessage" | "close">;
+
+export async function inspectInstallationCoordinator(
+  config: InstallationConfig,
+  connect: () => Promise<CoordinatorCapabilityClient> = () =>
+    connectInstallationDaemon(config, "host"),
+) {
+  try {
+    const client = await connect();
+    try {
+      const features = client.getLastServerInfoMessage()?.features;
+      const available = features?.coordinatorBootstrapReview === true;
+      const automaticAvailable =
+        available &&
+        features.coordinatorBootstrapAuthenticatedSubmission === true &&
+        features.coordinatorBootstrapAutomaticReconciliation === true &&
+        features.coordinatorBootstrapAutomaticStatus === true &&
+        features.coordinatorBootstrapBootRecovery === true &&
+        features.coordinatorBootstrapCompatibleRecovery === true &&
+        features.coordinatorBootstrapRecoveryBootPlan === true;
+      return { available, automaticAvailable };
+    } finally {
+      await client.close();
+    }
+  } catch {
+    return { available: false, automaticAvailable: false };
+  }
+}
+
 type CoordinatorReconciliationClient = Pick<
   DaemonClient,
   "reconcileAutomaticCoordinatorBootstrap" | "close"

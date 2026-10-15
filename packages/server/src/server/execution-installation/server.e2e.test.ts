@@ -1,3 +1,4 @@
+import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 import { DaemonAutomation } from "./daemon-automation.js";
 import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
 import { execFile, execFileSync } from "node:child_process";
@@ -2513,6 +2514,237 @@ test("maintenance readiness separates legacy authority, broad opt-in and source 
   ).toBe(true);
   expect(f.calls).toEqual([]);
 });
+
+function coordinatorStatusRequest(): CoordinatorBootstrapRequest {
+  const file = { path: "/protected/fixture", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    artifactSha256: "c".repeat(64),
+    directory: "/protected/release",
+    node: file,
+    entrypoint: file,
+    configuration: file,
+    launcher: file,
+  };
+  const id = randomUUID();
+  const at = new Date(0).toISOString();
+  return {
+    id,
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Protected fixture",
+    createdAt: at,
+    planSha256: "d".repeat(64),
+    status: "approved",
+    decisionAt: at,
+    automaticSubmission: {
+      credentialBinding: "e".repeat(64),
+      policyActivatedAt: at,
+      submittedAt: at,
+    },
+    execution: { generation: randomUUID(), stage: "claimed", updatedAt: at },
+    plan: {
+      version: 1,
+      operation: "coordinator-bootstrap",
+      installationId: randomUUID(),
+      service: "gui/501/local.vorteo.fixture.installation",
+      previous: release,
+      candidate: release,
+      expectedProcess: {
+        pid: 123,
+        bootId: "fixture",
+        startIdentity: "fixture",
+        argumentsSha256: "f".repeat(64),
+      },
+      state: {
+        directory: "/protected/state",
+        restartJournal: "/protected/state/restarts.json",
+        ownerSessions: "/protected/state/sessions.json",
+      },
+      hostRequestsAfter: null,
+    },
+  };
+}
+
+test("scoped coordinator status reads the retained request without exposing protected plans or requiring Host RPC", async () => {
+  const retained = coordinatorStatusRequest();
+  let failed = false;
+  const ledger: BootstrapReconciliationLedger = {
+    list: () => {
+      if (failed) throw new Error("PRIVATE JOURNAL DETAIL");
+      return [retained, coordinatorStatusRequest()];
+    },
+    revokeAutomatic: () => {},
+    reserveAutomaticReconciliation: () => null,
+    finishAutomaticReconciliation: () => {},
+  };
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    ledger,
+  );
+  const route = `/api/installation/coordinator-requests/${retained.id}`;
+  expect((await f.request(route, "owner-test-password")).status).toBe(401);
+  const capabilities = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capabilities.coordinatorMaintenance).toMatchObject({
+    available: false,
+    automaticAvailable: false,
+    ownerApprovalRequired: true,
+  });
+  expect(capabilities.coordinatorMaintenance.reason).toContain("retained coordinator request");
+  for (const token of ["host-agent-test-token", "guest-agent-test-token"]) {
+    const response = await f.request(route, token);
+    expect(response.status).toBe(200);
+    const receipt = await response.json();
+    expect(receipt).toMatchObject({
+      id: retained.id,
+      revision: retained.revision,
+      status: "approved",
+      execution: retained.execution,
+      automaticStatus: { state: "execution" },
+    });
+    expect(new URL(receipt.approvalUrl).searchParams.get("bootstrap")).toBe(retained.id);
+    expect(receipt).not.toHaveProperty("plan");
+    expect(receipt).not.toHaveProperty("automaticSubmission");
+    expect(JSON.stringify(receipt)).not.toContain("/protected/");
+  }
+  expect(
+    (
+      await f.request(
+        `/api/installation/coordinator-requests/${randomUUID()}`,
+        "host-agent-test-token",
+      )
+    ).status,
+  ).toBe(404);
+  const clientFile = path.join(f.root, "coordinator-client.json");
+  writeFileSync(
+    clientFile,
+    JSON.stringify({
+      origin: f.url,
+      publicOrigin: "https://review.example.test",
+      kind: "host-agent",
+      token: "host-agent-test-token",
+    }),
+  );
+  const cli = await promisify(execFile)(process.execPath, [
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+    "--config",
+    clientFile,
+    "coordinator-status",
+    retained.id,
+  ]);
+  expect(JSON.parse(cli.stdout)).toMatchObject({ id: retained.id, execution: retained.execution });
+  expect(new URL(JSON.parse(cli.stdout).approvalUrl).searchParams.get("bootstrap")).toBe(
+    retained.id,
+  );
+  failed = true;
+  const unavailable = await f.request(route, "host-agent-test-token");
+  expect(unavailable.status).toBe(503);
+  expect(JSON.stringify(await unavailable.json())).not.toContain("PRIVATE JOURNAL DETAIL");
+  expect(f.calls).toEqual([]);
+});
+
+test.each(["manual", "automatic", "explicit", "unsupported", "blocked"] as const)(
+  "scoped coordinator CLI preserves exact preparation and capability refusal (%s)",
+  async (mode) => {
+    const root = mkdtempSync(path.join(tmpdir(), "coordinator-cli-"));
+    const retained = coordinatorStatusRequest();
+    const preparation = { id: retained.id, reason: retained.reason, plan: retained.plan };
+    const submitted: unknown[] = [];
+    // This HTTP port checks the installed CLI contract without running native maintenance.
+    const server = createServer((req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.url === "/api/installation/capabilities") {
+        res.end(
+          JSON.stringify({
+            requireOwnerApproval: true,
+            coordinatorMaintenance: {
+              available: mode !== "blocked",
+              automaticAvailable: mode === "automatic",
+              ownerApprovalRequired: mode === "manual",
+            },
+          }),
+        );
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        submitted.push({ method: req.method, path: req.url, body: JSON.parse(body) });
+        res.end(
+          JSON.stringify({ id: retained.id, revision: retained.revision, status: "pending" }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing test server address");
+      const config = path.join(root, "client.json");
+      const input = path.join(root, "preparation.json");
+      writeFileSync(
+        config,
+        JSON.stringify({
+          origin: `http://127.0.0.1:${address.port}`,
+          publicOrigin: "https://review.example.test",
+          kind: "host-agent",
+          token: "fixture-token",
+        }),
+      );
+      writeFileSync(input, JSON.stringify(preparation));
+      const run = promisify(execFile)(process.execPath, [
+        path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+        "--config",
+        config,
+        "request-coordinator",
+        "--request-file",
+        input,
+        ...(mode === "explicit" ? ["--require-owner-approval"] : []),
+      ]);
+      if (mode === "unsupported" || mode === "blocked") {
+        await expect(run).rejects.toThrow("no preparation submitted");
+        expect(submitted).toEqual([]);
+      } else {
+        const result = await run;
+        expect(result.stderr).toContain(`Coordinator request: ${retained.id}`);
+        expect(submitted).toEqual([
+          {
+            method: "POST",
+            path: "/api/installation/coordinator-requests",
+            body: {
+              preparation,
+              ...(mode === "explicit" ? { requireOwnerApproval: true } : {}),
+            },
+          },
+        ]);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          id: retained.id,
+          status: "pending",
+          approvalUrl: `https://review.example.test/settings/general?installation=1&bootstrap=${retained.id}`,
+        });
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("coordinator submission requires scoped authentication before parsing its preparation", async () => {
   const f = await fixture();

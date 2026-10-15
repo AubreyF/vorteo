@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.545 - 2026-10-15
+
+### Added
+
+- Add scoped coordinator preparation and status commands with exact retained IDs, explicit owner-review support and coordinator review links. Lost replies can be inspected without contacting the Host daemon or exposing protected plans and credentials.
+- Report connected Host maintenance capabilities and block new routine preparation while a retained operation is unfinished. Preserve exact manually reviewed recovery and recognize completed recovery ancestry. Keep authorization separate from runtime readiness and refuse unsupported automatic submission without a manual retry.
+- Document the scoped workflow and validate HTTP status, CLI submission and capability negotiation. Installed acceptance and delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.544 - 2026-10-15
 
 ### Fixed

@@ -4,7 +4,11 @@ import {
   signCoordinatorSubmission,
   verifyCoordinatorSubmission,
 } from "./daemon-automation.js";
-import { submitInstallationCoordinator, reconcileInstallationCoordinator } from "./daemon.js";
+import {
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
+} from "./daemon.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -34,6 +38,7 @@ import {
   CoordinatorBootstrapRequests,
   coordinatorPlanDigest,
   coordinatorAutomaticStatus,
+  openBootstrapRequests,
   assertFrozenCoordinatorIdle,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
@@ -435,6 +440,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
     },
   };
   f.journal.replace([failed, pending], [failed, completed]);
+  expect(openBootstrapRequests([failed, completed])).toEqual([]);
   const next = await f.prepare();
   expect(f.service().list()).toEqual([failed, completed, next]);
   const active = {
@@ -462,6 +468,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
   expect(coordinatorStartupReleased([failed, completed, finished], identity, active)).toBe(true);
   // A separate unresolved failure must still fence the next review.
   const unrelated = { ...failed, id: randomUUID() };
+  expect(openBootstrapRequests([failed, completed, unrelated])).toEqual([unrelated]);
   f.journal.replace([failed, completed, next], [failed, completed, unrelated]);
   await expect(f.prepare()).rejects.toThrow("already open");
   expect(() =>
@@ -473,6 +480,7 @@ test("successful recovery closes only its exact failed ancestry for later mainte
     plan: { ...completed.plan, recoveredFrom: { ...plan.recoveredFrom, generation: randomUUID() } },
   };
   stale.planSha256 = coordinatorPlanDigest(stale.plan);
+  expect(() => openBootstrapRequests([failed, stale])).toThrow("history changed");
   f.journal.replace([failed, completed, unrelated], [failed, stale]);
   await expect(f.prepare()).rejects.toThrow("history changed");
 });
@@ -3846,3 +3854,36 @@ test("authenticated preparation RPC validates proof before atomically recording 
   expect((await handleBootstrapReview(message, service)).payload.error).toBeNull();
   expect(requests.list()).toEqual([retained]);
 });
+
+test.each(["ready", "legacy", "missing-review", "offline"] as const)(
+  "coordinator readiness uses connected Host features and closes its probe (%s)",
+  async (mode) => {
+    const { config } = coordinatorSubmissionFixture();
+    const close = vi.fn(async () => {});
+    const result = await inspectInstallationCoordinator(config, async () => {
+      if (mode === "offline") throw new Error("PRIVATE CONNECTION DETAIL");
+      return {
+        close,
+        getLastServerInfoMessage: () => ({
+          status: "server_info",
+          serverId: "host-id",
+          hostname: null,
+          version: null,
+          features: {
+            coordinatorBootstrapReview: mode !== "missing-review",
+            coordinatorBootstrapAuthenticatedSubmission: mode === "ready",
+            coordinatorBootstrapAutomaticReconciliation: mode === "ready",
+            coordinatorBootstrapAutomaticStatus: mode === "ready",
+            coordinatorBootstrapBootRecovery: mode === "ready",
+            coordinatorBootstrapCompatibleRecovery: mode === "ready",
+            coordinatorBootstrapRecoveryBootPlan: mode === "ready",
+          },
+        }),
+      };
+    });
+    expect(result.available).toBe(mode === "ready" || mode === "legacy");
+    expect(result.automaticAvailable).toBe(mode === "ready");
+    expect(close).toHaveBeenCalledTimes(mode === "offline" ? 0 : 1);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTION DETAIL");
+  },
+);
