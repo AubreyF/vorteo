@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.528 - 2026-10-14
+
+### Maintenance
+
+- Integrate the reviewed replica cache write deduplication and reconnect test maintenance while preserving canonical sidebar sizing, independent queue controls and all source histories.
+- Retain unchanged-refresh eviction priority and recovery tails; ordinary streaming cache budgets and responsive resize costs remain unresolved.
+
 ## 0.11.0-beta.3.vorteo.527 - 2026-10-14
 
 ### Maintenance
@@ -37,6 +44,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Integrate coordinator recovery corrections with the current published interface, preserving both histories and existing theme behavior.
 - Keep Host installation and coordinator replacement separately reviewed through tracked controls.
+
+## 0.11.0-beta.3.vorteo.524 - 2026-10-14
+
+### Fixed
+
+- Skip identical replica cache storage writes while preserving refresh recency, cross-host eviction priority, baseline replacement and timeline recovery tails.
+
+### Maintenance
+
+- Cover separate and shared persistence batches, unchanged baseline survivors after reload and mixed deletions in cache regressions.
+- Match browser reconnect assertions to the existing Reconnecting host label. Ordinary streaming write budgets and responsive resize costs remain unresolved.
 
 ## 0.11.0-beta.3.vorteo.523 - 2026-10-14
 

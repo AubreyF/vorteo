@@ -517,6 +517,95 @@ describe("ReplicaCache", () => {
     ]);
   });
 
+  it("does not rewrite identical persisted directory and timeline rows", async () => {
+    const storage = new MemoryStorage();
+    const cache = createCache(storage);
+    const baseline = directory();
+    cache.replaceDirectoryBaseline(SERVER_ID, baseline);
+    cache.commitTimeline(SERVER_ID, "agent-1", timeline("Latest reply"));
+    await cache.flush();
+    const initialWrites = storage.writes;
+
+    cache.replaceDirectoryBaseline(SERVER_ID, baseline);
+    cache.commitTimeline(SERVER_ID, "agent-1", timeline("Latest reply"));
+    await cache.flush();
+
+    expect(storage.writes).toBe(initialWrites);
+    cache.commitTimeline(SERVER_ID, "agent-1", timeline("New reply"));
+    await cache.flush();
+    expect(storage.writes).toBe(initialWrites + 1);
+    expect(storage.changes.at(-1)?.upserts.map((row) => row.kind)).toEqual(["timeline"]);
+    expect(await cache.readTimeline(SERVER_ID, "agent-1")).toEqual(timeline("New reply"));
+  });
+
+  for (const flushRefresh of [true, false]) {
+    it(`preserves unchanged host refresh priority with ${flushRefresh ? "separate" : "shared"} persistence`, async () => {
+      const storage = new MemoryStorage();
+      const hostIds = [SERVER_ID, "older-host", "growing-host"];
+      const writer = new ReplicaCache(storage, noLegacyCleanup);
+      writer.setHosts(hostIds);
+      for (const hostId of hostIds) {
+        writer.commitTimeline(hostId, "agent-1", timeline("x".repeat(100)));
+      }
+      await writer.flush();
+      const initialBytes = [...storage.rows.values()].reduce(
+        (total, row) => total + Buffer.byteLength(row.payload),
+        0,
+      );
+      const cache = new ReplicaCache(storage, { ...noLegacyCleanup, maxBytes: initialBytes + 50 });
+      cache.setHosts(hostIds);
+      const initialWrites = storage.writes;
+
+      cache.commitTimeline(SERVER_ID, "agent-1", timeline("x".repeat(100)));
+      if (flushRefresh) {
+        await cache.flush();
+        expect(storage.writes).toBe(initialWrites);
+      }
+      cache.commitTimeline("growing-host", "agent-1", timeline("x".repeat(200)));
+      await cache.flush();
+
+      expect(storage.writes).toBe(initialWrites + 1);
+      const reader = new ReplicaCache(storage, noLegacyCleanup);
+      reader.setHosts(hostIds);
+      expect(await reader.readTimeline(SERVER_ID, "agent-1")).toEqual(timeline("x".repeat(100)));
+      expect(await reader.readTimeline("older-host", "agent-1")).toBeUndefined();
+      expect(await reader.readTimeline("growing-host", "agent-1")).toEqual(
+        timeline("x".repeat(200)),
+      );
+    });
+  }
+
+  it("retains unchanged baseline survivors after reload while deleting a removed row", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const initial = directory();
+    initial.agents.set("removed-agent", agent("removed-agent"));
+    writer.replaceDirectoryBaseline(SERVER_ID, initial);
+    writer.commitTimeline(SERVER_ID, "agent-1", timeline());
+    await writer.flush();
+    const initialWrites = storage.writes;
+    const cache = createCache(storage);
+    const replacement = directory();
+
+    cache.replaceDirectoryBaseline(SERVER_ID, replacement);
+    cache.commitTimeline(SERVER_ID, "agent-1", timeline());
+    await cache.flush();
+
+    expect(storage.writes).toBe(initialWrites + 1);
+    expect(storage.changes.at(-1)).toMatchObject({
+      upserts: [],
+      deletes: [{ serverId: SERVER_ID, kind: "agent", id: "removed-agent" }],
+    });
+    const reader = createCache(storage);
+    expect(await reader.readDirectory(SERVER_ID)).toEqual(replacement);
+    expect(await reader.readTimeline(SERVER_ID, "agent-1")).toEqual(timeline());
+    reader.replaceDirectoryBaseline(SERVER_ID, replacement);
+    reader.commitTimeline(SERVER_ID, "agent-1", timeline());
+    await reader.flush();
+    expect(storage.writes).toBe(initialWrites + 1);
+    expect(await createCache(storage).readDirectory(SERVER_ID)).toEqual(replacement);
+  });
+
   it("never reads directory rows older than an accepted deferred deletion", async () => {
     const storage = new MemoryStorage();
     const cache = createCache(storage);
