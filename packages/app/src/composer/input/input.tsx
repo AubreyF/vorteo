@@ -1915,6 +1915,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       () => [
         styles.inputWrapper,
         taskCardStyles.surface,
+        touch && !mobileComposer.enabled && styles.touchInputSurface,
         mobileComposer.enabled && { paddingBottom: mobileComposer.bottomPadding },
         readOnly && styles.inputWrapperReadOnly,
         inputWrapperStyle,
@@ -1924,6 +1925,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [
         inputWrapperStyle,
+        touch,
         readOnly,
         surfacePresentation.input.opacity,
         mobileComposer.enabled,
@@ -2197,6 +2199,11 @@ const styles = StyleSheet.create((theme: Theme) => ({
   // into it" without swapping the border colour, which reads as an error state.
   inputWrapperReadOnly: {
     borderStyle: "dotted",
+  },
+  touchInputSurface: {
+    paddingTop: COMPOSER_CORNER_INSET,
+    paddingBottom: { xs: theme.spacing[3] - 6, md: theme.spacing[4] - 6 },
+    gap: theme.spacing[2],
   },
   mobileInputSurface: {
     backgroundColor: "transparent",

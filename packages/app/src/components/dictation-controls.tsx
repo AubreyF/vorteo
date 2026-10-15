@@ -426,12 +426,12 @@ const overlayStyles = StyleSheet.create((theme) => ({
   touchCancel: {
     position: "absolute",
     left: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
-    bottom: { xs: theme.spacing[2] + 1, md: theme.spacing[4] + 1 },
+    bottom: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
   },
   touchSubmit: {
     position: "absolute",
     right: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
-    bottom: { xs: theme.spacing[2] + 1, md: theme.spacing[4] + 1 },
+    bottom: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
   },
   touchEdit: {
     position: "absolute",

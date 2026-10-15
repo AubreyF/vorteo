@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Touch tablets use a tighter composer with the existing input line height and 44px action controls, 8px top clearance and an 8px row gap. Bottom controls match their side inset in text and recording states; multiline drafts still grow and phone safe-area handling remains intact. README overview and onboarding are unchanged.
+
 Details cards share 8px of bottom body clearance for scrolling lists, prose and embedded panels. Goal and Journal use the shared value rather than local overrides; heading and row spacing remain unchanged. README overview and onboarding are unchanged.
 
 Recording-queue integration preserves the installed compact card tooltips, balanced button spacing and full-width collapsed sidebar headers.
