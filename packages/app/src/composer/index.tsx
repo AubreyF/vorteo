@@ -19,10 +19,10 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   View,
   Text,
-  useWindowDimensions,
   StyleSheet as RNStyleSheet,
   type PressableStateCallbackType,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import type { TFunction } from "i18next";
 import {
   useState,

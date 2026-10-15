@@ -6,12 +6,12 @@ import {
   View,
   Text,
   Pressable,
-  useWindowDimensions,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
   TextInputSelectionChangeEventData,
   type LayoutChangeEvent,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import {
   useState,
   useRef,

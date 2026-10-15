@@ -6,14 +6,8 @@ import { ProfileAction } from "./profile-action";
 import { ProfileSelectorTile, ProfileLoading } from "./profile-selector-tile";
 import { profileCatalogState, sharedChoiceState, type LaunchChoices } from "./shared-choices";
 import { useCallback, useMemo, useReducer, useState, type ReactNode } from "react";
-import {
-  Keyboard,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-  type LayoutChangeEvent,
-} from "react-native";
+import { Keyboard, ScrollView, Text, View, type LayoutChangeEvent } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";

@@ -1,5 +1,7 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { useBottomSheetModalInternal } from "@gorhom/bottom-sheet";
 import { Portal } from "@gorhom/portal";
 import { StyleSheet } from "react-native-unistyles";
@@ -61,7 +63,12 @@ export function ProjectRailPreview({
     clear();
     const current = ++request.current;
     triggerRef.current?.measureInWindow((x, y, w, h) => {
-      if (current === request.current) setAnchor({ x: x + w + 8, y, centerY: y + h / 2 });
+      if (current === request.current)
+        setAnchor({
+          x: (x + w) / getInterfaceScale() + 8,
+          y: y / getInterfaceScale(),
+          centerY: (y + h / 2) / getInterfaceScale(),
+        });
     });
   }, [clear]);
   const leave = useCallback(() => {

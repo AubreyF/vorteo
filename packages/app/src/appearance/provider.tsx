@@ -1,3 +1,4 @@
+import { useApplyInterfaceZoom } from "./interface-zoom";
 import { vortonAppearance } from "./vorton-appearance";
 import { useVortonTouch } from "@/vorton-touch";
 
@@ -89,6 +90,7 @@ function applyTheme({ preference, contributedTheme }: ApplyThemeInput): void {
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { settings, updateSettings, isLoading } = useAppSettings();
   const touch = useVortonTouch();
+  useApplyInterfaceZoom();
   const [preview, setPreview] = useState<AppearanceId | null>(null);
   const [previewApplied, setPreviewApplied] = useState(false);
   const systemScheme = useColorScheme();

@@ -1,3 +1,4 @@
+import { interfaceRect } from "@/appearance/interface-geometry";
 import { useVortonTouch } from "@/vorton-touch";
 import {
   Children,
@@ -17,7 +18,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  useWindowDimensions,
   Platform,
   Modal,
   Pressable,
@@ -28,6 +28,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -141,7 +142,7 @@ function useControllableOpenState({
 function measureElement(element: View): Promise<Rect> {
   return new Promise((resolve) => {
     element.measureInWindow((x, y, width, height) => {
-      resolve({ x, y, width, height });
+      resolve(interfaceRect({ x, y, width, height }));
     });
   });
 }

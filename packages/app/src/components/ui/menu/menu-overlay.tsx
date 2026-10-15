@@ -1,3 +1,4 @@
+import { useWindowDimensions, getInterfaceWindow } from "@/appearance/interface-geometry";
 import {
   useCallback,
   useEffect,
@@ -10,7 +11,6 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
-  Dimensions,
   Modal,
   Platform,
   Pressable,
@@ -124,6 +124,7 @@ export function useAnchoredPosition({
   scrollable: boolean;
   maxHeight?: number;
 }) {
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [triggerRect, setTriggerRect] = useState<Rect | null>(null);
   const [contentSize, setContentSize] = useState<Size | null>(null);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -133,8 +134,7 @@ export function useAnchoredPosition({
     if (!contentSize) return null;
     if (!scrollable) return contentSize;
 
-    const { height: screenHeight } = Dimensions.get("window");
-    const viewportMaxHeight = Math.max(screenHeight - 16, 0);
+    const viewportMaxHeight = Math.max(viewportHeight - 16, 0);
     const resolvedMaxHeight =
       typeof maxHeight === "number" ? Math.min(maxHeight, viewportMaxHeight) : viewportMaxHeight;
 
@@ -142,7 +142,7 @@ export function useAnchoredPosition({
       width: contentSize.width,
       height: Math.min(contentSize.height, resolvedMaxHeight),
     };
-  }, [contentSize, scrollable, maxHeight]);
+  }, [contentSize, scrollable, maxHeight, viewportHeight]);
 
   useEffect(() => {
     if (!open) {
@@ -178,12 +178,12 @@ export function useAnchoredPosition({
     return () => {
       cancelled = true;
     };
-  }, [anchorRect, anchorRef, open]);
+  }, [anchorRect, anchorRef, open, viewportWidth, viewportHeight]);
 
   useEffect(() => {
     if (!triggerRect || !visibleContentSize) return;
 
-    const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+    const { width: screenWidth, height: screenHeight } = getInterfaceWindow();
     // measureInWindow and Modal both use full-screen coordinates, so the display area starts at 0.
     const result = computePosition({
       triggerRect,
@@ -196,7 +196,7 @@ export function useAnchoredPosition({
 
     setPosition({ x: result.x, y: result.y });
     setActualPlacement(result.actualPlacement);
-  }, [triggerRect, visibleContentSize, side, align, offset]);
+  }, [triggerRect, visibleContentSize, side, align, offset, viewportWidth, viewportHeight]);
 
   const onContentLayout = useCallback(
     (event: { nativeEvent: { layout: { width: number; height: number } } }) => {
@@ -273,6 +273,7 @@ export function AnchoredSurface({
 }: AnchoredSurfaceProps): ReactElement | null {
   const { t } = useTranslation();
   const surfaceNativeID = useId();
+  const { width: screenWidth } = useWindowDimensions();
   const { position, actualPlacement, contentSize, visibleContentSize, onContentLayout } =
     useAnchoredPosition({
       open,
@@ -312,7 +313,6 @@ export function AnchoredSurface({
   }, [open, placed, surfaceNativeID]);
 
   const frameStyle = useMemo<StyleProp<ViewStyle>>(() => {
-    const { width: screenWidth } = Dimensions.get("window");
     const resolvedWidthStyle: ViewStyle = fullWidth
       ? { width: screenWidth - horizontalPadding * 2 }
       : {
@@ -330,6 +330,7 @@ export function AnchoredSurface({
       },
     ];
   }, [
+    screenWidth,
     fullWidth,
     horizontalPadding,
     width,
@@ -445,7 +446,7 @@ export function MenuOverlay({
 
       const target = event.target instanceof Element ? event.target : null;
       const surface = target?.closest<HTMLElement>('[data-menu-surface="true"]');
-      if (!surface) return false;
+      if (!surface || target?.closest('input[type="range"]')) return false;
       const items = Array.from(
         surface.querySelectorAll<HTMLElement>(
           '[data-menu-item="true"]:not([data-menu-disabled="true"])',

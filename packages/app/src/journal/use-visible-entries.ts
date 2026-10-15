@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { type ScrollView, type View, useWindowDimensions } from "react-native";
+import { type ScrollView, type View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { isWeb } from "@/constants/platform";
 import { createSeenDwell } from "./seen-state";
 

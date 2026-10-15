@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { CONTROL_HEIGHTS, createControlGeometry, type FieldControlSize } from "./control-geometry";
 import {
   useCallback,
@@ -17,13 +18,13 @@ import {
   ScrollView,
   Platform,
   StatusBar,
-  useWindowDimensions,
   type LayoutChangeEvent,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
   type TextStyle,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -791,9 +792,9 @@ function useAnchorMeasure(
       referenceEl.measureInWindow((x, y, width) => {
         applyMeasuredAnchor(
           { setReferenceLeft, setReferenceTop, setReferenceWidth, setReferenceAtOrigin },
-          x,
-          y,
-          width,
+          x / getInterfaceScale(),
+          y / getInterfaceScale(),
+          width / getInterfaceScale(),
         );
       });
     };

@@ -1,4 +1,4 @@
-import { useUnistyles } from "react-native-unistyles";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { isWeb } from "@/constants/platform";
 
 export const FOOTER_HEIGHT = 75;
@@ -42,8 +42,7 @@ export {
  * Always use this instead of reading UnistylesRuntime.breakpoint directly.
  */
 export function useIsCompactFormFactor(): boolean {
-  const { rt } = useUnistyles();
-  return rt.breakpoint === "xs" || rt.breakpoint === "sm";
+  return useWindowDimensions().width < COMPACT_FORM_FACTOR_WIDTH;
 }
 
 // SplitContainer relies on dnd-kit and DOM-backed accessibility helpers.

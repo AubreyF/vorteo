@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import React, {
   type CSSProperties,
   useCallback,
@@ -170,8 +171,8 @@ function isVerticalScrollbarGutterPress(
   );
   const bounds = scrollContainer.getBoundingClientRect();
   return window.getComputedStyle(scrollContainer).direction === "rtl"
-    ? event.clientX <= bounds.left + scrollbarWidth
-    : event.clientX >= bounds.right - scrollbarWidth;
+    ? event.clientX <= bounds.left + scrollbarWidth * getInterfaceScale()
+    : event.clientX >= bounds.right - scrollbarWidth * getInterfaceScale();
 }
 
 function scrollElementToBottom(
@@ -421,7 +422,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       unsubscribe?.();
     };
   }, []);
-  const contentWidth = contentRef.current?.getBoundingClientRect().width;
+  const contentWidth = contentRef.current?.clientWidth;
   const rowVirtualizer = useVirtualizer({
     count: segments.historyVirtualized.length,
     enabled: shouldUseVirtualizer,
@@ -711,14 +712,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     if (!isActiveRef.current || !container || !content) return;
     const viewportTop = container.getBoundingClientRect().top;
     const scrollTop = container.scrollTop;
-    const width = content.getBoundingClientRect().width;
+    const width = content.clientWidth;
     const rows = Array.from(
       content.querySelectorAll<HTMLElement>("[data-history-row-id]"),
       (element) => {
         const bounds = element.getBoundingClientRect();
         const id = element.dataset.historyRowId!;
-        measuredRowHeights.current.set(id, { width, height: bounds.height });
-        return { id, top: bounds.top - viewportTop + scrollTop, height: bounds.height };
+        const height = bounds.height / getInterfaceScale();
+        measuredRowHeights.current.set(id, { width, height });
+        return { id, top: (bounds.top - viewportTop) / getInterfaceScale() + scrollTop, height };
       },
     );
     const shouldAnchor = !followOutputRef.current && !isJumpSettling();

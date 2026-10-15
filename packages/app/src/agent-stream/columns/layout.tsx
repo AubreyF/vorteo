@@ -1,6 +1,7 @@
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { createContext, useCallback, useId, useMemo, useReducer, type ReactNode } from "react";
-import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
+import { Text, View, type LayoutChangeEvent } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";

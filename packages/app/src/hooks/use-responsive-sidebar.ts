@@ -1,6 +1,7 @@
 import { COLUMN_BREAKPOINT } from "@/agent-stream/columns/geometry";
 import { useCallback, useEffect, useState } from "react";
-import { useWindowDimensions, type LayoutChangeEvent } from "react-native";
+import { type LayoutChangeEvent } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { usePanelStore } from "@/stores/panel-store";
 import { SIDEBAR_OUTER_GAP, resolveResponsiveSidebar } from "@/stores/panel-store/state";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
