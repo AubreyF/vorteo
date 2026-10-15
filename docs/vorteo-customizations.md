@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): coordinator renewal validates a chain of recovered claims and unpromoted failures without treating a failed operation as the selected release. Each predecessor retains its exact reference, protected recovery evidence and required native exit checks. Full read-only renewal validation passes against retained installation history; managed delivery and installed acceptance remain open. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): combine shared lifecycle admission with repeated immutable repair admissions and exact historical runner pins. Queue exclusion and recovery fencing retain their separate responsibilities. Source checks do not admit the frozen repair proposal or establish installed compatibility; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): daemon lifecycle writes and coordinator claims share the protected bootstrap journal lock. Recorded installation work prevents claim and promotion, while unresolved coordinator execution prevents new lifecycle work. Cancellation, terminal receipts and completed hold release remain available. Tests cover both admission orders, legacy overlap, locking and HTTP review. Compatible queue and bootstrap readers must be deployed together after existing recovery; README overview and onboarding are unchanged.

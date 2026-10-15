@@ -106,7 +106,7 @@ function terminalRelease(request: CoordinatorBootstrapRequest) {
 
 /** Sidecar predecessors remain unpromoted after their successor reaches main.
  * Order only exact recovery dependencies; never infer ancestry from timestamps. */
-function orderBootstrapHistory(
+export function orderBootstrapHistory(
   records: CoordinatorBootstrapRequest[],
 ): CoordinatorBootstrapRequest[] {
   const byId = new Map(records.map((record) => [record.id, record]));

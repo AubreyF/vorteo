@@ -2693,3 +2693,274 @@ test("status reads retain canonical private-directory checks without the writer 
   }
   expect(f.journal.readReviews()).toEqual([pending]);
 });
+
+test("claimed successor separates verified failed predecessor from selected release authority", () => {
+  const input = successorHistoryFixture();
+  const terminal = input.records[0];
+  const failed = structuredClone(input.records[1]);
+  failed.id = randomUUID();
+  failed.revision = randomUUID();
+  failed.execution!.generation = randomUUID();
+  const original = input.recovery.plan.original;
+  original.plan.recoveredFrom = {
+    ...identity(failed),
+    generation: failed.execution!.generation,
+  };
+  original.planSha256 = coordinatorPlanDigest(original.plan);
+  input.recovery.planSha256 = claimedRecoveryPlanDigest(input.recovery.plan);
+  input.fence.original = structuredClone(original);
+  input.fence.fenced = {
+    ...structuredClone(original),
+    revision: randomUUID(),
+    execution: { ...original.execution!, stage: "recovery_required" },
+  };
+  input.fence.recovery.planSha256 = input.recovery.planSha256;
+  input.records = [terminal, failed, input.fence.fenced];
+  const prior = {
+    terminal: { request: terminal, release: terminal.plan.candidate },
+    predecessor: failed,
+    exits: [],
+  };
+  const result = inspectClaimedSuccessorHistory({ ...input, prior });
+  expect(result.terminal.request.id).toBe(terminal.id);
+  expect(result.recoveredFrom.id).toBe(input.fence.fenced.id);
+  expect(() => inspectClaimedSuccessorHistory(input)).toThrow(
+    "until its bootstrap recovery is terminal",
+  );
+  expect(() =>
+    inspectClaimedSuccessorHistory({
+      ...input,
+      prior: { ...prior, predecessor: terminal },
+    }),
+  ).toThrow("predecessor authority");
+  expect(() =>
+    inspectClaimedSuccessorHistory({
+      ...input,
+      records: [...input.records, failed],
+      prior,
+    }),
+  ).toThrow("Duplicate");
+});
+
+test("successor exit verification includes every retained recovery executor", async () => {
+  const prior = {
+    request: fixture(),
+    executor: { ...fixture().plan.executor.identity, pid: 31 },
+  };
+  const current = {
+    request: fixture(),
+    executor: { ...fixture().plan.executor.identity, pid: 41 },
+    priorExits: [prior],
+  };
+  prior.request.plan.executor.identity.pid = 30;
+  current.request.plan.executor.identity.pid = 40;
+  const seen: number[] = [];
+  await verifyClaimedSuccessorExit(current, {
+    verifyProcessExited: async (pid) => {
+      seen.push(pid);
+    },
+  });
+  expect(seen).toEqual([30, 31, 40, 41]);
+  for (const live of seen) {
+    await expect(
+      verifyClaimedSuccessorExit(current, {
+        verifyProcessExited: async (pid) => {
+          if (pid === live) throw Error("still live");
+        },
+      }),
+    ).rejects.toThrow("lifetime exit is unproven");
+  }
+});
+
+async function retainedRecoveryChainFixture() {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "claimed-chain-")));
+  const save = (file: string, value: unknown) => {
+    const bytes = JSON.stringify(value);
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  const pin = save(path.join(directory, "artifact.json"), {});
+  const first = successorHistoryFixture();
+  const terminal = first.records[0];
+  const adapt = (record: typeof terminal) => {
+    record.plan.installationId = terminal.plan.installationId;
+    record.plan.service = terminal.plan.service;
+    record.plan.state = {
+      directory,
+      restartJournal: path.join(directory, "restart-jobs.json"),
+      ownerSessions: path.join(directory, "owner-sessions.json"),
+    };
+    for (const release of [
+      record.plan.previous,
+      record.plan.candidate,
+      record.plan.compatibleRecovery,
+    ]) {
+      if (release) {
+        release.configuration = pin;
+        release.launcher = pin;
+      }
+    }
+    record.planSha256 = coordinatorPlanDigest(record.plan);
+  };
+  adapt(terminal);
+  const reviews: BootstrapClaimedRecoveryRequest[] = [];
+  const pending: (typeof terminal)[] = [];
+  const retained: { fence: string; birth: string; setup: string }[] = [];
+  const reference = (record: typeof terminal) => ({
+    ...identity(record),
+    generation: record.execution!.generation,
+  });
+  const addRecovery = (previous?: typeof terminal) => {
+    const recovery = fixture(directory);
+    const original = recovery.plan.original;
+    adapt(original);
+    if (previous) original.plan.recoveredFrom = reference(previous);
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    recovery.plan.selectedConfiguration = pin;
+    recovery.plan.selectedLauncher = pin;
+    recovery.planSha256 = claimedRecoveryPlanDigest(recovery.plan);
+    const fenced = {
+      ...structuredClone(original),
+      revision: randomUUID(),
+      execution: { ...original.execution!, stage: "recovery_required" as const },
+    };
+    recovery.execution!.stage = "succeeded";
+    const fence = path.join(
+      directory,
+      `coordinator-claim-fence-${recovery.execution!.generation}.json`,
+    );
+    save(fence, {
+      version: 1,
+      original,
+      fenced,
+      recovery: { ...identity(recovery), generation: recovery.execution!.generation },
+    });
+    const approvedRevision = randomUUID();
+    const request = { ...identity(recovery), revision: approvedRevision };
+    const setup = path.join(
+      directory,
+      `coordinator-claimed-launch-${recovery.id}-${approvedRevision}.json`,
+    );
+    const snapshot = save(setup, {
+      admissionSetupFile: pin.path,
+      daemonId: "fixture",
+      node: pin,
+      entrypoint: pin,
+      ownerLauncher: pin,
+      ownershipVerifier: pin,
+      runtimeDirectory: directory,
+      runtimeSha256: pin.sha256,
+      version: 1,
+      kind: "bootstrap-claimed-recovery",
+      stateDirectory: directory,
+      request,
+      original: identity(original),
+      inspector: pin,
+      selectedLauncherFile: pin.path,
+      renewal: {
+        version: 1,
+        originalSetup: pin,
+        originalAdmission: pin,
+        terminal: reference(terminal),
+        configuration: pin,
+        sourceCommit: original.plan.candidate.sourceCommit,
+        source: pin,
+        hostProcess: recovery.plan.hostProcess,
+      },
+    });
+    const attemptId = randomUUID();
+    const executor = {
+      ...recovery.plan.executor,
+      identity: {
+        ...recovery.plan.executor.identity,
+        pid: recovery.plan.executor.identity.pid + 100,
+      },
+    };
+    save(
+      path.join(directory, `coordinator-claimed-attempt-${recovery.id}-${approvedRevision}.json`),
+      { version: 1, request, setup, launcherPid: executor.identity.pid, attemptId },
+    );
+    const birth = path.join(
+      directory,
+      `coordinator-claimed-executor-${recovery.id}-${approvedRevision}.json`,
+    );
+    save(birth, { version: 1, request, attemptId, setup: snapshot, executor });
+    reviews.push(recovery);
+    pending.push(fenced);
+    retained.push({ fence, birth, setup });
+    return fenced;
+  };
+  const recovered = addRecovery();
+  const failed = structuredClone(recovered);
+  failed.id = randomUUID();
+  failed.revision = randomUUID();
+  failed.execution!.generation = randomUUID();
+  failed.plan.recoveredFrom = reference(recovered);
+  failed.planSha256 = coordinatorPlanDigest(failed.plan);
+  pending.push(failed);
+  addRecovery(failed);
+  save(path.join(directory, "coordinator-bootstrap.json"), { version: 1, requests: [terminal] });
+  save(path.join(directory, "coordinator-bootstrap-pending.json"), {
+    version: 1,
+    requests: pending,
+    promotions: [],
+  });
+  new FileClaimedRecoveryReviewJournal(directory).replaceReviews([], reviews);
+  const records = new FileBootstrapRequestJournal(directory).read();
+  const { readClaimedSuccessorEvidence } =
+    await import("./coordinator-bootstrap-claimed-successor.js");
+  const read = () =>
+    readClaimedSuccessorEvidence({
+      records,
+      roots: [],
+      identity: { ...first.identity, stateDirectory: directory },
+    });
+  return { directory, records, retained, terminal, pending, read };
+}
+
+test.each([
+  "valid",
+  "missing-fence",
+  "forged-fence",
+  "missing-birth",
+  "changed-setup",
+  "duplicate",
+  "cycle",
+  "stale-predecessor",
+  "competing-claim",
+])("complete retained recovery chain validates every predecessor: %s", async (mode) => {
+  const f = await retainedRecoveryChainFixture();
+  try {
+    const old = f.retained[0];
+    if (mode === "missing-fence") rmSync(old.fence);
+    if (mode === "forged-fence") writeFileSync(old.fence, "{}", { mode: 0o600 });
+    if (mode === "missing-birth") rmSync(old.birth);
+    if (mode === "changed-setup") writeFileSync(old.setup, "{}", { mode: 0o600 });
+    if (mode === "duplicate") f.records.push(structuredClone(f.records[0]));
+    if (mode === "cycle") {
+      const a = f.records[1],
+        b = f.records[2];
+      a.plan.recoveredFrom = { ...identity(b), generation: b.execution!.generation };
+      b.plan.recoveredFrom = { ...identity(a), generation: a.execution!.generation };
+    }
+    if (mode === "stale-predecessor") f.records[2].revision = randomUUID();
+    if (mode === "competing-claim")
+      f.records.push({
+        ...structuredClone(f.records.at(-1)!),
+        id: randomUUID(),
+        execution: { ...f.records.at(-1)!.execution!, stage: "claimed" },
+      });
+    if (mode !== "valid") {
+      if (mode === "competing-claim") expect(await f.read()).toBeUndefined();
+      else await expect(f.read()).rejects.toThrow();
+    } else {
+      const evidence = await f.read();
+      expect(evidence?.terminal.request.id).toBe(f.terminal.id);
+      expect(evidence?.recoveredFrom.id).toBe(f.pending[2].id);
+      expect(evidence?.priorExits).toHaveLength(1);
+      expect(new FileBootstrapRequestJournal(f.directory).read()).toEqual(f.records);
+    }
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
