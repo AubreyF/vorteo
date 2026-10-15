@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Coordinator approval responses allow up to one hour for protected-release verification. Cancellation keeps its existing timeout. Status refresh still exposes a newer durable decision and releases the busy state before a delayed response arrives; no approval is resent. README overview and onboarding are unchanged.
+
 Coordinator preparation clients can choose a longer response timeout for protected release verification. The default remains fifteen minutes; capability checks, exact request identity and separate owner approval are unchanged. Delayed success and validation errors are covered by client tests. README overview and onboarding are unchanged.
 
 Reset-label and theme-logo integration preserves the installed embedded-card spacing and viewport height limits.

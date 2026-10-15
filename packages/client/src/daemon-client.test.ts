@@ -8595,6 +8595,73 @@ test.each([null, "Prepared artifact changed"])(
   },
 );
 
+test.each([null, "Approved artifact changed"])(
+  "bootstrap approval retains a delayed response without resending: %s",
+  async (responseError) => {
+    useHeartbeatClock();
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "bootstrap-long-approval",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: { coordinatorBootstrapReview: true, coordinatorBootstrapPreviewMonitor: true },
+    });
+    await connecting;
+    const input = {
+      id: bootstrapMonitorPreparation().id,
+      revision: "00000000-0000-4000-8000-000000000003",
+      planSha256: "f".repeat(64),
+      decision: "approve" as const,
+    };
+    const preparing = client.decideCoordinatorBootstrap(input, "fixture-owner-password");
+    let settled = false;
+    void preparing.then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      () => {
+        settled = true;
+        return undefined;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(35 * 60_000);
+    expect(settled).toBe(false);
+    const sessionFrames = () =>
+      mock.sent
+        .filter((data) => JSON.parse(assertStr(data)).type === "session")
+        .map(parseSentFrame);
+    const frames = sessionFrames().filter(
+      (frame) => frame.type === "installation.bootstrap.decide.request",
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0].input).toEqual(input);
+    expect(frames[0].previewMonitor).toBe(true);
+    expect(frames[0].ownerPassword).toBe("fixture-owner-password");
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.decide.response",
+        payload: {
+          requestId: frames[0].requestId,
+          requests: responseError ? null : [],
+          error: responseError,
+        },
+      }),
+    );
+    if (responseError) await expect(preparing).rejects.toThrow(responseError);
+    else await expect(preparing).resolves.toEqual([]);
+    expect(
+      sessionFrames().filter((frame) => frame.type === "installation.bootstrap.decide.request"),
+    ).toHaveLength(1);
+  },
+);
+
 test("source tooling preparation refuses an older Host before sending", async () => {
   const mock = createMockTransport();
   const client = new DaemonClient({
