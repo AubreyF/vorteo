@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Details cards share 8px of bottom body clearance for scrolling lists, prose and embedded panels. Goal and Journal use the shared value rather than local overrides; heading and row spacing remain unchanged. README overview and onboarding are unchanged.
+
 Recording-queue integration preserves the installed compact card tooltips, balanced button spacing and full-width collapsed sidebar headers.
 
 Recording controls expose Queue whenever the conversation supports queuing, including tablets in desktop layout. Queue sits immediately left of Submit along the bottom action row and uses the existing explicit transcription-to-queue intent. Processing and failed recordings retain their existing retry controls. README overview and onboarding are unchanged.

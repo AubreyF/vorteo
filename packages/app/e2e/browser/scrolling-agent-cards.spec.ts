@@ -689,7 +689,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const subagentScrolls = await page
         .getByTestId("subagents-card-body-scroll")
         .evaluate((node) => node.scrollHeight > node.clientHeight);
-      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(2, 0);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(8, 0);
       if (width === 1200) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -1321,7 +1321,7 @@ async function checkFixedHeaders(
   await page.reload();
   await expect(page.getByTestId("shared-message-queue")).toContainText("Scroll queue row 9");
 
-  for (const width of [1800, 390]) {
+  for (const width of [1800, 1133, 390]) {
     await page.setViewportSize({ width, height: 400 });
     await revealSupportingCards(page, width);
     for (const id of [
@@ -2505,7 +2505,7 @@ test("quiet queue and subagent rows align with header actions without hover fill
       attachments: [],
     });
     await openAgentRoute(page, agent);
-    for (const width of [1800, 390]) {
+    for (const width of [1800, 1133, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       await revealSupportingCards(page, width);
       const card = page.getByTestId("subagents-card");
@@ -2537,6 +2537,18 @@ test("quiet queue and subagent rows align with header actions without hover fill
         .boundingBox())!;
       const pause = (await queue.getByTestId("message-queue-pause-resume").boundingBox())!;
       expect(menu.x + menu.width / 2).toBeCloseTo(pause.x + pause.width / 2, 0);
+      for (const detailsCard of [card, queue]) {
+        const viewport = detailsCard.locator('[data-testid$="-body-scroll"]');
+        await viewport.evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        const bottomClearance = await viewport.evaluate((node) => {
+          const content = node.firstElementChild!;
+          const lastEntry = content.lastElementChild!;
+          return content.getBoundingClientRect().bottom - lastEntry.getBoundingClientRect().bottom;
+        });
+        expect(bottomClearance).toBeCloseTo(8, 0);
+      }
       await page.screenshot({
         path: info.outputPath(`quiet-rows-${width}.png`),
       });

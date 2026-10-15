@@ -48,7 +48,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
-import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
+import { TASK_CARD_BODY_INSET, TASK_CARD_BOTTOM_INSET, taskCardStyles } from "./task-card-styles";
 
 function CardSurfaceContext({
   report,
@@ -110,7 +110,6 @@ function cardHeight({
 function TaskCardView({
   insets = 0,
   flushBody = false,
-  bottomInset = 2,
   bodyVisible = true,
   bodyRef,
   panelHeight,
@@ -122,7 +121,6 @@ function TaskCardView({
   insets?: number;
   /** List rows own their horizontal alignment with header actions. */
   flushBody?: boolean;
-  bottomInset?: number;
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
   /** Panels such as file trees own their scrolling and need a bounded viewport. */
@@ -243,7 +241,7 @@ function TaskCardView({
                     height: Math.max(0, maxHeight - headerHeight - insets),
                     minHeight: 0,
                     paddingHorizontal: spacingInset,
-                    paddingBottom: spacingInset,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                   !bodyVisible && taskCardStyles.hiddenBody,
                 ]}
@@ -266,7 +264,7 @@ function TaskCardView({
                   inlineUnistylesStyle({
                     paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + spacingInset,
                     paddingTop: 2,
-                    paddingBottom: bottomInset,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                 ]}
                 nestedScrollEnabled
@@ -329,7 +327,8 @@ function ContentTaskCard({
             taskCardStyles.bodyContent,
             inlineUnistylesStyle({
               paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + inset,
-              paddingVertical: 2,
+              paddingTop: 2,
+              paddingBottom: TASK_CARD_BOTTOM_INSET,
             }),
             !bodyVisible && taskCardStyles.hiddenBody,
           ]}

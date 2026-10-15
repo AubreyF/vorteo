@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.519 - 2026-10-14
+
+### Fixed
+
+- Give details-card bodies a shared 8px bottom clearance, including Queue, Tasks, subagents, Goal, Journal and embedded file/change panels.
+- Preserve tight heading spacing while keeping the final entry clear of the card edge.
+
 ## 0.11.0-beta.3.vorteo.518 - 2026-10-14
 
 ### Maintenance

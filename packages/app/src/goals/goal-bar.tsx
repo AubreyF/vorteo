@@ -64,7 +64,7 @@ export function GoalBar({ control, onExpand, queueNotice, onReviewMessages }: Go
   const label = notice ? "Goal" : goalBarLabel(control);
 
   return (
-    <TaskCard bottomInset={8} testID="agent-goal-bar" bodyVisible={expanded} notice={fixedNotice}>
+    <TaskCard testID="agent-goal-bar" bodyVisible={expanded} notice={fixedNotice}>
       <TaskCardHeader>
         <CardDisclosure
           icon={HEADING_ICON}
