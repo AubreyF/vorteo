@@ -4,6 +4,8 @@ import type {
   BootstrapClaimedRecoveryRequestView,
   BootstrapClaimedObservation,
   CoordinatorBootstrapInbound,
+  CoordinatorBootstrapPreparation,
+  CoordinatorSubmissionProof,
   CoordinatorBootstrapOutbound,
   CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryInbound,
@@ -36,6 +38,10 @@ export type BootstrapReviewService = Pick<
   "list" | "prepare" | "decide"
 > & {
   automatic?: {
+    prepare?(
+      input: CoordinatorBootstrapPreparation,
+      proof: CoordinatorSubmissionProof,
+    ): Promise<CoordinatorBootstrapRequest>;
     reconcile(id: string): Promise<CoordinatorBootstrapRequest>;
   };
   available?: boolean;
@@ -44,6 +50,14 @@ export type BootstrapReviewService = Pick<
   preclaimRecovery?: PreclaimRecoveryReviewService;
   claimedRecovery?: ClaimedRecoveryReviewService;
 };
+
+function automaticReviewFeatures(service: BootstrapReviewService | undefined, available: boolean) {
+  return {
+    coordinatorBootstrapAutomaticReconciliation: available && service?.automatic !== undefined,
+    coordinatorBootstrapAuthenticatedSubmission:
+      available && service?.automatic?.prepare !== undefined,
+  };
+}
 
 export function bootstrapReviewFeatures(service: BootstrapReviewService | undefined) {
   const available =
@@ -64,7 +78,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
-    coordinatorBootstrapAutomaticReconciliation: available && service?.automatic !== undefined,
+    ...automaticReviewFeatures(service, available),
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
       : {}),
@@ -147,6 +161,24 @@ export async function handlePreclaimRecoveryReview(
   }
 }
 
+async function prepareCoordinatorReview(
+  service: BootstrapReviewService,
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.prepare.request" }>,
+): Promise<void> {
+  if (!message.submissionProof) {
+    await service.prepare(message.input);
+    return;
+  }
+  if (
+    !bootstrapReviewFeatures(service).coordinatorBootstrapAuthenticatedSubmission ||
+    !service.automatic?.prepare
+  )
+    throw new BootstrapRequestConflict(
+      "Authenticated coordinator submission is unavailable on this Host",
+    );
+  await service.automatic.prepare(message.input, message.submissionProof);
+}
+
 async function reconcileAutomaticReview(
   service: BootstrapReviewService,
   id: string,
@@ -189,7 +221,7 @@ export async function handleBootstrapReview(
     if (message.type === "installation.bootstrap.reconcile_automatic.request")
       await reconcileAutomaticReview(service, message.id);
     if (message.type === "installation.bootstrap.prepare.request")
-      await service.prepare(message.input);
+      await prepareCoordinatorReview(service, message);
     if (message.type === "installation.bootstrap.decide.request") {
       const request = service.list().find((item) => item.id === message.input.id);
       assertSourceUpdateToolingReview(message, request);

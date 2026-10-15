@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.538 - 2026-10-15
+
+### Maintenance
+
+- Record authenticated coordinator provenance atomically with preparation. Remove the later stamping operation so retries cannot convert an existing manual request to automatic authority.
+- Bind scoped submission proofs to the exact request, reason, plan, policy activation and installation credentials. The native Host verifies the proof and current permission before committing preparation; generic daemon sessions cannot mint that authority.
+- Retain a private monotonic preference timestamp so rapid disable and re-enable cannot revive an earlier activation. Public preference responses remain unchanged.
+- Add proof, revocation, idempotency and client capability tests. The scoped HTTP route, timer integration, public authorization status and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.537 - 2026-10-15
 
 ### Maintenance

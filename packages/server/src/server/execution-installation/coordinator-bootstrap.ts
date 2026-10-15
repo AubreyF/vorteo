@@ -211,6 +211,13 @@ export class CoordinatorBootstrapRequests {
   }
 
   async prepare(value: unknown): Promise<CoordinatorBootstrapRequest> {
+    return this.prepareRequest(value);
+  }
+
+  private async prepareRequest(
+    value: unknown,
+    authority?: CoordinatorAutomaticAuthority,
+  ): Promise<CoordinatorBootstrapRequest> {
     const input = CoordinatorBootstrapPreparationSchema.parse(value);
     if (input.plan.bootRecovery && input.plan.bootRecovery.requestId !== input.id)
       throw new BootstrapRequestConflict("Boot recovery must bind the exact maintenance request");
@@ -221,6 +228,14 @@ export class CoordinatorBootstrapRequests {
     if (existing) {
       if (existing.planSha256 !== digest || existing.reason !== input.reason)
         throw new BootstrapRequestConflict("This request ID already names different prepared work");
+      if (
+        authority &&
+        (!existing.automaticSubmission ||
+          !this.matchesAutomaticAuthority(existing.automaticSubmission, authority))
+      )
+        throw new BootstrapRequestConflict(
+          "Existing coordinator request cannot acquire automatic authority",
+        );
       return existing;
     }
     const recovered = assertRecoveredBootstrapBase(input.plan, expected);
@@ -244,7 +259,11 @@ export class CoordinatorBootstrapRequests {
       throw new BootstrapRequestConflict("A coordinator bootstrap request is already open");
     await this.verifyPreparedBytes(input.plan);
     this.requireSameBinding(binding, input.plan);
+    if (authority) this.requireSubmissionAuthority(authority);
     const request: CoordinatorBootstrapRequest = {
+      ...(authority
+        ? { automaticSubmission: { ...authority, submittedAt: new Date(this.now()).toISOString() } }
+        : {}),
       id: input.id,
       revision: randomUUID(),
       requestedBy: "host-agent",
@@ -258,51 +277,26 @@ export class CoordinatorBootstrapRequests {
     return structuredClone(request);
   }
 
-  /** Internal scoped admission only. Generic review RPCs never expose this method
-   * or accept provenance in their preparation payload. */
-  recordAutomaticSubmission(
+  /** Native admission calls this only after verifying exact scoped submission.
+   * Provenance is inserted with preparation, never attached to an old request. */
+  async prepareAutomatic(
     value: unknown,
-    credentialBinding: string,
-  ): CoordinatorBootstrapRequest {
-    const input = dispatchIdentity.parse(value);
-    const expected = this.read();
-    const request = expected.find((item) => item.id === input.id);
+    authority: CoordinatorAutomaticAuthority,
+  ): Promise<CoordinatorBootstrapRequest> {
+    this.requireSubmissionAuthority(authority);
+    return this.prepareRequest(value, authority);
+  }
+
+  private requireSubmissionAuthority(authority: CoordinatorAutomaticAuthority): void {
+    CoordinatorAutomaticAuthoritySchema.parse(authority);
+    const current = CoordinatorAutomaticAuthoritySchema.nullable().parse(this.automaticAuthority());
     if (
-      !request ||
-      request.planSha256 !== input.planSha256 ||
-      request.status !== "pending" ||
-      request.execution
-    )
-      throw new BootstrapRequestConflict("Exact pending coordinator submission required");
-    this.readBinding(request.plan);
-    const authority = CoordinatorAutomaticAuthoritySchema.nullable().parse(
-      this.automaticAuthority(),
-    );
-    if (
-      !authority ||
-      credentialBinding !== authority.credentialBinding ||
-      Date.parse(request.createdAt) < Date.parse(authority.policyActivatedAt)
+      !this.matchesAutomaticAuthority(authority, current) ||
+      this.now() < Date.parse(authority.policyActivatedAt)
     )
       throw new BootstrapAuthenticationRequired(
         "Current scoped Host coordinator permission required",
       );
-    if (request.automaticSubmission) {
-      if (!this.matchesAutomaticAuthority(request.automaticSubmission, authority))
-        throw new BootstrapRequestConflict("Coordinator submission authority changed");
-      return structuredClone(request);
-    }
-    if (request.revision !== input.revision)
-      throw new BootstrapRequestConflict("Coordinator submission changed before recording origin");
-    const next: CoordinatorBootstrapRequest = {
-      ...request,
-      revision: randomUUID(),
-      automaticSubmission: { ...authority, submittedAt: new Date(this.now()).toISOString() },
-    };
-    this.journal.replace(
-      expected,
-      expected.map((item) => (item.id === next.id ? next : item)),
-    );
-    return structuredClone(next);
   }
 
   private matchesAutomaticAuthority(

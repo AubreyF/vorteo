@@ -1,3 +1,9 @@
+import {
+  DaemonAutomation,
+  coordinatorAutomaticAuthority,
+  signCoordinatorSubmission,
+  verifyCoordinatorSubmission,
+} from "./daemon-automation.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -3148,6 +3154,14 @@ function automaticCoordinatorFixture() {
     ...f,
     service,
     prepare,
+    submit: () =>
+      service().prepareAutomatic(
+        { id: f.id, reason: "Automatic coordinator fixture", plan: f.plan },
+        {
+          credentialBinding: "b".repeat(64),
+          policyActivatedAt: "2026-10-15T00:00:00Z",
+        },
+      ),
     advance: () => {
       now += 30_000;
     },
@@ -3165,19 +3179,8 @@ function automaticCoordinatorFixture() {
 
 test("coordinator automation requires protected Host provenance and waits before exact dispatch", async () => {
   const f = automaticCoordinatorFixture();
-  const pending = await f.prepare();
-  await expect(f.service().approveAutomatic(automaticCoordinatorIdentity(pending))).rejects.toThrow(
-    "authority is missing",
-  );
-  expect(() =>
-    f.service().recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "c".repeat(64)),
-  ).toThrow("scoped Host");
-  const submitted = f
-    .service()
-    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
-  expect(
-    f.service().recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64)),
-  ).toEqual(submitted);
+  const submitted = await f.submit();
+  expect(await f.submit()).toEqual(submitted);
   const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
   expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
   await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
@@ -3208,10 +3211,7 @@ test.each(["pending", "approved", "validation", "claim"])(
   "coordinator permission revocation fences the %s boundary",
   async (boundary) => {
     const f = automaticCoordinatorFixture();
-    const pending = await f.prepare();
-    const submitted = f
-      .service()
-      .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+    const submitted = await f.submit();
     if (boundary === "validation") {
       f.setVerify(async () => {
         f.disable();
@@ -3249,10 +3249,7 @@ test.each(["pending", "approved", "validation", "claim"])(
 
 test("manual coordinator approval remains exact when automatic permission is revoked", async () => {
   const f = automaticCoordinatorFixture();
-  const pending = await f.prepare();
-  const submitted = f
-    .service()
-    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const submitted = await f.submit();
   const approved = await f.service().decide(
     {
       id: submitted.id,
@@ -3287,10 +3284,7 @@ test.each(["no-startup", "configuration", "other-service", "tooling"])(
       };
     if (change === "other-service") f.plan.nativeHelperConfiguration = null;
     if (change === "tooling") f.plan.sourceUpdateTooling = true;
-    const pending = await f.prepare();
-    const submitted = f
-      .service()
-      .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+    const submitted = await f.submit();
     await expect(
       f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
     ).rejects.toThrow();
@@ -3321,18 +3315,21 @@ test("generic coordinator preparation cannot inject provenance or grant old requ
     () => Date.parse("2026-10-15T00:00:30Z"),
     () => ({ credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:20Z" }),
   );
-  expect(() =>
-    later.recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64)),
-  ).toThrow("permission");
+  await expect(
+    later.prepareAutomatic(
+      { id: f.id, reason: pending.reason, plan: f.plan },
+      {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:20Z",
+      },
+    ),
+  ).rejects.toThrow("cannot acquire automatic authority");
   expect(later.list()[0]).toEqual(pending);
 });
 
 test("owner cancellation wins over in-flight automatic coordinator validation", async () => {
   const f = automaticCoordinatorFixture();
-  const pending = await f.prepare();
-  const submitted = f
-    .service()
-    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const submitted = await f.submit();
   f.setVerify(async () => {
     await f
       .service()
@@ -3347,10 +3344,7 @@ test("owner cancellation wins over in-flight automatic coordinator validation", 
 
 test("automatic coordinator launch reservation survives lost replies and permits cancellation", async () => {
   const f = automaticCoordinatorFixture();
-  const pending = await f.prepare();
-  const submitted = f
-    .service()
-    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const submitted = await f.submit();
   const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
   expect(() =>
     f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
@@ -3389,10 +3383,7 @@ test("automatic coordinator launch reservation survives lost replies and permits
 
 test("coordinator revocation after launch reservation prevents the native claim", async () => {
   const f = automaticCoordinatorFixture();
-  const pending = await f.prepare();
-  const submitted = f
-    .service()
-    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const submitted = await f.submit();
   const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
   f.advance();
   const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
@@ -3435,11 +3426,157 @@ test("automatic coordinator RPC cannot mint provenance and refuses unavailable s
   const forged = await handleBootstrapReview(message, service);
   expect(forged.payload.error).toContain("missing or revoked");
   expect(requests.list()[0].status).toBe("pending");
-  requests.recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
-  const approved = await handleBootstrapReview(message, service);
-  expect(approved.payload.error).toBeNull();
-  expect(approved.payload.requests?.[0].status).toBe("approved");
-  expect(approved.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
-  expect(approved.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
-  expect(approved.payload.requests?.[0]).not.toHaveProperty("execution");
+  await expect(f.submit()).rejects.toThrow("cannot acquire automatic authority");
+  expect(requests.list()[0]).toEqual(pending);
+});
+
+test.each(["disable", "rotate"] as const)(
+  "automatic preparation rejects %s during native validation without a partial request",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    f.setVerify(async () => {
+      f[change]();
+    });
+    await expect(f.submit()).rejects.toThrow("permission required");
+    expect(f.service().list()).toEqual([]);
+  },
+);
+
+test("scoped coordinator proof binds the exact preparation, policy and credentials", () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  const input = { id: randomUUID(), reason: "Exact authenticated preparation", plan: f.plan };
+  expect(() => signCoordinatorSubmission(config, input)).toThrow("disabled");
+  const preference = new DaemonAutomation(f.root, false);
+  const enabled = preference.change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const proof = signCoordinatorSubmission(config, input);
+  expect(verifyCoordinatorSubmission(config, input, proof)).toEqual(
+    coordinatorAutomaticAuthority(config),
+  );
+  expect(signCoordinatorSubmission(config, input)).toEqual(proof);
+  for (const changed of [
+    { ...input, id: randomUUID() },
+    { ...input, reason: "Different reason" },
+    {
+      ...input,
+      plan: { ...input.plan, candidate: { ...input.plan.candidate, sourceCommit: "f".repeat(40) } },
+    },
+  ])
+    expect(() => verifyCoordinatorSubmission(config, changed, proof)).toThrow();
+  for (const key of ["hostAgentTokenHash", "containerAgentTokenHash", "ownerPasswordHash"] as const)
+    expect(() =>
+      verifyCoordinatorSubmission({ ...config, [key]: "c".repeat(64) }, input, proof),
+    ).toThrow("Exact scoped Host");
+  expect(() =>
+    verifyCoordinatorSubmission(config, input, { ...proof, signature: "0".repeat(64) }),
+  ).toThrow("Exact scoped Host");
+  preference.change({ expectedRevision: enabled.revision, service: "coordinator", enabled: false });
+  expect(() => verifyCoordinatorSubmission(config, input, proof)).toThrow("disabled");
+});
+
+test("same-millisecond permission reactivation retains a distinct epoch across reopening", () => {
+  const f = fixture();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-15T00:00:00Z"));
+  try {
+    const preference = new DaemonAutomation(f.root, false);
+    const first = preference.change({
+      expectedRevision: null,
+      service: "coordinator",
+      enabled: true,
+    });
+    const disabled = preference.change({
+      expectedRevision: first.revision,
+      service: "coordinator",
+      enabled: false,
+    });
+    const enabled = new DaemonAutomation(f.root, false).change({
+      expectedRevision: disabled.revision,
+      service: "coordinator",
+      enabled: true,
+    });
+    expect(Date.parse(enabled.services!.coordinator!)).toBeGreaterThan(
+      Date.parse(first.services!.coordinator!),
+    );
+    expect(enabled.services!.host).toBe(first.services!.host);
+    expect(preference.read()).not.toHaveProperty("changedAt");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("authenticated preparation RPC validates proof before atomically recording provenance", async () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  new DaemonAutomation(f.root, false).change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const input = { id: randomUUID(), reason: "Scoped preparation", plan: f.plan };
+  const proof = signCoordinatorSubmission(config, input);
+  const requests = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    Date.now,
+    () => coordinatorAutomaticAuthority(config),
+  );
+  const message = {
+    type: "installation.bootstrap.prepare.request" as const,
+    requestId: "authenticated-preparation",
+    input,
+    submissionProof: proof,
+  };
+  expect((await handleBootstrapReview(message, requests)).payload.error).toContain("unavailable");
+  expect(requests.list()).toEqual([]);
+  const service = Object.assign(requests, {
+    automatic: {
+      prepare: async (value: typeof input, supplied: typeof proof) =>
+        requests.prepareAutomatic(value, verifyCoordinatorSubmission(config, value, supplied)),
+      reconcile: async () => {
+        throw new Error("No dispatch from preparation");
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(
+    { ...message, submissionProof: { ...proof, signature: "0".repeat(64) } },
+    service,
+  );
+  expect(forged.payload.error).toContain("Exact scoped Host");
+  expect(requests.list()).toEqual([]);
+  const prepared = await handleBootstrapReview(message, service);
+  expect(prepared.payload.error).toBeNull();
+  expect(prepared.payload.requests?.[0].status).toBe("pending");
+  expect(prepared.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  const retained = requests.list()[0];
+  expect(retained.automaticSubmission).toMatchObject(coordinatorAutomaticAuthority(config)!);
+  expect(retained).not.toHaveProperty("execution");
+  expect((await handleBootstrapReview(message, service)).payload.error).toBeNull();
+  expect(requests.list()).toEqual([retained]);
 });

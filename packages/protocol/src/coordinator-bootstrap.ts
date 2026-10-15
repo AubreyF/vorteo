@@ -156,6 +156,11 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
 });
+export const CoordinatorSubmissionProofSchema = z.strictObject({
+  policyActivatedAt: z.string().datetime(),
+  signature: DigestSchema,
+});
+export type CoordinatorSubmissionProof = z.infer<typeof CoordinatorSubmissionProofSchema>;
 export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.prepare.request"),
   requestId: z.string(),
@@ -165,6 +170,7 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
+  submissionProof: CoordinatorSubmissionProofSchema.optional(),
 });
 export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap.decide.request"),

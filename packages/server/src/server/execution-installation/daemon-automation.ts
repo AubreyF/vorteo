@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { z } from "zod";
+import { createHash, createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -10,12 +11,65 @@ import {
 import { writePrivateFileAtomicSync } from "../private-files.js";
 import { RestartRequestError } from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
-import type { CoordinatorAutomaticAuthority } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  CoordinatorBootstrapPreparationSchema,
+  CoordinatorSubmissionProofSchema,
+  type CoordinatorSubmissionProof,
+  type CoordinatorAutomaticAuthority,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import { BootstrapAuthenticationRequired, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
+
+type CoordinatorAutomationConfig = Pick<
+  InstallationConfig,
+  "public" | "stateDir" | "hostAgentTokenHash" | "containerAgentTokenHash" | "ownerPasswordHash"
+>;
+
+/** Only scoped Host admission signs. The proof authorizes one exact preparation,
+ * not a generic daemon session, and carries neither credentials nor reusable keys. */
+export function signCoordinatorSubmission(
+  config: CoordinatorAutomationConfig,
+  input: unknown,
+): CoordinatorSubmissionProof {
+  const authority = coordinatorAutomaticAuthority(config);
+  if (!authority)
+    throw new BootstrapAuthenticationRequired("Coordinator automatic permission is disabled");
+  const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
+  const signature = createHmac("sha256", Buffer.from(config.hostAgentTokenHash, "hex"))
+    .update(
+      JSON.stringify({
+        scope: "coordinator-submission-v1",
+        authority,
+        id: prepared.id,
+        reason: prepared.reason,
+        planSha256: coordinatorPlanDigest(prepared.plan),
+      }),
+    )
+    .digest("hex");
+  return { policyActivatedAt: authority.policyActivatedAt, signature };
+}
+
+export function verifyCoordinatorSubmission(
+  config: CoordinatorAutomationConfig,
+  input: unknown,
+  value: unknown,
+): CoordinatorAutomaticAuthority {
+  const proof = CoordinatorSubmissionProofSchema.parse(value);
+  const expected = signCoordinatorSubmission(config, input);
+  if (
+    proof.policyActivatedAt !== expected.policyActivatedAt ||
+    !timingSafeEqual(Buffer.from(proof.signature, "hex"), Buffer.from(expected.signature, "hex"))
+  )
+    throw new BootstrapAuthenticationRequired("Exact scoped Host coordinator submission required");
+  const authority = coordinatorAutomaticAuthority(config);
+  if (!authority || authority.policyActivatedAt !== proof.policyActivatedAt)
+    throw new BootstrapAuthenticationRequired("Coordinator automatic permission changed");
+  return authority;
+}
 
 /** Read protected installation state on each decision and claim. No daemon or
  * legacy permission can supply a coordinator activation epoch. */
 export function coordinatorAutomaticAuthority(
-  config: InstallationConfig,
+  config: CoordinatorAutomationConfig,
 ): CoordinatorAutomaticAuthority | null {
   const policyActivatedAt = new DaemonAutomation(config.stateDir, false).activation("coordinator");
   if (!policyActivatedAt) return null;
@@ -33,6 +87,10 @@ export function coordinatorAutomaticAuthority(
   return { credentialBinding, policyActivatedAt };
 }
 
+const StoredPreferenceSchema = DaemonAutomationPreferenceSchema.extend({
+  changedAt: z.string().datetime().optional(),
+});
+
 /** Owner preference lives with the coordinator, not a browser or a replaceable daemon. */
 export class DaemonAutomation {
   private readonly file: string;
@@ -45,6 +103,11 @@ export class DaemonAutomation {
   }
 
   read(): DaemonAutomationPreference {
+    const { changedAt: _changedAt, ...preference } = this.readStored();
+    return preference;
+  }
+
+  private readStored(): z.infer<typeof StoredPreferenceSchema> {
     if (!existsSync(this.file)) {
       return {
         revision: null,
@@ -53,9 +116,7 @@ export class DaemonAutomation {
         legacyHostOnly: this.legacyHostOnly,
       };
     }
-    const state = DaemonAutomationPreferenceSchema.parse(
-      JSON.parse(readFileSync(this.file, "utf8")),
-    );
+    const state = StoredPreferenceSchema.parse(JSON.parse(readFileSync(this.file, "utf8")));
     if (
       !state.revision ||
       state.legacyHostOnly ||
@@ -85,7 +146,7 @@ export class DaemonAutomation {
 
   change(input: unknown): DaemonAutomationPreference {
     const change = DaemonAutomationChangeSchema.parse(input);
-    const current = this.read();
+    const current = this.readStored();
     if (change.expectedRevision !== current.revision) {
       throw new RestartRequestError("Daemon automation preference changed. Refresh before saving.");
     }
@@ -97,8 +158,16 @@ export class DaemonAutomation {
       current.revision !== null &&
       targets.every((service) => Boolean(services[service]) === change.enabled)
     )
-      return current;
-    const activatedAt = change.enabled ? new Date().toISOString() : null;
+      return this.read();
+    // Persist every transition, including disable, so an immediate re-enable or
+    // a clock correction cannot revive a grant from the previous activation.
+    const previousActivations = Object.values(services).map((value) =>
+      value ? Date.parse(value) : 0,
+    );
+    const previousChange = Date.parse(current.changedAt ?? "1970-01-01T00:00:00Z");
+    const lastChange = Math.max(previousChange, ...previousActivations);
+    const changedAt = new Date(Math.max(Date.now(), lastChange + 1)).toISOString();
+    const activatedAt = change.enabled ? changedAt : null;
     for (const service of targets) services[service] = activatedAt;
     const enabled = Boolean(services.host && services["container-daemon"]);
     const next: DaemonAutomationPreference = {
@@ -108,7 +177,7 @@ export class DaemonAutomation {
       legacyHostOnly: false,
       services,
     };
-    writePrivateFileAtomicSync(this.file, JSON.stringify(next));
+    writePrivateFileAtomicSync(this.file, JSON.stringify({ ...next, changedAt }));
     // The preference must survive power loss before the queue can grant authority.
     for (const target of [this.file, this.stateDir]) {
       const fd = openSync(target, "r");

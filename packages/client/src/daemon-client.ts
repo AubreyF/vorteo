@@ -1,6 +1,7 @@
 import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
 import type {
   CoordinatorBootstrapPreparation,
+  CoordinatorSubmissionProof,
   CoordinatorBootstrapDecision,
   CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
@@ -3874,12 +3875,23 @@ export class DaemonClient {
       throw new Error("Update the Host before preparing startup recovery.");
   }
 
+  private assertAuthenticatedCoordinatorSubmission(
+    proof: CoordinatorSubmissionProof | undefined,
+  ): void {
+    if (
+      proof &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapAuthenticatedSubmission !== true
+    )
+      throw new Error("Update the Host before submitting authenticated coordinator maintenance.");
+  }
+
   async prepareCoordinatorBootstrap(
     input: CoordinatorBootstrapPreparation,
-    options: { timeout?: number } = {},
+    options: { timeout?: number; submissionProof?: CoordinatorSubmissionProof } = {},
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
     this.assertBootRecoveryPreparation(input);
+    this.assertAuthenticatedCoordinatorSubmission(options.submissionProof);
     if (
       input.plan.sourceUpdateTooling === true &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
@@ -3900,6 +3912,7 @@ export class DaemonClient {
         message: {
           type: "installation.bootstrap.prepare.request",
           input,
+          submissionProof: options.submissionProof,
           ...this.bootstrapReviewCapabilities(),
         },
         // Large protected releases can outlast the interactive default. This

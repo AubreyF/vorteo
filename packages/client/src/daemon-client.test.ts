@@ -9168,3 +9168,59 @@ test.each([false, true])(
     expect(mock.sent).toHaveLength(1);
   },
 );
+
+test.each([false, true])(
+  "authenticated coordinator submission requires its Host capability: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const logger = createMockLogger();
+    const trace = createTraceRecorder();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "scoped-coordinator",
+      logger,
+      trace: trace.trace,
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAuthenticatedSubmission: supported,
+      },
+    });
+    await connecting;
+    const submissionProof = {
+      policyActivatedAt: "2026-10-15T00:00:00Z",
+      signature: "a".repeat(64),
+    };
+    const result = client.prepareCoordinatorBootstrap(bootstrapMonitorPreparation(), {
+      submissionProof,
+    });
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toMatchObject({ type: "installation.bootstrap.prepare.request", submissionProof });
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.prepare.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(result).resolves.toEqual([]);
+    expect(
+      JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+      ]),
+    ).not.toContain(submissionProof.signature);
+    expect(JSON.stringify(trace.records)).not.toContain(submissionProof.signature);
+  },
+);

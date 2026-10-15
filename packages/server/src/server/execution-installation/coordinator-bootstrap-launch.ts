@@ -1,3 +1,4 @@
+import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
 import { lstatSync, constants, realpathSync, readdirSync } from "node:fs";
 import { open } from "node:fs/promises";
@@ -1492,6 +1493,18 @@ export async function createManagedBootstrapReview(
       return dispatch(request, false);
     },
     automatic: {
+      prepare: async (input, proof) => {
+        const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
+        const config = InstallationConfigSchema.parse(
+          readPrivateBootstrapConfiguration(
+            setup.renewal?.configuration.path ?? admission.configurationFile,
+            uid,
+          ),
+        );
+        const authority = verifyCoordinatorSubmission(config, prepared, proof);
+        await verifyCandidate(prepared);
+        return requests.prepareAutomatic(prepared, authority);
+      },
       reconcile: async (id) => {
         requests.revokeAutomatic();
         const request = requests.list().find((item) => item.id === id);
