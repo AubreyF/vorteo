@@ -1169,6 +1169,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapSourceUpdateTooling: false,
+      coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapUnavailableReason: unavailable!.unavailableReason,
     });
     expect(unavailable!.unavailableReason).toContain("maintenance is unavailable");

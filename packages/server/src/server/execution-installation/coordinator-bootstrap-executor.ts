@@ -39,6 +39,8 @@ export interface BootstrapExecutorOperations {
     failure: BootstrapExecutorFailure,
   ): Promise<void>;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
+  /** Install only the exact reviewed independent startup service before any freeze. */
+  armBootRecovery?(request: CoordinatorBootstrapRequest): Promise<void>;
   freeze(request: CoordinatorBootstrapRequest): Promise<void>;
   inspectFrozen(request: CoordinatorBootstrapRequest): Promise<FrozenCoordinatorState>;
   /** Fsync the accepted journal and revalidate stopped identity and inventory. */
@@ -64,6 +66,9 @@ export async function executeCoordinatorBootstrap(
   approval: Pick<CoordinatorBootstrapRequest, "id" | "revision" | "planSha256">,
   operations: BootstrapExecutorOperations,
 ): Promise<CoordinatorBootstrapRequest> {
+  const prepared = requests.list().find((item) => item.id === approval.id);
+  if (prepared?.plan.bootRecovery && !operations.armBootRecovery)
+    throw new BootstrapRequestConflict("This executor cannot arm approved startup recovery");
   let request = await requests.claimDispatch(approval);
   const advance = (stage: CoordinatorBootstrapStage) => {
     if (!request.execution) throw new BootstrapRequestConflict("Bootstrap execution is missing");
@@ -83,6 +88,7 @@ export async function executeCoordinatorBootstrap(
       try {
         operation = "watchdog";
         await operations.armWatchdog(request);
+        if (request.plan.bootRecovery) await operations.armBootRecovery!(request);
         operation = "promotion";
         requests.promoteDispatch(request);
         advance("freeze_pending");

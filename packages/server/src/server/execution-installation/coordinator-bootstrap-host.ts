@@ -38,6 +38,8 @@ import {
   verifyLoadedBootstrapService,
 } from "./coordinator-bootstrap-service.js";
 
+import { verifyBootstrapRecoveryArtifacts } from "./coordinator-bootstrap-boot-recovery.js";
+
 const execute = promisify(execFile);
 
 const CoordinatorBindingSchema = z.object({
@@ -200,6 +202,7 @@ export async function verifyBootstrapPlan(
     roots,
   );
   await verifySourceUpdateTooling(plan, roots);
+  await verifyBootstrapRecoveryArtifacts(plan, roots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, roots);
   const current = await readBootstrapLauncher(
@@ -239,6 +242,7 @@ export async function verifyBootstrapPlan(
     throw new BootstrapRequestConflict("Writable container mounts changed during verification");
   verifyBootstrapConfiguration({ plan, ...host });
   await verifySourceUpdateTooling(plan, finalRoots);
+  await verifyBootstrapRecoveryArtifacts(plan, finalRoots);
   for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)]))
     await verifyBootstrapReleaseArtifacts(release, finalRoots);
   await readBootstrapLauncher(

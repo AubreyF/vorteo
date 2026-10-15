@@ -186,6 +186,8 @@ export class CoordinatorBootstrapRequests {
 
   async prepare(value: unknown): Promise<CoordinatorBootstrapRequest> {
     const input = CoordinatorBootstrapPreparationSchema.parse(value);
+    if (input.plan.bootRecovery && input.plan.bootRecovery.requestId !== input.id)
+      throw new BootstrapRequestConflict("Boot recovery must bind the exact maintenance request");
     const binding = this.readBinding(input.plan);
     const expected = this.read();
     const digest = coordinatorPlanDigest(input.plan);

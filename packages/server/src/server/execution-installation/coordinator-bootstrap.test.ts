@@ -53,6 +53,13 @@ import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
 
+import {
+  bootstrapRecoveryLauncher,
+  registerBootstrapRecovery,
+  removeCompletedBootstrapRecovery,
+  verifyBootstrapRecoveryLauncher,
+} from "./coordinator-bootstrap-boot-recovery.js";
+
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -2663,4 +2670,368 @@ test("watchdog cannot release a replacement after dispatch ownership changes dur
     ),
   ).rejects.toThrow("ownership changed");
   expect(f.service().list()[0].execution?.stage).toBe("verifying");
+});
+
+function bootRecoveryFixture() {
+  const f = fixture();
+  const id = randomUUID();
+  const service = `${f.plan.service}-recovery-${id}`;
+  const identity = (file: string) => ({ path: file, sha256: "a".repeat(64) });
+  f.plan.bootRecovery = {
+    requestId: id,
+    service,
+    launcher: identity("/protected/prepared-recovery.plist"),
+    installedLauncher: `/Users/fixture/Library/LaunchAgents/${service.split("/")[2]}.plist`,
+    setup: identity("/protected/recovery-setup.json"),
+    ownerLauncher: identity(`${f.plan.candidate.directory}/scripts/run-coordinator-owner.py`),
+    node: f.plan.candidate.node,
+    entrypoint: identity(
+      `${f.plan.candidate.directory}/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js`,
+    ),
+  };
+  return { ...f, id };
+}
+
+test("startup recovery binds its request and all startup settings to the reviewed candidate", async () => {
+  const f = bootRecoveryFixture();
+  const launcher = bootstrapRecoveryLauncher(f.plan);
+  const input = { plan: f.plan, hostUid: 501, hostHome: "/Users/fixture", launcher };
+  expect(() => verifyBootstrapRecoveryLauncher(input)).not.toThrow();
+  for (const altered of [
+    { ...launcher, KeepAlive: true },
+    { ...launcher, RunAtLoad: false },
+    { ...launcher, EnvironmentVariables: { NODE_OPTIONS: "--require /other/code" } },
+    { ...launcher, ProgramArguments: [...launcher.ProgramArguments, "automatic-recovery"] },
+    { ...launcher, Label: "unrelated" },
+  ])
+    expect(() => verifyBootstrapRecoveryLauncher({ ...input, launcher: altered })).toThrow(
+      "startup settings",
+    );
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostUid: 502 })).toThrow("Host account");
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostHome: "/Users/other" })).toThrow(
+    "Host account",
+  );
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  expect(pending.plan.bootRecovery?.requestId).toBe(f.id);
+  await expect(f.prepare()).rejects.toThrow("exact maintenance request");
+});
+
+test("startup recovery refuses unrelated executables and startup destinations", () => {
+  const f = bootRecoveryFixture();
+  const original = f.plan.bootRecovery!;
+  for (const change of [
+    { node: { ...original.node, path: "/other/node" } },
+    { entrypoint: { ...original.entrypoint, path: "/other/runner.js" } },
+    { ownerLauncher: { ...original.ownerLauncher, path: "/other/owner.py" } },
+    { installedLauncher: "/Library/LaunchDaemons/unrelated.plist" },
+    { service: `${f.plan.service}-recovery-${randomUUID()}` },
+    { launcher: { ...original.launcher, path: original.installedLauncher } },
+  ]) {
+    const plan = { ...f.plan, bootRecovery: { ...original, ...change } };
+    expect(() =>
+      verifyBootstrapRecoveryLauncher({
+        plan,
+        hostUid: 501,
+        hostHome: "/Users/fixture",
+        launcher: bootstrapRecoveryLauncher(plan),
+      }),
+    ).toThrow();
+  }
+});
+
+test("strict legacy readers can cancel but cannot approve hidden startup recovery", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const service = f.service();
+  const reply = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "legacy" },
+    service,
+  );
+  const legacyRequest = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ bootRecovery: true }),
+  });
+  expect(() => legacyRequest.parse(pending)).toThrow();
+  const projected = legacyRequest.parse(reply.payload.requests![0]);
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.revision).toBe(pending.revision);
+  const hidden = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "hidden",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(hidden.payload.error).toContain("startup recovery");
+  expect(service.list()[0]?.status).toBe("pending");
+  const canceled = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "cancel",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "cancel" },
+    },
+    service,
+  );
+  expect(canceled.payload.error).toBeNull();
+  expect(service.list()[0]?.status).toBe("canceled");
+});
+
+test("startup recovery must be armed before a coordinator can be frozen", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const calls: string[] = [];
+  const unexpected = async () => {
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    armWatchdog: async () => {
+      calls.push("watchdog");
+    },
+    freeze: unexpected,
+    inspectFrozen: async () => {
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow("cannot arm");
+  expect(f.service().list()[0]?.execution).toBeUndefined();
+  expect(calls).toEqual([]);
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), {
+    ...operations,
+    armBootRecovery: async (claimed) => {
+      expect(claimed.execution?.stage).toBe("claimed");
+      calls.push("startup recovery");
+      throw new Error("Startup service registration failed");
+    },
+  });
+  expect(calls).toEqual(["watchdog", "startup recovery"]);
+  expect(result.execution?.stage).toBe("recovery_required");
+});
+
+test("replacement after reboot accepts a recycled PID only with approved boot recovery and exact fenced health", async () => {
+  const { plan } = bootRecoveryFixture();
+  const generation = randomUUID();
+  const recoveryBootId = randomUUID();
+  const candidate = {
+    pid: plan.expectedProcess.pid,
+    parentPid: 1,
+    uid: 501,
+    bootId: recoveryBootId,
+    startIdentity: "9999:123",
+    executable: plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(
+        JSON.stringify([
+          plan.candidate.node.path,
+          plan.candidate.entrypoint.path,
+          plan.candidate.configuration.path,
+        ]),
+      )
+      .digest("hex"),
+  };
+  const health = {
+    installationId: plan.installationId,
+    bootstrap: { generation, pid: candidate.pid, fenced: true },
+  };
+  const reader = {
+    readService: async () => `${plan.service} = {\n\tpid = ${candidate.pid}\n}`,
+    inspectProcess: async () => candidate,
+  };
+  const input = {
+    plan,
+    generation,
+    recoveryBootId,
+    hostUid: 501,
+    reader,
+    readHealth: async () => health,
+  };
+  await expect(verifyBootstrapReplacement(input)).resolves.toBeUndefined();
+  await expect(verifyBootstrapReplacement({ ...input, recoveryBootId: undefined })).rejects.toThrow(
+    "previous PID",
+  );
+  await expect(
+    verifyBootstrapReplacement({ ...input, recoveryBootId: plan.expectedProcess.bootId }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({ ...input, plan: { ...plan, bootRecovery: undefined } }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        inspectProcess: async () => ({ ...candidate, bootId: randomUUID() }),
+      },
+    }),
+  ).rejects.toThrow("approved candidate");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({ ...health, bootstrap: { ...health.bootstrap, fenced: false } }),
+    }),
+  ).rejects.toThrow();
+});
+
+test.each([true, false])(
+  "startup watchdog never resumes a pre-reboot PID and preserves one rollback budget: %s",
+  async (authorized) => {
+    const f = bootRecoveryFixture();
+    if (authorized) f.plan.automaticRecovery = "restore-previous";
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "frozen" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let restores = 0;
+    const operations = {
+      withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+      verifyExecutorExited: async () => {},
+      verifyBootChanged: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Must never signal a recycled PID");
+      },
+      restorePrevious: async () => {
+        restores++;
+        throw new Error("Uncertain rollback outcome");
+      },
+    };
+    const ownership = { id: request.id, generation: request.execution.generation };
+    const first = await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(first.execution?.stage).toBe("recovery_required");
+    expect(restores).toBe(authorized ? 1 : 0);
+    await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(restores).toBe(authorized ? 1 : 0);
+  },
+);
+
+test.each([true, false])(
+  "startup registration persists exact bytes and never repeats an uncertain native effect: %s",
+  async (succeeds) => {
+    const f = bootRecoveryFixture();
+    const bytes = Buffer.from("prepared fixture launcher");
+    const source = path.join(f.root, "prepared.plist");
+    writeFileSync(source, bytes, { mode: 0o600 });
+    f.plan.state.directory = f.root;
+    f.plan.bootRecovery!.launcher = {
+      path: source,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    f.plan.bootRecovery!.installedLauncher = path.join(f.root, "selected.plist");
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = await f.service().claimDispatch(pickDecision(approved));
+    let registrations = 0;
+    let verified = 0;
+    const input = {
+      request,
+      writableMountRoots: [],
+      requireClaim: async () => {
+        expect(f.service().list()[0]).toEqual(request);
+      },
+      verifyServiceAbsent: async () => {},
+      register: async (domain: string, launcher: string) => {
+        registrations++;
+        expect(domain).toBe("gui/501");
+        expect(readFileSync(launcher)).toEqual(bytes);
+        expect(
+          JSON.parse(
+            readFileSync(
+              path.join(
+                f.root,
+                `coordinator-boot-registration-${request.execution!.generation}.json`,
+              ),
+              "utf8",
+            ),
+          ),
+        ).toMatchObject({
+          requestId: request.id,
+          planSha256: request.planSha256,
+          generation: request.execution!.generation,
+        });
+        if (!succeeds) throw new Error("Native registration result lost");
+      },
+      verifyRegistered: async () => {
+        verified++;
+      },
+    };
+    const verifyArtifacts = async () => {};
+    if (succeeds) await registerBootstrapRecovery(input, verifyArtifacts);
+    else
+      await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow(
+        "result lost",
+      );
+    expect(registrations).toBe(1);
+    expect(verified).toBe(succeeds ? 1 : 0);
+    await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow();
+    expect(registrations).toBe(1);
+    expect(statSync(f.plan.bootRecovery!.installedLauncher).nlink).toBe(1);
+  },
+);
+
+test("startup cleanup keeps unresolved and altered launchers and removes only exact completed work", async () => {
+  const f = bootRecoveryFixture();
+  const bytes = Buffer.from("approved startup launcher");
+  const selected = path.join(f.root, "selected.plist");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  f.plan.bootRecovery!.installedLauncher = selected;
+  f.plan.bootRecovery!.launcher.sha256 = createHash("sha256").update(bytes).digest("hex");
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const input = { request: pending, writableMountRoots: [], requireTerminal: async () => {} };
+  await expect(removeCompletedBootstrapRecovery(input)).rejects.toThrow("remains necessary");
+  const completed = {
+    ...pending,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  writeFileSync(selected, "unrelated replacement", { mode: 0o600 });
+  await expect(removeCompletedBootstrapRecovery({ ...input, request: completed })).rejects.toThrow(
+    "digest changed",
+  );
+  expect(readFileSync(selected, "utf8")).toBe("unrelated replacement");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  await removeCompletedBootstrapRecovery({ ...input, request: completed });
+  expect(() => readFileSync(selected)).toThrow();
+  await expect(
+    removeCompletedBootstrapRecovery({ ...input, request: completed }),
+  ).resolves.toBeUndefined();
 });

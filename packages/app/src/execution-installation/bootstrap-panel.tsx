@@ -277,6 +277,17 @@ function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrap
   );
 }
 
+function BootRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  if (!plan.bootRecovery) return null;
+  return (
+    <Text selectable style={styles.text}>
+      Install independent recovery for this update. It starts after this Host account logs in,
+      including after a reboot, and can perform only the recovery approved in this request. It
+      cannot recover before login or retry the update.
+    </Text>
+  );
+}
+
 function bootstrapCardStyle(historical?: boolean) {
   return historical ? styles.historyItem : styles.card;
 }
@@ -343,6 +354,7 @@ function BootstrapRequestCard({
           ) : null}
           <CompatibleRecoveryConfiguration plan={request.plan} />
           <SourceUpdateToolingConfiguration plan={request.plan} />
+          <BootRecoveryConfiguration plan={request.plan} />
           {request.plan.nativeHelperConfiguration !== undefined ? (
             <Text style={styles.text}>
               {request.plan.nativeHelperConfiguration === null

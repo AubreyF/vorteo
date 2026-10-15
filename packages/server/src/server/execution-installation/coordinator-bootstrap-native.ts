@@ -61,6 +61,8 @@ interface NativeLifecycleContext {
   writableMountRoots(): Promise<readonly string[]>;
   /** Must verify the inherited native ownership lock before each operation. */
   requireOwnership(): Promise<void>;
+  /** Set only by the independent startup runner after observing its native boot. */
+  recoveryBootId?: string;
 }
 
 function isOriginalBootstrapService(
@@ -88,6 +90,22 @@ export function createBootstrapNativeLifecycle(
     stage: CoordinatorBootstrapStage,
   ) => {
     await context.requireOwnership();
+    if (context.recoveryBootId !== undefined) {
+      const runner = ProcessObservationSchema.parse(
+        await context.reader.inspectProcess(process.pid),
+      );
+      if (
+        !request.plan.bootRecovery ||
+        request.plan.bootRecovery.requestId !== request.id ||
+        context.recoveryBootId === request.plan.expectedProcess.bootId ||
+        runner.pid !== process.pid ||
+        runner.uid !== uid ||
+        runner.bootId !== context.recoveryBootId
+      )
+        throw new BootstrapRequestConflict("Startup recovery lost its native boot proof");
+      if (stage !== "rollback_pending" && stage !== "verifying")
+        throw new BootstrapRequestConflict("Startup recovery cannot replay coordinator dispatch");
+    }
     const current = context.requests.list().find((item) => item.id === request.id);
     if (
       !request.execution ||
@@ -102,6 +120,15 @@ export function createBootstrapNativeLifecycle(
         "Native bootstrap operation lost exact dispatch ownership",
       );
   };
+  const verifyOriginalExit = async (request: CoordinatorBootstrapRequest) => {
+    if (context.recoveryBootId === undefined)
+      await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
+    else await requireStage(request, "rollback_pending");
+  };
+  const recoveryBoot = (request: CoordinatorBootstrapRequest) =>
+    context.recoveryBootId ?? request.plan.expectedProcess.bootId;
+  const originalService = (request: CoordinatorBootstrapRequest, service: string | null) =>
+    context.recoveryBootId === undefined && isOriginalBootstrapService(request, service);
   const verify = (request: CoordinatorBootstrapRequest) =>
     verifyLoadedBootstrapService({
       plan: request.plan,
@@ -199,6 +226,7 @@ export function createBootstrapNativeLifecycle(
             hostUid: uid,
             reader: context.reader,
             readHealth: context.readHealth,
+            recoveryBootId: context.recoveryBootId,
           }),
         120_000,
       );
@@ -263,7 +291,7 @@ export function createBootstrapNativeLifecycle(
       } catch {
         await context.reader.verifyServiceAbsent(request.plan.service);
       }
-      const originalLoaded = isOriginalBootstrapService(request, service);
+      const originalLoaded = originalService(request, service);
       if (request.plan.automaticRecovery !== "restore-compatible" || !originalLoaded)
         await verifyBootstrapState({ request, writableMountRoots: roots });
       if (service !== null && isStoppedBootstrapCandidate(request.plan, service)) {
@@ -288,7 +316,7 @@ export function createBootstrapNativeLifecycle(
       }
       if (service !== null) {
         const pid = loadedCoordinatorPid(request.plan.service, service);
-        if (pid === request.plan.expectedProcess.pid) {
+        if (context.recoveryBootId === undefined && pid === request.plan.expectedProcess.pid) {
           // An interrupted bootout may have left the original writer frozen.
           // Resume only that exact process; never start another writer beside it.
           await verify(request);
@@ -362,7 +390,7 @@ export function createBootstrapNativeLifecycle(
           if (
             observed.uid !== uid ||
             observed.parentPid !== 1 ||
-            observed.bootId !== request.plan.expectedProcess.bootId ||
+            observed.bootId !== recoveryBoot(request) ||
             observed.executable !== candidate.node.path ||
             observed.argumentsSha256 !== digest
           )
@@ -383,7 +411,9 @@ export function createBootstrapNativeLifecycle(
           });
         }
       }
-      await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
+      // A different native boot proves the old lifetime ended even if its PID
+      // was recycled. Never signal or require absence of that unrelated PID.
+      await verifyOriginalExit(request);
       const authorizeSelection = async () => {
         await requireStage(request, "rollback_pending");
         await context.reader.verifyServiceAbsent(request.plan.service);
@@ -404,7 +434,7 @@ export function createBootstrapNativeLifecycle(
         const output = await context.reader.readService(request.plan.service);
         const pid = loadedCoordinatorPid(request.plan.service, output);
         const observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
-        if (observed.bootId !== request.plan.expectedProcess.bootId)
+        if (observed.bootId !== recoveryBoot(request))
           throw new BootstrapRequestConflict("Host boot changed during recovery");
         verifyBootstrapServiceIdentity({
           plan: {

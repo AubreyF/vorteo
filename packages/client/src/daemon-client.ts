@@ -3806,6 +3806,7 @@ export class DaemonClient {
     compatibleRecovery?: true;
     previewMonitor?: true;
     sourceUpdateTooling?: true;
+    bootRecovery?: true;
   } {
     const features = this.lastServerInfoMessage?.features;
     return {
@@ -3817,6 +3818,9 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapPreviewMonitor === true
         ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapBootRecovery === true
+        ? { bootRecovery: true as const }
         : {}),
       ...(features?.coordinatorBootstrapSourceUpdateTooling === true
         ? { sourceUpdateTooling: true as const }
@@ -3840,11 +3844,20 @@ export class DaemonClient {
     return result.requests;
   }
 
+  private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
+    if (
+      input.plan.bootRecovery &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapBootRecovery !== true
+    )
+      throw new Error("Update the Host before preparing startup recovery.");
+  }
+
   async prepareCoordinatorBootstrap(
     input: CoordinatorBootstrapPreparation,
     options: { timeout?: number } = {},
   ): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
+    this.assertBootRecoveryPreparation(input);
     if (
       input.plan.sourceUpdateTooling === true &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true

@@ -9031,3 +9031,99 @@ test("retained owner cancellation review acknowledgment follows the Host capabil
   mock.triggerClose({ code: 1006 });
   await rejected;
 });
+
+test("startup recovery preparation refuses an older Host before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "startup-recovery",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { coordinatorBootstrapReview: true } });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.bootRecovery = {
+    requestId: input.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${input.id}`,
+    launcher: input.plan.candidate.launcher,
+    installedLauncher: "/protected/startup.plist",
+    setup: input.plan.candidate.configuration,
+    ownerLauncher: input.plan.candidate.entrypoint,
+    node: input.plan.candidate.node,
+    entrypoint: input.plan.candidate.entrypoint,
+  };
+  await expect(client.prepareCoordinatorBootstrap(input)).rejects.toThrow(
+    "Update the Host before preparing startup recovery",
+  );
+  expect(mock.sent).toEqual([]);
+});
+
+test("startup recovery advertised opt-in is sent for list, exact preparation and decision", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "startup-recovery",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({
+    features: { coordinatorBootstrapReview: true, coordinatorBootstrapBootRecovery: true },
+  });
+  await connected;
+  const input = bootstrapMonitorPreparation();
+  input.plan.bootRecovery = {
+    requestId: input.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${input.id}`,
+    launcher: input.plan.candidate.launcher,
+    installedLauncher: "/protected/startup.plist",
+    setup: input.plan.candidate.configuration,
+    ownerLauncher: input.plan.candidate.entrypoint,
+    node: input.plan.candidate.node,
+    entrypoint: input.plan.candidate.entrypoint,
+  };
+  const listing = client.listCoordinatorBootstrapRequests();
+  const preparing = client.prepareCoordinatorBootstrap(input);
+  const decision = {
+    id: input.id,
+    revision: "00000000-0000-4000-8000-000000000003",
+    planSha256: "f".repeat(64),
+    decision: "cancel" as const,
+  };
+  const deciding = client.decideCoordinatorBootstrap(decision, "fixture-owner-password");
+  const frames = mock.sent.map(parseSentFrame);
+  expect(frames).toEqual([
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+    },
+    {
+      type: "installation.bootstrap.prepare.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+      input,
+    },
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: expect.any(String),
+      bootRecovery: true,
+      input: decision,
+      ownerPassword: "fixture-owner-password",
+    },
+  ]);
+  for (const frame of frames)
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: frame.type.replace(".request", ".response"),
+        payload: { requestId: frame.requestId, requests: [], error: null },
+      }),
+    );
+  await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
+});

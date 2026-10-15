@@ -60,6 +60,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapCompatibleRecovery: available,
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapSourceUpdateTooling: available,
+    coordinatorBootstrapBootRecovery: available,
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
       : {}),
@@ -170,6 +171,7 @@ export async function handleBootstrapReview(
     if (message.type === "installation.bootstrap.decide.request") {
       const request = service.list().find((item) => item.id === message.input.id);
       assertSourceUpdateToolingReview(message, request);
+      assertBootRecoveryReview(message, request);
       if (
         message.input.decision === "approve" &&
         request?.plan.factoryRuntimeAdoptionConfiguration !== undefined &&
@@ -201,7 +203,8 @@ export async function handleBootstrapReview(
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
       .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
       .map((request) => previewMonitorReply(request, message.previewMonitor === true))
-      .map((request) => sourceUpdateToolingReply(request, message.sourceUpdateTooling === true));
+      .map((request) => sourceUpdateToolingReply(request, message.sourceUpdateTooling === true))
+      .map((request) => bootRecoveryReply(request, message.bootRecovery === true));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -350,4 +353,30 @@ export async function handleClaimedRecoveryReview(
       },
     };
   }
+}
+
+// COMPAT(bootRecovery): added 2026-10-15; retain until 2027-04-15.
+// Cancellation remains available to strict older clients; hidden startup
+// configuration cannot be approved by readers that do not understand it.
+function bootRecoveryReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || !request.plan.bootRecovery) return request;
+  const { bootRecovery: _recovery, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason: "Reload the client to review startup recovery. Cancellation remains available.",
+  };
+}
+
+function assertBootRecoveryReview(
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.decide.request" }>,
+  request: CoordinatorBootstrapRequest | undefined,
+): void {
+  if (message.input.decision === "approve" && request?.plan.bootRecovery && !message.bootRecovery)
+    throw new BootstrapRequestConflict(
+      "Reload the client to review startup recovery before approval.",
+    );
 }

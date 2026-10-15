@@ -391,7 +391,19 @@ export async function verifyBootstrapReplacement(input: {
   hostUid: number;
   reader: BootstrapServiceReader;
   readHealth(): Promise<unknown>;
+  /** Supplied only by the native startup recovery runner after boot proof. */
+  recoveryBootId?: string;
 }): Promise<void> {
+  if (
+    input.recoveryBootId !== undefined &&
+    (!input.plan.bootRecovery ||
+      !input.recoveryBootId ||
+      input.recoveryBootId === input.plan.expectedProcess.bootId)
+  )
+    throw new BootstrapRequestConflict(
+      "Replacement boot recovery requires a distinct verified boot",
+    );
+  const expectedBoot = input.recoveryBootId ?? input.plan.expectedProcess.bootId;
   const healthSchema = z.strictObject({
     installationId: z.literal(input.plan.installationId),
     bootstrap: z.strictObject({
@@ -413,14 +425,14 @@ export async function verifyBootstrapReplacement(input: {
   for (let attempt = 0; attempt < 2; attempt++) {
     const service = await input.reader.readService(input.plan.service);
     const pid = loadedCoordinatorPid(input.plan.service, service);
-    if (pid === input.plan.expectedProcess.pid)
+    if (input.recoveryBootId === undefined && pid === input.plan.expectedProcess.pid)
       throw new BootstrapRequestConflict("Coordinator replacement still has the previous PID");
     const observation = ProcessObservationSchema.parse(await input.reader.inspectProcess(pid));
     const matchesCandidate =
       observation.pid === pid &&
       observation.parentPid === 1 &&
       observation.uid === input.hostUid &&
-      observation.bootId === input.plan.expectedProcess.bootId &&
+      observation.bootId === expectedBoot &&
       observation.executable === input.plan.candidate.node.path &&
       observation.argumentsSha256 === argumentsSha256;
     if (!matchesCandidate)

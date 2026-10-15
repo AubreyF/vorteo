@@ -61,6 +61,17 @@ function requestFixture(): CoordinatorBootstrapRequest {
       installationId: "00000000-0000-4000-8000-000000000003",
       service: "gui/501/local.vorteo.fixture.installation",
       sourceUpdateTooling: true,
+      bootRecovery: {
+        requestId: "00000000-0000-4000-8000-000000000001",
+        service:
+          "gui/501/local.vorteo.fixture.installation-recovery-00000000-0000-4000-8000-000000000001",
+        launcher: file,
+        installedLauncher: "/protected/startup.plist",
+        setup: file,
+        ownerLauncher: file,
+        node: file,
+        entrypoint: file,
+      },
       hostRequestsAfter: null,
       previous: release,
       candidate: release,
@@ -80,7 +91,7 @@ function requestFixture(): CoordinatorBootstrapRequest {
 }
 
 test.each([1280, 390])(
-  "source tooling owner review shows exact immutable selection and manual decisions at %ipx",
+  "source tooling and startup recovery review shows exact selection and manual decisions at %ipx",
   async (width) => {
     vi.stubGlobal("React", React);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -114,6 +125,8 @@ test.each([1280, 390])(
       });
       expect(container.textContent).toContain("/protected/immutable-candidate/scripts");
       expect(container.textContent).toContain("Binding setup remains separate");
+      expect(container.textContent).toContain("Install independent recovery for this update");
+      expect(container.textContent).toContain("It cannot recover before login or retry the update");
       expect(container.textContent).toContain(initial.plan.candidate.sourceCommit);
       expect(container.textContent).toContain(initial.plan.candidate.artifactSha256);
       expect(container.textContent).toContain(initial.planSha256);

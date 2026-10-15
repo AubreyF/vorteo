@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.528 - 2026-10-14
+
+### Changed
+
+- Bind optional coordinator startup recovery to the exact reviewed request, protected runner and startup configuration. Register it within the tracked execution fence before freezing the coordinator.
+- Retain registration intent, reject repeated registration after an uncertain result, and remove only exact completed startup hooks.
+- Distinguish native boot identity during recovery, refuse signals to pre-reboot PIDs, and preserve the one-rollback limit.
+- Negotiate startup recovery review with compatible clients. Preserve older clients' cancellation without allowing approval of hidden startup settings.
+
+### Maintenance
+
+- Verify recovery identity, request binding, legacy review, registration failure, cleanup and client negotiation with focused tests.
+- Native startup acceptance, early interruption recovery, completed rollback reconciliation and automatic controller execution remain open. Recovery begins after account login; this checkpoint does not claim pre-login recovery or deployed behavior.
+
 ## 0.11.0-beta.3.vorteo.527 - 2026-10-14
 
 ### Changed
