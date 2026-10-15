@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Let Files and other embedded sidebar panels use the available card height instead of a fixed 360px body.
+- Keep single-line grid buttons exactly as tall as full-width accordion headers by sharing the parent grid inset. Wrapped icon and count buttons can still grow taller.
+- Check header heights and full-height Files allocation in the browser at three sidebar widths.
 
 ## 0.11.0-beta.3.vorteo.525 - 2026-10-15
 

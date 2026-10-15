@@ -1,5 +1,6 @@
 import {
   CardGridContext,
+  CardGridInsetContext,
   CardTileContext,
   cardGridCollapsedStyle,
   cardGridExpandedStyle,
@@ -119,7 +120,7 @@ function TaskCardView({
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
   /** Panels such as file trees own their scrolling and need a bounded viewport. */
-  panelHeight?: number;
+  panelHeight?: number | "fill";
   notice?: ReactNode;
   children: ReactNode;
   testID?: string;
@@ -128,7 +129,11 @@ function TaskCardView({
   const { tile, setWidth, rootStyle, row, onGridLayout } = useCardTile(bodyVisible);
   const compact = tile.compact;
   const divider = useScrollDivider();
-  const { inset: spacingInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const { inset: panelInset, onLayout: onPanelLayout } = usePanelSpacing();
+  const grid = useContext(CardGridContext);
+  const gridInset = useContext(CardGridInsetContext);
+  // A tile changing width must not change the height of its header row.
+  const spacingInset = grid ? gridInset : panelInset;
   const onLayout = useCallback(
     (event: import("react-native").LayoutChangeEvent) => {
       onPanelLayout(event);
@@ -142,11 +147,14 @@ function TaskCardView({
   );
   const column = useContext(CardColumnContext);
   const retainedActive = useRetainedPanelActive();
+
   const id = useId();
   const [headerHeight, setHeaderHeight] = useState(32);
   const [bodyHeight, setBodyHeight] = useState(0);
   const measure = column?.measure;
-  const bodySpace = bodyVisible ? (panelHeight ?? bodyHeight) : 0;
+  const { height: viewportHeight } = useWindowDimensions();
+  const panelDemand = panelHeight === "fill" ? viewportHeight : panelHeight;
+  const bodySpace = bodyVisible ? (panelDemand ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
     measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined, bodyVisible);
@@ -165,7 +173,6 @@ function TaskCardView({
   const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
-  const { height: viewportHeight } = useWindowDimensions();
   const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight });
   // Animate only height. Positional layout transitions treat a retained hidden
   // card's zero DOM rect as its origin and fly it across the page on reactivation.

@@ -73,7 +73,7 @@ function SupportingViewCard({
       workspaceId={normalizedWorkspaceId}
     >
       {(presentation) => (
-        <TaskCard testID={`supporting-card-${tab.kind}`} bodyVisible={expanded} panelHeight={360}>
+        <TaskCard testID={`supporting-card-${tab.kind}`} bodyVisible={expanded} panelHeight="fill">
           <TaskCardHeader>
             <CardDisclosure
               title={presentation.label}
