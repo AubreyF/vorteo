@@ -1,3 +1,10 @@
+import {
+  FileEnrollmentJournal,
+  enrollInstallation,
+  enrollmentManifestDigest,
+  changeStandingGrant,
+} from "./maintenance/authorization.js";
+import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
 import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
@@ -3201,6 +3208,117 @@ test("service discovery retries a refused registration without restarting the co
   expect((await ready.json()).maintenanceServices).toEqual({
     available: true,
     operations: ["replacement"],
+  });
+  expect(f.calls).toEqual([]);
+});
+
+function enrollDashboardFixture(config: InstallationConfig) {
+  const manifest: InstallationEnrollmentManifest = {
+    version: 1,
+    operation: "installation-enrollment",
+    installationId: config.public.installationId,
+    revision: randomUUID(),
+    createdAt: new Date().toISOString(),
+    targets: [
+      {
+        target: "maintenance-controller",
+        identitySha256: "a".repeat(64),
+        operations: ["replacement"],
+      },
+      { target: "recovery-launcher", identitySha256: "b".repeat(64), operations: ["replacement"] },
+      { target: "host", identitySha256: "c".repeat(64), operations: ["restart"] },
+    ],
+    trustedRepositories: ["https://example.test/repository.git"],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 5 },
+    retryLimit: 3,
+    rollback: "previous-compatible-runtime",
+    recovery: "after-login",
+    steps: [
+      {
+        id: randomUUID(),
+        target: "maintenance-controller",
+        operation: "replacement",
+        planSha256: "d".repeat(64),
+        candidate: { sourceCommit: "e".repeat(40), artifactSha256: "f".repeat(64) },
+        previous: null,
+        dependsOn: [],
+      },
+    ],
+  };
+  enrollInstallation(new FileEnrollmentJournal(config.stateDir), {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: new Date().toISOString(),
+    },
+  });
+}
+
+test("native dashboard readiness is owner-only and uses authority read after inspection", async () => {
+  const read = vi.fn(async () => {
+    const journal = new FileEnrollmentJournal(f.root);
+    const state = journal.read();
+    if (state.status !== "enrolled") throw new Error("Expected enrolled fixture");
+    changeStandingGrant(journal, {
+      expectedRevision: state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+    return [
+      {
+        target: "maintenance-controller" as const,
+        identitySha256: "a".repeat(64),
+        readiness: "ready" as const,
+        reason: "Native runtime verified",
+        observedAt: new Date().toISOString(),
+        selectedSource: "e".repeat(40),
+      },
+    ];
+  });
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    { observeMaintenanceServices: read },
+    enrollDashboardFixture,
+  );
+  const route = "/api/installation/owner/enrollment/query";
+  for (const token of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, token, {})).status).toBe(401);
+  expect(read).not.toHaveBeenCalled();
+  const result = await f.request(route, "owner-test-password", {});
+  expect(result.status).toBe(200);
+  const status = InstallationEnrollmentStatusSchema.parse(await result.json());
+  expect(status.authority).toBe("revoked");
+  expect(
+    status.services.find((service) => service.target === "maintenance-controller"),
+  ).toMatchObject({
+    enabled: false,
+    readiness: "ready",
+    selectedSource: "e".repeat(40),
+  });
+  expect(status.services.find((service) => service.target === "recovery-launcher")).toMatchObject({
+    readiness: "unknown",
+    selectedSource: null,
+  });
+  read.mockRejectedValueOnce(new Error("Native inspection unavailable"));
+  const failed = await f.request(route, "owner-test-password", {});
+  expect(failed.status).toBe(200);
+  const stale = InstallationEnrollmentStatusSchema.parse(await failed.json());
+  expect(
+    stale.services.find((service) => service.target === "maintenance-controller"),
+  ).toMatchObject({
+    readiness: "unknown",
+    selectedSource: null,
   });
   expect(f.calls).toEqual([]);
 });

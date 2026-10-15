@@ -3,7 +3,10 @@ import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/mainten
 import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
 import { maintenanceServiceView } from "./maintenance/service-view.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
-import { projectEnrollmentStatus } from "./maintenance/status.js";
+import {
+  projectEnrollmentStatus,
+  readMaintenanceServiceObservations,
+} from "./maintenance/status.js";
 import { createDaemonStandingRuntime } from "./maintenance/daemon-standing-runtime.js";
 import {
   coordinatorAutomaticStatus,
@@ -1413,19 +1416,25 @@ export function createInstallationServer(
   app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
     void maintenanceStatus().then((status) => res.json(status), next);
   });
-  app.post("/api/installation/owner/enrollment/query", (_req, res) => {
-    const enrollment = new FileEnrollmentJournal(config.stateDir).read();
-    // Native controller inspection is a separate readiness source. Missing
-    // observations remain unknown; saved activation receipts never imply health.
-    res.json(
-      projectEnrollmentStatus({
-        installationId: config.public.installationId,
-        state: enrollment,
-        checkedAt: new Date().toISOString(),
-        observations: standingRuntime.observations(),
-        freshnessMs: 30_000,
-      }),
-    );
+  async function enrollmentStatus() {
+    const journal = new FileEnrollmentJournal(config.stateDir);
+    const state = journal.read();
+    const native =
+      state.status === "enrolled"
+        ? await readMaintenanceServiceObservations(executor.observeMaintenanceServices)
+        : [];
+    // Read authority after asynchronous native inspection so a concurrent
+    // revocation is reflected without discarding independently verified health.
+    return projectEnrollmentStatus({
+      installationId: config.public.installationId,
+      state: journal.read(),
+      checkedAt: new Date().toISOString(),
+      observations: [...standingRuntime.observations(), ...native],
+      freshnessMs: 30_000,
+    });
+  }
+  app.post("/api/installation/owner/enrollment/query", (_req, res, next) => {
+    void enrollmentStatus().then((status) => res.json(status), next);
   });
   const legacyAutomation = () => {
     const { services: _services, ...legacy } = daemonAutomation.read();

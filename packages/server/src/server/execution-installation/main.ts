@@ -1,3 +1,8 @@
+import { observeNativeMaintenanceServices } from "./coordinator-bootstrap-maintenance-health.js";
+import {
+  createNativeMaintenanceServiceExecutor,
+  resolveNativeMaintenanceExecutorSetup,
+} from "./coordinator-bootstrap-maintenance-service-producer.js";
 import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
@@ -29,6 +34,21 @@ const startupFence = loadCoordinatorStartupFence({
 // This installation entrypoint uses its release CLI, independent of daemon worker markers.
 initializePackagedClaudeCli(true);
 const executor = createInstallationRestartExecutor(config);
+if (process.platform === "darwin") {
+  executor.observeMaintenanceServices = (signal) =>
+    observeNativeMaintenanceServices({
+      installationId: config.public.installationId,
+      stateDirectory: config.stateDir,
+      signal,
+    });
+  executor.discoverMaintenanceServices = async () => {
+    const selected = await resolveNativeMaintenanceExecutorSetup({
+      installationId: config.public.installationId,
+      stateDirectory: config.stateDir,
+    });
+    return createNativeMaintenanceServiceExecutor(selected);
+  };
+}
 if (config.nativeHelper) {
   if (process.platform !== "darwin")
     throw new Error("Native helper maintenance requires macOS Host");

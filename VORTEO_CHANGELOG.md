@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.565 - 2026-10-15
+
+### Added
+
+- Connect verified native service discovery to coordinator reconciliation. Availability requires protected registration and compatible runner artifacts; grant and exact reservation admission still control every effect.
+- Feed controller readiness into owner installation status through protected native identity, selected runtime and its process-owned health listener. Bound inspection, discard late results and clear failed health to unknown; launcher readiness remains unknown.
+
+### Fixed
+
+- Read current enrollment authority after asynchronous health inspection so concurrent revocation is reflected without declaring a running service unhealthy.
+
+### Validation and delivery
+
+- Focused owner HTTP, timeout and native adapter tests pass with full types, lint and server build. Disposable compiled producer and health checks verify replacement, retained observation, replay refusal and readiness after revocation. Enrollment setup and Docker/daemon endpoints are simulated in those native checks; installed activation, launcher recovery and complete rollout remain open.
+
 ## 0.11.0-beta.3.vorteo.564 - 2026-10-15
 
 ### Fixed

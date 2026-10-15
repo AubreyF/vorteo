@@ -69,7 +69,11 @@ import {
   reserveActivationStep,
   validateEnrollmentManifest,
 } from "./authorization.js";
-import { projectEnrollmentStatus } from "./status.js";
+import {
+  projectEnrollmentStatus,
+  readMaintenanceServiceObservations,
+  type EnrollmentServiceObservation,
+} from "./status.js";
 import { FileBootstrapRequestJournal } from "../coordinator-bootstrap-journal.js";
 
 const directories: string[] = [];
@@ -2724,4 +2728,62 @@ test("service effects refuse internally consistent executor evidence from anothe
     }),
   ).toThrow("enrolled custody");
   expect(f.adapter.journal.read()).toEqual([f.pending]);
+});
+
+test("native dashboard observations reject duplicate and non-maintenance targets", async () => {
+  const observation = {
+    target: "maintenance-controller" as const,
+    identitySha256: "a".repeat(64),
+    readiness: "ready" as const,
+    reason: "Native runtime verified",
+    observedAt: new Date().toISOString(),
+    selectedSource: "b".repeat(40),
+  };
+  expect(await readMaintenanceServiceObservations(async () => [observation])).toEqual([
+    observation,
+  ]);
+  expect(await readMaintenanceServiceObservations(async () => [observation, observation])).toEqual(
+    [],
+  );
+  expect(
+    await readMaintenanceServiceObservations(async () => [{ ...observation, target: "host" }]),
+  ).toEqual([]);
+  expect(
+    await readMaintenanceServiceObservations(async () => {
+      throw new Error("Native tools unavailable");
+    }),
+  ).toEqual([]);
+});
+
+test("native dashboard inspection times out and discards a late ready result", async () => {
+  vi.useFakeTimers();
+  try {
+    let resolve!: (value: EnrollmentServiceObservation[]) => void;
+    let signal: AbortSignal | undefined;
+    const blocked = new Promise<EnrollmentServiceObservation[]>((done) => {
+      resolve = done;
+    });
+    const reading = readMaintenanceServiceObservations(async (input) => {
+      signal = input;
+      return blocked;
+    });
+    const observed = expect(reading).resolves.toEqual([]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await observed;
+    expect(signal?.aborted).toBe(true);
+    resolve([
+      {
+        target: "maintenance-controller",
+        identitySha256: "a".repeat(64),
+        readiness: "ready",
+        reason: "Late native response",
+        observedAt: new Date().toISOString(),
+        selectedSource: "b".repeat(40),
+      },
+    ]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await reading).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

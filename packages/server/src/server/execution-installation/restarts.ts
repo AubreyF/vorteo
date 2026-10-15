@@ -86,6 +86,7 @@ export interface RestartExecutor {
   maintenanceServices?: MaintenanceServiceExecutor;
   /** Read-only construction, retried by existing coordinator reconciliation. */
   discoverMaintenanceServices?(): Promise<MaintenanceServiceExecutor>;
+  observeMaintenanceServices?: import("./maintenance/status.js").MaintenanceServiceObservationReader;
   inspectMonitor?(): Promise<
     import("@getpaseo/protocol/preview-monitor-maintenance").PreviewMonitorSelection
   >;
