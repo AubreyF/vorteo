@@ -23,13 +23,14 @@ const CSS = `
 `;
 
 /** Keep browser chrome hints and the entire canvas on the central content color. */
-export function applyShellAppearance(theme: Theme): void {
+export function applyShellAppearance(theme: Theme, persist = true): void {
   if (typeof document === "undefined") return;
-  applyBootLogo(theme);
+  if (persist) applyBootLogo(theme);
   const root = document.documentElement;
   root.dataset.vorteoAppearance = theme.appearance?.id ?? "plugin";
   root.style.colorScheme = theme.colorScheme;
   root.style.setProperty("--vorteo-shell-background", theme.colors.surface0);
+  root.style.setProperty("--vorteo-welcome-ink", theme.colors.accent);
   root.style.setProperty("--vorteo-shell-texture", "none");
   root.style.setProperty(
     "--vorteo-shell-texture-size",

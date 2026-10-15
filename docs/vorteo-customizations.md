@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+The browser restores its validated saved display palette in the document head before the first paint, without a network request. The large loader remains above the initializing app and fades away over 350ms after themed children paint; reduced motion removes it immediately. Storage failures retain the existing Dark Star fallback and startup recovery controls. Temporary theme previews do not overwrite the startup palette. Welcome controls retain the active theme and their background decoration uses its accent. README overview and onboarding are unchanged.
+
 Browser interface zoom sits beside both shared theme pickers. The slider ranges from 75% to 200% in five-point steps; smaller/larger controls step by ten points and the percentage resets to 100%. Dragging applies on release to keep the slider under the pointer. The browser remembers the setting locally; native clients retain operating-system display scaling. Text, icons and fixed-size controls scale together, while viewport sizing, overlays, resizing, scroll targets and embedded browser bounds use logical interface coordinates.
 
 Touch tablets use a tighter composer with the existing input line height and 44px action controls, 8px top clearance and an 8px row gap. Bottom controls match their side inset in text and recording states; multiline drafts still grow and phone safe-area handling remains intact. README overview and onboarding are unchanged.

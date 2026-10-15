@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.522 - 2026-10-14
+
+### Improved
+
+- Restore saved startup colors before the first paint, then fade the large loader into the themed interface over 350ms without delaying initialization.
+- Preserve the dark fallback when browser storage is unavailable, respect reduced motion, and keep temporary theme previews out of the startup cache.
+- Match the welcome screen's background decoration to the selected theme alongside its existing themed controls.
+
 ## 0.11.0-beta.3.vorteo.521 - 2026-10-14
 
 ### Added

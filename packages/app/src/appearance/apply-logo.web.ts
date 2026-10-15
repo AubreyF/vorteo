@@ -7,12 +7,11 @@ export function applyBootLogo(theme: Theme): void {
     ...logoPalette(theme),
     background: theme.colors.surface0,
     foreground: theme.colors.foreground,
+    colorScheme: theme.colorScheme,
   };
   try {
     localStorage.setItem("vorteo-boot-brand-v1", JSON.stringify(brand));
   } catch {
     /* Private browsing may disable storage. */
   }
-  const bootWindow = window as Window & { __vorteoApplyBootBrand?: (value: typeof brand) => void };
-  bootWindow.__vorteoApplyBootBrand?.(brand);
 }
