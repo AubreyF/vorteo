@@ -906,9 +906,30 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(restart).not.toHaveBeenCalled();
     await writeFile(prepareScript, validPrepareScript);
     await writeFile(path.join(root, "index.html"), "old interface");
-    expect((await dispatch())?.detail).toContain("Previous launcher restored");
+    const failedActivation = (await dispatch())!;
+    expect(failedActivation.detail).toContain("Previous launcher restored");
     expect(await realpath(link)).toBe(previous);
     await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+    await expect(
+      updates.install({ ...failedActivation, updatePreparation: "prepared" }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(restart).toHaveBeenCalledTimes(1);
+
+    const prepared = {
+      ...failedActivation,
+      id: randomUUID(),
+      status: "approved" as const,
+      updatePreparation: "prepared" as const,
+    };
+    await updates.prepareInstallation(prepared);
+    await writeFile(path.join(root, "index.html"), "publication after preparation");
+    await expect(updates.install(prepared, restart)).rejects.toThrow(
+      "Installed source changed after preparation",
+    );
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).toHaveBeenCalledTimes(1);
+    await expect(readFile(path.join(root, prepared.id, "activation.json"))).rejects.toThrow();
+    await writeFile(path.join(root, "index.html"), "old interface");
     restart.mockImplementation(async () => {
       expect(await realpath(link)).not.toBe(previous);
       await expect(readFile(path.join(root, "published"))).rejects.toThrow();
