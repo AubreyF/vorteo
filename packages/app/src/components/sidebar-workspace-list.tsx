@@ -1064,13 +1064,12 @@ function ProjectHeaderRow({
     ({ pressed }: PressableStateCallbackType) => [
       styles.projectRow,
       density,
-      touch && styles.projectTouchRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered, density, touch],
+    [isDragging, selected, isHovered, density],
   );
 
   const rowChildren = (
@@ -2847,7 +2846,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 36,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[2],
-    paddingLeft: 14,
+    paddingLeft: 6,
     borderRadius: theme.borderRadius.lg,
     marginBottom: theme.spacing[1],
     flexDirection: "row",
@@ -2856,7 +2855,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     userSelect: "none",
   },
-  projectTouchRow: { paddingLeft: 14 },
   projectRowMain: {
     flex: 1,
     minWidth: 0,
