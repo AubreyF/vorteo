@@ -1,3 +1,4 @@
+import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
 import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator-bootstrap";
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
@@ -445,7 +446,7 @@ async function fixture(
   startupFence?: InstallationStartupFence,
   helperExecutor?: Pick<
     RestartExecutor,
-    "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
+    "validateHelperPlan" | "installHelper" | "verifyHelperRecovery" | "discoverMaintenanceServices"
   >,
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,
@@ -3095,5 +3096,111 @@ test("the scoped Host client can require manual supervisor review", async () => 
     supervisorPlanSha256: "a".repeat(64),
   });
   await f.drain();
+  expect(f.calls).toEqual([]);
+});
+
+function unusedMaintenanceExecutor(): MaintenanceServiceExecutor {
+  async function refuse(): Promise<never> {
+    throw new Error("This discovery test must not invoke native effects");
+  }
+  return { inspect: refuse, execute: refuse, observe: refuse };
+}
+
+test("service discovery does not block reconciliation and accepts one verified construction", async () => {
+  let resolve!: (native: MaintenanceServiceExecutor) => void;
+  const discovery = new Promise<MaintenanceServiceExecutor>((done) => {
+    resolve = done;
+  });
+  const discover = vi.fn(() => discovery);
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  await Promise.all([f.drain(), f.drain()]);
+  expect(discover).toHaveBeenCalledTimes(1);
+  const capabilities = async () =>
+    (await (await f.request("/api/installation/capabilities", "host-agent-test-token")).json())
+      .maintenanceServices;
+  expect(await capabilities()).toEqual({ available: false, operations: [] });
+  resolve(unusedMaintenanceExecutor());
+  await vi.waitFor(async () => {
+    expect(await capabilities()).toEqual({ available: true, operations: ["replacement"] });
+  });
+  await f.drain();
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
+
+test("service discovery discards expired construction and retries only after it settles", async () => {
+  let resolve!: (native: MaintenanceServiceExecutor) => void;
+  const discovery = new Promise<MaintenanceServiceExecutor>((done) => {
+    resolve = done;
+  });
+  const discover = vi
+    .fn()
+    .mockImplementationOnce(() => discovery)
+    .mockResolvedValue(unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  const now = Date.now();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  vi.setSystemTime(now);
+  try {
+    await f.drain();
+    await vi.advanceTimersByTimeAsync(25_000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(1);
+    resolve(unusedMaintenanceExecutor());
+    await vi.advanceTimersByTimeAsync(0);
+    const expired = await f.request("/api/installation/capabilities", "host-agent-test-token");
+    expect((await expired.json()).maintenanceServices).toEqual({
+      available: false,
+      operations: [],
+    });
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(2);
+    expect(Date.now()).toBe(now + 30_000);
+  } finally {
+    vi.useRealTimers();
+  }
+  const response = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect((await response.json()).maintenanceServices).toEqual({
+    available: true,
+    operations: ["replacement"],
+  });
+  expect(f.calls).toEqual([]);
+});
+
+test("service discovery retries a refused registration without restarting the coordinator", async () => {
+  const discover = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Enrollment registration pending"))
+    .mockResolvedValue(unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    discoverMaintenanceServices: discover,
+  });
+  const now = Date.now();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  vi.setSystemTime(now);
+  try {
+    await f.drain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(discover).toHaveBeenCalledTimes(1);
+    const absent = await f.request("/api/installation/capabilities", "host-agent-test-token");
+    expect((await absent.json()).maintenanceServices).toEqual({ available: false, operations: [] });
+    await vi.advanceTimersByTimeAsync(5000);
+    await f.drain();
+    expect(discover).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+  const ready = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect((await ready.json()).maintenanceServices).toEqual({
+    available: true,
+    operations: ["replacement"],
+  });
   expect(f.calls).toEqual([]);
 });

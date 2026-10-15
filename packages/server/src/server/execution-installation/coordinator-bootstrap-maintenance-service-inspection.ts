@@ -211,7 +211,7 @@ export async function inspectMaintenanceServiceNative(input: {
 
 /** Capture selected file identities and their ancestor custody. Runtime content
  * digests are checked before this capture and again by the executor before effects. */
-function retainServiceFiles(files: readonly string[]): () => void {
+export function retainServiceFiles(files: readonly string[]): () => void {
   const retained = new Map<string, string>();
   const identify = (file: string) => {
     const stat = lstatSync(file, { bigint: true });

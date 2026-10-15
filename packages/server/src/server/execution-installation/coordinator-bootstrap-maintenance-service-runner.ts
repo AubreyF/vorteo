@@ -1,3 +1,9 @@
+import {
+  inspectSelectedMaintenanceExecutor,
+  maintenanceExecutorStartupBinding,
+  bindMaintenanceExecutorEvidence,
+  requireReservedMaintenanceExecutor,
+} from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 import { userInfo } from "node:os";
 import {
   createMaintenanceServiceInspectionPorts,
@@ -105,11 +111,13 @@ export async function readMaintenanceServiceInvocation(input: {
   if (
     !isDeepStrictEqual(job, readJob()) ||
     !isDeepStrictEqual(
-      startup,
-      await readMaintenanceLauncherStartup({
-        setupFile: input.executorSetupFile,
-        account: input.account,
-      }),
+      maintenanceExecutorStartupBinding(startup),
+      maintenanceExecutorStartupBinding(
+        await readMaintenanceLauncherStartup({
+          setupFile: input.executorSetupFile,
+          account: input.account,
+        }),
+      ),
     )
   )
     throw new BootstrapRequestConflict("Native service invocation changed during loading");
@@ -236,7 +244,16 @@ export async function verifyNativeMaintenanceServiceInvocation(
     });
   await verifyFiles();
   const executor = await inspectSelf();
-  if (!isDeepStrictEqual(context, await readMaintenanceServiceInvocation(input)))
+  const currentInvocation = await readMaintenanceServiceInvocation(input);
+  if (
+    !isDeepStrictEqual(
+      { ...context, startup: maintenanceExecutorStartupBinding(context.startup) },
+      {
+        ...currentInvocation,
+        startup: maintenanceExecutorStartupBinding(currentInvocation.startup),
+      },
+    )
+  )
     throw new BootstrapRequestConflict("Native service child request changed during verification");
   const requireExecutor = async () => {
     await verifyFiles();
@@ -271,7 +288,17 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     ...context.nativeAdmission,
     writableMountRoots: context.writableMountRoots,
   });
-  const evidence = await inspectMaintenanceServiceNative({
+  const selectedExecutor = await inspectSelectedMaintenanceExecutor({
+    setupFile,
+    account,
+    stateDirectory,
+    writableMountRoots: context.writableMountRoots,
+    ports,
+  });
+  if (!isDeepStrictEqual(selectedExecutor.startup.selected, context.startup.selected))
+    throw new BootstrapRequestConflict("Child runtime differs from selected executor");
+  requireReservedMaintenanceExecutor(context.job, selectedExecutor.executor);
+  const targetEvidence = await inspectMaintenanceServiceNative({
     request: context.job,
     plan: context.plan,
     account,
@@ -279,6 +306,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     writableMountRoots: context.writableMountRoots,
     ports,
   });
+  const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
   const { evidenceSha256, assertCurrent, ...record } = evidence;
   const observationInput = {
     stateDirectory,
@@ -308,7 +336,11 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
       observeMaintenanceServiceReplacement({
         ...observationInput,
         readObservation: () =>
-          inspectMaintenanceServiceReadiness({ ...observationInput, ports, signal }),
+          inspectMaintenanceServiceReadiness({
+            ...observationInput,
+            ports,
+            signal,
+          }),
       }),
   });
 }

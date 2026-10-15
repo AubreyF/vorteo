@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.564 - 2026-10-15
+
+### Fixed
+
+- Refresh selected maintenance-controller registration before inspection and bind the executor's selected runtime to reservation and child intent. Preserve compatible replacement without treating mutable queue bookkeeping as runtime identity.
+- Bound the complete native execution wait, including validation and observation. Refuse a late launch and discard late results without killing or retrying a child.
+- Discover the native executor through existing coordinator reconciliation without blocking daemon work. Serialize read-only construction, reject expired results and retry settled registration failures.
+
+### Validation and delivery
+
+- Focused tests cover executor evidence, native replacement, total deadlines, read-only discovery and retained observation. Compiled producer acceptance and production wiring remain open; capability stays disabled.
+
 ## 0.11.0-beta.3.vorteo.563 - 2026-10-15
 
 ### Maintenance

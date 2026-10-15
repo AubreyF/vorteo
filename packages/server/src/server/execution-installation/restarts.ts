@@ -84,6 +84,8 @@ export interface RestartJournal {
 
 export interface RestartExecutor {
   maintenanceServices?: MaintenanceServiceExecutor;
+  /** Read-only construction, retried by existing coordinator reconciliation. */
+  discoverMaintenanceServices?(): Promise<MaintenanceServiceExecutor>;
   inspectMonitor?(): Promise<
     import("@getpaseo/protocol/preview-monitor-maintenance").PreviewMonitorSelection
   >;

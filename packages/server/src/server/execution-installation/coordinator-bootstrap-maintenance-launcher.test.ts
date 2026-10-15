@@ -37,7 +37,7 @@ afterEach(() => {
   vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-async function fixture(separateEnrollment = false) {
+async function fixture(separateEnrollment = false, controller = false) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-slots-")));
   roots.push(root);
   const state = path.join(root, "state");
@@ -45,7 +45,8 @@ async function fixture(separateEnrollment = false) {
     ? path.join(root, "coordinator-state")
     : state;
   const home = path.join(root, "home");
-  const base = path.join(root, "maintenance-services/recovery-launcher");
+  const target = controller ? "maintenance-controller" : "recovery-launcher";
+  const base = path.join(root, "maintenance-services", target);
   for (const dir of [
     state,
     enrollmentStateDirectory,
@@ -89,7 +90,7 @@ async function fixture(separateEnrollment = false) {
     identity: {
       version: 1,
       environment: "host",
-      target: "recovery-launcher",
+      target,
       installationId: randomUUID(),
       custodyOwnerUid: process.getuid!(),
       installationRoot: root,
@@ -648,7 +649,7 @@ test.each([
   "native-custody-changed",
   "native-observation-timeout",
 ] as const)("native service independently binds retained reservation: %s", async (mode) => {
-  const f = await fixture();
+  const f = await fixture(false, mode.startsWith("native-"));
   const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
   const { inspectMaintenanceServiceExecution } =
     await import("./coordinator-bootstrap-maintenance-service-binding.js");
@@ -1021,6 +1022,19 @@ test.each([
   const startup = () =>
     readMaintenanceLauncherStartup({ setupFile: f.plan.candidate.setup.path, account: f.account });
   await expect(startup()).resolves.toMatchObject({ selected: f.plan.candidate, job: claimed });
+  const { maintenanceExecutorStartupBinding } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const beforeBookkeeping = await startup();
+  journal.writeLifecycle([
+    { ...claimed, status: "failed", detail: "Observation pending", revision: randomUUID() },
+  ]);
+  const afterBookkeeping = await startup();
+  expect(afterBookkeeping).not.toEqual(beforeBookkeeping);
+  expect(maintenanceExecutorStartupBinding(afterBookkeeping)).toEqual(
+    maintenanceExecutorStartupBinding(beforeBookkeeping),
+  );
+  journal.writeLifecycle([claimed]);
+
   // Revocation allows retained observation, never another effect claim.
   changeStandingGrant(enrollmentJournal, {
     expectedRevision: enrolled.grant.revision,
@@ -1384,22 +1398,55 @@ async function exerciseNativeReplacement(
   const { inspectMaintenanceServiceNative } =
     await import("./coordinator-bootstrap-maintenance-service-inspection.js");
   let nativeRechecks = 0;
-  const nativeEvidence = await inspectMaintenanceServiceNative({
-    request: journal.readLifecycle()[0],
-    plan: f.plan,
+  const {
+    inspectSelectedMaintenanceExecutor,
+    bindMaintenanceExecutorEvidence,
+    requireReservedMaintenanceExecutor,
+  } = await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const selectedExecutor = await inspectSelectedMaintenanceExecutor({
+    setupFile: f.plan.previous!.setup.path,
     account: f.account,
     stateDirectory: f.enrollmentStateDirectory,
     writableMountRoots: [],
-    ports: {
-      reader,
-      assertCurrent: (name, observed) => {
-        expect(name).toBe(service);
-        expect(observed).toEqual(previous);
-        nativeRechecks++;
-      },
-    },
+    ports: { reader, assertCurrent: () => undefined },
   });
-  expect(nativeRechecks).toBe(1);
+  const reservationJob = journal.readLifecycle()[0]!;
+  if (!("reservation" in reservationJob) || !reservationJob.reservation)
+    throw new Error("Missing fixture reservation");
+  const reservedProof = { record: { ...record }, sha256: "" };
+  reservationJob.evidence.push(reservedProof);
+  reservedProof.record.executor = selectedExecutor.executor;
+  reservedProof.sha256 = digest(JSON.stringify(reservedProof.record));
+  reservationJob.reservation.nativeEvidenceSha256 = reservedProof.sha256;
+  reservationJob.approval!.nativeEvidenceSha256 = reservedProof.sha256;
+  claim.reservation.nativeEvidenceSha256 = reservedProof.sha256;
+  journal.writeLifecycle([reservationJob]);
+  requireReservedMaintenanceExecutor(reservationJob, selectedExecutor.executor);
+  expect(() =>
+    requireReservedMaintenanceExecutor(reservationJob, {
+      ...selectedExecutor.executor,
+      setup: { ...selectedExecutor.executor.setup, sha256: "f".repeat(64) },
+    }),
+  ).toThrow("reserved native evidence");
+  const nativeEvidence = bindMaintenanceExecutorEvidence(
+    await inspectMaintenanceServiceNative({
+      request: journal.readLifecycle()[0],
+      plan: f.plan,
+      account: f.account,
+      stateDirectory: f.enrollmentStateDirectory,
+      writableMountRoots: [],
+      ports: {
+        reader,
+        assertCurrent: (name, observed) => {
+          expect(name).toBe(service);
+          expect(observed).toEqual(previous);
+          nativeRechecks++;
+        },
+      },
+    }),
+    selectedExecutor,
+  );
+  expect(nativeRechecks).toBe(2);
   expect(nativeEvidence.requestRevision).toBe(claim.expectedRevision);
   expect(nativeEvidence.native.process).toEqual(previous);
   expect(nativeEvidence.native.selection.sourceCommit).toBe(f.plan.previous!.sourceCommit);

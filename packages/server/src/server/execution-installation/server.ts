@@ -350,10 +350,45 @@ export function createInstallationServer(
     return true;
   };
   let coordinatorReconciliation: Promise<void> | null = null;
+  let serviceDiscovery: Promise<void> | null = null;
+  let nextServiceDiscovery = 0;
+  function discoverMaintenanceServices(): void {
+    const discover = executor.discoverMaintenanceServices;
+    if (
+      !discover ||
+      restartExecutor.maintenanceServices ||
+      serviceDiscovery ||
+      Date.now() < nextServiceDiscovery
+    )
+      return;
+    let expired = false;
+    const expiresAt = Date.now() + 25_000;
+    const deadline = setTimeout(() => {
+      expired = true;
+    }, 25_000);
+    deadline.unref();
+    // Construction is observation only. Keep the original attempt in flight
+    // after expiry so a hung native read cannot multiply concurrent attempts.
+    serviceDiscovery = Promise.resolve()
+      .then(() => discover())
+      .then(
+        (native) => {
+          if (!expired && Date.now() < expiresAt) restartExecutor.maintenanceServices = native;
+          return undefined;
+        },
+        () => undefined,
+      )
+      .finally(() => {
+        clearTimeout(deadline);
+        nextServiceDiscovery = Date.now() + 5000;
+        serviceDiscovery = null;
+      });
+  }
   const drainRestarts = async () => {
     try {
       if (startupReleased()) {
         coordinatorRequests?.revokeAutomatic();
+        discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
         await restarts.drain();
         if (coordinatorRequests && !coordinatorReconciliation) {
