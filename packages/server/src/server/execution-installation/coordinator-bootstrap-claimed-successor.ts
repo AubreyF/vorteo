@@ -169,7 +169,7 @@ export async function readClaimedSuccessorEvidence(input: {
       setup,
       plan: recovery.plan,
       writableMountRoots: input.roots,
-      phase: "retained",
+      phase: "historical",
     });
   }
   if (

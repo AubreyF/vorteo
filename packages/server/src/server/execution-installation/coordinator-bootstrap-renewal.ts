@@ -689,6 +689,11 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
   });
 }
 
+/** Verify a completed repair's retained runtime without granting current dispatch authority. */
+export async function verifyHistoricalRenewal(setup: RunnerSetup) {
+  await verifyRenewalEvidence({ setup, watchdog: true, historical: true });
+}
+
 /** Watchdogs reconstruct from their retained canonical runtime and exact request,
  * never from a later Host selection. Original setup/admission remain untouched. */
 export async function verifyRetainedRenewal(
@@ -696,6 +701,16 @@ export async function verifyRetainedRenewal(
   request?: CoordinatorBootstrapRequest,
   watchdog = false,
 ) {
+  await verifyRenewalEvidence({ setup, request, watchdog, historical: false });
+}
+
+async function verifyRenewalEvidence(input: {
+  setup: RunnerSetup;
+  request?: CoordinatorBootstrapRequest;
+  watchdog: boolean;
+  historical: boolean;
+}) {
+  const { setup, request, watchdog, historical } = input;
   const renewal = setup.renewal;
   if (!renewal) return;
   const uid = process.getuid!();
@@ -743,9 +758,11 @@ export async function verifyRetainedRenewal(
       renewal.request.planSha256 !== request.planSha256)
   )
     throw new BootstrapRequestConflict("Retained renewal belongs to a different exact approval");
-  const records = new FileBootstrapRequestJournal(anchor.stateDirectory)
-    .read()
-    .filter((item) => item.id !== renewal.request?.id);
+  const completeRecords = new FileBootstrapRequestJournal(anchor.stateDirectory).read();
+  const retainedRecords = historical
+    ? historicalRenewalRecords(completeRecords, renewal)
+    : completeRecords;
+  const records = retainedRecords.filter((item) => item.id !== renewal.request?.id);
   const history = await readRenewalHistory(
     records,
     {
@@ -757,6 +774,23 @@ export async function verifyRetainedRenewal(
   );
   const terminal = await verifyRetainedRecoveryHistory(history, renewal, admission, roots, request);
   await verifyRetainedAuthority(setup, terminal.release, roots);
+}
+
+/** Historical provenance ends at its pinned authority, never at a newer claim.
+ * Current executor and watchdog admission must use the complete journal. */
+function historicalRenewalRecords(
+  records: CoordinatorBootstrapRequest[],
+  renewal: BootstrapRenewal,
+) {
+  const boundary = renewal.claimedRecovery?.original ?? renewal.terminal;
+  const matches = records.filter((record) => record.id === boundary.id);
+  if (
+    matches.length !== 1 ||
+    !matches[0].execution ||
+    !isDeepStrictEqual(reference(matches[0]), boundary)
+  )
+    throw new BootstrapRequestConflict("Historical renewal boundary changed");
+  return records.slice(0, records.indexOf(matches[0]) + 1);
 }
 
 async function verifyRetainedAuthority(

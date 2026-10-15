@@ -38,6 +38,7 @@ import {
   verifyRenewalHostProcess,
   verifyRenewalPlan,
   verifyRetainedRenewal,
+  verifyHistoricalRenewal,
   type BootstrapRenewalPorts,
 } from "./coordinator-bootstrap-renewal.js";
 
@@ -1623,5 +1624,44 @@ test
     );
     await expect(f.derive({ moduleFile: unrelated.path })).rejects.toThrow("stale");
     await expect(f.derive({ moduleFile: f.original.entrypoint.path })).rejects.toThrow("stale");
+  },
+);
+
+test.runIf(process.platform === "darwin").each(["claimed", "recovery_required"] as const)(
+  "historical repair authority survives later %s without admitting it as current authority",
+  async (stage) => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const later = structuredClone(f.record);
+    later.id = randomUUID();
+    later.revision = randomUUID();
+    later.plan.previous = f.coordinator;
+    later.planSha256 = coordinatorPlanDigest(later.plan);
+    later.execution = {
+      generation: randomUUID(),
+      stage,
+      updatedAt: new Date().toISOString(),
+    };
+    f.writeRecords([f.record, later]);
+    const before = readFileSync(path.join(f.state, "coordinator-bootstrap.json"));
+    await expect(verifyHistoricalRenewal(setup)).resolves.toBeUndefined();
+    await expect(verifyRetainedRenewal(setup, undefined, true)).rejects.toThrow();
+    expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"))).toEqual(before);
+    for (const field of ["revision", "planSha256"] as const) {
+      const changed = structuredClone(f.record);
+      changed[field] = field === "revision" ? randomUUID() : "a".repeat(64);
+      f.writeRecords([changed, later]);
+      await expect(verifyHistoricalRenewal(setup)).rejects.toThrow(
+        "Historical renewal boundary changed",
+      );
+    }
+    f.writeRecords([f.record, f.record, later]);
+    await expect(verifyHistoricalRenewal(setup)).rejects.toThrow(
+      "Duplicate bootstrap storage identity",
+    );
+    f.writeRecords([later]);
+    await expect(verifyHistoricalRenewal(setup)).rejects.toThrow(
+      "Historical renewal boundary changed",
+    );
   },
 );

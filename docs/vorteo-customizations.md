@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): completed provisioned repairs verify runtime authority against the exact pinned historical boundary. Current executors and watchdogs still verify current history; historical verification grants no dispatch or recovery authority. Regression coverage rejects changed, missing and duplicated boundaries. This correction is prepared source, with managed recovery and installed acceptance still required. README overview and onboarding are unchanged.
+
 Coordinator approval responses allow up to one hour for protected-release verification. Cancellation keeps its existing timeout. Status refresh still exposes a newer durable decision and releases the busy state before a delayed response arrives; no approval is resent. README overview and onboarding are unchanged.
 
 Coordinator preparation clients can choose a longer response timeout for protected release verification. The default remains fifteen minutes; capability checks, exact request identity and separate owner approval are unchanged. Delayed success and validation errors are covered by client tests. README overview and onboarding are unchanged.

@@ -290,7 +290,7 @@ export async function verifyProvisionedClaimedRuntime(input: {
   setup: z.infer<typeof ClaimedRunnerSetupSchema>;
   plan: BootstrapClaimedRecoveryPlan;
   writableMountRoots: readonly string[];
-  phase: "initial" | "retained";
+  phase: "initial" | "retained" | "historical";
 }) {
   const provision = input.setup.provisioning;
   if (!provision) throw new BootstrapRequestConflict("Explicit repair provisioning is required");
@@ -301,7 +301,9 @@ export async function verifyProvisionedClaimedRuntime(input: {
     writableMountRoots: input.writableMountRoots,
   });
   assertProvisionedClaimedRuntimeBinding({ ...input, receipt });
-  const { verifyRetainedRenewal } = await import("./coordinator-bootstrap-renewal.js");
-  await verifyRetainedRenewal(provision.hostRuntime, undefined, input.phase === "retained");
+  const { verifyRetainedRenewal, verifyHistoricalRenewal } =
+    await import("./coordinator-bootstrap-renewal.js");
+  if (input.phase === "historical") await verifyHistoricalRenewal(provision.hostRuntime);
+  else await verifyRetainedRenewal(provision.hostRuntime, undefined, input.phase === "retained");
   return provision.hostRuntime;
 }
