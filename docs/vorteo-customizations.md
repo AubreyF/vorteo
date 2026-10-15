@@ -595,6 +595,10 @@ Workspace placement maintenance: protected, standing and Factory-managed workspa
 
 Workspace replica persistence retains protection, standing status and Factory membership. Legacy rows missing lifecycle fields invalidate only workspace synchronization metadata, so the daemon repopulates those rows without deleting agent or timeline history. Maintenance review must cover reloads as well as initial workspace navigation.
 
+Replica cache source skips storage writes when the serialized row is unchanged. Refreshes still participate in budget fitting and update host recency, preserving cross-host eviction priority. Baseline replacement retains unchanged survivors and applies removed-row deletions; timeline coverage, display-only recovery tails and the persistence interval are unchanged. Changing streaming tails still exceed the existing write budget, so this does not establish an ordinary-stream latency gain.
+
+Maintenance review (2026-10-14): cache regressions cover separate and shared persistence batches, unchanged baseline survivors after reload and mixed deletion. Browser reconnect assertions match the existing Reconnecting host label. Source and focused browser checks pass; source integration and live delivery remain separate. README overview and onboarding are unchanged.
+
 Maintenance review: root and app instructions now route interface delivery through the supported Host source updater when static publication is unavailable. Exact installation approval, restart disclosure and preview-only boundaries remain required. This documentation change does not alter runtime behavior or README onboarding.
 
 Conversation column integration maintenance: preserved deployed journal controls, neutral blocked icons, clipboard controls and workspace recovery while merging independently resizable columns and shared heading hover regions. Historical release entries from both branches remain intact.
