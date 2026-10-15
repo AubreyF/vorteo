@@ -167,6 +167,8 @@ export const DevRepairAttemptSchema = z.strictObject({
 
 export const RestartJobSchema = RestartRequestSchema.extend({
   updatePreparation: z.enum(["preparing", "prepared"]).optional(),
+  // Protected ledger metadata; legacy HTTP receipts omit it.
+  supervisorRecoveredBy: z.string().uuid().optional(),
   // Protected ledger metadata; projected out of legacy HTTP receipts.
   automaticAuthority: z
     .string()

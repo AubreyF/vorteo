@@ -28,6 +28,7 @@ import {
   type InstallationMaintenanceStatus,
   SourceUpdateSchema,
   type RestartJob,
+  type RestartImpact,
   type SourceContribution,
   RestartRequestSchema,
   RestartDecisionSchema,
@@ -141,6 +142,7 @@ function restartReply(
     updatePreparation: _preparation,
     devRepairs: _devRepairs,
     automaticAuthority: _authority,
+    supervisorRecoveredBy: _supervisorRecovery,
     automaticDispatchAfter: _dispatchAfter,
     ...publicJob
   } = job;
@@ -309,6 +311,7 @@ export function createInstallationServer(
     {
       ...config.restartApprovalPolicy,
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
+      supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
       authority: () =>
         createHash("sha256")
@@ -317,7 +320,7 @@ export function createInstallationServer(
               installation: config.public.installationId,
               host: config.hostAgentTokenHash,
               container: config.containerAgentTokenHash,
-              policy: "host-only-service-permissions-v1",
+              policy: "host-only-service-permissions-v2",
             }),
           )
           .digest("hex"),
@@ -430,6 +433,28 @@ export function createInstallationServer(
       };
     }
   }
+  function supervisorMaintenanceStatus(
+    impacts: RestartImpact[],
+  ): NonNullable<InstallationMaintenanceStatus["services"]>[number] {
+    const devImpact = impacts.find((item) => item.target === "container-daemon");
+    let supervisorBlocker = restarts.maintenanceBlocker("container-daemon");
+    if (!supervisorBlocker && (!executor.supervisorPlan?.() || !executor.restartSupervisor))
+      supervisorBlocker = "Prepare and validate the protected supervisor maintenance plan on Host.";
+    if (
+      !supervisorBlocker &&
+      (!supportsAutomaticMaintenance(executor) ||
+        !devImpact?.idleRestartSupported ||
+        devImpact.error)
+    )
+      supervisorBlocker = "Cannot verify safe Dev admission for supervisor maintenance.";
+    return {
+      service: "supervisor",
+      readiness: supervisorBlocker ? "blocked" : "ready",
+      reason:
+        supervisorBlocker ??
+        "The protected supervisor plan is available through the tracked queue. Only a separate supervisor permission can authorize it automatically.",
+    };
+  }
   async function maintenanceStatus(): Promise<InstallationMaintenanceStatus> {
     const preference = daemonAutomation.read();
     const impacts = await restarts.impacts();
@@ -499,12 +524,7 @@ export function createInstallationServer(
         reason:
           "Automatic coordinator maintenance requires the independent recovery workflow. Exact owner review remains available.",
       },
-      {
-        service: "supervisor",
-        readiness: "blocked",
-        reason:
-          "Automatic supervisor maintenance requires verified recovery support. Use the tracked exact-review workflow when available.",
-      },
+      supervisorMaintenanceStatus(impacts),
     );
     return { version: 1, checkedAt: new Date().toISOString(), preference, paths, services };
   }
@@ -564,6 +584,11 @@ export function createInstallationServer(
             },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
+              ownerApprovalRequired: !(
+                host &&
+                daemonAutomation.activation("supervisor") &&
+                supportsAutomaticMaintenance(executor)
+              ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
             factoryRuntimeAdoption: {

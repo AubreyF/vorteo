@@ -2520,13 +2520,10 @@ test("pending plain sharing ORs durable owner review without changing Host prove
   expect(() =>
     f.queue.request({ ...input, requireOwnerApproval: true }, "container-agent"),
   ).toThrow("Host provenance");
-  for (const plan of [
-    { supervisorPlanSha256: "d".repeat(64) },
-    { factoryRuntimePlanSha256: "d".repeat(64) },
-  ]) {
+  for (const plan of [{ factoryRuntimePlanSha256: "d".repeat(64) }]) {
     expect(() =>
       f.queue.request({ ...input, ...plan, requireOwnerApproval: true }, "host-agent"),
-    ).toThrow("limited to plain restarts and source updates");
+    ).toThrow("Factory adoption already requires exact owner review");
   }
 });
 
@@ -3093,4 +3090,194 @@ test("service permissions authorize and revoke only their selected daemon target
   await queue.drain();
   expect(f.events.filter((event) => event === "release")).toHaveLength(1);
   expect(f.events).not.toContain("restart");
+});
+
+test("supervisor automation uses its own permission, exact plan and cancellation interval", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  let now = 2000;
+  let enabled: string | null = new Date(1000).toISOString();
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => now, {
+    daemonRequestsAfter: () => null,
+    supervisorRequestsAfter: () => enabled,
+    cancellationDelayMs: 30_000,
+  });
+  const request = queue.request(
+    {
+      target: "container-daemon",
+      reason: "Prepared supervisor maintenance",
+      supervisorPlanSha256: sha,
+    },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({
+    id: request.id,
+    status: "approved",
+    supervisorPlanSha256: sha,
+    automaticApproval: { policyActivatedAt: enabled },
+  });
+  expect(f.events).toEqual([]);
+  now += 30_000;
+  await queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  enabled = null;
+  queue.refreshApprovalPolicy();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test.each(["legacy", "explicit", "changed"])(
+  "supervisor automation retains the %s review boundary",
+  async (boundary) => {
+    const f = automaticFixture();
+    let sha = "d".repeat(64);
+    f.executor.supervisorPlan = () => sha;
+    f.executor.restartSupervisor = async () => {
+      f.events.push("supervisor");
+      return "verified";
+    };
+    const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+      ...f.policy,
+      supervisorRequestsAfter: () => (boundary === "legacy" ? null : new Date(1000).toISOString()),
+    });
+    const input = {
+      target: "container-daemon" as const,
+      reason: "Supervisor",
+      supervisorPlanSha256: sha,
+      requireOwnerApproval: boundary === "explicit",
+    };
+    expect(() => queue.request(input, "container-agent")).toThrow();
+    queue.request(input, "host-agent");
+    if (boundary === "changed") sha = "e".repeat(64);
+    await queue.drain();
+    expect(queue.list()[0]?.status).toBe("pending");
+    expect(f.events).toEqual([]);
+  },
+);
+
+test("supervisor plan revocation during idle observation releases the hold without dispatch", async () => {
+  const f = automaticFixture();
+  let sha = "d".repeat(64);
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => {
+    const result = await inspect(target);
+    sha = "e".repeat(64);
+    return result;
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    supervisorRequestsAfter: () => new Date(1000).toISOString(),
+  });
+  queue.request(
+    { target: "container-daemon", reason: "Supervisor", supervisorPlanSha256: sha },
+    "host-agent",
+  );
+  f.idle();
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("an uncertain supervisor failure requires successful manual recovery before more automation", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  let fail = true;
+  let now = 2000;
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    if (fail) throw new Error("Uncertain result");
+    return "verified";
+  };
+  const policy = { supervisorRequestsAfter: () => new Date(1000).toISOString() };
+  let queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Supervisor",
+    supervisorPlanSha256: sha,
+  };
+  const failed = queue.request(input, "host-agent");
+  f.idle();
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "failed", holdReleased: true });
+  expect(queue.maintenanceBlocker("container-daemon")).toContain(
+    "Supervisor maintenance did not verify completion",
+  );
+  now = 3000;
+  queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const recovery = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === recovery.id)?.status).toBe("pending");
+  expect(f.events.filter((event) => event === "supervisor")).toHaveLength(1);
+  fail = false;
+  queue.decide(recovery.id, recovery.revision, "finish-current-turns", undefined, sha);
+  await queue.drain();
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === recovery.id)?.status).toBe("succeeded");
+  expect(queue.list().find((job) => job.id === failed.id)).toMatchObject({
+    status: "failed",
+    supervisorRecoveredBy: recovery.id,
+  });
+  expect(queue.maintenanceBlocker("container-daemon")).toBeNull();
+  now = 4000;
+  queue = new InstallationRestarts(f.journal, f.executor, () => now, policy);
+  const next = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === next.id)).toMatchObject({
+    status: "succeeded",
+    automaticApproval: { policyActivatedAt: new Date(1000).toISOString() },
+  });
+  expect(f.events.filter((event) => event === "supervisor")).toHaveLength(3);
+});
+
+test("a supervisor dispatch interrupted by coordinator restart remains fenced and is not replayed", async () => {
+  const f = automaticFixture();
+  const sha = "d".repeat(64);
+  f.executor.supervisorPlan = () => sha;
+  f.executor.restartSupervisor = async () => {
+    f.events.push("supervisor");
+    return "verified";
+  };
+  const policy = { supervisorRequestsAfter: () => new Date(1000).toISOString() };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
+  const input = {
+    target: "container-daemon" as const,
+    reason: "Supervisor",
+    supervisorPlanSha256: sha,
+  };
+  const original = queue.request(input, "host-agent");
+  f.journal.jobs[0] = {
+    ...original,
+    status: "running",
+    finishCurrentTurns: true,
+    whenIdle: true,
+    approvedAt: new Date(2000).toISOString(),
+  };
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, policy);
+  const next = recovered.request(input, "host-agent");
+  f.idle();
+  await recovered.drain();
+  await recovered.drain();
+  expect(recovered.list().find((job) => job.id === original.id)).toMatchObject({
+    status: "failed",
+    holdReleased: true,
+  });
+  expect(recovered.list().find((job) => job.id === next.id)?.status).toBe("pending");
+  expect(recovered.maintenanceBlocker("container-daemon")).toContain(
+    "Supervisor maintenance did not verify completion",
+  );
+  expect(f.events).toEqual(["release"]);
 });

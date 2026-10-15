@@ -1422,10 +1422,17 @@ test("supervisor maintenance stays visible to old clients but requires exact own
 test("supervisor capability is Host scoped and exact approval dispatches the maintenance executor", async () => {
   const { request, calls } = await fixture();
   const guest = await request("/api/installation/capabilities", "guest-agent-test-token");
-  expect((await guest.json()).supervisorMaintenance).toEqual({ available: false });
+  expect((await guest.json()).supervisorMaintenance).toEqual({
+    available: false,
+    ownerApprovalRequired: true,
+  });
   const host = await request("/api/installation/capabilities", "host-agent-test-token");
   const sha = "a".repeat(64);
-  expect((await host.json()).supervisorMaintenance).toEqual({ available: true, sha256: sha });
+  expect((await host.json()).supervisorMaintenance).toEqual({
+    available: true,
+    sha256: sha,
+    ownerApprovalRequired: true,
+  });
   const created = await request("/api/installation/restart-requests", "host-agent-test-token", {
     target: "container-daemon",
     reason: "Reviewed fixture",
@@ -2506,4 +2513,99 @@ test("service permissions preserve daemon grants and keep controller permissions
     await f.request("/api/installation/owner/daemon-automation/query", "owner-test-password", {})
   ).json();
   expect(legacy).not.toHaveProperty("services");
+});
+
+test("supervisor permission authorizes only its tracked Host operation and revokes before holds", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const query = "/api/installation/owner/maintenance-permissions/query";
+  const change = "/api/installation/owner/maintenance-permissions/change";
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  const saved = await (
+    await f.request(change, "owner-test-password", {
+      expectedRevision: initial.revision,
+      service: "supervisor",
+      enabled: true,
+    })
+  ).json();
+  expect(saved.services.host).toBe(initial.services.host);
+  expect(saved.services.coordinator).toBeNull();
+  const capability = await (
+    await f.request("/api/installation/capabilities", "host-agent-test-token")
+  ).json();
+  expect(capability.supervisorMaintenance).toEqual({
+    available: true,
+    sha256: "a".repeat(64),
+    ownerApprovalRequired: false,
+  });
+  const readiness = await (
+    await f.request("/api/installation/maintenance-status", "host-agent-test-token")
+  ).json();
+  expect(
+    readiness.services.find((item: { service: string }) => item.service === "supervisor"),
+  ).toMatchObject({ readiness: "ready" });
+  const route = "/api/installation/restart-requests";
+  const input = {
+    target: "container-daemon",
+    reason: "Verified supervisor plan",
+    supervisorPlanSha256: "a".repeat(64),
+  };
+  expect((await f.request(route, "guest-agent-test-token", input)).status).toBe(409);
+  const job = await (await f.request(route, "host-agent-test-token", input)).json();
+  await f.drain();
+  const status = async () =>
+    (
+      await f.request(
+        `${route}/${job.id}?hostAutomaticRestarts=1&supervisorMaintenance=1`,
+        "host-agent-test-token",
+      )
+    ).json();
+  await expect.poll(async () => (await status()).status).toBe("approved");
+  expect(await status()).toMatchObject({
+    automaticApproval: { policyActivatedAt: saved.services.supervisor },
+  });
+  expect(f.calls).toEqual([]);
+  expect(
+    (
+      await f.request(change, "owner-test-password", {
+        expectedRevision: saved.revision,
+        service: "supervisor",
+        enabled: false,
+      })
+    ).status,
+  ).toBe(200);
+  await expect.poll(async () => (await status()).status).toBe("rejected");
+  expect(f.calls).not.toContain("hold");
+  expect(f.calls).not.toContain("supervisor");
+});
+
+test("the scoped Host client can require manual supervisor review", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const clientFile = path.join(f.root, "host-client.json");
+  const reasonFile = path.join(f.root, "reason.txt");
+  writeFileSync(
+    clientFile,
+    JSON.stringify({ origin: f.url, token: "host-agent-test-token", kind: "host-agent" }),
+    { mode: 0o600 },
+  );
+  writeFileSync(reasonFile, "Review supervisor maintenance explicitly");
+  const result = await promisify(execFile)(process.execPath, [
+    path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+    "--config",
+    clientFile,
+    "request-restart",
+    "--target",
+    "container-daemon",
+    "--supervisor-plan",
+    "a".repeat(64),
+    "--require-owner-approval",
+    "--reason-file",
+    reasonFile,
+  ]);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    status: "pending",
+    requireOwnerApproval: true,
+    supervisorPlanSha256: "a".repeat(64),
+  });
+  await f.drain();
+  expect(f.calls).toEqual([]);
 });

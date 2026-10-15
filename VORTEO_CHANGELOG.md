@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.533 - 2026-10-15
+
+### Changed
+
+- Connect the separate supervisor permission to tracked Host maintenance requests. Bind automatic decisions to the configured plan, retain the cancellation interval, recheck plan and credential revocation before dispatch, and preserve explicit manual review.
+- Fence automatic Dev maintenance after an uncertain supervisor result until a manually reviewed recovery succeeds. Retain the failed receipt and its recovery link across queue restarts.
+- Report supervisor readiness and authority separately from daemon permissions, and support explicit manual supervisor requests in the scoped client.
+
+### Maintenance
+
+- Extend queue and HTTP tests for supervisor opt-in, revocation, plan changes, failed-operation recovery and legacy boundaries. Coordinator automatic authorization and installed acceptance remain open.
+
 ## 0.11.0-beta.3.vorteo.532 - 2026-10-15
 
 ### Fixed

@@ -41,12 +41,11 @@ if (values["require-owner-approval"]) {
   if (
     config.kind !== "host-agent" ||
     positionals[0] !== "request-restart" ||
-    values["supervisor-plan"] ||
     values["factory-runtime-plan"] ||
     !["host", "container-daemon"].includes(values.target)
   )
     throw new Error(
-      "--require-owner-approval requires a trusted Host plain restart or source update",
+      "--require-owner-approval requires a trusted Host restart, source update or supervisor request",
     );
   const response = await fetch(new URL("/api/installation/capabilities", base), {
     headers: { Authorization: `Bearer ${config.token}` },
