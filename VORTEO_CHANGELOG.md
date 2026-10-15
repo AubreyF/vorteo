@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.543 - 2026-10-15
+
+### Fixed
+
+- Report automatic Host requester authority separately for each daemon target. The legacy aggregate no longer implies that both daemons allow automation when only one permission is enabled.
+- Verify separate permissions against tracked request decisions and preserve manual approval for Dev requesters. This source checkpoint does not deploy the changes.
+
 ## 0.11.0-beta.3.vorteo.542 - 2026-10-15
 
 ### Maintenance

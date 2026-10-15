@@ -556,15 +556,12 @@ export function createInstallationServer(
     );
     const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
     const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
-    const activation = daemonAutomation.activation();
-    const policyEnabled =
-      activation === undefined ? config.restartApprovalPolicy?.hostRequestsAfter : activation;
+    const permissions = daemonAutomation.servicePermissions();
+    const automaticSupported = supportsAutomaticMaintenance(executor);
+    // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
+    // the conservative aggregate until legacy capability clients retire after 2027-04-15.
     const automaticHost = Boolean(
-      policyEnabled &&
-      executor.inspect &&
-      executor.holdCurrentTurns &&
-      executor.releaseCurrentTurns &&
-      executor.restartWhenIdle,
+      permissions.host && permissions["container-daemon"] && automaticSupported,
     );
     void (async () => {
       const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
@@ -572,6 +569,8 @@ export function createInstallationServer(
         (["host", "container-daemon"] as const).map(async (target) => ({
           target,
           restart: true,
+          ownerApprovalRequired: !(host && permissions[target] && automaticSupported),
+          hostAutomaticRestarts: Boolean(permissions[target] && automaticSupported),
           sourceUpdate: await updateCapability(target),
         })),
       ).then(

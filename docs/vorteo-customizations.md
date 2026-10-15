@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): scoped capabilities now report each daemon target's automatic Host requester authority and owner-review requirement. The legacy aggregate is conservative when permissions differ. HTTP tests compare advertised permissions with retained request decisions; Dev requesters remain manual. README overview and onboarding are unchanged. Installed acceptance and delivery remain open.
+
 Maintenance review (2026-10-15): coordinator review now shows a negotiated public authorization view, bounded-check status, cancellation timing and unconfirmed launches. Automatic waits do not request duplicate owner approval, while exhausted checks remain actionable. Protocol and model tests pass, and desktop and phone browser checks confirm readable status and accessible cancellation. Changes remain local; scoped client commands, remaining compatibility checks and installed acceptance are open. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): the existing maintenance tick now reconciles automatic coordinator requests with one native call in flight and durable attempt limits. Tests verify crash persistence, backoff, cancellation, phase changes and refusal to repeat a reserved launch. Main and nested recovery responses omit private authorization bookkeeping. These changes remain local; public status, scoped client commands and installed acceptance are open. README overview and onboarding are unchanged.

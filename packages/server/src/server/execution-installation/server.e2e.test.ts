@@ -1456,6 +1456,57 @@ test("supervisor capability is Host scoped and exact approval dispatches the mai
   expect((await status.json()).status).toBe("succeeded");
 });
 
+test.each(["host", "container-daemon"] as const)(
+  "capabilities keep separate daemon permissions when %s automation is disabled",
+  async (disabledTarget) => {
+    const f = await fixture(undefined, undefined, undefined, false, true);
+    const changed = await f.request(
+      "/api/installation/owner/maintenance-permissions/change",
+      "owner-test-password",
+      {
+        expectedRevision: null,
+        service: disabledTarget,
+        enabled: false,
+      },
+    );
+    expect(changed.status).toBe(200);
+    const capabilities = "/api/installation/capabilities";
+    const host = await (await f.request(capabilities, "host-agent-test-token")).json();
+    expect(host).toMatchObject({ ownerApprovalRequired: true, hostAutomaticRestarts: false });
+    for (const target of ["host", "container-daemon"] as const) {
+      const automatic = target !== disabledTarget;
+      expect(host.targets.find((item: { target: string }) => item.target === target)).toMatchObject(
+        {
+          ownerApprovalRequired: !automatic,
+          hostAutomaticRestarts: automatic,
+        },
+      );
+      const created = await f.request(
+        "/api/installation/restart-requests",
+        "host-agent-test-token",
+        {
+          target,
+          reason: "Verify separate daemon permissions",
+        },
+      );
+      expect(created.status).toBe(201);
+      const job = RestartJobSchema.parse(await created.json());
+      await f.drain();
+      const receipt = await f.request(
+        `/api/installation/restart-requests/${job.id}`,
+        "host-agent-test-token",
+      );
+      expect((await receipt.json()).status).toBe(automatic ? "approved" : "pending");
+    }
+    const guest = await (await f.request(capabilities, "guest-agent-test-token")).json();
+    expect(guest.ownerApprovalRequired).toBe(true);
+    expect(
+      guest.targets.map((item: { ownerApprovalRequired: boolean }) => item.ownerApprovalRequired),
+    ).toEqual([true, true]);
+    expect(f.calls).toEqual([]);
+  },
+);
+
 test("automatic Host approval uses authenticated origin and hides metadata from legacy clients", async () => {
   const { request, calls, drain } = await fixture(undefined, undefined, undefined, false, true);
   const route = "/api/installation/restart-requests";

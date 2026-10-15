@@ -328,6 +328,8 @@ Capable clients request the public automatic status view. It identifies Host-pol
 
 Installation controls show authorization and readiness separately for each Host or Dev requester, target daemon and operation. Automatic authority does not prove the updater is available. The versioned observation includes its check time, preference revision and selected source when available. A failed inventory, unsupported idle admission or unresolved lifecycle recovery blocks readiness.
 
+Scoped capabilities report `ownerApprovalRequired` and `hostAutomaticRestarts` for each daemon target. The latter describes authenticated Host requester authority, including requests targeting Dev. Dev requesters always require owner approval. The legacy top-level fields describe both daemon targets conservatively: automatic approval is advertised there only when both permissions are enabled and the executor supports safe admission. Inspect the target fields or maintenance status when permissions differ; capabilities never replace the recorded request decision.
+
 | Observation                      | Action                                                                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Manual approval required         | Review the exact request in Installation controls. Unlocking alone does not approve it.                                                    |
