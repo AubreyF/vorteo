@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): coordinator renewal can prepare a separately reviewed successor for an exact failed, unpromoted compatible generation. Protected journal checks preserve its approval and failure, reject promotion or competing repair, and bind the successor to the unchanged native coordinator. Exact recovery references retain predecessor ordering across main and pending journals. This is source preparation; installed delivery and Factory operating acceptance remain open. README overview is unchanged.
+
 Maintenance review (2026-10-14): completed provisioned repairs verify runtime authority against the exact pinned historical boundary. Current executors and watchdogs still verify current history; historical verification grants no dispatch or recovery authority. Regression coverage rejects changed, missing and duplicated boundaries. This correction is prepared source, with managed recovery and installed acceptance still required. README overview and onboarding are unchanged.
 
 Coordinator approval responses allow up to one hour for protected-release verification. Cancellation keeps its existing timeout. Status refresh still exposes a newer durable decision and releases the busy state before a delayed response arrives; no approval is resent. README overview and onboarding are unchanged.

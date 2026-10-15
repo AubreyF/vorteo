@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.520 - 2026-10-14
+
+### Fixed
+
+- Prepare separately reviewed coordinator successors after an exact failed generation that never acquired promotion authority, preserving the original approval and failure.
+- Verify the unchanged coordinator and reject promoted failures, competing repairs, altered history and changed process identity. Order retained sidecar ancestry by exact recovery references.
+- Cover real admission, durable claims, selection and compatible rollback with disposable fixtures; live recovery remains subject to tracked delivery and approval.
+
 ## 0.11.0-beta.3.vorteo.519 - 2026-10-14
 
 ### Fixed

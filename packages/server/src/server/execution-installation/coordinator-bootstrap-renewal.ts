@@ -62,6 +62,7 @@ export const BootstrapRenewalSchema = z.strictObject({
   originalSetup: FileSchema,
   originalAdmission: FileSchema,
   terminal: ReferenceSchema,
+  unpromotedFailure: ReferenceSchema.optional(),
   claimedRecovery: z
     .strictObject({
       recovery: ReferenceSchema,
@@ -103,13 +104,41 @@ function terminalRelease(request: CoordinatorBootstrapRequest) {
   return request.plan.previous;
 }
 
-/** Journal append order and exact recovery references define the terminal chain.
+/** Sidecar predecessors remain unpromoted after their successor reaches main.
+ * Order only exact recovery dependencies; never infer ancestry from timestamps. */
+function orderBootstrapHistory(
+  records: CoordinatorBootstrapRequest[],
+): CoordinatorBootstrapRequest[] {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  if (byId.size !== records.length)
+    throw new BootstrapRequestConflict("Duplicate bootstrap renewal request");
+  const ordered: CoordinatorBootstrapRequest[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (record: CoordinatorBootstrapRequest) => {
+    if (visited.has(record.id)) return;
+    if (visiting.has(record.id))
+      throw new BootstrapRequestConflict("Cyclic bootstrap renewal history");
+    visiting.add(record.id);
+    if (record.execution && record.plan.recoveredFrom) {
+      const previous = assertRecoveredBootstrapBase(record.plan, records);
+      if (previous) visit(previous);
+    }
+    visiting.delete(record.id);
+    visited.add(record.id);
+    ordered.push(record);
+  };
+  for (const record of records) visit(record);
+  return ordered;
+}
+
+/** Journal order and exact recovery references define the terminal chain.
  * Wall clocks, receipt filenames and the most recent successful entry do not. */
 export function terminalBootstrapRelease(
   input: unknown,
   identity: { installationId: string; stateDirectory: string; service: string },
 ) {
-  const records = z.array(CoordinatorBootstrapRequestSchema).parse(input);
+  const records = orderBootstrapHistory(z.array(CoordinatorBootstrapRequestSchema).parse(input));
   const ids = new Set<string>();
   const generations = new Set<string>();
   let terminal: CoordinatorBootstrapRequest | undefined;
@@ -326,6 +355,7 @@ async function readRenewalAuthority(input: RenewalInput) {
     configurationFile,
     config,
     claimed: history.claimed,
+    unpromotedFailure: history.unpromotedFailure,
   };
 }
 
@@ -491,8 +521,36 @@ async function readRenewalHistory(
 ) {
   const { readClaimedSuccessorEvidence } =
     await import("./coordinator-bootstrap-claimed-successor.js");
-  const claimed = await readClaimedSuccessorEvidence({ records, identity, roots });
-  return { terminal: claimed?.terminal ?? terminalBootstrapRelease(records, identity), claimed };
+  records = orderBootstrapHistory(records);
+  const latest = records.findLast((record) => record.execution);
+  const { FileClaimedRecoveryReviewJournal } =
+    await import("./coordinator-bootstrap-claimed-journal.js");
+  const recoveryReviews = new FileClaimedRecoveryReviewJournal(
+    identity.stateDirectory,
+  ).readReviews();
+  const hasReview = recoveryReviews.some((review) => review.plan.original.id === latest?.id);
+  let unpromotedFailure: CoordinatorBootstrapRequest | undefined;
+  let retained = records;
+  if (latest?.execution?.stage === "recovery_required" && !hasReview) {
+    new FileBootstrapRequestJournal(identity.stateDirectory).verifyUnpromotedFailure(latest);
+    unpromotedFailure = latest;
+    retained = records.filter((record) => record.id !== latest.id);
+  }
+  const claimed = await readClaimedSuccessorEvidence({ records: retained, identity, roots });
+  const terminal = claimed?.terminal ?? terminalBootstrapRelease(retained, identity);
+  if (unpromotedFailure) {
+    if (!terminal)
+      throw new BootstrapRequestConflict("Unpromoted failure has no retained authority");
+    const expected = claimed?.recoveredFrom;
+    if (expected && !isDeepStrictEqual(unpromotedFailure.plan.recoveredFrom, expected))
+      throw new BootstrapRequestConflict("Unpromoted failure recovery ancestry changed");
+    const previous = unpromotedFailure.plan.previous;
+    const selected = terminal.release;
+    if (!isDeepStrictEqual(executableIdentity(previous), executableIdentity(selected)))
+      throw new BootstrapRequestConflict("Unpromoted failure previous release changed");
+    assertRecoveredBootstrapBase(unpromotedFailure.plan, retained);
+  }
+  return { terminal, claimed, unpromotedFailure };
 }
 
 async function verifyStableRenewal(
@@ -546,7 +604,11 @@ async function verifyStableRenewal(
   if (
     !finalHistory.terminal ||
     !isDeepStrictEqual(reference(finalHistory.terminal.request), renewal.terminal) ||
-    !isDeepStrictEqual(finalHistory.claimed?.witness, renewal.claimedRecovery)
+    !isDeepStrictEqual(finalHistory.claimed?.witness, renewal.claimedRecovery) ||
+    !isDeepStrictEqual(
+      finalHistory.unpromotedFailure && reference(finalHistory.unpromotedFailure),
+      renewal.unpromotedFailure,
+    )
   )
     throw new BootstrapRequestConflict("Renewal terminal history changed during reconstruction");
 }
@@ -572,6 +634,14 @@ export async function deriveBootstrapRenewal(input: {
   );
   const ports = input.ports ?? (await nativePorts(admission, roots));
   await verifyTerminalProcess(authority, ports);
+  if (authority.unpromotedFailure) {
+    await verifyLoadedBootstrapService({
+      plan: authority.unpromotedFailure.plan,
+      configurationFile,
+      hostUid: uid,
+      reader: ports.reader,
+    });
+  }
   if (authority.claimed) {
     const { verifyClaimedSuccessorExit } =
       await import("./coordinator-bootstrap-claimed-successor.js");
@@ -603,6 +673,9 @@ export async function deriveBootstrapRenewal(input: {
     originalAdmission: await observeFile(input.setup.admissionSetupFile, roots),
     terminal: reference(terminal.request),
     ...(authority.claimed ? { claimedRecovery: authority.claimed.witness } : {}),
+    ...(authority.unpromotedFailure
+      ? { unpromotedFailure: reference(authority.unpromotedFailure) }
+      : {}),
     configuration: { path: configurationFile, sha256: selected.configuration.sha256 },
     sourceCommit: receipt.sourceCommit,
     source,
@@ -655,6 +728,12 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
   if (!setup.renewal) return;
   const renewal = setup.renewal;
   if (
+    renewal.unpromotedFailure &&
+    !isDeepStrictEqual(plan.recoveredFrom, renewal.unpromotedFailure)
+  )
+    throw new BootstrapRequestConflict("Renewal must reference the exact unpromoted failure");
+  if (
+    !renewal.unpromotedFailure &&
     renewal.claimedRecovery &&
     !isDeepStrictEqual(plan.recoveredFrom, renewal.claimedRecovery.original)
   )
@@ -782,7 +861,8 @@ function historicalRenewalRecords(
   records: CoordinatorBootstrapRequest[],
   renewal: BootstrapRenewal,
 ) {
-  const boundary = renewal.claimedRecovery?.original ?? renewal.terminal;
+  const boundary =
+    renewal.unpromotedFailure ?? renewal.claimedRecovery?.original ?? renewal.terminal;
   const matches = records.filter((record) => record.id === boundary.id);
   if (
     matches.length !== 1 ||
@@ -982,7 +1062,11 @@ async function verifyRetainedRecoveryHistory(
   if (
     !terminal ||
     !isDeepStrictEqual(reference(terminal.request), renewal.terminal) ||
-    !isDeepStrictEqual(history.claimed?.witness, renewal.claimedRecovery)
+    !isDeepStrictEqual(history.claimed?.witness, renewal.claimedRecovery) ||
+    !isDeepStrictEqual(
+      history.unpromotedFailure && reference(history.unpromotedFailure),
+      renewal.unpromotedFailure,
+    )
   )
     throw new BootstrapRequestConflict("Retained renewal terminal history changed");
   if (history.claimed) {
@@ -993,10 +1077,22 @@ async function verifyRetainedRecoveryHistory(
       writableMountRoots: roots,
     });
     await verifyClaimedSuccessorExit(history.claimed, reader);
-    if (request && !isDeepStrictEqual(request.plan.recoveredFrom, history.claimed.recoveredFrom))
+    if (
+      request &&
+      !renewal.unpromotedFailure &&
+      !isDeepStrictEqual(request.plan.recoveredFrom, history.claimed.recoveredFrom)
+    )
       throw new BootstrapRequestConflict(
         "Retained successor does not reference the recovered claim",
       );
   }
+  if (
+    request &&
+    renewal.unpromotedFailure &&
+    !isDeepStrictEqual(request.plan.recoveredFrom, renewal.unpromotedFailure)
+  )
+    throw new BootstrapRequestConflict(
+      "Retained successor does not reference the unpromoted failure",
+    );
   return terminal;
 }

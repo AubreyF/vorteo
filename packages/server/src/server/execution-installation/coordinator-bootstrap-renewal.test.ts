@@ -433,7 +433,7 @@ test.runIf(process.platform === "darwin")(
     const failed = structuredClone(f.record);
     failed.execution!.stage = "recovery_required";
     f.writeRecords([failed]);
-    await expect(f.derive()).rejects.toThrow("terminal");
+    await expect(f.derive()).rejects.toThrow("Exact unpromoted bootstrap failure required");
     f.writeRecords([f.record]);
     await expect(
       f.derive({ ports: { ...f.ports, writableMountRoots: async () => [f.host.directory] } }),
@@ -1663,5 +1663,106 @@ test.runIf(process.platform === "darwin").each(["claimed", "recovery_required"] 
     await expect(verifyHistoricalRenewal(setup)).rejects.toThrow(
       "Historical renewal boundary changed",
     );
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "renews an exact unpromoted failed generation without rewriting its approval or promoting it",
+  async () => {
+    const f = await fixture();
+    const failed = structuredClone(f.record);
+    failed.id = randomUUID();
+    failed.revision = randomUUID();
+    failed.plan.previous = f.coordinator;
+    failed.plan.candidate = f.host;
+    failed.plan.compatibleRecovery = f.host;
+    failed.plan.automaticRecovery = "restore-compatible";
+    const observed = await f.ports.reader.inspectProcess(404);
+    failed.plan.expectedProcess = {
+      pid: observed.pid,
+      bootId: observed.bootId,
+      startIdentity: observed.startIdentity,
+      argumentsSha256: observed.argumentsSha256,
+    };
+    failed.planSha256 = coordinatorPlanDigest(failed.plan);
+    failed.execution = {
+      generation: randomUUID(),
+      stage: "recovery_required",
+      updatedAt: new Date().toISOString(),
+    };
+    const journal = new FileBootstrapRequestJournal(f.state);
+    journal.replace(journal.read(), [f.record, failed]);
+    const before = journal.read();
+    const renewed = (await f.derive())!;
+    expect(renewed.renewal!.unpromotedFailure).toEqual({
+      id: failed.id,
+      revision: failed.revision,
+      generation: failed.execution.generation,
+      planSha256: failed.planSha256,
+    });
+    const successor = { ...failed.plan, recoveredFrom: renewed.renewal!.unpromotedFailure };
+    await expect(verifyRenewalPlan(renewed, successor)).resolves.toBeUndefined();
+    await expect(
+      verifyRenewalPlan(renewed, { ...successor, recoveredFrom: undefined }),
+    ).rejects.toThrow("exact unpromoted failure");
+    expect(journal.read()).toEqual(before);
+    expect(journal.readPromoted()).toEqual([f.record]);
+    const finished = {
+      ...failed,
+      id: randomUUID(),
+      revision: randomUUID(),
+      plan: successor,
+      planSha256: coordinatorPlanDigest(successor),
+      execution: {
+        generation: randomUUID(),
+        stage: "succeeded" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    // Main journal precedes the sidecar, so a promoted successor is read before
+    // its still-unpromoted failed predecessor. Exact references define ancestry.
+    expect(terminalBootstrapRelease([f.record, finished, failed], f.identity)).toEqual({
+      request: finished,
+      release: f.host,
+    });
+    expect(() => journal.promote(failed)).toThrow("Exact protected bootstrap claim required");
+    expect(() => journal.verifyUnpromotedFailure({ ...failed, revision: randomUUID() })).toThrow(
+      "Exact unpromoted bootstrap failure required",
+    );
+    const inspect = f.ports.reader.inspectProcess;
+    f.ports.reader.inspectProcess = async (pid) => {
+      const process = await inspect(pid);
+      return pid === failed.plan.expectedProcess.pid
+        ? { ...process, startIdentity: "changed-birth" }
+        : process;
+    };
+    await expect(f.derive()).rejects.toThrow();
+    f.ports.reader.inspectProcess = inspect;
+    expect(() =>
+      journal.verifyUnpromotedFailure({
+        ...failed,
+        execution: { ...failed.execution!, rollbackAttemptedAt: new Date().toISOString() },
+      }),
+    ).toThrow("Exact unpromoted bootstrap failure required");
+    const changed = { ...failed, revision: randomUUID() };
+    journal.replace(journal.read(), [f.record, changed]);
+    await expect(verifyRetainedRenewal(renewed, undefined, true)).rejects.toThrow(
+      "Retained renewal terminal history changed",
+    );
+    journal.replace(journal.read(), before);
+    const promoted = {
+      ...failed,
+      revision: randomUUID(),
+      execution: { ...failed.execution, stage: "claimed" as const },
+    };
+    journal.replace(journal.read(), [f.record, promoted]);
+    journal.promote(promoted);
+    const failedAfterPromotion = {
+      ...promoted,
+      revision: randomUUID(),
+      execution: { ...promoted.execution, stage: "recovery_required" as const },
+    };
+    journal.replace(journal.read(), [f.record, failedAfterPromotion]);
+    await expect(f.derive()).rejects.toThrow("Exact unpromoted bootstrap failure required");
   },
 );

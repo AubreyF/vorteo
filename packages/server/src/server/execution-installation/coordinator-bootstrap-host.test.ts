@@ -51,6 +51,7 @@ import {
 
 import * as serviceCollector from "./coordinator-bootstrap-service.js";
 import * as claimedSuccessor from "./coordinator-bootstrap-claimed-successor.js";
+import { FileClaimedRecoveryReviewJournal } from "./coordinator-bootstrap-claimed-journal.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
@@ -690,7 +691,9 @@ test.runIf(process.platform === "darwin")(
     };
     const evidence = {
       recoveredFrom,
-      request: { plan: { executor: { identity: { ...retainedIdentity, pid: 456 } } } },
+      request: {
+        plan: { original: recovered, executor: { identity: { ...retainedIdentity, pid: 456 } } },
+      },
       executor: { ...retainedIdentity, pid: 789 },
     } as unknown as NonNullable<
       Awaited<ReturnType<typeof claimedSuccessor.readClaimedSuccessorEvidence>>
@@ -698,6 +701,9 @@ test.runIf(process.platform === "darwin")(
     const claimedRead = vi
       .spyOn(claimedSuccessor, "readClaimedSuccessorEvidence")
       .mockResolvedValue(evidence);
+    const reviewRead = vi
+      .spyOn(FileClaimedRecoveryReviewJournal.prototype, "readReviews")
+      .mockReturnValue([evidence.request]);
     const successorPlan = { ...plan, recoveredFrom };
     await expect(verifyBootstrapPlan(successorPlan, host)).resolves.toBeUndefined();
     expect(verifyProcessExited).toHaveBeenCalledWith(456);
@@ -719,6 +725,7 @@ test.runIf(process.platform === "darwin")(
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("another successor");
     journalRead.mockRestore();
     claimedRead.mockRestore();
+    reviewRead.mockRestore();
     const compatibleRecovery = await makeRelease("compatible-recovery", "");
     const compatiblePlan = {
       ...plan,
