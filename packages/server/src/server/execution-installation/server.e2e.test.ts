@@ -15,6 +15,7 @@ import {
   existsSync,
   chmodSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
   readFileSync,
@@ -345,7 +346,7 @@ async function fixture(
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
-  const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-")));
   writeFileSync(
     path.join(root, "index.html"),
     "<html><head></head><body>trusted application</body></html>",
@@ -2434,6 +2435,7 @@ test("owner HTTP repair captures and stages real Git source without approving or
               },
             },
           ]),
+          { mode: 0o600 },
         );
       },
     );
@@ -2565,6 +2567,38 @@ function coordinatorStatusRequest(): CoordinatorBootstrapRequest {
     },
   };
 }
+
+test("owner restart review reports coordinator recovery without dispatching or losing cancellation", async () => {
+  const f = await fixture();
+  const retained = coordinatorStatusRequest();
+  writeFileSync(
+    path.join(f.root, "coordinator-bootstrap.json"),
+    JSON.stringify({ version: 1, requests: [retained] }),
+    { mode: 0o600 },
+  );
+  const response = await f.request("/api/installation/restart-requests", "guest-agent-test-token", {
+    target: "host",
+    reason: "Review after recovery",
+  });
+  expect(response.status).toBe(201);
+  const job = RestartJobSchema.parse(await response.json());
+  const route = `/api/installation/owner/restarts/${job.id}/decision`;
+  const approval = await f.request(route, "owner-test-password", {
+    revision: job.revision,
+    decision: "approve",
+  });
+  expect(approval.status).toBe(409);
+  expect(await approval.json()).toEqual({
+    error: "Coordinator recovery must finish before installation work",
+  });
+  const rejection = await f.request(route, "owner-test-password", {
+    revision: job.revision,
+    decision: "reject",
+  });
+  expect(rejection.status).toBe(200);
+  await f.drain();
+  expect(f.calls).toEqual([]);
+});
 
 test("scoped coordinator status reads the retained request without exposing protected plans or requiring Host RPC", async () => {
   const retained = coordinatorStatusRequest();

@@ -42,6 +42,7 @@ import {
   assertFrozenCoordinatorIdle,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { InstallationRestarts } from "./restarts.js";
 import {
   loadedCoordinatorPid,
   isStoppedBootstrapCandidate,
@@ -1892,6 +1893,160 @@ async function claimFenceFixture() {
     pendingFile: path.join(f.root, "coordinator-bootstrap-pending.json"),
   };
 }
+
+test("bootstrap promotion refuses an installation already executing in the shared state", async () => {
+  const f = await claimFenceFixture();
+  const lifecycleFile = path.join(f.root, "restart-jobs.json");
+  let attempts = 0;
+  const queue = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) => writeFileSync(lifecycleFile, JSON.stringify(jobs), { mode: 0o600 }),
+    },
+    {
+      restart: async () => {
+        attempts++;
+        expect(() => f.journal.promote(f.claimed)).toThrow("unresolved installation work");
+        expect(f.journal.readPromoted()).toEqual([]);
+        return "Disposable replacement verified";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  queue.decide(pending.id, pending.revision, "approve");
+  await queue.drain();
+  expect(attempts).toBe(1);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses new daemon work during a coordinator claim", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    {
+      restart: async () => {
+        effects.push("restart");
+        return "ready";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  expect(() => queue.decide(pending.id, pending.revision, "approve")).toThrow(
+    "Coordinator recovery must finish",
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(pending.id, pending.revision, "reject");
+  expect(queue.list()[0]?.status).toBe("rejected");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses a coordinator claim until queued daemon work is canceled", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    { restart: async () => "ready", restartWhenIdle: async () => "ready" },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  const queued = queue.decide(pending.id, pending.revision, "approve-when-idle");
+  const bootstrap = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(bootstrap), decision: "approve" }, ownerPassword);
+  await expect(f.service().claimDispatch(pickDecision(approved))).rejects.toThrow(
+    "unresolved installation work",
+  );
+  expect(f.journal.read()).toEqual([approved]);
+  queue.decide(queued.id, queued.revision, "cancel");
+  await expect(f.service().claimDispatch(pickDecision(approved))).resolves.toMatchObject({
+    execution: { stage: "claimed" },
+  });
+});
+
+test("shared admission preserves cancellation and hold release for legacy overlapping work", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const executor = {
+    restart: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    restartWhenIdle: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    holdCurrentTurns: async () => {
+      effects.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      effects.push("release");
+    },
+    inspect: async () => ({
+      target: "host" as const,
+      agents: [],
+      pendingStarts: 0,
+      checkedAt: new Date().toISOString(),
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+    }),
+  };
+  const legacy = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) =>
+        writeFileSync(path.join(f.root, "restart-jobs.json"), JSON.stringify(jobs), {
+          mode: 0o600,
+        }),
+    },
+    executor,
+  );
+  const pending = legacy.request({ target: "host", reason: "Retained queued restart" }, "owner");
+  const approved = legacy.decide(pending.id, pending.revision, "finish-current-turns");
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    executor,
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  await queue.drain();
+  expect(effects).toEqual(["release"]);
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("lifecycle admission uses the bootstrap writer lock and reopens without losing requests", async () => {
+  const f = fixture();
+  f.journal.writeLifecycle([]);
+  const file = path.join(f.root, "restart-jobs.json");
+  const before = readFileSync(file);
+  f.journal.withRecoveryTransaction(() => {
+    expect(() => f.journal.writeLifecycle([])).toThrow("storage is busy");
+  });
+  expect(readFileSync(file)).toEqual(before);
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.lifecycleAdmissionAvailable()).toBe(true);
+  reopened.writeLifecycle([]);
+  expect(reopened.readLifecycle()).toEqual([]);
+});
 
 test.each(["complete", "intent"])(
   "reviewed claim fencing refuses %s promotion without altering history",

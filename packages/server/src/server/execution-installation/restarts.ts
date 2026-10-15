@@ -42,6 +42,7 @@ export interface RestartApprovalPolicy {
 export interface RestartJournal {
   read(): LifecycleJob[];
   write(jobs: LifecycleJob[]): void;
+  admissionAvailable?(): boolean;
 }
 
 export interface RestartExecutor {
@@ -1127,6 +1128,7 @@ export class InstallationRestarts {
   async prepareBatches(): Promise<void> {
     if (!this.active) return;
     if (this.running || this.preparing || !this.executor.prepareUpdate) return;
+    if (!this.lifecycleAdmitted()) return;
     this.preparing = true;
     try {
       // Each target owns its pending batch. A Host conflict must not starve Dev.
@@ -1580,6 +1582,10 @@ export class InstallationRestarts {
     }
   }
 
+  private lifecycleAdmitted(): boolean {
+    return this.journal.admissionAvailable?.() !== false;
+  }
+
   async drain(): Promise<void> {
     if (!this.active) return;
     this.refreshApprovalPolicy();
@@ -1607,6 +1613,7 @@ export class InstallationRestarts {
           });
         }
       }
+      if (!this.lifecycleAdmitted()) return;
       // Release completed holds above, but never start another lifecycle operation
       // while the installed helper selection remains ambiguous.
       if (this.monitorRecoveryRequired()) return;

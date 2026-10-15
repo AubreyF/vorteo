@@ -1,10 +1,11 @@
 import { DaemonAutomation } from "./daemon-automation.js";
 import {
   coordinatorAutomaticStatus,
+  BootstrapRequestConflict,
   openBootstrapRequests,
   type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
-import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
@@ -23,7 +24,7 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, mkdirSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
@@ -40,7 +41,6 @@ import {
   InstallationProfilesPatchSchema,
 } from "@getpaseo/protocol/execution-installation";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
-import { writePrivateFileAtomicSync } from "../private-files.js";
 import { createWebUiMiddleware } from "../web-ui.js";
 import {
   InstallationRestarts,
@@ -260,7 +260,7 @@ export function createInstallationServer(
   coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-  const journal = path.join(config.stateDir, "restart-jobs.json");
+  const journal = new FileBootstrapRequestJournal(config.stateDir);
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
@@ -303,20 +303,9 @@ export function createInstallationServer(
   );
   const restarts = new InstallationRestarts(
     {
-      read: () =>
-        existsSync(journal) ? parseLifecycleJournal(JSON.parse(readFileSync(journal, "utf8"))) : [],
-      write: (jobs) => {
-        writePrivateFileAtomicSync(journal, JSON.stringify(jobs));
-        // Finish the receipt and directory rename before dispatching a disruption.
-        for (const target of [journal, config.stateDir]) {
-          const fd = openSync(target, "r");
-          try {
-            fsyncSync(fd);
-          } finally {
-            closeSync(fd);
-          }
-        }
-      },
+      read: () => journal.readLifecycle(),
+      write: (jobs) => journal.writeLifecycle(jobs),
+      admissionAvailable: () => journal.lifecycleAdmissionAvailable(),
     },
     restartExecutor,
     Date.now,
@@ -1480,7 +1469,11 @@ export function createInstallationServer(
       res.status(409).json({ error: error.message });
       return;
     }
-    if (error instanceof ProfileSharingConflict || error instanceof RestartRequestError) {
+    if (
+      error instanceof ProfileSharingConflict ||
+      error instanceof RestartRequestError ||
+      error instanceof BootstrapRequestConflict
+    ) {
       res.status(409).json({ error: error.message });
       return;
     }

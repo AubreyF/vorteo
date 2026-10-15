@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): daemon lifecycle writes and coordinator claims share the protected bootstrap journal lock. Recorded installation work prevents claim and promotion, while unresolved coordinator execution prevents new lifecycle work. Cancellation, terminal receipts and completed hold release remain available. Tests cover both admission orders, legacy overlap, locking and HTTP review. Compatible queue and bootstrap readers must be deployed together after existing recovery; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): claimed recovery initialization separates completed history from unresolved targets. Renewal still verifies retained terminal evidence before advertising readiness; a success label alone grants no authority. Focused tests cover selection, incomplete proof and competing claims. Managed delivery and installed acceptance remain open; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): Host source updates retain daemon readiness before interface publication and a separate publication-failure phase with the immutable export path. Failed result storage still reports that the daemon changed, without replaying its restart. Focused updater tests cover partial publication and receipt-write failures. Installed acceptance remains open; README overview and onboarding are unchanged.

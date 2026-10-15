@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.552 - 2026-10-15
+
+### Fixed
+
+- Serialize daemon lifecycle admission and coordinator claims through the existing protected journal lock. Active installation work blocks a new claim or promotion; an unresolved coordinator execution blocks new installation work.
+- Preserve cancellation, interrupted-operation receipts and completed hold release. Owner review reports the recovery blocker without dispatching a restart. Tests cover both admission orders, legacy overlap, shared locking and the real HTTP response.
+- Use canonical private fixture state for the stricter shared journal reader. Deployment requires compatible queue and bootstrap readers together; existing live recovery remains separately owned.
+
 ## 0.11.0-beta.3.vorteo.551 - 2026-10-15
 
 ### Fixed

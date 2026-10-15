@@ -88,22 +88,33 @@ export function assertFrozenCoordinatorIdle(journal: unknown, childPids: unknown
   const children = z.array(z.number().int().positive()).parse(childPids);
   if (children.length > 0)
     throw new BootstrapCoordinatorBusy("Coordinator preparation children are still running");
-  for (const job of jobs) {
+  assertCoordinatorLifecycleIdle(jobs);
+}
+
+/** Journal admission also uses this check under the shared writer lock.
+ * It excludes recorded work, but cannot establish native process quiescence. */
+export function assertCoordinatorLifecycleIdle(journal: unknown): void {
+  const work = coordinatorLifecycleWork(journal);
+  if (work.some((job) => job.target === "native-helper" || job.target === "preview-monitor"))
+    throw new BootstrapCoordinatorBusy("Coordinator has unresolved helper installation work");
+  if (work.length > 0)
+    throw new BootstrapCoordinatorBusy("Coordinator has unresolved installation work");
+}
+
+export function coordinatorLifecycleWork(journal: unknown) {
+  return parseLifecycleJournal(journal).filter((job) => {
     if (job.target === "native-helper" || job.target === "preview-monitor") {
-      if (
+      return (
         ["approved", "running"].includes(job.status) ||
         (job.stage === "preparing" && job.status === "pending") ||
         job.stage === "recovery_required"
-      )
-        throw new BootstrapCoordinatorBusy("Coordinator has unresolved helper installation work");
-      continue;
+      );
     }
     const active = job.status === "approved" || job.status === "running";
     const held = job.finishCurrentTurns === true && job.holdReleased !== true;
     const preparing = job.sourceBatch?.status === "preparing";
-    if (active || held || preparing)
-      throw new BootstrapCoordinatorBusy("Coordinator has unresolved installation work");
-  }
+    return active || held || preparing;
+  });
 }
 
 const dispatchIdentity = z.strictObject({
