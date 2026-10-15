@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): integrate the accepted managed Claude package selection with the existing interface, queue and cache histories. Source checks are separate from installed delivery and account acceptance; README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-14): managed Claude consumers select the release-pinned CLI through filesystem checks, while standalone launch and explicit command replacements retain their existing behavior. Daemon and coordinator initialization are separate. Source is prepared for tracked delivery; installed account, profile and execution acceptance remain open. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-14): integrate reviewed replica cache write deduplication and reconnect test maintenance while retaining canonical sidebar sizing, independent queue controls and both customization inventories. Source integration does not install daemon behavior or publish static assets. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-14): preserve both published sidebar card sizing and queue independence histories in source integration. The merge retains existing implementations; daemon activation and static publication remain separate delivery steps.

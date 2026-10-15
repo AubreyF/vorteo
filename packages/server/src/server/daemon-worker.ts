@@ -1,3 +1,4 @@
+import { initializePackagedClaudeCli } from "./agent/providers/claude/packaged-cli.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
@@ -14,6 +15,7 @@ import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.
 // Changing the title overwrites that evidence on macOS.
 const managedWorker = process.env.PASEO_MANAGED_WORKER === "1";
 delete process.env.PASEO_MANAGED_WORKER;
+initializePackagedClaudeCli(managedWorker);
 if (
   !managedWorker &&
   !process.env.VORTEO_INSTALLATION_CLIENT_CONFIG &&
