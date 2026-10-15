@@ -235,6 +235,98 @@ export function createBootstrapNativeLifecycle(
     await waitFor(() => context.reader.verifyServiceAbsent(request.plan.service));
     return null;
   };
+  const unloadRunningPreviousAfterBoot = async (
+    request: CoordinatorBootstrapRequest,
+    service: string | null,
+    roots: readonly string[],
+  ): Promise<string | null> => {
+    if (
+      context.recoveryBootId === undefined ||
+      service === null ||
+      request.plan.automaticRecovery !== "restore-compatible"
+    )
+      return service;
+    let observed: ReturnType<typeof ProcessObservationSchema.parse>;
+    // Identify the previous executable in this boot independently of its old PID.
+    // A candidate or unrelated service remains subject to the other rollback checks.
+    try {
+      const pid = loadedCoordinatorPid(request.plan.service, service);
+      observed = ProcessObservationSchema.parse(await context.reader.inspectProcess(pid));
+      verifyBootstrapServiceIdentity({
+        plan: { ...request.plan, expectedProcess: observed },
+        process: observed,
+        launchctlOutput: service,
+        hostUid: uid,
+        configurationFile: context.configurationFile,
+      });
+    } catch (error) {
+      if (error instanceof BootstrapRequestConflict) return service;
+      throw error;
+    }
+    if (observed.bootId !== context.recoveryBootId)
+      throw new BootstrapRequestConflict("Previous coordinator has no current boot proof");
+    const pid = observed.pid;
+    const plan = { ...request.plan, expectedProcess: observed };
+    const verifyPrevious = async (stopped: boolean) => {
+      await requireStage(request, "rollback_pending");
+      await readBootstrapPreparedFile(
+        { path: context.launcherFile, sha256: request.plan.previous.launcher.sha256 },
+        roots,
+      );
+      const current = stopped
+        ? await context.reader.inspectStoppedProcess(pid)
+        : await context.reader.inspectRunningProcess(pid);
+      const { stopped: _stopped, ...identity } = current;
+      const { childPids: _children, ...processIdentity } =
+        "childPids" in identity ? identity : { ...identity, childPids: undefined };
+      if (!isDeepStrictEqual(ProcessObservationSchema.parse(processIdentity), observed))
+        throw new BootstrapRequestConflict("Previous coordinator changed during startup recovery");
+      verifyBootstrapServiceIdentity({
+        plan,
+        process: processIdentity,
+        launchctlOutput: await context.reader.readService(request.plan.service),
+        hostUid: uid,
+        configurationFile: context.configurationFile,
+      });
+      return current;
+    };
+    await verifyBootstrapReleaseArtifacts(request.plan.previous, roots);
+    await verifyPrevious(false);
+    if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
+      throw new BootstrapRequestConflict("Writable mounts changed before startup recovery");
+    await command.run(["kill", "SIGSTOP", request.plan.service]);
+    await waitFor(async () => {
+      await verifyPrevious(true);
+    });
+    const stopped = await context.reader.inspectStoppedProcess(pid);
+    await verifyPrevious(true);
+    try {
+      await preserveBootstrapState({
+        request,
+        writableMountRoots: roots,
+        childPids: stopped.childPids,
+      });
+    } catch (error) {
+      if (!(error instanceof BootstrapCoordinatorBusy)) throw error;
+      // Restore availability only for the same verified writer. The retained
+      // rollback attempt still fences further automatic recovery.
+      await verifyPrevious(true);
+      await command.run(["kill", "SIGCONT", request.plan.service]);
+      await waitFor(async () => {
+        await verifyPrevious(false);
+      });
+      throw error;
+    }
+    await verifyPrevious(true);
+    if (JSON.stringify(await context.writableMountRoots()) !== JSON.stringify(roots))
+      throw new BootstrapRequestConflict("Writable mounts changed during startup recovery");
+    await command.run(["bootout", request.plan.service]);
+    await waitFor(async () => {
+      await context.reader.verifyProcessExited(pid);
+      await context.reader.verifyServiceAbsent(request.plan.service);
+    });
+    return null;
+  };
   const originalService = (request: CoordinatorBootstrapRequest, service: string | null) =>
     context.recoveryBootId === undefined && isOriginalBootstrapService(request, service);
   const verify = (request: CoordinatorBootstrapRequest) =>
@@ -421,6 +513,7 @@ export function createBootstrapNativeLifecycle(
         await context.reader.verifyServiceAbsent(request.plan.service);
       }
       service = await unloadStoppedPreviousAfterBoot(request, service, roots);
+      service = await unloadRunningPreviousAfterBoot(request, service, roots);
       await preserveAfterBootIfAbsent(request, service, roots);
       const originalLoaded = originalService(request, service);
       if (request.plan.automaticRecovery !== "restore-compatible" || !originalLoaded)

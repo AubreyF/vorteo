@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.548 - 2026-10-15
+
+### Fixed
+
+- Recover an exact previous coordinator that starts after reboot, using fresh native identity and the approved compatible rollback. Freeze that writer before preserving journals and verify its exit before replacement.
+- Refuse unrelated processes or stale boot identities. Resume the same verified writer when a busy journal prevents preservation, retaining the exhausted rollback budget and recovery requirement.
+- Extend native adapter tests for successful recovery and refusal paths. Installed reboot acceptance and delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.547 - 2026-10-15
 
 ### Maintenance

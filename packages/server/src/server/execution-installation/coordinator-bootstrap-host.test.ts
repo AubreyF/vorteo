@@ -1608,6 +1608,10 @@ test
     "during-preservation",
     "after-preservation",
     "reboot-before-preservation",
+    "reboot-running-previous",
+    "reboot-running-busy",
+    "reboot-running-unrelated",
+    "reboot-running-wrong-boot",
     "reboot-stopped-previous",
     "reboot-stopped-previous-busy",
     "reboot-stopped-unrelated",
@@ -1789,7 +1793,12 @@ test
     }
   }
   if (
-    ["busy-journal", "reboot-busy-journal", "reboot-stopped-previous-busy"].includes(interruption)
+    [
+      "busy-journal",
+      "reboot-busy-journal",
+      "reboot-stopped-previous-busy",
+      "reboot-running-busy",
+    ].includes(interruption)
   )
     save(plan.state.restartJournal, [
       {
@@ -1808,9 +1817,12 @@ test
   if (interruption === "reboot-changed-journal") save(plan.state.restartJournal, []);
   const busy = interruption.includes("busy-");
   let observedBusy = false;
-  let stopped = interruption !== "before-freeze" && interruption !== "busy-during-freeze";
+  let stopped =
+    !["before-freeze", "busy-during-freeze"].includes(interruption) &&
+    !interruption.startsWith("reboot-running-");
   const stoppedJob = interruption.startsWith("reboot-stopped-");
-  let loaded = !rebooted || stoppedJob;
+  const runningJob = interruption.startsWith("reboot-running-");
+  let loaded = !rebooted || stoppedJob || runningJob;
   let noProcess = stoppedJob;
   let serviceReads = 0;
   let oldExited = false;
@@ -1821,6 +1833,7 @@ test
     uid: process.getuid!(),
     executable: node,
   };
+  identity = { ...identity, ...runningBootIdentity(interruption, expectedProcess.bootId) };
   const effects: string[][] = [];
   const native = createBootstrapNativeLifecycle(
     {
@@ -1848,7 +1861,8 @@ test
           }
           return `${serviceName} = {\n\tpid = ${identity.pid}\n}`;
         },
-        inspectProcess: async (pid) => (pid === process.pid ? { ...identity, pid } : identity),
+        inspectProcess: async (pid) =>
+          pid === process.pid ? { ...identity, pid, bootId: currentBoot } : identity,
         inspectAuditedProcess: async () => {
           throw new Error("Unexpected audit");
         },
@@ -1868,7 +1882,8 @@ test
           if (stopped) throw new Error("stopped");
           return { ...identity, stopped: false as const };
         },
-        verifyProcessExited: async () => {
+        verifyProcessExited: async (pid) => {
+          if (runningJob) expect(pid).toBe(333);
           if (!oldExited) throw new Error("old still running");
         },
         verifyServiceAbsent: async () => {
@@ -1942,19 +1957,26 @@ test
       "reboot-stopped-previous-busy",
       "reboot-stopped-unrelated",
       "reboot-stopped-starts",
+      "reboot-running-busy",
+      "reboot-running-unrelated",
+      "reboot-running-wrong-boot",
     ].includes(interruption)
   ) {
     expect(result.execution!.stage).toBe("recovery_required");
     expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
-    const resumed =
-      interruption === "busy-children" ||
-      interruption === "busy-journal" ||
-      interruption === "busy-during-freeze";
+    const resumed = [
+      "busy-children",
+      "busy-journal",
+      "busy-during-freeze",
+      "reboot-running-busy",
+    ].includes(interruption);
     expect(effects).toEqual([
-      ...(interruption === "busy-during-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
+      ...(["busy-during-freeze", "reboot-running-busy"].includes(interruption)
+        ? [["kill", "SIGSTOP", serviceName]]
+        : []),
       ...(resumed ? [["kill", "SIGCONT", serviceName]] : []),
     ]);
-    expect(stopped).toBe(!resumed);
+    expect(stopped).toBe(!resumed && !runningJob);
     expect(readFileSync(launcherFile)).toEqual(readFileSync(previous.launcher.path));
     const retry = vi.fn();
     await recoverAbandonedBootstrap(
@@ -2551,8 +2573,13 @@ test("retained process exit accepts only independent absence or stable later nat
 
 function expectedEarlyRecoveryCommands(interruption: string, service: string, launcher: string) {
   const commands: string[][] = [];
-  if (interruption === "before-freeze") commands.push(["kill", "SIGSTOP", service]);
-  if (!interruption.startsWith("reboot-") || interruption.startsWith("reboot-stopped-"))
+  if (interruption === "before-freeze" || interruption === "reboot-running-previous")
+    commands.push(["kill", "SIGSTOP", service]);
+  if (
+    !interruption.startsWith("reboot-") ||
+    interruption.startsWith("reboot-stopped-") ||
+    interruption === "reboot-running-previous"
+  )
     commands.push(["bootout", service]);
   commands.push(["bootstrap", `gui/${process.getuid!()}`, launcher]);
   return commands;
@@ -2594,3 +2621,13 @@ test("coordinator authority reads only its own permission and current installati
   });
   expect(coordinatorAutomaticAuthority(config)).toBeNull();
 });
+
+function runningBootIdentity(interruption: string, oldBoot: string) {
+  if (!interruption.startsWith("reboot-running-")) return {};
+  return {
+    pid: 333,
+    startIdentity: "1234:8888",
+    ...(interruption === "reboot-running-unrelated" ? { argumentsSha256: "f".repeat(64) } : {}),
+    ...(interruption === "reboot-running-wrong-boot" ? { bootId: oldBoot } : {}),
+  };
+}

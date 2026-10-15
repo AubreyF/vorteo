@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): startup recovery handles a previous coordinator running in the new boot. It verifies the current process and pinned release, freezes the writer, preserves journals and verifies exit before compatible replacement. Busy state resumes only that verified writer and retains the recovery fence; unrelated identities are refused. Native adapter tests cover these paths. Installed reboot acceptance remains open; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): direct Host updater checks cover an interface change after preparation and a repeated activation after readiness failure. Both preserve the previous selection and refuse another restart. Existing interrupted-build and cancellation tests retain the lifecycle admission contract. Runtime behavior, README overview and onboarding are unchanged; installed acceptance remains open.
 
 Maintenance review (2026-10-15): native coordinator runners retain private validation phases and sanitized failure categories per attempt. Diagnostic writes preserve existing lifecycle decisions and do not block recovery when storage is unavailable. Focused tests cover pending validation, interruption, bounded history and storage failure; installed acceptance remains open. README overview and onboarding are unchanged.
