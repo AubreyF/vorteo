@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Select the release-pinned Claude Code 2.1.284 package for managed default and appended commands, including daemon queries and coordinator login construction.
+- Refuse missing, mismatched or substituted package payloads without falling back to PATH. Preserve standalone launches and explicit replacement commands.
+
+### Maintenance
+
+- Reconcile the accepted Claude contribution with current installed source and interface ancestry, retaining package exports and current workspace versions. Installed account and profile acceptance remains open.
 
 ## 0.11.0-beta.3.vorteo.525 - 2026-10-15
 

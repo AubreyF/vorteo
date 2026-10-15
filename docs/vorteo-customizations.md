@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): managed Claude consumers select the release-pinned CLI through filesystem checks, while standalone launch and explicit command replacements retain their existing behavior. Daemon and coordinator initialization are separate. Source is prepared for tracked delivery; installed account, profile and execution acceptance remain open. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-14): integrate tested coordinator recovery corrections with the published interface while preserving both histories and all app behavior. Installed recovery acceptance remains pending; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-14): coordinator renewal can prepare a separately reviewed successor for an exact failed, unpromoted compatible generation. Protected journal checks preserve its approval and failure, reject promotion or competing repair, and bind the successor to the unchanged native coordinator. Exact recovery references retain predecessor ordering across main and pending journals. This is source preparation; installed delivery and Factory operating acceptance remain open. README overview is unchanged.
