@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+
+### Changed
+
+- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
+
 ## 0.11.0-beta.3.vorteo.560 - 2026-10-15
 
 ### Changed

@@ -14,7 +14,7 @@ import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
-import { AgentTaskCards } from "./task-cards";
+import { AgentTaskCards, AgentQueueCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
 
 import { isQuotaExhaustionMessage } from "./quota-notice";
@@ -190,11 +190,13 @@ function renderLiveAuxiliaryNode(input: {
   turnFooter: ReactNode;
   bottomOverlayInset: number;
   taskCards: ReactNode;
+  queueCards: ReactNode;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
     !input.turnFooter &&
     !input.taskCards &&
+    !input.queueCards &&
     input.bottomOverlayInset === 0
   ) {
     return null;
@@ -208,6 +210,7 @@ function renderLiveAuxiliaryNode(input: {
       >
         <CardGrid>{input.taskCards}</CardGrid>
         {input.pendingPermissions}
+        {input.queueCards}
       </View>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
@@ -1183,6 +1186,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
+    const [queueReviewRequest, setQueueReviewRequest] = useState(0);
+    const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
     const inlineCardsHost = useInlineCardsHost(agentId);
     const cardsPortalHost = resolveCardsHost(inlineCardsHost, workspaceCardHost);
     const inlineCards = useMemo(
@@ -1191,7 +1196,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           <CardDisclosureLayoutContext value="sidebar">
             <PortalHost name={inlineCardsHost} />
             <PortalHost name={`${inlineCardsHost}:supporting`} />
-            <PortalHost name={`${inlineCardsHost}:queue`} />
           </CardDisclosureLayoutContext>
         ) : null,
       [inlineCardsHost],
@@ -1206,7 +1210,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           workspaceId={context.workspaceId}
           cwd={context.cwd}
           hasWorkspaceCards={Boolean(workspaceCardHost)}
-          queueHostName={cardsPortalHost ? `${cardsPortalHost}:queue` : undefined}
+          onReviewMessages={reviewMessages}
         />
       );
     }, [
@@ -1217,7 +1221,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       context.workspaceId,
       context.cwd,
       workspaceCardHost,
-      cardsPortalHost,
+      reviewMessages,
     ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
@@ -1231,6 +1235,17 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
         taskCards: splitColumns ? inlineCards : taskCards,
+        queueCards:
+          shouldRenderTaskCards(showTaskCards, serverId) && !trailingCards ? (
+            <CardDisclosureLayoutContext value="inline">
+              <AgentQueueCards
+                serverId={serverId!}
+                agentId={agentId}
+                cwd={context.cwd}
+                reviewRequest={queueReviewRequest}
+              />
+            </CardDisclosureLayoutContext>
+          ) : null,
         bottomOverlayInset,
       });
     }, [
@@ -1242,6 +1257,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       inlineCardsHost,
       inlineCards,
       taskCards,
+      showTaskCards,
+      serverId,
+      trailingCards,
+      agentId,
+      context.cwd,
+      queueReviewRequest,
     ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(

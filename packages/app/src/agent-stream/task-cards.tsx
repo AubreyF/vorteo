@@ -10,7 +10,6 @@ import { SharedQueueView } from "@/message-queue/queue-view";
 import { useMessageQueue } from "@/message-queue/use-message-queue";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
-import { PanePortal } from "@/panels/pane-context";
 
 const ignoreCreatedDraft = () => {};
 
@@ -19,40 +18,29 @@ export function AgentTaskCards({
   agentId,
   workspaceId,
   cwd,
-  queueHostName,
+  onReviewMessages,
   hasWorkspaceCards = false,
 }: {
   serverId: string;
   agentId: string;
   workspaceId?: string;
   cwd: string;
-  queueHostName?: string;
+  onReviewMessages: () => void;
   hasWorkspaceCards?: boolean;
 }) {
   const compact = useIsCompactFormFactor();
   const queue = useMessageQueue(serverId, agentId);
   const goal = useAgentGoal(serverId, agentId);
-  const [queueReviewRequest, setQueueReviewRequest] = useState(0);
-  const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
   const [expanded, setExpanded] = useState(false);
   const open = useCallback(() => setExpanded(true), []);
   const close = useCallback(() => setExpanded(false), []);
-  const queueCards = (
-    <AgentQueueCards
-      serverId={serverId}
-      agentId={agentId}
-      cwd={cwd}
-      goalErrorHandled={goal.supported}
-      reviewRequest={queueReviewRequest}
-    />
-  );
   return (
     <>
       <GoalBar
         control={goal}
         onExpand={open}
         queueNotice={goalQueueNotice(goal.state, queue.snapshot, queue.error)}
-        onReviewMessages={reviewMessages}
+        onReviewMessages={onReviewMessages}
       />
       {workspaceId ? (
         <AgentHistoryTracks
@@ -67,14 +55,6 @@ export function AgentTaskCards({
       {compact && workspaceId && !hasWorkspaceCards ? (
         <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
       ) : null}
-      {/* The portal transport captures its host on mount; remount when moving the queue. */}
-      {queueHostName ? (
-        <PanePortal key={queueHostName} hostName={queueHostName}>
-          {queueCards}
-        </PanePortal>
-      ) : (
-        queueCards
-      )}
       {expanded && goal.supported ? (
         <GoalDetails control={goal} draft="" onClose={close} onCreated={ignoreCreatedDraft} />
       ) : null}
@@ -82,21 +62,20 @@ export function AgentTaskCards({
   );
 }
 
-/** Read queue activity at its visible destination, not inside the retained hidden dock. */
-function AgentQueueCards({
+/** Keep queue activity in the conversation, outside the retained details dock. */
+export function AgentQueueCards({
   serverId,
   agentId,
   cwd,
-  goalErrorHandled,
   reviewRequest,
 }: {
   serverId: string;
   agentId: string;
   cwd: string;
-  goalErrorHandled: boolean;
   reviewRequest: number;
 }) {
   const queue = useMessageQueue(serverId, agentId);
+  const goal = useAgentGoal(serverId, agentId);
   return (
     <>
       <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
@@ -104,7 +83,7 @@ function AgentQueueCards({
         serverId={serverId}
         agentId={agentId}
         control={queue}
-        goalErrorHandled={goalErrorHandled}
+        goalErrorHandled={goal.supported}
         reviewRequest={reviewRequest}
       />
     </>
