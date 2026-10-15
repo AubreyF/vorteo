@@ -3828,6 +3828,28 @@ export class DaemonClient {
     };
   }
 
+  async reconcileAutomaticCoordinatorBootstrap(
+    id: string,
+    options: { timeout?: number } = {},
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapAutomaticReconciliation !== true)
+      throw new Error("Update the Host before reconciling automatic coordinator maintenance.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.reconcile_automatic.response">(
+        {
+          message: {
+            type: "installation.bootstrap.reconcile_automatic.request",
+            id,
+            ...this.bootstrapReviewCapabilities(),
+          },
+          timeout: options.timeout ?? 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Automatic coordinator reconciliation unconfirmed");
+    return result.requests;
+  }
+
   async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
     this.assertCoordinatorBootstrapReview();
     const result =

@@ -35,6 +35,24 @@ function outboundMessage(type: SessionOutboundMessage["type"]): SessionOutboundM
 }
 
 describe("SessionAuthorization", () => {
+  test("automatic coordinator reconciliation requires daemon management", () => {
+    const inbound = inboundMessage("installation.bootstrap.reconcile_automatic.request");
+    const outbound = outboundMessage("installation.bootstrap.reconcile_automatic.response");
+    for (const permission of [
+      "daemon.read",
+      "workspace.write",
+      "hub.execute",
+      "automation.manage",
+    ] as const) {
+      const denied = new SessionAuthorization([permission]);
+      expect(denied.allowsInbound(inbound)).toBe(false);
+      expect(denied.allowsOutbound(outbound)).toBe(false);
+    }
+    const manager = new SessionAuthorization(["daemon.manage"]);
+    expect(manager.allowsInbound(inbound)).toBe(true);
+    expect(manager.allowsOutbound(outbound)).toBe(true);
+  });
+
   test("claimed recovery requests and replies require daemon management", () => {
     for (const permission of [
       "daemon.read",

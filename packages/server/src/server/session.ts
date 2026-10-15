@@ -3392,6 +3392,7 @@ export class Session {
       case "installation.bootstrap.list_requests.request":
       case "installation.bootstrap.prepare.request":
       case "installation.bootstrap.decide.request":
+      case "installation.bootstrap.reconcile_automatic.request":
         return handleBootstrapReview(msg, this.coordinatorBootstrap).then((reply) => {
           this.emit(reply);
           return undefined;

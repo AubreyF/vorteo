@@ -178,6 +178,13 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),
 });
+// Only observes or advances an already authenticated protected submission.
+// No caller-supplied authority or owner proof is accepted here.
+export const CoordinatorBootstrapReconcileAutomaticRequestSchema =
+  CoordinatorBootstrapListRequestSchema.extend({
+    type: z.literal("installation.bootstrap.reconcile_automatic.request"),
+    id: z.string().uuid(),
+  });
 const BootstrapResultSchema = z.strictObject({
   requestId: z.string(),
   requests: z.array(CoordinatorBootstrapRequestSchema).nullable(),
@@ -196,15 +203,22 @@ export const CoordinatorBootstrapDecideResponseSchema = z.strictObject({
   payload: BootstrapResultSchema,
 });
 
+export const CoordinatorBootstrapReconcileAutomaticResponseSchema = z.strictObject({
+  type: z.literal("installation.bootstrap.reconcile_automatic.response"),
+  payload: BootstrapResultSchema,
+});
+
 export type CoordinatorBootstrapInbound = z.infer<
   | typeof CoordinatorBootstrapListRequestSchema
   | typeof CoordinatorBootstrapPrepareRequestSchema
   | typeof CoordinatorBootstrapDecideRequestSchema
+  | typeof CoordinatorBootstrapReconcileAutomaticRequestSchema
 >;
 export type CoordinatorBootstrapOutbound = z.infer<
   | typeof CoordinatorBootstrapListResponseSchema
   | typeof CoordinatorBootstrapPrepareResponseSchema
   | typeof CoordinatorBootstrapDecideResponseSchema
+  | typeof CoordinatorBootstrapReconcileAutomaticResponseSchema
 >;
 
 // Separate recovery records leave historical bootstrap requests readable by old hosts.

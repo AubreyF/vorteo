@@ -9127,3 +9127,44 @@ test("startup recovery advertised opt-in is sent for list, exact preparation and
     );
   await expect(Promise.all([listing, preparing, deciding])).resolves.toEqual([[], [], []]);
 });
+
+test.each([false, true])(
+  "automatic coordinator reconciliation gates transport support: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "automatic-coordinator",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAutomaticReconciliation: supported,
+      },
+    });
+    await connecting;
+    const id = "b780bf40-76dd-4a15-82ad-e105e23cbb03";
+    const result = client.reconcileAutomaticCoordinatorBootstrap(id);
+    if (!supported) {
+      await expect(result).rejects.toThrow("Update the Host");
+      expect(mock.sent).toEqual([]);
+      return;
+    }
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent).toMatchObject({ type: "installation.bootstrap.reconcile_automatic.request", id });
+    expect(sent).not.toHaveProperty("ownerPassword");
+    expect(sent).not.toHaveProperty("credentialBinding");
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.reconcile_automatic.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(result).resolves.toEqual([]);
+    expect(mock.sent).toHaveLength(1);
+  },
+);

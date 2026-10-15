@@ -64,6 +64,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
+    coordinatorBootstrapAutomaticReconciliation: available && service?.automatic !== undefined,
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
       : {}),
@@ -146,6 +147,20 @@ export async function handlePreclaimRecoveryReview(
   }
 }
 
+async function reconcileAutomaticReview(
+  service: BootstrapReviewService,
+  id: string,
+): Promise<void> {
+  if (
+    !bootstrapReviewFeatures(service).coordinatorBootstrapAutomaticReconciliation ||
+    !service.automatic
+  )
+    throw new BootstrapRequestConflict(
+      "Automatic coordinator reconciliation is unavailable on this Host",
+    );
+  await service.automatic.reconcile(id);
+}
+
 /** Called only after the session's daemon.manage permission check. An absent
  * Host service refuses all operations, including forged direct RPCs on Dev. */
 export async function handleBootstrapReview(
@@ -156,6 +171,8 @@ export async function handleBootstrapReview(
     "installation.bootstrap.list_requests.request": "installation.bootstrap.list_requests.response",
     "installation.bootstrap.prepare.request": "installation.bootstrap.prepare.response",
     "installation.bootstrap.decide.request": "installation.bootstrap.decide.response",
+    "installation.bootstrap.reconcile_automatic.request":
+      "installation.bootstrap.reconcile_automatic.response",
   } as const;
   const type = responses[message.type];
   const requestId = message.requestId;
@@ -169,6 +186,8 @@ export async function handleBootstrapReview(
       },
     };
   try {
+    if (message.type === "installation.bootstrap.reconcile_automatic.request")
+      await reconcileAutomaticReview(service, message.id);
     if (message.type === "installation.bootstrap.prepare.request")
       await service.prepare(message.input);
     if (message.type === "installation.bootstrap.decide.request") {

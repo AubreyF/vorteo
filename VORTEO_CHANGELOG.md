@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.537 - 2026-10-15
+
+### Maintenance
+
+- Connect the internal coordinator reconciliation operation through a capability-gated Host RPC and client method. It accepts only an existing request identity, requires daemon-management access and cannot mint Host provenance or accept caller-supplied authority.
+- Preserve old review responses by withholding internal authorization metadata. Focused tests cover unsupported Hosts, message correlation, permission refusal and attempts to reconcile an unauthenticated request.
+- This transport step does not enable automatic coordinator submission. The scoped HTTP route, public authorization status, timer integration and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.536 - 2026-10-15
 
 ### Maintenance

@@ -39,6 +39,7 @@ const INBOUND_PERMISSION = {
   "installation.bootstrap_recovery.prepare.request": "daemon.manage",
   "installation.claimed_recovery.prepare.request": "daemon.manage",
   "installation.bootstrap.decide.request": "daemon.manage",
+  "installation.bootstrap.reconcile_automatic.request": "daemon.manage",
   "installation.bootstrap_recovery.decide.request": "daemon.manage",
   "installation.claimed_recovery.decide.request": "daemon.manage",
 
@@ -275,6 +276,7 @@ const OUTBOUND_PERMISSION = {
   "installation.bootstrap_recovery.prepare.response": "daemon.manage",
   "installation.claimed_recovery.prepare.response": "daemon.manage",
   "installation.bootstrap.decide.response": "daemon.manage",
+  "installation.bootstrap.reconcile_automatic.response": "daemon.manage",
   "installation.bootstrap_recovery.decide.response": "daemon.manage",
   "installation.claimed_recovery.decide.response": "daemon.manage",
 

@@ -16,6 +16,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { hashSync } from "bcryptjs";
 import {
   CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
   CoordinatorBootstrapListResponseSchema,
   CoordinatorBootstrapPlanSchema,
   type CoordinatorBootstrapPlan,
@@ -3402,4 +3403,43 @@ test("coordinator revocation after launch reservation prevents the native claim"
     automaticDispatch: reserved.automaticDispatch,
   });
   await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("automatic coordinator RPC cannot mint provenance and refuses unavailable services", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const message = CoordinatorBootstrapReconcileAutomaticRequestSchema.parse({
+    type: "installation.bootstrap.reconcile_automatic.request",
+    requestId: "reconcile",
+    id: pending.id,
+    bootRecovery: true,
+    compatibleRecovery: true,
+  });
+  expect(
+    CoordinatorBootstrapReconcileAutomaticRequestSchema.safeParse({
+      ...message,
+      credentialBinding: "b".repeat(64),
+    }).success,
+  ).toBe(false);
+  const unavailable = await handleBootstrapReview(message, f.service());
+  expect(unavailable.payload.error).toContain("unavailable");
+  const requests = f.service();
+  const service = Object.assign(requests, {
+    automatic: {
+      reconcile: async (id: string) => {
+        const current = requests.list().find((item) => item.id === id)!;
+        return requests.approveAutomatic(automaticCoordinatorIdentity(current));
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(message, service);
+  expect(forged.payload.error).toContain("missing or revoked");
+  expect(requests.list()[0].status).toBe("pending");
+  requests.recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const approved = await handleBootstrapReview(message, service);
+  expect(approved.payload.error).toBeNull();
+  expect(approved.payload.requests?.[0].status).toBe("approved");
+  expect(approved.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  expect(approved.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
+  expect(approved.payload.requests?.[0]).not.toHaveProperty("execution");
 });
