@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.567 - 2026-10-15
+
+### Added
+
+- Bind controller recovery and rollback to each immediate consumed predecessor in the existing lifecycle journal, with original runtime slots and a chain-wide retry limit. Permit the enrolled recovery launcher only for these exact linked operations.
+- Record verified recovery and resolution of every ancestor in one transaction. Preserve original approvals, execution intents, observations and evidence; historical attempts remain failed rather than becoming false successes.
+- Integrate protected native recovery history, explicit role discovery, bounded service-absence checks and custody-bound boot witnesses. Failed inspection stays uncertain; ambiguous same-boot target lifetimes remain refused.
+
+### Fixed
+
+- Follow the valid recovery generation while retaining all ancestors and competing lifecycle work. Capability checks select the next job without hiding retained history, and reopened generations remain observable after revocation or reduced executor support.
+
+### Validation and delivery
+
+- Focused journal and queue checks cover recovery links, sibling exclusion, revocation, atomic history resolution, lost replies and compatible observation. Native prerequisite and existing restart tests pass with types and lint. Recovery and rollback remain unadvertised until native execution acceptance; nothing is installed by this source checkpoint. Actual reboot acceptance and launcher recovery remain open.
+
 ## 0.11.0-beta.3.vorteo.566 - 2026-10-15
 
 ### Maintenance

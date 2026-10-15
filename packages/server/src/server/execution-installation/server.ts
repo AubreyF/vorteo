@@ -668,7 +668,7 @@ export function createInstallationServer(
             requireOwnerApproval: host,
             maintenanceServices: {
               available: host && restarts.serviceMaintenanceAvailable(),
-              operations: host && restarts.serviceMaintenanceAvailable() ? ["replacement"] : [],
+              operations: host ? restarts.serviceMaintenanceOperations() : [],
             },
             coordinatorMaintenance: {
               ...coordinator,

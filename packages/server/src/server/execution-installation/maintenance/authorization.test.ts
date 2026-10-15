@@ -1,3 +1,13 @@
+import type { LifecycleJob } from "../lifecycle-journal.js";
+import {
+  approveServiceJob,
+  reserveServiceJob,
+  retainServiceRecoveryObservation,
+} from "./service-progress.js";
+import {
+  maintenanceRecoveryAncestors,
+  assertMaintenanceRecoveryExclusion,
+} from "./service-recovery.js";
 import type {
   MaintenanceServiceExecutor,
   MaintenanceServiceNativeObservation,
@@ -2045,7 +2055,10 @@ function serviceAdmissionFixture() {
         dispatchAfter: new Date(now + 30_000).toISOString(),
       },
     };
-    adapter.journal.write([job], evidence);
+    adapter.journal.mutate!(
+      (jobs) => jobs.map((current) => (current.id === job.id ? job : current)),
+      evidence,
+    );
     return job;
   }
   function reserve(approved: MaintenanceServiceJob) {
@@ -2075,7 +2088,10 @@ function serviceAdmissionFixture() {
         reservedAt: new Date(now).toISOString(),
       },
     };
-    adapter.journal.write([job], evidence);
+    adapter.journal.mutate!(
+      (jobs) => jobs.map((current) => (current.id === job.id ? job : current)),
+      evidence,
+    );
     return job;
   }
   function claim(
@@ -2098,7 +2114,10 @@ function serviceAdmissionFixture() {
         consumedAt,
       },
     };
-    adapter.journal.write([job], evidence);
+    adapter.journal.mutate!(
+      (jobs) => jobs.map((current) => (current.id === job.id ? job : current)),
+      evidence,
+    );
     return job;
   }
   function observe(
@@ -2786,4 +2805,583 @@ test("native dashboard inspection times out and discards a late ready result", a
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("ordinary replacement cannot acquire a launcher executor even with its enrolled identity", () => {
+  const f = serviceAdmissionFixture();
+  expect(() =>
+    f.approve((record) => {
+      record.executor!.target = "recovery-launcher";
+      record.executor!.identitySha256 = "b".repeat(64);
+    }),
+  ).toThrow("requires a linked recovery or rollback");
+  expect(f.adapter.journal.read()).toEqual([f.pending]);
+});
+
+function replaceServiceRows(
+  jobs: readonly LifecycleJob[],
+  ...replacements: MaintenanceServiceJob[]
+): LifecycleJob[] {
+  const byId = new Map(replacements.map((job) => [job.id, job]));
+  return jobs.map((job) => byId.get(job.id) ?? job);
+}
+
+function serviceRecoveryFixture() {
+  const f = serviceAdmissionFixture();
+  const originalObservation = f.observe(f.claim(f.reserve(f.approve())), "unknown", false);
+  f.adapter.journal.write([originalObservation.job], originalObservation.evidence);
+  const original = originalObservation.job;
+  function pending(
+    parent: MaintenanceServiceJob,
+    operation: "recovery" | "rollback" = "recovery",
+  ): MaintenanceServiceJob {
+    const id = randomUUID();
+    const selected = operation === "recovery" ? original.proposal : original.proposal.previous!;
+    return {
+      id,
+      revision: randomUUID(),
+      target: parent.target,
+      operation,
+      reason: "Resolve the exact uncertain generation",
+      detail: "Awaiting native recovery proof",
+      createdAt: new Date(f.now()).toISOString(),
+      status: "pending",
+      evidence: [],
+      proposal: {
+        ...original.proposal,
+        id,
+        operation,
+        planSha256: createHash("sha256").update(id).digest("hex"),
+        sourceCommit: selected.sourceCommit,
+        artifactSha256: selected.artifactSha256,
+        previous:
+          operation === "recovery"
+            ? original.proposal.previous
+            : {
+                sourceCommit: original.proposal.sourceCommit,
+                artifactSha256: original.proposal.artifactSha256,
+              },
+        recoveryOf: {
+          requestId: parent.id,
+          generation: parent.reservation!.generation,
+          planSha256: parent.reservation!.planSha256,
+          observationSha256: parent.observation!.evidenceSha256,
+        },
+      },
+    };
+  }
+  function consumed(job: MaintenanceServiceJob): MaintenanceServiceJob {
+    const approved = randomUUID(),
+      generation = randomUUID();
+    const proof = f.proof(job, approved);
+    return {
+      ...job,
+      status: "running",
+      revision: randomUUID(),
+      approval: {
+        ...original.approval!,
+        reviewedRevision: job.revision,
+        requestRevision: approved,
+        proposalSha256: maintenanceServiceProposalDigest(job.proposal),
+        nativeEvidenceSha256: proof.sha256,
+      },
+      reservation: {
+        ...original.reservation!,
+        requestId: job.id,
+        requestRevision: approved,
+        generation,
+        planSha256: job.proposal.planSha256,
+        sourceCommit: job.proposal.sourceCommit,
+        artifactSha256: job.proposal.artifactSha256,
+        previous: job.proposal.previous,
+        recoveryOf: job.proposal.recoveryOf,
+        nativeEvidenceSha256: proof.sha256,
+      },
+      effectIntent: {
+        ...original.effectIntent!,
+        id: randomUUID(),
+        generation,
+        requestRevision: approved,
+        nativeEvidenceSha256: proof.sha256,
+      },
+      observation: {
+        ...original.observation!,
+        requestId: job.id,
+        requestRevision: approved,
+        generation,
+        planSha256: job.proposal.planSha256,
+        sourceCommit: proof.record.sourceCommit,
+        artifactSha256: proof.record.artifactSha256,
+        evidenceSha256: proof.sha256,
+        observedAt: proof.record.observedAt,
+      },
+      evidence: [{ sha256: proof.sha256, record: proof.record }],
+    };
+  }
+  function prepare(parent = original, operation: "recovery" | "rollback" = "recovery") {
+    const job = pending(parent, operation);
+    f.adapter.journal.mutate!((jobs) => [...jobs, job]);
+    const proof = f.proof(job);
+    proof.record.executor!.target = "recovery-launcher";
+    proof.record.executor!.identitySha256 = "b".repeat(64);
+    proof.sha256 = maintenanceServiceEvidenceDigest(proof.record);
+    const approved = approveServiceJob(job, f.adapter.serviceAuthority(job)!, proof, f.now());
+    f.adapter.journal.mutate!(
+      (jobs) => jobs.map((current) => (current.id === job.id ? approved : current)),
+      proof,
+    );
+    f.advance(30_000);
+    const reserveProof = f.proof(approved);
+    reserveProof.record.executor = structuredClone(proof.record.executor);
+    reserveProof.sha256 = maintenanceServiceEvidenceDigest(reserveProof.record);
+    const running = reserveServiceJob(approved, reserveProof, f.now());
+    f.adapter.journal.mutate!(
+      (jobs) => jobs.map((current) => (current.id === job.id ? running : current)),
+      reserveProof,
+    );
+    return f.claim(running, undefined, (record) => {
+      record.executor = structuredClone(proof.record.executor);
+    });
+  }
+  return { ...f, original, pending, consumed, prepare };
+}
+
+test("recovery history follows immediate generations while preserving original slot choice", () => {
+  const f = serviceRecoveryFixture();
+  const first = f.consumed(f.pending(f.original));
+  const rollback = f.pending(first, "rollback");
+  const jobs = [f.original, first, rollback];
+  const before = structuredClone(jobs);
+  expect(maintenanceRecoveryAncestors({ jobs, job: rollback, retryLimit: 3 })).toEqual([
+    first,
+    f.original,
+  ]);
+  assertMaintenanceRecoveryExclusion({ jobs, job: rollback, retryLimit: 3 });
+  expect(jobs).toEqual(before);
+  expect(rollback.proposal.sourceCommit).toBe(f.original.proposal.previous!.sourceCommit);
+});
+
+test("recovery history rejects skipped unresolved generations and competing successors", () => {
+  const f = serviceRecoveryFixture();
+  const first = f.consumed(f.pending(f.original));
+  const skipped = f.pending(f.original, "rollback");
+  expect(() =>
+    assertMaintenanceRecoveryExclusion({
+      jobs: [f.original, first, skipped],
+      job: skipped,
+      retryLimit: 3,
+    }),
+  ).toThrow("Another maintenance generation");
+  const leaf = f.pending(first);
+  const sibling = { ...f.pending(first), status: "approved" as const };
+  expect(() =>
+    assertMaintenanceRecoveryExclusion({
+      jobs: [f.original, first, sibling, leaf],
+      job: leaf,
+      retryLimit: 3,
+    }),
+  ).toThrow("Another maintenance generation");
+});
+
+test("recovery history rejects stale links, missing evidence and unreviewed slots", () => {
+  const f = serviceRecoveryFixture();
+  const leaf = f.pending(f.original);
+  const check = (job: MaintenanceServiceJob, parent = f.original) =>
+    maintenanceRecoveryAncestors({ jobs: [parent], job, retryLimit: 3 });
+  expect(() =>
+    check({
+      ...leaf,
+      proposal: {
+        ...leaf.proposal,
+        recoveryOf: { ...leaf.proposal.recoveryOf!, generation: randomUUID() },
+      },
+    }),
+  ).toThrow("consumed uncertain predecessor");
+  expect(() => check(leaf, { ...f.original, evidence: [] })).toThrow("addressed native evidence");
+  expect(() =>
+    check({ ...leaf, proposal: { ...leaf.proposal, sourceCommit: "0".repeat(40) } }),
+  ).toThrow("unreviewed original runtime");
+  expect(() => check(leaf, { ...f.original, status: "succeeded" })).toThrow(
+    "consumed uncertain predecessor",
+  );
+});
+
+test("recovery retry budget spans successive generations and cycle detection is explicit", () => {
+  const f = serviceRecoveryFixture();
+  const first = f.consumed(f.pending(f.original));
+  const second = f.consumed(f.pending(first));
+  const third = f.consumed(f.pending(second));
+  const fourth = f.pending(third);
+  expect(() =>
+    maintenanceRecoveryAncestors({
+      jobs: [f.original, first, second, third],
+      job: fourth,
+      retryLimit: 3,
+    }),
+  ).toThrow("retry budget is exhausted");
+  const cycle = f.pending(f.original);
+  cycle.proposal.recoveryOf!.requestId = cycle.id;
+  expect(() =>
+    maintenanceRecoveryAncestors({ jobs: [f.original], job: cycle, retryLimit: 3 }),
+  ).toThrow("contains a cycle");
+});
+
+test("recovery admission reserves the exact launcher generation and preserves unrelated history", () => {
+  const f = serviceRecoveryFixture();
+  const recovery = f.prepare();
+  const reopened = new FileBootstrapRequestJournal(f.directory).readLifecycle();
+  expect(reopened).toEqual([f.original, recovery]);
+  expect(recovery.effectIntent?.requestRevision).toBe(recovery.approval?.requestRevision);
+  expect(recovery.reservation?.recoveryOf).toEqual(recovery.proposal.recoveryOf);
+  expect(recovery.evidence.at(-1)?.record.executor?.target).toBe("recovery-launcher");
+});
+
+test("ready recovery atomically resolves ancestors without changing their original evidence", () => {
+  const f = serviceRecoveryFixture();
+  const recovery = f.prepare();
+  const result = f.observe(recovery, "candidate", true);
+  const before = f.adapter.journal.read();
+  expect(() =>
+    f.adapter.journal.mutate!((jobs) => replaceServiceRows(jobs, result.job), result.evidence),
+  ).toThrow("atomically resolve");
+  expect(f.adapter.journal.read()).toEqual(before);
+  const resolved = {
+    ...f.original,
+    revision: randomUUID(),
+    status: "failed" as const,
+    detail: "A reviewed recovery generation restored readiness.",
+    resolvedBy: {
+      requestId: result.job.id,
+      generation: result.job.reservation!.generation,
+      planSha256: result.job.proposal.planSha256,
+      observationSha256: result.job.observation!.evidenceSha256,
+    },
+  };
+  f.adapter.journal.mutate!(
+    (jobs) => replaceServiceRows(jobs, result.job, resolved),
+    result.evidence,
+  );
+  expect(new FileBootstrapRequestJournal(f.directory).readLifecycle()).toEqual([
+    resolved,
+    result.job,
+  ]);
+  expect(resolved.observation).toEqual(f.original.observation);
+  expect(resolved.effectIntent).toEqual(f.original.effectIntent);
+  expect(resolved.evidence).toEqual(f.original.evidence);
+  expect(() =>
+    f.adapter.journal.mutate!((jobs) =>
+      replaceServiceRows(jobs, { ...resolved, detail: "rewritten", revision: randomUUID() }),
+    ),
+  ).toThrow("Terminal service");
+});
+
+test("recovery admission refuses stale links and a sibling branch without changing the journal", () => {
+  const f = serviceRecoveryFixture();
+  const running = f.prepare();
+  const before = f.adapter.journal.read();
+  const sibling = f.pending(f.original);
+  f.adapter.journal.mutate!((jobs) => [...jobs, sibling]);
+  const proof = f.proof(sibling);
+  const approved = approveServiceJob(sibling, f.adapter.serviceAuthority(sibling)!, proof, f.now());
+  const retained = f.adapter.journal.read();
+  expect(() =>
+    f.adapter.journal.mutate!((jobs) => replaceServiceRows(jobs, approved), proof),
+  ).toThrow("lifecycle admission");
+  expect(f.adapter.journal.read()).toEqual(retained);
+  expect(retained.slice(0, 2)).toEqual(before);
+  expect(running.status).toBe("running");
+  const stale = f.pending(f.original);
+  stale.proposal.recoveryOf!.observationSha256 = "0".repeat(64);
+  expect(() => f.adapter.journal.mutate!((jobs) => [...jobs, stale])).toThrow(
+    "consumed uncertain predecessor",
+  );
+  expect(f.adapter.journal.read()).toEqual(retained);
+});
+
+test("unknown recovery cannot resolve an ancestor and revoked authority cannot reserve a new effect", () => {
+  const f = serviceRecoveryFixture();
+  const recovery = f.prepare();
+  f.advance(1);
+  const result = f.observe(recovery, "unknown", false);
+  const resolved = {
+    ...f.original,
+    revision: randomUUID(),
+    status: "failed" as const,
+    resolvedBy: {
+      requestId: recovery.id,
+      generation: recovery.reservation!.generation,
+      planSha256: recovery.proposal.planSha256,
+      observationSha256: result.job.observation!.evidenceSha256,
+    },
+  };
+  const before = f.adapter.journal.read();
+  expect(() =>
+    f.adapter.journal.mutate!(
+      (jobs) => replaceServiceRows(jobs, result.job, resolved),
+      result.evidence,
+    ),
+  ).toThrow("verified descendant observation");
+  expect(f.adapter.journal.read()).toEqual(before);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    disabledTargets: [],
+    paused: false,
+    revoke: true,
+  });
+  f.adapter.journal.mutate!((jobs) => replaceServiceRows(jobs, result.job), result.evidence);
+  const successor = f.pending(result.job);
+  f.adapter.journal.mutate!((jobs) => [...jobs, successor]);
+  const proof = f.proof(successor);
+  const approved = approveServiceJob(
+    successor,
+    {
+      grantId: recovery.approval!.grantId,
+      grantRevision: recovery.approval!.grantRevision,
+      manifestSha256: recovery.approval!.manifestSha256,
+      proposalSha256: maintenanceServiceProposalDigest(successor.proposal),
+    },
+    proof,
+    f.now(),
+  );
+  const revoked = f.adapter.journal.read();
+  expect(() =>
+    f.adapter.journal.mutate!((jobs) => replaceServiceRows(jobs, approved), proof),
+  ).toThrow();
+  expect(f.adapter.journal.read()).toEqual(revoked);
+});
+
+test("recovery queue follows the successor and resolves history after a lost reply and revocation", async () => {
+  const f = serviceRecoveryFixture();
+  const executed: string[] = [],
+    observed: string[] = [];
+  const native: MaintenanceServiceExecutor = {
+    operations: ["replacement", "recovery", "rollback"],
+    inspect: async (job) => {
+      const proof = f.proof(job);
+      proof.record.executor!.target = "recovery-launcher";
+      proof.record.executor!.identitySha256 = "b".repeat(64);
+      proof.sha256 = maintenanceServiceEvidenceDigest(proof.record);
+      return { ...proof.record, evidenceSha256: proof.sha256, assertCurrent: proof.assertCurrent };
+    },
+    execute: async (job) => {
+      executed.push(job.id);
+      const reserved = job.evidence.find(
+        (item) => item.sha256 === job.reservation!.nativeEvidenceSha256,
+      )!;
+      f.claim(job, undefined, (record) => {
+        record.executor = structuredClone(reserved.record.executor);
+      });
+      throw new Error("Lost native reply");
+    },
+    observe: async (job) => {
+      observed.push(job.id);
+      const result = f.observe(job, "candidate", true);
+      return {
+        ...result.job.observation!,
+        record: result.evidence.record,
+        assertCurrent: result.evidence.assertCurrent,
+      };
+    },
+  };
+  const create = () =>
+    new InstallationRestarts(
+      f.adapter.journal,
+      {
+        restart: async () => {
+          throw new Error("No daemon effect");
+        },
+        maintenanceServices: native,
+      },
+      f.now,
+      { serviceAuthority: f.adapter.serviceAuthority },
+    );
+  const queue = create();
+  const pending = f.pending(f.original, "rollback");
+  queue.requestService(pending.proposal, pending.reason, pending.proposal.requestedBy);
+  await queue.drain();
+  expect(queue.listServices().find((job) => job.id === pending.id)?.status).toBe("approved");
+  expect(observed).toEqual([]);
+  f.advance(30_000);
+  await queue.drain();
+  expect(executed).toEqual([pending.id]);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.advance(5000);
+  const reopened = create();
+  await reopened.drain();
+  const jobs = reopened.listServices();
+  const original = jobs.find((job) => job.id === f.original.id)!;
+  const restored = jobs.find((job) => job.id === pending.id)!;
+  expect(restored.status).toBe("succeeded");
+  expect(restored.proposal.sourceCommit).toBe(f.original.proposal.previous!.sourceCommit);
+  expect(original.status).toBe("failed");
+  expect(original.resolvedBy?.requestId).toBe(restored.id);
+  expect(original.observation).toEqual(f.original.observation);
+  expect(original.evidence).toEqual(f.original.evidence);
+  await reopened.drain();
+  expect(executed).toEqual([pending.id]);
+  expect(observed).toEqual([pending.id]);
+});
+
+test("replacement-only producers cannot accept a recovery request", () => {
+  const f = serviceQueueFixture();
+  const queue = f.create();
+  const recovery = serviceRecoveryFixture();
+  const pending = recovery.pending(recovery.original);
+  expect(queue.serviceMaintenanceOperations()).toEqual(["replacement"]);
+  expect(() =>
+    queue.requestService(pending.proposal, pending.reason, pending.proposal.requestedBy),
+  ).toThrow("supported operation");
+  expect(queue.listServices()).toEqual([f.pending]);
+});
+
+test("one recovery observation resolves every uncertain ancestor in the same journal write", () => {
+  const f = serviceRecoveryFixture();
+  const first = f.prepare();
+  f.advance(1);
+  const uncertain = f.observe(first, "unknown", false);
+  f.adapter.journal.mutate!(
+    (jobs) => retainServiceRecoveryObservation(jobs, first, uncertain.job),
+    uncertain.evidence,
+  );
+  const leaf = f.prepare(uncertain.job, "rollback");
+  f.advance(1);
+  const result = f.observe(leaf, "candidate", true);
+  const before = f.adapter.journal.read();
+  f.adapter.journal.mutate!(
+    (jobs) => retainServiceRecoveryObservation(jobs, leaf, result.job),
+    result.evidence,
+  );
+  const retained = new FileBootstrapRequestJournal(f.directory)
+    .readLifecycle()
+    .filter(
+      (job): job is MaintenanceServiceJob =>
+        job.target === "maintenance-controller" || job.target === "recovery-launcher",
+    );
+  expect(retained.at(-1)?.status).toBe("succeeded");
+  for (const ancestor of retained.slice(0, -1)) {
+    const original = before.find((job) => job.id === ancestor.id) as MaintenanceServiceJob;
+    expect(ancestor.status).toBe("failed");
+    expect(ancestor.resolvedBy?.requestId).toBe(leaf.id);
+    expect(ancestor.observation).toEqual(original.observation);
+    expect(ancestor.effectIntent).toEqual(original.effectIntent);
+    expect(ancestor.reservation).toEqual(original.reservation);
+    expect(ancestor.evidence).toEqual(original.evidence);
+  }
+  expect(() =>
+    f.adapter.journal.mutate!(
+      (jobs) => retainServiceRecoveryObservation(jobs, leaf, result.job),
+      result.evidence,
+    ),
+  ).toThrow("journal changed");
+});
+
+test("reopened replacement-only producer observes recovery through a failed recovery predecessor", async () => {
+  const f = serviceRecoveryFixture();
+  const first = f.prepare();
+  f.advance(1);
+  const uncertain = f.observe(first, "unknown", false);
+  f.adapter.journal.mutate!(
+    (jobs) => retainServiceRecoveryObservation(jobs, first, uncertain.job),
+    uncertain.evidence,
+  );
+  const leaf = f.prepare(uncertain.job);
+  // Seed retained history from an older writer. New uncertainty stays running;
+  // older failed, unready generations still need observation and recovery.
+  const failed = { ...uncertain.job, status: "failed" as const };
+  const history = replaceServiceRows(f.adapter.journal.read(), failed);
+  writeFileSync(path.join(f.directory, "restart-jobs.json"), JSON.stringify(history), {
+    mode: 0o600,
+  });
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.advance(1);
+  const checked: string[] = [];
+  const queue = new InstallationRestarts(
+    f.adapter.journal,
+    {
+      restart: async () => {
+        throw new Error("No daemon execution");
+      },
+      maintenanceServices: {
+        inspect: async () => {
+          throw new Error("No new inspection");
+        },
+        execute: async () => {
+          throw new Error("No execution replay");
+        },
+        observe: async (job) => {
+          checked.push(job.id);
+          const result = f.observe(job, "candidate", true);
+          return {
+            ...result.job.observation!,
+            record: result.evidence.record,
+            assertCurrent: result.evidence.assertCurrent,
+          };
+        },
+      },
+    },
+    f.now,
+    { serviceAuthority: f.adapter.serviceAuthority },
+  );
+  await queue.drain();
+  expect(checked).toEqual([leaf.id]);
+  expect(queue.listServices().find((job) => job.id === leaf.id)?.status).toBe("succeeded");
+  expect(queue.listServices().find((job) => job.id === first.id)?.resolvedBy?.requestId).toBe(
+    leaf.id,
+  );
+});
+
+test("rollback-only producer retains the failed replacement while selecting its recovery work", async () => {
+  const f = serviceRecoveryFixture();
+  const original = { ...f.original, status: "failed" as const };
+  writeFileSync(path.join(f.directory, "restart-jobs.json"), JSON.stringify([original]), {
+    mode: 0o600,
+  });
+  const pending = f.pending(original, "rollback");
+  const inspected: string[] = [];
+  const queue = new InstallationRestarts(
+    f.adapter.journal,
+    {
+      restart: async () => {
+        throw new Error("No daemon execution");
+      },
+      maintenanceServices: {
+        operations: ["rollback"],
+        inspect: async (job) => {
+          inspected.push(job.id);
+          const proof = f.proof(job);
+          proof.record.executor!.target = "recovery-launcher";
+          proof.record.executor!.identitySha256 = "b".repeat(64);
+          proof.sha256 = maintenanceServiceEvidenceDigest(proof.record);
+          return {
+            ...proof.record,
+            evidenceSha256: proof.sha256,
+            assertCurrent: proof.assertCurrent,
+          };
+        },
+        execute: async () => {
+          throw new Error("Cancellation interval has not elapsed");
+        },
+        observe: async () => {
+          throw new Error("No existing running generation");
+        },
+      },
+    },
+    f.now,
+    { serviceAuthority: f.adapter.serviceAuthority },
+  );
+  queue.requestService(pending.proposal, pending.reason, pending.proposal.requestedBy);
+  await queue.drain();
+  expect(inspected).toEqual([pending.id]);
+  expect(queue.listServices().find((job) => job.id === pending.id)?.status).toBe("approved");
+  expect(queue.listServices().find((job) => job.id === original.id)).toEqual(original);
 });

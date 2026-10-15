@@ -1,3 +1,7 @@
+import { isDeepStrictEqual } from "node:util";
+import type { LifecycleJob } from "../lifecycle-journal.js";
+import { maintenanceRecoveryAncestors } from "./service-recovery.js";
+import { isMaintenanceService } from "./service-admission.js";
 import { randomUUID } from "node:crypto";
 import {
   MaintenanceServiceEvidenceRecordSchema,
@@ -144,5 +148,42 @@ export function failedServiceCheck(job: MaintenanceServiceJob, now: number): Mai
         ? "Native maintenance could not be verified after three checks. Recovery is required; no uncertain effect will be repeated."
         : "Native maintenance is unverified. Waiting before the next bounded check; no uncertain effect will be repeated.",
     reconciliation: { attempts, nextCheckAt: new Date(now + delays[attempts - 1]).toISOString() },
+  });
+}
+
+/** Build the complete observation write from the fresh, lock-held journal.
+ * Historical generations retain their receipts and are never rewritten as success. */
+export function retainServiceRecoveryObservation(
+  jobs: readonly LifecycleJob[],
+  previous: MaintenanceServiceJob,
+  observed: MaintenanceServiceJob,
+): LifecycleJob[] {
+  const current = jobs.find((job) => job.id === previous.id);
+  if (!isDeepStrictEqual(current, previous))
+    throw new BootstrapRequestConflict("Maintenance journal changed before observation");
+  const ancestors = observed.observation?.ready
+    ? maintenanceRecoveryAncestors({
+        jobs: jobs.filter(isMaintenanceService),
+        job: observed,
+        retryLimit: 3,
+      })
+    : [];
+  const ids = new Set(ancestors.map((job) => job.id));
+  return jobs.map((job) => {
+    if (job.id === observed.id) return observed;
+    if (!ids.has(job.id)) return job;
+    return MaintenanceServiceJobSchema.parse({
+      ...job,
+      revision: randomUUID(),
+      status: "failed",
+      detail:
+        "A later reviewed recovery verified service readiness. This original attempt remains failed.",
+      resolvedBy: {
+        requestId: observed.id,
+        generation: observed.reservation!.generation,
+        planSha256: observed.proposal.planSha256,
+        observationSha256: observed.observation!.evidenceSha256,
+      },
+    });
   });
 }

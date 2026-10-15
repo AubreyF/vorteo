@@ -350,35 +350,37 @@ export async function resolveNativeMaintenanceExecutorSetup(input: {
   installationId: string;
   stateDirectory: string;
 }) {
+  return resolveNativeMaintenanceRoleSetup({ ...input, target: "maintenance-controller" });
+}
+
+/** Explicit role discovery does not choose a fallback executor or authorize
+ * effects. Recovery admission must separately bind this role's native proof. */
+export async function resolveNativeMaintenanceRoleSetup(input: {
+  installationId: string;
+  stateDirectory: string;
+  target: "maintenance-controller" | "recovery-launcher";
+}) {
   const journal = new FileEnrollmentJournal(input.stateDirectory);
   const state = journal.read();
   if (state.status !== "enrolled" || state.grant.manifest.installationId !== input.installationId)
     throw new BootstrapRequestConflict(
       "Configured installation has no matching maintenance enrollment",
     );
-  const target = state.grant.manifest.targets.find(
-    (entry) => entry.target === "maintenance-controller",
-  );
-  if (!target) throw new BootstrapRequestConflict("Maintenance controller is not enrolled");
+  const target = state.grant.manifest.targets.find((entry) => entry.target === input.target);
+  if (!target) throw new BootstrapRequestConflict("Maintenance role is not enrolled");
   const identity = readEnrollmentNativeIdentity(input.stateDirectory, target.identitySha256);
   if (
     identity.environment !== "host" ||
-    identity.target !== "maintenance-controller" ||
+    identity.target !== input.target ||
     identity.installationId !== input.installationId ||
     !identity.selectionPath
   )
     throw new BootstrapRequestConflict(
-      "Maintenance controller descriptor differs from configured installation",
+      "Maintenance role descriptor differs from configured installation",
     );
-  const base = path.join(
-    identity.installationRoot,
-    "maintenance-services",
-    "maintenance-controller",
-  );
+  const base = path.join(identity.installationRoot, "maintenance-services", input.target);
   if (identity.selectionPath !== path.join(base, "selection.json"))
-    throw new BootstrapRequestConflict(
-      "Maintenance controller selector is outside canonical custody",
-    );
+    throw new BootstrapRequestConflict("Maintenance role selector is outside canonical custody");
   const selection = z
     .union([MaintenanceLauncherSelectionSchema, MaintenanceServiceSelectionSchema])
     .parse(JSON.parse((await readProtectedDocument(identity.selectionPath)).toString("utf8")));
@@ -398,22 +400,18 @@ export async function resolveNativeMaintenanceExecutorSetup(input: {
     native.planSha256 !== selection.planSha256 ||
     !isDeepStrictEqual(native.plan.identity, identity)
   )
-    throw new BootstrapRequestConflict(
-      "Maintenance controller selection differs from its retained plan",
-    );
+    throw new BootstrapRequestConflict("Maintenance role selection differs from its retained plan");
   const startup = await readMaintenanceLauncherStartup({
     setupFile: selected.setup.path,
     account,
   });
   if (
     startup.setup.enrollmentStateDirectory !== input.stateDirectory ||
-    startup.setup.target !== "maintenance-controller" ||
+    startup.setup.target !== input.target ||
     !isDeepStrictEqual(startup.selected, selected) ||
     !isDeepStrictEqual(state, journal.read())
   )
-    throw new BootstrapRequestConflict(
-      "Maintenance controller registration changed during resolution",
-    );
+    throw new BootstrapRequestConflict("Maintenance role registration changed during resolution");
   return {
     installationId: input.installationId,
     stateDirectory: input.stateDirectory,

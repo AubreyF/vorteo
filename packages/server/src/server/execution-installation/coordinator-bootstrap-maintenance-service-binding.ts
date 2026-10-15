@@ -58,23 +58,7 @@ export function inspectRetainedMaintenanceServiceEffect(input: {
   const native = inspectMaintenanceLauncherPlan(input.plan, input.account);
   requireServicePlan(job, reservation, native);
   requireServiceApproval(approval, reservation, job.proposal);
-  const evidence = job.evidence.filter((item) => item.sha256 === effectIntent.nativeEvidenceSha256);
-  const record = evidence[0]?.record;
-  if (
-    effectIntent.generation !== reservation.generation ||
-    effectIntent.requestRevision !== reservation.requestRevision ||
-    Date.parse(effectIntent.consumedAt) < Date.parse(reservation.reservedAt) ||
-    evidence.length !== 1 ||
-    !record ||
-    createHash("sha256").update(JSON.stringify(record)).digest("hex") !== evidence[0]!.sha256 ||
-    record.requestId !== job.id ||
-    record.planSha256 !== native.planSha256 ||
-    record.identitySha256 !== native.identitySha256 ||
-    record.sourceCommit !== reservation.sourceCommit ||
-    record.artifactSha256 !== reservation.artifactSha256 ||
-    record.native.bootId !== effectIntent.executor.bootId
-  )
-    throw new BootstrapRequestConflict("Retained service effect proof differs from reservation");
+  requireRetainedServiceIntent(job, reservation, native);
   return { ...native, job, reservation, intent: effectIntent };
 }
 
@@ -133,7 +117,7 @@ function requireServicePlan(
     throw new BootstrapRequestConflict("Native service artifacts differ from the reviewed slots");
 }
 
-function requireServiceApproval(
+export function requireServiceApproval(
   approval: NonNullable<MaintenanceServiceJob["approval"]>,
   reservation: MaintenanceServiceReservation,
   proposal: MaintenanceServiceJob["proposal"],
@@ -157,4 +141,32 @@ function requireServiceApproval(
     throw new BootstrapRequestConflict(
       "Native service reservation bypasses its cancellation interval",
     );
+}
+
+export function requireRetainedServiceIntent(
+  job: MaintenanceServiceJob,
+  reservation: MaintenanceServiceReservation,
+  expected: { planSha256: string; identitySha256: string },
+) {
+  const effectIntent = job.effectIntent;
+  if (!effectIntent || !["running", "failed", "succeeded"].includes(job.status))
+    throw new BootstrapRequestConflict("Retained service effect is unavailable");
+  const evidence = job.evidence.filter((item) => item.sha256 === effectIntent.nativeEvidenceSha256);
+  const record = evidence[0]?.record;
+  if (
+    effectIntent.generation !== reservation.generation ||
+    effectIntent.requestRevision !== reservation.requestRevision ||
+    Date.parse(effectIntent.consumedAt) < Date.parse(reservation.reservedAt) ||
+    evidence.length !== 1 ||
+    !record ||
+    createHash("sha256").update(JSON.stringify(record)).digest("hex") !== evidence[0]!.sha256 ||
+    record.requestId !== job.id ||
+    record.planSha256 !== expected.planSha256 ||
+    record.identitySha256 !== expected.identitySha256 ||
+    record.sourceCommit !== reservation.sourceCommit ||
+    record.artifactSha256 !== reservation.artifactSha256 ||
+    record.native.bootId !== effectIntent.executor.bootId
+  )
+    throw new BootstrapRequestConflict("Retained service effect proof differs from reservation");
+  return effectIntent;
 }

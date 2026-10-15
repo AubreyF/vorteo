@@ -1,3 +1,4 @@
+import { selectMaintenanceServiceWork } from "./maintenance/service-recovery.js";
 import {
   StandingRestartDecisionSchema,
   type StandingRestartDecision,
@@ -33,6 +34,7 @@ import {
 import { isDeepStrictEqual } from "node:util";
 import {
   approveServiceJob,
+  retainServiceRecoveryObservation,
   reserveServiceJob,
   observeServiceJob,
   serviceInspectionProof,
@@ -305,6 +307,11 @@ export class InstallationRestarts {
     );
   }
 
+  serviceMaintenanceOperations(): MaintenanceServiceJob["operation"][] {
+    if (!this.serviceMaintenanceAvailable()) return [];
+    return [...new Set(this.executor.maintenanceServices!.operations ?? ["replacement" as const])];
+  }
+
   private hasServiceWork(): boolean {
     return (
       this.serviceMaintenanceAvailable() &&
@@ -336,8 +343,8 @@ export class InstallationRestarts {
     });
     if (
       job.proposal.requestedBy !== requestedBy ||
-      job.operation !== "replacement" ||
-      job.proposal.recoveryOf
+      !this.serviceMaintenanceOperations().includes(job.operation) ||
+      (job.operation === "replacement") === Boolean(job.proposal.recoveryOf)
     )
       throw new RestartRequestError(
         "Native maintenance requester or supported operation does not match",
@@ -2294,16 +2301,21 @@ export class InstallationRestarts {
   private async drainServices(): Promise<void> {
     if (!this.serviceMaintenanceAvailable()) return;
     const jobs = this.listServices();
-    const running = jobs.find((job) => job.status === "running");
-    if (running) {
-      if (serviceCheckDue(running, this.now())) await this.observeService(running);
+    const job = selectMaintenanceServiceWork(
+      jobs,
+      (candidate) =>
+        candidate.status === "running" ||
+        (this.serviceMaintenanceOperations().includes(candidate.operation) &&
+          (candidate.status !== "pending" || serviceCheckDue(candidate, this.now()))),
+    );
+    if (!job) return;
+    if (job.status === "running") {
+      if (serviceCheckDue(job, this.now())) await this.observeService(job);
       return;
     }
-    if (this.journal.admissionAvailable?.() === false) return;
-    const job =
-      jobs.find((item) => item.status === "approved") ??
-      jobs.find((item) => item.status === "pending" && serviceCheckDue(item, this.now()));
-    if (!job) return;
+    // A linked successor must pass the same locked chain/exclusion admission.
+    // Its exact uncertain ancestors necessarily make ordinary idle admission false.
+    if (!job.proposal.recoveryOf && this.journal.admissionAvailable?.() === false) return;
     try {
       const authority = this.approvalPolicy.serviceAuthority!(job);
       if (!authority) {
@@ -2400,7 +2412,10 @@ export class InstallationRestarts {
     )
       throw new RestartRequestError("Maintenance generation changed during native observation");
     const observed = observeServiceJob(current, result, this.now());
-    this.replaceService(current, observed.job, observed.proof);
+    this.journal.mutate!(
+      (jobs) => retainServiceRecoveryObservation(jobs, current, observed.job),
+      observed.proof,
+    );
   }
 
   private recordServiceCheckFailure(id: string): void {

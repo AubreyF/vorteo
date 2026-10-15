@@ -20,6 +20,9 @@ export interface MaintenanceServiceNativeObservation extends MaintenanceServiceO
 /** Factory owns native execution. The visible existing queue owns approval,
  * cancellation and reservation. These ports create neither a worker nor a store. */
 export interface MaintenanceServiceExecutor {
+  /** Recovery operations require explicit native support and acceptance. Omission
+   * preserves the replacement-only contract of existing producers. */
+  readonly operations?: readonly MaintenanceServiceJob["operation"][];
   inspect(request: MaintenanceServiceJob): Promise<MaintenanceServiceNativeEvidence>;
   /** Independently reads the matching retained reservation and consumes one
    * exclusive durable effect intent. Existing intent means observe only. */

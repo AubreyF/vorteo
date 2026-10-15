@@ -175,3 +175,16 @@ export function requireReservedMaintenanceExecutor(job: MaintenanceServiceJob, e
   )
     throw new BootstrapRequestConflict("Selected executor differs from reserved native evidence");
 }
+
+/** Boot proof comes from selected native executor inspection, not a caller's
+ * serialized boot identifier. Keep its protected custody assertion attached. */
+export function maintenanceRecoveryBootWitness(
+  current: Awaited<ReturnType<typeof inspectSelectedMaintenanceExecutor>>,
+) {
+  current.assertCurrent();
+  return {
+    installationId: current.startup.plan.identity.installationId,
+    process: current.executor.native.process,
+    assertCurrent: current.assertCurrent,
+  };
+}

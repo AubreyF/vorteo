@@ -49,7 +49,7 @@ export const MaintenanceServiceNativeEvidenceSchema = z.strictObject({
 
 /** The selected controller is separate from the service being replaced. */
 export const MaintenanceServiceExecutorEvidenceSchema = z.strictObject({
-  target: z.literal("maintenance-controller"),
+  target: MaintenanceServiceTargetSchema,
   identitySha256: digest,
   planSha256: digest,
   sourceCommit: commit,
@@ -170,6 +170,9 @@ export const MaintenanceServiceJobSchema = z.strictObject({
     })
     .optional(),
   observation: MaintenanceServiceObservationSchema.optional(),
+  /** Verified descendant readiness resolves uncertainty, never rewrites the
+   * original attempt's outcome or grants permission to replay it. */
+  resolvedBy: MaintenanceServiceRecoveryLinkSchema.optional(),
   reconciliation: z
     .strictObject({
       attempts: z.number().int().min(0).max(3),

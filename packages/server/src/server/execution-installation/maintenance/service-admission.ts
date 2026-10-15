@@ -1,3 +1,4 @@
+import { maintenanceRecoveryAncestors } from "./service-recovery.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -53,7 +54,17 @@ export function assertMaintenanceServiceAdmission(input: ServiceAdmission): void
     const retained = new Map(input.previous.map((job) => [job.id, job]));
     if (
       coordinatorLifecycleWork(input.next).some(
-        (job) => job.id !== active.id && !isDeepStrictEqual(retained.get(job.id), job),
+        (job) =>
+          job.id !== active.id &&
+          !isDeepStrictEqual(retained.get(job.id), job) &&
+          !(
+            isMaintenanceService(job) &&
+            maintenanceRecoveryAncestors({
+              jobs: [...previous.values()],
+              job,
+              retryLimit: 3,
+            }).some((ancestor) => ancestor.id === active.id)
+          ),
       )
     )
       throw new BootstrapRequestConflict(
@@ -67,13 +78,20 @@ export function assertMaintenanceServiceAdmission(input: ServiceAdmission): void
     const job = MaintenanceServiceJobSchema.parse(proposed);
     const prior = previous.get(job.id);
     assertServiceBindings(prior, job);
+    if (!prior && job.proposal.recoveryOf)
+      maintenanceRecoveryAncestors({ jobs: [...previous.values()], job, retryLimit: 3 });
     const phase = servicePhase(prior, job);
     if (!phase) continue;
     if (!prior)
       throw new BootstrapRequestConflict("Service effects require a retained pending request");
+    if (phase === "resolution") {
+      assertServiceRecoveryResolution(input, prior, job);
+      continue;
+    }
     assertServiceEvidence(input, prior, job, phase);
     if (phase === "observation") {
       assertServiceObservation(job);
+      if (job.observation!.ready) assertResolvedAncestors(input, job);
       continue;
     }
     assertServiceAuthority(input, job);
@@ -85,7 +103,7 @@ export function assertMaintenanceServiceAdmission(input: ServiceAdmission): void
   }
 }
 
-type ServicePhase = "approval" | "reservation" | "intent" | "observation";
+type ServicePhase = "approval" | "reservation" | "intent" | "observation" | "resolution";
 function servicePhase(
   previous: MaintenanceServiceJob | undefined,
   next: MaintenanceServiceJob,
@@ -94,6 +112,7 @@ function servicePhase(
   if (next.approval && !previous?.approval) phases.push("approval");
   if (next.reservation && !previous?.reservation) phases.push("reservation");
   if (next.effectIntent && !previous?.effectIntent) phases.push("intent");
+  if (next.resolvedBy && !previous?.resolvedBy) phases.push("resolution");
   if (!isDeepStrictEqual(previous?.observation, next.observation)) phases.push("observation");
   if (phases.length > 1)
     throw new BootstrapRequestConflict(
@@ -121,16 +140,12 @@ function assertServiceBindings(
   });
   if (!isDeepStrictEqual(immutable(previous), immutable(next)))
     throw new BootstrapRequestConflict("Retained service proposal cannot change");
-  for (const field of ["approval", "reservation", "effectIntent"] as const)
+  for (const field of ["approval", "reservation", "effectIntent", "resolvedBy"] as const)
     if (previous[field] && !isDeepStrictEqual(previous[field], next[field]))
       throw new BootstrapRequestConflict("Retained service authority or generation changed");
   if (!isDeepStrictEqual(previous.evidence, next.evidence.slice(0, previous.evidence.length)))
     throw new BootstrapRequestConflict("Service native evidence history cannot change");
-  if (
-    ["succeeded", "failed", "rejected"].includes(previous.status) &&
-    !isDeepStrictEqual(previous, next)
-  )
-    throw new BootstrapRequestConflict("Terminal service generations cannot be replayed");
+  assertTerminalServiceUnchanged(previous, next);
   const phase = servicePhase(previous, next);
   if (
     !phase &&
@@ -143,6 +158,17 @@ function assertServiceBindings(
   if (next.status === "rejected" && (previous.reservation || next.reservation))
     throw new BootstrapRequestConflict("Dispatched service maintenance cannot be cancelled");
 }
+function assertTerminalServiceUnchanged(
+  previous: MaintenanceServiceJob,
+  next: MaintenanceServiceJob,
+): void {
+  if (
+    ["succeeded", "failed", "rejected"].includes(previous.status) &&
+    !isDeepStrictEqual(previous, next) &&
+    !(next.resolvedBy && !previous.resolvedBy)
+  )
+    throw new BootstrapRequestConflict("Terminal service generations cannot be replayed");
+}
 function assertServiceProposal(next: MaintenanceServiceJob): void {
   if (
     next.proposal.id !== next.id ||
@@ -150,8 +176,8 @@ function assertServiceProposal(next: MaintenanceServiceJob): void {
     next.proposal.operation !== next.operation
   )
     throw new BootstrapRequestConflict("Service request differs from its exact proposal");
-  if (next.operation !== "replacement" || next.proposal.recoveryOf)
-    throw new BootstrapRequestConflict("Service recovery and rollback are not available");
+  if ((next.operation === "replacement") === Boolean(next.proposal.recoveryOf))
+    throw new BootstrapRequestConflict("Service operation requires its exact predecessor linkage");
 }
 function assertInitialService(next: MaintenanceServiceJob): void {
   if (
@@ -160,6 +186,7 @@ function assertInitialService(next: MaintenanceServiceJob): void {
     next.reservation ||
     next.effectIntent ||
     next.observation ||
+    next.resolvedBy ||
     next.evidence.length
   )
     throw new BootstrapRequestConflict("Service request must begin pending without authority");
@@ -336,13 +363,22 @@ function assertServiceEvidence(
   const referenced = serviceEvidenceReference(next, phase);
   if (referenced !== supplied.sha256)
     throw new BootstrapRequestConflict("Service transition does not address its retained evidence");
-  if (phase !== "observation") {
-    assertNativeCandidateEvidence(record, next);
-    assertServiceExecutorEvidence(input.state, previous, record, phase);
-  }
+  assertEffectEvidence(input, previous, next, record, phase);
   const result: unknown = supplied.assertCurrent();
   if (result !== undefined)
     throw new BootstrapRequestConflict("Service custody recheck must be synchronous");
+}
+function assertEffectEvidence(
+  input: ServiceAdmission,
+  previous: MaintenanceServiceJob,
+  next: MaintenanceServiceJob,
+  record: MaintenanceServiceEvidenceRecord,
+  phase: ServicePhase,
+): void {
+  if (phase === "observation") return;
+  if (next.operation === "replacement") assertNativeCandidateEvidence(record, next);
+  else assertRecoveryCandidateEvidence(input, next, record);
+  assertServiceExecutorEvidence(input.state, previous, record, phase);
 }
 function assertServiceExecutorEvidence(
   state: InstallationEnrollmentState,
@@ -353,9 +389,14 @@ function assertServiceExecutorEvidence(
   const executor = record.executor;
   if (!executor || state.status !== "enrolled")
     throw new BootstrapRequestConflict("Service effects require selected executor evidence");
-  const binding = state.grant.manifest.targets.find(
-    (target) => target.target === "maintenance-controller",
-  );
+  if (
+    executor.target === "recovery-launcher" &&
+    (previous.operation === "replacement" || !previous.proposal.recoveryOf)
+  )
+    throw new BootstrapRequestConflict(
+      "Recovery launcher execution requires a linked recovery or rollback",
+    );
+  const binding = state.grant.manifest.targets.find((target) => target.target === executor.target);
   if (
     !binding ||
     executor.identitySha256 !== binding.identitySha256 ||
@@ -384,6 +425,8 @@ function serviceEvidenceReference(job: MaintenanceServiceJob, phase: ServicePhas
       return job.effectIntent!.nativeEvidenceSha256;
     case "observation":
       return job.observation!.evidenceSha256;
+    case "resolution":
+      throw new BootstrapRequestConflict("Resolution uses the descendant native observation");
   }
 }
 function assertNativeCandidateEvidence(
@@ -477,6 +520,105 @@ function assertServiceExclusion(
   previous: readonly LifecycleJob[],
   job: MaintenanceServiceJob,
 ): void {
-  if (coordinatorLifecycleWork(previous).some((item) => item.id !== job.id))
+  const ancestors = new Set(
+    maintenanceRecoveryAncestors({
+      jobs: previous.filter(isMaintenanceService),
+      job,
+      retryLimit: 3,
+    }).map((ancestor) => ancestor.id),
+  );
+  if (
+    coordinatorLifecycleWork(previous).some((item) => item.id !== job.id && !ancestors.has(item.id))
+  )
     throw new BootstrapRequestConflict("Another installation operation owns lifecycle admission");
+}
+
+function assertRecoveryCandidateEvidence(
+  input: ServiceAdmission,
+  job: MaintenanceServiceJob,
+  record: MaintenanceServiceEvidenceRecord,
+): void {
+  maintenanceRecoveryAncestors({
+    jobs: input.previous.filter(isMaintenanceService),
+    job,
+    retryLimit: 3,
+  });
+  if (
+    record.sourceCommit !== job.proposal.sourceCommit ||
+    record.artifactSha256 !== job.proposal.artifactSha256 ||
+    (record.native.process && record.native.process.bootId !== record.native.bootId)
+  )
+    throw new BootstrapRequestConflict(
+      "Recovery candidate differs from its retained reviewed runtime",
+    );
+  // Target absence or a partial selector is useful recovery evidence only when
+  // the native adapter's synchronous custody assertion proves that exact state.
+}
+
+function resolutionLink(job: MaintenanceServiceJob) {
+  return {
+    requestId: job.id,
+    generation: job.reservation!.generation,
+    planSha256: job.reservation!.planSha256,
+    observationSha256: job.observation!.evidenceSha256,
+  };
+}
+function assertResolvedAncestors(input: ServiceAdmission, job: MaintenanceServiceJob): void {
+  const ancestors = maintenanceRecoveryAncestors({
+    jobs: input.previous.filter(isMaintenanceService),
+    job,
+    retryLimit: 3,
+  });
+  for (const ancestor of ancestors) {
+    const resolved = input.next.find((item) => item.id === ancestor.id);
+    if (
+      !resolved ||
+      !isMaintenanceService(resolved) ||
+      resolved.status !== "failed" ||
+      !isDeepStrictEqual(resolved.resolvedBy, resolutionLink(job))
+    )
+      throw new BootstrapRequestConflict(
+        "Verified recovery must atomically resolve its retained ancestors",
+      );
+  }
+}
+function assertServiceRecoveryResolution(
+  input: ServiceAdmission,
+  previous: MaintenanceServiceJob,
+  job: MaintenanceServiceJob,
+): void {
+  const leaf = input.next.find((item) => item.id === job.resolvedBy!.requestId);
+  const priorLeaf = input.previous.find((item) => item.id === leaf?.id);
+  if (
+    !leaf ||
+    !isMaintenanceService(leaf) ||
+    !priorLeaf ||
+    !isMaintenanceService(priorLeaf) ||
+    servicePhase(priorLeaf, leaf) !== "observation" ||
+    !leaf.observation?.ready ||
+    !isDeepStrictEqual(job.resolvedBy, resolutionLink(leaf)) ||
+    job.status !== "failed" ||
+    previous.revision === job.revision
+  )
+    throw new BootstrapRequestConflict(
+      "Recovery resolution requires a new verified descendant observation",
+    );
+  const history = ({
+    revision: _revision,
+    status: _status,
+    detail: _detail,
+    resolvedBy: _resolved,
+    ...retained
+  }: MaintenanceServiceJob) => retained;
+  if (
+    !isDeepStrictEqual(history(previous), history(job)) ||
+    !maintenanceRecoveryAncestors({
+      jobs: input.previous.filter(isMaintenanceService),
+      job: leaf,
+      retryLimit: 3,
+    }).some((ancestor) => ancestor.id === previous.id)
+  )
+    throw new BootstrapRequestConflict("Recovery resolution cannot rewrite original history");
+  // The leaf's observation branch independently verifies the single supplied
+  // native receipt and custody. Both updates are checked before one durable write.
 }

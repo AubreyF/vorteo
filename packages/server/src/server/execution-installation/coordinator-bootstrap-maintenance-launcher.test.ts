@@ -988,6 +988,411 @@ test.each([
       account: f.account,
     });
   expect(observe(claimed).intent.id).toBe(claimed.effectIntent!.id);
+  const { verifyMaintenanceRecoveryPredecessor } =
+    await import("./coordinator-bootstrap-maintenance-recovery-proof.js");
+  const failedRecord = {
+    ...claimed.evidence[0]!.record,
+    requestRevision: reservation.requestRevision,
+    observedAt: new Date(Date.parse(claimed.effectIntent!.consumedAt) + 1).toISOString(),
+  };
+  const failedSha = createHash("sha256").update(JSON.stringify(failedRecord)).digest("hex");
+  const failed = MaintenanceServiceJobSchema.parse({
+    ...claimed,
+    status: "failed",
+    observation: {
+      requestId: claimed.id,
+      requestRevision: reservation.requestRevision,
+      generation: reservation.generation,
+      planSha256: native.planSha256,
+      identitySha256: native.identitySha256,
+      outcome: "candidate",
+      sourceCommit: failedRecord.sourceCommit,
+      artifactSha256: failedRecord.artifactSha256,
+      ready: false,
+      evidenceSha256: failedSha,
+      observedAt: failedRecord.observedAt,
+    },
+    evidence: [...claimed.evidence, { sha256: failedSha, record: failedRecord }],
+  });
+  const recoveryInput = {
+    retained: failed,
+    plan: f.plan,
+    account: f.account,
+    recoveryOf: {
+      requestId: claimed.id,
+      generation: reservation.generation,
+      planSha256: native.planSha256,
+      observationSha256: failedSha,
+    },
+    reader: { verifyProcessExited: vi.fn(async () => undefined) },
+  };
+  expect((await verifyMaintenanceRecoveryPredecessor(recoveryInput)).intent.id).toBe(
+    claimed.effectIntent!.id,
+  );
+  expect(
+    (
+      await verifyMaintenanceRecoveryPredecessor({
+        ...recoveryInput,
+        retained: { ...failed, status: "running" },
+      })
+    ).intent.id,
+  ).toBe(claimed.effectIntent!.id);
+  const { inspectMaintenanceRecoveryPlan } =
+    await import("./coordinator-bootstrap-maintenance-recovery-plan.js");
+  const recoveryPlan = {
+    version: 2,
+    operation: "maintenance-service-recovery",
+    recoveryOf: recoveryInput.recoveryOf,
+    originalPlanSha256: native.planSha256,
+    original: f.plan,
+  };
+  expect(inspectMaintenanceRecoveryPlan(recoveryPlan, f.account).selected).toEqual(
+    f.plan.candidate,
+  );
+  expect(
+    inspectMaintenanceRecoveryPlan(
+      { ...recoveryPlan, operation: "maintenance-service-rollback" },
+      f.account,
+    ).selected,
+  ).toEqual(f.plan.previous);
+  expect(() =>
+    inspectMaintenanceRecoveryPlan(
+      {
+        ...recoveryPlan,
+        original: {
+          ...f.plan,
+          candidate: { ...f.plan.candidate, artifactSha256: "e".repeat(64) },
+        },
+      },
+      f.account,
+    ),
+  ).toThrow("original reviewed slots");
+  const { inspectMaintenanceRecoveryPredecessorPlan } =
+    await import("./coordinator-bootstrap-maintenance-recovery-plan.js");
+  const firstRecovery = inspectMaintenanceRecoveryPlan(recoveryPlan, f.account);
+  expect(
+    inspectMaintenanceRecoveryPredecessorPlan(firstRecovery, f.plan, f.account).planSha256,
+  ).toBe(native.planSha256);
+  const secondPlan = {
+    ...recoveryPlan,
+    recoveryOf: {
+      ...recoveryPlan.recoveryOf,
+      requestId: randomUUID(),
+      generation: randomUUID(),
+      planSha256: firstRecovery.planSha256,
+    },
+  };
+  const secondRecovery = inspectMaintenanceRecoveryPlan(secondPlan, f.account);
+  expect(
+    inspectMaintenanceRecoveryPredecessorPlan(secondRecovery, recoveryPlan, f.account).planSha256,
+  ).toBe(firstRecovery.planSha256);
+  expect(() =>
+    inspectMaintenanceRecoveryPredecessorPlan(secondRecovery, f.plan, f.account),
+  ).toThrow("immediate predecessor");
+  const thirdRecovery = inspectMaintenanceRecoveryPlan(
+    {
+      ...recoveryPlan,
+      recoveryOf: { ...secondPlan.recoveryOf, planSha256: secondRecovery.planSha256 },
+    },
+    f.account,
+  );
+  expect(
+    inspectMaintenanceRecoveryPredecessorPlan(thirdRecovery, secondPlan, f.account).planSha256,
+  ).toBe(secondRecovery.planSha256);
+  const { inspectMaintenanceRecoveryExecution } =
+    await import("./coordinator-bootstrap-maintenance-recovery-binding.js");
+  const recoveryContext = inspectMaintenanceRecoveryPlan(recoveryPlan, f.account);
+  const recoveryId = randomUUID();
+  const recoveryRevision = randomUUID();
+  const recoveryProposal = {
+    ...job.proposal,
+    id: recoveryId,
+    operation: "recovery",
+    planSha256: recoveryContext.planSha256,
+    recoveryOf: recoveryPlan.recoveryOf,
+  };
+  const proposalDigest = createHash("sha256")
+    .update(JSON.stringify(recoveryProposal))
+    .digest("hex");
+  const recoveryReservation = {
+    ...reservation,
+    requestId: recoveryId,
+    requestRevision: recoveryRevision,
+    generation: randomUUID(),
+    operation: "recovery",
+    planSha256: recoveryContext.planSha256,
+    proposalSha256: proposalDigest,
+    recoveryOf: recoveryPlan.recoveryOf,
+  };
+  const recoveryJob = MaintenanceServiceJobSchema.parse({
+    ...job,
+    id: recoveryId,
+    operation: "recovery",
+    proposal: recoveryProposal,
+    approval: {
+      ...job.approval,
+      requestRevision: recoveryRevision,
+      proposalSha256: proposalDigest,
+    },
+    reservation: recoveryReservation,
+  });
+  const { inspectNativeMaintenanceRecoveryHistory } =
+    await import("./coordinator-bootstrap-maintenance-recovery-history.js");
+  const consumedAt = new Date().toISOString();
+  const recoveryClaimRecord = {
+    ...failedRecord,
+    requestId: recoveryId,
+    requestRevision: recoveryRevision,
+    planSha256: recoveryContext.planSha256,
+    observedAt: consumedAt,
+  };
+  const recoveryClaimSha = createHash("sha256")
+    .update(JSON.stringify(recoveryClaimRecord))
+    .digest("hex");
+  const recoveryObservedRecord = {
+    ...recoveryClaimRecord,
+    observedAt: new Date(Date.parse(consumedAt) + 1).toISOString(),
+  };
+  const recoveryObservedSha = createHash("sha256")
+    .update(JSON.stringify(recoveryObservedRecord))
+    .digest("hex");
+  const uncertainRecovery = MaintenanceServiceJobSchema.parse({
+    ...recoveryJob,
+    effectIntent: {
+      ...claimed.effectIntent,
+      id: randomUUID(),
+      generation: recoveryReservation.generation,
+      requestRevision: recoveryRevision,
+      nativeEvidenceSha256: recoveryClaimSha,
+      consumedAt,
+      executor: { ...claimed.effectIntent!.executor, pid: claimed.effectIntent!.executor.pid + 1 },
+    },
+    observation: {
+      ...failed.observation,
+      requestId: recoveryId,
+      requestRevision: recoveryRevision,
+      generation: recoveryReservation.generation,
+      planSha256: recoveryContext.planSha256,
+      evidenceSha256: recoveryObservedSha,
+      observedAt: recoveryObservedRecord.observedAt,
+    },
+    evidence: [
+      { sha256: recoveryClaimSha, record: recoveryClaimRecord },
+      { sha256: recoveryObservedSha, record: recoveryObservedRecord },
+    ],
+  });
+  const historyPlan = {
+    ...recoveryPlan,
+    recoveryOf: {
+      requestId: recoveryId,
+      generation: recoveryReservation.generation,
+      planSha256: recoveryContext.planSha256,
+      observationSha256: recoveryObservedSha,
+    },
+  };
+  const historyPlans = path.join(path.dirname(f.plan.identity.selectionPath!), "plans");
+  mkdirSync(historyPlans, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(historyPlans, native.planSha256 + ".json"), JSON.stringify(f.plan), {
+    mode: 0o600,
+  });
+  writeFileSync(
+    path.join(historyPlans, recoveryContext.planSha256 + ".json"),
+    JSON.stringify(recoveryPlan),
+    { mode: 0o600 },
+  );
+  const historyFile = path.join(f.enrollmentStateDirectory, "restart-jobs.json");
+  const historyJobs = [{ ...failed, status: "running" }, uncertainRecovery];
+  writeFileSync(historyFile, JSON.stringify(historyJobs), { mode: 0o600 });
+  const exitProof = vi.fn(async () => undefined);
+  const historyInput = {
+    stateDirectory: f.enrollmentStateDirectory,
+    plan: historyPlan,
+    account: f.account,
+    reader: { verifyProcessExited: exitProof },
+    signal: new AbortController().signal,
+  };
+  const history = await inspectNativeMaintenanceRecoveryHistory(historyInput);
+  expect(history.ancestors.map((item) => item.job.id)).toEqual([recoveryId, claimed.id]);
+  expect(exitProof.mock.calls).toEqual([
+    [uncertainRecovery.effectIntent!.executor.pid],
+    [claimed.effectIntent!.executor.pid],
+  ]);
+  history.assertCurrent();
+  const { inspectAbsentMaintenanceRecovery } =
+    await import("./coordinator-bootstrap-maintenance-recovery-inspection.js");
+  const absentPlan = inspectMaintenanceRecoveryPlan(historyPlan, f.account);
+  const absentRequest = {
+    ...recoveryJob,
+    proposal: {
+      ...recoveryJob.proposal,
+      planSha256: absentPlan.planSha256,
+      recoveryOf: historyPlan.recoveryOf,
+    },
+  };
+  const absentInput = {
+    ...historyInput,
+    request: absentRequest,
+    writableMountRoots: [],
+    currentBoot: {
+      installationId: f.plan.identity.installationId,
+      process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
+      assertCurrent: () => undefined,
+    },
+    assertAbsent: vi.fn(() => undefined),
+  };
+  retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
+  const absent = await inspectAbsentMaintenanceRecovery(absentInput);
+  expect(absent.native.process).toBeNull();
+  expect(absent.native.service.registered).toBe(false);
+  expect(absent.native.selection.sourceCommit).toBeNull();
+  absent.assertCurrent();
+  writeFileSync(f.plan.identity.selectionPath!, "partial selection", { mode: 0o600 });
+  expect(absent.assertCurrent).toThrow("state appeared");
+  const partial = await inspectAbsentMaintenanceRecovery(absentInput);
+  expect(partial.native.selection.receiptSha256).toBe(
+    createHash("sha256").update("partial selection").digest("hex"),
+  );
+  expect(partial.native.selection.sourceCommit).toBeNull();
+  await expect(
+    inspectAbsentMaintenanceRecovery({
+      ...absentInput,
+      assertAbsent: () => {
+        throw new Error("permission denied");
+      },
+    }),
+  ).rejects.toThrow("permission denied");
+  await expect(
+    inspectAbsentMaintenanceRecovery({
+      ...absentInput,
+      currentBoot: { ...absentInput.currentBoot, process: claimed.effectIntent!.executor },
+    }),
+  ).rejects.toThrow("target lifetime is unproven");
+  await expect(
+    inspectAbsentMaintenanceRecovery({
+      ...absentInput,
+      request: {
+        ...absentRequest,
+        proposal: { ...absentRequest.proposal, sourceCommit: "f".repeat(40) },
+      },
+    }),
+  ).rejects.toThrow("differs from retained native plan");
+  rmSync(f.plan.identity.selectionPath!);
+  const bootWitness = {
+    installationId: f.plan.identity.installationId,
+    process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const previousBootReader = {
+    verifyProcessExited: vi.fn(async () => {
+      throw new Error("Numeric PIDs reused after reboot");
+    }),
+  };
+  const rebootHistory = await inspectNativeMaintenanceRecoveryHistory({
+    ...historyInput,
+    currentBoot: bootWitness,
+    reader: previousBootReader,
+  });
+  expect(rebootHistory.ancestors).toHaveLength(2);
+  expect(previousBootReader.verifyProcessExited).not.toHaveBeenCalled();
+  rebootHistory.assertCurrent();
+  bootWitness.assertCurrent.mockImplementation(() => {
+    throw new Error("Selected native witness changed");
+  });
+  expect(rebootHistory.assertCurrent).toThrow("Selected native witness changed");
+  writeFileSync(historyFile, JSON.stringify([historyJobs[0]]), { mode: 0o600 });
+  expect(history.assertCurrent).toThrow("history changed");
+  await expect(inspectNativeMaintenanceRecoveryHistory(historyInput)).rejects.toThrow(
+    "missing or ambiguous",
+  );
+  writeFileSync(historyFile, JSON.stringify(historyJobs), { mode: 0o600 });
+  await expect(
+    inspectNativeMaintenanceRecoveryHistory({
+      ...historyInput,
+      reader: {
+        verifyProcessExited: async () => {
+          throw new Error("live ancestor");
+        },
+      },
+    }),
+  ).rejects.toThrow("lifetime exit is unproven");
+  writeFileSync(historyFile, JSON.stringify([claimed]), { mode: 0o600 });
+  rmSync(historyPlans, { recursive: true });
+  const recoveryBinding = {
+    retained: recoveryJob,
+    reservation: recoveryReservation,
+    plan: recoveryPlan,
+    account: f.account,
+  };
+  expect(inspectMaintenanceRecoveryExecution(recoveryBinding).selected).toEqual(f.plan.candidate);
+  await expect(verifyMaintenanceRecoveryPredecessor(recoveryInput)).resolves.toHaveProperty(
+    "intent.id",
+    claimed.effectIntent!.id,
+  );
+  expect(() =>
+    inspectMaintenanceRecoveryExecution({
+      ...recoveryBinding,
+      retained: { ...recoveryJob, effectIntent: claimed.effectIntent },
+    }),
+  ).toThrow("fresh unconsumed");
+  expect(() =>
+    inspectMaintenanceRecoveryExecution({
+      ...recoveryBinding,
+      reservation: { ...recoveryReservation, generation: reservation.generation },
+    }),
+  ).toThrow("fresh unconsumed");
+  expect(() =>
+    inspectMaintenanceRecoveryExecution({
+      ...recoveryBinding,
+      retained: { ...recoveryJob, proposal: { ...recoveryProposal, sourceCommit: "e".repeat(40) } },
+    }),
+  ).toThrow("exact retained plan");
+  const noPrevious = { ...f.plan, previous: null };
+  expect(() =>
+    inspectMaintenanceRecoveryPlan(
+      {
+        ...recoveryPlan,
+        operation: "maintenance-service-rollback",
+        original: noPrevious,
+        originalPlanSha256: inspectMaintenanceLauncherPlan(noPrevious, f.account).planSha256,
+        recoveryOf: {
+          ...recoveryPlan.recoveryOf,
+          planSha256: inspectMaintenanceLauncherPlan(noPrevious, f.account).planSha256,
+        },
+      },
+      f.account,
+    ),
+  ).toThrow("rollback slot");
+  expect(recoveryInput.reader.verifyProcessExited).toHaveBeenCalledWith(
+    claimed.effectIntent!.executor.pid,
+  );
+  await expect(
+    verifyMaintenanceRecoveryPredecessor({
+      ...recoveryInput,
+      reader: {
+        verifyProcessExited: async () => {
+          throw new Error("still live");
+        },
+      },
+    }),
+  ).rejects.toThrow("lifetime exit is unproven");
+  await expect(
+    verifyMaintenanceRecoveryPredecessor({
+      ...recoveryInput,
+      recoveryOf: { ...recoveryInput.recoveryOf, generation: randomUUID() },
+    }),
+  ).rejects.toThrow("predecessor differs");
+  await expect(
+    verifyMaintenanceRecoveryPredecessor({
+      ...recoveryInput,
+      retained: { ...failed, status: "succeeded" },
+    }),
+  ).rejects.toThrow("predecessor differs");
+  await expect(
+    verifyMaintenanceRecoveryPredecessor({
+      ...recoveryInput,
+      retained: { ...failed, evidence: claimed.evidence },
+    }),
+  ).rejects.toThrow("exact retained native evidence");
   expect(() => observe(job)).toThrow("Retained service effect");
   [
     { ...claimed, effectIntent: { ...claimed.effectIntent, generation: randomUUID() } },

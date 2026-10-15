@@ -99,11 +99,13 @@ import {
 } from "./maintenance/authorization.js";
 import { reserveMaintenanceLauncherEffect } from "./coordinator-bootstrap-maintenance-launcher-state.js";
 
-function registeredFixture() {
+function registeredFixture(
+  role: "maintenance-controller" | "recovery-launcher" = "maintenance-controller",
+) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-registration-test-")));
   roots.push(root);
   const stateDirectory = path.join(root, "state");
-  const base = path.join(root, "maintenance-services", "maintenance-controller");
+  const base = path.join(root, "maintenance-services", role);
   mkdirSync(stateDirectory, { mode: 0o700 });
   mkdirSync(path.join(base, "plans"), { recursive: true, mode: 0o700 });
   const owner = userInfo();
@@ -116,7 +118,7 @@ function registeredFixture() {
   const identity: MaintenanceLauncherPlan["identity"] = {
     version: 1,
     environment: "host",
-    target: "maintenance-controller",
+    target: role,
     installationId,
     custodyOwnerUid: owner.uid,
     installationRoot: root,
@@ -338,4 +340,22 @@ test("total deadline includes observation after a successful child exit", async 
   await new Promise((resolve) => setTimeout(resolve, 500));
   expect(observations).toBe(1);
   expect(readFileSync(receipt, "utf8")).toBe("once");
+});
+
+test("recovery launcher discovery requires its explicit enrolled role", async () => {
+  const { resolveNativeMaintenanceRoleSetup } =
+    await import("./coordinator-bootstrap-maintenance-service-producer.js");
+  const f = registeredFixture("recovery-launcher");
+  const selected = await resolveNativeMaintenanceRoleSetup({ ...f, target: "recovery-launcher" });
+  expect(selected.executorSetupFile).toBe(f.setupFile);
+  await expect(resolveNativeMaintenanceExecutorSetup(f)).rejects.toThrow("descriptor differs");
+});
+
+test("controller registration cannot substitute for a recovery launcher", async () => {
+  const { resolveNativeMaintenanceRoleSetup } =
+    await import("./coordinator-bootstrap-maintenance-service-producer.js");
+  const f = registeredFixture();
+  await expect(
+    resolveNativeMaintenanceRoleSetup({ ...f, target: "recovery-launcher" }),
+  ).rejects.toThrow("descriptor differs");
 });
