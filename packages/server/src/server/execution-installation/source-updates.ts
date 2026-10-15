@@ -314,6 +314,21 @@ export class InstallationSourceUpdates {
         { cause: error },
       );
     }
+    const ready = {
+      previous,
+      candidate: prepared.release,
+      exported: prepared.exported,
+      update,
+      status: "daemon-ready",
+    };
+    try {
+      writeLifecycleReceipt(activationFile, ready);
+    } catch (error) {
+      throw new Error(
+        `Host daemon updated to ${update.sourceCommit}, but its readiness receipt could not be saved. Inspect ${work}; do not replay the update.`,
+        { cause: error },
+      );
+    }
     try {
       await execute(
         validation.node,
@@ -325,6 +340,14 @@ export class InstallationSourceUpdates {
         { timeout: 5 * 60_000, maxBuffer: 8192 },
       );
     } catch (error) {
+      try {
+        writeLifecycleReceipt(activationFile, { ...ready, status: "interface-failed" });
+      } catch (storageError) {
+        throw new Error(
+          `Host daemon updated to ${update.sourceCommit}, but interface publication failed and its result receipt could not be saved. Inspect ${work}; do not replay the update.`,
+          { cause: storageError },
+        );
+      }
       throw new Error(
         `Host daemon updated to ${update.sourceCommit}, but interface publication failed. Inspect ${work}; do not replay the update.`,
         { cause: error },

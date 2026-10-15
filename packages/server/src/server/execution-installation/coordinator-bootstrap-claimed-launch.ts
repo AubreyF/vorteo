@@ -506,12 +506,19 @@ export async function createManagedClaimedRecoveryReview(
   const retained = journal.readReviews();
   // A claimed original can be excluded from terminal reconstruction only with
   // independent unpromoted proof, or its exact separately reviewed durable fence.
+  // Completed recoveries remain in terminal reconstruction below. Their status
+  // alone does not establish completion: renewal must verify the retained proof.
   const candidates = records.filter(
     (record) =>
       record.status === "approved" &&
       (record.execution?.stage === "claimed" ||
         (record.execution?.stage === "recovery_required" &&
-          retained.some((review) => review.plan.original.id === record.id && review.execution))),
+          retained.some(
+            (review) =>
+              review.plan.original.id === record.id &&
+              review.execution &&
+              review.execution.stage !== "succeeded",
+          ))),
   );
   if (candidates.length > 1)
     throw new BootstrapRequestConflict("Claimed recovery requires an unambiguous retained target");

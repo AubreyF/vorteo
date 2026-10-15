@@ -1,3 +1,4 @@
+import * as lifecycleJournal from "./lifecycle-journal.js";
 import { z } from "zod";
 import {
   mkdtemp,
@@ -865,13 +866,13 @@ test("source builds fail before activation, failed readiness restores selection,
       restart,
       installUpdate: (job) => updates.install(job, restart),
     });
-    const dispatch = async () => {
+    const dispatch = async (source = update) => {
       const job = queue.request(
         { target: "host", reason: "Install fixture" },
         "container-agent",
-        update,
+        source,
       );
-      queue.decide(job.id, job.revision, "approve", update.sha256);
+      queue.decide(job.id, job.revision, "approve", source.sha256);
       await queue.drain();
       return queue.list().find((item) => item.id === job.id);
     };
@@ -939,6 +940,68 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(await readFile(path.join(root, "published"), "utf8")).toBe("yes");
     expect(updates.source().baseCommit).toBe(update.sourceCommit);
     expect(restart).toHaveBeenCalledTimes(2);
+
+    const nextUpdate = { ...update, baseCommit: update.sourceCommit, sourceCommit: "d".repeat(40) };
+    updates.stage(nextUpdate, bundle);
+    await rm(path.join(root, "published"));
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `
+      import fs from 'node:fs/promises'; import path from 'node:path';
+      const work = path.dirname(path.dirname(process.argv[2]));
+      const receipt = JSON.parse(await fs.readFile(path.join(work, 'activation.json'), 'utf8'));
+      if (receipt.status !== 'daemon-ready') throw new Error('readiness not retained');
+      await fs.writeFile(path.join(work, 'observed-readiness'), receipt.status);
+      throw new Error('fixture publication failed');
+    `,
+    );
+    const partial = (await dispatch(nextUpdate))!;
+    expect(partial.status).toBe("failed");
+    expect(partial.detail).toContain("Host daemon updated");
+    expect(partial.detail).toContain("interface publication failed");
+    const work = path.join(root, partial.id);
+    expect(await readFile(path.join(work, "observed-readiness"), "utf8")).toBe("daemon-ready");
+    expect(JSON.parse(await readFile(path.join(work, "activation.json"), "utf8"))).toMatchObject({
+      status: "interface-failed",
+      update: nextUpdate,
+      candidate: await realpath(link),
+      exported: path.join(work, "release", "web-export"),
+    });
+    expect(updates.source().baseCommit).toBe(nextUpdate.sourceCommit);
+    await queue.drain();
+    expect(restart).toHaveBeenCalledTimes(3);
+
+    const writeReceipt = lifecycleJournal.writeLifecycleReceipt;
+    let installedCommit = nextUpdate.sourceCommit;
+    for (const [phase, commit] of [
+      ["daemon-ready", "e"],
+      ["interface-failed", "f"],
+    ] as const) {
+      const source = { ...update, baseCommit: installedCommit, sourceCommit: commit.repeat(40) };
+      updates.stage(source, bundle);
+      const storage = vi
+        .spyOn(lifecycleJournal, "writeLifecycleReceipt")
+        .mockImplementation((file, value) => {
+          if ((value as { status?: string }).status === phase) throw new Error("fixture disk full");
+          writeReceipt(file, value);
+        });
+      try {
+        const failed = (await dispatch(source))!;
+        expect(failed.status).toBe("failed");
+        expect(failed.detail).toContain("Host daemon updated");
+        expect(failed.detail).toContain("receipt could not be saved");
+        const receipt = JSON.parse(
+          await readFile(path.join(root, failed.id, "activation.json"), "utf8"),
+        );
+        expect(receipt.status).toBe(phase === "daemon-ready" ? "activating" : "daemon-ready");
+        expect(updates.source().baseCommit).toBe(source.sourceCommit);
+        installedCommit = source.sourceCommit;
+      } finally {
+        storage.mockRestore();
+      }
+    }
+    await queue.drain();
+    expect(restart).toHaveBeenCalledTimes(5);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
