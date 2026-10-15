@@ -116,6 +116,12 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
     requestRevision: z.string().uuid(),
     dispatchAfter: z.string().datetime(),
   }).optional(),
+  automaticDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+    })
+    .optional(),
   execution: z
     .strictObject({
       generation: z.string().uuid(),

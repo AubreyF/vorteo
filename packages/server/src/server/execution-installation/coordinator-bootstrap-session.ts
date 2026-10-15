@@ -35,6 +35,9 @@ export type BootstrapReviewService = Pick<
   CoordinatorBootstrapRequests,
   "list" | "prepare" | "decide"
 > & {
+  automatic?: {
+    reconcile(id: string): Promise<CoordinatorBootstrapRequest>;
+  };
   available?: boolean;
   unavailableReason?: string;
   subscribeAvailability?(listener: () => void): () => void;
@@ -203,7 +206,12 @@ export async function handleBootstrapReview(
       // COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15
       // and a negotiated public authorization view replaces these private fields.
       .map(
-        ({ automaticSubmission: _submission, automaticApproval: _approval, ...request }) => request,
+        ({
+          automaticSubmission: _submission,
+          automaticApproval: _approval,
+          automaticDispatch: _dispatch,
+          ...request
+        }) => request,
       )
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
       .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))

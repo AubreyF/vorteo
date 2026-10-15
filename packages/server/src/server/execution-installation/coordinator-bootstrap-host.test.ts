@@ -120,7 +120,10 @@ test.runIf(process.platform === "darwin")(
     const closed = once(child, "close");
     await once(child, "spawn");
     const execute = promisify(execFile);
-    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     const inspect = () =>
       execute("/usr/bin/python3", [script, String(child.pid)], {
         timeout: 5000,
@@ -273,7 +276,10 @@ test.runIf(process.platform === "darwin")(
   "stopped inspection refuses running parents and captures their exact child inventory",
   async () => {
     const execute = promisify(execFile);
-    const script = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     // This fixture owns both processes. No installed service receives signals.
     const parent = spawn(
       process.execPath,
@@ -985,7 +991,9 @@ test.runIf(process.platform === "darwin")(
     const entry = path.join(root, "owner.mjs");
     const setup = path.join(root, "setup.json");
     const lock = path.join(root, "coordinator-bootstrap-execution.lock");
-    const verifierPath = realpathSync(path.resolve("../../scripts/verify-coordinator-owner.py"));
+    const verifierPath = realpathSync(
+      path.resolve(import.meta.dirname, "../../../../../scripts/verify-coordinator-owner.py"),
+    );
     const verifier = {
       path: verifierPath,
       sha256: createHash("sha256").update(readFileSync(verifierPath)).digest("hex"),
@@ -1006,7 +1014,10 @@ test.runIf(process.platform === "darwin")(
     process.stdin.on('end',()=>process.exit(0));`,
       { mode: 0o600 },
     );
-    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
+    const helper = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
     const launch = (role = "executor") =>
       spawn(
         "/usr/bin/python3",
@@ -1271,8 +1282,14 @@ test.runIf(process.platform === "darwin").each(["term", "kill", "stale"])(
   async (mode) => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-deadline-")));
     roots.push(root);
-    const helper = path.resolve("../../scripts/run-coordinator-owner.py");
-    const inspector = path.resolve("../../scripts/inspect-coordinator-process.py");
+    const helper = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
+    const inspector = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/inspect-coordinator-process.py",
+    );
     const probe = `
 import ctypes,importlib.util,os,signal,subprocess,sys
 
@@ -1336,7 +1353,10 @@ test.runIf(process.platform === "darwin")(
       JSON.stringify({ version: 1, requests: [request], promotions: [] }),
       { mode: 0o600 },
     );
-    const script = path.resolve("../../scripts/run-coordinator-owner.py");
+    const script = path.resolve(
+      import.meta.dirname,
+      "../../../../../scripts/run-coordinator-owner.py",
+    );
     const record = JSON.stringify({ id, generation, planSha256 });
     const read = () =>
       promisify(execFile)("/usr/bin/python3", [
@@ -1933,7 +1953,9 @@ test("Host readiness does not await maintenance validation and all operations re
   await expect(service.decide({} as never, "fixture")).rejects.toThrow("Checking");
   expect(initialize).toHaveBeenCalledTimes(1);
   const list = vi.fn(() => []);
-  validation.resolve({ list, prepare: vi.fn(), decide: vi.fn() });
+  const automatic = { reconcile: vi.fn() };
+  expect(service.automatic).toBeUndefined();
+  validation.resolve({ list, prepare: vi.fn(), decide: vi.fn(), automatic });
   await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
   expect(removed).not.toHaveBeenCalled();
   expect(bootstrapReviewFeatures(service)).toMatchObject({
@@ -1942,6 +1964,8 @@ test("Host readiness does not await maintenance validation and all operations re
   });
   expect(bootstrapReviewFeatures(service).coordinatorBootstrapUnavailableReason).toBeUndefined();
   expect(service.list()).toEqual([]);
+  expect(service.automatic).toBe(automatic);
+  expect(automatic.reconcile).not.toHaveBeenCalled();
   expect(list).toHaveBeenCalledTimes(1);
 });
 

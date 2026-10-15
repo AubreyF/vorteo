@@ -3194,7 +3194,8 @@ test("coordinator automation requires protected Host provenance and waits before
   expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
   expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
   f.advance();
-  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(approved));
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(reserved));
   expect(claimed.execution?.stage).toBe("claimed");
   f.disable();
   f.service().revokeAutomatic();
@@ -3341,4 +3342,64 @@ test("owner cancellation wins over in-flight automatic coordinator validation", 
   ).rejects.toThrow();
   expect(f.service().list()[0].status).toBe("canceled");
   expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+});
+
+test("automatic coordinator launch reservation survives lost replies and permits cancellation", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const submitted = f
+    .service()
+    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("not yet eligible");
+  f.advance();
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "reserve its native launch",
+  );
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(reserved.automaticDispatch?.approvedRevision).toBe(approved.revision);
+  expect(reserved).not.toHaveProperty("execution");
+  const legacy = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "legacy-reservation",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticDispatch");
+
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("already changed or reserved");
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(reserved)),
+  ).toThrow("already changed or reserved");
+  const canceled = await f
+    .service()
+    .decide({ ...automaticCoordinatorIdentity(reserved), decision: "cancel" }, ownerPassword);
+  expect(canceled.status).toBe("canceled");
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("coordinator revocation after launch reservation prevents the native claim", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const submitted = f
+    .service()
+    .recordAutomaticSubmission(automaticCoordinatorIdentity(pending), "b".repeat(64));
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  f.advance();
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toMatchObject({
+    status: "canceled",
+    automaticDispatch: reserved.automaticDispatch,
+  });
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
 });

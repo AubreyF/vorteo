@@ -374,6 +374,55 @@ export class CoordinatorBootstrapRequests {
     return structuredClone(next);
   }
 
+  /** Reserve one native launch before spawning. A lost response never permits a
+   * second launch; cancellation still wins until the executor's durable claim. */
+  reserveAutomaticDispatch(value: unknown): CoordinatorBootstrapRequest {
+    const input = dispatchIdentity.parse(value);
+    const expected = this.read();
+    const request = expected.find((item) => item.id === input.id);
+    if (
+      !request ||
+      request.revision !== input.revision ||
+      request.planSha256 !== input.planSha256 ||
+      request.status !== "approved" ||
+      request.execution ||
+      request.automaticDispatch
+    )
+      throw new BootstrapRequestConflict(
+        "Exact automatic approval has already changed or reserved dispatch",
+      );
+    this.readBinding(request.plan);
+    this.requireEligibleAutomaticDispatch(request);
+    const revision = randomUUID();
+    const next: CoordinatorBootstrapRequest = {
+      ...request,
+      revision,
+      automaticApproval: { ...request.automaticApproval!, requestRevision: revision },
+      automaticDispatch: {
+        approvedRevision: request.revision,
+        requestedAt: new Date(this.now()).toISOString(),
+      },
+    };
+    this.journal.replace(
+      expected,
+      expected.map((item) => (item.id === next.id ? next : item)),
+    );
+    return structuredClone(next);
+  }
+
+  private requireEligibleAutomaticDispatch(request: CoordinatorBootstrapRequest): void {
+    const authority = this.requireAutomaticAuthority(request);
+    if (
+      !request.automaticApproval ||
+      !this.matchesAutomaticAuthority(request.automaticApproval, authority) ||
+      request.automaticApproval.requestRevision !== request.revision ||
+      this.now() < Date.parse(request.automaticApproval.dispatchAfter)
+    )
+      throw new BootstrapRequestConflict(
+        "Coordinator automatic dispatch is revoked or not yet eligible",
+      );
+  }
+
   /** Called by the preference writer before confirming revocation. CAS prevents
    * cancellation from overwriting a concurrently claimed native execution. */
   revokeAutomatic(): void {
@@ -457,14 +506,10 @@ export class CoordinatorBootstrapRequests {
     await this.verifyPreparedBytes(request.plan);
     this.requireSameBinding(binding, request.plan);
     if (request.automaticApproval) {
-      const authority = this.requireAutomaticAuthority(request);
-      if (
-        !this.matchesAutomaticAuthority(request.automaticApproval, authority) ||
-        request.automaticApproval.requestRevision !== request.revision ||
-        this.now() < Date.parse(request.automaticApproval.dispatchAfter)
-      )
+      this.requireEligibleAutomaticDispatch(request);
+      if (!request.automaticDispatch)
         throw new BootstrapRequestConflict(
-          "Coordinator automatic dispatch is revoked or not yet eligible",
+          "Automatic coordinator dispatch must reserve its native launch",
         );
     }
     const next: CoordinatorBootstrapRequest = {

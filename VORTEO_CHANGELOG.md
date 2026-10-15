@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.536 - 2026-10-15
+
+### Maintenance
+
+- Reserve automatic coordinator dispatch in the protected request ledger before launching its executor. Lost replies cannot reserve another launch, and cancellation or permission revocation still prevents an undispatched native claim.
+- Add internal automatic reconciliation to the existing Host maintenance service, preserving candidate validation and the manual approval path. Keep it unavailable during maintenance initialization or recovery refresh.
+- Extend reservation and compatibility tests, and resolve Host test scripts relative to the test module so focused runs work from isolated worktrees. Scoped submission, public authorization status, timer integration and installed acceptance remain unfinished; automatic coordinator maintenance is not advertised.
+
 ## 0.11.0-beta.3.vorteo.535 - 2026-10-15
 
 ### Fixed
