@@ -4363,11 +4363,31 @@ test("automatic maintenance shows readiness and preserves owner opt-in across re
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/general?installation=1`);
-  const control = page.getByTestId("daemon-automation-switch");
+  const control = page.getByTestId("maintenance-permission-host");
+  for (const service of ["host", "container-daemon", "coordinator", "supervisor"]) {
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toBeVisible();
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  }
+  const info = page.getByTestId("maintenance-info-host");
+  if (testInfo.project.name === "phone") await info.click();
+  else await info.hover();
+  await expect(page.getByTestId("maintenance-info-host-tooltip")).toContainText(
+    "Only authenticated Host threads qualify",
+  );
+  await page.keyboard.press("Escape");
+  await page.getByText("Automatic maintenance authorization", { exact: true }).click();
   await expect(control).toBeVisible();
   await expect(page.getByTestId("maintenance-readiness")).toContainText("manual");
   await control.click();
   await expect(control).toHaveAttribute("aria-checked", "true");
+  for (const service of ["container-daemon", "coordinator", "supervisor"])
+    await expect(page.getByTestId(`maintenance-permission-${service}`)).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   await page.reload();
   await expect(control).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("maintenance-readiness")).toContainText("automatic");

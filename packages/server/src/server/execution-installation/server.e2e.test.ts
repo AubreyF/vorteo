@@ -2218,7 +2218,7 @@ test("daemon automation preference requires owner access and persists exact revi
   expect(enabled.status).toBe(200);
   const saved = await enabled.json();
   expect(saved).toMatchObject({ enabled: true, legacyHostOnly: false });
-  expect(new DaemonAutomation(f.root, true).read()).toEqual(saved);
+  expect(new DaemonAutomation(f.root, true).read()).toMatchObject(saved);
   expect(typeof saved.revision).toBe("string");
   expect(typeof saved.enabledAfter).toBe("string");
   expect(await (await f.request(query, "owner-test-password", {})).json()).toEqual(saved);
@@ -2257,7 +2257,7 @@ test("owner can disable automation when the coordinator loses restart support", 
     enabled: true,
   });
   expect(refused.status).toBe(409);
-  expect(new DaemonAutomation(f.root, false).read()).toEqual(state);
+  expect(new DaemonAutomation(f.root, false).read()).toMatchObject(state);
 });
 
 test("Dev repair routes require owner authentication and refuse missing or changed requests without lifecycle effects", async () => {
@@ -2445,7 +2445,65 @@ test("maintenance readiness separates legacy authority, broad opt-in and source 
   const enabled = await (await f.request(ownerRoute, "owner-test-password", {})).json();
   expect(enabled.preference).toMatchObject({ enabled: true, legacyHostOnly: false });
   expect(
-    enabled.paths.every((item: { authorization: string }) => item.authorization === "automatic"),
+    enabled.paths.every(
+      (item: { requester: string; authorization: string }) =>
+        item.authorization === (item.requester === "host-agent" ? "automatic" : "manual"),
+    ),
   ).toBe(true);
   expect(f.calls).toEqual([]);
+});
+
+test("service permissions preserve daemon grants and keep controller permissions separate", async () => {
+  const f = await fixture(undefined, undefined, undefined, false, true);
+  const query = "/api/installation/owner/maintenance-permissions/query";
+  const change = "/api/installation/owner/maintenance-permissions/change";
+  for (const token of ["guest-agent-test-token", "host-agent-test-token"])
+    expect(
+      (
+        await f.request(change, token, {
+          expectedRevision: null,
+          service: "coordinator",
+          enabled: true,
+        })
+      ).status,
+    ).toBe(401);
+  const initial = await (await f.request(query, "owner-test-password", {})).json();
+  expect(initial.services).toMatchObject({ coordinator: null, supervisor: null });
+  expect(initial.services.host).toBeTruthy();
+  expect(initial.services["container-daemon"]).toBe(initial.services.host);
+  const response = await f.request(change, "owner-test-password", {
+    expectedRevision: initial.revision,
+    service: "coordinator",
+    enabled: true,
+  });
+  expect(response.status).toBe(200);
+  const saved = await response.json();
+  expect(saved.services.coordinator).toBeTruthy();
+  expect(saved.services.supervisor).toBeNull();
+  expect(saved.services.host).toBe(initial.services.host);
+  expect(saved.services["container-daemon"]).toBe(initial.services["container-daemon"]);
+  expect(new DaemonAutomation(f.root, true).read()).toEqual(saved);
+  expect(
+    (
+      await f.request(change, "owner-test-password", {
+        expectedRevision: initial.revision,
+        service: "supervisor",
+        enabled: true,
+      })
+    ).status,
+  ).toBe(409);
+  const disabled = await (
+    await f.request(change, "owner-test-password", {
+      expectedRevision: saved.revision,
+      service: "host",
+      enabled: false,
+    })
+  ).json();
+  expect(disabled.services.host).toBeNull();
+  expect(disabled.services.coordinator).toBe(saved.services.coordinator);
+  expect(disabled.services["container-daemon"]).toBe(saved.services["container-daemon"]);
+  const legacy = await (
+    await f.request("/api/installation/owner/daemon-automation/query", "owner-test-password", {})
+  ).json();
+  expect(legacy).not.toHaveProperty("services");
 });

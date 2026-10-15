@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.527 - 2026-10-14
+
+### Changed
+
+- Separate Host, Dev, coordinator and supervisor maintenance permissions, with accessible explanations and independent readiness messages.
+- Restrict automatic authorization to authenticated Host requests. Keep Dev and mixed-origin batches manual, revoke retained Dev grants, and preserve unaffected daemon permissions when one is disabled.
+- Preserve existing daemon permissions during migration and leave new controller permissions off. Keep legacy preference responses readable by older clients.
+- Verify an already completed coordinator replacement after executor failure before considering recovery; reject changed dispatch ownership during observation.
+
+### Maintenance
+
+- Verify permission isolation, owner authentication, stale edits, revocation, desktop and phone tooltip access, and persistence across browser reload.
+- Automatic coordinator and supervisor execution, independent reboot recovery and installed acceptance remain unfinished. This checkpoint is prepared source, not a deployment.
+
 ## 0.11.0-beta.3.vorteo.526 - 2026-10-14
 
 ### Changed

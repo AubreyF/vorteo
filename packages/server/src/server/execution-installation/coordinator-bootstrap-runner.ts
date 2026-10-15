@@ -374,6 +374,7 @@ export async function runNativeBootstrap(
             now: Date.now,
             wait: delay,
           }),
+        verifyReplacement: native.verifyReplacement,
         resumePrevious: native.resumePrevious,
         restorePrevious: native.restorePrevious,
       },

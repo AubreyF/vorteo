@@ -4,6 +4,7 @@ import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenan
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   DaemonAutomationPreference,
+  MaintenanceService,
   InstallationMaintenanceStatus,
   ProfileSharingStatus,
   RestartJob,
@@ -250,7 +251,7 @@ export class InstallationPanelModel {
     }
   }
 
-  async changeDaemonAutomation(enabled: boolean): Promise<void> {
+  async changeDaemonAutomation(enabled: boolean, service?: MaintenanceService): Promise<void> {
     const preference = this.state.daemonAutomation;
     if (
       this.state.busy ||
@@ -268,7 +269,7 @@ export class InstallationPanelModel {
       notice: "Saving automatic maintenance preference...",
     });
     try {
-      const saved = await this.client.changeDaemonAutomation(preference, enabled);
+      const saved = await this.client.changeDaemonAutomation(preference, enabled, service);
       if (generation !== this.accessGeneration) return;
       this.automationGeneration++;
       this.publish({

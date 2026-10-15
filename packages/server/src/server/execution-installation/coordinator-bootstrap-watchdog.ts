@@ -18,6 +18,8 @@ export interface BootstrapWatchdogOperations {
   /** Recheck the original coordinator kernel identity before any resume, and
    * verify the same process running afterward. Never touch another process. */
   resumePrevious(request: CoordinatorBootstrapRequest): Promise<void>;
+  /** Read-only proof that the exact candidate completed replacement before the executor died. */
+  verifyReplacement?(request: CoordinatorBootstrapRequest): Promise<void>;
   /** One rollback of the exact previous release, only when included in the approved plan. */
   restorePrevious?(request: CoordinatorBootstrapRequest): Promise<void>;
 }
@@ -37,6 +39,17 @@ export async function recoverAbandonedBootstrap(
       throw new BootstrapRequestConflict("Bootstrap watchdog ownership changed");
     const stage = request.execution.stage;
     if (["succeeded", "resumed", "rolled_back"].includes(stage)) return request;
+    if (await replacementVerified(request, operations)) {
+      return requests.advanceDispatch(
+        {
+          id: request.id,
+          revision: request.revision,
+          planSha256: request.planSha256,
+          generation: ownership.generation,
+        },
+        "succeeded",
+      );
+    }
     if (request.plan.automaticRecovery === "restore-compatible") {
       // The watchdog owns execution now. Complete or reconcile promotion before
       // any recovery effect, including failure before the executor's promotion.
@@ -86,4 +99,18 @@ export async function recoverAbandonedBootstrap(
     }
     return advance("resumed");
   });
+}
+
+async function replacementVerified(
+  request: CoordinatorBootstrapRequest,
+  operations: BootstrapWatchdogOperations,
+): Promise<boolean> {
+  if (request.execution?.stage !== "verifying" || !operations.verifyReplacement) return false;
+  try {
+    await operations.verifyReplacement(request);
+    return true;
+  } catch {
+    // Observation failure grants no success; the existing recovery rules still apply.
+    return false;
+  }
 }

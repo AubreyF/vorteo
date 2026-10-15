@@ -2251,40 +2251,43 @@ function automaticFixture(daemonRequestsAfter?: () => string | null) {
   };
 }
 
-test("automatic Host policy cannot approve a Dev request or a mixed source batch", async () => {
-  const f = automaticFixture();
-  const plain = f.queue.request(
-    { target: "host", reason: "Dev request", requester: "host-agent" },
-    "container-agent",
-  );
-  await f.queue.drain();
-  expect(f.queue.list()[0]?.status).toBe("pending");
-  f.queue.decide(plain.id, plain.revision, "reject");
-  const update = {
-    sourceCommit: "a".repeat(40),
-    baseCommit: "b".repeat(40),
-    sha256: "c".repeat(64),
-    bytes: 12,
-  };
-  f.queue.contribute(
-    { target: "host", reason: "Host changes" },
-    "host-agent",
-    update,
-    "10000000-0000-4000-8000-000000000001",
-  );
-  f.queue.contribute(
-    { target: "host", reason: "Dev changes" },
-    "container-agent",
-    update,
-    "10000000-0000-4000-8000-000000000002",
-  );
-  await f.queue.drain();
-  expect(f.queue.list().at(-1)).toMatchObject({
-    status: "pending",
-    sourceBatch: { status: "ready" },
-  });
-  expect(f.events).toEqual([]);
-});
+test.each([false, true])(
+  "automatic Host policy cannot approve a Dev request or a mixed source batch: saved preference %s",
+  async (saved) => {
+    const f = automaticFixture(saved ? () => new Date(1000).toISOString() : undefined);
+    const plain = f.queue.request(
+      { target: "host", reason: "Dev request", requester: "host-agent" },
+      "container-agent",
+    );
+    await f.queue.drain();
+    expect(f.queue.list()[0]?.status).toBe("pending");
+    f.queue.decide(plain.id, plain.revision, "reject");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 12,
+    };
+    f.queue.contribute(
+      { target: "host", reason: "Host changes" },
+      "host-agent",
+      update,
+      "10000000-0000-4000-8000-000000000001",
+    );
+    f.queue.contribute(
+      { target: "host", reason: "Dev changes" },
+      "container-agent",
+      update,
+      "10000000-0000-4000-8000-000000000002",
+    );
+    await f.queue.drain();
+    expect(f.queue.list().at(-1)).toMatchObject({
+      status: "pending",
+      sourceBatch: { status: "ready" },
+    });
+    expect(f.events).toEqual([]);
+  },
+);
 
 test("automatic source approval binds its prepared digest and remains cancellable before dispatch", async () => {
   const f = automaticFixture();
@@ -2790,12 +2793,12 @@ test("manual source contributions never reuse an automatically approved batch", 
   expect(f.queue.contribution(first.contribution.id)!.batch).toEqual(approved);
 });
 
-test("owner daemon automation includes container requests and disabling cancels queued approval", async () => {
+test("owner daemon automation allows Host requests for Dev and disabling cancels queued approval", async () => {
   let enabledAfter: string | null = new Date(1000).toISOString();
   const f = automaticFixture(() => enabledAfter);
   const request = f.queue.request(
     { target: "container-daemon", reason: "Owner enabled automation" },
-    "container-agent",
+    "host-agent",
   );
   await f.queue.drain();
   expect(f.queue.list()[0]).toMatchObject({
@@ -2834,7 +2837,7 @@ test("disabling daemon automation during idle inspection prevents dispatch", asy
     entered.resolve();
     return inspected.promise;
   };
-  f.queue.request({ target: "host", reason: "Race with owner disable" }, "container-agent");
+  f.queue.request({ target: "host", reason: "Race with owner disable" }, "host-agent");
   const draining = f.queue.drain();
   await entered.promise;
   activation = null;
@@ -2862,7 +2865,7 @@ test("daemon automation only admits fresh ready source and preserves explicit ow
     bytes: 12,
   };
   const id = "10000000-0000-4000-8000-000000000001";
-  f.queue.contribute({ target: "host", reason: "Dev source" }, "container-agent", update, id);
+  f.queue.contribute({ target: "host", reason: "Host source" }, "host-agent", update, id);
   await f.queue.drain();
   expect(f.queue.contribution(id)?.batch).toMatchObject({
     status: "approved",
@@ -2881,7 +2884,7 @@ test("daemon automation only admits fresh ready source and preserves explicit ow
 });
 
 test.each(["host", "container-daemon"] as const)(
-  "both authenticated requesters complete automatic source updates for %s",
+  "only Host requesters complete automatic source updates for %s",
   async (target) => {
     for (const requester of ["host-agent", "container-agent"] as const) {
       const f = automaticFixture(() => new Date(1000).toISOString());
@@ -2899,8 +2902,10 @@ test.each(["host", "container-daemon"] as const)(
         randomUUID(),
       );
       await f.queue.drain();
-      expect(f.queue.contribution(receipt.contribution.id)?.batch.status).toBe("succeeded");
-      expect(f.events).toEqual(["hold", "install"]);
+      expect(f.queue.contribution(receipt.contribution.id)?.batch.status).toBe(
+        requester === "host-agent" ? "succeeded" : "pending",
+      );
+      expect(f.events).toEqual(requester === "host-agent" ? ["hold", "install"] : []);
     }
   },
 );
@@ -3045,4 +3050,47 @@ test("interrupted source preparation cannot activate or inherit approval after r
   f.queue.decide(original.id, original.revision, "cancel");
   finished.resolve();
   await draining;
+});
+
+test("Host-only policy revokes a retained Dev automatic grant without dispatch", async () => {
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  f.queue.request({ target: "host", reason: "Retained automatic request" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  // A journal written by the former policy can contain a Dev-origin automatic grant.
+  f.journal.jobs[0].requestedBy = "container-agent";
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  f.idle();
+  await recovered.drain();
+  expect(recovered.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.events).toEqual(["hold", "release"]);
+});
+
+test("service permissions authorize and revoke only their selected daemon target", async () => {
+  const f = automaticFixture();
+  const activations: Record<"host" | "container-daemon", string | null> = {
+    host: new Date(1000).toISOString(),
+    "container-daemon": null,
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, {
+    daemonRequestsAfter: (target) => activations[target],
+  });
+  const host = queue.request({ target: "host", reason: "Host maintenance" }, "host-agent");
+  const dev = queue.request(
+    { target: "container-daemon", reason: "Dev maintenance" },
+    "host-agent",
+  );
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === host.id)?.status).toBe("approved");
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("pending");
+  activations["container-daemon"] = new Date(1000).toISOString();
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("approved");
+  activations.host = null;
+  queue.refreshApprovalPolicy();
+  expect(queue.list().find((job) => job.id === host.id)?.status).toBe("rejected");
+  expect(queue.list().find((job) => job.id === dev.id)?.status).toBe("approved");
+  await queue.drain();
+  expect(f.events.filter((event) => event === "release")).toHaveLength(1);
+  expect(f.events).not.toContain("restart");
 });

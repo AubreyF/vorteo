@@ -293,17 +293,33 @@ export const InstallationProfilesAdmissionSchema = z.strictObject({
 });
 export type InstallationProfilesAdmission = z.infer<typeof InstallationProfilesAdmissionSchema>;
 
+export const MaintenanceServiceSchema = z.enum([
+  "host",
+  "container-daemon",
+  "coordinator",
+  "supervisor",
+]);
+export type MaintenanceService = z.infer<typeof MaintenanceServiceSchema>;
+export const MaintenanceServicePermissionsSchema = z.object({
+  host: z.string().datetime().nullable(),
+  "container-daemon": z.string().datetime().nullable(),
+  coordinator: z.string().datetime().nullable(),
+  supervisor: z.string().datetime().nullable(),
+});
+
 // Owner-authenticated HTTP preference; old coordinators return 404 without changing policy.
 export const DaemonAutomationPreferenceSchema = z.strictObject({
   revision: z.string().uuid().nullable(),
   enabled: z.boolean(),
   enabledAfter: z.string().datetime().nullable(),
   legacyHostOnly: z.boolean(),
+  services: MaintenanceServicePermissionsSchema.optional(),
 });
 export type DaemonAutomationPreference = z.infer<typeof DaemonAutomationPreferenceSchema>;
 export const DaemonAutomationChangeSchema = z.strictObject({
   expectedRevision: z.string().uuid().nullable(),
   enabled: z.boolean(),
+  service: MaintenanceServiceSchema.optional(),
 });
 
 // COMPAT(maintenanceStatus): separate versioned route; older coordinators return 404.
@@ -311,6 +327,15 @@ export const InstallationMaintenanceStatusSchema = z.object({
   version: z.literal(1),
   checkedAt: z.string().datetime(),
   preference: DaemonAutomationPreferenceSchema,
+  services: z
+    .array(
+      z.object({
+        service: MaintenanceServiceSchema,
+        readiness: z.enum(["ready", "blocked"]),
+        reason: z.string(),
+      }),
+    )
+    .optional(),
   paths: z.array(
     z.object({
       requester: z.enum(["host-agent", "container-agent"]),

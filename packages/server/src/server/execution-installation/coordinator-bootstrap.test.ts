@@ -2565,3 +2565,102 @@ test.each(["missing", "revision", "generation", "plan"])(
     );
   },
 );
+
+test.each([true, false])(
+  "watchdog reconciles completed replacement without replaying effects: %s",
+  async (healthy) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "verifying" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [record]);
+    const calls: string[] = [];
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {
+          calls.push("exit");
+        },
+        verifyReplacement: async (request) => {
+          expect(request.execution?.stage).toBe("verifying");
+          calls.push("verify");
+          if (!healthy) throw new Error("candidate unavailable");
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("rollback not authorized");
+        },
+      },
+    );
+    expect(result.execution?.stage).toBe(healthy ? "succeeded" : "recovery_required");
+    expect(calls).toEqual(["exit", "verify"]);
+  },
+);
+
+test("watchdog cannot release a replacement after dispatch ownership changes during observation", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "verifying" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  await expect(
+    recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyReplacement: async () => {
+          f.journal.replace([record], [{ ...record, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("must not restore");
+        },
+      },
+    ),
+  ).rejects.toThrow("ownership changed");
+  expect(f.service().list()[0].execution?.stage).toBe("verifying");
+});

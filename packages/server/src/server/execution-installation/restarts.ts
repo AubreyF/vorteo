@@ -34,7 +34,7 @@ export interface RestartApprovalPolicy {
   cancellationDelayMs?: number;
   hostRequestsAfter?: string;
   // Undefined retains legacy Host-only policy; null explicitly disables automation.
-  daemonRequestsAfter?: () => string | null | undefined;
+  daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
 }
 
 export interface RestartJournal {
@@ -1456,12 +1456,6 @@ export class InstallationRestarts {
   }
 
   private approveTrustedHostRequests(): void {
-    const activation = this.approvalPolicy.daemonRequestsAfter?.();
-    const configured = activation !== undefined;
-    const enabledAfter = configured ? activation : this.approvalPolicy.hostRequestsAfter;
-    if (!enabledAfter) return;
-    const threshold = Date.parse(enabledAfter);
-    if (!Number.isFinite(threshold)) throw new RestartRequestError("Invalid Host approval policy");
     if (
       !this.executor.inspect ||
       !this.executor.holdCurrentTurns ||
@@ -1470,7 +1464,14 @@ export class InstallationRestarts {
     )
       return;
     for (const job of this.jobs) {
-      if (!this.automaticApprovalCandidate(job, configured)) continue;
+      if (!this.automaticApprovalCandidate(job)) continue;
+      const activation = this.approvalPolicy.daemonRequestsAfter?.(job.target);
+      const enabledAfter =
+        activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
+      if (!enabledAfter) continue;
+      const threshold = Date.parse(enabledAfter);
+      if (!Number.isFinite(threshold))
+        throw new RestartRequestError("Invalid Host approval policy");
       if (Date.parse(job.createdAt) < threshold) continue;
       const batch = job.sourceBatch;
       if (batch) {
@@ -1482,7 +1483,7 @@ export class InstallationRestarts {
             (item) =>
               item.requireOwnerApproval ||
               item.requestedBy === "owner" ||
-              (!configured && item.requestedBy !== "host-agent") ||
+              item.requestedBy !== "host-agent" ||
               item.status !== "included",
           )
         )
@@ -1510,11 +1511,20 @@ export class InstallationRestarts {
     return null;
   }
 
-  private automaticApprovalCandidate(job: RestartJob, includeContainer: boolean): boolean {
+  private automaticHostOrigin(job: RestartJob): boolean {
+    return (
+      job.requestedBy === "host-agent" &&
+      (!job.sourceBatch ||
+        job.sourceBatch.contributions
+          .filter((item) => item.status !== "superseded")
+          .every((item) => item.requestedBy === "host-agent"))
+    );
+  }
+
+  private automaticApprovalCandidate(job: RestartJob): boolean {
     return (
       job.status === "pending" &&
-      (job.requestedBy === "host-agent" ||
-        (includeContainer && job.requestedBy === "container-agent")) &&
+      this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       !this.factoryRecoveryRequired(job.target) &&
       !requiresExactMaintenanceApproval(job)
@@ -1524,15 +1534,15 @@ export class InstallationRestarts {
   /** Revoke only undispatched automatic grants; explicit owner approvals remain exact. */
   refreshApprovalPolicy(): void {
     if (!this.active) return;
-    const activation = this.approvalPolicy.daemonRequestsAfter?.();
-    const enabledAfter =
-      activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
     const authority = this.approvalPolicy.authority?.();
     for (const job of this.jobs) {
       if (job.status !== "approved" || !job.automaticApproval) continue;
+      const activation = this.approvalPolicy.daemonRequestsAfter?.(job.target);
+      const enabledAfter =
+        activation === undefined ? this.approvalPolicy.hostRequestsAfter : activation;
       const policyChanged = job.automaticApproval.policyActivatedAt !== enabledAfter;
       const credentialsChanged = authority !== undefined && job.automaticAuthority !== authority;
-      if (!policyChanged && !credentialsChanged) continue;
+      if (!policyChanged && !credentialsChanged && this.automaticHostOrigin(job)) continue;
       this.decide(job.id, job.revision, "cancel");
     }
   }

@@ -14,6 +14,7 @@ import {
   type InstallationMaintenanceStatus,
   DaemonAutomationPreferenceSchema,
   type DaemonAutomationPreference,
+  type MaintenanceService,
   InstallationUnlockSchema,
   RestartSummarySchema,
   type RestartSummary,
@@ -64,6 +65,7 @@ export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
   private daemonAutomationSupported = false;
+  private servicePermissionsSupported = false;
   private maintenanceStatusSupported = false;
   private devRepairSupported = false;
   private devRepairAvailable = false;
@@ -288,9 +290,16 @@ export class InstallationClient {
 
   async daemonAutomation(): Promise<DaemonAutomationPreference | null> {
     try {
-      const preference = DaemonAutomationPreferenceSchema.parse(
-        await this.request("daemon-automation/query", {}),
-      );
+      let response: unknown;
+      try {
+        response = await this.request("maintenance-permissions/query", {});
+        this.servicePermissionsSupported = true;
+      } catch (error) {
+        if (!(error instanceof InstallationRouteUnavailable) || this.servicePermissionsSupported)
+          throw error;
+        response = await this.request("daemon-automation/query", {});
+      }
+      const preference = DaemonAutomationPreferenceSchema.parse(response);
       this.daemonAutomationSupported = true;
       return preference;
     } catch (error) {
@@ -303,13 +312,19 @@ export class InstallationClient {
   async changeDaemonAutomation(
     preference: DaemonAutomationPreference,
     enabled: boolean,
+    service?: MaintenanceService,
   ): Promise<DaemonAutomationPreference> {
     if (!this.daemonAutomationSupported)
       throw new InstallationRouteUnavailable("Automatic daemon maintenance is unavailable");
+    if (service && !preference.services)
+      throw new InstallationRouteUnavailable(
+        "Update the coordinator for separate service permissions",
+      );
     return DaemonAutomationPreferenceSchema.parse(
-      await this.request("daemon-automation/change", {
+      await this.request(service ? "maintenance-permissions/change" : "daemon-automation/change", {
         expectedRevision: preference.revision,
         enabled,
+        ...(service ? { service } : {}),
       }),
     );
   }

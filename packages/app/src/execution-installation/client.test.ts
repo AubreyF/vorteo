@@ -316,7 +316,7 @@ test("daemon automation requires unlocked access and refuses writes without supp
   await client.unlock("owner-password");
   expect(await client.daemonAutomation()).toBeNull();
   await expect(client.changeDaemonAutomation(preference, true)).rejects.toThrow("unavailable");
-  expect(calls).toEqual(["unlock", "daemon-automation/query"]);
+  expect(calls).toEqual(["unlock", "maintenance-permissions/query", "daemon-automation/query"]);
   supported = true;
   expect(await client.daemonAutomation()).toEqual(preference);
   supported = false;

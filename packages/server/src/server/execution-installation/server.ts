@@ -285,6 +285,7 @@ export function createInstallationServer(
   const daemonAutomation = new DaemonAutomation(
     config.stateDir,
     Boolean(config.restartApprovalPolicy),
+    config.restartApprovalPolicy?.hostRequestsAfter,
   );
   const restarts = new InstallationRestarts(
     {
@@ -307,7 +308,7 @@ export function createInstallationServer(
     Date.now,
     {
       ...config.restartApprovalPolicy,
-      daemonRequestsAfter: () => daemonAutomation.activation(),
+      daemonRequestsAfter: (target) => daemonAutomation.activation(target),
       cancellationDelayMs: 30_000,
       authority: () =>
         createHash("sha256")
@@ -316,8 +317,7 @@ export function createInstallationServer(
               installation: config.public.installationId,
               host: config.hostAgentTokenHash,
               container: config.containerAgentTokenHash,
-              preference: daemonAutomation.read().revision,
-              legacy: config.restartApprovalPolicy?.hostRequestsAfter,
+              policy: "host-only-service-permissions-v1",
             }),
           )
           .digest("hex"),
@@ -442,7 +442,11 @@ export function createInstallationServer(
       const recoveryBlocker = restarts.maintenanceBlocker(target);
       for (const requester of ["host-agent", "container-agent"] as const) {
         const automatic =
-          preference.enabled || (preference.legacyHostOnly && requester === "host-agent");
+          requester === "host-agent" &&
+          Boolean(
+            daemonAutomation.activation(target) ??
+            (preference.legacyHostOnly ? config.restartApprovalPolicy?.hostRequestsAfter : null),
+          );
         for (const operation of ["restart", "source-update"] as const) {
           let blocker: string | null = null;
           if (recoveryBlocker) blocker = recoveryBlocker;
@@ -472,7 +476,37 @@ export function createInstallationServer(
         }
       }
     }
-    return { version: 1, checkedAt: new Date().toISOString(), preference, paths };
+    const services: NonNullable<InstallationMaintenanceStatus["services"]> = [
+      "host",
+      "container-daemon",
+    ].map((target) => {
+      const entries = paths.filter(
+        (item) => item.target === target && item.requester === "host-agent",
+      );
+      const blocked = entries.find((item) => item.readiness === "blocked");
+      return {
+        service: target as "host" | "container-daemon",
+        readiness: blocked ? "blocked" : "ready",
+        reason:
+          blocked?.reason ??
+          "Routine updates and restarts are available through the tracked queue.",
+      };
+    });
+    services.push(
+      {
+        service: "coordinator",
+        readiness: "blocked",
+        reason:
+          "Automatic coordinator maintenance requires the independent recovery workflow. Exact owner review remains available.",
+      },
+      {
+        service: "supervisor",
+        readiness: "blocked",
+        reason:
+          "Automatic supervisor maintenance requires verified recovery support. Use the tracked exact-review workflow when available.",
+      },
+    );
+    return { version: 1, checkedAt: new Date().toISOString(), preference, paths, services };
   }
   app.get("/api/installation/maintenance-status", authenticateUpdate, (_req, res, next) => {
     void maintenanceStatus().then((status) => res.json(status), next);
@@ -507,7 +541,7 @@ export function createInstallationServer(
           res.json({
             version: 1,
             targets,
-            ownerApprovalRequired: !automaticHost || (!host && activation === undefined),
+            ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
             previewMonitor: {
@@ -1130,8 +1164,23 @@ export function createInstallationServer(
   app.post("/api/installation/owner/maintenance-status/query", (_req, res, next) => {
     void maintenanceStatus().then((status) => res.json(status), next);
   });
+  const legacyAutomation = () => {
+    const { services: _services, ...legacy } = daemonAutomation.read();
+    return legacy;
+  };
+  app.post("/api/installation/owner/maintenance-permissions/query", (_req, res) => {
+    res.json({ ...daemonAutomation.read(), services: daemonAutomation.servicePermissions() });
+  });
+  app.post("/api/installation/owner/maintenance-permissions/change", (req, res) => {
+    const change = DaemonAutomationChangeSchema.parse(req.body);
+    if (!change.service) throw new RestartRequestError("Choose the service permission to change");
+    const preference = daemonAutomation.change(change);
+    restarts.refreshApprovalPolicy();
+    res.json({ ...preference, services: daemonAutomation.servicePermissions() });
+    void drainRestarts();
+  });
   app.post("/api/installation/owner/daemon-automation/query", (_req, res) => {
-    res.json(daemonAutomation.read());
+    res.json(legacyAutomation());
   });
   app.post("/api/installation/owner/daemon-automation/change", (req, res) => {
     const change = DaemonAutomationChangeSchema.parse(req.body);
@@ -1141,9 +1190,9 @@ export function createInstallationServer(
         "Update the coordinator before enabling automatic daemon maintenance",
       );
     }
-    const preference = daemonAutomation.change(change);
+    daemonAutomation.change(change);
     restarts.refreshApprovalPolicy();
-    res.json(preference);
+    res.json(legacyAutomation());
     void drainRestarts();
   });
   app.post("/api/installation/owner/dev-repair/query", (_req, res) => {

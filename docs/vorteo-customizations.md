@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-14): four service permissions replace the shared automation control, with accessible info icons and separate readiness explanations. Only authenticated Host requests qualify; Dev and mixed-origin requests stay manual. Migration preserves daemon grants without enabling controller grants, and revocation leaves unrelated services alone. Desktop and phone browser tests pass locally. Automatic controller execution, independent reboot recovery and installed acceptance remain unfinished. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-14): automatic maintenance source now binds grants to policy and credentials, allows a cancellation interval, prepares source before holds, and retains durable activation intent. Installation controls distinguish readiness from authority and executor cleanup from coordinator recovery. Focused queue, server, app, native recovery and desktop/phone browser tests pass locally. Independent reboot recovery and installed acceptance remain unfinished; this source is not yet deployed. README overview and onboarding are unchanged. See [maintenance readiness and operator actions](execution-installation.md#maintenance-readiness-and-operator-actions).
 
 Maintenance review (2026-10-14): integrate tested coordinator recovery corrections with the published interface while preserving both histories and all app behavior. Installed recovery acceptance remains pending; README overview and onboarding are unchanged.
