@@ -6,12 +6,12 @@ import {
   View,
   Text,
   Pressable,
-  useWindowDimensions,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
   TextInputSelectionChangeEventData,
   type LayoutChangeEvent,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import {
   useState,
   useRef,
@@ -1915,6 +1915,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       () => [
         styles.inputWrapper,
         taskCardStyles.surface,
+        touch && !mobileComposer.enabled && styles.touchInputSurface,
         mobileComposer.enabled && { paddingBottom: mobileComposer.bottomPadding },
         readOnly && styles.inputWrapperReadOnly,
         inputWrapperStyle,
@@ -1924,6 +1925,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       ],
       [
         inputWrapperStyle,
+        touch,
         readOnly,
         surfacePresentation.input.opacity,
         mobileComposer.enabled,
@@ -2027,8 +2029,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [showMobileQueue, isSendButtonDisabled, handleQueueMessage, buttonIconSize, highlightQueue],
     );
     const queueRecordingAction = useMemo(
-      () => (showMobileQueue ? handleAcceptAndQueueRecording : undefined),
-      [showMobileQueue, handleAcceptAndQueueRecording],
+      () => (onQueue && !readOnly ? handleAcceptAndQueueRecording : undefined),
+      [onQueue, readOnly, handleAcceptAndQueueRecording],
     );
     const dictationPlacement = placeDictationButton(
       voiceButton,
@@ -2197,6 +2199,11 @@ const styles = StyleSheet.create((theme: Theme) => ({
   // into it" without swapping the border colour, which reads as an error state.
   inputWrapperReadOnly: {
     borderStyle: "dotted",
+  },
+  touchInputSurface: {
+    paddingTop: COMPOSER_CORNER_INSET,
+    paddingBottom: { xs: theme.spacing[3] - 6, md: theme.spacing[4] - 6 },
+    gap: theme.spacing[2],
   },
   mobileInputSurface: {
     backgroundColor: "transparent",

@@ -689,7 +689,7 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       const subagentScrolls = await page
         .getByTestId("subagents-card-body-scroll")
         .evaluate((node) => node.scrollHeight > node.clientHeight);
-      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(2, 0);
+      if (!subagentScrolls) expect(subagentBottomInset).toBeCloseTo(8, 0);
       if (width === 1200) {
         const composerFrame = await page.getByTestId("message-input-surface").evaluate((node) => {
           const style = getComputedStyle(node);
@@ -1170,6 +1170,34 @@ async function checkCollapsedGrid(page: Page, info: TestInfo) {
       await page.getByTestId("workspace-explorer-toggle").filter({ visible: true }).click();
     }
     const task = page.getByTestId("checklist-toggle").filter({ visible: true });
+    await expect(async () => {
+      const gaps = await task.evaluate((button) => {
+        const card = button.closest('[data-testid="agent-task-progress-card"]')!;
+        const outer = card.getBoundingClientRect();
+        const inner = button.getBoundingClientRect();
+        return {
+          top: inner.top - outer.top,
+          bottom: outer.bottom - inner.bottom,
+          left: inner.left - outer.left,
+          right: outer.right - inner.right,
+          height: inner.height,
+        };
+      });
+      expect(gaps.height).toBeGreaterThanOrEqual(44);
+      expect(gaps.height).toBeLessThanOrEqual(48);
+      expect(gaps.top).toBeCloseTo(gaps.left, 0);
+      expect(gaps.bottom).toBeCloseTo(gaps.left, 0);
+      expect(gaps.right).toBeCloseTo(gaps.left, 0);
+    }).toPass();
+    for (const id of ids) {
+      const button = page.getByTestId(id).filter({ visible: true });
+      await button.hover();
+      const label = await button.getAttribute("aria-label");
+      await expect(page.getByRole("tooltip")).toHaveText(label!);
+      await page.screenshot({ path: info.outputPath(`compact-hover-${width}-${id}.png`) });
+      await page.mouse.move(0, 0);
+      await expect(page.getByRole("tooltip")).toHaveCount(0);
+    }
     if (width === 390) {
       await task.scrollIntoViewIfNeeded();
       const target = (await task.boundingBox())!;
@@ -1293,7 +1321,7 @@ async function checkFixedHeaders(
   await page.reload();
   await expect(page.getByTestId("shared-message-queue")).toContainText("Scroll queue row 9");
 
-  for (const width of [1800, 390]) {
+  for (const width of [1800, 1133, 390]) {
     await page.setViewportSize({ width, height: 400 });
     await revealSupportingCards(page, width);
     for (const id of [
@@ -2304,10 +2332,25 @@ test("shared card group and thread resize independently and preserve saved width
     await expect(cards).toBeVisible();
     for (const id of movedToggles)
       await expect(cards.getByTestId(id)).toHaveAttribute("aria-expanded", "false");
+    await expect(async () => {
+      const firstCard = await box(cards.getByTestId("agent-task-progress-card"));
+      const lastCard = await box(cards.getByTestId("shared-message-queue"));
+      const column = await box(cards.getByTestId("thread-cards-stack"));
+      expect(firstCard.width).toBeCloseTo(column.width, 0);
+      expect(lastCard.width).toBeCloseTo(column.width, 0);
+      expect(lastCard.y).toBeGreaterThan(firstCard.y + firstCard.height);
+    }).toPass();
+    await expect(cards.getByTestId("checklist-add")).toBeVisible();
+    await expect(cards.getByTestId("message-queue-pause-resume")).toBeEnabled();
+    await page.screenshot({ path: info.outputPath("all-collapsed-sidebar.png") });
     await cards.getByTestId("message-queue-toggle").click();
     await expect(async () => {
       const availableStack = await box(cards.getByTestId("thread-cards-stack"));
       const queue = await box(cards.getByTestId("shared-message-queue"));
+      const tasks = await box(cards.getByTestId("checklist-toggle"));
+      const agents = await box(cards.getByTestId("subagents-group-paseo-toggle"));
+      expect(tasks.y).toBeCloseTo(agents.y, 0);
+      expect(tasks.width).toBeLessThan(availableStack.width / 2);
       expect(queue.height).toBeGreaterThan(availableStack.height * 0.7);
       expect(queue.y + queue.height).toBeCloseTo(availableStack.y + availableStack.height, 0);
     }).toPass();
@@ -2462,7 +2505,7 @@ test("quiet queue and subagent rows align with header actions without hover fill
       attachments: [],
     });
     await openAgentRoute(page, agent);
-    for (const width of [1800, 390]) {
+    for (const width of [1800, 1133, 390]) {
       await page.setViewportSize({ width, height: 1000 });
       await revealSupportingCards(page, width);
       const card = page.getByTestId("subagents-card");
@@ -2494,6 +2537,18 @@ test("quiet queue and subagent rows align with header actions without hover fill
         .boundingBox())!;
       const pause = (await queue.getByTestId("message-queue-pause-resume").boundingBox())!;
       expect(menu.x + menu.width / 2).toBeCloseTo(pause.x + pause.width / 2, 0);
+      for (const detailsCard of [card, queue]) {
+        const viewport = detailsCard.locator('[data-testid$="-body-scroll"]');
+        await viewport.evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        const bottomClearance = await viewport.evaluate((node) => {
+          const content = node.firstElementChild!;
+          const lastEntry = content.lastElementChild!;
+          return content.getBoundingClientRect().bottom - lastEntry.getBoundingClientRect().bottom;
+        });
+        expect(bottomClearance).toBeCloseTo(8, 0);
+      }
       await page.screenshot({
         path: info.outputPath(`quiet-rows-${width}.png`),
       });

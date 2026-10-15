@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronLeft } from "lucide-react-native";

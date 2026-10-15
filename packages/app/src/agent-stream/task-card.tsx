@@ -26,13 +26,8 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import {
-  ScrollView,
-  View,
-  useWindowDimensions,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
+import { ScrollView, View, type StyleProp, type ViewStyle } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
 import Animated, {
   Easing,
@@ -48,7 +43,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
-import { TASK_CARD_BODY_INSET, taskCardStyles } from "./task-card-styles";
+import { TASK_CARD_BODY_INSET, TASK_CARD_BOTTOM_INSET, taskCardStyles } from "./task-card-styles";
 
 function CardSurfaceContext({
   report,
@@ -81,7 +76,8 @@ function useCardTile(bodyVisible: boolean) {
   const onGridLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     if (event.nativeEvent.layout.width > 0) setRow(Math.round(event.nativeEvent.layout.y));
   }, []);
-  const compact = grid && !bodyVisible;
+  const column = useContext(CardColumnContext);
+  const compact = grid && !bodyVisible && !column?.allCollapsed;
   const tile = useMemo(() => ({ compact, width }), [compact, width]);
   const rootStyle = [grid && cardGridExpandedStyle, compact && cardGridCollapsedStyle];
   return { tile, setWidth, rootStyle, row, onGridLayout };
@@ -109,7 +105,6 @@ function cardHeight({
 function TaskCardView({
   insets = 0,
   flushBody = false,
-  bottomInset = 2,
   bodyVisible = true,
   bodyRef,
   panelHeight,
@@ -121,7 +116,6 @@ function TaskCardView({
   insets?: number;
   /** List rows own their horizontal alignment with header actions. */
   flushBody?: boolean;
-  bottomInset?: number;
   bodyVisible?: boolean;
   bodyRef?: Ref<ScrollView>;
   /** Panels such as file trees own their scrolling and need a bounded viewport. */
@@ -155,8 +149,8 @@ function TaskCardView({
   const bodySpace = bodyVisible ? (panelHeight ?? bodyHeight) : 0;
   const naturalHeight = headerHeight + insets + bodySpace;
   useLayoutEffect(() => {
-    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined);
-  }, [measure, id, naturalHeight, retainedActive, compact, row]);
+    measure?.(id, retainedActive ? naturalHeight : null, compact ? row : undefined, bodyVisible);
+  }, [measure, id, naturalHeight, retainedActive, compact, row, bodyVisible]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -242,7 +236,7 @@ function TaskCardView({
                     height: Math.max(0, maxHeight - headerHeight - insets),
                     minHeight: 0,
                     paddingHorizontal: spacingInset,
-                    paddingBottom: spacingInset,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                   !bodyVisible && taskCardStyles.hiddenBody,
                 ]}
@@ -265,7 +259,7 @@ function TaskCardView({
                   inlineUnistylesStyle({
                     paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + spacingInset,
                     paddingTop: 2,
-                    paddingBottom: bottomInset,
+                    paddingBottom: TASK_CARD_BOTTOM_INSET,
                   }),
                 ]}
                 nestedScrollEnabled
@@ -328,7 +322,8 @@ function ContentTaskCard({
             taskCardStyles.bodyContent,
             inlineUnistylesStyle({
               paddingHorizontal: (flushBody ? 0 : TASK_CARD_BODY_INSET) + inset,
-              paddingVertical: 2,
+              paddingTop: 2,
+              paddingBottom: TASK_CARD_BOTTOM_INSET,
             }),
             !bodyVisible && taskCardStyles.hiddenBody,
           ]}
@@ -359,7 +354,7 @@ export function TaskCardHeader({ children, testID }: { children: ReactNode; test
         taskCardStyles.header,
         staticHeading && [taskCardStyles.staticHeader, touch && taskCardStyles.touchStaticHeader],
         touch && taskCardStyles.touchHeader,
-        stacked && { height: "auto", minHeight: 56 },
+        stacked && { height: "auto", minHeight: 44 },
       ]}
     >
       {children}

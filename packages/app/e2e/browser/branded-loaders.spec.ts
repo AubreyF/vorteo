@@ -136,3 +136,129 @@ for (const theme of ["starship-light", "starship-dark", "scriptorium", "midas", 
     }
   });
 }
+
+// No daemon fixture: these checks exercise the unauthenticated welcome route.
+import { test as bootTest } from "@playwright/test";
+type BootTestWindow = Window & { __bootFade: Animation; __vorteoFinishBoot: () => void };
+
+for (const [theme, background, foreground, label = theme] of [
+  ["starship-light", "#e2e2ee", "#16163a"],
+  ["starship-dark", "#222222", "#f5f5f7"],
+  ["scriptorium", "#f4ead7", "#2a1f17"],
+  ["midas", "#2b231d", "#f3e9da"],
+  ["ember", "#180f0d", "#f7ede9"],
+  ["neon", "#0a0a0a", "#f7f7fb"],
+  ["starship-light", "#222222", "#f5f5f7", "changed preference"],
+]) {
+  bootTest(`saved startup palette and welcome fade for ${label}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.routeWebSocket(
+      (url) => url.pathname === "/ws",
+      (socket) => socket.close(),
+    );
+    await page.addInitScript(
+      ({ theme: selectedTheme, background: savedBackground, foreground: savedForeground }) => {
+        localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: selectedTheme }));
+        localStorage.setItem(
+          "vorteo-boot-brand-v1",
+          JSON.stringify({
+            mode: selectedTheme === "starship-light" ? "rainbow" : "white",
+            start: "#ffffff",
+            end: "#cccccc",
+            background: savedBackground,
+            foreground: savedForeground,
+            colorScheme:
+              selectedTheme === "starship-light" || selectedTheme === "scriptorium"
+                ? "light"
+                : "dark",
+          }),
+        );
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (frames, options) {
+          const animation = animate.call(this, frames, options);
+          if (this.id === "boot-overlay") {
+            animation.pause();
+            (window as unknown as BootTestWindow).__bootFade = animation;
+          }
+          return animation;
+        };
+      },
+      { theme, background, foreground },
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/_expo/static/js/web/*.js", async (route) => {
+      await gate;
+      await route.continue();
+    });
+    await page.goto("/welcome", { waitUntil: "commit" });
+    const overlay = page.locator("#boot-overlay");
+    await expect(page.locator("#boot-status")).toBeVisible();
+    expect(
+      await page
+        .locator("html")
+        .evaluate((node) => getComputedStyle(node).getPropertyValue("--boot-background").trim()),
+    ).toBe(background);
+    release();
+    await expect(page.getByTestId("welcome-screen")).toBeVisible();
+    await expect(overlay).toHaveAttribute("data-leaving", "true");
+    expect(
+      await page.evaluate(
+        () => (window as unknown as BootTestWindow).__bootFade.effect!.getTiming().duration,
+      ),
+    ).toBe(350);
+    await expect(overlay).toHaveCSS("pointer-events", "none");
+    await page.evaluate(() => {
+      (window as unknown as BootTestWindow).__bootFade.currentTime = 175;
+    });
+    const opacity = await overlay.evaluate((node) => Number(getComputedStyle(node).opacity));
+    expect(opacity).toBeGreaterThan(0);
+    expect(opacity).toBeLessThan(1);
+    await page.screenshot({ path: info.outputPath("mid-fade.png") });
+    await page.evaluate(() => (window as unknown as BootTestWindow).__bootFade.play());
+    await expect(overlay).toHaveCount(0);
+    await expect(page.locator("html")).toHaveAttribute("data-vorteo-appearance", theme);
+    const cache = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("vorteo-boot-brand-v1")!),
+    );
+    expect(
+      await page
+        .getByTestId("welcome-screen")
+        .locator("..")
+        .evaluate((node) => getComputedStyle(node).backgroundColor),
+    ).toBe(await page.locator("html").evaluate((node) => getComputedStyle(node).backgroundColor));
+    expect(cache.background).toBe(
+      await page
+        .locator("html")
+        .evaluate((node) =>
+          (node as HTMLElement).style.getPropertyValue("--vorteo-shell-background").trim(),
+        ),
+    );
+    await page.getByTestId("welcome-direct-connection").click();
+    await expect(page.getByTestId("direct-password-input")).toBeVisible();
+  });
+}
+
+bootTest(
+  "startup fallback and reduced-motion handoff remain usable without storage",
+  async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", {
+        get() {
+          throw new Error("Storage disabled");
+        },
+      });
+    });
+    await page.route("**/_expo/static/js/web/*.js", (route) => route.abort());
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const overlay = page.locator("#boot-overlay");
+    await expect(overlay).toHaveCSS("background-color", "rgb(34, 34, 34)");
+    await expect(page.locator("#boot-status")).toBeVisible();
+    await expect(page.locator(".boot-spinner")).toHaveCSS("animation-name", "none");
+    await page.evaluate(() => (window as unknown as BootTestWindow).__vorteoFinishBoot());
+    await expect(overlay).toHaveCount(0);
+  },
+);

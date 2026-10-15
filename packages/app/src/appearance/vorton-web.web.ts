@@ -2,16 +2,16 @@ import { observeWebViewport } from "../diagnostics/web-viewport.web";
 import { isAppleHandheldPlatform } from "../utils/terminal-keys";
 const CSS = `
 @supports (height: 100dvh) {
-  html, html body { height: 100dvh; }
+  html, html body { height: calc(100dvh / var(--interface-scale, 1)); }
 }
 /* Safari can pan its visual viewport to the focused editor. Keep the complete shell
    inside that visible rectangle rather than scrolling its workspace header away. */
 html[data-vorton-keyboard="true"] #root {
   position: fixed;
-  top: var(--vorton-visible-top);
+  top: calc(var(--vorton-visible-top) / var(--interface-scale, 1));
   left: 0;
   width: 100%;
-  height: var(--vorton-visible-height) !important;
+  height: calc(var(--vorton-visible-height) / var(--interface-scale, 1)) !important;
   overflow: hidden;
 }
 /* Header and panel shells own safe-area spacing. Do not add a second top inset here. */

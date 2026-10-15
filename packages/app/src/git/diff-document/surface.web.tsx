@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ViewStyle } from "react-native";
@@ -566,8 +567,8 @@ export function DiffSurface(props: DiffSurfaceProps) {
     const root = rootRef.current;
     if (!currentModel || !root) return null;
     const bounds = root.getBoundingClientRect();
-    const x = clientX - bounds.left;
-    const documentY = clientY - bounds.top + scrollTopRef.current;
+    const x = (clientX - bounds.left) / getInterfaceScale();
+    const documentY = (clientY - bounds.top) / getInterfaceScale() + scrollTopRef.current;
     const file = currentModel.files.find(
       (entry) => entry.top <= documentY && documentY < entry.bottom,
     );

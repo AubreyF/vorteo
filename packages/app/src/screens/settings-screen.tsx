@@ -13,11 +13,11 @@ import {
   Alert,
   Pressable,
   ScrollView,
-  useWindowDimensions,
   Text,
   View,
   type PressableStateCallbackType,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

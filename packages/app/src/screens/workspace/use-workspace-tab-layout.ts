@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useWindowDimensions } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import {
   computeWorkspaceTabLayout,
   type WorkspaceTabLayoutMetrics,

@@ -326,6 +326,9 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket) {
 }
 
 export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
+  // Project children sit one icon column inside the project heading. Keep the
+  // full-width row background while making the parent-child hierarchy visible.
+  projectIndented: { paddingLeft: 14 + theme.iconSize.md },
   // How far a workspace row sits inside the group header above it — a project row or a
   // status group header. Both groupings share this one indent, so every grouped workspace row
   // in the sidebar sits on the same rail regardless of how the list is grouped. Pinned rows

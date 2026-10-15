@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { useCallback, useEffect, useRef } from "react";
 import type { PointerEvent as RNPointerEvent } from "react-native";
 
@@ -40,7 +41,10 @@ export function usePointerResize({
         if (next.pointerId !== pointerId) return;
         next.preventDefault();
         clampScroll();
-        session.move((direction === "horizontal" ? next.clientX : next.clientY) - start);
+        session.move(
+          ((direction === "horizontal" ? next.clientX : next.clientY) - start) /
+            getInterfaceScale(),
+        );
       };
       const cleanup = () => {
         window.removeEventListener("pointermove", move);

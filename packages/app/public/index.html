@@ -56,7 +56,7 @@
       /* Prevent white flash before React mounts */
       html,
       body {
-        background-color: #222222;
+        background-color: var(--boot-background, #222222);
       }
       /* These styles make the root element full-height */
       #root {
@@ -69,6 +69,28 @@
         overflow: hidden;
       }
     </style>
+    <script>
+      // A local display-only cache restores the first paint without waiting for app code.
+      try {
+        var brand = JSON.parse(localStorage.getItem("vorteo-boot-brand-v1"));
+        if (
+          brand &&
+          ["white", "rainbow", "gradient"].includes(brand.mode) &&
+          [brand.start, brand.end, brand.background, brand.foreground].every(function (value) {
+            return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+          })
+        ) {
+          window.__vorteoBootBrand = brand;
+          document.documentElement.style.setProperty("--boot-background", brand.background);
+          document.documentElement.style.setProperty("--boot-ring-color", brand.foreground);
+          document.documentElement.style.colorScheme =
+            brand.colorScheme === "light" ? "light" : "dark";
+          document.querySelector('meta[name="theme-color"]').content = brand.background;
+        }
+      } catch (_) {
+        /* Keep the existing dark fallback when storage is unavailable. */
+      }
+    </script>
     <style>
       #vorton-ios-status-strip {
         display: none;
@@ -128,8 +150,9 @@
   <body>
     <div id="vorton-ios-status-strip" aria-hidden="true"></div>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root">
-      <!-- React replaces this shell when it mounts, including its timeout UI. -->
+    <div id="root"></div>
+    <!-- Kept outside React until the themed interface has painted underneath. -->
+    <div id="boot-overlay">
       <div id="boot-status" hidden>
         <div class="boot-emblem" role="progressbar" aria-label="Loading Vorteo">
           <div class="boot-spinner" aria-hidden="true"></div>
@@ -150,6 +173,15 @@
       </div>
     </div>
     <style>
+      #boot-overlay {
+        position: fixed;
+        inset: 0;
+        width: calc(100vw / var(--interface-scale, 1));
+        height: calc(100dvh / var(--interface-scale, 1));
+        display: flex;
+        z-index: 2147483646;
+        background: var(--boot-background, #222222);
+      }
       #boot-status {
         margin: auto;
         padding: 24px;
@@ -254,15 +286,38 @@
         tint.style.mask = 'url("' + white + '") center / contain no-repeat';
         tint.hidden = brand.mode !== "gradient";
         mark.hidden = brand.mode === "gradient";
-        document.documentElement.style.backgroundColor = brand.background;
-        document.body.style.backgroundColor = brand.background;
         document.documentElement.style.setProperty("--boot-ring-color", brand.foreground);
       };
       try {
-        window.__vorteoApplyBootBrand(JSON.parse(localStorage.getItem("vorteo-boot-brand-v1")));
+        window.__vorteoApplyBootBrand(window.__vorteoBootBrand);
       } catch (_) {
         /* Storage may be unavailable; the neutral dark loader remains usable. */
       }
+      window.__vorteoFinishBoot = function () {
+        var overlay = document.getElementById("boot-overlay");
+        if (!overlay || overlay.dataset.leaving) return;
+        overlay.dataset.leaving = "true";
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.inert = true;
+        overlay.style.pointerEvents = "none";
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !overlay.animate) {
+          overlay.remove();
+          return;
+        }
+        var fade = overlay.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 350,
+          easing: "ease-out",
+          fill: "forwards",
+        });
+        fade.finished.then(
+          function () {
+            overlay.remove();
+          },
+          function () {
+            overlay.remove();
+          },
+        );
+      };
       document.getElementById("boot-status").hidden = false;
       setTimeout(function () {
         var help = document.getElementById("boot-help");

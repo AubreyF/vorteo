@@ -1,3 +1,4 @@
+import { openAgentRoute } from "../support/helpers/mock-agent";
 import { test, expect } from "../support/fixtures";
 import { openWorkspaceWithAgents } from "../support/helpers/archive-tab";
 import {
@@ -88,6 +89,35 @@ test.describe("Composer control density across tab switches", () => {
       await page.waitForTimeout(SETTLE_MS);
 
       await expectNoCollapsedComposerToolbarFrame(page);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+});
+
+test.describe("Touch composer corner spacing", () => {
+  test.use({ hasTouch: true });
+  test("tablet composer fits its controls and matches bottom and side insets", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "composer-corners-" });
+    try {
+      const agent = await seedSettledMockAgent(workspace, "Composer corners");
+      await openAgentRoute(page, { workspaceId: agent.workspaceId, agentId: agent.id });
+      for (const width of [1024, 1133, 1600]) {
+        await page.setViewportSize({ width, height: 744 });
+        const surface = page.getByTestId("message-input-surface").filter({ visible: true });
+        const attach = surface.getByTestId("message-input-attach-button");
+        await expect(attach).toBeVisible();
+        await expect(async () => {
+          const frame = (await surface.boundingBox())!;
+          const button = (await attach.boundingBox())!;
+          expect(frame.height).toBeLessThanOrEqual(118);
+          expect(button.height).toBeGreaterThanOrEqual(44);
+          expect(frame.y + frame.height - button.y - button.height).toBeCloseTo(
+            button.x - frame.x,
+            0,
+          );
+        }).toPass();
+      }
     } finally {
       await workspace.cleanup();
     }

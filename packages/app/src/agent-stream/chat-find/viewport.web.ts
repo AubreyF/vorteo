@@ -1,3 +1,4 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import type { ChatFindOperations } from "./model";
 import type { ChatFindProps } from "./types";
 import { findMessageMatches, findMessageRows, findRenderedMatches } from "./ranges.web";
@@ -87,8 +88,10 @@ export function createFindViewport({
               const widget = getRoot()?.querySelector<HTMLElement>(
                 '[data-chat-find-widget="true"]',
               );
-              const clearance = widget ? widget.getBoundingClientRect().height + 8 : 0;
-              return selected.getBoundingClientRect().top - clearance;
+              const clearance = widget
+                ? widget.getBoundingClientRect().height / getInterfaceScale() + 8
+                : 0;
+              return selected.getBoundingClientRect().top / getInterfaceScale() - clearance;
             },
           });
           CSS.highlights.set(highlightName, new Highlight(range));

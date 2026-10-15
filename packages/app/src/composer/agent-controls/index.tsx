@@ -23,12 +23,12 @@ import {
   Text,
   Pressable,
   Keyboard,
-  useWindowDimensions,
   type LayoutChangeEvent,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
 import { Settings2 } from "lucide-react-native";

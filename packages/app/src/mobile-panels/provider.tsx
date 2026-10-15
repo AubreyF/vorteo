@@ -10,7 +10,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Keyboard, useWindowDimensions } from "react-native";
+import { Keyboard } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import type { GestureType } from "react-native-gesture-handler";
 import {
   cancelAnimation,
