@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.550 - 2026-10-15
+
+### Fixed
+
+- Allow separately pinned repair admissions for later coordinator incidents while preserving earlier immutable receipts and plans.
+- Resolve the proposal, controller and admitted runtime through the same digest-addressed directory. Invalid new records cannot fall back to historical authority.
+- Verify owner authentication, legacy receipt preservation and refusal of altered or unsafe admission paths. Controller startup, installed routing and live recovery acceptance remain open.
+
 ## 0.11.0-beta.3.vorteo.549 - 2026-10-15
 
 ### Maintenance

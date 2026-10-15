@@ -55,6 +55,7 @@ import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import {
   ClaimedRepairProvisioningSchema,
+  resolveClaimedRepairFiles,
   provisionClaimedRepair,
   assertProvisionedClaimedRuntimeBinding,
   verifyClaimedRepairProvisioning,
@@ -651,6 +652,97 @@ test("first repair provisioning authenticates owner and preserves the exact pend
   expect(readFileSync(f.pendingFile)).toEqual(pending);
   expect(await provisionClaimedRepair(input)).toEqual(result);
   expect(readFileSync(f.pendingFile)).toEqual(pending);
+});
+
+test("a separately pinned repair admission preserves the earlier incident", async () => {
+  const f = await provisioningOwnerFixture();
+  const legacy = path.join(f.root, "claimed-repair-admission.json");
+  const historicalPlan = structuredClone(f.input.plan);
+  historicalPlan.original.id = randomUUID();
+  historicalPlan.executor.identity.argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([
+        historicalPlan.runner.node.path,
+        historicalPlan.executorEntrypoint.path,
+        historicalPlan.setup.path,
+        "executor",
+        historicalPlan.original.id,
+      ]),
+    )
+    .digest("hex");
+  const historicalReceipt = structuredClone(f.receipt);
+  historicalReceipt.original.id = historicalPlan.original.id;
+  historicalReceipt.recoveryPlanSha256 = claimedRecoveryPlanDigest(historicalPlan);
+  const legacyBytes = JSON.stringify(historicalReceipt);
+  writeFileSync(legacy, legacyBytes, { mode: 0o600 });
+  const legacyPlan = path.join(f.root, "claimed-repair-plan.json");
+  writeFileSync(legacyPlan, JSON.stringify(historicalPlan), { mode: 0o600 });
+  const historicalInput = {
+    ...f.input,
+    plan: historicalPlan,
+    admissionSha256: createHash("sha256").update(legacyBytes).digest("hex"),
+  };
+  expect((await verifyClaimedRepairProvisioning(historicalInput)).receipt).toEqual(
+    historicalReceipt,
+  );
+  const digest = createHash("sha256").update(JSON.stringify(f.receipt)).digest("hex");
+  const directory = path.join(f.root, "claimed-repair-admissions", digest);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(directory, "claimed-repair-proposal.json"), JSON.stringify(f.receipt), {
+    mode: 0o600,
+  });
+  const input = { ...f.input, admissionSha256: digest };
+  const pending = readFileSync(f.pendingFile);
+  expect((await verifyClaimedRepairProposal(input)).receipt).toEqual(f.receipt);
+  await expect(
+    provisionClaimedRepair({
+      ...input,
+      receipt: f.receipt,
+      ownerPassword: "wrong",
+    }),
+  ).rejects.toThrow("authentication required");
+  expect(() => readFileSync(path.join(directory, "claimed-repair-admission.json"))).toThrow();
+  const result = await provisionClaimedRepair({
+    ...input,
+    receipt: f.receipt,
+    ownerPassword: "fixture-owner",
+  });
+  expect(result.admission.path).toBe(path.join(directory, "claimed-repair-admission.json"));
+  expect((await verifyClaimedRepairProvisioning(input)).receipt).toEqual(f.receipt);
+  expect(readFileSync(legacy, "utf8")).toBe(legacyBytes);
+  expect(readFileSync(legacyPlan, "utf8")).toBe(JSON.stringify(historicalPlan));
+  expect((await verifyClaimedRepairProvisioning(historicalInput)).receipt).toEqual(
+    historicalReceipt,
+  );
+  expect(readFileSync(f.pendingFile)).toEqual(pending);
+});
+
+test.each(["missing-receipt", "wrong-digest", "symlink", "public", "writable-mount"])(
+  "new repair admission refuses %s instead of falling back to legacy evidence",
+  async (mode) => {
+    const f = await provisioningFixture();
+    const legacy = readFileSync(path.join(f.root, "claimed-repair-admission.json"));
+    const parent = path.join(f.root, "claimed-repair-admissions");
+    const directory = path.join(parent, f.input.admissionSha256);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (mode === "wrong-digest")
+      writeFileSync(path.join(directory, "claimed-repair-admission.json"), "{}", { mode: 0o600 });
+    if (mode === "symlink") {
+      rmSync(directory, { recursive: true });
+      symlinkSync(f.root, directory);
+    }
+    if (mode === "public") chmodSync(directory, 0o755);
+    const input = { ...f.input, writableMountRoots: mode === "writable-mount" ? [directory] : [] };
+    await expect(verifyClaimedRepairProvisioning(input)).rejects.toThrow();
+    expect(readFileSync(path.join(f.root, "claimed-repair-admission.json"))).toEqual(legacy);
+  },
+);
+
+test("repair admission rejects a caller-supplied path in place of its digest", async () => {
+  const f = await provisioningFixture();
+  await expect(
+    resolveClaimedRepairFiles({ ...f.input, admissionSha256: "../legacy" }),
+  ).rejects.toThrow();
 });
 
 test.each(["password", "stale-claim", "existing-receipt"])(
