@@ -142,6 +142,31 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
 });
 export type CoordinatorBootstrapRequest = z.infer<typeof CoordinatorBootstrapRequestSchema>;
 
+export const CoordinatorAutomaticStatusSchema = z.strictObject({
+  authorization: z.enum(["host-policy", "owner"]),
+  state: z.enum([
+    "waiting",
+    "checking",
+    "retry-wait",
+    "review-required",
+    "cancellation-window",
+    "dispatch-ready",
+    "launch-unconfirmed",
+    "owner-approved",
+    "execution",
+    "canceled",
+  ]),
+  observedAt: z.string().datetime(),
+  attempt: z.number().int().min(1).max(3).optional(),
+  nextCheckAt: z.string().datetime().optional(),
+  dispatchAfter: z.string().datetime().optional(),
+});
+export type CoordinatorAutomaticStatus = z.infer<typeof CoordinatorAutomaticStatusSchema>;
+export const CoordinatorBootstrapRequestViewSchema = CoordinatorBootstrapRequestSchema.extend({
+  automaticStatus: CoordinatorAutomaticStatusSchema.optional(),
+});
+export type CoordinatorBootstrapRequestView = z.infer<typeof CoordinatorBootstrapRequestViewSchema>;
+
 export const CoordinatorBootstrapPreparationSchema = z.strictObject({
   id: z.string().uuid(),
   reason: z.string().min(1).max(4000),
@@ -164,6 +189,7 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
 });
 export const CoordinatorSubmissionProofSchema = z.strictObject({
   policyActivatedAt: z.string().datetime(),
@@ -178,6 +204,7 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
   input: CoordinatorBootstrapPreparationSchema,
   submissionProof: CoordinatorSubmissionProofSchema.optional(),
 });
@@ -189,6 +216,7 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   previewMonitor: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
+  automaticStatus: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   // Transient owner proof. Never persist it with the request or decision.
   ownerPassword: z.string().min(1).max(1024),
@@ -202,7 +230,7 @@ export const CoordinatorBootstrapReconcileAutomaticRequestSchema =
   });
 const BootstrapResultSchema = z.strictObject({
   requestId: z.string(),
-  requests: z.array(CoordinatorBootstrapRequestSchema).nullable(),
+  requests: z.array(CoordinatorBootstrapRequestViewSchema).nullable(),
   error: z.string().nullable(),
 });
 export const CoordinatorBootstrapListResponseSchema = z.strictObject({

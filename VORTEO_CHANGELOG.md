@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.542 - 2026-10-15
+
+### Maintenance
+
+- Add a negotiated public coordinator authorization view without private credential bindings or retry records. Older clients retain their existing response shape.
+- Show automatic checks, retry exhaustion, cancellation timing and unconfirmed launches in Installation controls. Waiting automatic requests no longer imply owner approval is needed; execution receipts take precedence over inferred status.
+- Keep cancellation accessible on desktop and phone layouts, and replace contradictory elapsed-time labels for automatic requests. Verify protocol negotiation, status transitions and rendered layouts.
+- Scoped client commands, remaining recovery compatibility checks and installed acceptance remain unfinished. No runtime delivery is included in this source checkpoint.
+
 ## 0.11.0-beta.3.vorteo.541 - 2026-10-15
 
 ### Maintenance

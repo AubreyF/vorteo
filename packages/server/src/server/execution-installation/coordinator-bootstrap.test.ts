@@ -33,6 +33,7 @@ import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
 import {
   CoordinatorBootstrapRequests,
   coordinatorPlanDigest,
+  coordinatorAutomaticStatus,
   assertFrozenCoordinatorIdle,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
@@ -3177,6 +3178,62 @@ function automaticCoordinatorFixture() {
     },
   };
 }
+
+test("automatic coordinator status distinguishes checks, cancellation and uncertain launch without private authority", async () => {
+  const f = automaticCoordinatorFixture();
+  const now = Date.parse("2026-10-15T00:00:01Z");
+  const pending = await f.submit();
+  expect(coordinatorAutomaticStatus(pending, now)).toEqual({
+    authorization: "host-policy",
+    state: "waiting",
+    observedAt: new Date(now).toISOString(),
+  });
+  const checking = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  expect(coordinatorAutomaticStatus(checking, now)).toMatchObject({
+    state: "checking",
+    attempt: 1,
+  });
+  f.service().finishAutomaticReconciliation(checking.id, checking.automaticCheck);
+  const retrying = f.service().list()[0]!;
+  expect(coordinatorAutomaticStatus(retrying, now)).toMatchObject({
+    state: "retry-wait",
+    attempt: 1,
+  });
+  expect(
+    coordinatorAutomaticStatus(
+      { ...retrying, automaticCheck: { ...retrying.automaticCheck!, attempt: 3 } },
+      now,
+    ),
+  ).toMatchObject({ state: "review-required", attempt: 3 });
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(retrying));
+  expect(coordinatorAutomaticStatus(approved, now)).toMatchObject({
+    state: "cancellation-window",
+    dispatchAfter: approved.automaticApproval!.dispatchAfter,
+  });
+  f.advance();
+  expect(coordinatorAutomaticStatus(approved, now + 30_000)).toMatchObject({
+    state: "dispatch-ready",
+  });
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(coordinatorAutomaticStatus(reserved, now + 30_000)).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  const message = {
+    type: "installation.bootstrap.list_requests.request" as const,
+    requestId: "status",
+  };
+  const legacy = await handleBootstrapReview(message, f.service());
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticStatus");
+  const modern = await handleBootstrapReview({ ...message, automaticStatus: true }, f.service());
+  expect(modern.payload.requests?.[0]?.automaticStatus).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  expect(JSON.stringify(modern)).not.toContain("credentialBinding");
+  expect(modern.payload.requests?.[0]).not.toHaveProperty("automaticCheck");
+  expect(CoordinatorBootstrapRequestSchema.parse(legacy.payload.requests?.[0]).id).toBe(pending.id);
+});
 
 test("coordinator reconciliation budgets survive reopening and delayed responses", async () => {
   const f = automaticCoordinatorFixture();

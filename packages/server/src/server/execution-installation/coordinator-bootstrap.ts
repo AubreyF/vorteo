@@ -11,6 +11,7 @@ import {
   CoordinatorAutomaticAuthoritySchema,
   CoordinatorAutomaticCheckSchema,
   type CoordinatorAutomaticAuthority,
+  type CoordinatorAutomaticStatus,
   type CoordinatorBootstrapPlan,
   type CoordinatorBootstrapRequest,
   type CoordinatorBootstrapStage,
@@ -41,6 +42,44 @@ export type BootstrapReconciliationLedger = Pick<
   CoordinatorBootstrapRequests,
   "list" | "revokeAutomatic" | "reserveAutomaticReconciliation" | "finishAutomaticReconciliation"
 >;
+
+export function coordinatorAutomaticStatus(
+  request: CoordinatorBootstrapRequest,
+  now: number,
+): CoordinatorAutomaticStatus | undefined {
+  if (!request.automaticSubmission) return undefined;
+  const ownerApproved = request.status === "approved" && !request.automaticApproval;
+  const authorization = ownerApproved ? "owner" : "host-policy";
+  const common = { authorization, observedAt: new Date(now).toISOString() } as const;
+  if (request.execution) return { ...common, state: "execution" };
+  if (request.status === "canceled") return { ...common, state: "canceled" };
+  if (ownerApproved) return { ...common, state: "owner-approved" };
+  if (request.automaticDispatch) return { ...common, state: "launch-unconfirmed" };
+  const dispatchAfter = request.automaticApproval?.dispatchAfter;
+  if (dispatchAfter && now < Date.parse(dispatchAfter))
+    return { ...common, state: "cancellation-window", dispatchAfter };
+  const phase = request.status === "pending" ? "approval" : "dispatch";
+  const check = request.automaticCheck;
+  if (check?.phase === phase) {
+    const running = check.outcome === "running" && now < Date.parse(check.retryAfter);
+    if (running)
+      return {
+        ...common,
+        state: "checking",
+        attempt: check.attempt,
+        nextCheckAt: check.retryAfter,
+      };
+    if (check.attempt >= 3) return { ...common, state: "review-required", attempt: check.attempt };
+    return {
+      ...common,
+      state: "retry-wait",
+      attempt: check.attempt,
+      nextCheckAt: check.retryAfter,
+    };
+  }
+  const state = request.status === "approved" ? "dispatch-ready" : "waiting";
+  return { ...common, state };
+}
 
 /** Call only after verifying the exact coordinator is frozen and collecting its
  * children. A quiet journal from a running coordinator is not a dispatch fence. */

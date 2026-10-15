@@ -18,6 +18,8 @@ import {
   bootstrapDecisionDisabledReason,
   bootstrapNeedsAttention,
   bootstrapStatus,
+  bootstrapAutomaticDetail,
+  bootstrapRequiresOwnerAction,
   currentBootstrapRequests,
   preclaimRecoveryStatus,
   preclaimRecoveryNeedsAttention,
@@ -26,7 +28,7 @@ import {
   type BootstrapRecoveryRequest,
 } from "./bootstrap-model";
 import type {
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
   BootstrapClaimedRecoveryRequestView,
 } from "@getpaseo/protocol/coordinator-bootstrap";
@@ -204,11 +206,24 @@ function CoordinatorElapsed({ request }: { request: CoordinatorBootstrapRequest 
   const elapsed = `${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m ${seconds % 60}s`;
   let label = "Awaiting approval";
   if (request.execution) label = "Since approval";
+  else if (request.automaticStatus)
+    label = request.decisionAt ? "Since authorization" : "Request age";
   else if (request.status === "approved") label = "Awaiting dispatch";
+  const dispatchAfter = request.automaticStatus?.dispatchAfter;
+  const cancellationSeconds = dispatchAfter
+    ? Math.max(0, Math.ceil((Date.parse(dispatchAfter) - now) / 1000))
+    : null;
   return (
-    <Text style={styles.text} testID="coordinator-elapsed">
-      {label}: {elapsed}
-    </Text>
+    <>
+      <Text style={styles.text} testID="coordinator-elapsed">
+        {label}: {elapsed}
+      </Text>
+      {request.automaticStatus?.state === "cancellation-window" && cancellationSeconds !== null ? (
+        <Text style={styles.text} testID="coordinator-cancellation-window">
+          Minimum wait before dispatch: {cancellationSeconds}s
+        </Text>
+      ) : null}
+    </>
   );
 }
 
@@ -292,6 +307,36 @@ function bootstrapCardStyle(historical?: boolean) {
   return historical ? styles.historyItem : styles.card;
 }
 
+function CoordinatorStatus({
+  request,
+  checking,
+}: {
+  request: CoordinatorBootstrapRequest;
+  checking: boolean;
+}) {
+  const automaticDetail = bootstrapAutomaticDetail(request);
+  const failed =
+    request.execution?.stage === "recovery_required" ||
+    (request.automaticStatus !== undefined && bootstrapRequiresOwnerAction(request));
+  return (
+    <>
+      <View style={styles.row}>
+        <Text style={settingsStyles.rowTitle}>Installation coordinator</Text>
+        <StatusBadge
+          label={checking ? "Checking decision" : bootstrapStatus(request)}
+          variant={failed ? "error" : "muted"}
+        />
+      </View>
+      <CoordinatorElapsed request={request} />
+      {automaticDetail ? (
+        <Text accessibilityLiveRegion="polite" style={styles.text}>
+          {automaticDetail}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
 function BootstrapRequestCard({
   request,
   model,
@@ -314,22 +359,18 @@ function BootstrapRequestCard({
   const reason = bootstrapDecisionDisabledReason(request, state);
   const deciding = !request.execution && request.status !== "canceled";
   const checking = state.busy && deciding;
+  const approvalDescription = request.automaticStatus
+    ? "This request follows the authorization shown above."
+    : "Review the exact source before approving.";
   return (
     <View style={bootstrapCardStyle(historical)} testID={`coordinator-bootstrap-${request.id}`}>
-      <View style={styles.row}>
-        <Text style={settingsStyles.rowTitle}>Installation coordinator</Text>
-        <StatusBadge
-          label={checking ? "Checking decision" : bootstrapStatus(request)}
-          variant={request.execution?.stage === "recovery_required" ? "error" : "muted"}
-        />
-      </View>
-      <CoordinatorElapsed request={request} />
+      <CoordinatorStatus request={request} checking={checking} />
       <Text style={styles.text}>
         Update the installation coordinator. Installation controls will briefly reconnect; Host and
         Dev tasks keep running.{" "}
         {request.plan.hostRequestsAfter
           ? "This also enables automatic approval for trusted Host requests."
-          : "Review the exact source before approving."}
+          : approvalDescription}
       </Text>
       {checking ? (
         <Text accessibilityLiveRegion="polite" style={styles.text}>
@@ -467,12 +508,8 @@ export function BootstrapBanner({ model }: { model: BootstrapPanelModel }) {
   return (
     <View testID="coordinator-bootstrap-banner">
       <MaintenanceNotice
-        needsAction={
-          request.status !== "approved" ||
-          request.execution?.stage === "recovery_required" ||
-          !!state.error
-        }
-        revision={`${request.id}:${request.revision}:${request.status}:${request.execution?.stage ?? ""}`}
+        needsAction={bootstrapRequiresOwnerAction(request) || !!state.error}
+        revision={`${request.id}:${request.revision}:${request.status}:${request.execution?.stage ?? ""}:${request.automaticStatus?.state ?? ""}`}
         title="Coordinator update"
         description={
           state.error ??

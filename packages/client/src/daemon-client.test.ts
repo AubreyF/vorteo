@@ -9170,6 +9170,38 @@ test.each([false, true])(
 );
 
 test.each([false, true])(
+  "coordinator status projection is negotiated with the Host: %s",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "coordinator-status",
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connecting = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapReview: true,
+        coordinatorBootstrapAutomaticStatus: supported,
+      },
+    });
+    await connecting;
+    const listing = client.listCoordinatorBootstrapRequests();
+    const sent = parseSentFrame(mock.sent[0]);
+    expect(sent.automaticStatus).toBe(supported ? true : undefined);
+    mock.triggerMessage(
+      wrapSessionMessage({
+        type: "installation.bootstrap.list_requests.response",
+        payload: { requestId: sent.requestId, requests: [], error: null },
+      }),
+    );
+    await expect(listing).resolves.toEqual([]);
+  },
+);
+
+test.each([false, true])(
   "authenticated coordinator submission requires its Host capability: %s",
   async (supported) => {
     const mock = createMockTransport();

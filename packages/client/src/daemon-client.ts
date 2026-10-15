@@ -3,7 +3,7 @@ import type {
   CoordinatorBootstrapPreparation,
   CoordinatorSubmissionProof,
   CoordinatorBootstrapDecision,
-  CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
   BootstrapPreclaimRecoveryPreparation,
   BootstrapClaimedRecoveryPreparation,
@@ -3808,9 +3808,13 @@ export class DaemonClient {
     previewMonitor?: true;
     sourceUpdateTooling?: true;
     bootRecovery?: true;
+    automaticStatus?: true;
   } {
     const features = this.lastServerInfoMessage?.features;
     return {
+      ...(features?.coordinatorBootstrapAutomaticStatus === true
+        ? { automaticStatus: true as const }
+        : {}),
       ...(features?.coordinatorBootstrapFactoryAdoption === true
         ? { factoryRuntimeAdoption: true as const }
         : {}),

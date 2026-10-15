@@ -8,6 +8,7 @@ import type {
   CoordinatorSubmissionProof,
   CoordinatorBootstrapOutbound,
   CoordinatorBootstrapRequest,
+  CoordinatorBootstrapRequestView,
   BootstrapPreclaimRecoveryInbound,
   BootstrapPreclaimObservation,
   BootstrapPreclaimRecoveryOutbound,
@@ -18,6 +19,7 @@ import type { PreclaimRecoveryReviews } from "./coordinator-bootstrap-preclaim-r
 import {
   BootstrapAuthenticationRequired,
   BootstrapRequestConflict,
+  coordinatorAutomaticStatus,
   type CoordinatorBootstrapRequests,
 } from "./coordinator-bootstrap.js";
 
@@ -78,6 +80,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
+    coordinatorBootstrapAutomaticStatus: available,
     ...automaticReviewFeatures(service, available),
     ...(service?.unavailableReason
       ? { coordinatorBootstrapUnavailableReason: service.unavailableReason }
@@ -262,16 +265,7 @@ export async function handleBootstrapReview(
         );
       await service.decide(message.input, message.ownerPassword);
     }
-    const requests = service
-      .list()
-      // COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15
-      // and a negotiated public authorization view replaces these private fields.
-      .map(privateAuthorityReply)
-      .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
-      .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
-      .map((request) => previewMonitorReply(request, message.previewMonitor === true))
-      .map((request) => sourceUpdateToolingReply(request, message.sourceUpdateTooling === true))
-      .map((request) => bootRecoveryReply(request, message.bootRecovery === true));
+    const requests = service.list().map((request) => publicBootstrapReply(request, message));
     return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     // Filesystem, schema and verifier failures can carry private configuration.
@@ -283,6 +277,21 @@ export async function handleBootstrapReview(
       : "Bootstrap validation failed. Inspect the prepared Host configuration before retrying.";
     return { type, payload: { requestId, requests: null, error: description } };
   }
+}
+
+function publicBootstrapReply(
+  request: CoordinatorBootstrapRequest,
+  message: CoordinatorBootstrapInbound,
+): CoordinatorBootstrapRequestView {
+  let visible = privateAuthorityReply(request);
+  visible = bootstrapReviewReply(visible, message.factoryRuntimeAdoption === true);
+  visible = compatibleRecoveryReply(visible, message.compatibleRecovery === true);
+  visible = previewMonitorReply(visible, message.previewMonitor === true);
+  visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
+  visible = bootRecoveryReply(visible, message.bootRecovery === true);
+  if (!message.automaticStatus) return visible;
+  const automaticStatus = coordinatorAutomaticStatus(request, Date.now());
+  return automaticStatus ? { ...visible, automaticStatus } : visible;
 }
 
 // COMPAT(factoryRuntimeAdoption): older clients use a strict plan schema. Keep

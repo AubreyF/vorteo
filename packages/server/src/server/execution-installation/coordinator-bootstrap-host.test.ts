@@ -1302,6 +1302,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapAutomaticReconciliation: false,
+      coordinatorBootstrapAutomaticStatus: false,
       coordinatorBootstrapAuthenticatedSubmission: false,
       coordinatorBootstrapUnavailableReason: unavailable!.unavailableReason,
     });
