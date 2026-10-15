@@ -3,6 +3,10 @@ import {
   type LifecycleActivationChild,
 } from "./coordinator-bootstrap-maintenance-child.js";
 import {
+  assertStandingBootstrapAuthority,
+  assertStandingBootstrapTransition,
+} from "./coordinator-bootstrap-maintenance-standing.js";
+import {
   assertMaintenanceEnrollmentClaim,
   readMaintenanceEnrollmentForClaim,
   unresolvedMaintenanceActivations,
@@ -561,6 +565,12 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
   ): void {
     for (const record of next) {
       const previous = expected.find((item) => item.id === record.id);
+      if (assertStandingBootstrapTransition(previous, record))
+        assertStandingBootstrapAuthority(
+          record,
+          readMaintenanceEnrollmentForClaim(this.directory),
+          Date.now(),
+        );
       const addsAuthority = record.enrollment && !previous?.enrollment;
       const startsEnrollmentClaim = record.enrollment && record.execution && !previous?.execution;
       const reservesLaunch = record.enrollmentDispatch && !previous?.enrollmentDispatch;

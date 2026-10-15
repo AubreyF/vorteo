@@ -1,3 +1,5 @@
+import { inspectStandingSourceProvenance } from "./maintenance/source-provenance.js";
+import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -62,9 +64,27 @@ const AdmissionSchema = z.object({
 const CANDIDATE_DIGEST_LIMITS = { maxFiles: 250_000, maxBytes: 8 * 1024 ** 3, timeoutMs: 120_000 };
 const PreparedSchema = z.object({ release: z.string(), exported: z.string() });
 
+function receiptDigest(buffers: Buffer[]): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(buffers.map((bytes) => createHash("sha256").update(bytes).digest("hex"))),
+    )
+    .digest("hex");
+}
+
 /** Only the protected coordinator turns an approved bundle into executable code. */
 export class InstallationSourceUpdates {
   private readonly directory: string;
+  private readonly candidateEvidence = new Map<
+    string,
+    {
+      sourceSha256: string;
+      artifactSha256: string;
+      verifiedAt: number;
+      files: string[];
+      receiptSha256: string;
+    }
+  >();
   constructor(
     private readonly config: InstallationConfig,
     private readonly target: RestartJob["target"] = "host",
@@ -198,6 +218,49 @@ export class InstallationSourceUpdates {
     return prepared.update;
   }
 
+  async inspectStandingSource(job: RestartJob, writableMountRoots: readonly string[]) {
+    const source = this.source();
+    if (!job.update) return { repository: null, assertCurrent: () => undefined };
+    const update = SourceUpdateSchema.parse(job.update);
+    if (source.baseCommit !== update.baseCommit || job.sourceBatch?.webCommit !== source.webCommit)
+      throw new Error("Installed source changed before standing approval");
+    const protectedPaths = [this.directory, this.settings().sourceRepository];
+    if (this.target === "host") protectedPaths.push(this.hostSettings().releaseRoot);
+    await assertBootstrapPathsProtected(protectedPaths, writableMountRoots);
+    const proof = await inspectStandingSourceProvenance({
+      repository: this.settings().sourceRepository,
+      bundleFile: this.bundlePath(update),
+      update,
+      writableMountRoots,
+    });
+    return {
+      repository: proof.repository,
+      assertCurrent: () => {
+        proof.assertCurrent();
+        if (!isDeepStrictEqual(this.source(), source))
+          throw new Error("Installed source changed after standing validation");
+      },
+    };
+  }
+
+  assertStandingPrepared(job: RestartJob): void {
+    if (!job.update) return;
+    const evidence = this.candidateEvidence.get(job.id);
+    if (
+      !evidence ||
+      evidence.sourceSha256 !== job.update.sha256 ||
+      Date.now() - evidence.verifiedAt > 30_000
+    )
+      throw new Error("Fresh built candidate evidence is unavailable");
+    if (
+      job.standingDecision?.activationStep &&
+      evidence.artifactSha256 !== job.standingDecision.activationStep.candidateArtifactSha256
+    )
+      throw new Error("Built candidate differs from the reviewed activation step");
+    if (receiptDigest(evidence.files.map((file) => readFileSync(file))) !== evidence.receiptSha256)
+      throw new Error("Prepared candidate descriptors changed after verification");
+  }
+
   async prepareInstallation(job: RestartJob): Promise<void> {
     const update = SourceUpdateSchema.parse(job.update);
     if (job.target !== this.target) throw new Error("Source update target changed");
@@ -289,25 +352,46 @@ export class InstallationSourceUpdates {
   ): Promise<void> {
     if (job.target !== this.target) throw new Error("Source update target changed");
     if (this.target !== "host") {
-      await verifyPreparedContainerSource(this.config, job, options.signal);
+      const { operation, receiptSha256 } = await verifyPreparedContainerSource(
+        this.config,
+        job,
+        options.signal,
+      );
+      if (operation.artifactSha256)
+        this.candidateEvidence.set(job.id, {
+          sourceSha256: operation.update.sha256,
+          artifactSha256: operation.artifactSha256,
+          verifiedAt: Date.now(),
+          files: [
+            path.join(this.config.stateDir, "container-source-updates", job.id, "prepared.json"),
+          ],
+          receiptSha256,
+        });
       return;
     }
-    await this.verifiedHostPreparation(job, options.signal);
+    const verified = await this.verifiedHostPreparation(job, options.signal);
+    if (verified.admission.candidateArtifactSha256)
+      this.candidateEvidence.set(job.id, {
+        sourceSha256: verified.admission.sourceSha256,
+        artifactSha256: verified.admission.candidateArtifactSha256,
+        verifiedAt: Date.now(),
+        files: verified.files,
+        receiptSha256: verified.receiptSha256,
+      });
   }
 
   private async verifiedHostPreparation(job: RestartJob, signal?: AbortSignal) {
     const update = SourceUpdateSchema.parse(job.update);
     const work = path.join(this.hostSettings().releaseRoot, job.id);
-    const prepared = PreparedSchema.parse(
-      JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
-    );
+    const files = [path.join(work, "prepared.json"), path.join(work, "admission.json")];
+    const buffers = files.map((file) => readFileSync(file));
+    const prepared = PreparedSchema.parse(JSON.parse(buffers[0].toString("utf8")));
     for (const directory of [prepared.release, prepared.exported]) {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
-    const admission = AdmissionSchema.parse(
-      JSON.parse(readFileSync(path.join(work, "admission.json"), "utf8")),
-    );
+    const admission = AdmissionSchema.parse(JSON.parse(buffers[1].toString("utf8")));
+    const receiptSha256 = receiptDigest(buffers);
     const receipt = ReceiptSchema.parse(
       JSON.parse(readFileSync(path.join(prepared.release, ".installation-source.json"), "utf8")),
     );
@@ -322,7 +406,7 @@ export class InstallationSourceUpdates {
     if (!admission.candidateArtifactSha256 || !admission.exportedArtifactSha256) {
       if (job.standingDecision)
         throw new Error("Standing source update requires built candidate evidence");
-      return { prepared, admission };
+      return { prepared, admission, files, receiptSha256 };
     }
     if (
       (await digestBootstrapArtifact(prepared.release, { ...CANDIDATE_DIGEST_LIMITS, signal })) !==
@@ -331,10 +415,14 @@ export class InstallationSourceUpdates {
         admission.exportedArtifactSha256
     )
       throw new Error("Prepared candidate content changed. No hold or replacement authorized.");
-    return { prepared, admission };
+    return { prepared, admission, files, receiptSha256 };
   }
 
-  async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
+  async install(
+    job: RestartJob,
+    restart: RestartExecutor["restart"],
+    beforeSelection?: () => Promise<void>,
+  ): Promise<string> {
     if (job.updatePreparation !== "prepared") await this.prepareInstallation(job);
     const update = SourceUpdateSchema.parse(job.update);
     if (job.target !== this.target) throw new Error("Source update target changed");
@@ -344,6 +432,7 @@ export class InstallationSourceUpdates {
         job,
         bundleFile: this.bundlePath(update),
         restart,
+        beforeSelection,
       });
     const settings = this.hostSettings();
     const work = path.join(settings.releaseRoot, job.id);
@@ -369,6 +458,7 @@ export class InstallationSourceUpdates {
       throw new Error(
         "Activation was already attempted. Inspect its retained receipt before recovery.",
       );
+    await beforeSelection?.();
     writeLifecycleReceipt(activationFile, {
       previous,
       candidate: prepared.release,

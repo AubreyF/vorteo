@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+
+### Added
+
+- Wire standing daemon decisions through the existing shared lifecycle journal, independently inspected native identity and protected source provenance. Recheck built candidates before hold and selection.
+- Support a reserved initial migration against older drain APIs through a durable acknowledgment tied to the daemon lifetime. Lost acknowledgments remain fenced, and release invalidates the retained authority before its RPC.
+- Project fresh native Host observations into installation health and expire unavailable observations. Refuse Dev identity until its persistent profile launcher is independently proven.
+- Prepare later coordinator standing approvals and one-shot launch reservations with a synchronous custody recheck under the existing lifecycle lock.
+- Retain the tested dual-slot launcher and startup-verification checkpoint without registering its unfinished runner role.
+
+### Validation and delivery
+
+- Focused tests cover shared-lock admission, source custody, initial migration, cancellation, changed process lifetime and stale health. Packaged browser fixtures use the compiled native coordinator boundary. Persistent recovery, Dev profile registration and installed acceptance remain open; this checkpoint does not activate maintenance.
+
 ## 0.11.0-beta.3.vorteo.559 - 2026-10-15
 
 ### Added

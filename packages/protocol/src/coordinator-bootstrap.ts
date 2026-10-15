@@ -2,6 +2,7 @@ import { PreviewMonitorConfigurationSchema } from "./preview-monitor-maintenance
 import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
 import { FactoryRuntimeAdoptionConfigurationSchema } from "./execution-installation.js";
 import { z } from "zod";
+import { StandingMaintenanceProposalSchema } from "./installation-enrollment.js";
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);
@@ -158,6 +159,24 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  standingAuthority: z
+    .strictObject({
+      grantId: z.uuid(),
+      grantRevision: z.uuid(),
+      manifestSha256: DigestSchema,
+      proposal: StandingMaintenanceProposalSchema,
+      nativeEvidenceSha256: DigestSchema,
+      decidedAt: z.string().datetime(),
+      dispatchAfter: z.string().datetime(),
+    })
+    .optional(),
+  standingDispatch: z
+    .strictObject({
+      approvedRevision: z.uuid(),
+      requestedAt: z.string().datetime(),
+      nativeEvidenceSha256: DigestSchema,
+    })
+    .optional(),
   // Separate standing consent; never inferred from legacy approval or policy flags.
   enrollment: CoordinatorEnrollmentAuthoritySchema.optional(),
   enrollmentDispatch: z

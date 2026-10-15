@@ -35,7 +35,9 @@ import {
   type IsolatedHostDaemon,
 } from "../support/helpers/isolated-host-daemon";
 import { hashDaemonPassword } from "../../../server/src/server/auth";
-import { createInstallationServer } from "../../../server/src/server/execution-installation/server";
+// Keep the native coordinator in its Node build boundary. Expo's global
+// environment declarations do not describe its protected subprocess environment.
+import { createInstallationServer } from "../../../server/dist/server/server/execution-installation/server";
 import {
   connectInstallationDaemon,
   createInstallationRestartExecutor,
@@ -43,11 +45,11 @@ import {
 import {
   createInstallationProfiles,
   startProfileSynchronization,
-} from "../../../server/src/server/execution-installation/profiles/runtime";
+} from "../../../server/dist/server/server/execution-installation/profiles/runtime";
 import {
   createInstallationSettings,
   startSettingsReconciliation,
-} from "../../../server/src/server/execution-installation/settings/runtime";
+} from "../../../server/dist/server/server/execution-installation/settings/runtime";
 import type { InstallationConfig } from "../../../server/src/server/execution-installation/config";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";

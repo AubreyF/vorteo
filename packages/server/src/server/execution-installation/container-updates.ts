@@ -89,6 +89,7 @@ interface ContainerInstallation {
   job: RestartJob;
   bundleFile: string;
   restart: RestartExecutor["restart"];
+  beforeSelection?: () => Promise<void>;
 }
 
 export async function prepareContainerSource({
@@ -188,15 +189,17 @@ export async function verifyPreparedContainerSource(
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
   const work = path.join(config.stateDir, "container-source-updates", job.id);
-  const operation = PreparedContainerSchema.parse(
-    JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
-  );
+  const receipt = readFileSync(path.join(work, "prepared.json"));
+  const operation = PreparedContainerSchema.parse(JSON.parse(receipt.toString("utf8")));
+  const receiptSha256 = createHash("sha256")
+    .update(JSON.stringify([createHash("sha256").update(receipt).digest("hex")]))
+    .digest("hex");
   if (JSON.stringify(operation.update) !== JSON.stringify(SourceUpdateSchema.parse(job.update)))
     throw new Error("Prepared Dev candidate belongs to different approved source");
   if (!operation.artifactSha256) {
     if (job.standingDecision)
       throw new Error("Standing Dev updates require built candidate evidence");
-    return operation;
+    return { operation, receiptSha256 };
   }
   if (
     job.standingDecision?.activationStep &&
@@ -216,20 +219,21 @@ export async function verifyPreparedContainerSource(
     observed.artifactSha256 !== operation.artifactSha256
   )
     throw new Error("Native Dev candidate verification differs from preparation");
-  return operation;
+  return { operation, receiptSha256 };
 }
 
 export async function installContainerSource({
   config,
   job,
   restart,
+  beforeSelection,
 }: ContainerInstallation): Promise<string> {
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
   const update = SourceUpdateSchema.parse(job.update);
   const work = path.join(config.stateDir, "container-source-updates", job.id);
-  const operation = await verifyPreparedContainerSource(config, job);
+  const { operation } = await verifyPreparedContainerSource(config, job);
   const installed = SelectionSchema.parse(
     await containerCommand({ settings, operation: { action: "inspect" } }),
   );
@@ -246,6 +250,7 @@ export async function installContainerSource({
     throw new Error(
       "Dev activation was already attempted. Inspect its retained receipt before recovery.",
     );
+  await beforeSelection?.();
   writeLifecycleReceipt(receipt, { ...operation, status: "activating" });
   await containerCommand({ settings, operation: { ...operation, action: "activate" } });
   try {

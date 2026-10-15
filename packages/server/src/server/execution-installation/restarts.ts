@@ -90,11 +90,15 @@ export interface RestartExecutor {
   ): Promise<SourceUpdate>;
   prepareInstallation?(job: RestartJob): Promise<void>;
   verifyPreparedInstallation?(job: RestartJob, options?: { signal?: AbortSignal }): Promise<void>;
+  /** Final independent evidence after the locked running reservation. */
+  verifyDispatch?(job: RestartJob): Promise<void>;
   installUpdate?(job: RestartJob): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
   holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
+  /** Independently inspected process birth and boot identity, only for initial migration. */
+  initialActivationInstance?(job: RestartJob): Promise<string>;
   releaseCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
 }
 
@@ -1515,8 +1519,11 @@ export class InstallationRestarts {
     if (!this.executor.inspect || !this.executor.holdCurrentTurns || !job.standingDecision)
       throw new RestartRequestError("Standing hold inspection is unavailable");
     let impact = await this.executor.inspect(job.target);
-    if (!impact.restartDrainObservationSupported || impact.restartDrainId === undefined)
+    if (!impact.restartDrainObservationSupported || impact.restartDrainId === undefined) {
+      if (job.standingDecision.activationStep && this.executor.initialActivationInstance)
+        return this.inspectInitialLegacyHold(job);
       throw new RestartRequestError("Target must support verified restart hold observation");
+    }
     if (!job.standingHold) {
       if (impact.restartDrainId !== null)
         throw new RestartRequestError("Another restart hold requires reconciliation");
@@ -1554,6 +1561,53 @@ export class InstallationRestarts {
         standingHold: { ...current.standingHold, observedAt: new Date(this.now()).toISOString() },
       });
     return impact;
+  }
+
+  private async inspectInitialLegacyHold(job: RestartJob): Promise<RestartImpact> {
+    const instance = await this.executor.initialActivationInstance!(job);
+    if (!job.standingHold) {
+      this.refreshApprovalPolicy();
+      const current = this.jobs.find((item) => item.id === job.id);
+      if (current?.status !== "approved" || current.revision !== job.revision)
+        throw new RestartRequestError("Initial permission changed before hold reservation");
+      job = {
+        ...current,
+        standingHold: {
+          generation: randomUUID(),
+          grantRevision: current.standingDecision!.grantRevision,
+          decisionSha256: createHash("sha256")
+            .update(JSON.stringify(current.standingDecision))
+            .digest("hex"),
+          reservedAt: new Date(this.now()).toISOString(),
+          initialDaemonInstanceSha256: instance,
+        },
+      };
+      this.replace(job);
+      await this.executor.holdCurrentTurns!(job.target, job.id);
+      if ((await this.executor.initialActivationInstance!(job)) !== instance)
+        throw new RestartRequestError("Initial daemon lifetime changed during hold admission");
+      const acknowledged = this.jobs.find((item) => item.id === job.id);
+      if (acknowledged?.status !== "approved" || acknowledged.revision !== job.revision)
+        throw new RestartRequestError("Initial hold requires cancellation reconciliation");
+      job = {
+        ...acknowledged,
+        standingHold: {
+          ...job.standingHold!,
+          acknowledgedAt: new Date(this.now()).toISOString(),
+        },
+      };
+      this.replace(job);
+    }
+    if (
+      !job.standingHold?.acknowledgedAt ||
+      job.standingHold.initialDaemonInstanceSha256 !== instance
+    )
+      throw new RestartRequestError(
+        "Initial restart hold is uncertain; reconcile without repeating it",
+      );
+    // A drain acknowledgment only closes admission. Preparation continues
+    // asynchronously and is accounted for by the actual pending-start inventory.
+    return this.executor.inspect!(job.target);
   }
 
   private approveTrustedHostRequests(): void {
@@ -1717,6 +1771,31 @@ export class InstallationRestarts {
     }
   }
 
+  private async releaseCompletedHold(job: RestartJob): Promise<void> {
+    if (!this.executor.releaseCurrentTurns) return;
+    try {
+      if (job.standingHold && !job.standingHold.releaseRequestedAt) {
+        job = {
+          ...job,
+          standingHold: {
+            ...job.standingHold,
+            releaseRequestedAt: new Date(this.now()).toISOString(),
+          },
+        };
+        // Invalidate authority before a release can reach the daemon, including
+        // when its response is lost. Release retries never authorize a restart.
+        this.replace(job);
+      }
+      await this.executor.releaseCurrentTurns(job.target, job.id);
+      this.replace({ ...job, holdReleased: true });
+    } catch {
+      this.replace({
+        ...job,
+        detail: "Waiting for the environment to release its restart hold.",
+      });
+    }
+  }
+
   async drain(): Promise<void> {
     if (!this.active) return;
     this.refreshApprovalPolicy();
@@ -1731,19 +1810,8 @@ export class InstallationRestarts {
           candidate.finishCurrentTurns &&
           !candidate.holdReleased &&
           ["rejected", "failed", "succeeded"].includes(candidate.status),
-      )) {
-        if (!this.executor.releaseCurrentTurns) continue;
-        try {
-          await this.executor.releaseCurrentTurns(job.target, job.id);
-          this.replace({ ...job, holdReleased: true });
-        } catch {
-          // Keep release intent durable and retry without dispatching a restart.
-          this.replace({
-            ...job,
-            detail: "Waiting for the environment to release its restart hold.",
-          });
-        }
-      }
+      ))
+        await this.releaseCompletedHold(job);
       if (!this.lifecycleAdmitted()) {
         await this.drainActivationChildren();
         return;
@@ -1955,13 +2023,14 @@ export class InstallationRestarts {
     );
   }
 
-  private executeApproved(job: RestartJob): Promise<string | null> {
+  private async executeApproved(job: RestartJob): Promise<string | null> {
     if (
       job.automaticApproval &&
       (job.automaticApproval.requestRevision !== job.revision ||
         job.automaticApproval.sourceSha256 !== job.update?.sha256)
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
+    await this.executor.verifyDispatch?.(job);
     if (job.factoryRuntimePlanSha256) {
       if (
         !this.executor.adoptFactoryRuntime ||

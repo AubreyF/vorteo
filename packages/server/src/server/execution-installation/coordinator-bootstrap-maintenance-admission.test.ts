@@ -1335,3 +1335,226 @@ test.each([
     await expect(result).rejects.toThrow();
   }
 });
+
+test.each([
+  "valid",
+  "revoked",
+  "incomplete",
+  "candidate",
+  "plan",
+  "mixed",
+  "early",
+  "claim-without-dispatch",
+  "producer",
+  "stale-evidence",
+  "changed-during-native",
+  "changed-before-decision",
+  "changed-before-dispatch",
+  "async-recheck",
+] as const)("standing coordinator uses retained grant and shared journal: %s", async (mode) => {
+  const f = await enrollmentFixture();
+  const { reserveActivationStep, observeActivationStep } =
+    await import("./maintenance/authorization.js");
+  const enrolled = f.enrollInstallation(f.journal, {
+    manifest: f.manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: f.manifest.revision,
+      manifestSha256: f.enrollmentManifestDigest(f.manifest),
+      approvedAt: new Date(Date.now() - 60_000).toISOString(),
+    },
+  });
+  if (enrolled.status !== "enrolled") throw Error("fixture enrollment");
+  const reserved = reserveActivationStep(f.journal, {
+    grantRevision: enrolled.grant.revision,
+    stepId: f.manifest.steps[0].id,
+  });
+  if (reserved.status !== "enrolled" || reserved.activation.steps[0].status !== "reserved")
+    throw Error("fixture reservation");
+  if (mode !== "incomplete")
+    observeActivationStep(f.journal, {
+      stepId: f.manifest.steps[0].id,
+      generation: reserved.activation.steps[0].generation,
+      outcome: "succeeded",
+      observationSha256: "a".repeat(64),
+    });
+  const plan = structuredClone(f.input.plan);
+  // This proposal is intentionally different from the initial enrollment plan.
+  plan.candidate.sourceCommit = "9".repeat(40);
+  const pending = CoordinatorBootstrapRequestSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Later fixture proposal",
+    createdAt: new Date(Date.now() - 40_000).toISOString(),
+    plan,
+    planSha256: coordinatorPlanDigest(plan),
+    status: "pending",
+  });
+  const journal = new FileBootstrapRequestJournal(plan.state.directory);
+  journal.replace([], [pending]);
+  const decidedAt = new Date(Date.now() - 31_000).toISOString();
+  const approved = CoordinatorBootstrapRequestSchema.parse({
+    ...pending,
+    revision: randomUUID(),
+    status: "approved",
+    decisionAt: decidedAt,
+    standingAuthority: {
+      grantId: enrolled.grant.id,
+      grantRevision: enrolled.grant.revision,
+      manifestSha256: f.enrollmentManifestDigest(f.manifest),
+      proposal: {
+        id: pending.id,
+        installationId: plan.installationId,
+        requestedBy: "container-agent",
+        target: "coordinator",
+        identitySha256: "a".repeat(64),
+        operation: "replacement",
+        planSha256: pending.planSha256,
+        repository: f.manifest.trustedRepositories[0],
+        sourceCommit: plan.candidate.sourceCommit,
+        artifactSha256: plan.candidate.artifactSha256,
+      },
+      nativeEvidenceSha256: "b".repeat(64),
+      decidedAt,
+      dispatchAfter: new Date(Date.parse(decidedAt) + 30_000).toISOString(),
+    },
+  });
+  if (
+    [
+      "producer",
+      "stale-evidence",
+      "changed-during-native",
+      "changed-before-decision",
+      "changed-before-dispatch",
+      "async-recheck",
+    ].includes(mode)
+  ) {
+    const { approveStandingBootstrap, reserveStandingBootstrapLaunch } =
+      await import("./coordinator-bootstrap-maintenance-standing-dispatch.js");
+    const probeLock = () => journal.withRecoveryTransaction(() => {});
+    const verify = vi.fn(async (request: typeof pending) => {
+      if (mode === "changed-during-native")
+        journal.replace([pending], [{ ...pending, revision: randomUUID(), status: "canceled" }]);
+      return {
+        requestId: request.id,
+        requestRevision: request.revision,
+        planSha256: request.planSha256,
+        identitySha256: "a".repeat(64),
+        sourceCommit: request.plan.candidate.sourceCommit,
+        artifactSha256: request.plan.candidate.artifactSha256,
+        evidenceSha256: "b".repeat(64),
+        assertCurrent: () => {
+          expect(probeLock).toThrow("storage is busy");
+          if (
+            mode === "changed-before-decision" ||
+            (mode === "changed-before-dispatch" && request.status === "approved")
+          )
+            throw new Error("Native source selection changed");
+          if (mode === "async-recheck") return Promise.resolve();
+        },
+        observedAt: new Date(Date.now() - (mode === "stale-evidence" ? 31_000 : 0)).toISOString(),
+      };
+    });
+    const operation = approveStandingBootstrap({
+      request: pending,
+      proposal: approved.standingAuthority!.proposal,
+      grantRevision: enrolled.grant.revision,
+      verify,
+    });
+    if (mode !== "producer" && mode !== "changed-before-dispatch") {
+      await expect(operation).rejects.toThrow();
+      expect(journal.read()[0].status).toBe(
+        mode === "changed-during-native" ? "canceled" : "pending",
+      );
+      return;
+    }
+    const decision = await operation;
+    await expect(reserveStandingBootstrapLaunch({ request: decision, verify })).rejects.toThrow(
+      "interval",
+    );
+    expect(verify).toHaveBeenCalledTimes(1);
+    vi.spyOn(Date, "now").mockReturnValue(
+      Date.parse(decision.standingAuthority!.dispatchAfter) + 1,
+    );
+    if (mode === "changed-before-dispatch") {
+      await expect(reserveStandingBootstrapLaunch({ request: decision, verify })).rejects.toThrow(
+        "Native source selection changed",
+      );
+      expect(journal.read()).toEqual([decision]);
+      expect(journal.read()[0].standingDispatch).toBeUndefined();
+      return;
+    }
+    const launch = await reserveStandingBootstrapLaunch({ request: decision, verify });
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(launch.standingDispatch!.nativeEvidenceSha256).toBe("b".repeat(64));
+    const changed = structuredClone(launch);
+    changed.plan.candidate.sourceCommit = "7".repeat(40);
+    expect(() => journal.replace([launch], [changed])).toThrow("plan cannot change");
+    await expect(reserveStandingBootstrapLaunch({ request: launch, verify })).rejects.toThrow(
+      "already reserved",
+    );
+    expect(journal.read()).toEqual([launch]);
+    return;
+  }
+  if (mode === "revoked")
+    f.changeStandingGrant(f.journal, {
+      expectedRevision: enrolled.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+  if (mode === "candidate") approved.standingAuthority!.proposal.sourceCommit = "8".repeat(40);
+  if (mode === "plan") approved.standingAuthority!.proposal.planSha256 = "0".repeat(64);
+  if (mode === "mixed")
+    approved.automaticSubmission = {
+      credentialBinding: "a".repeat(64),
+      policyActivatedAt: decidedAt,
+      submittedAt: decidedAt,
+    };
+  if (["revoked", "incomplete", "candidate", "plan", "mixed"].includes(mode)) {
+    expect(() => journal.replace([pending], [approved])).toThrow();
+    expect(journal.read()).toEqual([pending]);
+    return;
+  }
+  if (mode === "early")
+    approved.standingAuthority!.dispatchAfter = new Date(Date.now() + 30_000).toISOString();
+  journal.replace([pending], [approved]);
+  const dispatch = CoordinatorBootstrapRequestSchema.parse({
+    ...approved,
+    revision: randomUUID(),
+    standingDispatch: {
+      approvedRevision: approved.revision,
+      requestedAt: new Date().toISOString(),
+      nativeEvidenceSha256: "b".repeat(64),
+    },
+  });
+  if (mode === "early") {
+    expect(() => journal.replace([approved], [dispatch])).toThrow("interval");
+    return;
+  }
+  const claim = {
+    ...dispatch,
+    revision: randomUUID(),
+    execution: {
+      generation: randomUUID(),
+      stage: "claimed" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  if (mode === "claim-without-dispatch") {
+    expect(() => journal.replace([approved], [claim])).toThrow("reserved native dispatch");
+    return;
+  }
+  journal.replace([approved], [dispatch]);
+  expect(journal.read()[0].standingAuthority!.proposal.requestedBy).toBe("container-agent");
+  f.changeStandingGrant(f.journal, {
+    expectedRevision: enrolled.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => journal.replace([dispatch], [claim])).toThrow();
+  expect(journal.read()).toEqual([dispatch]);
+});

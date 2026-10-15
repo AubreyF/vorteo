@@ -192,6 +192,14 @@ export const StandingRestartHoldSchema = z.strictObject({
   decisionSha256: z.string().regex(/^[a-f0-9]{64}$/),
   reservedAt: z.string().datetime(),
   observedAt: z.string().datetime().optional(),
+  /** Only the reserved initial migration may use an acknowledged legacy drain.
+   * It remains bound to one independently inspected daemon lifetime. */
+  initialDaemonInstanceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  acknowledgedAt: z.string().datetime().optional(),
+  releaseRequestedAt: z.string().datetime().optional(),
 });
 
 export const RestartJobSchema = RestartRequestSchema.extend({

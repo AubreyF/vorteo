@@ -1,13 +1,13 @@
 import { DaemonAutomation } from "./daemon-automation.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { projectEnrollmentStatus } from "./maintenance/status.js";
+import { createDaemonStandingRuntime } from "./maintenance/daemon-standing-runtime.js";
 import {
   coordinatorAutomaticStatus,
   BootstrapRequestConflict,
   openBootstrapRequests,
   type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
-import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
@@ -265,7 +265,6 @@ export function createInstallationServer(
   coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-  const journal = new FileBootstrapRequestJournal(config.stateDir);
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
@@ -278,6 +277,7 @@ export function createInstallationServer(
       throw new RestartRequestError("Source updates require installation setup for this target");
     return updater;
   };
+  const standingRuntime = createDaemonStandingRuntime(config, updates);
   const restartExecutor: RestartExecutor = {
     ...executor,
     supportsUpdate: (target) => updates[target] !== null,
@@ -288,20 +288,28 @@ export function createInstallationServer(
     prepareDevRepair: (capture, items) =>
       forTarget("container-daemon").prepareDevRepair(capture, items),
     prepareInstallation: (job) => forTarget(job.target).prepareInstallation(job),
-    verifyPreparedInstallation: (job, options) =>
-      forTarget(job.target).verifyPreparedInstallation(job, options),
+    verifyPreparedInstallation: async (job, options) => {
+      await forTarget(job.target).verifyPreparedInstallation(job, options);
+      await standingRuntime.refresh([job], true);
+    },
+    initialActivationInstance: (job) => standingRuntime.initialActivationInstance(job),
+    verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
     installUpdate: (job) =>
-      forTarget(job.target).install(job, async (target) => {
-        if (!job.whenIdle) return executor.restart(target);
-        if (!executor.restartWhenIdle)
-          throw new RestartRequestError("Safe update admission is unavailable");
-        const detail = await executor.restartWhenIdle(target);
-        if (detail === null)
-          throw new RestartRequestError(
-            "Target admitted new work before replacement. No restart dispatched.",
-          );
-        return detail;
-      }),
+      forTarget(job.target).install(
+        job,
+        async (target) => {
+          if (!job.whenIdle) return executor.restart(target);
+          if (!executor.restartWhenIdle)
+            throw new RestartRequestError("Safe update admission is unavailable");
+          const detail = await executor.restartWhenIdle(target);
+          if (detail === null)
+            throw new RestartRequestError(
+              "Target admitted new work before replacement. No restart dispatched.",
+            );
+          return detail;
+        },
+        () => standingRuntime.verifySelection(job, executor),
+      ),
   };
   const daemonAutomation = new DaemonAutomation(
     config.stateDir,
@@ -309,15 +317,12 @@ export function createInstallationServer(
     config.restartApprovalPolicy?.hostRequestsAfter,
   );
   const restarts = new InstallationRestarts(
-    {
-      read: () => journal.readLifecycle(),
-      write: (jobs) => journal.writeLifecycle(jobs),
-      admissionAvailable: () => journal.lifecycleAdmissionAvailable(),
-    },
+    standingRuntime.journal,
     restartExecutor,
     Date.now,
     {
       ...config.restartApprovalPolicy,
+      standingDecision: standingRuntime.standingDecision,
       daemonRequestsAfter: (target) => daemonAutomation.activation(target),
       supervisorRequestsAfter: () => daemonAutomation.activation("supervisor") ?? null,
       cancellationDelayMs: 30_000,
@@ -345,6 +350,7 @@ export function createInstallationServer(
     try {
       if (startupReleased()) {
         coordinatorRequests?.revokeAutomatic();
+        await standingRuntime.refresh(restarts.list());
         await restarts.drain();
         if (coordinatorRequests && !coordinatorReconciliation) {
           coordinatorReconciliation = reconcileInstallationCoordinator(config, coordinatorRequests)
@@ -1309,7 +1315,7 @@ export function createInstallationServer(
         installationId: config.public.installationId,
         state: enrollment,
         checkedAt: new Date().toISOString(),
-        observations: [],
+        observations: standingRuntime.observations(),
         freshnessMs: 30_000,
       }),
     );

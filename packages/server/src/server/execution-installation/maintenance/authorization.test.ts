@@ -1,3 +1,8 @@
+import { inspectStandingSourceProvenance } from "./source-provenance.js";
+import { createDaemonStandingRuntime } from "./daemon-standing-runtime.js";
+import type { InstallationConfig } from "../config.js";
+import { execFileSync } from "node:child_process";
+import { createStandingRestartAdapter } from "./restart-adapter.js";
 import {
   readEnrollmentNativeIdentity,
   retainEnrollmentNativeIdentity,
@@ -1181,6 +1186,53 @@ test("standing queue admission refuses changed plans, stale decisions and uncert
   );
 });
 
+test("later standing work cannot forge a legacy acknowledgment or reuse released hold authority", () => {
+  const f = restartAdmissionFixture();
+  const reserved = f.reserveHold(f.approved);
+  const forged = {
+    ...reserved,
+    standingHold: {
+      ...reserved.standingHold!,
+      initialDaemonInstanceSha256: "a".repeat(64),
+      acknowledgedAt: new Date().toISOString(),
+    },
+  };
+  expect(() => f.admit([f.approved], [forged])).toThrow("exact initial child");
+  const observed = {
+    ...reserved,
+    standingHold: { ...reserved.standingHold!, observedAt: new Date().toISOString() },
+  };
+  expect(() =>
+    f.admit(
+      [observed],
+      [
+        {
+          ...observed,
+          standingHold: { ...observed.standingHold, releaseRequestedAt: new Date().toISOString() },
+        },
+      ],
+    ),
+  ).toThrow("terminal");
+  const released = {
+    ...observed,
+    status: "rejected" as const,
+    standingHold: { ...observed.standingHold, releaseRequestedAt: new Date().toISOString() },
+  };
+  f.admit([observed], [released]);
+  expect(() => f.admit([released], [{ ...released, status: "running" }])).toThrow();
+  expect(() =>
+    f.admit(
+      [released],
+      [
+        {
+          ...released,
+          standingHold: { ...released.standingHold, releaseRequestedAt: undefined },
+        },
+      ],
+    ),
+  ).toThrow("reservation changed");
+});
+
 test("standing policy denies unverified activation, wrong native identity and revoked scope", () => {
   const f = restartAdmissionFixture();
   const context = {
@@ -1413,4 +1465,417 @@ test("identity publication failures and retained temporary aliases reconcile wit
   expect(retainEnrollmentNativeIdentity(f.directory, descriptor)).toBe(digest);
   expect(existsSync(temporary)).toBe(false);
   expect(readEnrollmentNativeIdentity(f.directory, digest)).toEqual(descriptor);
+});
+
+test("shared-lock restart adapter rereads revocation before effect reservation", () => {
+  const f = restartAdmissionFixture();
+  const phases: string[] = [];
+  const input = {
+    directory: f.directory,
+    installationId: f.manifest.installationId,
+    credentialBindingSha256: "9".repeat(64),
+    ports: {
+      evidence: () => ({ nativeIdentitySha256: "c".repeat(64), repository: null }),
+      assertEvidence: (_job: RestartJob, phase: string) => {
+        phases.push(phase);
+      },
+    },
+  };
+  const adapter = createStandingRestartAdapter(input);
+  adapter.journal.write([f.pending]);
+  expect(adapter.standingDecision(f.pending)).toMatchObject({ grantId: f.state.grant.id });
+  adapter.journal.write([f.approved]);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const reopened = createStandingRestartAdapter(input);
+  expect(reopened.standingDecision(f.approved)).toBeNull();
+  expect(() => reopened.journal.write([f.reserveHold(f.approved)])).toThrow("authority changed");
+  expect(reopened.journal.read()).toEqual([f.approved]);
+  reopened.journal.write([{ ...f.approved, status: "rejected" }]);
+  expect(reopened.journal.read()[0].status).toBe("rejected");
+  expect(phases).toEqual(["preparation"]);
+});
+
+test("shared-lock adapter distinguishes never enrolled from missing native evidence and corrupt state", () => {
+  const f = fixture();
+  const job = restartAdmissionFixture().pending;
+  const adapter = createStandingRestartAdapter({
+    directory: f.directory,
+    installationId: f.manifest.installationId,
+    credentialBindingSha256: "9".repeat(64),
+    ports: { evidence: () => null, assertEvidence: () => undefined },
+  });
+  expect(adapter.standingDecision(job)).toBeUndefined();
+  f.enroll();
+  expect(adapter.standingDecision(job)).toBeNull();
+  writeFileSync(path.join(f.directory, "maintenance-enrollment.json"), "incomplete");
+  expect(() => adapter.standingDecision(job)).toThrow();
+});
+
+test("standing source evidence binds protected bytes and the local clone's HTTPS origin", async () => {
+  const f = fixture();
+  const first = path.join(f.directory, "first.git"),
+    upstream = path.join(f.directory, "upstream.git");
+  for (const repo of [first, upstream])
+    execFileSync("git", ["init", "--bare", "--template=", repo], { stdio: "ignore" });
+  const firstConfig = path.join(first, "config"),
+    upstreamConfig = path.join(upstream, "config");
+  execFileSync("git", ["config", "--file", firstConfig, "remote.origin.url", upstream]);
+  const repository = "https://github.com/example/installation.git";
+  execFileSync("git", ["config", "--file", upstreamConfig, "remote.origin.url", repository]);
+  const bundle = Buffer.from("exact staged source");
+  const bundleFile = path.join(f.directory, "source.bundle");
+  writeFileSync(bundleFile, bundle, { mode: 0o600 });
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    bytes: bundle.length,
+    sha256: createHash("sha256").update(bundle).digest("hex"),
+  };
+  const proof = await inspectStandingSourceProvenance({
+    repository: first,
+    bundleFile,
+    update,
+    writableMountRoots: [],
+  });
+  expect(proof.repository).toBe(repository);
+  proof.assertCurrent();
+  writeFileSync(bundleFile, "different bytes");
+  expect(() => proof.assertCurrent()).toThrow("changed");
+  await expect(
+    inspectStandingSourceProvenance({
+      repository: first,
+      bundleFile,
+      update,
+      writableMountRoots: [],
+    }),
+  ).rejects.toThrow("exact request");
+  writeFileSync(bundleFile, bundle);
+  const repoProof = await inspectStandingSourceProvenance({
+    repository: first,
+    bundleFile,
+    update,
+    writableMountRoots: [],
+  });
+  execFileSync("git", [
+    "config",
+    "--file",
+    upstreamConfig,
+    "remote.origin.url",
+    "https://github.com/example/changed.git",
+  ]);
+  expect(() => repoProof.assertCurrent()).toThrow("changed");
+  await expect(
+    inspectStandingSourceProvenance({
+      repository: first,
+      bundleFile,
+      update,
+      writableMountRoots: [f.directory],
+    }),
+  ).rejects.toThrow("writable container mount");
+});
+
+test("standing source origin refuses credentials and circular local origins", async () => {
+  const f = fixture();
+  const repo = path.join(f.directory, "repo.git");
+  execFileSync("git", ["init", "--bare", "--template=", repo], { stdio: "ignore" });
+  const file = path.join(repo, "config");
+  const bytes = Buffer.from("source");
+  const bundleFile = path.join(f.directory, "bundle");
+  writeFileSync(bundleFile, bytes, { mode: 0o600 });
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  const inspect = () =>
+    inspectStandingSourceProvenance({
+      repository: repo,
+      bundleFile,
+      update,
+      writableMountRoots: [],
+    });
+  execFileSync("git", [
+    "config",
+    "--file",
+    file,
+    "remote.origin.url",
+    "https://user:fixture-password@example.com/repo.git",
+  ]);
+  await expect(inspect()).rejects.toThrow("credential-free");
+  execFileSync("git", ["config", "--file", file, "remote.origin.url", repo]);
+  await expect(inspect()).rejects.toThrow("circular");
+});
+
+test("temporary native unavailability retains authorization while refusing new effects", () => {
+  const f = restartAdmissionFixture();
+  let available = true;
+  const adapter = createStandingRestartAdapter({
+    directory: f.directory,
+    installationId: f.manifest.installationId,
+    credentialBindingSha256: "9".repeat(64),
+    ports: {
+      evidence: () =>
+        available ? { nativeIdentitySha256: "c".repeat(64), repository: null } : null,
+      assertEvidence: () => undefined,
+    },
+  });
+  adapter.journal.write([f.pending]);
+  adapter.journal.write([f.approved]);
+  available = false;
+  expect(adapter.standingDecision(f.pending)).toBeNull();
+  expect(adapter.standingDecision(f.approved)).toMatchObject({ grantId: f.state.grant.id });
+  expect(() => adapter.journal.write([f.reserveHold(f.approved)])).toThrow("authority changed");
+  expect(adapter.journal.read()).toEqual([f.approved]);
+  available = true;
+  adapter.journal.write([f.reserveHold(f.approved)]);
+  expect((adapter.journal.read()[0] as RestartJob).standingHold).toBeDefined();
+});
+
+test("daemon evidence expires, failed refresh clears health, and manual selection preserves native binding", async () => {
+  const f = fixture();
+  const descriptor = {
+    version: 1 as const,
+    environment: "host" as const,
+    target: "host" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: process.getuid!(),
+    installationRoot: f.directory,
+    stateDirectory: f.directory,
+    serviceDomain: `gui/${process.getuid!()}`,
+    serviceLabel: "local.vorteo.runtime-test.host",
+    launcherPath: path.join(f.directory, "host-launcher"),
+    selectionPath: null,
+  };
+  const identitySha256 = retainEnrollmentNativeIdentity(f.directory, descriptor);
+  f.manifest.targets[2] = {
+    target: "host",
+    identitySha256,
+    operations: ["restart", "source-update"],
+  };
+  f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
+  f.enroll();
+  const config: InstallationConfig = {
+    public: {
+      version: 1,
+      installationId: f.manifest.installationId,
+      origin: "https://installation.example",
+      environments: [
+        { kind: "host", serverId: "host", endpoint: "host.example", useTls: true },
+        { kind: "container", serverId: "dev", endpoint: "dev.example", useTls: true },
+      ],
+    },
+    stateDir: f.directory,
+    webDistDir: f.directory,
+    listenPort: 6770,
+    ownerPasswordHash: "$2-fixture",
+    hostAgentTokenHash: "0".repeat(64),
+    containerAgentTokenHash: "1".repeat(64),
+    host: {
+      endpoint: "localhost:6771",
+      password: "fixture",
+      launchdService: `gui/${process.getuid!()}/local.vorteo.runtime-test.host`,
+    },
+    container: { endpoint: "localhost:6772", password: "fixture" },
+  };
+  let now = Date.parse("2026-10-15T02:00:00Z"),
+    unavailable = false,
+    birth = "initial-birth";
+  const runtimeProcess = {
+    pid: 100,
+    parentPid: 1,
+    uid: process.getuid!(),
+    bootId: "boot",
+    startIdentity: birth,
+    executable: process.execPath,
+    argumentsSha256: "a".repeat(64),
+  };
+  const runtime = createDaemonStandingRuntime(
+    config,
+    { host: null, "container-daemon": null },
+    {
+      now: () => now,
+      inspect: async () => {
+        if (unavailable) throw new Error("Endpoint unavailable");
+        return {
+          descriptor,
+          identitySha256,
+          observedAt: new Date(now).toISOString(),
+          custodyStateDirectory: f.directory,
+          assertCurrent() {},
+          writableMountRoots: [],
+          serverId: "host",
+          selectedRelease: path.join(f.directory, "release"),
+          sourceCommit: "a".repeat(40),
+          supervisor: runtimeProcess,
+          worker: { ...runtimeProcess, pid: 101, parentPid: 100, startIdentity: birth },
+        };
+      },
+    },
+  );
+  await runtime.refresh([]);
+  expect(runtime.observations()[0]).toMatchObject({
+    readiness: "ready",
+    selectedSource: "a".repeat(40),
+  });
+  now += 30_001;
+  expect(runtime.observations()).toEqual([]);
+  await runtime.refresh([]);
+  expect(runtime.observations()).toHaveLength(1);
+  unavailable = true;
+  await runtime.refresh([], true);
+  expect(runtime.observations()).toEqual([]);
+  unavailable = false;
+  let state = enrolled(f.journal.read());
+  for (const stepId of [f.first, f.second]) {
+    state = enrolled(
+      reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId }),
+    );
+    const progress = state.activation.steps.find((item) => item.id === stepId)!;
+    if (progress.status !== "reserved") throw new Error("Expected reservation");
+    state = enrolled(
+      observeActivationStep(f.journal, {
+        stepId,
+        generation: progress.generation,
+        outcome: "succeeded",
+        observationSha256: "a".repeat(64),
+      }),
+    );
+  }
+  const pending: RestartJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "host",
+    requestedBy: "host-agent",
+    reason: "Enrolled maintenance",
+    createdAt: new Date(now).toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Prepared",
+  };
+  await runtime.refresh([pending], true);
+  const decision = runtime.standingDecision(pending);
+  if (!decision) throw new Error("Expected enrolled decision");
+  const revision = randomUUID();
+  const approved: RestartJob = {
+    ...pending,
+    revision,
+    status: "approved",
+    whenIdle: true,
+    finishCurrentTurns: true,
+    standingDecision: { ...decision, requestRevision: revision },
+    automaticApproval: { policyActivatedAt: decision.policyActivatedAt, requestRevision: revision },
+  };
+  runtime.journal.write([pending]);
+  runtime.journal.write([approved]);
+  const reserved: RestartJob = {
+    ...approved,
+    standingHold: {
+      generation: randomUUID(),
+      grantRevision: state.grant.revision,
+      decisionSha256: createHash("sha256")
+        .update(JSON.stringify(approved.standingDecision))
+        .digest("hex"),
+      reservedAt: new Date(now).toISOString(),
+    },
+  };
+  runtime.journal.write([reserved]);
+  const held: RestartJob = {
+    ...reserved,
+    standingHold: { ...reserved.standingHold!, observedAt: new Date(now).toISOString() },
+  };
+  runtime.journal.write([held]);
+  const manualRevision = randomUUID();
+  const manual: RestartJob = {
+    ...held,
+    revision: manualRevision,
+    whenIdle: false,
+    automaticApproval: undefined,
+    standingManualApprovals: [
+      {
+        previousRevision: held.revision,
+        revision: manualRevision,
+        decision: "approve",
+        approvedAt: new Date(now).toISOString(),
+      },
+    ],
+  };
+  runtime.journal.write([manual]);
+  const running: RestartJob = { ...manual, status: "running" };
+  runtime.journal.write([running]);
+  await runtime.verifySelection(running, { restart: async () => "unused" });
+  birth = "replacement-birth";
+  await expect(runtime.verifySelection(running, { restart: async () => "unused" })).rejects.toThrow(
+    "lifetime changed",
+  );
+
+  let releaseSource: () => void = () => {
+    throw new Error("Source gate not initialized");
+  };
+  let enteredSource: () => void = () => {
+    throw new Error("Source gate not initialized");
+  };
+  const sourceGate = new Promise<void>((resolve) => {
+    releaseSource = resolve;
+  });
+  const sourceEntered = new Promise<void>((resolve) => {
+    enteredSource = resolve;
+  });
+  const inspectedBirths: string[] = [];
+  const blockedSource: RestartJob = {
+    ...pending,
+    id: randomUUID(),
+    update: {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 10,
+    },
+  };
+  const concurrent = createDaemonStandingRuntime(
+    config,
+    {
+      host: {
+        async inspectStandingSource() {
+          enteredSource();
+          await sourceGate;
+          return { repository: f.manifest.trustedRepositories[0], assertCurrent() {} };
+        },
+        assertStandingPrepared() {},
+        async verifyPreparedInstallation() {},
+      },
+      "container-daemon": null,
+    },
+    {
+      now: () => now,
+      inspect: async () => {
+        inspectedBirths.push(birth);
+        return {
+          descriptor,
+          identitySha256,
+          observedAt: new Date(now).toISOString(),
+          custodyStateDirectory: f.directory,
+          assertCurrent() {},
+          writableMountRoots: [],
+          serverId: "host",
+          selectedRelease: path.join(f.directory, "release"),
+          sourceCommit: "a".repeat(40),
+          supervisor: runtimeProcess,
+          worker: { ...runtimeProcess, pid: 101, parentPid: 100, startIdentity: birth },
+        };
+      },
+    },
+  );
+  const collecting = concurrent.refresh([blockedSource], true);
+  await sourceEntered;
+  birth = "changed-at-forced-boundary";
+  const forced = concurrent.refresh([], true);
+  releaseSource();
+  await Promise.all([collecting, forced]);
+  expect(inspectedBirths).toEqual(["replacement-birth", "changed-at-forced-boundary"]);
 });

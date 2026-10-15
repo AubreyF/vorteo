@@ -922,6 +922,14 @@ test("source builds fail before activation, failed readiness restores selection,
     };
     await updates.prepareInstallation(integrityJob);
     await updates.verifyPreparedInstallation(integrityJob);
+    await expect(
+      updates.install(integrityJob, restart, async () => {
+        throw new Error("New work or changed daemon before selection");
+      }),
+    ).rejects.toThrow("before selection");
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
+    await expect(readFile(path.join(root, integrityJob.id, "activation.json"))).rejects.toThrow();
     const candidate = JSON.parse(
       await readFile(path.join(root, integrityJob.id, "prepared.json"), "utf8"),
     );
@@ -3530,6 +3538,97 @@ test("failed standing hold reservation places no native hold", async () => {
   await f.queue.drain();
   expect(f.events).toEqual([]);
   expect(f.journal.jobs[0].standingHold).toBeUndefined();
+});
+
+function initialLegacyFixture() {
+  const f = standingFixture();
+  f.unsupported();
+  f.policy.standingDecision = () => ({
+    ...f.decision,
+    activationStep: {
+      stepId: randomUUID(),
+      generation: randomUUID(),
+      candidateArtifactSha256: "a".repeat(64),
+    },
+  });
+  // The exact manifest reservation is stable across every policy read.
+  const decision = f.policy.standingDecision();
+  f.policy.standingDecision = () => decision;
+  let instance = "a".repeat(64);
+  f.executor.initialActivationInstance = async () => instance;
+  return {
+    ...f,
+    replaceDaemon: () => {
+      instance = "b".repeat(64);
+    },
+  };
+}
+
+test("only an exact initial child can acknowledge a legacy hold and waits for preparation", async () => {
+  const f = initialLegacyFixture();
+  f.queue.request({ target: "host", reason: "Initial migration" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(f.queue.list()[0].standingHold).toMatchObject({
+    initialDaemonInstanceSha256: "a".repeat(64),
+    acknowledgedAt: new Date(2000).toISOString(),
+  });
+  expect(f.queue.list()[0].standingHold?.observedAt).toBeUndefined();
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "restart"]);
+  expect(f.queue.list()[0].status).toBe("succeeded");
+});
+
+test.each(["lost-ack", "new-lifetime"])(
+  "initial legacy hold remains fenced after %s without replay",
+  async (failure) => {
+    const f = initialLegacyFixture();
+    if (failure === "lost-ack") f.loseReply();
+    f.queue.request({ target: "host", reason: "Initial uncertainty" }, "host-agent");
+    await f.queue.drain();
+    if (failure === "new-lifetime") f.replaceDaemon();
+    f.idle();
+    const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await reopened.drain();
+    await reopened.drain();
+    expect(f.events).toEqual(["hold"]);
+    expect(reopened.list()[0].status).toBe("approved");
+  },
+);
+
+test("a later standing request cannot use the initial legacy hold adapter", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  f.executor.initialActivationInstance = async () => "a".repeat(64);
+  f.queue.request({ target: "host", reason: "Later maintenance" }, "host-agent");
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  expect(f.queue.list()[0].standingHold).toBeUndefined();
+});
+
+test("legacy acknowledgment is durably invalidated before a lost hold-release response", async () => {
+  const f = initialLegacyFixture();
+  f.queue.request({ target: "host", reason: "Cancel migration" }, "host-agent");
+  await f.queue.drain();
+  const job = f.queue.list()[0];
+  f.queue.decide(job.id, job.revision, "cancel");
+  f.executor.releaseCurrentTurns = async () => {
+    const retained = f.queue.list()[0];
+    expect(retained.standingHold?.releaseRequestedAt).toBeDefined();
+    expect(retained.status).toBe("rejected");
+    f.events.push("release");
+    throw new Error("Release response lost");
+  };
+  await f.queue.drain();
+  expect(f.queue.list()[0].standingHold?.releaseRequestedAt).toBeDefined();
+  expect(f.queue.list()[0].holdReleased).not.toBe(true);
+  f.idle();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  await reopened.drain();
+  expect(f.events).toEqual(["hold", "release", "release"]);
+  expect(reopened.list()[0].status).toBe("rejected");
 });
 
 test.each(["changed", "revoked"])(

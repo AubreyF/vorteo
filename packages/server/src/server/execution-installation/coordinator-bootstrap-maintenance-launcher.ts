@@ -1,0 +1,188 @@
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { z } from "zod";
+import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
+import {
+  loadedCoordinatorPid,
+  type BootstrapServiceReader,
+} from "./coordinator-bootstrap-service.js";
+import {
+  assertBootstrapPathsProtected,
+  digestBootstrapArtifact,
+  readBootstrapPreparedFile,
+} from "./coordinator-bootstrap-artifact.js";
+import {
+  EnrollmentNativeIdentitySchema,
+  enrollmentNativeIdentityDigest,
+} from "./maintenance/native-identity.js";
+
+const pin = z.strictObject({
+  path: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+const slot = z.strictObject({
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  directory: z.string().startsWith("/"),
+  artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  node: pin,
+  entrypoint: pin,
+  setup: pin,
+});
+
+/** Both immutable slots and the stable user service identity enter the owner
+ * manifest. Preparing this document neither selects nor registers either slot. */
+export const MaintenanceLauncherPlanSchema = z.strictObject({
+  version: z.literal(1),
+  operation: z.literal("maintenance-launcher-replacement"),
+  identity: EnrollmentNativeIdentitySchema,
+  previous: slot.nullable(),
+  candidate: slot,
+  retryLimit: z.literal(3),
+  recovery: z.literal("after-login"),
+});
+export type MaintenanceLauncherPlan = z.infer<typeof MaintenanceLauncherPlanSchema>;
+
+export function inspectMaintenanceLauncherPlan(
+  value: unknown,
+  account: { uid: number; home: string },
+) {
+  const plan = MaintenanceLauncherPlanSchema.parse(value);
+  const { identity } = plan;
+  if (
+    identity.environment !== "host" ||
+    !["maintenance-controller", "recovery-launcher"].includes(identity.target) ||
+    identity.custodyOwnerUid !== account.uid ||
+    identity.serviceDomain !== `gui/${account.uid}` ||
+    !/^local\.vorteo\.[a-zA-Z0-9.-]+\.installation(?:-recovery-[a-f0-9-]{36})?$/.test(
+      identity.serviceLabel,
+    )
+  )
+    throw new BootstrapRequestConflict("Maintenance launcher requires its enrolled user service");
+  const base = path.join(identity.installationRoot, "maintenance-services", identity.target);
+  if (
+    identity.selectionPath !== path.join(base, "selection.json") ||
+    identity.launcherPath !==
+      path.join(account.home, "Library", "LaunchAgents", `${identity.serviceLabel}.plist`)
+  )
+    throw new BootstrapRequestConflict("Maintenance launcher paths differ from enrolled custody");
+  for (const release of [plan.previous, plan.candidate]) {
+    if (!release) continue;
+    if (
+      release.directory !==
+        path.join(identity.installationRoot, "maintenance-runtimes", release.sourceCommit) ||
+      release.entrypoint.path !==
+        path.join(
+          release.directory,
+          "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+        ) ||
+      release.setup.path !== path.join(base, `${release.sourceCommit}.json`)
+    )
+      throw new BootstrapRequestConflict("Maintenance slot is outside its immutable runtime");
+  }
+  if (plan.previous?.sourceCommit === plan.candidate.sourceCommit)
+    throw new BootstrapRequestConflict(
+      "Maintenance replacement must preserve a distinct previous slot",
+    );
+  return {
+    plan,
+    identitySha256: enrollmentNativeIdentityDigest(identity),
+    planSha256: createHash("sha256").update(JSON.stringify(plan)).digest("hex"),
+  };
+}
+
+/** Per-slot launchers retain a fixed native identity while selecting exact bytes.
+ * KeepAlive is deliberately false: retries belong to the durable grant-bound
+ * runner, never an unbounded launchd restart loop. */
+export function maintenanceUserLauncher(
+  plan: MaintenanceLauncherPlan,
+  selected: "previous" | "candidate",
+) {
+  const release = plan[selected];
+  if (!release || plan.identity.environment !== "host")
+    throw new BootstrapRequestConflict("Maintenance launcher slot is unavailable");
+  return {
+    Label: plan.identity.serviceLabel,
+    ProgramArguments: [
+      release.node.path,
+      release.entrypoint.path,
+      release.setup.path,
+      "maintenance-launcher",
+    ],
+    RunAtLoad: true,
+    KeepAlive: false,
+    ProcessType: "Background",
+    Umask: 0o077,
+    StandardErrorPath: path.join(plan.identity.stateDirectory, `${plan.identity.target}.stderr`),
+  };
+}
+
+/** Native callers supply inspected account and mount inventory. Every slot is
+ * verified before admission, including the compatible rollback runtime. */
+export async function verifyMaintenanceLauncherArtifacts(input: {
+  plan: unknown;
+  account: { uid: number; home: string };
+  writableMountRoots: readonly string[];
+}) {
+  const inspected = inspectMaintenanceLauncherPlan(input.plan, input.account);
+  const { identity } = inspected.plan;
+  await assertBootstrapPathsProtected(
+    [
+      identity.installationRoot,
+      identity.stateDirectory,
+      path.dirname(identity.launcherPath),
+      path.dirname(identity.selectionPath!),
+    ],
+    input.writableMountRoots,
+  );
+  for (const release of [inspected.plan.previous, inspected.plan.candidate]) {
+    if (!release) continue;
+    for (const file of [release.node, release.entrypoint, release.setup])
+      await readBootstrapPreparedFile(file, input.writableMountRoots);
+    if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
+      throw new BootstrapRequestConflict("Maintenance launcher runtime changed");
+  }
+  return inspected;
+}
+
+/** Read-only native startup proof. A new login may have a new boot identity;
+ * require a stable current lifetime rather than comparing with a prior boot.
+ * This proves the loaded process, not health, selection authority or permission
+ * to execute an effect. Those checks remain separate admission requirements. */
+export async function verifyMaintenanceLauncherProcess(input: {
+  plan: MaintenanceLauncherPlan;
+  account: { uid: number; home: string };
+  selected: "previous" | "candidate";
+  pid: number;
+  reader: BootstrapServiceReader;
+}) {
+  const { plan } = inspectMaintenanceLauncherPlan(input.plan, input.account);
+  if (plan.identity.environment !== "host")
+    throw new BootstrapRequestConflict("Maintenance launcher requires native Host identity");
+  const selectedSlot = plan[input.selected];
+  if (!selectedSlot) throw new BootstrapRequestConflict("Maintenance launcher slot is unavailable");
+  const service = `${plan.identity.serviceDomain}/${plan.identity.serviceLabel}`;
+  const expectedArguments = createHash("sha256")
+    .update(JSON.stringify(maintenanceUserLauncher(plan, input.selected).ProgramArguments))
+    .digest("hex");
+  const observe = async () => {
+    const loaded = loadedCoordinatorPid(service, await input.reader.readService(service));
+    const observed = ProcessObservationSchema.parse(await input.reader.inspectProcess(loaded));
+    if (
+      loaded !== input.pid ||
+      observed.pid !== input.pid ||
+      observed.parentPid !== 1 ||
+      observed.uid !== input.account.uid ||
+      observed.executable !== selectedSlot.node.path ||
+      observed.argumentsSha256 !== expectedArguments
+    )
+      throw new BootstrapRequestConflict("Maintenance launcher native identity changed");
+    return observed;
+  };
+  const first = await observe();
+  const second = await observe();
+  if (!isDeepStrictEqual(first, second))
+    throw new BootstrapRequestConflict("Maintenance launcher lifetime changed during observation");
+  return second;
+}

@@ -162,8 +162,8 @@ function activationChildBinding(
 }
 
 interface AdmissionInput {
-  previous: LifecycleJob[];
-  next: LifecycleJob[];
+  previous: readonly LifecycleJob[];
+  next: readonly LifecycleJob[];
   /** Must be read under the same installation lifecycle lock as this transition. */
   state: InstallationEnrollmentState;
   evaluate(job: RestartJob, state: InstallationEnrollmentState): Decision | null | undefined;
@@ -211,7 +211,14 @@ function assertEffectAdmission(
   // Enrollment governs standing effects. Exact owner-approved operations retain
   // the existing authenticated manual path, including while the grant is paused.
   if (!proposed.standingDecision && !proposed.automaticApproval && !proposed.standingHold) return;
-  if (hasExactManualApproval(proposed)) return;
+  if (hasExactManualApproval(proposed)) {
+    if (phase !== "preparation") {
+      const result: unknown = input.assertEvidence(proposed, phase);
+      if (result instanceof Promise)
+        throw new BootstrapRequestConflict("Standing admission must be synchronous");
+    }
+    return;
+  }
   const current = input.evaluate(proposed, input.state);
   if (
     !current ||
@@ -274,12 +281,23 @@ function assertStandingEffectPrerequisites(
     throw new BootstrapRequestConflict("Standing effect requires its exact hold reservation");
   if (
     phase === "replacement" &&
-    (retained?.status !== "approved" ||
-      !retained.standingHold?.observedAt ||
-      !proposed.standingHold?.observedAt)
+    (retained?.status !== "approved" || !holdConfirmed(retained) || !holdConfirmed(proposed))
   )
     throw new BootstrapRequestConflict("Standing replacement requires a verified hold");
   assertHoldBinding(proposed);
+}
+
+function holdConfirmed(job: RestartJob): boolean {
+  const hold = job.standingHold;
+  if (hold?.releaseRequestedAt) return false;
+  if (hold?.initialDaemonInstanceSha256 || hold?.acknowledgedAt)
+    return Boolean(
+      job.standingDecision?.activationStep &&
+      hold.initialDaemonInstanceSha256 &&
+      hold.acknowledgedAt &&
+      !hold.observedAt,
+    );
+  return Boolean(hold?.observedAt);
 }
 
 function effectPhase(
@@ -304,6 +322,15 @@ function assertHoldBinding(job: RestartJob): void {
     job.standingHold.decisionSha256 !== digest(job.standingDecision)
   )
     throw new BootstrapRequestConflict("Standing hold differs from its recorded policy decision");
+  if (
+    (job.standingHold.initialDaemonInstanceSha256 || job.standingHold.acknowledgedAt) &&
+    (!job.standingDecision?.activationStep ||
+      !job.standingHold.initialDaemonInstanceSha256 ||
+      job.standingHold.observedAt)
+  )
+    throw new BootstrapRequestConflict(
+      "Legacy hold acknowledgment requires the exact initial child",
+    );
 }
 
 function assertRetainedBindings(previous: RestartJob | undefined, next: RestartJob): void {
@@ -316,12 +343,26 @@ function assertRetainedBindings(previous: RestartJob | undefined, next: RestartJ
     throw new BootstrapRequestConflict("Standing maintenance plan changed after authorization");
   if (previous.standingHold) {
     if (!next.standingHold) throw new BootstrapRequestConflict("Standing hold reservation changed");
-    const { observedAt: previousObservation, ...previousBinding } = previous.standingHold;
-    const { observedAt: nextObservation, ...nextBinding } = next.standingHold;
+    const {
+      observedAt: previousObservation,
+      acknowledgedAt: previousAcknowledgment,
+      releaseRequestedAt: previousRelease,
+      ...previousBinding
+    } = previous.standingHold;
+    const {
+      observedAt: nextObservation,
+      acknowledgedAt: nextAcknowledgment,
+      releaseRequestedAt: nextRelease,
+      ...nextBinding
+    } = next.standingHold;
     if (
       !isDeepStrictEqual(previousBinding, nextBinding) ||
-      (previousObservation !== undefined && previousObservation !== nextObservation)
+      (previousObservation !== undefined && previousObservation !== nextObservation) ||
+      (previousAcknowledgment !== undefined && previousAcknowledgment !== nextAcknowledgment) ||
+      (previousRelease !== undefined && previousRelease !== nextRelease)
     )
       throw new BootstrapRequestConflict("Standing hold reservation changed");
+    if (nextRelease && !["rejected", "failed", "succeeded"].includes(next.status))
+      throw new BootstrapRequestConflict("Hold release requires a terminal lifecycle result");
   }
 }
