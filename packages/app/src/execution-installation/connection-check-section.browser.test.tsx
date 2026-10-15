@@ -1,10 +1,15 @@
 import { createRoot, type Root } from "react-dom/client";
 import React, { act } from "react";
-import { afterEach, expect, inject, test } from "vitest";
+import { afterEach, expect, inject, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import type { ExecutionInstallation } from "@getpaseo/protocol/execution-installation";
 import { InstallationConnectionCheckSection } from "./connection-check-section";
 import type { ConnectionSession } from "./connection-check";
+import {
+  diagnoseConnection,
+  inspectConnectionDevice,
+  probeDiagnosticSocket,
+} from "./connection-diagnostics";
 
 declare module "vitest" {
   interface ProvidedContext {
@@ -64,7 +69,7 @@ test.each([390, 1133])(
     await expect.poll(() => container.textContent).toContain("saved password was rejected");
     for (const id of ["installation", "host", "container"]) {
       const row = container.querySelector(`[data-testid="connection-check-${id}"]`)!;
-      expect(row.textContent).toContain("Reached");
+      await expect.poll(() => row.textContent).toContain("Reached");
       const bounds = row.getBoundingClientRect();
       expect(bounds.left).toBeGreaterThanOrEqual(0);
       expect(bounds.right).toBeLessThanOrEqual(width);
@@ -94,3 +99,75 @@ test("one failed installation identity does not hide the other connection result
     .poll(() => container.querySelector('[data-testid="connection-check-host"]')?.textContent)
     .toContain("Reached");
 });
+
+test("real WebSocket transport and device diagnostics appear in the selectable report", async () => {
+  const container = render();
+  await page.getByRole("button", { name: "Check connection", exact: true }).click();
+  await expect.poll(() => container.textContent).toContain("WebSocket handshake accepted");
+  await page.getByRole("button", { name: "Show report", exact: true }).click();
+  const report = container.querySelector('[data-testid="connection-diagnostic-report"]')!;
+  expect(report.textContent).toContain("vorteo-connection-diagnostics-v1");
+  expect(report.textContent).toContain('"websocket"');
+  expect(report.textContent).toContain('"browser"');
+  expect(report.textContent).toContain('"authentication"');
+  expect(container.textContent).toContain("Browser local-network permission");
+});
+test("cross-origin rejection retains uncertainty while WebSocket proves transport access", async () => {
+  const origin = new URL(inject("passwordlessRelayUrl").replace("ws:", "http:")).origin;
+  const result = await diagnoseConnection(
+    { id: "host", label: "Host", url: `${origin}/cors-restricted-health`, serverId: "host-test" },
+    sessionFor,
+    new AbortController().signal,
+  );
+  expect(result.failure).toBe("network");
+  expect(result.crossOrigin?.state).toBe("unknown");
+  expect(result.socket?.state).toBe("passed");
+});
+test("cancelled socket checks finish and release their connection", async () => {
+  const abort = new AbortController();
+  abort.abort();
+  const result = await probeDiagnosticSocket(inject("passwordlessRelayUrl"), abort.signal);
+  expect(result.state).toBe("unknown");
+  expect(result.detail).toBe("Check cancelled");
+  expect((await inspectConnectionDevice()).secureContext).toBe(true);
+});
+
+test("clipboard denial shows a selectable report without losing diagnostic results", async () => {
+  const write = vi
+    .spyOn(navigator.clipboard, "writeText")
+    .mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+  try {
+    const container = render();
+    await page.getByRole("button", { name: "Check connection", exact: true }).click();
+    await expect.poll(() => container.textContent).toContain("WebSocket handshake accepted");
+    await page.getByRole("button", { name: "Copy diagnostic report", exact: true }).click();
+    await expect.poll(() => container.textContent).toContain("Clipboard access failed");
+    expect(
+      container.querySelector('[data-testid="connection-diagnostic-report"]')?.textContent,
+    ).toContain("vorteo-connection-diagnostics-v1");
+    expect(container.textContent).toContain("Reached");
+  } finally {
+    write.mockRestore();
+  }
+});
+
+test.each(["report", "enforce"] as const)(
+  "only enforced browser policy is reported as a block: %s",
+  async (disposition) => {
+    const origin = new URL(inject("passwordlessRelayUrl").replace("ws:", "http:")).origin;
+    const pending = diagnoseConnection(
+      { id: "host", label: "Host", url: `${origin}/api/health`, serverId: "host-test" },
+      sessionFor,
+      new AbortController().signal,
+    );
+    window.dispatchEvent(
+      new SecurityPolicyViolationEvent("securitypolicyviolation", {
+        blockedURI: origin,
+        effectiveDirective: "connect-src",
+        disposition,
+      }),
+    );
+    const result = await pending;
+    expect(result.policy).toEqual(disposition === "enforce" ? ["connect-src"] : []);
+  },
+);

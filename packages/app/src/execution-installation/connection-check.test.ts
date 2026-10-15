@@ -6,6 +6,12 @@ import {
   connectionSessionDescription,
 } from "./connection-check";
 
+import {
+  connectionDiagnosis,
+  connectionDiagnosticReport,
+  type ConnectionDiagnostic,
+} from "./connection-diagnostics";
+
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -89,4 +95,45 @@ test("network reachability never conceals rejected authentication or missing cli
   expect(connectionEndpointLabel("wss://user:secret@host.example:44445/socket?token=private")).toBe(
     "host.example:44445",
   );
+});
+
+function diagnostic(): ConnectionDiagnostic {
+  return {
+    target: { id: "host", label: "Host", url: "https://private.example:44445/api/health" },
+    state: "failed",
+    failure: "network",
+    detail: "Browser withheld error details",
+    elapsedMs: 3,
+    checkedAt: "2026-10-15T20:00:00.000Z",
+    socket: { state: "failed", detail: "Handshake failed", elapsedMs: 2 },
+    crossOrigin: null,
+    policy: [],
+    session: null,
+  };
+}
+test("a generic network rejection never becomes a fabricated permission diagnosis", () => {
+  expect(connectionDiagnosis(diagnostic())).toContain("No single cause is confirmed");
+  const crossOrigin = {
+    ...diagnostic(),
+    crossOrigin: { state: "passed" as const, detail: "Opaque response", elapsedMs: 2 },
+  };
+  expect(connectionDiagnosis(crossOrigin)).toContain("Cross-origin read policy");
+  expect(connectionDiagnosis({ ...diagnostic(), policy: ["connect-src"] })).toContain(
+    "content policy blocked",
+  );
+});
+test("the diagnostic report excludes credentials, query strings and unknown session fields", () => {
+  const result = diagnostic();
+  result.target.url = "https://user:secret@private.example:44445/api/health?token=hidden";
+  result.session = {
+    state: "connecting",
+    authentication: null,
+    endpoint: "wss://user:secret@private.example:44445/ws?token=hidden",
+  };
+  Object.assign(result.session, { password: "also-secret" });
+  const report = connectionDiagnosticReport(null, [result], null);
+  expect(report).not.toContain("secret");
+  expect(report).not.toContain("hidden");
+  expect(report).not.toContain("token=");
+  expect(JSON.parse(report).results[0].app.address).toBe("private.example:44445");
 });

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+
+### Changed
+
+- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
+- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
+- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.
+
 ## 0.11.0-beta.3.vorteo.558 - 2026-10-15
 
 ### Added
