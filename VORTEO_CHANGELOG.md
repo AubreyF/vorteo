@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.544 - 2026-10-15
+
+### Fixed
+
+- Negotiate retained startup plans in preclaim and claimed coordinator recovery reviews. Older clients can read projected requests and cancel, but cannot approve hidden startup evidence.
+- Refuse preparation against Hosts that cannot review a retained startup plan. Show the original recovery service and pinned launcher details without implying permission to repeat the original update.
+- Validate recovery transport, client negotiation and desktop and phone review controls. Installed acceptance and delivery remain open.
+
 ## 0.11.0-beta.3.vorteo.543 - 2026-10-15
 
 ### Fixed

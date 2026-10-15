@@ -414,18 +414,21 @@ export type BootstrapPreclaimObservation = z.infer<typeof BootstrapPreclaimObser
 export const BootstrapPreclaimRecoveryListRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.list_requests.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   reconcile: BootstrapPreclaimObservationSchema.optional(),
 });
 export const BootstrapPreclaimRecoveryPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.prepare.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   input: BootstrapPreclaimRecoveryPreparationSchema,
 });
 export const BootstrapPreclaimRecoveryDecideRequestSchema = z.strictObject({
   type: z.literal("installation.bootstrap_recovery.decide.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   ownerCanceledOriginal: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   preclaimRecovery: z.literal(true).optional(),
@@ -502,16 +505,19 @@ export const BootstrapClaimedRepairProvisionRequestSchema = z.strictObject({
 export const BootstrapClaimedRecoveryListRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.list_requests.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   reconcile: BootstrapClaimedObservationSchema.optional(),
 });
 export const BootstrapClaimedRecoveryPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.prepare.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   input: BootstrapClaimedRecoveryPreparationSchema,
 });
 export const BootstrapClaimedRecoveryDecideRequestSchema = z.strictObject({
   type: z.literal("installation.claimed_recovery.decide.request"),
   requestId: z.string(),
+  recoveryBootPlan: z.literal(true).optional(),
   input: CoordinatorBootstrapDecisionSchema,
   claimedRecovery: z.literal(true).optional(),
   ownerPassword: z.string().min(1).max(1024),

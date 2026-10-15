@@ -1301,6 +1301,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
+      coordinatorBootstrapRecoveryBootPlan: false,
       coordinatorBootstrapAutomaticReconciliation: false,
       coordinatorBootstrapAutomaticStatus: false,
       coordinatorBootstrapAuthenticatedSubmission: false,

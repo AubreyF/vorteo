@@ -303,6 +303,21 @@ function BootRecoveryConfiguration({ plan }: { plan: CoordinatorBootstrapRequest
   );
 }
 
+function RetainedBootRecovery({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const recovery = plan.bootRecovery;
+  if (!recovery) return null;
+  return (
+    <Text selectable style={styles.text}>
+      The original approval includes startup recovery after Host login. This recovery review does
+      not authorize another original update launch.
+      {"\n"}Retained recovery service: {recovery.service}
+      {"\n"}Retained launcher: {recovery.installedLauncher}
+      {"\n"}Launcher SHA-256: {recovery.launcher.sha256}
+      {"\n"}Setup SHA-256: {recovery.setup.sha256}
+    </Text>
+  );
+}
+
 function bootstrapCardStyle(historical?: boolean) {
   return historical ? styles.historyItem : styles.card;
 }
@@ -646,6 +661,7 @@ function PreclaimRecoveryCard<Request extends BootstrapRecoveryRequest>({
             {"\n"}Original plan SHA-256: {plan.original.planSha256}
             {"\n"}Original approval: {plan.original.decisionAt}
           </Text>
+          <RetainedBootRecovery plan={plan.original.plan} />
           <Text selectable style={styles.text}>
             Executor birth: {plan.executor.identity.startIdentity}
             {"\n"}Boot: {plan.executor.identity.bootId}

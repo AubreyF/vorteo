@@ -9256,3 +9256,51 @@ test.each([false, true])(
     expect(JSON.stringify(trace.records)).not.toContain(submissionProof.signature);
   },
 );
+
+test.each([false, true])(
+  "retained startup recovery review flags require advertised support (%s)",
+  async (supported) => {
+    const mock = createMockTransport();
+    const client = new DaemonClient({
+      url: "ws://test",
+      clientId: "retained-startup",
+      logger: createMockLogger(),
+      reconnect: { enabled: false },
+      transportFactory: () => mock.transport,
+    });
+    clients.push(client);
+    const connected = client.connect();
+    mock.triggerOpen({
+      features: {
+        coordinatorBootstrapPreclaimRecovery: true,
+        coordinatorBootstrapClaimedRecovery: true,
+        coordinatorBootstrapRecoveryBootPlan: supported,
+      },
+    });
+    await connected;
+    const input = {
+      id: "00000000-0000-4000-8000-000000000001",
+      revision: "00000000-0000-4000-8000-000000000002",
+      planSha256: "a".repeat(64),
+      decision: "cancel" as const,
+    };
+    const calls = [
+      client.listPreclaimRecoveryRequests(),
+      client.listClaimedRecoveryRequests(),
+      client.decidePreclaimRecovery(input, "fixture-proof"),
+      client.decideClaimedRecovery(input, "fixture-proof"),
+    ];
+    const frames = mock.sent.map(parseSentFrame);
+    expect(frames).toHaveLength(4);
+    for (const frame of frames) {
+      expect(frame.recoveryBootPlan).toBe(supported ? true : undefined);
+      mock.triggerMessage(
+        wrapSessionMessage({
+          type: frame.type.replace(".request", ".response"),
+          payload: { requestId: frame.requestId, requests: [], error: null },
+        }),
+      );
+    }
+    await expect(Promise.all(calls)).resolves.toEqual([[], [], [], []]);
+  },
+);

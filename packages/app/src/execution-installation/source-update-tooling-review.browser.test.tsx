@@ -350,6 +350,9 @@ test.each([1280, 390])(
       });
       expect(container.textContent).toContain("This approval includes that escalation");
       expect(container.textContent).toContain(initial.planSha256);
+      expect(container.textContent).toContain("Retained recovery service:");
+      expect(container.textContent).toContain(initial.plan.original.plan.bootRecovery!.service);
+      expect(container.textContent).toContain("does not authorize another original update launch");
       expect(container.textContent).toContain(initial.plan.executor.identity.startIdentity);
       const card = container.querySelector<HTMLElement>(
         `[data-testid="bootstrap-recovery-${initial.id}"]`,

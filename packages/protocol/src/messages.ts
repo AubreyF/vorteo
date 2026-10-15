@@ -3989,6 +3989,7 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         coordinatorBootstrapBootRecovery: z.boolean().optional(),
+        coordinatorBootstrapRecoveryBootPlan: z.boolean().optional(),
         coordinatorBootstrapAutomaticReconciliation: z.boolean().optional(),
         coordinatorBootstrapAutomaticStatus: z.boolean().optional(),
         coordinatorBootstrapAuthenticatedSubmission: z.boolean().optional(),

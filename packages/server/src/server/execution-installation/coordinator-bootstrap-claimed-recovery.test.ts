@@ -2136,6 +2136,54 @@ test.each(["exact", "hidden", "password", "unavailable", "cancel", "private-erro
   },
 );
 
+test("claimed recovery hides retained startup plans and refuses approval without review support", async () => {
+  const f = reviewFixture();
+  const adapter = claimedReviewAdapter(f);
+  await adapter.prepare({ id: randomUUID(), reason: "Fixture", plan: f.plan });
+  const stored = adapter.list()[0]!;
+  const original = stored.plan.original;
+  const file = original.plan.candidate.configuration;
+  const bootRecovery = {
+    requestId: original.id,
+    service: `gui/501/local.vorteo.fixture.installation-recovery-${original.id}`,
+    launcher: file,
+    installedLauncher: "/protected/retained-startup.plist",
+    setup: file,
+    ownerLauncher: file,
+    node: file,
+    entrypoint: file,
+  };
+  stored.plan.original.plan.bootRecovery = bootRecovery;
+  const service = { ...adapter, list: () => [stored] };
+  const message = {
+    type: "installation.claimed_recovery.list_requests.request" as const,
+    requestId: "list",
+  };
+  const legacy = await handleClaimedRecoveryReview(message, service);
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]?.plan.original.plan).not.toHaveProperty("bootRecovery");
+  const modern = await handleClaimedRecoveryReview({ ...message, recoveryBootPlan: true }, service);
+  expect(modern.payload.requests?.[0]?.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+  const refused = await handleClaimedRecoveryReview(
+    {
+      type: "installation.claimed_recovery.decide.request",
+      requestId: "approve",
+      claimedRecovery: true,
+      ownerPassword: "fixture-password",
+      input: {
+        id: stored.id,
+        revision: stored.revision,
+        planSha256: stored.planSha256,
+        decision: "approve",
+      },
+    },
+    service,
+  );
+  expect(refused.payload.error).toContain("retained startup recovery");
+  expect(stored.status).toBe("pending");
+  expect(stored.plan.original.plan.bootRecovery).toEqual(bootRecovery);
+});
+
 test("claimed recovery responses omit private reconciliation state from the original request", async () => {
   const f = reviewFixture();
   const service = claimedReviewAdapter(f);
