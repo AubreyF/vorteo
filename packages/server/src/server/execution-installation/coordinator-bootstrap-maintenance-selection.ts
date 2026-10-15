@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { inspectRetainedMaintenanceRecoveryEffect } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
 import { z } from "zod";
 import { InstallationEnrollmentStateSchema } from "@getpaseo/protocol/installation-enrollment";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
@@ -148,4 +149,47 @@ export function inspectMaintenanceServiceSelection(input: {
   )
     throw new BootstrapRequestConflict("Service selection differs from retained effect");
   return { ...context, selection, selected };
+}
+
+export const MaintenanceRecoverySelectionSchema = MaintenanceServiceSelectionSchema.extend({
+  version: z.literal(3),
+  operation: z.enum(["recovery", "rollback"]),
+});
+
+/** A restored slot belongs to its new consumed recovery generation. Returning
+ * the original runtime plan preserves its artifact identity, not its approval. */
+export function inspectMaintenanceRecoverySelection(input: {
+  plan: unknown;
+  account: { uid: number; home: string };
+  enrollment: unknown;
+  retained: unknown;
+  selection: unknown;
+}) {
+  const context = inspectRetainedMaintenanceRecoveryEffect(input);
+  const selection = MaintenanceRecoverySelectionSchema.parse(input.selection);
+  const state = InstallationEnrollmentStateSchema.parse(input.enrollment);
+  if (state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Recovery selection has no enrollment");
+  const { grant } = state;
+  const target = grant.manifest.targets.find((item) => item.target === context.identity.target);
+  if (
+    grant.id !== context.reservation.grantId ||
+    grant.manifest.installationId !== context.identity.installationId ||
+    enrollmentManifestDigest(grant.manifest) !== context.reservation.manifestSha256 ||
+    target?.identitySha256 !== context.identitySha256 ||
+    !target.operations.includes(context.job.operation)
+  )
+    throw new BootstrapRequestConflict("Recovery selection differs from enrolled identity");
+  if (
+    context.job.resolvedBy ||
+    selection.operation !== context.job.operation ||
+    selection.slot !== context.slot ||
+    selection.requestId !== context.job.id ||
+    selection.requestRevision !== context.reservation.requestRevision ||
+    selection.intentId !== context.intent.id ||
+    selection.generation !== context.reservation.generation ||
+    selection.planSha256 !== context.planSha256
+  )
+    throw new BootstrapRequestConflict("Recovery selected slot differs from retained effect");
+  return { ...context, plan: context.plan.original, recoveryPlan: context.plan, selection };
 }

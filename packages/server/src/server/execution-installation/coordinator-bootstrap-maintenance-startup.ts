@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readMaintenanceRecoverySelection } from "./coordinator-bootstrap-maintenance-recovery-startup.js";
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,7 @@ import { readEnrollmentNativeIdentity } from "./maintenance/native-registration.
 import {
   MaintenanceLauncherSelectionSchema,
   MaintenanceServiceSelectionSchema,
+  MaintenanceRecoverySelectionSchema,
   inspectMaintenanceServiceSelection,
   inspectMaintenanceLauncherSelection,
 } from "./coordinator-bootstrap-maintenance-selection.js";
@@ -75,7 +77,11 @@ export async function readMaintenanceLauncherStartup(input: {
   )
     throw new BootstrapRequestConflict("Launcher setup differs from enrolled native identity");
   const selection = z
-    .union([MaintenanceLauncherSelectionSchema, MaintenanceServiceSelectionSchema])
+    .union([
+      MaintenanceLauncherSelectionSchema,
+      MaintenanceServiceSelectionSchema,
+      MaintenanceRecoverySelectionSchema,
+    ])
     .parse(await read(identity.selectionPath));
   const base = path.join(setup.installationRoot, "maintenance-services", setup.target);
   if (identity.selectionPath !== path.join(base, "selection.json"))
@@ -92,7 +98,7 @@ export async function readMaintenanceLauncherStartup(input: {
   const enrollment = journal.read();
   const plan = await read(planFile);
   const readRetained = () => {
-    if (selection.version !== 2) return undefined;
+    if (selection.version === 1) return undefined;
     const matches = new FileBootstrapRequestJournal(setup.enrollmentStateDirectory)
       .readLifecycle()
       .filter((job) => job.id === selection.requestId);
@@ -101,22 +107,17 @@ export async function readMaintenanceLauncherStartup(input: {
     return matches[0];
   };
   const retained = readRetained();
-  const context =
-    selection.version === 1
-      ? inspectMaintenanceLauncherSelection({
-          plan,
-          account: input.account,
-          enrollment,
-          intent: await read(intentFile),
-          selection,
-        })
-      : inspectMaintenanceServiceSelection({
-          plan,
-          account: input.account,
-          enrollment,
-          retained,
-          selection,
-        });
+  const readContext = async () => {
+    const common = { plan, account: input.account, enrollment, retained, selection };
+    if (selection.version === 1)
+      return inspectMaintenanceLauncherSelection({ ...common, intent: await read(intentFile) });
+    if (selection.version === 2) return inspectMaintenanceServiceSelection(common);
+    return readMaintenanceRecoverySelection({
+      ...common,
+      stateDirectory: setup.enrollmentStateDirectory,
+    });
+  };
+  const context = await readContext();
   if (
     !isDeepStrictEqual(identity, context.plan.identity) ||
     setup.sourceCommit !== context.selected.sourceCommit ||

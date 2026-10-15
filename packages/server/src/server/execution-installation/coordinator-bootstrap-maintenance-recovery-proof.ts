@@ -18,6 +18,24 @@ export async function verifyMaintenanceRecoveryPredecessor(input: {
   reader: Parameters<typeof verifyRetainedProcessExited>[0];
   currentBoot?: RecoveryBootWitness;
 }) {
+  const context = inspectMaintenanceRecoveryPredecessor(input);
+  const assertExit = await verifyRecoveryExecutorExit({
+    reader: input.reader,
+    expected: context.intent.executor,
+    installationId: context.job.proposal.installationId,
+    currentBoot: input.currentBoot,
+  });
+  return { ...context, assertExit };
+}
+
+/** Structural history verification is also needed by observation-only startup.
+ * It must not be mistaken for live executor exit or dispatch authorization. */
+export function inspectMaintenanceRecoveryPredecessor(input: {
+  retained: unknown;
+  plan: unknown;
+  account: { uid: number; home: string };
+  recoveryOf: unknown;
+}) {
   const context = MaintenanceRecoveryPlanSchema.safeParse(input.plan).success
     ? inspectRetainedMaintenanceRecoveryEffect(input)
     : inspectRetainedMaintenanceServiceEffect(input);
@@ -44,13 +62,7 @@ export async function verifyMaintenanceRecoveryPredecessor(input: {
     );
   }
   const record = requireRecoveryRecord(context, observation);
-  const assertExit = await verifyRecoveryExecutorExit({
-    reader: input.reader,
-    expected: intent.executor,
-    installationId: job.proposal.installationId,
-    currentBoot: input.currentBoot,
-  });
-  return { ...context, observation, record, assertExit };
+  return { ...context, observation, record };
 }
 
 function requireRecoveryRecord(
@@ -85,6 +97,7 @@ function requireRecoveryRecord(
 /** Supplied only by trusted native inspection, never parsed from a proposal.
  * The assertion must recheck the exact observed live process synchronously. */
 export interface RecoveryBootWitness {
+  target: "maintenance-controller" | "recovery-launcher";
   installationId: string;
   process: ReturnType<typeof BootstrapProcessIdentitySchema.parse>;
   assertCurrent(): void;

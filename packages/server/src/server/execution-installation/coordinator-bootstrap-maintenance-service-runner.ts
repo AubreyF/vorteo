@@ -1,3 +1,4 @@
+import { createMaintenanceChildCustody } from "./coordinator-bootstrap-maintenance-child-custody.js";
 import {
   inspectSelectedMaintenanceExecutor,
   maintenanceExecutorStartupBinding,
@@ -263,8 +264,14 @@ export async function verifyNativeMaintenanceServiceInvocation(
     return current;
   };
   await requireExecutor();
+  const childCustody = await createMaintenanceChildCustody({
+    expected: executor,
+    ...admission,
+    writableMountRoots: roots,
+  });
   return {
     ...context,
+    childCustody,
     executor,
     reader,
     nativeAdmission: admission,

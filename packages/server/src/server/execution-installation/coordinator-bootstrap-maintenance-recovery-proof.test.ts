@@ -14,6 +14,7 @@ function fixture(changedBoot = true) {
     argumentsSha256: "a".repeat(64),
   };
   const currentBoot = {
+    target: "maintenance-controller" as const,
     installationId,
     process: { ...expected, bootId: changedBoot ? randomUUID() : expected.bootId },
     assertCurrent: vi.fn(() => undefined),

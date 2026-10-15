@@ -37,10 +37,11 @@ export function maintenanceExecutorStartupBinding(
   };
 }
 
-/** Read the actual selected controller, not a constructor-time queue snapshot.
+/** Read the explicitly selected executor role, not a constructor-time queue snapshot.
  * Mutable lifecycle bookkeeping is verified by startup but is not execution identity. */
 export async function inspectSelectedMaintenanceExecutor(input: {
   setupFile: string;
+  expectedTarget?: "maintenance-controller" | "recovery-launcher";
   account: { uid: number; home: string };
   stateDirectory: string;
   writableMountRoots: readonly string[];
@@ -55,11 +56,11 @@ export async function inspectSelectedMaintenanceExecutor(input: {
   const selected = startup.selected;
   if (
     identity.environment !== "host" ||
-    identity.target !== "maintenance-controller" ||
+    identity.target !== (input.expectedTarget ?? "maintenance-controller") ||
     !identity.selectionPath ||
     startup.setup.enrollmentStateDirectory !== input.stateDirectory
   )
-    throw new BootstrapRequestConflict("Native executor is not the enrolled controller");
+    throw new BootstrapRequestConflict("Native executor differs from the required enrolled role");
   const assertFiles = retainServiceFiles([
     identity.launcherPath,
     identity.selectionPath,
@@ -95,7 +96,7 @@ export async function inspectSelectedMaintenanceExecutor(input: {
   const executor = MaintenanceServiceExecutorEvidenceSchema.parse({
     target: identity.target,
     identitySha256: context.identitySha256,
-    planSha256: context.planSha256,
+    planSha256: startup.planSha256,
     sourceCommit: selected.sourceCommit,
     artifactSha256: selected.artifactSha256,
     runtimeDirectory: selected.directory,
@@ -183,6 +184,7 @@ export function maintenanceRecoveryBootWitness(
 ) {
   current.assertCurrent();
   return {
+    target: current.executor.target,
     installationId: current.startup.plan.identity.installationId,
     process: current.executor.native.process,
     assertCurrent: current.assertCurrent,

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { assertMaintenanceRuntimeProcessesAbsent } from "./coordinator-bootstrap-maintenance-process-inventory.js";
 import { lstatSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -33,8 +34,10 @@ export async function inspectAbsentMaintenanceRecovery(input: {
   writableMountRoots: readonly string[];
   reader: Parameters<typeof verifyRecoveryExecutorExit>[0]["reader"];
   currentBoot: RecoveryBootWitness;
+  childCustody?: Pick<RecoveryBootWitness, "process" | "assertCurrent">;
   signal: AbortSignal;
   assertAbsent?: (service: string) => void;
+  assertRuntimeAbsent?: typeof assertMaintenanceRuntimeProcessesAbsent;
 }): Promise<MaintenanceServiceNativeEvidence> {
   input.signal.throwIfAborted();
   const job = MaintenanceServiceJobSchema.parse(input.request);
@@ -43,6 +46,8 @@ export async function inspectAbsentMaintenanceRecovery(input: {
   if (identity.environment !== "host" || !identity.selectionPath)
     throw new BootstrapRequestConflict("Recovery target lacks native selection custody");
   requireRecoveryProposal(job, context);
+  if (input.currentBoot.target === identity.target)
+    throw new BootstrapRequestConflict("Absent target cannot be its own live recovery executor");
   const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
   const assertAbsent = input.assertAbsent ?? assertMaintenanceServiceAbsent;
   const assertIdentity = () => {
@@ -79,11 +84,28 @@ export async function inspectAbsentMaintenanceRecovery(input: {
             currentBoot: input.currentBoot,
           }),
         );
-      } else if (record.native.bootId === input.currentBoot.process.bootId) {
-        throw new BootstrapRequestConflict("Same-boot recovery target lifetime is unproven");
       }
     }
   }
+  if (
+    input.childCustody &&
+    (input.childCustody.process.pid !== process.pid ||
+      input.childCustody.process.uid !== input.account.uid ||
+      input.childCustody.process.bootId !== input.currentBoot.process.bootId ||
+      input.childCustody.assertCurrent() !== undefined)
+  )
+    throw new BootstrapRequestConflict("Recovery child custody differs from current boot");
+  const runtimeInput = {
+    uid: input.account.uid,
+    executables: [...new Set(slots.map((slot) => slot.node.path))],
+    allowedProcesses: [input.currentBoot, ...(input.childCustody ? [input.childCustody] : [])],
+  };
+  const inspectRuntimes = input.assertRuntimeAbsent ?? assertMaintenanceRuntimeProcessesAbsent;
+  const assertRuntime = () => {
+    if (inspectRuntimes(runtimeInput) !== undefined)
+      throw new BootstrapRequestConflict("Runtime absence recheck must be synchronous");
+  };
+  assertRuntime();
   const launcher = await retainRecoveryStateFile(identity.launcherPath);
   const selection = await retainRecoveryStateFile(identity.selectionPath);
   const record = MaintenanceServiceEvidenceRecordSchema.parse({
@@ -120,6 +142,7 @@ export async function inspectAbsentMaintenanceRecovery(input: {
     launcher.assertCurrent();
     selection.assertCurrent();
     assertIdentity();
+    assertRuntime();
   };
   assertCurrent();
   return { ...record, evidenceSha256: digest(Buffer.from(JSON.stringify(record))), assertCurrent };

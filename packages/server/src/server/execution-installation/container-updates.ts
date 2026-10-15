@@ -233,6 +233,11 @@ export async function installContainerSource({
     throw new Error("Dev source updates are not configured");
   const update = SourceUpdateSchema.parse(job.update);
   const work = path.join(config.stateDir, "container-source-updates", job.id);
+  const receipt = path.join(work, "activation.json");
+  if (existsSync(receipt))
+    throw new Error(
+      "Dev activation was already attempted. Inspect its retained receipt before recovery.",
+    );
   const { operation } = await verifyPreparedContainerSource(config, job);
   const installed = SelectionSchema.parse(
     await containerCommand({ settings, operation: { action: "inspect" } }),
@@ -245,11 +250,6 @@ export async function installContainerSource({
     throw new Error("Dev source changed after preparation. No candidate was activated.");
   const prepared = { release: operation.release };
 
-  const receipt = path.join(work, "activation.json");
-  if (existsSync(receipt))
-    throw new Error(
-      "Dev activation was already attempted. Inspect its retained receipt before recovery.",
-    );
   await beforeSelection?.();
   writeLifecycleReceipt(receipt, { ...operation, status: "activating" });
   await containerCommand({ settings, operation: { ...operation, action: "activate" } });
@@ -266,21 +266,10 @@ export async function installContainerSource({
       await client.close();
     }
   } catch (error) {
-    let restorationError: unknown;
-    try {
-      await containerCommand({ settings, operation: { ...operation, action: "restore" } });
-    } catch (restoreError) {
-      restorationError = restoreError;
-    }
-    if (restorationError) {
-      const failure = new Error(
-        `Dev update readiness failed and release selection could not be restored. Inspect ${receipt}; no restart was replayed.`,
-        { cause: error },
-      );
-      throw Object.assign(failure, { restorationError });
-    }
+    // Neither a lost restart reply nor failed readiness proves that candidate
+    // startup stopped. Retain the selection and intent for native reconciliation.
     throw new Error(
-      `Dev update readiness failed. Previous release selected at ${installed.release}; inspect the running daemon before requesting recovery. No restart was replayed.`,
+      "Dev restart outcome is unverified. Candidate selection and activation intent retained; reconcile native readiness before recovery. No restart or selection rollback was repeated.",
       { cause: error },
     );
   }

@@ -695,7 +695,10 @@ test.each([
       (target) => ({
         target,
         identitySha256: target === proposal.target ? native.identitySha256 : "a".repeat(64),
-        operations: ["replacement" as const],
+        operations:
+          mode === "valid"
+            ? ["replacement" as const, "recovery" as const, "rollback" as const]
+            : ["replacement" as const],
       }),
     ),
     steps: [
@@ -1136,6 +1139,109 @@ test.each([
     },
     reservation: recoveryReservation,
   });
+  // Claiming recovery uses the same atomic journal transition, preserving the
+  // failed predecessor. The callback still owns grant and global exclusion.
+  const recoveryEvidenceRecord = {
+    ...record,
+    requestId: recoveryJob.id,
+    requestRevision: recoveryJob.revision,
+    planSha256: recoveryContext.planSha256,
+    observedAt: new Date().toISOString(),
+  };
+  const recoveryEvidence = {
+    ...recoveryEvidenceRecord,
+    evidenceSha256: createHash("sha256")
+      .update(JSON.stringify(recoveryEvidenceRecord))
+      .digest("hex"),
+    assertCurrent: evidence.assertCurrent,
+  };
+  journal.writeLifecycle([failed, recoveryJob]);
+  const recoveryClaimInput = {
+    ...claimInput,
+    requestId: recoveryJob.id,
+    expectedRevision: recoveryJob.revision,
+    reservation: recoveryJob.reservation!,
+    plan: recoveryPlan,
+    evidence: recoveryEvidence,
+  };
+  rejectAdmission = true;
+  expect(() => claimMaintenanceServiceEffect(recoveryClaimInput)).toThrow("Grant revoked");
+  expect(journal.readLifecycle()).toEqual([failed, recoveryJob]);
+  rejectAdmission = false;
+  const recoveryClaimed = claimMaintenanceServiceEffect(recoveryClaimInput);
+  expect(recoveryClaimed.effectIntent?.generation).toBe(recoveryReservation.generation);
+  expect(journal.readLifecycle()[0]).toEqual(failed);
+  expect(() =>
+    claimMaintenanceServiceEffect({
+      ...recoveryClaimInput,
+      expectedRevision: recoveryClaimed.revision,
+    }),
+  ).toThrow("fresh unconsumed");
+  const rollbackPlan = { ...recoveryPlan, operation: "maintenance-service-rollback" };
+  const rollbackContext = inspectMaintenanceRecoveryPlan(rollbackPlan, f.account);
+  const rollbackProposal = {
+    ...recoveryProposal,
+    operation: "rollback",
+    planSha256: rollbackContext.planSha256,
+    sourceCommit: rollbackContext.selected.sourceCommit,
+    artifactSha256: rollbackContext.selected.artifactSha256,
+    previous: {
+      sourceCommit: f.plan.candidate.sourceCommit,
+      artifactSha256: f.plan.candidate.artifactSha256,
+    },
+  };
+  const rollbackProposalSha = createHash("sha256")
+    .update(JSON.stringify(rollbackProposal))
+    .digest("hex");
+  const rollbackJob = MaintenanceServiceJobSchema.parse({
+    ...recoveryJob,
+    operation: "rollback",
+    proposal: rollbackProposal,
+    approval: { ...recoveryJob.approval, proposalSha256: rollbackProposalSha },
+    reservation: {
+      ...recoveryReservation,
+      operation: "rollback",
+      planSha256: rollbackContext.planSha256,
+      proposalSha256: rollbackProposalSha,
+      sourceCommit: rollbackProposal.sourceCommit,
+      artifactSha256: rollbackProposal.artifactSha256,
+      previous: rollbackProposal.previous,
+    },
+  });
+  journal.writeLifecycle([failed, rollbackJob]);
+  const rollbackRecord = {
+    ...recoveryEvidenceRecord,
+    planSha256: rollbackContext.planSha256,
+    sourceCommit: rollbackProposal.sourceCommit,
+    artifactSha256: rollbackProposal.artifactSha256,
+  };
+  const rollbackInput = {
+    ...recoveryClaimInput,
+    reservation: rollbackJob.reservation!,
+    plan: rollbackPlan,
+    evidence: {
+      ...rollbackRecord,
+      evidenceSha256: createHash("sha256").update(JSON.stringify(rollbackRecord)).digest("hex"),
+      assertCurrent: evidence.assertCurrent,
+    },
+  };
+  const substituted = { ...rollbackRecord, sourceCommit: f.plan.candidate.sourceCommit };
+  expect(() =>
+    claimMaintenanceServiceEffect({
+      ...rollbackInput,
+      evidence: {
+        ...substituted,
+        evidenceSha256: createHash("sha256").update(JSON.stringify(substituted)).digest("hex"),
+        assertCurrent: evidence.assertCurrent,
+      },
+    }),
+  ).toThrow("native evidence changed");
+  expect(journal.readLifecycle()).toEqual([failed, rollbackJob]);
+  const rollbackClaimed = claimMaintenanceServiceEffect(rollbackInput);
+  expect(rollbackClaimed.operation).toBe("rollback");
+  expect(rollbackClaimed.effectIntent?.generation).toBe(rollbackJob.reservation!.generation);
+  expect(journal.readLifecycle()[0]).toEqual(failed);
+  journal.writeLifecycle([claimed]);
   const { inspectNativeMaintenanceRecoveryHistory } =
     await import("./coordinator-bootstrap-maintenance-recovery-history.js");
   const consumedAt = new Date().toISOString();
@@ -1234,11 +1340,13 @@ test.each([
     request: absentRequest,
     writableMountRoots: [],
     currentBoot: {
+      target: "maintenance-controller" as const,
       installationId: f.plan.identity.installationId,
       process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
       assertCurrent: () => undefined,
     },
     assertAbsent: vi.fn(() => undefined),
+    assertRuntimeAbsent: vi.fn(() => undefined),
   };
   retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
   const absent = await inspectAbsentMaintenanceRecovery(absentInput);
@@ -1261,12 +1369,24 @@ test.each([
       },
     }),
   ).rejects.toThrow("permission denied");
+  const sameBoot = await inspectAbsentMaintenanceRecovery({
+    ...absentInput,
+    currentBoot: { ...absentInput.currentBoot, process: claimed.effectIntent!.executor },
+  });
+  expect(sameBoot.native.process).toBeNull();
+  expect(absentInput.assertRuntimeAbsent).toHaveBeenCalled();
+  absentInput.assertRuntimeAbsent.mockImplementationOnce(() => {
+    throw new Error("Runtime appeared before claim");
+  });
+  expect(sameBoot.assertCurrent).toThrow("Runtime appeared before claim");
   await expect(
     inspectAbsentMaintenanceRecovery({
       ...absentInput,
-      currentBoot: { ...absentInput.currentBoot, process: claimed.effectIntent!.executor },
+      assertRuntimeAbsent: () => {
+        throw new Error("unrecorded native process remains");
+      },
     }),
-  ).rejects.toThrow("target lifetime is unproven");
+  ).rejects.toThrow("unrecorded native process remains");
   await expect(
     inspectAbsentMaintenanceRecovery({
       ...absentInput,
@@ -1278,6 +1398,7 @@ test.each([
   ).rejects.toThrow("differs from retained native plan");
   rmSync(f.plan.identity.selectionPath!);
   const bootWitness = {
+    target: "maintenance-controller" as const,
     installationId: f.plan.identity.installationId,
     process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
     assertCurrent: vi.fn(() => undefined),
@@ -1315,6 +1436,97 @@ test.each([
       },
     }),
   ).rejects.toThrow("lifetime exit is unproven");
+  const recoverySelection = {
+    version: 3,
+    operation: "recovery",
+    requestId: recoveryId,
+    requestRevision: recoveryRevision,
+    intentId: uncertainRecovery.effectIntent!.id,
+    generation: recoveryReservation.generation,
+    planSha256: recoveryContext.planSha256,
+    slot: "candidate",
+  };
+  writeFileSync(f.plan.identity.selectionPath!, JSON.stringify(recoverySelection), { mode: 0o600 });
+  const recoveryStartup = { setupFile: f.plan.candidate.setup.path, account: f.account };
+  const startedRecovery = await readMaintenanceLauncherStartup(recoveryStartup);
+  expect(startedRecovery.selected).toEqual(f.plan.candidate);
+  expect(startedRecovery.planSha256).toBe(recoveryContext.planSha256);
+  const readyRecord = {
+    ...recoveryObservedRecord,
+    native: {
+      ...recoveryObservedRecord.native,
+      process: { ...claimed.effectIntent!.executor, executable: f.plan.candidate.node.path },
+      service: {
+        ...recoveryObservedRecord.native.service,
+        label: f.plan.identity.environment === "host" ? f.plan.identity.serviceLabel : "invalid",
+        registered: true,
+        launcherSha256: "c".repeat(64),
+        registrationSha256: "d".repeat(64),
+      },
+      selection: {
+        ...recoveryObservedRecord.native.selection,
+        receiptSha256: "e".repeat(64),
+        sourceCommit: f.plan.candidate.sourceCommit,
+        artifactSha256: f.plan.candidate.artifactSha256,
+      },
+    },
+  };
+  const readySha = createHash("sha256").update(JSON.stringify(readyRecord)).digest("hex");
+  const readyRecovery = MaintenanceServiceJobSchema.parse({
+    ...uncertainRecovery,
+    status: "succeeded",
+    observation: {
+      ...uncertainRecovery.observation,
+      ready: true,
+      outcome: "candidate",
+      evidenceSha256: readySha,
+    },
+    evidence: [...uncertainRecovery.evidence, { sha256: readySha, record: readyRecord }],
+  });
+  const resolvedOriginal = {
+    ...failed,
+    status: "failed",
+    resolvedBy: {
+      requestId: recoveryId,
+      generation: recoveryReservation.generation,
+      planSha256: recoveryContext.planSha256,
+      observationSha256: readySha,
+    },
+  };
+  writeFileSync(historyFile, JSON.stringify([resolvedOriginal, readyRecovery]), { mode: 0o600 });
+  expect((await readMaintenanceLauncherStartup(recoveryStartup)).selected).toEqual(
+    f.plan.candidate,
+  );
+  writeFileSync(
+    historyFile,
+    JSON.stringify([
+      {
+        ...resolvedOriginal,
+        resolvedBy: { ...resolvedOriginal.resolvedBy, generation: randomUUID() },
+      },
+      readyRecovery,
+    ]),
+    { mode: 0o600 },
+  );
+  await expect(readMaintenanceLauncherStartup(recoveryStartup)).rejects.toThrow(
+    "resolution differs",
+  );
+  writeFileSync(historyFile, JSON.stringify([resolvedOriginal, uncertainRecovery]), {
+    mode: 0o600,
+  });
+  await expect(readMaintenanceLauncherStartup(recoveryStartup)).rejects.toThrow(
+    "no exact ready leaf",
+  );
+  writeFileSync(historyFile, JSON.stringify([resolvedOriginal, readyRecovery]), { mode: 0o600 });
+  writeFileSync(
+    f.plan.identity.selectionPath!,
+    JSON.stringify({ ...recoverySelection, generation: randomUUID() }),
+    { mode: 0o600 },
+  );
+  await expect(readMaintenanceLauncherStartup(recoveryStartup)).rejects.toThrow(
+    "selected slot differs",
+  );
+  rmSync(f.plan.identity.selectionPath!);
   writeFileSync(historyFile, JSON.stringify([claimed]), { mode: 0o600 });
   rmSync(historyPlans, { recursive: true });
   const recoveryBinding = {
@@ -1429,6 +1641,50 @@ test.each([
   await expect(startup()).resolves.toMatchObject({ selected: f.plan.candidate, job: claimed });
   const { maintenanceExecutorStartupBinding } =
     await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  // Role discovery alone is not native proof: verify the exact registered
+  // launcher, selected files and current process before accepting its role.
+  const { inspectSelectedMaintenanceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const { renderMaintenanceUserLauncher } =
+    await import("./coordinator-bootstrap-maintenance-launcher.js");
+  writeFileSync(f.plan.identity.launcherPath, renderMaintenanceUserLauncher(f.plan, "candidate"), {
+    mode: 0o600,
+  });
+  const launcherProcess = {
+    ...claimed.effectIntent!.executor,
+    parentPid: 1,
+    executable: f.plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(JSON.stringify(maintenanceUserLauncher(f.plan, "candidate").ProgramArguments))
+      .digest("hex"),
+  };
+  const executorInput = {
+    setupFile: f.plan.candidate.setup.path,
+    account: f.account,
+    stateDirectory: f.enrollmentStateDirectory,
+    writableMountRoots: [],
+    ports: {
+      reader: {
+        readService: async (service: string) => `${service} = {\n\tpid = ${launcherProcess.pid}\n}`,
+        inspectProcess: async () => launcherProcess,
+      },
+      assertCurrent: () => undefined,
+    },
+  };
+  await expect(inspectSelectedMaintenanceExecutor(executorInput)).rejects.toThrow(
+    "required enrolled role",
+  );
+  const launcherExecutor = await inspectSelectedMaintenanceExecutor({
+    ...executorInput,
+    expectedTarget: "recovery-launcher",
+  });
+  expect(launcherExecutor.executor.target).toBe("recovery-launcher");
+  expect(launcherExecutor.executor.native.process).toEqual(launcherProcess);
+  launcherExecutor.assertCurrent();
+  const originalLauncher = readFileSync(f.plan.identity.launcherPath);
+  writeFileSync(f.plan.identity.launcherPath, "changed launcher");
+  expect(() => launcherExecutor.assertCurrent()).toThrow();
+  writeFileSync(f.plan.identity.launcherPath, originalLauncher);
   const beforeBookkeeping = await startup();
   journal.writeLifecycle([
     { ...claimed, status: "failed", detail: "Observation pending", revision: randomUUID() },

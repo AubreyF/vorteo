@@ -423,9 +423,17 @@ export class InstallationSourceUpdates {
     restart: RestartExecutor["restart"],
     beforeSelection?: () => Promise<void>,
   ): Promise<string> {
+    if (job.target !== this.target) throw new Error("Source update target changed");
+    const activationDirectory =
+      this.target === "container-daemon"
+        ? path.join(this.config.stateDir, "container-source-updates", job.id)
+        : path.join(this.hostSettings().releaseRoot, job.id);
+    if (existsSync(path.join(activationDirectory, "activation.json")))
+      throw new Error(
+        "Activation was already attempted. Inspect its retained receipt before recovery.",
+      );
     if (job.updatePreparation !== "prepared") await this.prepareInstallation(job);
     const update = SourceUpdateSchema.parse(job.update);
-    if (job.target !== this.target) throw new Error("Source update target changed");
     if (this.target === "container-daemon")
       return installContainerSource({
         config: this.config,
@@ -436,6 +444,11 @@ export class InstallationSourceUpdates {
       });
     const settings = this.hostSettings();
     const work = path.join(settings.releaseRoot, job.id);
+    const activationFile = path.join(work, "activation.json");
+    if (existsSync(activationFile))
+      throw new Error(
+        "Activation was already attempted. Inspect its retained receipt before recovery.",
+      );
     const { prepared, admission } = await this.verifiedHostPreparation(job);
     const previous = admission.previous;
     const validation = this.config.host.startupValidation;
@@ -453,11 +466,6 @@ export class InstallationSourceUpdates {
       if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
         throw new Error("Prepared artifact escaped its release directory");
     }
-    const activationFile = path.join(work, "activation.json");
-    if (existsSync(activationFile))
-      throw new Error(
-        "Activation was already attempted. Inspect its retained receipt before recovery.",
-      );
     await beforeSelection?.();
     writeLifecycleReceipt(activationFile, {
       previous,
@@ -469,10 +477,11 @@ export class InstallationSourceUpdates {
     try {
       await restart("host");
     } catch (error) {
-      // Restore selection without replaying a disruptive restart. Runtime state remains ambiguous.
-      this.selectRelease(previous);
+      // A failed reply is not proof that the supervisor refused dispatch. Moving
+      // the selector now can race a replacement already starting this candidate.
+      // The durable activation intent fences replay and retains both reviewed slots.
       throw new Error(
-        `Update readiness failed. Previous launcher restored at ${previous}; inspect the running daemon before another restart.`,
+        "Host restart outcome is unverified. Candidate selection and activation intent retained; reconcile native readiness before recovery. No restart or selection rollback was repeated.",
         { cause: error },
       );
     }

@@ -9,7 +9,11 @@ import {
   inspectMaintenanceRecoveryPlan,
   inspectMaintenanceRecoveryPredecessorPlan,
 } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
-import { verifyMaintenanceRecoveryPredecessor } from "./coordinator-bootstrap-maintenance-recovery-proof.js";
+import {
+  inspectMaintenanceRecoveryPredecessor,
+  verifyMaintenanceRecoveryPredecessor,
+  verifyRecoveryExecutorExit,
+} from "./coordinator-bootstrap-maintenance-recovery-proof.js";
 
 /** Read-only chain proof. A new claim must call assertCurrent under the shared
  * lifecycle lock and independently recheck native custody before effects. */
@@ -21,12 +25,38 @@ export async function inspectNativeMaintenanceRecoveryHistory(input: {
   signal: AbortSignal;
   currentBoot?: Parameters<typeof verifyMaintenanceRecoveryPredecessor>[0]["currentBoot"];
 }) {
+  const history = await readRetainedMaintenanceRecoveryHistory(input);
+  const ancestors: Awaited<ReturnType<typeof verifyMaintenanceRecoveryPredecessor>>[] = [];
+  for (const ancestor of history.ancestors) {
+    const assertExit = await verifyRecoveryExecutorExit({
+      reader: input.reader,
+      expected: ancestor.intent.executor,
+      installationId: ancestor.job.proposal.installationId,
+      currentBoot: input.currentBoot,
+    });
+    ancestors.push({ ...ancestor, assertExit });
+  }
+  const assertCurrent = () => {
+    history.assertCurrent();
+    for (const ancestor of ancestors) ancestor.assertExit();
+  };
+  assertCurrent();
+  return { ...history, ancestors, assertCurrent };
+}
+
+/** Protected retained history only. Native exit and grant admission are separate. */
+export async function readRetainedMaintenanceRecoveryHistory(input: {
+  stateDirectory: string;
+  plan: unknown;
+  account: { uid: number; home: string };
+  signal: AbortSignal;
+}) {
   const initial = inspectMaintenanceRecoveryPlan(input.plan, input.account);
   const journal = new FileBootstrapRequestJournal(input.stateDirectory);
   const snapshot = journal.readLifecycle();
   const seen = new Set<string>();
   const files: Array<() => void> = [];
-  const ancestors: Awaited<ReturnType<typeof verifyMaintenanceRecoveryPredecessor>>[] = [];
+  const ancestors: ReturnType<typeof inspectMaintenanceRecoveryPredecessor>[] = [];
   let current = initial;
   for (;;) {
     input.signal.throwIfAborted();
@@ -51,13 +81,11 @@ export async function inspectNativeMaintenanceRecoveryHistory(input: {
     assertFile();
     files.push(assertFile);
     inspectMaintenanceRecoveryPredecessorPlan(current, value, input.account);
-    const proof = await verifyMaintenanceRecoveryPredecessor({
+    const proof = inspectMaintenanceRecoveryPredecessor({
       retained: matches[0],
       plan: value,
       account: input.account,
       recoveryOf: link,
-      reader: input.reader,
-      currentBoot: input.currentBoot,
     });
     input.signal.throwIfAborted();
     ancestors.push(proof);
@@ -68,7 +96,6 @@ export async function inspectNativeMaintenanceRecoveryHistory(input: {
   const assertCurrent = () => {
     input.signal.throwIfAborted();
     for (const assertFile of files) assertFile();
-    for (const ancestor of ancestors) ancestor.assertExit();
     if (!isDeepStrictEqual(snapshot, journal.readLifecycle()))
       throw new BootstrapRequestConflict(
         "Recovery history changed during native exit verification",

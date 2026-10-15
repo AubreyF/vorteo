@@ -1,3 +1,4 @@
+import { installContainerSource } from "./container-updates.js";
 import * as lifecycleJournal from "./lifecycle-journal.js";
 import { z } from "zod";
 import {
@@ -823,7 +824,7 @@ function restartTestConfig(root: string, entrypoint: string): InstallationConfig
   };
 }
 
-test("source builds fail before activation, failed readiness restores selection, and publication follows readiness", async () => {
+test("source builds fail before activation, uncertain dispatch retains selection, and publication follows readiness", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-activation-")));
   try {
     const previous = path.join(root, "previous");
@@ -944,13 +945,31 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(await realpath(link)).toBe(previous);
     expect(restart).not.toHaveBeenCalled();
     const failedActivation = (await dispatch())!;
-    expect(failedActivation.detail).toContain("Previous launcher restored");
-    expect(await realpath(link)).toBe(previous);
+    expect(failedActivation.detail).toContain("outcome is unverified");
+    const uncertainCandidate = await realpath(link);
+    expect(uncertainCandidate).not.toBe(previous);
+    expect(
+      JSON.parse(await readFile(path.join(root, failedActivation.id, "activation.json"), "utf8")),
+    ).toMatchObject({
+      status: "activating",
+      previous,
+      candidate: uncertainCandidate,
+    });
     await expect(readFile(path.join(root, "published"))).rejects.toThrow();
     await expect(
       updates.install({ ...failedActivation, updatePreparation: "prepared" }, restart),
     ).rejects.toThrow("Activation was already attempted");
     expect(restart).toHaveBeenCalledTimes(1);
+    const prepareReplay = vi.spyOn(updates, "prepareInstallation");
+    await expect(
+      updates.install({ ...failedActivation, updatePreparation: undefined }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(prepareReplay).not.toHaveBeenCalled();
+    prepareReplay.mockRestore();
+    // Reset the disposable fixture for independent preparation cases. Production
+    // selection cannot roll back an uncertain effect without native proof.
+    await rm(link);
+    await symlink(previous, link);
 
     const prepared = {
       ...failedActivation,
@@ -3767,4 +3786,116 @@ test("owner cancellation aborts a candidate check without overwriting its retain
   await f.queue.drain();
   expect(f.queue.list()[0].status).toBe("rejected");
   expect(f.events).toEqual([]);
+});
+
+test("Dev update retains its candidate and intent after a lost restart reply without restoring or replaying", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dev-update-uncertain-"));
+  try {
+    const config = restartTestConfig(root, path.join(root, "unused-host-entry"));
+    const docker = path.join(root, "fixture-docker.mjs");
+    const selected = path.join(root, "selected.json"),
+      actions = path.join(root, "actions.json");
+    const previous = "/fixture/releases/previous",
+      candidate = "/fixture/releases/candidate";
+    const update = {
+      baseCommit: "a".repeat(40),
+      sourceCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 1,
+    };
+    config.containerSourceUpdates = {
+      sourceRepository: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+      receiptFile: path.join(root, "installed.json"),
+      docker,
+      containerId: "d".repeat(64),
+      user: "fixture",
+      node: "/fixture/node",
+      home: "/fixture/home",
+      releaseRoot: "/fixture/releases",
+      currentReleaseLink: "/fixture/current",
+    };
+    const id = randomUUID(),
+      work = path.join(root, "container-source-updates", id);
+    await mkdir(work, { recursive: true });
+    await writeFile(
+      path.join(work, "prepared.json"),
+      JSON.stringify({ release: candidate, previous, update }),
+    );
+    await writeFile(
+      selected,
+      JSON.stringify({ release: previous, sourceCommit: update.baseCommit }),
+    );
+    await writeFile(
+      config.containerSourceUpdates.receiptFile,
+      JSON.stringify({ sourceCommit: update.baseCommit }),
+    );
+    await writeFile(actions, "[]");
+    await writeFile(
+      path.join(root, "installation-container-runtime.mjs"),
+      "// Disposable native port fixture",
+    );
+    await writeFile(
+      docker,
+      `#!${process.execPath}
+import fs from 'node:fs'; import path from 'node:path'; import {fileURLToPath} from 'node:url';
+const root=path.dirname(fileURLToPath(import.meta.url)), input=JSON.parse(process.argv.at(-1));
+const selected=path.join(root,'selected.json'), actions=path.join(root,'actions.json');
+const log=JSON.parse(fs.readFileSync(actions,'utf8')); log.push(input.action); fs.writeFileSync(actions,JSON.stringify(log));
+if(input.action==='activate')fs.writeFileSync(selected,JSON.stringify({release:input.release,sourceCommit:input.update.sourceCommit}));
+if(input.action==='restore')fs.writeFileSync(selected,JSON.stringify({release:input.previous,sourceCommit:input.update.baseCommit}));
+process.stdout.write(fs.readFileSync(selected,'utf8'));
+`,
+    );
+    await chmod(docker, 0o700);
+    const job: RestartJob = {
+      id,
+      revision: randomUUID(),
+      target: "container-daemon",
+      requestedBy: "host-agent",
+      reason: "Install the exact reviewed Dev source",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "running",
+      detail: "Reserved",
+      update,
+    };
+    const restart = vi.fn(async (): Promise<string> => {
+      throw new Error("Restart reply was lost");
+    });
+    const invoke = () =>
+      installContainerSource({
+        config,
+        job,
+        bundleFile: path.join(root, "unused.bundle"),
+        restart,
+      });
+    await expect(invoke()).rejects.toThrow("outcome is unverified");
+    expect(JSON.parse(await readFile(selected, "utf8"))).toEqual({
+      release: candidate,
+      sourceCommit: update.sourceCommit,
+    });
+    expect(JSON.parse(await readFile(actions, "utf8"))).toEqual(["inspect", "activate"]);
+    expect(JSON.parse(await readFile(path.join(work, "activation.json"), "utf8"))).toMatchObject({
+      status: "activating",
+      release: candidate,
+      previous,
+    });
+    expect(JSON.parse(await readFile(config.containerSourceUpdates.receiptFile, "utf8"))).toEqual({
+      sourceCommit: update.baseCommit,
+    });
+    await expect(invoke()).rejects.toThrow("Dev activation was already attempted");
+    const publicUpdater = new InstallationSourceUpdates(config, "container-daemon");
+    const prepareReplay = vi.spyOn(publicUpdater, "prepareInstallation");
+    await expect(
+      publicUpdater.install({ ...job, updatePreparation: undefined }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(prepareReplay).not.toHaveBeenCalled();
+    prepareReplay.mockRestore();
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await readFile(actions, "utf8"))).toEqual(["inspect", "activate"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

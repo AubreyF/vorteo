@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.568 - 2026-10-15
+
+### Fixed
+
+- Retain the reviewed Host or Dev candidate selection and activation intent after an unconfirmed restart or failed readiness check. An exception cannot prove that startup stopped; native reconciliation must precede selector rollback.
+- Refuse installation replay before preparation at the public entrypoint, including requests without a preparation flag. Preserve the inner target-specific activation fences.
+- Verify retained recovery startup after ancestor resolution without reopening fresh recovery authority. Pin the selected recovery wrapper, original slot and exact addressed readiness evidence.
+
+### Added
+
+- Integrate bounded native runtime-file inventory, explicit recovery-launcher executor identity and verified one-generation child custody. Same-boot absence requires independent process evidence, while changed-boot witnesses remain tied to the selected executor.
+
+### Validation and delivery
+
+- Host and Dev uncertainty regressions, native inventory, recovery startup and read-only child identity checks pass. Server build, types and lint pass. Native recovery effects, compiled recovery acceptance, bounded daemon interruption and installed activation remain open; no recovery capability or live installation is enabled by this checkpoint.
+
 ## 0.11.0-beta.3.vorteo.567 - 2026-10-15
 
 ### Added
