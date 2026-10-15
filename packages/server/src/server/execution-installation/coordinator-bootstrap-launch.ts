@@ -1512,6 +1512,7 @@ export async function createManagedBootstrapReview(
           throw new BootstrapRequestConflict("Authenticated coordinator submission required");
         if (request.status === "canceled" || request.execution || request.automaticDispatch)
           return request;
+        requests.requireAutomaticReconciliation(request);
         if (request.status === "pending") {
           await verifyCandidate(request);
           return requests.approveAutomatic({

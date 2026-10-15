@@ -21,6 +21,7 @@ import {
   BootstrapRequestConflict,
   CoordinatorBootstrapRequests,
   type BootstrapHostBinding,
+  type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
@@ -81,7 +82,7 @@ export const BootstrapAdmissionSetupSchema = z.strictObject({
 export function createBootstrapReconciliationLedger(
   configurationFile: string,
   daemonId: string,
-): Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic"> {
+): BootstrapReconciliationLedger {
   const initial = readBootstrapHostBinding(configurationFile, daemonId);
   const readBinding = () => {
     const current = readBootstrapHostBinding(configurationFile, daemonId);
@@ -111,6 +112,8 @@ export function createBootstrapReconciliationLedger(
   return {
     list: () => requests.list(),
     revokeAutomatic: () => requests.revokeAutomatic(),
+    reserveAutomaticReconciliation: (value) => requests.reserveAutomaticReconciliation(value),
+    finishAutomaticReconciliation: (id, value) => requests.finishAutomaticReconciliation(id, value),
   };
 }
 

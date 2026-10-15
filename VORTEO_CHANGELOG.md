@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.541 - 2026-10-15
+
+### Maintenance
+
+- Connect automatic coordinator reconciliation to the existing maintenance tick, with one native call in flight and durable limits of three attempts per approval or dispatch phase.
+- Preserve retry counts across coordinator restarts, the cancellation interval before dispatch, and the one-launch reservation. Late replies cannot overwrite newer approval or execution receipts.
+- Omit private authorization and retry state from nested recovery responses as well as the main request list, preserving older review clients.
+- Verify retry exhaustion, lost connections, phase changes and response compatibility. Public authorization status, scoped client commands and installed acceptance remain unfinished; automatic coordinator readiness is not advertised.
+
 ## 0.11.0-beta.3.vorteo.540 - 2026-10-15
 
 ### Maintenance

@@ -138,7 +138,17 @@ export async function handlePreclaimRecoveryReview(
     }
     // COMPAT(preclaimOwnerCancellation): added 2026-10-12; retain until 2027-04-12.
     // Strict older readers can still cancel, but cannot approve hidden provenance.
-    const requests = service.list().map((request) => {
+    const requests = service.list().map((stored) => {
+      const request = Object.assign({}, stored, {
+        plan: {
+          ...stored.plan,
+          original: privateAuthorityReply(stored.plan.original),
+          canceled: privateAuthorityReply(stored.plan.canceled),
+          ...(stored.plan.ownerCancellation
+            ? { ownerCancellation: privateAuthorityReply(stored.plan.ownerCancellation) }
+            : {}),
+        },
+      });
       if (message.ownerCanceledOriginal || !request.plan.ownerCancellation) return request;
       const {
         ownerCancellation: _cancellation,
@@ -256,14 +266,7 @@ export async function handleBootstrapReview(
       .list()
       // COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15
       // and a negotiated public authorization view replaces these private fields.
-      .map(
-        ({
-          automaticSubmission: _submission,
-          automaticApproval: _approval,
-          automaticDispatch: _dispatch,
-          ...request
-        }) => request,
-      )
+      .map(privateAuthorityReply)
       .map((request) => bootstrapReviewReply(request, message.factoryRuntimeAdoption === true))
       .map((request) => compatibleRecoveryReply(request, message.compatibleRecovery === true))
       .map((request) => previewMonitorReply(request, message.previewMonitor === true))
@@ -402,7 +405,12 @@ export async function handleClaimedRecoveryReview(
         );
       await service.decide(message.input, message.ownerPassword, message.claimedRecovery === true);
     }
-    return { type, payload: { requestId, requests: service.list(), error: null } };
+    const requests = service.list().map((request) =>
+      Object.assign({}, request, {
+        plan: { ...request.plan, original: privateAuthorityReply(request.plan.original) },
+      }),
+    );
+    return { type, payload: { requestId, requests, error: null } };
   } catch (error) {
     const safe =
       error instanceof BootstrapRequestConflict || error instanceof BootstrapAuthenticationRequired;
@@ -417,6 +425,19 @@ export async function handleClaimedRecoveryReview(
       },
     };
   }
+}
+
+// COMPAT(coordinatorAutomaticAuthority): added v534; retain until 2027-04-15.
+// Nested recovery views must omit private bookkeeping just like the main list.
+function privateAuthorityReply(request: CoordinatorBootstrapRequest): CoordinatorBootstrapRequest {
+  const {
+    automaticSubmission: _submission,
+    automaticApproval: _approval,
+    automaticDispatch: _dispatch,
+    automaticCheck: _check,
+    ...publicRequest
+  } = request;
+  return publicRequest;
 }
 
 // COMPAT(bootRecovery): added 2026-10-15; retain until 2027-04-15.

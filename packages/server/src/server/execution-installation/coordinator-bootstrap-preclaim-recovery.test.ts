@@ -1846,6 +1846,38 @@ test("managed recovery transport preserves explicit review, authentication and c
   expect(JSON.stringify([prepared, hidden, refused, approved, canceled])).not.toContain(password);
 });
 
+test("preclaim recovery responses omit private reconciliation state in nested requests", async () => {
+  const f = reviewFixture();
+  const check = {
+    phase: "approval" as const,
+    attempt: 1,
+    startedAt: "2026-10-15T00:00:00Z",
+    retryAfter: "2026-10-15T00:16:00Z",
+    outcome: "running" as const,
+  };
+  const stored = {
+    ...f.request,
+    plan: {
+      ...f.request.plan,
+      original: { ...f.request.plan.original, automaticCheck: check },
+      canceled: { ...f.request.plan.canceled, automaticCheck: check },
+    },
+  };
+  const response = await handlePreclaimRecoveryReview(
+    { type: "installation.bootstrap_recovery.list_requests.request", requestId: "list" },
+    {
+      available: true,
+      list: () => [stored],
+      prepare: (value) => f.service.prepare(value),
+      decide: (value, proof, ack) => f.service.decide(value, proof, ack),
+    },
+  );
+  expect(response.payload.error).toBeNull();
+  expect(response.payload.requests?.[0]?.plan.original).not.toHaveProperty("automaticCheck");
+  expect(response.payload.requests?.[0]?.plan.canceled).not.toHaveProperty("automaticCheck");
+  expect(stored.plan.original.automaticCheck).toEqual(check);
+});
+
 test.each(["missing", "unavailable", "private-error"])(
   "managed recovery transport refuses unavailable runtime and redacts private failure (%s)",
   async (mode) => {

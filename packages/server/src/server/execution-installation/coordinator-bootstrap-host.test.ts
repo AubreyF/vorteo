@@ -631,7 +631,12 @@ test("coordinator reconciliation revokes protected submissions after credential 
     authority,
   );
   const observer = createBootstrapReconciliationLedger(f.file, "host-id");
-  expect(Object.keys(observer).sort()).toEqual(["list", "revokeAutomatic"]);
+  expect(Object.keys(observer).sort()).toEqual([
+    "finishAutomaticReconciliation",
+    "list",
+    "reserveAutomaticReconciliation",
+    "revokeAutomatic",
+  ]);
   observer.revokeAutomatic();
   expect(observer.list()).toEqual([pending]);
   f.config.hostAgentTokenHash = "c".repeat(64);

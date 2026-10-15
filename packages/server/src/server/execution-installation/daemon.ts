@@ -16,7 +16,10 @@ import type { InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
 import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
 import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
-import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import {
+  BootstrapRequestConflict,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +34,48 @@ interface CoordinatorSubmission {
 }
 
 type CoordinatorSubmissionClient = Pick<DaemonClient, "prepareCoordinatorBootstrap" | "close">;
+type CoordinatorReconciliationClient = Pick<
+  DaemonClient,
+  "reconcileAutomaticCoordinatorBootstrap" | "close"
+>;
+
+export async function reconcileInstallationCoordinator(
+  config: InstallationConfig,
+  ledger: BootstrapReconciliationLedger,
+  connect: () => Promise<CoordinatorReconciliationClient> = () =>
+    connectInstallationDaemon(config, "host"),
+): Promise<void> {
+  for (const request of ledger.list()) {
+    const automatic =
+      request.status === "pending" ? request.automaticSubmission : request.automaticApproval;
+    if (
+      !automatic ||
+      request.status === "canceled" ||
+      request.execution ||
+      request.automaticDispatch
+    )
+      continue;
+    const reserved = ledger.reserveAutomaticReconciliation({
+      id: request.id,
+      revision: request.revision,
+      planSha256: request.planSha256,
+    });
+    if (!reserved) continue;
+    try {
+      const client = await connect();
+      try {
+        await client.reconcileAutomaticCoordinatorBootstrap(reserved.id);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      // A changed phase or native launch receipt makes this a no-op. Otherwise
+      // persist bounded backoff even when the transport outcome was lost.
+      ledger.finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    }
+    return;
+  }
+}
 
 /** The requester comes from scoped HTTP authentication, never the submitted body. */
 export async function submitInstallationCoordinator(

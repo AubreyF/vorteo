@@ -1,5 +1,5 @@
 import { DaemonAutomation } from "./daemon-automation.js";
-import type { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
@@ -45,7 +45,11 @@ import {
   type RestartExecutor,
 } from "./restarts.js";
 import type { InstallationConfig } from "./config.js";
-import { connectInstallationDaemon, submitInstallationCoordinator } from "./daemon.js";
+import {
+  connectInstallationDaemon,
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+} from "./daemon.js";
 import { CoordinatorBootstrapPreparationSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { delegateToContainer, DelegationRequestSchema } from "./delegation.js";
 import {
@@ -248,7 +252,7 @@ export function createInstallationServer(
     resolveInstallationPluginSource(config, input),
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
-  coordinatorRequests?: Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic">,
+  coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const journal = path.join(config.stateDir, "restart-jobs.json");
@@ -335,11 +339,19 @@ export function createInstallationServer(
     restarts.activate();
     return true;
   };
+  let coordinatorReconciliation: Promise<void> | null = null;
   const drainRestarts = async () => {
     try {
       if (startupReleased()) {
         coordinatorRequests?.revokeAutomatic();
         await restarts.drain();
+        if (coordinatorRequests && !coordinatorReconciliation) {
+          coordinatorReconciliation = reconcileInstallationCoordinator(config, coordinatorRequests)
+            .catch(() => logger.warn("Automatic coordinator reconciliation remains unconfirmed"))
+            .finally(() => {
+              coordinatorReconciliation = null;
+            });
+        }
       }
     } catch {
       logger.error("Installation restart journal or startup fence failed");

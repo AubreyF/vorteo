@@ -4,7 +4,7 @@ import {
   signCoordinatorSubmission,
   verifyCoordinatorSubmission,
 } from "./daemon-automation.js";
-import { submitInstallationCoordinator } from "./daemon.js";
+import { submitInstallationCoordinator, reconcileInstallationCoordinator } from "./daemon.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -3163,8 +3163,8 @@ function automaticCoordinatorFixture() {
           policyActivatedAt: "2026-10-15T00:00:00Z",
         },
       ),
-    advance: () => {
-      now += 30_000;
+    advance: (milliseconds = 30_000) => {
+      now += milliseconds;
     },
     disable: () => {
       authority = null;
@@ -3177,6 +3177,125 @@ function automaticCoordinatorFixture() {
     },
   };
 }
+
+test("coordinator reconciliation budgets survive reopening and delayed responses", async () => {
+  const f = automaticCoordinatorFixture();
+  let request = await f.submit();
+  expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+  for (const attempt of [1, 2, 3]) {
+    const reserved = f
+      .service()
+      .reserveAutomaticReconciliation(automaticCoordinatorIdentity(request));
+    if (!reserved) throw new Error("Missing reconciliation reservation");
+    expect(reserved.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "running",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(reserved)).not.toThrow();
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(reserved)),
+    ).toBeNull();
+    f.service().finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    request = f.service().list()[0]!;
+    expect(request.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "unconfirmed",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+    ).toBeNull();
+    f.advance(60_000);
+  }
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+  ).toBeNull();
+});
+
+test("a crashed reconciliation retains its budget and cannot overwrite approval or launch", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.submit();
+  const first = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  f.advance(16 * 60_000);
+  expect(() => f.service().requireAutomaticReconciliation(first)).toThrow("bounded");
+  const second = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(first))!;
+  expect(second.automaticCheck?.attempt).toBe(2);
+  f.service().finishAutomaticReconciliation(first.id, first.automaticCheck);
+  expect(f.service().list()).toEqual([second]);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(second));
+  f.service().finishAutomaticReconciliation(second.id, second.automaticCheck);
+  expect(f.service().list()).toEqual([approved]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved)),
+  ).toBeNull();
+  f.advance();
+  const dispatch = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved))!;
+  expect(dispatch.automaticCheck).toMatchObject({ phase: "dispatch", attempt: 1 });
+  expect(dispatch.automaticApproval?.requestRevision).toBe(dispatch.revision);
+  const launched = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(dispatch));
+  f.service().finishAutomaticReconciliation(dispatch.id, dispatch.automaticCheck);
+  expect(f.service().list()).toEqual([launched]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(launched)),
+  ).toBeNull();
+});
+
+test("concurrent coordinator ticks share durable admission and retain failed connection attempts", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const connected = Promise.withResolvers<never>();
+  const connect = vi.fn(() => connected.promise);
+  const first = reconcileInstallationCoordinator(config, f.service(), connect);
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  connected.reject(new Error("Fixture disconnected"));
+  await expect(first).rejects.toThrow("Fixture disconnected");
+  expect(f.service().list()[0]?.automaticCheck).toMatchObject({
+    attempt: 1,
+    outcome: "unconfirmed",
+  });
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+});
+
+test("coordinator ticks advance approval and dispatch once without consuming the cancellation interval", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const approve = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [await f.service().approveAutomatic(automaticCoordinatorIdentity(request))];
+  });
+  const close = vi.fn(async () => {});
+  const connect = vi.fn(async () => ({ reconcileAutomaticCoordinatorBootstrap: approve, close }));
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  const approved = f.service().list()[0]!;
+  expect(approved.status).toBe("approved");
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  f.advance();
+  const dispatch = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(request))];
+  });
+  const dispatchConnection = vi.fn(async () => ({
+    reconcileAutomaticCoordinatorBootstrap: dispatch,
+    close,
+  }));
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  expect(dispatchConnection).toHaveBeenCalledOnce();
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith(approved.id);
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(f.service().list()[0]?.automaticDispatch?.approvedRevision).not.toBeUndefined();
+});
 
 test("coordinator automation requires protected Host provenance and waits before exact dispatch", async () => {
   const f = automaticCoordinatorFixture();

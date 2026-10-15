@@ -1,5 +1,5 @@
 import { DaemonAutomation } from "./daemon-automation.js";
-import type { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -342,7 +342,7 @@ async function fixture(
     "validateHelperPlan" | "installHelper" | "verifyHelperRecovery"
   >,
   initialize?: (config: InstallationConfig) => void,
-  coordinatorRequests?: Pick<CoordinatorBootstrapRequests, "list" | "revokeAutomatic">,
+  coordinatorRequests?: BootstrapReconciliationLedger,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "vorteo-installation-test-"));
   writeFileSync(
@@ -2479,6 +2479,8 @@ test("permission changes persist revocation before success and report ledger fai
   const observed: Array<string | null> = [];
   const coordinatorRequests = {
     list: () => [],
+    reserveAutomaticReconciliation: () => null,
+    finishAutomaticReconciliation: () => {},
     revokeAutomatic() {
       observed.push(new DaemonAutomation(stateDirectory, false).activation("coordinator") ?? null);
       if (failRevocation) throw new Error("Fixture journal unavailable");

@@ -2136,6 +2136,28 @@ test.each(["exact", "hidden", "password", "unavailable", "cancel", "private-erro
   },
 );
 
+test("claimed recovery responses omit private reconciliation state from the original request", async () => {
+  const f = reviewFixture();
+  const service = claimedReviewAdapter(f);
+  await service.prepare({ id: randomUUID(), reason: "Fixture", plan: f.plan });
+  const stored = service.list()[0]!;
+  const check = {
+    phase: "dispatch" as const,
+    attempt: 2,
+    startedAt: "2026-10-15T00:00:00Z",
+    retryAfter: "2026-10-15T00:16:00Z",
+    outcome: "unconfirmed" as const,
+  };
+  stored.plan.original.automaticCheck = check;
+  const response = await handleClaimedRecoveryReview(
+    { type: "installation.claimed_recovery.list_requests.request", requestId: "list" },
+    { ...service, list: () => [stored] },
+  );
+  expect(response.payload.error).toBeNull();
+  expect(response.payload.requests?.[0]?.plan.original).not.toHaveProperty("automaticCheck");
+  expect(stored.plan.original.automaticCheck).toEqual(check);
+});
+
 test("claimed observation capability requires its own available service and method", async () => {
   const f = reviewFixture();
   const claimed = claimedReviewAdapter(f);

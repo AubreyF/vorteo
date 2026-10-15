@@ -9,6 +9,7 @@ import {
   CoordinatorBootstrapDecisionSchema,
   CoordinatorBootstrapRequestSchema,
   CoordinatorAutomaticAuthoritySchema,
+  CoordinatorAutomaticCheckSchema,
   type CoordinatorAutomaticAuthority,
   type CoordinatorBootstrapPlan,
   type CoordinatorBootstrapRequest,
@@ -35,6 +36,11 @@ export class BootstrapRequestConflict extends Error {}
 export class BootstrapAuthenticationRequired extends Error {}
 /** Positive busy evidence only; parsing or identity failures must never use this type. */
 export class BootstrapCoordinatorBusy extends BootstrapRequestConflict {}
+
+export type BootstrapReconciliationLedger = Pick<
+  CoordinatorBootstrapRequests,
+  "list" | "revokeAutomatic" | "reserveAutomaticReconciliation" | "finishAutomaticReconciliation"
+>;
 
 /** Call only after verifying the exact coordinator is frozen and collecting its
  * children. A quiet journal from a running coordinator is not a dispatch fence. */
@@ -366,6 +372,99 @@ export class CoordinatorBootstrapRequests {
       expected.map((item) => (item.id === next.id ? next : item)),
     );
     return structuredClone(next);
+  }
+
+  reserveAutomaticReconciliation(value: unknown): CoordinatorBootstrapRequest | null {
+    const input = dispatchIdentity.parse(value);
+    const expected = this.read();
+    const request = expected.find((item) => item.id === input.id);
+    if (!request || request.revision !== input.revision || request.planSha256 !== input.planSha256)
+      throw new BootstrapRequestConflict("Coordinator request changed before reconciliation");
+    if (request.status === "canceled" || request.execution || request.automaticDispatch)
+      return null;
+    this.readBinding(request.plan);
+    this.requireAutomaticAuthority(request);
+    if (request.status === "approved") {
+      if (!request.automaticApproval) return null;
+      if (this.now() < Date.parse(request.automaticApproval.dispatchAfter)) return null;
+      this.requireEligibleAutomaticDispatch(request);
+    }
+    const phase = request.status === "pending" ? "approval" : "dispatch";
+    const previous = request.automaticCheck?.phase === phase ? request.automaticCheck : undefined;
+    if (previous && (previous.attempt >= 3 || this.now() < Date.parse(previous.retryAfter)))
+      return null;
+    const attempt = (previous?.attempt ?? 0) + 1;
+    const revision = randomUUID();
+    const next: CoordinatorBootstrapRequest = {
+      ...request,
+      revision,
+      ...(request.automaticApproval
+        ? { automaticApproval: { ...request.automaticApproval, requestRevision: revision } }
+        : {}),
+      automaticCheck: {
+        phase,
+        attempt,
+        startedAt: new Date(this.now()).toISOString(),
+        // Cover connection and RPC deadlines after a coordinator crash. A live
+        // caller records the shorter backoff when its observation finishes.
+        retryAfter: new Date(this.now() + 16 * 60_000).toISOString(),
+        outcome: "running",
+      },
+    };
+    this.journal.replace(
+      expected,
+      expected.map((item) => (item.id === next.id ? next : item)),
+    );
+    return structuredClone(next);
+  }
+
+  requireAutomaticReconciliation(request: CoordinatorBootstrapRequest): void {
+    const phase = request.status === "pending" ? "approval" : "dispatch";
+    const check = request.automaticCheck;
+    if (
+      !check ||
+      check.phase !== phase ||
+      check.outcome !== "running" ||
+      this.now() >= Date.parse(check.retryAfter)
+    )
+      throw new BootstrapRequestConflict(
+        "A current bounded coordinator reconciliation is required",
+      );
+  }
+
+  finishAutomaticReconciliation(id: string, value: unknown): void {
+    const check = CoordinatorAutomaticCheckSchema.parse(value);
+    const expected = this.read();
+    const request = expected.find((item) => item.id === id);
+    const phase = request?.status === "pending" ? "approval" : "dispatch";
+    if (
+      !request ||
+      request.status === "canceled" ||
+      request.execution ||
+      request.automaticDispatch ||
+      phase !== check.phase ||
+      !isDeepStrictEqual(request.automaticCheck, check)
+    )
+      return;
+    this.readBinding(request.plan);
+    const revision = randomUUID();
+    const backoff = [5_000, 15_000, 45_000][check.attempt - 1]!;
+    const next: CoordinatorBootstrapRequest = {
+      ...request,
+      revision,
+      ...(request.automaticApproval
+        ? { automaticApproval: { ...request.automaticApproval, requestRevision: revision } }
+        : {}),
+      automaticCheck: {
+        ...check,
+        outcome: "unconfirmed",
+        retryAfter: new Date(this.now() + backoff).toISOString(),
+      },
+    };
+    this.journal.replace(
+      expected,
+      expected.map((item) => (item.id === next.id ? next : item)),
+    );
   }
 
   /** Reserve one native launch before spawning. A lost response never permits a
