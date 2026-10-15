@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.566 - 2026-10-15
+
+### Maintenance
+
+- Preserve the published conversation queue placement and draft-retention changes alongside installation maintenance. Retain both source histories; this merge performs no publication or runtime activation.
+
 ## 0.11.0-beta.3.vorteo.565 - 2026-10-15
 
 ### Added
@@ -60,6 +66,10 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Bound native callback waits and retries so an unavailable response cannot wedge queue reconciliation. Reconcile revocation before retry limits and retain uncertain execution without replay.
 - Preserve plain restart timing when optional native verification is absent. Clear busy state and private maintenance data on expired owner access, allowing sign-in again.
+
+### Changed
+
+- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
 
 ### Validation and delivery
 

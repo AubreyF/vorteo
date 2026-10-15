@@ -492,7 +492,13 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
     await expect(rightColumn).toBeVisible();
     await expect(leftColumn.getByTestId("question-form-card")).toBeAttached();
     await expect(rightColumn.getByTestId("question-form-card")).toHaveCount(0);
-    await Promise.all(ids.map((id) => expect(rightColumn.getByTestId(id)).toBeAttached()));
+    await Promise.all(
+      ids
+        .filter((id) => id !== "shared-message-queue")
+        .map((id) => expect(rightColumn.getByTestId(id)).toBeAttached()),
+    );
+    await expect(rightColumn.getByTestId("shared-message-queue")).toHaveCount(0);
+    await expect(leftColumn.getByTestId("shared-message-queue")).toBeAttached();
     await leftColumn.getByTestId("question-form-card").scrollIntoViewIfNeeded();
     await page.screenshot({
       path: info.outputPath("questions-left-column.png"),
@@ -881,8 +887,8 @@ async function checkCardGaps(
   geometry: { id: string; top: number; bottom: number }[],
   width: number,
 ) {
-  // Desktop has additional Files and Changes cards before the queue. Questions
-  // remain in the conversation; measure only actual neighbors in each layout.
+  // Desktop details include Files and Changes. Queue and questions stay in the
+  // conversation; measure only actual neighbors in each layout.
   const adjacent =
     width > 600
       ? await stack.evaluate((root) =>
@@ -894,7 +900,6 @@ async function checkCardGaps(
             "agent-history-plugin-pills",
             "supporting-card-files",
             "supporting-card-changes_tree",
-            "shared-message-queue",
           ]
             .map((id) => {
               const node = [...root.querySelectorAll(`[data-testid="${id}"]`)].find((item) =>
