@@ -54,6 +54,7 @@ import {
 } from "./coordinator-bootstrap-process.js";
 import {
   BootstrapRenewalSchema,
+  RenewalGenerationSchema,
   deriveBootstrapRenewal,
   retainRenewalGeneration,
   verifyRenewalPlan,
@@ -286,6 +287,19 @@ function runnerRenewal(
   };
 }
 
+function verifyRunnerExecutable(setup: RunnerSetup): void {
+  if (
+    realpathSync(process.execPath) !== setup.node.path ||
+    fileURLToPath(import.meta.url) !== setup.entrypoint.path
+  )
+    throw new BootstrapRequestConflict(
+      "Bootstrap runner executable does not match protected setup",
+    );
+  const relative = path.relative(setup.runtimeDirectory, setup.entrypoint.path);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw new BootstrapRequestConflict("Runner is outside its prepared runtime");
+}
+
 /** Only the fixed protected Host launcher invokes this entrypoint. Browser input
  * supplies neither setup paths nor commands. An existing execution is never replayed. */
 export async function runNativeBootstrap(
@@ -298,14 +312,9 @@ export async function runNativeBootstrap(
   z.string().uuid().parse(identifier);
   const readSetup = () =>
     BootstrapRunnerSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+  if (role === "boot-watchdog") setupFile = await resolveBootstrapBootSetup(setupFile, identifier);
   const setup = readSetup();
-  if (
-    realpathSync(process.execPath) !== setup.node.path ||
-    fileURLToPath(import.meta.url) !== setup.entrypoint.path
-  )
-    throw new BootstrapRequestConflict(
-      "Bootstrap runner executable does not match protected setup",
-    );
+  verifyRunnerExecutable(setup);
   const admission = BootstrapAdmissionSetupSchema.parse(
     readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
   );
@@ -321,9 +330,6 @@ export async function runNativeBootstrap(
     [setupFile, setup.admissionSetupFile, setup.runtimeDirectory],
     roots,
   );
-  const relative = path.relative(setup.runtimeDirectory, setup.entrypoint.path);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw new BootstrapRequestConflict("Runner is outside its prepared runtime");
   for (const file of [setup.entrypoint, setup.ownerLauncher, setup.ownershipVerifier])
     await readBootstrapPreparedFile(file, roots);
   const requests = await createBootstrapReviewService(
@@ -336,7 +342,7 @@ export async function runNativeBootstrap(
   if (!request || request.status !== "approved")
     throw new BootstrapRequestConflict("Exact bootstrap approval is unavailable");
   if (role === "boot-watchdog") {
-    verifyBootRunnerBinding(request, setupFile, setup);
+    await verifyBootRunnerBinding(request, setupFile, setup);
     await verifyBootstrapRecoveryArtifacts(request.plan, roots);
   }
   await renewal.verifyApproval(request);
@@ -563,13 +569,7 @@ export async function runNativeBootstrap(
   if (request.plan.bootRecovery)
     operations.armBootRecovery = async (claimed) => {
       const recovery = claimed.plan.bootRecovery!;
-      if (
-        recovery.setup.path !== setupFile ||
-        !isDeepStrictEqual(recovery.node, setup.node) ||
-        !isDeepStrictEqual(recovery.entrypoint, setup.entrypoint) ||
-        !isDeepStrictEqual(recovery.ownerLauncher, setup.ownerLauncher)
-      )
-        throw new BootstrapRequestConflict("Startup recovery must bind this executor setup");
+      await verifyBootRunnerBinding(claimed, setupFile, setup);
       const requireClaim = async () => {
         await requireOwnership();
         const current = requests.list().find((item) => item.id === claimed.id);
@@ -752,21 +752,79 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     });
 }
 
-function verifyBootRunnerBinding(
+export async function verifyBootRunnerBinding(
   request: CoordinatorBootstrapRequest,
   setupFile: string,
   setup: RunnerSetup,
-): void {
+): Promise<void> {
   const recovery = request.plan.bootRecovery;
   if (
     !recovery ||
     recovery.requestId !== request.id ||
-    recovery.setup.path !== setupFile ||
     !isDeepStrictEqual(recovery.node, setup.node) ||
     !isDeepStrictEqual(recovery.entrypoint, setup.entrypoint) ||
     !isDeepStrictEqual(recovery.ownerLauncher, setup.ownerLauncher)
   )
     throw new BootstrapRequestConflict("Startup runner does not match exact approved recovery");
+  // A renewal's approval revision does not exist when its plan is prepared.
+  // Pin the inert base setup, then allow only its exact approval envelope.
+  const prepared = BootstrapRunnerSetupSchema.parse(
+    JSON.parse((await readBootstrapPreparedFile(recovery.setup, [])).toString("utf8")),
+  );
+  if (!setup.renewal?.request) {
+    if (setupFile !== recovery.setup.path || !isDeepStrictEqual(prepared, setup))
+      throw new BootstrapRequestConflict("Startup setup differs from approved preparation");
+    return;
+  }
+  const { request: approval, ...renewal } = setup.renewal;
+  const expectedPath = path.join(
+    request.plan.state.directory,
+    `coordinator-renewal-${approval.id}-${approval.revision}.json`,
+  );
+  if (
+    setupFile !== expectedPath ||
+    approval.id !== request.id ||
+    approval.planSha256 !== request.planSha256 ||
+    !isDeepStrictEqual(prepared, { ...setup, renewal })
+  )
+    throw new BootstrapRequestConflict("Startup renewal differs from approved preparation");
+}
+
+/** Resolve the already retained generation without deriving from a new Host
+ * runtime. This reads protected files only; mount checks precede all effects. */
+export async function resolveBootstrapBootSetup(
+  setupFile: string,
+  identifier: string,
+): Promise<string> {
+  const uid = nativeRunnerUid();
+  const setup = BootstrapRunnerSetupSchema.parse(readPrivateBootstrapConfiguration(setupFile, uid));
+  if (!setup.renewal || setup.renewal.request) return setupFile;
+  const host = readBootstrapHostBinding(setup.renewal.configuration.path, setup.daemonId);
+  const request = new FileBootstrapRequestJournal(host.stateDirectory)
+    .read()
+    .find((item) => item.id === identifier);
+  if (!request?.execution || request.status !== "approved") return setupFile;
+  if (request.plan.bootRecovery?.setup.path !== setupFile)
+    throw new BootstrapRequestConflict("Startup preparation belongs to a different request");
+  const retained = RenewalGenerationSchema.parse(
+    readPrivateBootstrapConfiguration(
+      path.join(
+        host.stateDirectory,
+        `coordinator-renewal-generation-${request.execution.generation}.json`,
+      ),
+      uid,
+    ),
+  );
+  const snapshot = BootstrapRunnerSetupSchema.parse(
+    JSON.parse((await readBootstrapPreparedFile(retained.snapshot, [])).toString("utf8")),
+  );
+  if (
+    retained.generation !== request.execution.generation ||
+    !isDeepStrictEqual(retained.approval, snapshot.renewal?.request)
+  )
+    throw new BootstrapRequestConflict("Startup renewal generation changed");
+  await verifyBootRunnerBinding(request, retained.snapshot.path, snapshot);
+  return retained.snapshot.path;
 }
 
 function bootRecoveryInactive(
@@ -807,7 +865,7 @@ async function readRunnerMounts(input: {
     request.plan.state.directory !== initial.stateDirectory
   )
     throw new BootstrapRequestConflict("Startup readiness has no approved recovery generation");
-  verifyBootRunnerBinding(request, input.setupFile, input.setup);
+  await verifyBootRunnerBinding(request, input.setupFile, input.setup);
   let roots: string[] = [];
   await observeBootstrapReadiness({
     file: path.join(

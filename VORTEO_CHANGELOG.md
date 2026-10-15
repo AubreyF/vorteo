@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.535 - 2026-10-15
+
+### Fixed
+
+- Bind renewal startup recovery to the prepared setup before approval, then resolve the exact retained execution snapshot from its generation. The previous path comparison required the plan to pin a snapshot containing its own future approval revision and digest.
+- Verify the prepared bytes, snapshot digest, approval identity and generation before recovery. Changed setup, substituted snapshots and mismatched generations are refused. Installed reboot acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.534 - 2026-10-15
 
 ### Maintenance

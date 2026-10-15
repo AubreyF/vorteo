@@ -28,7 +28,11 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
-import { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
+import {
+  BootstrapRunnerSetupSchema,
+  resolveBootstrapBootSetup,
+  verifyBootRunnerBinding,
+} from "./coordinator-bootstrap-runner.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   deriveBootstrapRenewal,
@@ -1764,5 +1768,98 @@ test.runIf(process.platform === "darwin")(
     };
     journal.replace(journal.read(), [f.record, failedAfterPromotion]);
     await expect(f.derive()).rejects.toThrow("Exact unpromoted bootstrap failure required");
+  },
+);
+
+test.runIf(process.platform === "darwin")(
+  "startup renewal resolves the exact retained approval from a preapproval setup",
+  async () => {
+    const f = await fixture();
+    const setup = (await f.derive())!;
+    const prepared = f.save(path.join(f.state, "prepared-boot-setup.json"), setup);
+    const approved = structuredClone(f.record);
+    approved.id = randomUUID();
+    approved.revision = randomUUID();
+    delete approved.execution;
+    const service = `${f.plan.service}-recovery-${approved.id}`;
+    approved.plan = {
+      ...f.plan,
+      previous: f.coordinator,
+      candidate: f.host,
+      automaticRecovery: "restore-compatible",
+      compatibleRecovery: f.host,
+      bootRecovery: {
+        requestId: approved.id,
+        service,
+        launcher: f.save(path.join(f.state, "boot.plist"), "inert fixture", true),
+        installedLauncher: path.join(f.state, "installed-boot.plist"),
+        setup: prepared,
+        ownerLauncher: setup.ownerLauncher,
+        node: setup.node,
+        entrypoint: setup.entrypoint,
+      },
+    };
+    approved.planSha256 = coordinatorPlanDigest(approved.plan);
+    const file = persistRenewalSetup(f.state, setup, approved);
+    const snapshot = BootstrapRunnerSetupSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    const claimed = {
+      ...approved,
+      revision: randomUUID(),
+      execution: {
+        generation: randomUUID(),
+        stage: "claimed" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.writeRecords([f.record, claimed]);
+    await retainRenewalGeneration({
+      setup: snapshot,
+      setupFile: file,
+      request: claimed,
+      watchdog: false,
+    });
+    await expect(verifyBootRunnerBinding(claimed, file, snapshot)).resolves.toBeUndefined();
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).resolves.toBe(file);
+    expect(sha(readFileSync(prepared.path))).toBe(prepared.sha256);
+    await expect(verifyBootRunnerBinding(claimed, prepared.path, snapshot)).rejects.toThrow(
+      "differs from approved preparation",
+    );
+    const otherApproval = {
+      ...snapshot,
+      renewal: {
+        ...snapshot.renewal!,
+        request: {
+          ...snapshot.renewal!.request!,
+          planSha256: "c".repeat(64),
+        },
+      },
+    };
+    await expect(verifyBootRunnerBinding(claimed, file, otherApproval)).rejects.toThrow(
+      "differs from approved preparation",
+    );
+
+    await expect(
+      verifyBootRunnerBinding(claimed, file, { ...snapshot, daemonId: "different-host" }),
+    ).rejects.toThrow("differs from approved preparation");
+    const bytes = readFileSync(file);
+    writeFileSync(file, JSON.stringify({ ...snapshot, runtimeSha256: "f".repeat(64) }));
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).rejects.toThrow(
+      "digest changed",
+    );
+    writeFileSync(file, bytes);
+    const generationFile = path.join(
+      f.state,
+      `coordinator-renewal-generation-${claimed.execution.generation}.json`,
+    );
+    const generation = JSON.parse(readFileSync(generationFile, "utf8"));
+    writeFileSync(generationFile, JSON.stringify({ ...generation, generation: randomUUID() }));
+    await expect(resolveBootstrapBootSetup(prepared.path, claimed.id)).rejects.toThrow(
+      "generation changed",
+    );
+    writeFileSync(generationFile, JSON.stringify(generation));
+    writeFileSync(prepared.path, JSON.stringify({ ...setup, daemonId: "substituted-host" }));
+    await expect(verifyBootRunnerBinding(claimed, file, snapshot)).rejects.toThrow(
+      "digest changed",
+    );
   },
 );

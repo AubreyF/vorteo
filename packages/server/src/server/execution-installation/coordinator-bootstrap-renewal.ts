@@ -980,7 +980,7 @@ export function persistRenewalSetup(
   return file;
 }
 
-const RenewalGenerationSchema = z.strictObject({
+export const RenewalGenerationSchema = z.strictObject({
   version: z.literal(1),
   snapshot: FileSchema,
   approval: z.strictObject({
