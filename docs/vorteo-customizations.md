@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Manual Stop pauses goal continuation and interrupts the current run without changing the message queue's pause state. An active queue can deliver its next message; an explicitly paused queue stays paused. Stopping also revokes queue-owned goal resumption so draining the queue cannot restart the stopped goal.
+
 Maintenance review (2026-10-14): integrate tested coordinator recovery corrections with the published interface while preserving both histories and all app behavior. Installed recovery acceptance remains pending; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-14): coordinator renewal can prepare a separately reviewed successor for an exact failed, unpromoted compatible generation. Protected journal checks preserve its approval and failure, reject promotion or competing repair, and bind the successor to the unchanged native coordinator. Exact recovery references retain predecessor ordering across main and pending journals. This is source preparation; installed delivery and Factory operating acceptance remain open. README overview is unchanged.
