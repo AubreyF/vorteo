@@ -1505,3 +1505,94 @@ test("desktop composer aligns with sidebar with nonzero safe areas", async ({ pa
     await page.screenshot({ path: info.outputPath(`safe-area-${width}x${height}.png`) });
   }
 });
+
+test("single-line grid headers keep full-width height and Files fills the sidebar", async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 2000, height: 1200 });
+  await page.goto("/?demo=1");
+  await page.getByTestId("sidebar-workspace-row-vorteo-demo:demo-workspace-0-0").click();
+  const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+  await page.keyboard.press(mac ? "Meta+Shift+E" : "Control+Shift+E");
+  await page.keyboard.press(mac ? "Meta+Shift+G" : "Control+Shift+G");
+  const group = page.getByTestId("workspace-supporting-cards").filter({ visible: true });
+  const stack = group.getByTestId("thread-cards-stack");
+  const ids = [
+    "agent-task-progress-card",
+    "agent-journal-card",
+    "supporting-card-files",
+    "supporting-card-changes_tree",
+  ];
+  const toggles = [
+    "checklist-toggle",
+    "agent-journal-toggle",
+    "supporting-card-files-toggle",
+    "supporting-card-changes_tree-toggle",
+  ];
+  const files = group.getByTestId("supporting-card-files");
+  for (const width of [280, 320, 380, 460]) {
+    const grip = (await page
+      .getByTestId("workspace-explorer-sidebar-resize-handle")
+      .boundingBox())!;
+    const before = (await stack.boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      grip.x + grip.width / 2 + before.width - width,
+      grip.y + grip.height / 2,
+      { steps: 10 },
+    );
+    await page.mouse.up();
+    for (const id of toggles) {
+      const toggle = group.getByTestId(id);
+      if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
+    }
+    await expect(async () => {
+      for (const id of ids) {
+        expect((await group.getByTestId(id).boundingBox())!.width).toBeCloseTo(
+          (await stack.boundingBox())!.width,
+          0,
+        );
+      }
+    }).toPass({ timeout: 5000 });
+    const fullHeight = (await group.getByTestId("agent-task-progress-card-header").boundingBox())!
+      .height;
+    await group.getByTestId("supporting-card-files-toggle").click();
+    await expect(async () => {
+      for (const id of ["agent-task-progress-card", "agent-journal-card"]) {
+        const tile = group.getByTestId(id);
+        expect((await tile.boundingBox())!.width).toBeLessThan(
+          (await stack.boundingBox())!.width / 2,
+        );
+        expect((await tile.getByTestId(`${id}-header`).boundingBox())!.height).toBe(fullHeight);
+      }
+      const available = (await stack.boundingBox())!;
+      const changes = (await group.getByTestId("supporting-card-changes_tree").boundingBox())!;
+      const open = (await files.boundingBox())!;
+      expect(open.height).toBeGreaterThan(360);
+      expect(changes.y + changes.height).toBeCloseTo(available.y + available.height, 0);
+      expect(open.y + open.height + 8).toBeCloseTo(changes.y, 0);
+    }).toPass({ timeout: 5000 });
+    // Three closed tiles wrap their icon and count at the narrowest sidebar tier.
+    await group.getByTestId("supporting-card-files-toggle").click();
+    await group.getByTestId("supporting-card-changes_tree-toggle").click();
+    await expect(async () => {
+      const tile = group.getByTestId("agent-task-progress-card");
+      const tileWidth = (await tile.boundingBox())!.width;
+      const headerHeight = (await tile
+        .getByTestId("agent-task-progress-card-header")
+        .boundingBox())!.height;
+      if (width === 280) {
+        expect(tileWidth).toBeLessThan(100);
+        expect(headerHeight).toBeGreaterThanOrEqual(fullHeight);
+        await expect(tile.getByTestId("checklist-toggle")).toHaveCSS("flex-direction", "column");
+      } else {
+        expect(tileWidth).toBeGreaterThanOrEqual(100);
+        expect(headerHeight).toBe(fullHeight);
+      }
+    }).toPass({ timeout: 5000 });
+    await page.screenshot({ path: info.outputPath(`grid-header-height-${width}.png`) });
+  }
+});

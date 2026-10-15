@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.549 - 2026-10-15
+
+### Maintenance
+
+- Combine installation reliability with the prepared sidebar, queue, replica cache, managed Claude CLI and toolbar source histories.
+- Preserve the pinned provider dependency and both documentation inventories while advancing shared package versions. Source integration does not publish assets, install services or release the maintenance hold.
+
 ## 0.11.0-beta.3.vorteo.548 - 2026-10-15
 
 ### Fixed
@@ -222,6 +229,58 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Add queue cancellation, credential rotation, interrupted preparation and recovery tests; verify preference persistence and revocation in desktop and phone browser fixtures.
 - Document readiness, operator actions and rollout limits. Reboot-persistent recovery and live installation acceptance remain unfinished; these changes are source preparation only.
 
+## 0.11.0-beta.3.vorteo.530 - 2026-10-15
+
+### Fixed
+
+- Match GitHub and Commit toolbar controls to the adjacent 40px controls, with aligned centers, rounded hover backgrounds and no solid borders or split divider.
+
+## 0.11.0-beta.3.vorteo.529 - 2026-10-14
+
+### Maintenance
+
+- Integrate the accepted managed Claude CLI contribution with the current interface, independent queue controls and replica cache changes, preserving all source histories and release notes.
+- Keep source integration separate from installed package, account and profile acceptance; no runtime or credential change is included.
+
+## 0.11.0-beta.3.vorteo.528 - 2026-10-14
+
+### Maintenance
+
+- Integrate the reviewed replica cache write deduplication and reconnect test maintenance while preserving canonical sidebar sizing, independent queue controls and all source histories.
+- Retain unchanged-refresh eviction priority and recovery tails; ordinary streaming cache budgets and responsive resize costs remain unresolved.
+
+## 0.11.0-beta.3.vorteo.527 - 2026-10-14
+
+### Maintenance
+
+- Reconcile the published sidebar card sizing and queue independence source histories while preserving both implementations and all release notes. Runtime activation remains a separate delivery step.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-15
+
+### Fixed
+
+- Keep message-queue delivery independent from manual Stop: stopping a goal leaves an active queue running and preserves an explicitly paused queue.
+- Revoke automatic goal resumption on Stop without changing queued messages, including when the provider cannot confirm the goal pause.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Let Files and other embedded sidebar panels use the available card height instead of a fixed 360px body.
+- Keep single-line grid buttons exactly as tall as full-width accordion headers by sharing the parent grid inset. Wrapped icon and count buttons can still grow taller.
+- Check header heights and full-height Files allocation in the browser at three sidebar widths.
+
+## 0.11.0-beta.3.vorteo.526 - 2026-10-14
+
+### Fixed
+
+- Select the release-pinned Claude Code 2.1.284 package for managed default and appended commands, including daemon queries and coordinator login construction.
+- Refuse missing, mismatched or substituted package payloads without falling back to PATH. Preserve standalone launches and explicit replacement commands.
+
+### Maintenance
+
+- Reconcile the accepted Claude contribution with current installed source and interface ancestry, retaining package exports and current workspace versions. Installed account and profile acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.525 - 2026-10-15
 
 ### Maintenance
@@ -234,6 +293,17 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Integrate coordinator recovery corrections with the current published interface, preserving both histories and existing theme behavior.
 - Keep Host installation and coordinator replacement separately reviewed through tracked controls.
+
+## 0.11.0-beta.3.vorteo.524 - 2026-10-14
+
+### Fixed
+
+- Skip identical replica cache storage writes while preserving refresh recency, cross-host eviction priority, baseline replacement and timeline recovery tails.
+
+### Maintenance
+
+- Cover separate and shared persistence batches, unchanged baseline survivors after reload and mixed deletions in cache regressions.
+- Match browser reconnect assertions to the existing Reconnecting host label. Ordinary streaming write budgets and responsive resize costs remain unresolved.
 
 ## 0.11.0-beta.3.vorteo.523 - 2026-10-14
 

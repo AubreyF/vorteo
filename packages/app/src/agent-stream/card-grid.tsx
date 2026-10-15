@@ -1,8 +1,10 @@
 import { createContext, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import { CARD_GAP } from "./columns/geometry";
+import { usePanelSpacing } from "@/styles/use-panel-spacing";
 
 export const CardGridContext = createContext(false);
+export const CardGridInsetContext = createContext(2);
 export const CardTileContext = createContext({ compact: false, width: Infinity });
 
 /** Flex lines preserve card identity while expanded cards break adjacent collapsed runs. */
@@ -15,11 +17,14 @@ export function CardGrid({
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
+  const { inset, onLayout } = usePanelSpacing();
   return (
     <CardGridContext value={true}>
-      <View style={[gridStyle, style]} testID={testID}>
-        {children}
-      </View>
+      <CardGridInsetContext value={inset}>
+        <View style={[gridStyle, style]} testID={testID} onLayout={onLayout}>
+          {children}
+        </View>
+      </CardGridInsetContext>
     </CardGridContext>
   );
 }

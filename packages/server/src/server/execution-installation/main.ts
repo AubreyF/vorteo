@@ -1,3 +1,4 @@
+import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
 import { createNativeHelperExecutor } from "./native-helper-executor.js";
@@ -25,6 +26,8 @@ const startupFence = loadCoordinatorStartupFence({
   entrypoint: realpathSync(process.argv[1]!),
   configuration: realpathSync(configFile),
 });
+// This installation entrypoint uses its release CLI, independent of daemon worker markers.
+initializePackagedClaudeCli(true);
 const executor = createInstallationRestartExecutor(config);
 if (config.nativeHelper) {
   if (process.platform !== "darwin")

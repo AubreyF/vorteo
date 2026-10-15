@@ -1259,10 +1259,16 @@ export class ReplicaCache {
           await this.ensureStoredIndex();
           const changes = this.materializePendingChanges(pending);
           const { changes: boundedChanges, evicted } = await this.fitChangesToBudget(changes);
-          if (boundedChanges.upserts.length > 0 || boundedChanges.deletes.length > 0) {
-            await this.rowStore.apply(boundedChanges);
-            this.applyStoredChanges(boundedChanges);
+          // Unchanged refreshes still participate in eviction priority and bookkeeping.
+          // Deduplicate only the physical write after fitting the full logical changes.
+          const upserts = boundedChanges.upserts.filter((row) => {
+            const stored = this.storedRows.get(row.serverId)?.get(rowKey(row));
+            return stored?.payload !== row.payload;
+          });
+          if (upserts.length > 0 || boundedChanges.deletes.length > 0) {
+            await this.rowStore.apply({ upserts, deletes: boundedChanges.deletes });
           }
+          this.applyStoredChanges(boundedChanges);
           for (const serverId of pending.baselines) {
             if (!evicted.has(serverId)) this.invalidatedHosts.delete(serverId);
           }
