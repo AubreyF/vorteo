@@ -377,6 +377,8 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             idleRestartSupported,
             gracefulRestartSupported:
               client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
+            restartDrainObservationSupported:
+              client.getLastServerInfoMessage()?.features?.restartDrainObservation === true,
             error: null,
           };
         }

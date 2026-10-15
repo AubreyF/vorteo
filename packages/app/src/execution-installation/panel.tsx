@@ -1,3 +1,5 @@
+import { MaintenanceDashboard } from "./maintenance-dashboard";
+import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { SettingsExpansion } from "@/components/settings/settings-expansion";
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
@@ -232,6 +234,7 @@ function CoordinatorMaintenanceReviews() {
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <>
+      <MaintenanceProvisioning />
       <ClaimedRepairProvisioning />
       {claimedRecovery ? <ClaimedRecoveryReview model={claimedRecovery} /> : null}
       {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
@@ -295,6 +298,12 @@ function InstallationPanel({
         ) : null}
         {state.unlocked ? (
           <>
+            <MaintenanceDashboard
+              status={state.enrollmentStatus}
+              error={state.enrollmentError}
+              refreshing={state.enrollmentRefreshing}
+              onRefresh={model.refreshEnrollmentStatus}
+            />
             <DaemonAutomationControl model={model} state={state} />
             {state.monitorJobs.map((job) => (
               <MonitorRequest
@@ -1395,6 +1404,7 @@ export function InstallationRestartBanner({
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement !== "floating" ? <MaintenanceProvisioning banner /> : null}
       {placement !== "floating" ? <ClaimedRepairProvisioning banner /> : null}
       {placement !== "floating" && claimedRecovery ? (
         <ClaimedRecoveryBanner model={claimedRecovery} />

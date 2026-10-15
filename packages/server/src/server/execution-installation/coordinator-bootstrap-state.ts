@@ -15,6 +15,7 @@ import type { CoordinatorBootstrapRequest } from "@getpaseo/protocol/coordinator
 import { assertFrozenCoordinatorIdle, BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
 import { OwnerSessionsSchema } from "./owner-sessions.js";
+import { parseLifecycleJournal } from "./lifecycle-journal.js";
 
 const DigestSchema = z
   .string()
@@ -202,4 +203,32 @@ export async function verifyBootstrapState(context: StateContext): Promise<void>
     receipt.ownerSessions !== state.sessionDigest
   )
     throw new BootstrapRequestConflict("Coordinator state no longer matches the preserved handoff");
+}
+
+/** After release, normal coordinator writes change journal/session bytes. Observe
+ * their validity and retained transfer provenance without imposing a frozen-state
+ * invariant on a running writer. Dispatch still uses verifyBootstrapState. */
+export async function verifyCompletedBootstrapState(context: StateContext): Promise<void> {
+  const execution = context.request.execution;
+  if (execution?.stage !== "succeeded")
+    throw new BootstrapRequestConflict("Completed state observation requires succeeded execution");
+  const state = await readState(context);
+  parseLifecycleJournal(state.restartJournal);
+  const bytes = await readStateFile(
+    path.join(
+      context.request.plan.state.directory,
+      `coordinator-transfer-${execution.generation}.json`,
+    ),
+  );
+  if (bytes === null)
+    throw new BootstrapRequestConflict("Coordinator state preservation receipt is missing");
+  const receipt = TransferSchema.parse(JSON.parse(bytes.toString("utf8")));
+  if (
+    receipt.requestId !== context.request.id ||
+    receipt.generation !== execution.generation ||
+    receipt.planSha256 !== context.request.planSha256 ||
+    (receipt.restartJournal !== null && state.journalDigest === null) ||
+    (receipt.ownerSessions !== null && state.sessionDigest === null)
+  )
+    throw new BootstrapRequestConflict("Completed coordinator lost its retained state provenance");
 }

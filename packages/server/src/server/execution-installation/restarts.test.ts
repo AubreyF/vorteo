@@ -907,6 +907,34 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(restart).not.toHaveBeenCalled();
     await writeFile(prepareScript, validPrepareScript);
     await writeFile(path.join(root, "index.html"), "old interface");
+    const integrityJob = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host" as const,
+      requestedBy: "host-agent" as const,
+      reason: "Check candidate integrity",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved" as const,
+      detail: "Prepared",
+      update,
+      updatePreparation: "prepared" as const,
+    };
+    await updates.prepareInstallation(integrityJob);
+    await updates.verifyPreparedInstallation(integrityJob);
+    const candidate = JSON.parse(
+      await readFile(path.join(root, integrityJob.id, "prepared.json"), "utf8"),
+    );
+    await writeFile(
+      path.join(candidate.release, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      "throw new Error('changed candidate')",
+    );
+    await expect(updates.verifyPreparedInstallation(integrityJob)).rejects.toThrow(
+      "content changed",
+    );
+    await expect(updates.install(integrityJob, restart)).rejects.toThrow("content changed");
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
     const failedActivation = (await dispatch())!;
     expect(failedActivation.detail).toContain("Previous launcher restored");
     expect(await realpath(link)).toBe(previous);
@@ -3364,4 +3392,280 @@ test("a supervisor dispatch interrupted by coordinator restart remains fenced an
     "Supervisor maintenance did not verify completion",
   );
   expect(f.events).toEqual(["release"]);
+});
+
+function standingFixture() {
+  const f = automaticFixture();
+  f.executor.verifyPreparedInstallation = vi.fn(async () => undefined);
+  let enabled = true;
+  let holdId: string | null = null;
+  let loseHoldReply = false;
+  let inspectSupported = true;
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => ({
+    ...(await inspect(target)),
+    restartDrainObservationSupported: inspectSupported,
+    restartDrainId: holdId,
+  });
+  f.executor.holdCurrentTurns = async (_target, id) => {
+    f.events.push("hold");
+    holdId = id;
+    if (loseHoldReply) throw new Error("Lost hold reply");
+  };
+  f.executor.releaseCurrentTurns = async () => {
+    f.events.push("release");
+    holdId = null;
+  };
+  const decision = {
+    grantId: randomUUID(),
+    grantRevision: randomUUID(),
+    manifestSha256: "1".repeat(64),
+    planSha256: "2".repeat(64),
+    targetIdentitySha256: "3".repeat(64),
+    authoritySha256: "4".repeat(64),
+    policyActivatedAt: new Date(1000).toISOString(),
+  };
+  const policy = { ...f.policy, standingDecision: () => (enabled ? decision : null) };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
+  return {
+    ...f,
+    queue,
+    policy,
+    decision,
+    revoke: () => {
+      enabled = false;
+    },
+    loseReply: () => {
+      loseHoldReply = true;
+    },
+    unsupported: () => {
+      inspectSupported = false;
+    },
+    forgetHold: () => {
+      holdId = null;
+    },
+  };
+}
+
+test("standing decisions bind the approved revision and preserve Dev source provenance", async () => {
+  const f = standingFixture();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  const receipt = f.queue.contribute(
+    { target: "host", reason: "Validated Dev proposal" },
+    "container-agent",
+    update,
+    randomUUID(),
+  );
+  await f.queue.drain();
+  const job = f.queue.contribution(receipt.contribution.id)!.batch;
+  expect(job.status).toBe("approved");
+  expect(job.standingDecision).toEqual({ ...f.decision, requestRevision: job.revision });
+  expect(job.revision).not.toBe(receipt.batch.revision);
+  expect(job.requestedBy).toBe("container-agent");
+  expect(job.sourceBatch?.contributions[0].requestedBy).toBe("container-agent");
+  expect(job.standingHold?.observedAt).toBeDefined();
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "install"]);
+  expect(f.queue.list()[0].standingHold).toEqual(job.standingHold);
+});
+
+test("standing revocation cancels queued permission without legacy fallback", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  f.queue.request({ target: "host", reason: "Wait for native capability" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.events).toEqual([]);
+  f.revoke();
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.events).not.toContain("hold");
+  expect(f.events).not.toContain("restart");
+});
+
+test("a lost standing hold reply reconciles the actual hold without replay after recovery", async () => {
+  const f = standingFixture();
+  f.loseReply();
+  f.queue.request({ target: "host", reason: "Recover a reserved hold" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].standingHold?.observedAt).toBeUndefined();
+  expect(f.events).toEqual(["hold"]);
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  f.idle();
+  await recovered.drain();
+  expect(f.events).toEqual(["hold", "restart"]);
+  expect(recovered.list()[0].status).toBe("succeeded");
+  expect(recovered.list()[0].standingHold?.observedAt).toBeDefined();
+});
+
+test("an unobserved standing hold remains fenced instead of being dispatched again", async () => {
+  const f = standingFixture();
+  f.loseReply();
+  f.queue.request({ target: "host", reason: "Uncertain hold" }, "host-agent");
+  await f.queue.drain();
+  f.forgetHold();
+  f.idle();
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  await recovered.drain();
+  await recovered.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(recovered.list()[0].status).toBe("approved");
+  expect(recovered.list()[0].standingHold?.observedAt).toBeUndefined();
+});
+
+test("failed standing hold reservation places no native hold", async () => {
+  const f = standingFixture();
+  const write = f.journal.write.bind(f.journal);
+  f.journal.write = (jobs) => {
+    if (jobs.some((job) => job.standingHold)) throw new Error("Hold admission refused");
+    write(jobs);
+  };
+  f.queue.request({ target: "host", reason: "Rejected reservation" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  expect(f.journal.jobs[0].standingHold).toBeUndefined();
+});
+
+test.each(["changed", "revoked"])(
+  "standing source evidence %s during verification places no hold",
+  async (outcome) => {
+    const f = standingFixture();
+    f.executor.verifyPreparedInstallation = async () => {
+      if (outcome === "changed") throw new Error("Candidate content changed");
+      f.revoke();
+    };
+    f.queue.contribute(
+      { target: "host", reason: "Verify before hold" },
+      "container-agent",
+      {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 12,
+      },
+      randomUUID(),
+    );
+    await f.queue.drain();
+    expect(f.events).toEqual([]);
+    expect(f.queue.list()[0].standingHold).toBeUndefined();
+    expect(f.queue.list()[0].status).toBe(outcome === "changed" ? "failed" : "rejected");
+  },
+);
+
+test.each([
+  [false, "approve"],
+  [true, "approve"],
+  [false, "finish-current-turns"],
+  [true, "finish-current-turns"],
+] as const)(
+  "owner %s/%s supersedes standing permission without losing hold history",
+  async (held, decision) => {
+    const f = standingFixture();
+    f.executor.restart = async () => {
+      f.events.push("immediate");
+      return "ready";
+    };
+    if (!held) f.unsupported();
+    const pending = f.queue.request(
+      { target: "host", reason: "Exact owner override" },
+      "container-agent",
+    );
+    await f.queue.drain();
+    const approved = f.queue.list().find((job) => job.id === pending.id)!;
+    const manual = f.queue.decide(approved.id, approved.revision, decision);
+    expect(manual.standingDecision).toEqual(approved.standingDecision);
+    expect(manual.standingHold).toEqual(approved.standingHold);
+    expect(manual.standingManualApprovals).toMatchObject([
+      { previousRevision: approved.revision, revision: manual.revision, decision },
+    ]);
+    expect(manual.automaticApproval).toBeUndefined();
+    f.revoke();
+    f.idle();
+    await f.queue.drain();
+    expect(f.queue.list()[0].standingDecision).toEqual(approved.standingDecision);
+    if (decision === "approve" || held) expect(f.queue.list()[0].status).toBe("succeeded");
+    else expect(f.events).toEqual([]);
+  },
+);
+
+test.each([false, true])(
+  "only an exact reserved activation child admits a request older than enrollment: %s",
+  async (child) => {
+    const f = standingFixture();
+    f.unsupported();
+    f.decision.policyActivatedAt = new Date(3000).toISOString();
+    if (child)
+      Object.assign(f.decision, {
+        activationStep: {
+          stepId: randomUUID(),
+          generation: randomUUID(),
+          candidateArtifactSha256: "a".repeat(64),
+        },
+      });
+    const request = f.queue.request(
+      { target: "host", reason: "Prepared before enrollment" },
+      "container-agent",
+    );
+    expect(Date.parse(request.createdAt)).toBeLessThan(Date.parse(f.decision.policyActivatedAt));
+    await f.queue.drain();
+    expect(f.queue.list()[0].status).toBe(child ? "approved" : "pending");
+    expect(f.events).toEqual([]);
+  },
+);
+
+test("unresolved activation admits only its exact child while the global lifecycle gate stays closed", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  const child = f.queue.request({ target: "host", reason: "Initial migration" }, "container-agent");
+  const unrelated = f.queue.request(
+    { target: "container-daemon", reason: "Other maintenance" },
+    "host-agent",
+  );
+  Object.assign(f.decision, {
+    activationStep: {
+      stepId: randomUUID(),
+      generation: randomUUID(),
+      candidateArtifactSha256: "a".repeat(64),
+    },
+  });
+  Object.assign(f.journal, {
+    admissionAvailable: () => false,
+    activationChildAdmissionAvailable: (job: RestartJob) => job.id === child.id,
+  });
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === child.id)?.status).toBe("approved");
+  expect(f.queue.list().find((job) => job.id === unrelated.id)?.status).toBe("pending");
+  expect(
+    (f.journal as MemoryJournal & { admissionAvailable(): boolean }).admissionAvailable(),
+  ).toBe(false);
+  expect(f.events).toEqual([]);
+});
+
+test("owner cancellation aborts a candidate check without overwriting its retained decision", async () => {
+  const f = standingFixture();
+  f.executor.verifyPreparedInstallation = async (job, options) => {
+    f.queue.decide(job.id, job.revision, "cancel");
+    expect(options?.signal?.aborted).toBe(true);
+    throw new Error("Verification aborted after owner cancellation");
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Cancelable verification" },
+    "container-agent",
+    {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 12,
+    },
+    randomUUID(),
+  );
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.events).toEqual([]);
 });

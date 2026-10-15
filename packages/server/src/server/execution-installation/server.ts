@@ -152,6 +152,9 @@ function restartReply(
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   const {
+    standingDecision: _standingDecision,
+    standingHold: _standingHold,
+    standingManualApprovals: _standingManualApprovals,
     updatePreparation: _preparation,
     devRepairs: _devRepairs,
     automaticAuthority: _authority,
@@ -285,9 +288,11 @@ export function createInstallationServer(
     prepareDevRepair: (capture, items) =>
       forTarget("container-daemon").prepareDevRepair(capture, items),
     prepareInstallation: (job) => forTarget(job.target).prepareInstallation(job),
+    verifyPreparedInstallation: (job, options) =>
+      forTarget(job.target).verifyPreparedInstallation(job, options),
     installUpdate: (job) =>
       forTarget(job.target).install(job, async (target) => {
-        if (!job.finishCurrentTurns) return executor.restart(target);
+        if (!job.whenIdle) return executor.restart(target);
         if (!executor.restartWhenIdle)
           throw new RestartRequestError("Safe update admission is unavailable");
         const detail = await executor.restartWhenIdle(target);
@@ -528,11 +533,7 @@ export function createInstallationServer(
       const recoveryBlocker = restarts.maintenanceBlocker(target);
       for (const requester of ["host-agent", "container-agent"] as const) {
         const automatic =
-          requester === "host-agent" &&
-          Boolean(
-            daemonAutomation.activation(target) ??
-            (preference.legacyHostOnly ? config.restartApprovalPolicy?.hostRequestsAfter : null),
-          );
+          requester === "host-agent" && Boolean(daemonAutomation.effectiveActivation(target));
         for (const operation of ["restart", "source-update"] as const) {
           let blocker: string | null = null;
           if (recoveryBlocker) blocker = recoveryBlocker;

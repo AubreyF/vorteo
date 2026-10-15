@@ -1,5 +1,17 @@
+import {
+  readEnrollmentNativeIdentity,
+  retainEnrollmentNativeIdentity,
+} from "./native-registration.js";
+import {
+  assertStandingRestartAdmission,
+  evaluateStandingRestart,
+  standingRestartPlanDigest,
+} from "./restart-admission.js";
+import type { RestartJob } from "@getpaseo/protocol/execution-installation";
+import { existsSync } from "node:fs";
+import { DaemonAutomation } from "../daemon-automation.js";
 import { enrollmentNativeIdentityDigest } from "./native-identity.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   fstatSync,
@@ -959,4 +971,446 @@ test("claim-time enrollment reads reuse the held lifecycle lock", () => {
     expect(f.journal.readUnderLifecycleLock()).toEqual(state);
     expect(() => f.journal.read()).toThrow();
   });
+});
+
+test("enrollment presence prevents every legacy policy fallback, including paused and revoked grants", () => {
+  const f = fixture();
+  const policy = new DaemonAutomation(f.directory, true, "2026-10-14T00:00:00.000Z");
+  expect(policy.legacyPolicyAvailable()).toBe(true);
+  policy.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  expect(policy.activation("coordinator")).toBeTruthy();
+  let state = enrolled(f.enroll());
+  for (const change of [null, { paused: true, revoke: false }, { paused: false, revoke: true }]) {
+    if (change)
+      state = enrolled(
+        changeStandingGrant(f.journal, {
+          expectedRevision: state.grant.revision,
+          disabledTargets: [],
+          ...change,
+        }),
+      );
+    expect(policy.legacyPolicyAvailable()).toBe(false);
+    for (const target of ["host", "container-daemon", "coordinator", "supervisor"] as const)
+      expect(policy.activation(target)).toBeNull();
+    expect(() =>
+      policy.change({ expectedRevision: policy.read().revision, enabled: true }),
+    ).toThrow();
+  }
+  writeFileSync(path.join(f.directory, "maintenance-enrollment.json"), "corrupt", { mode: 0o600 });
+  expect(() => policy.legacyPolicyAvailable()).toThrow();
+  expect(() => policy.activation("host")).toThrow();
+});
+
+test("the existing service controls change the enrolled grant without reviving legacy authority", () => {
+  const f = fixture();
+  const initial = enrolled(f.enroll());
+  const policy = new DaemonAutomation(f.directory, true, "2026-10-14T00:00:00.000Z");
+  const originalLegacy = path.join(f.directory, "daemon-automation.json");
+  expect(policy.read()).toMatchObject({
+    revision: initial.grant.revision,
+    legacyHostOnly: false,
+    services: { host: null, "container-daemon": initial.grant.approval.approvedAt },
+  });
+  const disabled = policy.change({
+    expectedRevision: initial.grant.revision,
+    enabled: false,
+    service: "container-daemon",
+  });
+  expect(enrolled(f.journal.read()).grant.disabledTargets).toEqual(["container-daemon"]);
+  expect(disabled.services?.["container-daemon"]).toBeNull();
+  expect(() =>
+    policy.change({
+      expectedRevision: initial.grant.revision,
+      enabled: true,
+      service: "container-daemon",
+    }),
+  ).toThrow();
+  expect(() =>
+    policy.change({ expectedRevision: disabled.revision, enabled: true, service: "host" }),
+  ).toThrow("outside");
+  const enabled = policy.change({
+    expectedRevision: disabled.revision,
+    enabled: true,
+    service: "container-daemon",
+  });
+  expect(enabled.services?.["container-daemon"]).toBe(initial.grant.approval.approvedAt);
+  expect(policy.activation("container-daemon")).toBeNull();
+  expect(existsSync(originalLegacy)).toBe(false);
+});
+
+function restartAdmissionFixture() {
+  const f = fixture();
+  let state = enrolled(f.enroll());
+  for (const stepId of [f.first, f.second]) {
+    state = enrolled(
+      reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId }),
+    );
+    const step = state.activation.steps.find((item) => item.id === stepId)!;
+    if (step.status !== "reserved") throw new Error("Expected reservation");
+    state = enrolled(
+      observeActivationStep(f.journal, {
+        stepId,
+        generation: step.generation,
+        outcome: "succeeded",
+        observationSha256: "7".repeat(64),
+      }),
+    );
+  }
+  const pending: RestartJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "container-daemon",
+    reason: "Verified maintenance",
+    requestedBy: "container-agent",
+    createdAt: "2026-10-15T02:00:00.000Z",
+    expiresAt: "2026-10-16T00:00:00.000Z",
+    status: "pending",
+    detail: "Prepared",
+  };
+  function evaluate(job: RestartJob, current: InstallationEnrollmentState) {
+    return evaluateStandingRestart({
+      state: current,
+      job,
+      installationId: f.manifest.installationId,
+      nativeIdentitySha256: "c".repeat(64),
+      repository: null,
+      credentialBindingSha256: "9".repeat(64),
+    });
+  }
+  const decision = evaluate(pending, state);
+  if (!decision) throw new Error("Expected policy decision");
+  const revision = randomUUID();
+  const approved: RestartJob = {
+    ...pending,
+    revision,
+    status: "approved",
+    whenIdle: true,
+    finishCurrentTurns: true,
+    standingDecision: { ...decision, requestRevision: revision },
+    automaticAuthority: decision.authoritySha256,
+    automaticApproval: { policyActivatedAt: decision.policyActivatedAt, requestRevision: revision },
+  };
+  const phases: string[] = [];
+  function admit(
+    previous: RestartJob[],
+    next: RestartJob[],
+    current: InstallationEnrollmentState = f.journal.read(),
+  ) {
+    assertStandingRestartAdmission({
+      previous,
+      next,
+      state: current,
+      evaluate,
+      assertEvidence: (_job, phase) => {
+        phases.push(phase);
+      },
+    });
+  }
+  function reserveHold(job: RestartJob): RestartJob {
+    return {
+      ...job,
+      standingHold: {
+        generation: randomUUID(),
+        grantRevision: state.grant.revision,
+        decisionSha256: createHash("sha256")
+          .update(JSON.stringify(job.standingDecision))
+          .digest("hex"),
+        reservedAt: new Date().toISOString(),
+      },
+    };
+  }
+  return { ...f, state, pending, approved, evaluate, admit, reserveHold, phases };
+}
+
+test("standing queue admission binds each effect and permits observation after revocation", () => {
+  const f = restartAdmissionFixture();
+  f.admit([f.pending], [f.approved]);
+  const hold = f.reserveHold(f.approved);
+  f.admit([f.approved], [hold]);
+  const observed = {
+    ...hold,
+    standingHold: { ...hold.standingHold!, observedAt: new Date().toISOString() },
+  };
+  f.admit([hold], [observed]);
+  f.admit([observed], [{ ...observed, status: "running" }]);
+  expect(f.phases).toEqual(["preparation", "hold", "replacement"]);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.admit([hold], [observed]);
+  f.admit([observed], [{ ...observed, status: "rejected" }]);
+  expect(() => f.admit([observed], [{ ...observed, status: "running" }])).toThrow(
+    "authority changed",
+  );
+});
+
+test("standing queue admission refuses changed plans, stale decisions and uncertain replay", () => {
+  const f = restartAdmissionFixture();
+  expect(standingRestartPlanDigest(f.pending)).toBe(standingRestartPlanDigest(f.approved));
+  expect(() => f.admit([f.pending], [{ ...f.approved, reason: "Different work" }])).toThrow(
+    "authority changed",
+  );
+  expect(() =>
+    f.admit(
+      [f.pending],
+      [
+        {
+          ...f.approved,
+          standingDecision: { ...f.approved.standingDecision!, requestRevision: randomUUID() },
+        },
+      ],
+    ),
+  ).toThrow("authority changed");
+  expect(() => f.admit([f.approved], [{ ...f.approved, status: "running" }])).toThrow(
+    "hold reservation",
+  );
+  const hold = f.reserveHold(f.approved);
+  expect(() => f.admit([hold], [{ ...hold, status: "running" }])).toThrow("verified hold");
+  expect(() =>
+    f.admit(
+      [hold],
+      [{ ...hold, standingHold: { ...hold.standingHold!, generation: randomUUID() } }],
+    ),
+  ).toThrow("reservation changed");
+  expect(() => f.admit([f.approved], [])).toThrow("history");
+  expect(() => f.admit([f.approved], [{ ...f.approved, standingDecision: undefined }])).toThrow(
+    "plan changed",
+  );
+});
+
+test("standing policy denies unverified activation, wrong native identity and revoked scope", () => {
+  const f = restartAdmissionFixture();
+  const context = {
+    state: f.state,
+    job: f.pending,
+    installationId: f.manifest.installationId,
+    nativeIdentitySha256: "c".repeat(64),
+    repository: null,
+    credentialBindingSha256: "9".repeat(64),
+  };
+  expect(
+    evaluateStandingRestart({ ...context, state: { status: "absent", version: 1 } }),
+  ).toBeUndefined();
+  expect(evaluateStandingRestart({ ...context, nativeIdentitySha256: "0".repeat(64) })).toBeNull();
+  const incomplete = structuredClone(f.state);
+  incomplete.activation.steps[0] = { id: f.first, status: "pending" };
+  expect(evaluateStandingRestart({ ...context, state: incomplete })).toBeNull();
+  const paused = enrolled(
+    changeStandingGrant(f.journal, {
+      expectedRevision: f.state.grant.revision,
+      paused: true,
+      disabledTargets: [],
+      revoke: false,
+    }),
+  );
+  expect(evaluateStandingRestart({ ...context, state: paused })).toBeNull();
+});
+
+test("standing queue admission preserves exact manual operation after grant revocation", () => {
+  const f = restartAdmissionFixture();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const manual = {
+    ...f.approved,
+    standingDecision: undefined,
+    automaticAuthority: undefined,
+    automaticApproval: undefined,
+  };
+  f.admit([f.pending], [manual]);
+  f.admit([manual], [{ ...manual, status: "running" }]);
+  expect(f.phases).toEqual([]);
+  expect(() =>
+    f.admit([f.pending], [{ ...manual, automaticApproval: f.approved.automaticApproval }]),
+  ).toThrow("authority changed");
+});
+
+test("retained native descriptors are immutable, private and independently selected by digest", () => {
+  const f = fixture();
+  const uid = process.getuid!();
+  const descriptor = {
+    version: 1 as const,
+    environment: "host" as const,
+    target: "host" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: uid,
+    installationRoot: f.directory,
+    stateDirectory: path.join(f.directory, "host-state"),
+    serviceDomain: `gui/${uid}`,
+    serviceLabel: "local.vorteo.test.host",
+    launcherPath: path.join(f.directory, "launcher"),
+    selectionPath: path.join(f.directory, "selected"),
+  };
+  const digest = retainEnrollmentNativeIdentity(f.directory, descriptor);
+  expect(readEnrollmentNativeIdentity(f.directory, digest)).toEqual(descriptor);
+  expect(retainEnrollmentNativeIdentity(f.directory, descriptor)).toBe(digest);
+  const file = path.join(f.directory, "maintenance-identities", `${digest}.json`);
+  const original = readFileSync(file);
+  writeFileSync(file, JSON.stringify({ ...descriptor, serviceLabel: "local.vorteo.changed" }));
+  expect(() => readEnrollmentNativeIdentity(f.directory, digest)).toThrow("differs");
+  expect(() => retainEnrollmentNativeIdentity(f.directory, descriptor)).toThrow("differs");
+  expect(readFileSync(file)).not.toEqual(original);
+});
+
+test("retained native descriptor readers reject linked files and writable custody", () => {
+  const f = fixture();
+  const uid = process.getuid!();
+  const descriptor = {
+    version: 1 as const,
+    environment: "host" as const,
+    target: "coordinator" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: uid,
+    installationRoot: f.directory,
+    stateDirectory: f.directory,
+    serviceDomain: `gui/${uid}`,
+    serviceLabel: "local.vorteo.test.coordinator",
+    launcherPath: path.join(f.directory, "launcher"),
+    selectionPath: null,
+  };
+  const digest = retainEnrollmentNativeIdentity(f.directory, descriptor);
+  const file = path.join(f.directory, "maintenance-identities", `${digest}.json`);
+  const extra = path.join(f.directory, "extra");
+  linkSync(file, extra);
+  expect(() => readEnrollmentNativeIdentity(f.directory, digest)).toThrow("nonlinked");
+  unlinkSync(extra);
+  chmodSync(file, 0o644);
+  expect(() => readEnrollmentNativeIdentity(f.directory, digest)).toThrow("private");
+  chmodSync(file, 0o600);
+  unlinkSync(file);
+  symlinkSync(extra, file);
+  expect(() => readEnrollmentNativeIdentity(f.directory, digest)).toThrow();
+  chmodSync(f.directory, 0o777);
+  expect(() => retainEnrollmentNativeIdentity(f.directory, descriptor)).toThrow("custody");
+});
+
+test("standing admission accepts exact owner supersession and rejects altered approval history", () => {
+  const f = restartAdmissionFixture();
+  const revision = randomUUID();
+  const manual: RestartJob = {
+    ...f.approved,
+    revision,
+    whenIdle: false,
+    automaticApproval: undefined,
+    standingManualApprovals: [
+      {
+        previousRevision: f.approved.revision,
+        revision,
+        decision: "approve",
+        approvedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.admit([f.approved], [manual]);
+  f.admit([manual], [{ ...manual, status: "running" }]);
+  expect(() => f.admit([manual], [{ ...manual, standingManualApprovals: [] }])).toThrow("history");
+  expect(() => f.admit([f.approved], [{ ...manual, revision: randomUUID() }])).toThrow(
+    "supersession",
+  );
+});
+
+test("initial migration authority binds the one reserved child and its dependencies", () => {
+  const f = fixture();
+  const job = restartAdmissionFixture().pending;
+  const planSha256 = standingRestartPlanDigest(job);
+  f.manifest.steps[1] = {
+    ...f.manifest.steps[1],
+    target: "container-daemon",
+    operation: "restart",
+    planSha256,
+  };
+  f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
+  let state = enrolled(f.enroll());
+  state = enrolled(
+    reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.first }),
+  );
+  const first = state.activation.steps[0];
+  if (first.status !== "reserved") throw new Error("Missing fixture reservation");
+  state = enrolled(
+    observeActivationStep(f.journal, {
+      stepId: f.first,
+      generation: first.generation,
+      outcome: "succeeded",
+      observationSha256: "8".repeat(64),
+    }),
+  );
+  state = enrolled(
+    reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.second }),
+  );
+  const input = {
+    state,
+    job,
+    installationId: f.manifest.installationId,
+    nativeIdentitySha256: "c".repeat(64),
+    repository: null,
+    credentialBindingSha256: "9".repeat(64),
+  };
+  const decision = evaluateStandingRestart(input);
+  expect(decision?.activationStep?.stepId).toBe(f.second);
+  expect(decision?.activationStep?.candidateArtifactSha256).toBe(
+    f.manifest.steps[1].candidate.artifactSha256,
+  );
+  expect(evaluateStandingRestart({ ...input, job: { ...job, id: randomUUID() } })).toBeNull();
+  expect(
+    evaluateStandingRestart({ ...input, job: { ...job, requireOwnerApproval: true } }),
+  ).toBeNull();
+  const stale = structuredClone(state);
+  const progress = stale.activation.steps[1];
+  if (progress.status !== "reserved") throw new Error("Missing child reservation");
+  progress.grantRevision = randomUUID();
+  expect(evaluateStandingRestart({ ...input, state: stale })).toBeNull();
+  const unmet = structuredClone(state);
+  unmet.activation.steps[0] = { id: f.first, status: "pending" };
+  expect(evaluateStandingRestart({ ...input, state: unmet })).toBeNull();
+});
+
+test("identity publication failures and retained temporary aliases reconcile without replacement", () => {
+  const f = fixture();
+  const uid = process.getuid!();
+  const descriptor = {
+    version: 1 as const,
+    environment: "host" as const,
+    target: "host" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: uid,
+    installationRoot: f.directory,
+    stateDirectory: f.directory,
+    serviceDomain: `gui/${uid}`,
+    serviceLabel: "local.vorteo.test.host",
+    launcherPath: path.join(f.directory, "launcher"),
+    selectionPath: null,
+  };
+  const digest = enrollmentNativeIdentityDigest(descriptor);
+  expect(() =>
+    retainEnrollmentNativeIdentity(f.directory, descriptor, {
+      link: () => {
+        throw new Error("Interrupted before publication");
+      },
+    }),
+  ).toThrow("Interrupted");
+  const file = path.join(f.directory, "maintenance-identities", `${digest}.json`);
+  expect(existsSync(file)).toBe(false);
+  expect(retainEnrollmentNativeIdentity(f.directory, descriptor)).toBe(digest);
+  const temporary = path.join(
+    f.directory,
+    "maintenance-identities",
+    `.${digest}.${randomUUID()}.tmp`,
+  );
+  linkSync(file, temporary);
+  expect(() => readEnrollmentNativeIdentity(f.directory, digest)).toThrow("nonlinked");
+  expect(retainEnrollmentNativeIdentity(f.directory, descriptor)).toBe(digest);
+  expect(existsSync(temporary)).toBe(false);
+  expect(readEnrollmentNativeIdentity(f.directory, digest)).toEqual(descriptor);
 });

@@ -96,6 +96,8 @@ export const RestartImpactSchema = z.object({
   pendingStarts: z.number().int().nonnegative(),
   idleRestartSupported: z.boolean(),
   gracefulRestartSupported: z.boolean().optional(),
+  restartDrainObservationSupported: z.boolean().optional(),
+  restartDrainId: z.string().uuid().nullable().optional(),
   error: z.string().nullable(),
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
@@ -165,7 +167,47 @@ export const DevRepairAttemptSchema = z.strictObject({
   detail: z.string(),
 });
 
+// Protected standing decisions are exposed only through negotiated maintenance views.
+export const StandingRestartDecisionSchema = z.strictObject({
+  activationStep: z
+    .strictObject({
+      stepId: z.string().uuid(),
+      generation: z.string().uuid(),
+      candidateArtifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  planSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  targetIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  authoritySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  policyActivatedAt: z.string().datetime(),
+  requestRevision: z.string().uuid(),
+});
+export type StandingRestartDecision = z.infer<typeof StandingRestartDecisionSchema>;
+export const StandingRestartHoldSchema = z.strictObject({
+  generation: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  decisionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  reservedAt: z.string().datetime(),
+  observedAt: z.string().datetime().optional(),
+});
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  standingDecision: StandingRestartDecisionSchema.optional(),
+  standingHold: StandingRestartHoldSchema.optional(),
+  standingManualApprovals: z
+    .array(
+      z.strictObject({
+        previousRevision: z.string().uuid(),
+        revision: z.string().uuid(),
+        approvedAt: z.string().datetime(),
+        decision: z.enum(["approve", "finish-current-turns"]),
+      }),
+    )
+    .max(16)
+    .optional(),
   updatePreparation: z.enum(["preparing", "prepared"]).optional(),
   // Protected ledger metadata; legacy HTTP receipts omit it.
   supervisorRecoveredBy: z.string().uuid().optional(),

@@ -3948,6 +3948,8 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
         idleRestart: z.boolean().optional(),
         gracefulRestart: z.boolean().optional(),
+        // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
+        restartDrainObservation: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -4168,6 +4170,7 @@ export const RestartRequestedStatusPayloadSchema = z.object({
     .object({
       agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
       pendingStarts: z.number().int().nonnegative(),
+      restartDrainId: z.string().uuid().nullable().optional(),
     })
     .optional(),
   clientId: z.string(),

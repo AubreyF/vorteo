@@ -1931,6 +1931,7 @@ test
       },
     },
   );
+  const beforeRecovery = { stopped, launcher: readFileSync(launcherFile) };
   const result = await recoverAbandonedBootstrap(
     requests,
     { id: record.id, generation: record.execution!.generation },
@@ -1946,34 +1947,55 @@ test
   );
   if (
     [
-      "busy-children",
       "busy-journal",
-      "busy-during-freeze",
-      "busy-ownership-lost",
       "invalid-journal",
       "reboot-busy-journal",
       "reboot-invalid-journal",
-      "reboot-changed-journal",
       "reboot-stopped-previous-busy",
+      "reboot-running-busy",
+    ].includes(interruption)
+  ) {
+    // Shared admission refuses promotion before native recovery can begin.
+    // Failure bookkeeping must not claim that rollback or resume was attempted.
+    expect(result.execution!.stage).toBe("recovery_required");
+    expect(result.execution!.generation).toBe(record.execution!.generation);
+    expect(result.execution!.rollbackAttemptedAt).toBeUndefined();
+    expect(result.plan).toEqual(record.plan);
+    expect(effects).toEqual([]);
+    expect(stopped).toBe(beforeRecovery.stopped);
+    expect(readFileSync(launcherFile)).toEqual(beforeRecovery.launcher);
+    const effect = vi.fn();
+    const observed = await recoverAbandonedBootstrap(
+      requests,
+      { id: record.id, generation: record.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        resumePrevious: effect,
+        restorePrevious: effect,
+      },
+    );
+    expect(observed.revision).toBe(result.revision);
+    expect(effect).not.toHaveBeenCalled();
+    return;
+  }
+  if (
+    [
+      "busy-children",
+      "busy-during-freeze",
+      "busy-ownership-lost",
+      "reboot-changed-journal",
       "reboot-stopped-unrelated",
       "reboot-stopped-starts",
-      "reboot-running-busy",
       "reboot-running-unrelated",
       "reboot-running-wrong-boot",
     ].includes(interruption)
   ) {
     expect(result.execution!.stage).toBe("recovery_required");
     expect(result.execution!.rollbackAttemptedAt).toBeTruthy();
-    const resumed = [
-      "busy-children",
-      "busy-journal",
-      "busy-during-freeze",
-      "reboot-running-busy",
-    ].includes(interruption);
+    const resumed = ["busy-children", "busy-during-freeze"].includes(interruption);
     expect(effects).toEqual([
-      ...(["busy-during-freeze", "reboot-running-busy"].includes(interruption)
-        ? [["kill", "SIGSTOP", serviceName]]
-        : []),
+      ...(interruption === "busy-during-freeze" ? [["kill", "SIGSTOP", serviceName]] : []),
       ...(resumed ? [["kill", "SIGCONT", serviceName]] : []),
     ]);
     expect(stopped).toBe(!resumed && !runningJob);

@@ -1,3 +1,4 @@
+import { changeStandingGrant, FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { z } from "zod";
 import { createHash, createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
@@ -103,6 +104,29 @@ export class DaemonAutomation {
   }
 
   read(): DaemonAutomationPreference {
+    const enrollment = new FileEnrollmentJournal(this.stateDir).readPolicySnapshot();
+    if (enrollment.status === "enrolled") {
+      const { grant } = enrollment;
+      const services = Object.fromEntries(
+        (["host", "container-daemon", "coordinator", "supervisor"] as const).map((service) => [
+          service,
+          !grant.paused &&
+          !grant.revokedAt &&
+          !grant.disabledTargets.includes(service) &&
+          grant.manifest.targets.some((target) => target.target === service)
+            ? grant.approval.approvedAt
+            : null,
+        ]),
+      ) as NonNullable<DaemonAutomationPreference["services"]>;
+      const enabled = Boolean(services.host && services["container-daemon"]);
+      return {
+        revision: grant.revision,
+        enabled,
+        enabledAfter: enabled ? grant.approval.approvedAt : null,
+        legacyHostOnly: false,
+        services,
+      };
+    }
     const { changedAt: _changedAt, ...preference } = this.readStored();
     return preference;
   }
@@ -136,7 +160,16 @@ export class DaemonAutomation {
     return { host: inherited, "container-daemon": inherited, coordinator: null, supervisor: null };
   }
 
+  /** Only a verified never-enrolled installation can use the earlier policy.
+   * Unreadable state throws, so it can never revive legacy standing permission. */
+  legacyPolicyAvailable(): boolean {
+    return new FileEnrollmentJournal(this.stateDir).readPolicySnapshot().status === "absent";
+  }
+
   activation(service: MaintenanceService = "host"): string | null | undefined {
+    // Enrollment dispatch has its own exact evidence and reservation boundary.
+    // A broad legacy service permission cannot substitute for that admission.
+    if (!this.legacyPolicyAvailable()) return null;
     const state = this.read();
     if (state.services) return state.services[service];
     if (service === "coordinator" || service === "supervisor") return null;
@@ -144,8 +177,39 @@ export class DaemonAutomation {
     return state.enabledAfter;
   }
 
+  effectiveActivation(service: MaintenanceService): string | null {
+    const activation = this.activation(service);
+    return activation === undefined && this.legacyHostOnly
+      ? (this.legacyActivatedAt ?? null)
+      : (activation ?? null);
+  }
+
   change(input: unknown): DaemonAutomationPreference {
     const change = DaemonAutomationChangeSchema.parse(input);
+    const enrollment = new FileEnrollmentJournal(this.stateDir).readPolicySnapshot();
+    if (enrollment.status === "enrolled") {
+      const { grant } = enrollment;
+      if (change.expectedRevision !== grant.revision || grant.revokedAt)
+        throw new RestartRequestError("Maintenance grant changed. Refresh before saving.");
+      const targets: MaintenanceService[] = change.service
+        ? [change.service]
+        : ["host", "container-daemon"];
+      const disabled = new Set(grant.disabledTargets);
+      for (const service of targets) {
+        if (change.enabled && !grant.manifest.targets.some((target) => target.target === service))
+          throw new RestartRequestError("Service is outside the enrolled maintenance scope");
+        if (change.enabled) disabled.delete(service);
+        else if (grant.manifest.targets.some((target) => target.target === service))
+          disabled.add(service);
+      }
+      changeStandingGrant(new FileEnrollmentJournal(this.stateDir), {
+        expectedRevision: grant.revision,
+        paused: grant.paused,
+        disabledTargets: [...disabled],
+        revoke: false,
+      });
+      return this.read();
+    }
     const current = this.readStored();
     if (change.expectedRevision !== current.revision) {
       throw new RestartRequestError("Daemon automation preference changed. Refresh before saving.");

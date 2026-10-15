@@ -436,7 +436,28 @@ test("Dev builds remain inactive until exact-source activation and retain the pr
     );
     const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
     expect((await command({ action: "inspect" })).release).toBe(previous);
-    const activation = { action: "activate", previous, release: candidate.release, update };
+    expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
+    const activation = {
+      action: "activate",
+      previous,
+      release: candidate.release,
+      update,
+      artifactSha256: candidate.artifactSha256,
+    };
+    expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
+      candidate.artifactSha256,
+    );
+    const workerFile = path.join(
+      candidate.release,
+      "packages/server/dist/server/server/daemon-worker.js",
+    );
+    writeFileSync(workerFile, "throw new Error('changed candidate');");
+    await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
+      "content changed",
+    );
+    await expect(command(activation)).rejects.toThrow("content changed");
+    expect((await command({ action: "inspect" })).release).toBe(previous);
+    writeFileSync(workerFile, "process.exit(0)");
     await expect(
       command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
     ).rejects.toThrow("differs from approval");

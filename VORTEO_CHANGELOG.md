@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.559 - 2026-10-15
+
+### Added
+
+- Connect the exact enrollment decision to coordinator provisioning, native claim reservations and observation of the reviewed candidate.
+- Retain private native identity descriptors through atomic publication and reconcile interrupted publication without replacing an enrolled identity.
+- Bind standing queue decisions to source provenance, target identity and exact activation children. Reserve holds before effects, reconcile lost replies and preserve exact manual supersession after revocation.
+- Verify Host runtime and interface bytes, and Dev runtime bytes, before a hold and before selection. Bound artifact verification and cancel active checks when the owner cancels a queued request.
+
+### Validation and delivery
+
+- Focused queue, enrollment and artifact tests and disposable Linux candidate checks cover changed bytes, source mismatch, lost replies, revocation and external aliases. This checkpoint is source only; native admission wiring, persistent recovery and installed acceptance remain open.
+
 ## 0.11.0-beta.3.vorteo.558 - 2026-10-15
 
 ### Added

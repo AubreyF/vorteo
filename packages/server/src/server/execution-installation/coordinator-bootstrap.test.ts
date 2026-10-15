@@ -2048,6 +2048,35 @@ test("lifecycle admission uses the bootstrap writer lock and reopens without los
   expect(reopened.readLifecycle()).toEqual([]);
 });
 
+test("lifecycle write admission sees locked snapshots and rejection preserves bytes", () => {
+  const f = fixture();
+  const queue = new InstallationRestarts(
+    { read: () => f.journal.readLifecycle(), write: (jobs) => f.journal.writeLifecycle(jobs) },
+    { restart: async () => "unused" },
+  );
+  queue.request({ target: "host", reason: "Admission fixture" }, "owner");
+  const previous = f.journal.readLifecycle();
+  const file = path.join(f.root, "restart-jobs.json");
+  const before = readFileSync(file);
+  const competingWrite = () => new FileBootstrapRequestJournal(f.root).writeLifecycle([]);
+  expect(() =>
+    f.journal.writeLifecycle([], (retained, next) => {
+      expect(retained).toEqual(previous);
+      expect(next).toEqual([]);
+      expect(competingWrite).toThrow("storage is busy");
+      throw new Error("Grant revision revoked");
+    }),
+  ).toThrow("Grant revision revoked");
+  expect(readFileSync(file)).toEqual(before);
+  f.journal.writeLifecycle(previous, (_retained, next) => {
+    // Even an incorrectly mutating policy cannot alter the persisted candidate.
+    next[0]!.reason = "mutated policy input";
+  });
+  expect(f.journal.readLifecycle()).toEqual(previous);
+  f.journal.writeLifecycle([], () => undefined);
+  expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([]);
+});
+
 test.each(["complete", "intent"])(
   "reviewed claim fencing refuses %s promotion without altering history",
   async (stage) => {
@@ -4042,3 +4071,53 @@ test.each(["ready", "legacy", "missing-review", "offline"] as const)(
     expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTION DETAIL");
   },
 );
+
+test("completed observation permits normal state writes but retains exact transfer provenance", async () => {
+  const { verifyCompletedBootstrapState } = await import("./coordinator-bootstrap-state.js");
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const pending = await f.prepare();
+  const request = {
+    ...pending,
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  writeFileSync(f.plan.state.ownerSessions, "[]", { mode: 0o600 });
+  const context = { request, writableMountRoots: [], childPids: [] };
+  await preserveBootstrapState(context);
+  await expect(verifyCompletedBootstrapState(context)).rejects.toThrow("succeeded execution");
+  const completed = {
+    ...context,
+    request: { ...request, execution: { ...request.execution, stage: "succeeded" as const } },
+  };
+  writeFileSync(f.plan.state.restartJournal, "[ ]", { mode: 0o600 });
+  writeFileSync(
+    f.plan.state.ownerSessions,
+    JSON.stringify([{ hash: "new-session", expiresAt: 9999999999999 }]),
+    { mode: 0o600 },
+  );
+  await expect(verifyBootstrapState(completed)).rejects.toThrow("no longer matches");
+  await expect(verifyCompletedBootstrapState(completed)).resolves.toBeUndefined();
+  writeFileSync(f.plan.state.restartJournal, "[{}]", { mode: 0o600 });
+  await expect(verifyCompletedBootstrapState(completed)).rejects.toThrow();
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  const file = path.join(f.root, `coordinator-transfer-${request.execution.generation}.json`);
+  const original = readFileSync(file, "utf8");
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(original), requestId: randomUUID() }), {
+    mode: 0o600,
+  });
+  await expect(verifyCompletedBootstrapState(completed)).rejects.toThrow("provenance");
+  writeFileSync(file, original, { mode: 0o600 });
+  rmSync(f.plan.state.ownerSessions);
+  await expect(verifyCompletedBootstrapState(completed)).rejects.toThrow("provenance");
+  rmSync(file);
+  await expect(verifyCompletedBootstrapState(completed)).rejects.toThrow("receipt is missing");
+});

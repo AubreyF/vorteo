@@ -20,6 +20,7 @@ interface ContainerCommand {
   settings: ContainerSourceUpdates;
   operation: Record<string, unknown>;
   archive?: Buffer;
+  signal?: AbortSignal;
 }
 
 /** Docker remains a Host-only capability. No command, container or credential comes from an upload. */
@@ -27,6 +28,7 @@ async function containerCommand({
   settings,
   operation,
   archive,
+  signal,
 }: ContainerCommand): Promise<unknown> {
   const helper = readFileSync(
     path.join(settings.toolingDirectory, "installation-container-runtime.mjs"),
@@ -57,7 +59,7 @@ async function containerCommand({
     const child = execFile(
       settings.docker,
       args,
-      { timeout: operation.action === "prepare" ? 60 * 60_000 : 15_000, maxBuffer: 8192 },
+      { timeout: operation.action === "prepare" ? 60 * 60_000 : 150_000, maxBuffer: 8192, signal },
       (error, output) => {
         if (error) reject(error);
         else resolve(output);
@@ -142,7 +144,9 @@ export async function prepareContainerSource({
   if (statSync(archiveFile).size > 512 * 1024 * 1024)
     throw new Error("Dev source archive exceeds the build limit");
   const archive = readFileSync(archiveFile);
-  const prepared = SelectionSchema.parse(
+  const prepared = SelectionSchema.extend({
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).parse(
     await containerCommand({
       settings,
       archive,
@@ -161,7 +165,58 @@ export async function prepareContainerSource({
     release: prepared.release,
     previous: installed.release,
     update,
+    artifactSha256: prepared.artifactSha256,
   });
+}
+
+const PreparedContainerSchema = z.object({
+  release: z.string(),
+  previous: z.string(),
+  update: SourceUpdateSchema,
+  artifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
+export async function verifyPreparedContainerSource(
+  config: InstallationConfig,
+  job: RestartJob,
+  signal?: AbortSignal,
+) {
+  const settings = config.containerSourceUpdates;
+  if (!settings || job.target !== "container-daemon")
+    throw new Error("Dev source updates are not configured");
+  const work = path.join(config.stateDir, "container-source-updates", job.id);
+  const operation = PreparedContainerSchema.parse(
+    JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
+  );
+  if (JSON.stringify(operation.update) !== JSON.stringify(SourceUpdateSchema.parse(job.update)))
+    throw new Error("Prepared Dev candidate belongs to different approved source");
+  if (!operation.artifactSha256) {
+    if (job.standingDecision)
+      throw new Error("Standing Dev updates require built candidate evidence");
+    return operation;
+  }
+  if (
+    job.standingDecision?.activationStep &&
+    job.standingDecision.activationStep.candidateArtifactSha256 !== operation.artifactSha256
+  )
+    throw new Error("Built Dev candidate differs from exact activation step");
+  const observed = SelectionSchema.extend({ artifactSha256: z.string() }).parse(
+    await containerCommand({
+      settings,
+      signal,
+      operation: { ...operation, action: "verify-candidate" },
+    }),
+  );
+  if (
+    observed.release !== operation.release ||
+    observed.sourceCommit !== operation.update.sourceCommit ||
+    observed.artifactSha256 !== operation.artifactSha256
+  )
+    throw new Error("Native Dev candidate verification differs from preparation");
+  return operation;
 }
 
 export async function installContainerSource({
@@ -174,9 +229,7 @@ export async function installContainerSource({
     throw new Error("Dev source updates are not configured");
   const update = SourceUpdateSchema.parse(job.update);
   const work = path.join(config.stateDir, "container-source-updates", job.id);
-  const operation = z
-    .object({ release: z.string(), previous: z.string(), update: SourceUpdateSchema })
-    .parse(JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")));
+  const operation = await verifyPreparedContainerSource(config, job);
   const installed = SelectionSchema.parse(
     await containerCommand({ settings, operation: { action: "inspect" } }),
   );

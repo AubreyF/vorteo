@@ -99,12 +99,17 @@ function requireOwned(stat: BigIntStats): void {
 interface FileDigestOptions {
   verifyLinksInTree?: boolean;
   buffer?: Buffer;
+  checkBudget?: () => void;
 }
 
 async function digestFile(
   file: string,
   expected: BigIntStats,
-  { verifyLinksInTree = false, buffer = Buffer.alloc(64 * 1024) }: FileDigestOptions = {},
+  {
+    verifyLinksInTree = false,
+    buffer = Buffer.alloc(64 * 1024),
+    checkBudget,
+  }: FileDigestOptions = {},
 ): Promise<string> {
   if (!verifyLinksInTree && expected.nlink !== 1n)
     throw new BootstrapRequestConflict("Prepared artifact contains a hard-linked file");
@@ -113,6 +118,7 @@ async function digestFile(
     requireUnchanged(expected, await handle.stat({ bigint: true }));
     const hash = createHash("sha256");
     for (;;) {
+      checkBudget?.();
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
       hash.update(buffer.subarray(0, bytesRead));
@@ -156,7 +162,29 @@ export async function readProtectedDocument(file: string): Promise<Buffer> {
 
 /** Hash all runtime dependencies, not just the entrypoint. This does not establish
  * that the directory is outside Docker mounts; Host admission must verify that too. */
-export async function digestBootstrapArtifact(directory: string): Promise<string> {
+export interface BootstrapArtifactDigestLimits {
+  signal?: AbortSignal;
+  maxFiles?: number;
+  maxBytes?: number;
+  timeoutMs?: number;
+}
+
+export async function digestBootstrapArtifact(
+  directory: string,
+  limits: BootstrapArtifactDigestLimits = {},
+): Promise<string> {
+  const deadline = limits.timeoutMs === undefined ? Infinity : Date.now() + limits.timeoutMs;
+  let files = 0;
+  let bytes = 0;
+  const checkBudget = () => {
+    if (limits.signal?.aborted)
+      throw new BootstrapRequestConflict("Artifact verification cancelled");
+    if (Date.now() >= deadline)
+      throw new BootstrapRequestConflict("Artifact verification deadline exceeded");
+    if (files > (limits.maxFiles ?? Infinity) || bytes > (limits.maxBytes ?? Infinity))
+      throw new BootstrapRequestConflict("Artifact verification limit exceeded");
+  };
+  checkBudget();
   const root = await realpath(directory);
   if (root !== directory)
     throw new BootstrapRequestConflict("Prepared artifact requires a canonical directory");
@@ -170,6 +198,8 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
   const buffer = Buffer.alloc(64 * 1024);
 
   async function visit(relative: string): Promise<void> {
+    files++;
+    checkBudget();
     const file = path.join(root, relative);
     const before = await lstat(file, { bigint: true });
     requireOwned(before);
@@ -179,6 +209,8 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
       const entries = (await readdir(file)).sort();
       for (const entry of entries) await visit(path.join(relative, entry));
     } else if (before.isFile()) {
+      bytes += Number(before.size);
+      checkBudget();
       if (before.nlink > 1n) {
         const key = `${before.dev}:${before.ino}`;
         const group = hardLinks.get(key) ?? { count: before.nlink, paths: [] };
@@ -187,7 +219,11 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
         group.paths.push(relative);
         hardLinks.set(key, group);
       }
-      const digest = await digestFile(file, before, { verifyLinksInTree: true, buffer });
+      const digest = await digestFile(file, before, {
+        verifyLinksInTree: true,
+        buffer,
+        checkBudget,
+      });
       hash.update(JSON.stringify(["file", relative, String(before.mode), digest]) + "\n");
     } else if (before.isSymbolicLink()) {
       const target = await readlink(file);
@@ -212,7 +248,10 @@ export async function digestBootstrapArtifact(directory: string): Promise<string
     hash.update(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
   }
   // A dependency visited earlier may change while another subtree is read.
-  for (const [file, before] of observed)
+  for (const [file, before] of observed) {
+    checkBudget();
     requireUnchanged(before, await lstat(file, { bigint: true }));
+  }
+  checkBudget();
   return hash.digest("hex");
 }

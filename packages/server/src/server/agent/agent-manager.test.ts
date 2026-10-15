@@ -13250,6 +13250,7 @@ test("restart drain warns once without interrupting and rejects new turns until 
   await manager.waitForAgentRunStart(agent.id);
   const id = randomUUID();
   expect(manager.beginRestartDrain(id)).toBe(true);
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
   await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
   expect(continuations).toEqual([agent.id]);
   expect(session.steerCount).toBe(1);
@@ -13260,6 +13261,7 @@ test("restart drain warns once without interrupting and rejects new turns until 
   expect(session.steerCount).toBe(1);
   expect(manager.cancelRestartDrain(id)).toBe(true);
   expect(manager.isRestartDraining()).toBe(false);
+  expect(manager.getRestartImpact().restartDrainId).toBeNull();
   expect(manager.beginRestartDrain(id)).toBe(false);
   await manager.cancelAgentRun(agent.id);
   await consume;
@@ -13448,7 +13450,11 @@ test("restart drain leaves loaded archived history out of preparation", async ()
     expect(manager.getAgent(agent.id)).toBeDefined();
     const id = randomUUID();
     expect(manager.beginRestartDrain(id)).toBe(true);
-    expect(manager.getRestartImpact()).toEqual({ agents: [], pendingStarts: 0 });
+    expect(manager.getRestartImpact()).toEqual({
+      agents: [],
+      pendingStarts: 0,
+      restartDrainId: id,
+    });
     expect(manager.cancelRestartDrain(id)).toBe(true);
   } finally {
     for (const agent of manager.listAgents()) await manager.closeAgent(agent.id);

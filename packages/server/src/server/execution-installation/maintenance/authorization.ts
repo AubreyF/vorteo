@@ -191,6 +191,12 @@ export class FileEnrollmentJournal {
     return this.bootstrap.withRecoveryTransaction(() => this.load());
   }
 
+  /** Atomic selection snapshot for policy evaluation only. Dispatch must reread
+   * under shared lifecycle exclusion before its durable reservation. */
+  readPolicySnapshot(): InstallationEnrollmentState {
+    return this.load();
+  }
+
   /** Caller must already hold the shared bootstrap lifecycle transaction.
    * This avoids nested flock acquisition; it supplies no dispatch authority by itself. */
   readUnderLifecycleLock(): InstallationEnrollmentState {

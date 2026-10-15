@@ -46,6 +46,100 @@ function select(release, expected) {
   fs.symlinkSync(withinRoot(release), temporary);
   fs.renameSync(temporary, link);
 }
+// This Host-supplied collector binds built bytes, including every dependency.
+// It never imports code from the candidate while deciding its integrity.
+function artifactDigest(directory) {
+  const canonical = fs.realpathSync(directory);
+  if (canonical !== directory) throw new Error("Candidate requires a canonical directory");
+  const digest = createHash("sha256").update("vorteo-container-artifact-v1\n");
+  const deadline = Date.now() + 120_000;
+  const buffer = Buffer.alloc(64 * 1024);
+  const observed = new Map();
+  const links = new Map();
+  let entries = 0;
+  let bytes = 0;
+  const budget = () => {
+    if (Date.now() >= deadline || entries > 250_000 || bytes > 8 * 1024 ** 3)
+      throw new Error("Candidate verification exceeded its bounds");
+  };
+  const identity = (stat) =>
+    [
+      stat.dev,
+      stat.ino,
+      stat.mode,
+      stat.uid,
+      stat.gid,
+      stat.nlink,
+      stat.size,
+      stat.ctimeNs,
+      stat.mtimeNs,
+    ].join(":");
+  const visit = (relative) => {
+    entries++;
+    budget();
+    const file = path.join(directory, relative);
+    const stat = fs.lstatSync(file, { bigint: true });
+    if (
+      stat.uid !== BigInt(process.getuid()) ||
+      (!stat.isSymbolicLink() && (stat.mode & 0o022n) !== 0n)
+    )
+      throw new Error("Candidate has unprotected ownership or permissions");
+    observed.set(file, identity(stat));
+    if (stat.isDirectory()) {
+      digest.update(JSON.stringify(["directory", relative, String(stat.mode)]) + "\n");
+      for (const entry of fs.readdirSync(file).sort()) visit(path.join(relative, entry));
+    } else if (stat.isFile()) {
+      bytes += Number(stat.size);
+      budget();
+      const fd = fs.openSync(
+        file,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
+      const content = createHash("sha256");
+      try {
+        if (identity(fs.fstatSync(fd, { bigint: true })) !== identity(stat))
+          throw new Error("Candidate changed");
+        for (;;) {
+          budget();
+          const count = fs.readSync(fd, buffer, 0, buffer.length, null);
+          if (!count) break;
+          content.update(buffer.subarray(0, count));
+        }
+        if (identity(fs.fstatSync(fd, { bigint: true })) !== identity(stat))
+          throw new Error("Candidate changed");
+      } finally {
+        fs.closeSync(fd);
+      }
+      if (stat.nlink > 1n) {
+        const key = `${stat.dev}:${stat.ino}`;
+        const group = links.get(key) ?? { count: stat.nlink, paths: [] };
+        group.paths.push(relative);
+        links.set(key, group);
+      }
+      digest.update(
+        JSON.stringify(["file", relative, String(stat.mode), content.digest("hex")]) + "\n",
+      );
+    } else if (stat.isSymbolicLink()) {
+      const resolved = fs.realpathSync(file);
+      if (!resolved.startsWith(directory + path.sep) && resolved !== directory)
+        throw new Error("Candidate link escapes release");
+      digest.update(JSON.stringify(["link", relative, fs.readlinkSync(file)]) + "\n");
+    } else throw new Error("Candidate contains a non-runtime file");
+  };
+  visit("");
+  for (const group of links.values()) {
+    if (BigInt(group.paths.length) !== group.count)
+      throw new Error("Candidate hard link escapes release");
+    digest.update(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
+  }
+  for (const [file, expected] of observed) {
+    budget();
+    if (identity(fs.lstatSync(file, { bigint: true })) !== expected)
+      throw new Error("Candidate changed during verification");
+  }
+  return digest.digest("hex");
+}
+
 const workerEntry = (release) =>
   path.join(release, "packages/server/dist/server/server/daemon-worker.js");
 const previous = withinRoot(selected());
@@ -104,7 +198,12 @@ if (action === "inspect") {
       JSON.stringify(input.update),
       { mode: 0o600, flag: "wx" },
     );
-    result = { release, previous, sourceCommit: input.update.sourceCommit };
+    result = {
+      release,
+      previous,
+      sourceCommit: input.update.sourceCommit,
+      artifactSha256: artifactDigest(release),
+    };
   } catch (error) {
     throw new Error(`Dev build failed before activation. Inspect ${path.join(work, "build.log")}`, {
       cause: error,
@@ -112,6 +211,20 @@ if (action === "inspect") {
   } finally {
     fs.closeSync(log);
   }
+} else if (action === "verify-candidate") {
+  supervisor();
+  const candidate = withinRoot(input.release);
+  if (
+    previous !== input.previous ||
+    receipt(previous).sourceCommit !== input.update.baseCommit ||
+    receipt(candidate).sourceCommit !== input.update.sourceCommit ||
+    receipt(candidate).sha256 !== input.update.sha256
+  )
+    throw new Error("Candidate source or selection differs from approval");
+  const artifactSha256 = artifactDigest(candidate);
+  if (artifactSha256 !== input.artifactSha256)
+    throw new Error("Prepared Dev candidate content changed");
+  result = { release: candidate, sourceCommit: input.update.sourceCommit, artifactSha256 };
 } else if (action === "activate") {
   supervisor();
   const candidate = withinRoot(input.release);
@@ -122,6 +235,8 @@ if (action === "inspect") {
     throw new Error("Prepared Dev source differs from approval");
   if (receipt(previous).sourceCommit !== input.update.baseCommit)
     throw new Error("Installed Dev source changed");
+  if (input.artifactSha256 && artifactDigest(candidate) !== input.artifactSha256)
+    throw new Error("Prepared Dev candidate content changed");
   select(candidate, input.previous);
   result = { release: candidate };
 } else if (action === "restore") {

@@ -7,6 +7,37 @@ const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);
 const AbsolutePathSchema = z.string().startsWith("/").min(2).max(4096);
 const FileIdentitySchema = z.strictObject({ path: AbsolutePathSchema, sha256: DigestSchema });
+export const CoordinatorMaintenanceProvisionRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.provision.request"),
+  admissionSha256: DigestSchema,
+  ownerPassword: z.string().min(1).max(4096),
+});
+export const CoordinatorMaintenanceEnrollmentRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.enroll.request"),
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+  ownerPassword: z.string().min(1).max(4096).optional(),
+});
+export const CoordinatorMaintenanceObserveRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.observe.request"),
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+});
+export const CoordinatorMaintenanceStatusSchema = z.strictObject({
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  available: z.boolean(),
+  phase: z.enum(["unprovisioned", "validating", "ready", "unavailable"]),
+  requests: z.number().int().nonnegative(),
+  provisioning: z.strictObject({
+    admissionSha256: DigestSchema,
+    sourceCommit: CommitSchema,
+    artifactSha256: DigestSchema,
+    requestId: z.string().uuid(),
+  }),
+});
 const ReleaseIdentitySchema = z.strictObject({
   sourceCommit: CommitSchema,
   directory: AbsolutePathSchema,
@@ -106,6 +137,17 @@ export const CoordinatorAutomaticCheckSchema = z.strictObject({
   outcome: z.enum(["running", "unconfirmed"]),
 });
 
+export const CoordinatorEnrollmentAuthoritySchema = z.strictObject({
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: DigestSchema,
+  reviewId: z.string().uuid(),
+  reviewRevision: z.string().uuid(),
+  admissionSha256: DigestSchema,
+  stepId: z.string().uuid(),
+  generation: z.string().uuid(),
+});
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -116,6 +158,14 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
   planSha256: DigestSchema,
   status: z.enum(["pending", "approved", "canceled"]),
   decisionAt: z.string().datetime().optional(),
+  // Separate standing consent; never inferred from legacy approval or policy flags.
+  enrollment: CoordinatorEnrollmentAuthoritySchema.optional(),
+  enrollmentDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+    })
+    .optional(),
   automaticCheck: CoordinatorAutomaticCheckSchema.optional(),
   // Protected provenance is minted by scoped Host admission, never by plan input.
   automaticSubmission: CoordinatorAutomaticAuthoritySchema.extend({

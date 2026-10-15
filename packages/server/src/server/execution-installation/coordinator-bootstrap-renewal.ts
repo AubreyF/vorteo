@@ -725,6 +725,12 @@ async function observeExecutable(file: string, roots: readonly string[]) {
 /** Renewed runners retain the selected Host reader and validate declared configuration
  * changes through the maintenance validator. Compatible rollback retains the old configuration. */
 export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBootstrapPlan) {
+  if (setup.maintenance) {
+    const { verifyMaintenanceRunnerPlan } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRunnerPlan(setup, plan);
+    return;
+  }
   if (!setup.renewal) return;
   const renewal = setup.renewal;
   if (
@@ -790,6 +796,12 @@ async function verifyRenewalEvidence(input: {
   historical: boolean;
 }) {
   const { setup, request, watchdog, historical } = input;
+  if (setup.maintenance) {
+    const { verifyMaintenanceRetainedRuntime } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRetainedRuntime(input);
+    return;
+  }
   const renewal = setup.renewal;
   if (!renewal) return;
   const uid = process.getuid!();

@@ -1698,6 +1698,7 @@ export class AgentManager {
     return {
       agents,
       pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
+      restartDrainId: this.restartDrainId,
     };
   }
 

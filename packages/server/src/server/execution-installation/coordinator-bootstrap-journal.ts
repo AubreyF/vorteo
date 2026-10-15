@@ -1,4 +1,13 @@
 import {
+  inspectLifecycleActivationChild,
+  type LifecycleActivationChild,
+} from "./coordinator-bootstrap-maintenance-child.js";
+import {
+  assertMaintenanceEnrollmentClaim,
+  readMaintenanceEnrollmentForClaim,
+  unresolvedMaintenanceActivations,
+} from "./coordinator-bootstrap-maintenance-enrollment.js";
+import {
   closeSync,
   constants,
   fsyncSync,
@@ -91,6 +100,14 @@ export function validateClaimFence(value: unknown): z.infer<typeof ClaimFenceSch
     throw new BootstrapRequestConflict("Retained claim fence changed");
   return record;
 }
+
+/** Synchronous policy check inside the shared lifecycle lock. Throw to reject.
+ * Read enrollment with readUnderLifecycleLock; never acquire another lock or
+ * perform asynchronous/native work here. Snapshots cannot alter the write. */
+export type LifecycleWriteAdmission = (
+  previous: readonly LifecycleJob[],
+  next: readonly LifecycleJob[],
+) => undefined;
 
 /** Serializes bootstrap claims and lifecycle admission through one protected lock. */
 export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
@@ -262,34 +279,81 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     return openBootstrapRequests(this.read()).some((request) => request.execution !== undefined);
   }
 
-  lifecycleAdmissionAvailable(): boolean {
-    return this.withLock(() => !this.hasCoordinatorExecution());
+  private unresolvedActivation() {
+    return unresolvedMaintenanceActivations(readMaintenanceEnrollmentForClaim(this.directory));
   }
 
-  writeLifecycle(value: LifecycleJob[]): void {
+  lifecycleAdmissionAvailable(): boolean {
+    return this.withLock(
+      () => !this.hasCoordinatorExecution() && this.unresolvedActivation().length === 0,
+    );
+  }
+
+  writeLifecycle(
+    value: LifecycleJob[],
+    admission?: LifecycleWriteAdmission,
+    activationChild?: LifecycleActivationChild,
+  ): void {
     this.withLock(() => {
       const next = parseLifecycleJournal(value);
-      if (this.hasCoordinatorExecution()) {
-        const retained = coordinatorLifecycleWork(this.readLifecycle());
-        // Cancellation and completion may remove existing obligations. They must
-        // not start or advance another effect while coordinator recovery owns admission.
-        const added = coordinatorLifecycleWork(next).some(
-          (job) =>
-            !retained.some((previous) => {
-              if (isDeepStrictEqual(previous, job)) return true;
-              if (!["rejected", "failed", "succeeded"].includes(job.status)) return false;
-              // The queue must retain cancellation and interrupted-operation
-              // receipts, including helper recovery fences. These cannot dispatch.
-              return previous.id === job.id && previous.target === job.target;
-            }),
+      const priorJobs = this.readLifecycle();
+      if (admission && admission(structuredClone(priorJobs), structuredClone(next)) !== undefined)
+        throw new BootstrapRequestConflict("Lifecycle admission must complete synchronously");
+      const retained = coordinatorLifecycleWork(priorJobs);
+      // Terminal bookkeeping may remove obligations even when enrollment is unreadable.
+      const added = coordinatorLifecycleWork(next).filter(
+        (job) =>
+          !retained.some((previous) => {
+            if (isDeepStrictEqual(previous, job)) return true;
+            if (!["rejected", "failed", "succeeded"].includes(job.status)) return false;
+            return previous.id === job.id && previous.target === job.target;
+          }),
+      );
+      if (added.length && this.hasCoordinatorExecution())
+        throw new BootstrapRequestConflict(
+          "Coordinator recovery must finish before installation work",
         );
-        if (added)
+      if (activationChild) {
+        if (!admission)
+          throw new BootstrapRequestConflict("Activation child requires locked evidence admission");
+        const child = inspectLifecycleActivationChild(
+          activationChild,
+          readMaintenanceEnrollmentForClaim(this.directory),
+          next,
+        );
+        if (added.some((job) => job.id !== child.proof.requestId))
           throw new BootstrapRequestConflict(
-            "Coordinator recovery must finish before installation work",
+            "Activation exception cannot admit unrelated lifecycle work",
           );
+        this.retainActivationChild(child);
+      } else if (added.length && this.unresolvedActivation().length) {
+        throw new BootstrapRequestConflict(
+          "Installation activation must be reconciled before new lifecycle work",
+        );
       }
       this.write(path.join(this.directory, "restart-jobs.json"), next);
     });
+  }
+
+  private retainActivationChild(child: ReturnType<typeof inspectLifecycleActivationChild>): void {
+    const file = path.join(
+      this.directory,
+      `maintenance-child-${child.proof.stepId}-${child.proof.generation}.json`,
+    );
+    const current = this.readFile(file);
+    if (current !== null && current !== undefined) {
+      const record = z
+        .strictObject({ binding: z.unknown(), initialRevision: z.uuid() })
+        .parse(current);
+      if (!isDeepStrictEqual(record.binding, child.binding))
+        throw new BootstrapRequestConflict(
+          "Activation step is already bound to another child or source",
+        );
+      return;
+    }
+    // Persist binding before queue selection. A lost queue write can only be
+    // reconciled with this same child; it cannot free the step for a new request.
+    this.write(file, { binding: child.binding, initialRevision: child.initialRevision });
   }
 
   promote(request: CoordinatorBootstrapRequest): void {
@@ -470,6 +534,51 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     });
   }
 
+  private verifyRetainedEnrollment(
+    previous: CoordinatorBootstrapRequest | undefined,
+    record: CoordinatorBootstrapRequest,
+  ): void {
+    const reservesLaunch = record.enrollmentDispatch && !previous?.enrollmentDispatch;
+    if (previous?.enrollment && !isDeepStrictEqual(previous.enrollment, record.enrollment))
+      throw new BootstrapRequestConflict("Retained enrollment provenance cannot change");
+    if (
+      previous?.enrollmentDispatch &&
+      !isDeepStrictEqual(previous.enrollmentDispatch, record.enrollmentDispatch)
+    )
+      throw new BootstrapRequestConflict("Retained enrollment dispatch cannot change");
+    if (
+      reservesLaunch &&
+      (!previous?.enrollment ||
+        record.enrollmentDispatch!.approvedRevision !== previous.revision ||
+        previous.execution)
+    )
+      throw new BootstrapRequestConflict("Enrollment dispatch must reserve its exact approval");
+  }
+
+  private verifyEnrollmentTransitions(
+    expected: CoordinatorBootstrapRequest[],
+    next: CoordinatorBootstrapRequest[],
+  ): void {
+    for (const record of next) {
+      const previous = expected.find((item) => item.id === record.id);
+      const addsAuthority = record.enrollment && !previous?.enrollment;
+      const startsEnrollmentClaim = record.enrollment && record.execution && !previous?.execution;
+      const reservesLaunch = record.enrollmentDispatch && !previous?.enrollmentDispatch;
+      this.verifyRetainedEnrollment(previous, record);
+      if (startsEnrollmentClaim && !previous?.enrollmentDispatch)
+        throw new BootstrapRequestConflict("Enrollment claim requires its reserved native launch");
+      if (addsAuthority || startsEnrollmentClaim || reservesLaunch) {
+        if (addsAuthority && (!previous || previous.status !== "pending" || previous.execution))
+          throw new BootstrapRequestConflict("Enrollment must bind an exact pending review");
+        const { execution: _execution, ...unclaimed } = record;
+        assertMaintenanceEnrollmentClaim(
+          unclaimed,
+          readMaintenanceEnrollmentForClaim(this.directory),
+        );
+      }
+    }
+  }
+
   private replaceLocked(
     expected: CoordinatorBootstrapRequest[],
     next: CoordinatorBootstrapRequest[],
@@ -478,12 +587,34 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       throw new BootstrapRequestConflict("Bootstrap request changed. Refresh its review.");
     const { main, pending } = this.snapshots();
     const parsed = RecordsSchema.parse({ version: 1, requests: next });
+    this.verifyEnrollmentTransitions(expected, parsed.requests);
     const startsClaim = parsed.requests.some(
       (record) =>
         record.execution?.stage === "claimed" &&
         !expected.find((previous) => previous.id === record.id)?.execution,
     );
-    if (startsClaim) assertCoordinatorLifecycleIdle(this.readLifecycle());
+    if (startsClaim) {
+      assertCoordinatorLifecycleIdle(this.readLifecycle());
+      const active = this.unresolvedActivation();
+      for (const record of parsed.requests) {
+        if (
+          record.execution?.stage !== "claimed" ||
+          expected.find((previous) => previous.id === record.id)?.execution
+        )
+          continue;
+        if (
+          active.some(
+            (step) =>
+              step.status === "pending" ||
+              step.id !== record.enrollment?.stepId ||
+              step.generation !== record.enrollment?.generation,
+          )
+        )
+          throw new BootstrapRequestConflict(
+            "Installation activation must be reconciled before another coordinator claim",
+          );
+      }
+    }
     const mainIds = new Set(main.requests.map((record) => record.id));
     for (const intent of pending.promotions) {
       if (!mainIds.has(intent.id))

@@ -155,6 +155,12 @@ export const BootstrapRunnerSetupSchema = z.strictObject({
   runtimeDirectory: z.string().startsWith("/"),
   runtimeSha256: z.string().regex(/^[a-f0-9]{64}$/),
   renewal: BootstrapRenewalSchema.optional(),
+  maintenance: z
+    .strictObject({
+      installationRoot: z.string().startsWith("/"),
+      admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
 });
 
 /** The watchdog acknowledges its pre-lock wait; the executor acknowledges a
@@ -237,6 +243,12 @@ function runnerRenewal(
         retainRenewalGeneration({ setup, setupFile, request: retained, watchdog: true }),
       );
     if (!armed) {
+      if (setup.maintenance) {
+        const { verifyMaintenanceBeforeDispatch } =
+          await import("./coordinator-bootstrap-maintenance-runtime.js");
+        await trace("renewal-derive", () => verifyMaintenanceBeforeDispatch(setup));
+        return;
+      }
       const original = BootstrapRunnerSetupSchema.parse(
         readPrivateBootstrapConfiguration(renewal.originalSetup.path, uid),
       );
@@ -731,7 +743,20 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && identifier && role === "claimed-repair-control") {
+  if (setup && identifier && role === "maintenance-control") {
+    void import("./coordinator-bootstrap-maintenance-controller.js")
+      .then(({ runMaintenanceControl }) =>
+        runMaintenanceControl({
+          installationRoot: setup,
+          admissionSha256: identifier,
+          ...(process.argv[5] ? { enrollmentSha256: process.argv[5] } : {}),
+        }),
+      )
+      .catch(() => {
+        process.stderr.write("Maintenance controls could not establish readiness.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "claimed-repair-control") {
     void import("./coordinator-bootstrap-claimed-control.js")
       .then(({ runProvisionedClaimedRepairControl }) =>
         runProvisionedClaimedRepairControl({
@@ -837,6 +862,17 @@ export async function verifyBootRunnerBinding(
     return;
   }
   const { request: approval, ...renewal } = setup.renewal;
+  let inertSetup: RunnerSetup = { ...setup, renewal };
+  if (setup.maintenance) {
+    // The admission digest includes the plan, whose boot descriptor pins this
+    // inert setup. Avoid a digest cycle by retaining admission only in the later
+    // approval snapshot, and independently verify it before accepting that delta.
+    const { verifyMaintenanceRetainedRuntime } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenanceRetainedRuntime({ setup, request, watchdog: true, historical: false });
+    const { maintenance: _admission, ...preparedRuntime } = inertSetup;
+    inertSetup = preparedRuntime;
+  }
   const expectedPath = path.join(
     request.plan.state.directory,
     `coordinator-renewal-${approval.id}-${approval.revision}.json`,
@@ -845,7 +881,7 @@ export async function verifyBootRunnerBinding(
     setupFile !== expectedPath ||
     approval.id !== request.id ||
     approval.planSha256 !== request.planSha256 ||
-    !isDeepStrictEqual(prepared, { ...setup, renewal })
+    !isDeepStrictEqual(prepared, inertSetup)
   )
     throw new BootstrapRequestConflict("Startup renewal differs from approved preparation");
 }

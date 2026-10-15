@@ -26,8 +26,13 @@ import {
 import type { InstallationConfig } from "./config.js";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import { writeLifecycleReceipt } from "./lifecycle-journal.js";
-import { installContainerSource, prepareContainerSource } from "./container-updates.js";
+import {
+  installContainerSource,
+  prepareContainerSource,
+  verifyPreparedContainerSource,
+} from "./container-updates.js";
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { isDeepStrictEqual } from "node:util";
@@ -39,6 +44,22 @@ export {
 
 const execute = promisify(execFile);
 const ReceiptSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
+const AdmissionSchema = z.object({
+  previous: z.string(),
+  sourceSha256: z.string(),
+  webReceipt: z.string(),
+  webIndex: z.string(),
+  exportedArtifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // Old manual preparations remain readable; standing execution requires this evidence.
+  candidateArtifactSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+const CANDIDATE_DIGEST_LIMITS = { maxFiles: 250_000, maxBytes: 8 * 1024 ** 3, timeoutMs: 120_000 };
 const PreparedSchema = z.object({ release: z.string(), exported: z.string() });
 
 /** Only the protected coordinator turns an approved bundle into executable code. */
@@ -247,9 +268,70 @@ export class InstallationSourceUpdates {
     writeLifecycleReceipt(path.join(work, "admission.json"), {
       previous,
       sourceSha256: update.sha256,
+      candidateArtifactSha256: await digestBootstrapArtifact(
+        prepared.release,
+        CANDIDATE_DIGEST_LIMITS,
+      ),
+      exportedArtifactSha256: await digestBootstrapArtifact(
+        prepared.exported,
+        CANDIDATE_DIGEST_LIMITS,
+      ),
       webReceipt: createHash("sha256").update(webReceipt).digest("hex"),
       webIndex: createHash("sha256").update(webIndex).digest("hex"),
     });
+  }
+
+  /** Recompute the built runtime digest before a hold and again before selection.
+   * A source bundle digest alone does not bind the resulting executable bytes. */
+  async verifyPreparedInstallation(
+    job: RestartJob,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    if (job.target !== this.target) throw new Error("Source update target changed");
+    if (this.target !== "host") {
+      await verifyPreparedContainerSource(this.config, job, options.signal);
+      return;
+    }
+    await this.verifiedHostPreparation(job, options.signal);
+  }
+
+  private async verifiedHostPreparation(job: RestartJob, signal?: AbortSignal) {
+    const update = SourceUpdateSchema.parse(job.update);
+    const work = path.join(this.hostSettings().releaseRoot, job.id);
+    const prepared = PreparedSchema.parse(
+      JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
+    );
+    for (const directory of [prepared.release, prepared.exported]) {
+      if (!realpathSync(directory).startsWith(realpathSync(work) + path.sep))
+        throw new Error("Prepared artifact escaped its release directory");
+    }
+    const admission = AdmissionSchema.parse(
+      JSON.parse(readFileSync(path.join(work, "admission.json"), "utf8")),
+    );
+    const receipt = ReceiptSchema.parse(
+      JSON.parse(readFileSync(path.join(prepared.release, ".installation-source.json"), "utf8")),
+    );
+    if (admission.sourceSha256 !== update.sha256 || receipt.sourceCommit !== update.sourceCommit)
+      throw new Error("Prepared candidate belongs to different approved source");
+    if (
+      job.standingDecision?.activationStep &&
+      job.standingDecision.activationStep.candidateArtifactSha256 !==
+        admission.candidateArtifactSha256
+    )
+      throw new Error("Built candidate differs from the exact activation step");
+    if (!admission.candidateArtifactSha256 || !admission.exportedArtifactSha256) {
+      if (job.standingDecision)
+        throw new Error("Standing source update requires built candidate evidence");
+      return { prepared, admission };
+    }
+    if (
+      (await digestBootstrapArtifact(prepared.release, { ...CANDIDATE_DIGEST_LIMITS, signal })) !==
+        admission.candidateArtifactSha256 ||
+      (await digestBootstrapArtifact(prepared.exported, { ...CANDIDATE_DIGEST_LIMITS, signal })) !==
+        admission.exportedArtifactSha256
+    )
+      throw new Error("Prepared candidate content changed. No hold or replacement authorized.");
+    return { prepared, admission };
   }
 
   async install(job: RestartJob, restart: RestartExecutor["restart"]): Promise<string> {
@@ -265,17 +347,7 @@ export class InstallationSourceUpdates {
       });
     const settings = this.hostSettings();
     const work = path.join(settings.releaseRoot, job.id);
-    const prepared = PreparedSchema.parse(
-      JSON.parse(readFileSync(path.join(work, "prepared.json"), "utf8")),
-    );
-    const admission = z
-      .object({
-        previous: z.string(),
-        sourceSha256: z.string(),
-        webReceipt: z.string(),
-        webIndex: z.string(),
-      })
-      .parse(JSON.parse(readFileSync(path.join(work, "admission.json"), "utf8")));
+    const { prepared, admission } = await this.verifiedHostPreparation(job);
     const previous = admission.previous;
     const validation = this.config.host.startupValidation;
     if (!validation) throw new Error("Host startup validation is required for source updates");

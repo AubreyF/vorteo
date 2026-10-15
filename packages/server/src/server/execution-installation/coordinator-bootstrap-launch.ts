@@ -1,3 +1,4 @@
+import { reserveEnrolledBootstrapLaunch } from "./coordinator-bootstrap-maintenance-dispatch.js";
 import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
 import { lstatSync, constants, realpathSync, readdirSync } from "node:fs";
@@ -1415,6 +1416,31 @@ export async function createManagedBootstrapReview(
         }
       : undefined,
   );
+  return createDispatchingBootstrapReview({
+    setup,
+    setupFile,
+    requests,
+    verifySetup,
+    automatic: {
+      configurationFile: setup.renewal?.configuration.path ?? admission.configurationFile,
+      uid,
+    },
+  });
+}
+
+/** Shared exact-plan launch path. Independent maintenance omits automatic
+ * authority and must obtain its own owner decision before this path launches. */
+export function createDispatchingBootstrapReview(options: {
+  setup: z.infer<typeof BootstrapRunnerSetupSchema>;
+  setupFile: string;
+  requests: Awaited<ReturnType<typeof createBootstrapReviewService>>;
+  verifySetup(): Promise<string[]>;
+  automatic?: { configurationFile: string; uid: number };
+  enrollment?: boolean;
+}): BootstrapReviewService & {
+  dispatchEnrolled(request: CoordinatorBootstrapRequest): Promise<CoordinatorBootstrapRequest>;
+} {
+  const { setup, setupFile, requests, verifySetup, automatic: automaticPolicy } = options;
   const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "plan">) => {
     const candidate = request.plan.candidate;
     if (
@@ -1435,6 +1461,11 @@ export async function createManagedBootstrapReview(
         revision: request.revision,
         planSha256: request.planSha256,
       });
+    if (request.enrollment) {
+      if (!options.enrollment || !setup.maintenance || automatic)
+        throw new BootstrapRequestConflict("Exact admitted enrollment launch required");
+      request = reserveEnrolledBootstrapLaunch(request);
+    }
     const current = requests.list().find((item) => item.id === request.id);
     if (!current || current.revision !== request.revision || current.execution)
       throw new BootstrapRequestConflict("Bootstrap decision changed before launch");
@@ -1475,6 +1506,11 @@ export async function createManagedBootstrapReview(
     return dispatched;
   };
   return {
+    dispatchEnrolled: async (request) => {
+      if (!options.enrollment || !request.enrollment)
+        throw new BootstrapRequestConflict("Enrollment launch unavailable");
+      return dispatch(request, false);
+    },
     list: () => requests.list(),
     prepare: async (input) => {
       const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
@@ -1492,40 +1528,44 @@ export async function createManagedBootstrapReview(
       if (request.status !== "approved") return request;
       return dispatch(request, false);
     },
-    automatic: {
-      prepare: async (input, proof) => {
-        const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
-        const config = InstallationConfigSchema.parse(
-          readPrivateBootstrapConfiguration(
-            setup.renewal?.configuration.path ?? admission.configurationFile,
-            uid,
-          ),
-        );
-        const authority = verifyCoordinatorSubmission(config, prepared, proof);
-        await verifyCandidate(prepared);
-        return requests.prepareAutomatic(prepared, authority);
-      },
-      reconcile: async (id) => {
-        requests.revokeAutomatic();
-        const request = requests.list().find((item) => item.id === id);
-        if (!request?.automaticSubmission)
-          throw new BootstrapRequestConflict("Authenticated coordinator submission required");
-        if (request.status === "canceled" || request.execution || request.automaticDispatch)
-          return request;
-        requests.requireAutomaticReconciliation(request);
-        if (request.status === "pending") {
-          await verifyCandidate(request);
-          return requests.approveAutomatic({
-            id: request.id,
-            revision: request.revision,
-            planSha256: request.planSha256,
-          });
+    automatic: automaticPolicy
+      ? {
+          prepare: async (input, proof) => {
+            const prepared = CoordinatorBootstrapPreparationSchema.parse(input);
+            const config = InstallationConfigSchema.parse(
+              readPrivateBootstrapConfiguration(
+                automaticPolicy.configurationFile,
+                automaticPolicy.uid,
+              ),
+            );
+            const authority = verifyCoordinatorSubmission(config, prepared, proof);
+            await verifyCandidate(prepared);
+            return requests.prepareAutomatic(prepared, authority);
+          },
+          reconcile: async (id) => {
+            requests.revokeAutomatic();
+            const request = requests.list().find((item) => item.id === id);
+            if (!request?.automaticSubmission)
+              throw new BootstrapRequestConflict("Authenticated coordinator submission required");
+            if (request.status === "canceled" || request.execution || request.automaticDispatch)
+              return request;
+            requests.requireAutomaticReconciliation(request);
+            if (request.status === "pending") {
+              await verifyCandidate(request);
+              return requests.approveAutomatic({
+                id: request.id,
+                revision: request.revision,
+                planSha256: request.planSha256,
+              });
+            }
+            if (!request.automaticApproval)
+              throw new BootstrapRequestConflict(
+                "Manual approval cannot authorize automatic dispatch",
+              );
+            if (Date.now() < Date.parse(request.automaticApproval.dispatchAfter)) return request;
+            return dispatch(request, true);
+          },
         }
-        if (!request.automaticApproval)
-          throw new BootstrapRequestConflict("Manual approval cannot authorize automatic dispatch");
-        if (Date.now() < Date.parse(request.automaticApproval.dispatchAfter)) return request;
-        return dispatch(request, true);
-      },
-    },
+      : undefined,
   };
 }

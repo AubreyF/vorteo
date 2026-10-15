@@ -39,7 +39,9 @@ test("artifact digests preserve chunk boundaries and isolate concurrent scan buf
   for (const [index, release] of releases.entries()) {
     expect(await digestBootstrapArtifact(release)).toBe(expected[index]);
   }
-  expect(await Promise.all(releases.map(digestBootstrapArtifact))).toEqual(expected);
+  expect(await Promise.all(releases.map((release) => digestBootstrapArtifact(release)))).toEqual(
+    expected,
+  );
 });
 
 test("prepared release binds external dependencies and its complete runtime tree", async () => {
@@ -149,4 +151,20 @@ test("artifact accepts only complete internal hard-link groups and binds their t
   await rm(alias);
   await writeFile(alias, "export {};", { mode: 0o600 });
   expect(await digestBootstrapArtifact(release)).not.toBe(linked);
+});
+
+test("bounded artifact verification refuses partial results on limits, deadline and cancellation", async () => {
+  const { release } = await fixture();
+  const expected = await digestBootstrapArtifact(release);
+  await expect(digestBootstrapArtifact(release, { maxFiles: 1 })).rejects.toThrow("limit exceeded");
+  await expect(digestBootstrapArtifact(release, { maxBytes: 1 })).rejects.toThrow("limit exceeded");
+  await expect(digestBootstrapArtifact(release, { timeoutMs: 0 })).rejects.toThrow("deadline");
+  const controller = new AbortController();
+  controller.abort();
+  await expect(digestBootstrapArtifact(release, { signal: controller.signal })).rejects.toThrow(
+    "cancelled",
+  );
+  expect(
+    await digestBootstrapArtifact(release, { maxFiles: 10, maxBytes: 1000, timeoutMs: 10_000 }),
+  ).toBe(expected);
 });

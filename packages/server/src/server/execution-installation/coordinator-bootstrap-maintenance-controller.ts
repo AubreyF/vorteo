@@ -1,0 +1,302 @@
+import {
+  observeEnrolledCoordinator,
+  verifyEnrolledCoordinatorCandidate,
+} from "./coordinator-bootstrap-maintenance-observation.js";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { access, realpath } from "node:fs/promises";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { z } from "zod";
+import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
+import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
+import {
+  BootstrapAdmissionSetupSchema,
+  inspectBootstrapWritableMountRoots,
+} from "./coordinator-bootstrap-host.js";
+import {
+  readProtectedDocument,
+  readBootstrapPreparedFile,
+} from "./coordinator-bootstrap-artifact.js";
+import { verifyMaintenanceProposalFiles } from "./coordinator-bootstrap-maintenance-admission.js";
+import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
+import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { createProvisionedMaintenanceReview } from "./coordinator-bootstrap-maintenance-host.js";
+import {
+  provisionCoordinatorMaintenance,
+  enrollAndProvisionCoordinatorMaintenance,
+} from "./coordinator-bootstrap-maintenance-provisioning.js";
+import {
+  validateEnrollmentManifest,
+  enrollmentManifestDigest,
+} from "./maintenance/authorization.js";
+import { InstallationEnrollmentManifestSchema } from "@getpaseo/protocol/installation-enrollment";
+import { createMaintenanceReviewState } from "./coordinator-bootstrap-maintenance-state.js";
+import {
+  createMaintenanceControlApp,
+  MaintenanceOwnerConfigurationSchema,
+} from "./coordinator-bootstrap-maintenance-control.js";
+import { writeRecoverySnapshot } from "./coordinator-bootstrap-launch.js";
+
+/** Start only the pinned review controller. No opening path approves or resumes
+ * a lifecycle decision, including when an earlier response was lost. */
+export async function runMaintenanceControl(input: {
+  installationRoot: string;
+  admissionSha256: string;
+  enrollmentSha256?: string;
+}) {
+  const digest = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(input.admissionSha256);
+  const directory = path.join(input.installationRoot, "maintenance-admissions", digest);
+  const read = async (name: string) =>
+    JSON.parse((await readProtectedDocument(path.join(directory, name))).toString("utf8"));
+  const anchor = BootstrapRunnerSetupSchema.parse(
+    JSON.parse(
+      (
+        await readProtectedDocument(
+          path.join(input.installationRoot, "coordinator-bootstrap-runner.json"),
+        )
+      ).toString("utf8"),
+    ),
+  );
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse((await readProtectedDocument(anchor.admissionSetupFile)).toString("utf8")),
+  );
+  const roots = await inspectBootstrapWritableMountRoots(admission);
+  const prepared = {
+    ...input,
+    plan: await read("proposal-plan.json"),
+    hostSetup: await read("proposal-host.json"),
+    runnerSetup: await read("proposal-runner.json"),
+  };
+  const context = await verifyMaintenanceProposalFiles({
+    ...prepared,
+    receiptFile: { path: path.join(directory, "proposal.json"), sha256: digest },
+    writableMountRoots: roots,
+  });
+  const expectedModule = path.join(
+    context.receipt.runtime.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-controller.js",
+  );
+  const enrollment = input.enrollmentSha256
+    ? await readMaintenanceEnrollmentReview(
+        directory,
+        input.enrollmentSha256,
+        digest,
+        context.receipt.installationId,
+      )
+    : undefined;
+  const args = [
+    context.runner.node.path,
+    context.runner.entrypoint.path,
+    input.installationRoot,
+    "maintenance-control",
+    digest,
+    ...(input.enrollmentSha256 ? [input.enrollmentSha256] : []),
+  ];
+  const reader = await createNativeBootstrapServiceReader({
+    ...admission,
+    writableMountRoots: roots,
+  });
+  const identity = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
+  if (
+    fileURLToPath(import.meta.url) !== expectedModule ||
+    (await realpath(process.execPath)) !== context.runner.node.path ||
+    !isDeepStrictEqual(process.argv, args) ||
+    identity.uid !== process.getuid?.() ||
+    identity.executable !== context.runner.node.path ||
+    identity.argumentsSha256 !== createHash("sha256").update(JSON.stringify(args)).digest("hex")
+  )
+    throw new BootstrapRequestConflict(
+      "Maintenance control identity differs from its pinned runtime",
+    );
+  const journal = new FileBootstrapRequestJournal(context.plan.state.directory);
+  const state = createMaintenanceReviewState({
+    preparation: {
+      id: context.receipt.requestId,
+      plan: context.plan,
+      reason:
+        "Install the reviewed compatible coordinator while preserving installation state and running Host and Dev work.",
+    },
+    readRequests: () => journal.read(),
+    authenticateAndProvision: async (ownerPassword) => {
+      await provisionCoordinatorMaintenance({ ...prepared, ownerPassword });
+    },
+    createService: () => createProvisionedMaintenanceReview(input),
+  });
+  const admitted = await access(path.join(directory, "admission.json")).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return false;
+    },
+  );
+  if (admitted && !enrollment) {
+    await readBootstrapPreparedFile(
+      { path: path.join(directory, "admission.json"), sha256: digest },
+      roots,
+    );
+    // Read-only status remains usable if current-runtime validation no longer
+    // admits mutations. Failure never causes a second preparation or dispatch.
+    await state.reopen().catch(() => {
+      process.stderr.write(
+        "Maintenance review reopening unavailable; retained status preserved.\n",
+      );
+    });
+  }
+  const app = createMaintenanceControlApp({
+    installationId: context.receipt.installationId,
+    ...(enrollment
+      ? {
+          enrollment: {
+            decision: {
+              id: enrollment.id,
+              revision: enrollment.revision,
+              manifestSha256: enrollmentManifestDigest(enrollment.manifest),
+            },
+            review: enrollment,
+            observe: async () => {
+              const setup = {
+                ...context.runner,
+                maintenance: { installationRoot: input.installationRoot, admissionSha256: digest },
+              };
+              await observeEnrolledCoordinator({
+                directory: context.plan.state.directory,
+                requestId: context.receipt.requestId,
+                verify: (request) => verifyEnrolledCoordinatorCandidate(setup, request),
+              });
+            },
+            enroll: async (decision) => {
+              const current = await readMaintenanceEnrollmentReview(
+                directory,
+                input.enrollmentSha256!,
+                digest,
+                context.receipt.installationId,
+              );
+              if (!isDeepStrictEqual(current, enrollment))
+                throw new BootstrapRequestConflict("Enrollment review changed");
+              await enrollAndProvisionCoordinatorMaintenance({
+                ...prepared,
+                review: enrollment,
+                decision,
+                ownerPassword: decision.ownerPassword,
+              });
+              const executor = await createProvisionedMaintenanceReview(input);
+              if (!executor.activateEnrollment)
+                throw new BootstrapRequestConflict("Enrolled native execution unavailable");
+              await executor.activateEnrollment();
+            },
+          },
+        }
+      : {}),
+    service: state.service,
+    status: () => ({
+      version: 1,
+      installationId: context.receipt.installationId,
+      available: state.phase() === "ready",
+      phase: state.phase(),
+      requests: state.list().length,
+      provisioning: {
+        admissionSha256: digest,
+        requestId: context.receipt.requestId,
+        sourceCommit: context.receipt.runtime.sourceCommit,
+        artifactSha256: context.receipt.runtime.artifactSha256,
+      },
+    }),
+    provision: (request) => state.provision(request.ownerPassword),
+    readOwnerConfiguration: async () => {
+      const launcher = await readProtectedDocument(admission.launcherFile);
+      const configuration = selectMaintenanceOwnerConfiguration(context.plan, launcher);
+      const bytes = await readBootstrapPreparedFile(configuration, roots);
+      const config = MaintenanceOwnerConfigurationSchema.parse(JSON.parse(bytes.toString("utf8")));
+      if (
+        config.stateDir !== context.plan.state.directory ||
+        config.public.installationId !== context.receipt.installationId
+      )
+        throw new BootstrapRequestConflict("Maintenance owner state changed");
+      return config;
+    },
+  });
+  const server = createServer(app);
+  const listening = once(server, "listening");
+  server.listen(0, "127.0.0.1");
+  await listening;
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new BootstrapRequestConflict("Maintenance listener unavailable");
+    const descriptor = {
+      version: 1,
+      ...(input.enrollmentSha256 ? { enrollmentSha256: input.enrollmentSha256 } : {}),
+      admissionSha256: digest,
+      requestId: context.receipt.requestId,
+      process: identity,
+      address: "127.0.0.1",
+      port: address.port,
+    };
+    await writeRecoverySnapshot(
+      path.join(input.installationRoot, `maintenance-control-${process.pid}.json`),
+      descriptor,
+    );
+    return { server, descriptor };
+  } catch (error) {
+    server.close();
+    throw error;
+  }
+}
+
+/** A selected launcher may occur in both previous and recovery slots, but all
+ * matching slots must name the same exact owner configuration. */
+export function selectMaintenanceOwnerConfiguration(
+  plan: CoordinatorBootstrapPlan,
+  launcher: Buffer,
+) {
+  const hash = createHash("sha256").update(launcher).digest("hex");
+  const releases = [plan.previous, plan.candidate, plan.compatibleRecovery].filter(
+    (release) => release !== undefined,
+  );
+  const matches = releases.filter((release) => release.launcher.sha256 === hash);
+  const selected = matches[0]?.configuration;
+  if (!selected || matches.some((release) => !isDeepStrictEqual(release.configuration, selected)))
+    throw new BootstrapRequestConflict("Selected maintenance owner configuration is ambiguous");
+  return selected;
+}
+
+/** The manifest comes only from the protected review whose digest is pinned in
+ * native startup arguments. HTTP input cannot choose or replace this document. */
+export async function readMaintenanceEnrollmentReview(
+  directory: string,
+  sha256: string,
+  admissionSha256: string,
+  installationId: string,
+) {
+  const digest = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(sha256);
+  const bytes = await readBootstrapPreparedFile(
+    { path: path.join(directory, "enrollment-review.json"), sha256: digest },
+    [],
+  );
+  const review = z
+    .strictObject({
+      id: z.string().uuid(),
+      revision: z.string().uuid(),
+      manifest: InstallationEnrollmentManifestSchema,
+    })
+    .parse(JSON.parse(bytes.toString("utf8")));
+  const manifest = validateEnrollmentManifest(review.manifest);
+  if (
+    review.revision !== manifest.revision ||
+    manifest.installationId !== installationId ||
+    manifest.provisioning?.admissionSha256 !== admissionSha256
+  )
+    throw new BootstrapRequestConflict("Enrollment review does not match maintenance admission");
+  return { ...review, manifest };
+}
