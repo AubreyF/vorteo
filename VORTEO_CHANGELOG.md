@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.610 - 2026-10-16
+
+### Fixed
+
+- Match supervision watchdog identity to the Node arguments actually executed by the ownership launcher. Its automatic-recovery option belongs to Python and is consumed before exec, so requiring it in the Node process would incorrectly reject recovery. Update retained-reopening coverage to use that exact boundary. An owned macOS process also verifies the kernel argument digest after the real launcher exec. Compiled native delivery acceptance remains open; no installed process changed.
+
 ## 0.11.0-beta.3.vorteo.609 - 2026-10-16
 
 ### Maintenance

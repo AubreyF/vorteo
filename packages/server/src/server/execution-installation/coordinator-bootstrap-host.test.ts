@@ -1196,6 +1196,26 @@ finally:
       await firstClosed;
       const [ready] = await secondReady;
       expect(String(ready)).toBe("owned\n");
+      const inspector = path.resolve(
+        import.meta.dirname,
+        "../../../../../scripts/inspect-coordinator-process.py",
+      );
+      const observed = JSON.parse(
+        (await promisify(execFile)("/usr/bin/python3", [inspector, String(second.pid)])).stdout,
+      );
+      expect(observed.argumentsSha256).toBe(
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              realpathSync(process.execPath),
+              entry,
+              setup,
+              "watchdog",
+              second.spawnargs.at(-1),
+            ]),
+          )
+          .digest("hex"),
+      );
       second.stdin!.end();
       const [code] = await secondClosed;
       expect(code).toBe(0);

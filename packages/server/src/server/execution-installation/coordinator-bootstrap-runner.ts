@@ -375,7 +375,6 @@ export async function verifyBootstrapSupervisionRunner(input: {
   const own = ProcessObservationSchema.parse(await input.reader.inspectProcess(process.pid));
   const identifier = role === "watchdog" ? request.execution?.generation : request.id;
   const args = [setup.node.path, setup.entrypoint.path, setupFile, role, identifier];
-  if (role === "watchdog") args.push(...watchdogRecoveryArguments(request));
   const digest = createHash("sha256").update(JSON.stringify(args)).digest("hex");
   if (
     own.pid !== process.pid ||

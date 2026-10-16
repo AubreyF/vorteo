@@ -2401,7 +2401,6 @@ test.each(["ready", "parent-changed", "wrong-module", "setup-mutated", "claimed-
       identifier = request.execution!.generation;
     }
     const args = [setup.node.path, setup.entrypoint.path, setupFile, role, identifier];
-    if (role === "watchdog") args.push("automatic-recovery");
     const own = {
       ...parent,
       pid: process.pid,
