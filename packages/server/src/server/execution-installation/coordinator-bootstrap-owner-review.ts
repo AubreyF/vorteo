@@ -2,6 +2,7 @@ import express, { type ErrorRequestHandler } from "express";
 import { z } from "zod";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { CoordinatorBootstrapRequestView } from "@getpaseo/protocol/coordinator-bootstrap";
+import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
 
 const BindingSchema = z.strictObject({
   id: z.string().uuid(),
@@ -30,6 +31,7 @@ export interface OwnerReviewInput {
 export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
   const binding = BindingSchema.parse(input.binding);
   let attempted = false;
+  let cancelAttempted = false;
   const app = express();
   app.disable("x-powered-by");
   app.use((request, response, next) => {
@@ -61,7 +63,10 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
     response.type("html").send(ownerReviewDocument(input.scope)),
   );
   app.get("/review", (_request, response, next) => {
-    void read().then((request) => response.json({ request, attempted, binding }), next);
+    void read().then(
+      (request) => response.json({ request, attempted, cancelAttempted, binding }),
+      next,
+    );
   });
   app.post("/decision", express.json({ limit: "16kb" }), (request, response, next) => {
     void (async () => {
@@ -74,24 +79,44 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
           .strictObject({
             decision: z.enum(["approve", "cancel"]),
             ownerPassword: z.string().min(1).max(4096),
+            revision: z.string().uuid().optional(),
           })
           .parse(request.body);
         const retained = await read();
-        if (attempted || retained.revision !== binding.revision || retained.status !== "pending") {
+        const cancelRecovery =
+          input.scope === "preclaim-recovery" && decision.decision === "cancel";
+        const expectedRevision = cancelRecovery ? decision.revision : binding.revision;
+        const canDecide = cancelRecovery
+          ? canCancelPreclaimReview(retained, cancelAttempted, expectedRevision)
+          : !attempted && retained.revision === binding.revision && retained.status === "pending";
+        if (!canDecide) {
           response.status(409).json({
             error:
               "This review changed or a decision was already sent. Observe its retained status; do not repeat the operation.",
           });
           return;
         }
-        attempted = true;
+        if (cancelRecovery) cancelAttempted = true;
+        else attempted = true;
         try {
           await input.client.decideCoordinatorBootstrap(
-            { ...binding, decision: decision.decision },
+            { ...binding, revision: retained.revision, decision: decision.decision },
             decision.ownerPassword,
           );
           response.json({ request: await read() });
-        } catch {
+        } catch (error) {
+          const fresh =
+            input.scope === "preclaim-recovery" && error instanceof BootstrapAuthenticationRequired
+              ? await read()
+              : undefined;
+          if (fresh?.revision === retained.revision && fresh.status === retained.status) {
+            if (cancelRecovery) cancelAttempted = false;
+            else attempted = false;
+            response
+              .status(401)
+              .json({ error: "Owner authentication failed. No decision was recorded." });
+            return;
+          }
           response.status(503).json({
             error:
               "Decision response unavailable. Observe the retained status before any further action. No decision was retried.",
@@ -111,9 +136,28 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
   return app;
 }
 
+function canCancelPreclaimReview(
+  retained: { revision: string; status: string; execution?: unknown },
+  attempted: boolean,
+  revision: string | undefined,
+) {
+  const unclaimed = retained.execution === undefined;
+  const cancellable = retained.status === "pending" || retained.status === "approved";
+  return !attempted && revision === retained.revision && unclaimed && cancellable;
+}
+
 function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
   if (scope !== "preclaim-recovery") return ownerReviewHtml;
   return ownerReviewHtml
+    .replace("const recoveryOnly=false;", "const recoveryOnly=true;")
+    .replace(
+      "After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.",
+      "Approval is sent once. You can cancel with the displayed revision until execution is claimed. A lost reply never repeats an approval or restart.",
+    )
+    .replace(
+      "Cancel this exact pending coordinator request?",
+      "Cancel this exact recovery request before dispatch?",
+    )
     .replace(
       "This independent page uses the existing Host review service while the normal coordinator is unavailable.",
       "This independent page uses the admitted native recovery service while the normal coordinator is unavailable.",
@@ -142,9 +186,9 @@ const ownerReviewHtml = `<!doctype html><html lang="en"><meta charset="utf-8"><m
 <button id="approve" disabled>Approve this exact coordinator migration</button><button id="cancel" disabled>Cancel this exact request</button>
 <p>After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.</p>
 <script>
-let sending=false;
+const recoveryOnly=false;let sending=false;let cancelSending=false;let currentRevision;
 const el=id=>document.getElementById(id);
-async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;el('approve').disabled=!enabled;el('cancel').disabled=!enabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
-async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword})});const result=await response.json();el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
+async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=recoveryOnly?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
+async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;if(decision==='cancel')cancelSending=true;else sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword,revision:currentRevision})});const result=await response.json();if(recoveryOnly&&response.status===401){if(decision==='cancel')cancelSending=false;else sending=false;}el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
 el('approve').onclick=()=>decide('approve');el('cancel').onclick=()=>decide('cancel');refresh();setInterval(refresh,5000);
 </script></html>`;

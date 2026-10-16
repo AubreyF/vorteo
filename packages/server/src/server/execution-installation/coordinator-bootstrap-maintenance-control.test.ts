@@ -11,6 +11,87 @@ import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-rev
 import { createPreclaimRepairControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
 
+test.each([false, true])(
+  "independent preclaim cancellation uses the displayed revision before claim (%s)",
+  async (claimed) => {
+    const binding = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+    let revision = binding.revision;
+    let status: "pending" | "approved" | "canceled" = "pending";
+    const decisions: unknown[] = [];
+    let origin = "";
+    const app = createBootstrapOwnerReviewApp({
+      binding,
+      scope: "preclaim-recovery",
+      origin: () => origin,
+      client: {
+        async listCoordinatorBootstrapRequests() {
+          return [
+            {
+              ...binding,
+              revision,
+              status,
+              reason: "Retained fixture",
+              ...(claimed && status === "approved" ? { execution: { stage: "claimed" } } : {}),
+            },
+          ];
+        },
+        async decideCoordinatorBootstrap(input, password) {
+          if (password !== "fixture-owner")
+            throw new BootstrapAuthenticationRequired("fixture refusal");
+          decisions.push(input);
+          revision = randomUUID();
+          status = input.decision === "approve" ? "approved" : "canceled";
+          return [];
+        },
+      },
+    });
+    const server = createServer(app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+    origin = `http://127.0.0.1:${address.port}`;
+    const post = (decision: string, requestRevision: string, password = "fixture-owner") =>
+      fetch(origin + "/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({ decision, revision: requestRevision, ownerPassword: password }),
+      });
+    try {
+      expect((await post("approve", revision, "wrong")).status).toBe(401);
+      expect(decisions).toEqual([]);
+      expect((await post("approve", revision)).status).toBe(200);
+      const approvedRevision = revision;
+      expect((await post("approve", revision)).status).toBe(409);
+      expect((await post("cancel", binding.revision)).status).toBe(409);
+      if (claimed) {
+        expect((await post("cancel", approvedRevision)).status).toBe(409);
+        expect(decisions).toEqual([{ ...binding, decision: "approve" }]);
+      } else {
+        expect((await post("cancel", approvedRevision, "wrong")).status).toBe(401);
+        expect((await post("cancel", approvedRevision)).status).toBe(200);
+        expect(decisions).toEqual([
+          { ...binding, decision: "approve" },
+          { ...binding, revision: approvedRevision, decision: "cancel" },
+        ]);
+        expect((await post("cancel", revision)).status).toBe(409);
+        expect(status).toBe("canceled");
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        }),
+      );
+    }
+  },
+);
+
 test.each(["success", "lost-response"])(
   "independent preclaim admission keeps the separate one-shot owner decision: %s",
   async (mode) => {

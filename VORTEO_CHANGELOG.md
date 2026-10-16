@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.592 - 2026-10-15
+
+- Keep independent preclaim cancellation available against the displayed revision until native execution is claimed, while preserving one-shot approval and cancellation after uncertain replies. Definite authentication refusal permits a corrected password without repeating a recorded decision.
+- Seven focused HTTP checks cover separate approval and cancellation, stale revisions, authentication refusal and claimed-execution refusal. Compiled disposable retirement and reopening passed with preserved history; the retained installation executor remains unchanged until exact owner approval. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.591 - 2026-10-15
 
 - Add an independent preclaim controller role and separate owner provisioning and exact recovery pages. Recovery children bind to the admitted controller birth and immutable runtime while retaining the genuine selected Host snapshot. Existing journals, cancellation fencing, single-use launch attempts and observation remain in use.
