@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.595 - 2026-10-16
+
+- Permit tracked preclaim retirement of the exact reviewed coordinator runner launched by its already-admitted maintenance controller. Bind that parent to the protected admission, runtime, installation, argv, owner and boot while preserving the original Host renewal identity and exact owner recovery approval.
+- Preserve legacy Host-parent admission and refuse unrelated parents. This is a restoration repair; the stalled approved migration is unchanged until its separate recovery decision. No optional test suite was run under the owner's emergency instruction. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.594 - 2026-10-15
 
 - Allow a corrected owner password after a definite authentication refusal in either independent native review scope, while retaining one-shot behavior for uncertain replies. Migration approval still uses the exact native service and does not acquire the preclaim cancellation exception.

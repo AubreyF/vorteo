@@ -338,6 +338,26 @@ const reviewedPreclaimRunners: Record<
   string,
   { files: Record<string, string>; owner: string; artifactSha256: string | null }
 > = {
+  "9573f48eb2fcf9c3a9270c03ce6e553b5c933978": {
+    artifactSha256: "a95739b25d7f3ad24b2e1e181bdc8c3d139050fdb43316787174a538563182a8",
+    files: {
+      "coordinator-bootstrap-runner.js":
+        "9194131e11e8ba8a8253f4c508f720d7183c1c8cf711228bd31e64dea8df399b",
+      "coordinator-bootstrap-executor.js":
+        "66a965331d427ebbb1782eda4c3c29822f32dbe9c9f50bea0136e1bac0bf9eaf",
+      "coordinator-bootstrap.js":
+        "2893e504698ef1c4a0f584dd689874be4805e364da035f2033c5777f65a368e2",
+      "coordinator-bootstrap-journal.js":
+        "bc1a4d585b2010b4c0373b424845cb2b92d6b5f88b0bfc004bb30608beca9e34",
+      "coordinator-bootstrap-runtime.js":
+        "3731a0a0061c71db080a83077ed751eac996b53abba912d7773cded3122cab3d",
+      "coordinator-bootstrap-maintenance-runtime.js":
+        "f7524f14bc6208251ef71a5277b340bdb85838f062f21b23c6c83bc7bc503e30",
+      "coordinator-bootstrap-maintenance-controller.js":
+        "bbc95de8cbf27f2d7080d94a9465b254ca9f7b4209627126955ba3f66a98044f",
+    },
+    owner: "3a1569bfc8c51340af2f818b1e74f431ef8b71359a4c3c457fc1196d204b1bc8",
+  },
   [legacyPreclaimSource]: {
     files: legacyPreclaimFiles,
     owner: legacyPreclaimOwner,
@@ -434,25 +454,41 @@ export async function verifySupportedPreclaimRunner(input: {
   for (const key of Object.keys(expected) as (keyof typeof expected)[])
     if (!isDeepStrictEqual(setup[key], expected[key]))
       throw new BootstrapRequestConflict("Target runner setup differs from its reviewed runtime");
+  await verifyPreclaimRenewal(setup, input);
+  await verifyBootstrapReleaseArtifacts(plan.runner, input.writableMountRoots);
+}
+
+async function verifyPreclaimRenewal(
+  setup: z.infer<typeof import("./coordinator-bootstrap-runner.js").BootstrapRunnerSetupSchema>,
+  input: Parameters<typeof verifySupportedPreclaimRunner>[0],
+): Promise<void> {
+  const plan = input.plan;
   const renewal = setup.renewal;
+  const parentRenewal = setup.maintenance
+    ? await import("./coordinator-bootstrap-maintenance-runtime.js").then(
+        ({ verifyMaintenancePreclaimParent }) =>
+          verifyMaintenancePreclaimParent(setup, plan.hostProcess),
+      )
+    : renewal;
   if (
     !renewal ||
     !isDeepStrictEqual(renewal.originalSetup, input.anchor.originalSetup) ||
     !isDeepStrictEqual(renewal.originalAdmission, input.anchor.originalAdmission) ||
     !isDeepStrictEqual(renewal.terminal, input.anchor.terminal) ||
-    !isDeepStrictEqual(renewal.hostProcess, plan.hostProcess) ||
+    !isDeepStrictEqual(renewal.hostProcess, parentRenewal?.hostProcess) ||
+    (!setup.maintenance && !isDeepStrictEqual(renewal.hostProcess, plan.hostProcess)) ||
     !isDeepStrictEqual(renewal.configuration, plan.selectedConfiguration) ||
     !isDeepStrictEqual(renewal.request, {
       id: plan.original.id,
       revision: plan.original.revision,
       planSha256: plan.original.planSha256,
     }) ||
-    renewal.sourceCommit !== plan.runner.sourceCommit
+    renewal.sourceCommit !==
+      (setup.maintenance ? parentRenewal?.sourceCommit : plan.runner.sourceCommit)
   )
     throw new BootstrapRequestConflict("Target runner renewal provenance changed");
   for (const file of [renewal.originalSetup, renewal.originalAdmission, renewal.source])
     await readBootstrapPreparedFile(file, input.writableMountRoots);
-  await verifyBootstrapReleaseArtifacts(plan.runner, input.writableMountRoots);
 }
 
 /** Checks the live native identities, not artifact integrity or authorization.
@@ -599,21 +635,28 @@ async function verifyRetainedPreclaimObservation(
   };
   if (!isDeepStrictEqual(retained, expected))
     throw new BootstrapRequestConflict("Retained preclaim observation binding changed");
+  const rawSetup = JSON.parse(
+    (await readBootstrapPreparedFile(plan.setup, context.writableMountRoots)).toString("utf8"),
+  );
   const setup = z
     .object({
       node: file,
       entrypoint: file,
       renewal: z.object({ hostProcess: BootstrapProcessIdentitySchema, request }),
     })
-    .parse(
-      JSON.parse(
-        (await readBootstrapPreparedFile(plan.setup, context.writableMountRoots)).toString("utf8"),
-      ),
+    .parse(rawSetup);
+  if (!isDeepStrictEqual(setup.renewal.hostProcess, plan.hostProcess)) {
+    const { BootstrapRunnerSetupSchema } = await import("./coordinator-bootstrap-runner.js");
+    const { verifyMaintenancePreclaimParent } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenancePreclaimParent(
+      BootstrapRunnerSetupSchema.parse(rawSetup),
+      plan.hostProcess,
     );
+  }
   if (
     !isDeepStrictEqual(setup.node, plan.runner.node) ||
     !isDeepStrictEqual(setup.entrypoint, plan.executorEntrypoint) ||
-    !isDeepStrictEqual(setup.renewal.hostProcess, plan.hostProcess) ||
     !isDeepStrictEqual(setup.renewal.request, expectedRequest)
   )
     throw new BootstrapRequestConflict("Retained preclaim renewal parent changed");

@@ -1,6 +1,8 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
+import { createHash } from "node:crypto";
+import type { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
 import type {
   CoordinatorBootstrapPlan,
   CoordinatorBootstrapRequest,
@@ -103,6 +105,33 @@ export async function verifyMaintenanceRunnerPlan(setup: Runner, plan: Coordinat
     configurationFile: context.host.renewal!.configuration.path,
     daemonId: context.host.daemonId,
   });
+}
+
+/** Retirement may observe the admitted controller as parent, without treating
+ * that controller as the retained Host daemon or granting it new authority. */
+export async function verifyMaintenancePreclaimParent(
+  setup: Runner,
+  parent: z.infer<typeof ProcessObservationSchema>,
+) {
+  const context = await readMaintenanceRuntime(setup);
+  const host = context.host.renewal!;
+  const args = [
+    setup.node.path,
+    setup.entrypoint.path,
+    context.binding.installationRoot,
+    "maintenance-control",
+    context.binding.admissionSha256,
+  ];
+  if (
+    parent.executable !== setup.node.path ||
+    parent.uid !== host.hostProcess.uid ||
+    parent.bootId !== host.hostProcess.bootId ||
+    parent.argumentsSha256 !== createHash("sha256").update(JSON.stringify(args)).digest("hex") ||
+    context.receipt.requestId !== setup.renewal?.request?.id ||
+    context.receipt.planSha256 !== setup.renewal?.request?.planSha256
+  )
+    throw new BootstrapRequestConflict("Preclaim parent differs from its admitted controller");
+  return host;
 }
 
 export async function verifyMaintenanceRetainedRuntime(input: {
