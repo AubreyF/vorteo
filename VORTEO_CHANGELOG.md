@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.586 - 2026-10-15
+
+- Preserve JSONL provider cleanup failures across concurrent and repeated close calls. A disposed transport no longer proves its child exited; termination timeout rejects explicitly and the retained result prevents another signal sequence.
+- Let explicit close clean a live child after transport failure. Automatic stdin-error cleanup logs its retained failure without losing it or creating an unhandled rejection. Twenty focused transport tests pass, including timeout and repeated-close cases. No installed service changes; complete provider descendant cleanup and maintenance dispatch acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.585 - 2026-10-15
 
 - Preserve managed helper records when termination reports an unverified exit. Reopening keeps that evidence until a later inspection proves the process absent; a timed-out kill is no longer counted as successful cleanup.
