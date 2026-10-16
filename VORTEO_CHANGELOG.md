@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.582 - 2026-10-15
+
+- Extend the compiled idle-restart fixture through durable queue recovery. After real supervisor acceptance and worker replacement, reopen the actual lifecycle journal twice, preserve uncertainty, then verify the new worker lifetime and old process exit without another dispatch.
+- Keep registration and authority admission outside this fixture's acceptance claim. Native registration, active-provider cleanup, Dev and installed acceptance remain unfinished; no installed service or existing migration request changes. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.581 - 2026-10-15
 
 ### Fixed

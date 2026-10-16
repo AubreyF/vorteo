@@ -2,6 +2,7 @@ import { promisify } from "node:util";
 import { execFile, spawn } from "node:child_process";
 import {
   mkdtemp,
+  realpath,
   readFile,
   readdir,
   rm,
@@ -22,18 +23,21 @@ import {
 const loaderKey = sherpaLoaderEnvKey();
 const loaderEnv = resolveSherpaLoaderEnv();
 
-test("compiled held idle restart replaces the real worker only after exact supervisor acceptance", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "paseo-held-native-"));
+test("compiled held idle restart reopens its retained queue without dispatch replay", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-held-native-")));
   const fixture = path.join(root, "scenario.mjs");
   const report = path.join(root, "result.json");
   const supervisor = new URL("../dist/scripts/supervisor.js", import.meta.url).href;
   const worker = fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url));
   const clientModule = new URL("../../client/dist/daemon-client.js", import.meta.url).href;
+  const execution = new URL("../dist/server/server/execution-installation/", import.meta.url);
   await writeFile(
     fixture,
     `
     import assert from 'node:assert/strict';
-    import {writeFile} from 'node:fs/promises';
+    import {writeFile,mkdir} from 'node:fs/promises';
+    import {InstallationRestarts} from ${JSON.stringify(new URL("restarts.js", execution).href)};
+    import {FileBootstrapRequestJournal} from ${JSON.stringify(new URL("coordinator-bootstrap-journal.js", execution).href)};
     import {randomUUID} from 'node:crypto';
     import {runSupervisor} from ${JSON.stringify(supervisor)};
     import {DaemonClient} from ${JSON.stringify(clientModule)};
@@ -68,6 +72,25 @@ test("compiled held idle restart replaces the real worker only after exact super
       assert.equal(inspected.impact.agents.length,0);
       assert.equal(inspected.impact.pendingStarts,0);
       const held={requestId:id,generation,workerPid:inspected.impact.workerPid,workerInstanceId:inspected.impact.workerInstanceId,terminateAt:Date.now()+10000};
+      // Native registration is a fixture boundary here. This test exercises the
+      // compiled queue, durable storage, real IPC and worker lifetime checks.
+      const directory=${JSON.stringify(path.join(root, "journal"))};
+      await mkdir(directory,{mode:0o700});
+      const journal=new FileBootstrapRequestJournal(directory);
+      const revision=randomUUID(),now=new Date().toISOString();
+      const processProof={pid:held.workerPid,parentPid:process.pid,uid:process.getuid(),
+        bootId:'fixture-registration',startIdentity:'fixture-registration',
+        executable:process.execPath,argumentsSha256:'a'.repeat(64)};
+      const intent={held,approvedRevision:revision,grantRevision:randomUUID(),
+        holdGeneration:randomUUID(),decisionSha256:'b'.repeat(64),planSha256:'c'.repeat(64),
+        reservedAt:now,finishDeadlineAt:new Date(Date.now()+60000).toISOString(),
+        native:{identitySha256:'d'.repeat(64),serverId:'fixture',sourceCommit:'e'.repeat(40),
+          selectedRelease:${JSON.stringify(path.dirname(worker))},observedAt:now,
+          worker:processProof,supervisor:{...processProof,pid:process.pid,parentPid:process.ppid}},
+        candidate:null};
+      journal.writeLifecycle([{id,revision,target:'host',reason:'Disposable compiled acceptance',
+        requestedBy:'host-agent',createdAt:now,expiresAt:now,status:'running',
+        detail:'Dispatch outcome unverified',standingInterruption:intent}]);
       const accepted=await client.restartServer(undefined,undefined,{idleMode:'restart',restartDrainId:id,heldRestart:held,timeout:5000});
       assert.equal(accepted.accepted,true);assert.deepEqual(accepted.heldRestart,held);
       await client.close();
@@ -76,8 +99,38 @@ test("compiled held idle restart replaces the real worker only after exact super
       assert.notEqual(replaced.impact.workerPid,held.workerPid);
       assert.notEqual(replaced.impact.workerInstanceId,held.workerInstanceId);
       assert.equal(replaced.impact.restartDrainId,null);
+      let redispatches=0;
+      const forbidden=async()=>{redispatches++;throw new Error('Retained generation replayed');};
+      const executor={restart:forbidden,restartHeld:forbidden,observeInterruption:async()=>null};
+      function reopen(clock) {
+        const stored=new FileBootstrapRequestJournal(directory);
+        return new InstallationRestarts({read:()=>stored.readLifecycle(),write:jobs=>stored.writeLifecycle(jobs)},
+          executor,()=>clock,{standingDecision:()=>null});
+      }
+      const checkedAt=Date.now();
+      // Deliberately retain uncertainty after real supervisor acceptance, as if
+      // its reply had been lost. Reopening must not send another restart.
+      const uncertain=reopen(checkedAt);
+      await uncertain.drain();
+      assert.equal(uncertain.list()[0].status,'running');
+      assert.equal(uncertain.list()[0].interruptionChecks.attempts,1);
+      assert.deepEqual(uncertain.list()[0].standingInterruption,intent);
+      executor.observeInterruption=async job=>{
+        assert.deepEqual(job.standingInterruption,intent);
+        const current=await client.restartServer(undefined,undefined,{idleMode:'inspect'});
+        assert.equal(current.impact.workerPid,replaced.impact.workerPid);
+        assert.equal(current.impact.workerInstanceId,replaced.impact.workerInstanceId);
+        assert.equal(current.impact.restartDrainId,null);
+        assert.throws(()=>process.kill(held.workerPid,0),{code:'ESRCH'});
+        return 'Fixture worker replacement and previous process exit verified';
+      };
+      const reconciled=reopen(checkedAt+6000);
+      await reconciled.drain();
+      assert.equal(reconciled.list()[0].status,'succeeded');
+      assert.equal(redispatches,0);
+      assert.deepEqual(new FileBootstrapRequestJournal(directory).readLifecycle()[0].standingInterruption,intent);
       await client.close();client=null;
-      await writeFile(${JSON.stringify(report)},JSON.stringify({accepted,oldPid:held.workerPid,newPid:replaced.impact.workerPid}));
+      await writeFile(${JSON.stringify(report)},JSON.stringify({accepted,oldPid:held.workerPid,newPid:replaced.impact.workerPid,queueStatus:reconciled.list()[0].status,redispatches}));
       controller.requestShutdown('fixture_complete');
     })().catch(async error=>{
       console.error(error);await writeFile(${JSON.stringify(report)},JSON.stringify({error:String(error)}));await client?.close();controller.requestShutdown('fixture_failed');
@@ -119,6 +172,8 @@ test("compiled held idle restart replaces the real worker only after exact super
     const result = JSON.parse(await readFile(report, "utf8"));
     expect(result.error, output).toBeUndefined();
     expect(result.accepted.accepted).toBe(true);
+    expect(result.queueStatus).toBe("succeeded");
+    expect(result.redispatches).toBe(0);
     expect(() => process.kill(result.oldPid, 0)).toThrow();
     expect(() => process.kill(result.newPid, 0)).toThrow();
   } finally {
