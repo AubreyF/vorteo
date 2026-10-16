@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { constants, closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -796,7 +798,60 @@ export async function verifyRetainedRenewal(
   request?: CoordinatorBootstrapRequest,
   watchdog = false,
 ) {
+  // Repeated verification in the native executor has left an unresolved wait
+  // with no active I/O. A fresh reader preserves every check and bounds failure;
+  // it receives no lock, lifecycle command or authority to change the journal.
+  const nativeRunner = fileURLToPath(new URL("./coordinator-bootstrap-runner.js", import.meta.url));
+  if (
+    process.argv[1] === nativeRunner &&
+    ["executor", "watchdog", "boot-watchdog"].includes(process.argv[3])
+  ) {
+    await verifyRetainedRenewalInChild(setup, request, watchdog);
+    return;
+  }
   await verifyRenewalEvidence({ setup, request, watchdog, historical: false });
+}
+
+async function verifyRetainedRenewalInChild(
+  setup: RunnerSetup,
+  request: CoordinatorBootstrapRequest | undefined,
+  watchdog: boolean,
+): Promise<void> {
+  const payload = JSON.stringify({ setup, request, watchdog });
+  if (Buffer.byteLength(payload) > 1024 * 1024)
+    throw new BootstrapRequestConflict("Retained verification input exceeds its bound");
+  const expected = `verified:${sha(payload)}\n`;
+  const source = `
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { verifyRetainedRenewal } from ${JSON.stringify(import.meta.url)};
+const bytes = readFileSync(0);
+if (bytes.length > 1048576) throw Error("Retained verification input exceeds its bound");
+const input = JSON.parse(bytes.toString("utf8"));
+await verifyRetainedRenewal(input.setup, input.request, input.watchdog);
+process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n");
+`;
+  await new Promise<void>((resolve, reject) => {
+    let output = "";
+    const fail = () =>
+      reject(new BootstrapRequestConflict("Bounded retained verification did not complete"));
+    const child = spawn(setup.node.path, ["--input-type=module", "--eval", source], {
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: 120_000,
+      killSignal: "SIGTERM",
+    });
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", (bytes: Buffer) => {
+      output = (output + bytes.toString("utf8")).slice(0, 128);
+    });
+    child.once("error", fail);
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null && output === expected) resolve();
+      else fail();
+    });
+    child.stdin.end(payload);
+  });
 }
 
 async function verifyRenewalEvidence(input: {

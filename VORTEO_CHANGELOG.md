@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.596 - 2026-10-16
+
+- Isolate retained renewal verification for native bootstrap roles in a bounded read-only child. Preserve the existing native, artifact and history checks, require an exact input-digest acknowledgement and successful exit, and reject timeout without repeating lifecycle effects.
+- The verifier child receives no execution lock or lifecycle operation. Other coordinator and maintenance-control roles retain their existing behavior. Server compilation passes; optional suites are omitted under the owner's emergency restoration instruction. Installed recovery and replacement acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.595 - 2026-10-16
 
 - Permit tracked preclaim retirement of the exact reviewed coordinator runner launched by its already-admitted maintenance controller. Bind that parent to the protected admission, runtime, installation, argv, owner and boot while preserving the original Host renewal identity and exact owner recovery approval.
