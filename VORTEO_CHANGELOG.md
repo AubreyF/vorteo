@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.569 - 2026-10-15
+
+### Added
+
+- Execute one reviewed recovery or rollback generation for a proven absent maintenance service through the existing lifecycle journal. Recheck retained history and native custody before recording the effect intent, publishing the exact slot and starting the service once.
+- Verify recovery readiness against the consumed generation, selected artifacts and native boot. Lost startup replies retain uncertainty and cannot replay effects.
+
+### Validation and delivery
+
+- All 74 launcher tests, server types, lint and server/CLI build pass. Native commands use simulated ports in the recovery cases; production recovery routing, launcher execution and compiled recovery acceptance remain open. Recovery stays unadvertised. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.568 - 2026-10-15
 
 ### Fixed

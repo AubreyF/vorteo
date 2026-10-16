@@ -399,7 +399,7 @@ function assertNativeTarget(
 
 /** An observation deadline never retries an effect or establishes target failure.
  * A transport that ignores abort may finish later, but cannot resume execution. */
-async function readBoundedCandidateObservation(
+export async function readBoundedCandidateObservation(
   read: (signal: AbortSignal) => Promise<MaintenanceServiceNativeObservation>,
 ): Promise<MaintenanceServiceNativeObservation> {
   const controller = new AbortController();

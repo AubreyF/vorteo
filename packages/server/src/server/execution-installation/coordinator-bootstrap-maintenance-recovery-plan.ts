@@ -26,7 +26,8 @@ export function inspectMaintenanceRecoveryPlan(
   if (plan.originalPlanSha256 !== predecessor.planSha256) {
     throw new BootstrapRequestConflict("Recovery plan differs from its original reviewed slots");
   }
-  const slot = plan.operation === "maintenance-service-recovery" ? "candidate" : "previous";
+  const slot: "candidate" | "previous" =
+    plan.operation === "maintenance-service-recovery" ? "candidate" : "previous";
   const selected = predecessor.plan[slot];
   if (!selected) {
     throw new BootstrapRequestConflict("Recovery plan has no retained compatible rollback slot");

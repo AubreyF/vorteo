@@ -640,6 +640,10 @@ test.each([
   "not-running",
   "consumed",
   "recovery",
+  "recover-absent",
+  "recover-rollback",
+  "recover-lost-start",
+  "recover-wrong-observation",
   "native-success",
   "native-runtime-readiness",
   "native-grant-revoked",
@@ -696,7 +700,7 @@ test.each([
         target,
         identitySha256: target === proposal.target ? native.identitySha256 : "a".repeat(64),
         operations:
-          mode === "valid"
+          mode === "valid" || mode.startsWith("recover-")
             ? ["replacement" as const, "recovery" as const, "rollback" as const]
             : ["replacement" as const],
       }),
@@ -855,7 +859,7 @@ test.each([
       account: f.account,
     });
   const nativeCase = mode.startsWith("native-") && mode !== "native-evidence";
-  if (mode !== "valid" && !nativeCase) {
+  if (mode !== "valid" && !mode.startsWith("recover-") && !nativeCase) {
     expect(inspect).toThrow();
     return;
   }
@@ -1139,6 +1143,19 @@ test.each([
     },
     reservation: recoveryReservation,
   });
+  if (mode.startsWith("recover-")) {
+    const { exerciseAbsentRecovery } =
+      await import("./coordinator-bootstrap-maintenance-recovery-native.fixture.js");
+    await exerciseAbsentRecovery({
+      f,
+      mode,
+      failed,
+      job: recoveryJob,
+      plan: recoveryPlan,
+      claimInput,
+    });
+    return;
+  }
   // Claiming recovery uses the same atomic journal transition, preserving the
   // failed predecessor. The callback still owns grant and global exclusion.
   const recoveryEvidenceRecord = {
