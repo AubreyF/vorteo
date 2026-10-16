@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.587 - 2026-10-15
+
+- Retain OpenCode helper generations and their managed records when cleanup is unverified. Concurrent or repeated shutdowns share one termination attempt; known failed cleanup blocks new acquisitions until the owned process actually exits.
+- Preserve normal acquisition during ordinary cleanup in progress. Check cleanup state again before spawn and lease return, and observe shutdown failures without unhandled background rejections. Twenty-two focused tests pass, including release and shutdown failures, retained records, no repeated termination, and resumption after process exit. Complete native descendant cleanup and installed acceptance remain open; README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.586 - 2026-10-15
 
 - Preserve JSONL provider cleanup failures across concurrent and repeated close calls. A disposed transport no longer proves its child exited; termination timeout rejects explicitly and the retained result prevents another signal sequence.
