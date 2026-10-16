@@ -22,7 +22,7 @@ import { InstallationConfigSchema } from "./config.js";
 
 /** Protected Host setup supplies every dependency here. The RPC boundary must
  * never accept these paths, descriptors or launch callbacks from a client. */
-export async function createBootstrapNativeOperations(input: {
+interface BootstrapNativeOperationsInput {
   requests: CoordinatorBootstrapRequests;
   approved: CoordinatorBootstrapRequest;
   host: BootstrapAdmissionHost;
@@ -32,11 +32,31 @@ export async function createBootstrapNativeOperations(input: {
   verifySetup(): Promise<void>;
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
   evidence?: ReturnType<typeof createBootstrapRunnerEvidence>;
-}): Promise<BootstrapExecutorOperations> {
+}
+
+export async function createBootstrapNativeOperations(
+  input: BootstrapNativeOperationsInput,
+): Promise<BootstrapExecutorOperations> {
   if (input.approved.plan.supervisionRecovery)
     throw new BootstrapRequestConflict(
       "Supervision recovery requires the exact unregistered-process executor",
     );
+  return createNativeOperations(input);
+}
+
+/** The protected supervision runner is the only caller of this explicit mode. */
+export async function createBootstrapSupervisionNativeOperations(
+  input: BootstrapNativeOperationsInput & { ownerLauncher: { path: string; sha256: string } },
+): Promise<BootstrapExecutorOperations> {
+  if (!input.approved.plan.supervisionRecovery || !input.approved.supervisionDispatch)
+    throw new BootstrapRequestConflict("Exact reserved supervision launch required");
+  return createNativeOperations(input, input.ownerLauncher);
+}
+
+async function createNativeOperations(
+  input: BootstrapNativeOperationsInput,
+  ownerLauncher?: { path: string; sha256: string },
+): Promise<BootstrapExecutorOperations> {
   const trace: ReturnType<typeof createBootstrapRunnerEvidence>["run"] =
     input.evidence?.run ?? ((_phase, operation) => operation());
   const writableMountRoots = () =>
@@ -71,6 +91,15 @@ export async function createBootstrapNativeOperations(input: {
   const native = createBootstrapNativeLifecycle({
     requests: input.requests,
     reader,
+    manualPrevious: ownerLauncher
+      ? createBootstrapSupervisionControl({
+          requests: input.requests,
+          host: input.host,
+          ownerLauncher,
+          descriptor: input.descriptor,
+          requireOwnership,
+        })
+      : undefined,
     configurationFile: input.host.configurationFile,
     launcherFile: input.host.launcherFile,
     writableMountRoots,

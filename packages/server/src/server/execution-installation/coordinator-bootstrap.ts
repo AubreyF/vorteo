@@ -725,6 +725,10 @@ export class CoordinatorBootstrapRequests {
       request.execution
     )
       throw new BootstrapRequestConflict("Exact undispatched bootstrap approval required");
+    if (request.plan.supervisionRecovery && !request.supervisionDispatch)
+      throw new BootstrapRequestConflict(
+        "Supervision dispatch must reserve its exact native launch",
+      );
     const binding = this.readBinding(request.plan);
     await this.verifyPreparedBytes(request.plan);
     this.requireSameBinding(binding, request.plan);

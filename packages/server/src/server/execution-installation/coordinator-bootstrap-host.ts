@@ -2,7 +2,8 @@ import { lstatSync, realpathSync } from "node:fs";
 import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 export { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify, isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
@@ -120,6 +121,7 @@ export async function createBootstrapReviewService(
   renewal?: {
     setup: z.infer<typeof BootstrapAdmissionSetupSchema>;
     verify(plan: CoordinatorBootstrapPlan): Promise<void>;
+    verifyPrepared?(plan: CoordinatorBootstrapPlan, host: BootstrapAdmissionHost): Promise<void>;
   },
 ): Promise<CoordinatorBootstrapRequests> {
   if (process.platform !== "darwin" || !process.getuid)
@@ -162,7 +164,8 @@ export async function createBootstrapReviewService(
         [setupFile, setup.helperPath, setup.docker, setup.socket],
         currentRoots,
       );
-      await verifyBootstrapPlan(plan, host);
+      if (renewal?.verifyPrepared) await renewal.verifyPrepared(plan, host);
+      else await verifyBootstrapPlan(plan, host);
     },
     Date.now,
     () => {
@@ -315,6 +318,50 @@ export async function verifyBootstrapPlan(
   verifyRestorationHistory();
   if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
     throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
+}
+
+/** Same complete read-only admission, isolated from the execution lock owner.
+ * A lost or timed-out result never authorizes a native effect. */
+export async function verifyBootstrapPlanInChild(input: {
+  plan: CoordinatorBootstrapPlan;
+  host: BootstrapAdmissionHost;
+  node: string;
+}): Promise<void> {
+  const payload = JSON.stringify({ plan: input.plan, host: input.host });
+  if (Buffer.byteLength(payload) > 1024 * 1024)
+    throw new BootstrapRequestConflict("Bootstrap verification input exceeds its bound");
+  const expected = `verified:${createHash("sha256").update(payload).digest("hex")}\n`;
+  const source = `
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { verifyBootstrapPlan } from ${JSON.stringify(import.meta.url)};
+const bytes = readFileSync(0);
+if (bytes.length > 1048576) throw Error("Bootstrap verification input exceeds its bound");
+const input = JSON.parse(bytes.toString("utf8"));
+await verifyBootstrapPlan(input.plan, input.host);
+process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n");
+`;
+  await new Promise<void>((resolve, reject) => {
+    let output = "";
+    const fail = () =>
+      reject(new BootstrapRequestConflict("Bounded bootstrap preparation did not complete"));
+    const child = spawn(input.node, ["--input-type=module", "--eval", source], {
+      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+      stdio: ["pipe", "pipe", "ignore"],
+      timeout: 120_000,
+      killSignal: "SIGKILL",
+    });
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", (bytes: Buffer) => {
+      output = (output + bytes.toString("utf8")).slice(0, 128);
+    });
+    child.once("error", fail);
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null && output === expected) resolve();
+      else fail();
+    });
+    child.stdin.end(payload);
+  });
 }
 
 /** A claimed updater may be fenced before it writes the legacy executor record.

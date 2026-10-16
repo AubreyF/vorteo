@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.609 - 2026-10-16
+
+### Maintenance
+
+- Wire protected supervision setup into the existing coordinator executor and watchdog. Before claim, verify the reserved setup digest, exact native runner arguments, selected configuration and original parent lifetime. After claim, retain observation and recovery without requiring the review process to remain alive.
+- Route only that explicit mode through audited manual-process control; ordinary installation dispatch still refuses it. Require its durable launch reservation at claim and preserve existing generation, ownership, state-transfer, selection and watchdog checks.
+- Run full supervision preparation in a separate read-only process with a two-minute bound and exact input acknowledgement. It receives no execution-lock descriptor and does not enter the legacy retained renewal derivation.
+- Ten focused cases cover setup and parent substitution, claimed reopening, missing launch reservation and verifier acknowledgement; two native supervision regressions also pass. Workspace types, lint and compilation pass. Full compiled runner acceptance, production parent and exact owner review packaging remain open; nothing is installed or advertised.
+
 ## 0.11.0-beta.3.vorteo.608 - 2026-10-16
 
 ### Maintenance

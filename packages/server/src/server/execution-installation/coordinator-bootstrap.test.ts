@@ -1,3 +1,7 @@
+import {
+  BootstrapRunnerSetupSchema,
+  verifyBootstrapSupervisionRunner,
+} from "./coordinator-bootstrap-runner.js";
 import * as bootstrapArtifact from "./coordinator-bootstrap-artifact.js";
 import nativeChildProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
@@ -1913,6 +1917,25 @@ async function supervisionRecoveryFixture(
   return { ...f, failed, approvedMigration, plan };
 }
 
+function reserveSupervisionFixture(
+  f: ReturnType<typeof fixture>,
+  request: CoordinatorBootstrapRequest,
+) {
+  return f.journal.reserveSupervisionLaunch({
+    request,
+    setup: { path: path.join(f.root, "setup.json"), sha256: "a".repeat(64) },
+    parent: {
+      ...f.plan.expectedProcess,
+      bootId: randomUUID(),
+      startIdentity: "1000:1",
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: process.execPath,
+    },
+    assertCurrent: () => undefined,
+  });
+}
+
 test("supervision recovery waits for recorded cancellation and preserves both migration histories", async () => {
   const f = await supervisionRecoveryFixture();
   const before = f.journal.read();
@@ -1933,7 +1956,12 @@ test("supervision recovery waits for recorded cancellation and preserves both mi
   const approved = await f
     .service()
     .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
-  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  await expect(f.service().claimDispatch(pickDecision(approved))).rejects.toThrow(
+    "reserve its exact native launch",
+  );
+  const claimed = await f
+    .service()
+    .claimDispatch(pickDecision(reserveSupervisionFixture(f, approved)));
   f.journal.promote(claimed);
   const started = {
     ...claimed,
@@ -2303,6 +2331,168 @@ test.each(["success", "changed-generation", "deadline", "private-error"])(
   },
 );
 
+test.each(["ready", "parent-changed", "wrong-module", "setup-mutated", "claimed-reopen"])(
+  "protected supervision runner verifies its retained launch: %s",
+  async (scenario) => {
+    const artifacts = fixture();
+    const configurationFile = path.join(artifacts.root, "actual-config.json");
+    writeFileSync(configurationFile, "{}", { mode: 0o600 });
+    const configuration = {
+      path: configurationFile,
+      sha256: createHash("sha256").update("{}").digest("hex"),
+    };
+    const f = await supervisionRecoveryFixture({
+      restored: { ...artifacts.plan.candidate, configuration },
+    });
+    const canceled = await f
+      .service()
+      .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+    f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+    const bootId = randomUUID();
+    f.plan.expectedProcess = { ...f.plan.expectedProcess, bootId, startIdentity: "1000:1" };
+    const setupFile = path.join(f.root, "setup.json");
+    const pending = await f
+      .service()
+      .prepare({ id: randomUUID(), reason: "Supervision runner fixture", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const pinned = { path: "/protected/file", sha256: "a".repeat(64) };
+    const setup = BootstrapRunnerSetupSchema.parse({
+      admissionSetupFile: "/protected/admission.json",
+      daemonId: "host-id",
+      node: { ...pinned, path: process.execPath },
+      entrypoint: { ...pinned, path: "/protected/runner.js" },
+      ownerLauncher: pinned,
+      ownershipVerifier: pinned,
+      runtimeDirectory: "/protected/runtime",
+      runtimeSha256: "b".repeat(64),
+      supervision: { requestId: approved.id, configuration },
+    });
+    const setupBytes = JSON.stringify(setup);
+    writeFileSync(setupFile, setupBytes, { mode: 0o600 });
+    const parent = {
+      pid: process.pid + 1,
+      parentPid: 1,
+      uid: process.getuid!(),
+      bootId,
+      startIdentity: "1000:2",
+      argumentsSha256: "c".repeat(64),
+      executable: process.execPath,
+    };
+    const reserved = f.journal.reserveSupervisionLaunch({
+      request: approved,
+      setup: { path: setupFile, sha256: createHash("sha256").update(setupBytes).digest("hex") },
+      parent,
+      assertCurrent: () => undefined,
+    });
+    let request = structuredClone(reserved);
+    let role: "executor" | "watchdog" = "executor";
+    let identifier = request.id;
+    if (scenario === "claimed-reopen") {
+      const claimed = await f.service().claimDispatch(pickDecision(reserved));
+      request = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(claimed), generation: claimed.execution!.generation },
+          "recovery_required",
+        );
+      role = "watchdog";
+      identifier = request.execution!.generation;
+    }
+    const args = [setup.node.path, setup.entrypoint.path, setupFile, role, identifier];
+    if (role === "watchdog") args.push("automatic-recovery");
+    const own = {
+      ...parent,
+      pid: process.pid,
+      parentPid: parent.pid,
+      startIdentity: "1000:3",
+      argumentsSha256: createHash("sha256").update(JSON.stringify(args)).digest("hex"),
+    };
+    const inspectProcess = vi.fn(async (pid: number) => {
+      if (pid === process.pid)
+        return scenario === "wrong-module" ? { ...own, argumentsSha256: "e".repeat(64) } : own;
+      if (scenario === "claimed-reopen") throw new Error("Review process no longer exists");
+      return scenario === "parent-changed" ? { ...parent, startIdentity: "999:1" } : parent;
+    });
+    if (scenario === "setup-mutated") writeFileSync(setupFile, setupBytes + " ", { mode: 0o600 });
+    const input = {
+      setup,
+      setupFile,
+      request,
+      role,
+      reader: { inspectProcess },
+      writableMountRoots: [],
+    };
+    const before = f.journal.read();
+    if (scenario === "ready" || scenario === "claimed-reopen")
+      await expect(verifyBootstrapSupervisionRunner(input)).resolves.toBeUndefined();
+    else await expect(verifyBootstrapSupervisionRunner(input)).rejects.toThrow();
+    if (scenario === "claimed-reopen") expect(inspectProcess).toHaveBeenCalledTimes(1);
+    expect(f.journal.read()).toEqual(before);
+  },
+);
+
+function preparationFixtureChild(scenario: string) {
+  const child = new nativeChildProcess.ChildProcess();
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  Object.defineProperty(child, "stdin", { value: stdin });
+  Object.defineProperty(child, "stdout", { value: stdout });
+  stdin.once("data", (bytes: Buffer) => {
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    queueMicrotask(() => {
+      stdout.write(`verified:${scenario === "wrong-ack" ? "wrong" : digest}\n`);
+      child.emit(
+        "close",
+        scenario === "timeout" ? null : 0,
+        scenario === "timeout" ? "SIGKILL" : null,
+      );
+    });
+  });
+  return child;
+}
+
+test.each(["exact-ack", "wrong-ack", "timeout"])(
+  "isolated supervision preparation requires its own input receipt: %s",
+  async (scenario) => {
+    const f = fixture();
+    const host = {
+      daemonId: "host-id",
+      configurationFile: "/protected/config",
+      launcherFile: "/protected/plist",
+      docker: "/protected/docker",
+      socket: "/protected/socket",
+      containerId: "a".repeat(64),
+      helperPath: "/protected/inspector",
+      helperSha256: "b".repeat(64),
+    };
+    const spawn = vi
+      .spyOn(nativeChildProcess, "spawn")
+      .mockImplementation(() => preparationFixtureChild(scenario));
+    syncBuiltinESMExports();
+    try {
+      const result = bootstrapHost.verifyBootstrapPlanInChild({
+        plan: f.plan,
+        host,
+        node: "/protected/node",
+      });
+      if (scenario === "exact-ack") await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toThrow("did not complete");
+      expect(spawn).toHaveBeenCalledOnce();
+      const [node, args, options] = spawn.mock.calls[0]!;
+      expect(node).toBe("/protected/node");
+      expect(args?.slice(0, 2)).toEqual(["--input-type=module", "--eval"]);
+      expect(options?.stdio).toEqual(["pipe", "pipe", "ignore"]);
+      expect(options?.timeout).toBe(120_000);
+      expect(options?.killSignal).toBe("SIGKILL");
+    } finally {
+      spawn.mockRestore();
+      syncBuiltinESMExports();
+    }
+  },
+);
+
 test("ordinary native dispatch refuses supervision recovery before ownership or effects", async () => {
   const f = await supervisionRecoveryFixture();
   const canceled = await f
@@ -2400,7 +2590,9 @@ test.runIf(process.platform === "darwin")(
     const approved = await f
       .service()
       .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
-    let current = await f.service().claimDispatch(pickDecision(approved));
+    let current = await f
+      .service()
+      .claimDispatch(pickDecision(reserveSupervisionFixture(f, approved)));
     f.journal.promote(current);
     const advance = (stage: CoordinatorBootstrapStage) => {
       current = f
@@ -2598,7 +2790,9 @@ test.runIf(process.platform === "darwin")(
       const approved = await f
         .service()
         .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
-      let current = await f.service().claimDispatch(pickDecision(approved));
+      let current = await f
+        .service()
+        .claimDispatch(pickDecision(reserveSupervisionFixture(f, approved)));
       f.journal.promote(current);
       const advance = (stage: CoordinatorBootstrapStage) => {
         current = f
