@@ -7,6 +7,7 @@ import {
 } from "@getpaseo/protocol/maintenance-service";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { readProtectedDocument } from "./coordinator-bootstrap-artifact.js";
+import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 import { readBootstrapLauncher, loadedCoordinatorPid } from "./coordinator-bootstrap-service.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
@@ -47,6 +48,14 @@ export async function inspectSelectedMaintenanceExecutor(input: {
   writableMountRoots: readonly string[];
   ports: MaintenanceServiceInspectionPorts;
 }) {
+  const setup = MaintenanceLauncherSetupSchema.parse(
+    JSON.parse((await readProtectedDocument(input.setupFile)).toString("utf8")),
+  );
+  // Listener supervision is not a supported one-generation native executor.
+  if (setup.target === "recovery-launcher" && setup.control?.recoveryAccess)
+    throw new BootstrapRequestConflict(
+      "Selected recovery access listener does not provide lifecycle execution",
+    );
   const startup = await readMaintenanceLauncherStartup(input);
   const context = await verifyMaintenanceLauncherArtifacts({
     ...input,

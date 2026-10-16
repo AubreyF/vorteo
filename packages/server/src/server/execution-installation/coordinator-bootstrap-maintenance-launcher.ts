@@ -5,6 +5,11 @@ import { z } from "zod";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
 import {
+  MaintenanceLauncherSetupSchema,
+  MaintenanceOwnerConfigurationSchema,
+} from "./coordinator-bootstrap-maintenance-setup.js";
+import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
+import {
   loadedCoordinatorPid,
   type BootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
@@ -73,11 +78,12 @@ export function inspectMaintenanceLauncherPlan(
     if (
       release.directory !==
         path.join(identity.installationRoot, "maintenance-runtimes", release.sourceCommit) ||
-      release.entrypoint.path !==
+      (release.entrypoint.path !==
         path.join(
           release.directory,
           "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
-        ) ||
+        ) &&
+        !isRecoveryAccessSlot(plan, release)) ||
       release.setup.path !== path.join(base, `${release.sourceCommit}.json`)
     )
       throw new BootstrapRequestConflict("Maintenance slot is outside its immutable runtime");
@@ -93,9 +99,22 @@ export function inspectMaintenanceLauncherPlan(
   };
 }
 
-/** Per-slot launchers retain a fixed native identity while selecting exact bytes.
- * KeepAlive is deliberately false: retries belong to the durable grant-bound
- * runner, never an unbounded launchd restart loop. */
+function isRecoveryAccessSlot(
+  plan: MaintenanceLauncherPlan,
+  release: MaintenanceLauncherPlan["candidate"],
+) {
+  return (
+    plan.identity.target === "recovery-launcher" &&
+    release.entrypoint.path ===
+      path.join(
+        release.directory,
+        "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-access.js",
+      )
+  );
+}
+
+/** Only the read-only access listener uses continuous OS supervision. Effect
+ * retries remain bounded by the existing durable lifecycle generation. */
 export function maintenanceUserLauncher(
   plan: MaintenanceLauncherPlan,
   selected: "previous" | "candidate",
@@ -103,16 +122,15 @@ export function maintenanceUserLauncher(
   const release = plan[selected];
   if (!release || plan.identity.environment !== "host")
     throw new BootstrapRequestConflict("Maintenance launcher slot is unavailable");
+  const recoveryAccess = isRecoveryAccessSlot(plan, release);
+  const args = [release.node.path, release.entrypoint.path, release.setup.path];
+  if (!recoveryAccess) args.push("maintenance-launcher");
   return {
     Label: plan.identity.serviceLabel,
-    ProgramArguments: [
-      release.node.path,
-      release.entrypoint.path,
-      release.setup.path,
-      "maintenance-launcher",
-    ],
+    ProgramArguments: args,
     RunAtLoad: true,
-    KeepAlive: false,
+    KeepAlive: recoveryAccess,
+    ...(recoveryAccess ? { ThrottleInterval: 10 } : {}),
     ProcessType: "Background",
     Umask: 0o077,
     StandardErrorPath: path.join(plan.identity.stateDirectory, `${plan.identity.target}.stderr`),
@@ -137,11 +155,65 @@ export async function verifyMaintenanceLauncherArtifacts(input: {
     ],
     input.writableMountRoots,
   );
+  let recoveryAddress: string | undefined;
   for (const release of [inspected.plan.previous, inspected.plan.candidate]) {
     if (!release) continue;
     for (const file of [release.node, release.entrypoint])
       await verifyBootstrapPreparedDependency(file, input.writableMountRoots);
-    await readBootstrapPreparedFile(release.setup, input.writableMountRoots);
+    const setupBytes = await readBootstrapPreparedFile(release.setup, input.writableMountRoots);
+    const setup = MaintenanceLauncherSetupSchema.parse(JSON.parse(setupBytes.toString("utf8")));
+    if (setup.control?.recoveryAccess && !isRecoveryAccessSlot(inspected.plan, release))
+      throw new BootstrapRequestConflict("Recovery access requires its standalone entry point");
+    if (isRecoveryAccessSlot(inspected.plan, release)) {
+      const access = setup.control?.recoveryAccess;
+      if (
+        !access ||
+        !isDeepStrictEqual(
+          {
+            target: setup.target,
+            installationRoot: setup.installationRoot,
+            identitySha256: setup.identitySha256,
+            sourceCommit: setup.sourceCommit,
+            installationId: access.installationId,
+          },
+          {
+            target: "recovery-launcher",
+            installationRoot: identity.installationRoot,
+            identitySha256: inspected.identitySha256,
+            sourceCommit: release.sourceCommit,
+            installationId: identity.installationId,
+          },
+        )
+      )
+        throw new BootstrapRequestConflict(
+          "Recovery access setup differs from the reviewed native identity",
+        );
+      const address = JSON.stringify([
+        access.origin,
+        access.listenPort,
+        setup.enrollmentStateDirectory,
+      ]);
+      if (recoveryAddress !== undefined && address !== recoveryAddress)
+        throw new BootstrapRequestConflict(
+          "Compatible recovery slots must preserve the bookmarked address and lifecycle directory",
+        );
+      recoveryAddress = address;
+      await assertBootstrapPathsProtected(
+        [access.ownerConfigurationFile, setup.enrollmentStateDirectory],
+        input.writableMountRoots,
+      );
+      const owner = MaintenanceOwnerConfigurationSchema.parse(
+        readPrivateBootstrapConfiguration(access.ownerConfigurationFile, input.account.uid),
+      );
+      if (
+        owner.public.installationId !== identity.installationId ||
+        owner.stateDir !== setup.enrollmentStateDirectory ||
+        owner.public.origin === access.origin
+      )
+        throw new BootstrapRequestConflict(
+          "Recovery access owner configuration differs from the reviewed installation",
+        );
+    }
     if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
       throw new BootstrapRequestConflict("Maintenance launcher runtime changed");
   }
@@ -222,7 +294,10 @@ export function renderMaintenanceUserLauncher(
     ...launcher.ProgramArguments.map(string),
     "</array>",
     "<key>RunAtLoad</key><true/>",
-    "<key>KeepAlive</key><false/>",
+    `<key>KeepAlive</key><${launcher.KeepAlive}/>`,
+    ...(launcher.ThrottleInterval === undefined
+      ? []
+      : [`<key>ThrottleInterval</key><integer>${launcher.ThrottleInterval}</integer>`]),
     "<key>ProcessType</key>",
     string(launcher.ProcessType),
     `<key>Umask</key><integer>${launcher.Umask}</integer>`,

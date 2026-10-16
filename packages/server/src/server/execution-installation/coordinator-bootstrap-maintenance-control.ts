@@ -23,11 +23,8 @@ const MessageSchema = z.discriminatedUnion("type", [
   CoordinatorBootstrapListRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
 ]);
-export const MaintenanceOwnerConfigurationSchema = z.object({
-  public: z.object({ origin: z.url(), installationId: z.string().uuid() }),
-  stateDir: z.string().startsWith("/"),
-  ownerPasswordHash: z.string().startsWith("$2"),
-});
+import { MaintenanceOwnerConfigurationSchema } from "./coordinator-bootstrap-maintenance-setup.js";
+export { MaintenanceOwnerConfigurationSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 
 interface MaintenanceControlInput {
   installationId: string;

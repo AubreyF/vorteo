@@ -30,3 +30,9 @@ export const MaintenanceLauncherSetupSchema = z.strictObject({
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
 });
+
+export const MaintenanceOwnerConfigurationSchema = z.object({
+  public: z.object({ origin: z.url(), installationId: z.string().uuid() }),
+  stateDir: z.string().startsWith("/"),
+  ownerPasswordHash: z.string().startsWith("$2"),
+});

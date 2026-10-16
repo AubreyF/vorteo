@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.600 - 2026-10-16
+
+- Bind standalone recovery access to the existing exact launcher plan. Verify its native identity, source, owner configuration and shared lifecycle directory; compatible access slots retain their bookmarked origin and port. Reject access configuration paired with the older entry point.
+- Render exact standalone arguments with throttled OS supervision for the read-only page. Preserve existing controller launch behavior and reject the access listener as an effect executor until native execution support is implemented and accepted.
+- All 87 launcher tests, 15 control HTTP tests, workspace types, lint and server compilation pass. Permanent HTTPS routing, installed registration, rollback controls and remote-browser acceptance remain unfinished. README feature copy and General bookmark discovery remain delivery requirements.
+
 ## 0.11.0-beta.3.vorteo.599 - 2026-10-16
 
 - Add a standalone read-only recovery entry point using protected recovery-launcher configuration and a fixed loopback port. Start its page independently of enrollment, lifecycle parsing and the primary coordinator entry point; defer inspection until owner authentication.

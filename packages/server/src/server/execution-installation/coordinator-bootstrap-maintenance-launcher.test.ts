@@ -1,3 +1,4 @@
+import { hashSync } from "bcryptjs";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { verifyPersistentMaintenanceReview } from "./coordinator-bootstrap-maintenance-controller.js";
@@ -2387,3 +2388,182 @@ async function verifyTerminalObservation(
     ).rejects.toThrow("predates its consumed intent");
   }
 }
+
+async function independentAccessFixture(enrollment: "shared" | "separate" = "shared") {
+  const f = await fixture(enrollment === "separate");
+  const ownerConfigurationFile = path.join(f.plan.identity.installationRoot, "recovery-owner.json");
+  writeFileSync(
+    ownerConfigurationFile,
+    JSON.stringify({
+      public: {
+        installationId: f.plan.identity.installationId,
+        origin: "https://app.example.test",
+      },
+      stateDir: f.enrollmentStateDirectory,
+      ownerPasswordHash: hashSync("fixture-owner", 4),
+    }),
+    { mode: 0o600 },
+  );
+  for (const release of [f.plan.previous!, f.plan.candidate]) {
+    release.entrypoint.path = path.join(
+      release.directory,
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-access.js",
+    );
+    writeFileSync(release.entrypoint.path, "standalone fixture bytes", { mode: 0o600 });
+    release.entrypoint.sha256 = createHash("sha256")
+      .update("standalone fixture bytes")
+      .digest("hex");
+    const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+    setup.control = {
+      admissionSha256: "d".repeat(64),
+      recoveryAccess: {
+        installationId: f.plan.identity.installationId,
+        origin: "https://recovery.example.test:9443",
+        listenPort: 4446,
+        ownerConfigurationFile,
+      },
+    };
+    const bytes = JSON.stringify(setup);
+    writeFileSync(release.setup.path, bytes);
+    release.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
+    release.artifactSha256 = await digestBootstrapArtifact(release.directory);
+  }
+  return { ...f, ownerConfigurationFile };
+}
+
+test("recovery access has exact standalone argv and read-only OS supervision", async () => {
+  const f = await independentAccessFixture();
+  await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({ plan: f.plan });
+  const launcher = maintenanceUserLauncher(f.plan, "candidate");
+  expect(launcher.ProgramArguments).toEqual([
+    f.plan.candidate.node.path,
+    f.plan.candidate.entrypoint.path,
+    f.plan.candidate.setup.path,
+  ]);
+  expect(launcher).toMatchObject({ RunAtLoad: true, KeepAlive: true, ThrottleInterval: 10 });
+  const { renderMaintenanceUserLauncher } =
+    await import("./coordinator-bootstrap-maintenance-launcher.js");
+  const { readBootstrapLauncher } = await import("./coordinator-bootstrap-service.js");
+  const bytes = renderMaintenanceUserLauncher(f.plan, "candidate");
+  const file = path.join(f.plan.identity.stateDirectory, "recovery-access.plist");
+  writeFileSync(file, bytes, { mode: 0o600 });
+  expect(
+    await readBootstrapLauncher(
+      { path: file, sha256: createHash("sha256").update(bytes).digest("hex") },
+      [],
+    ),
+  ).toEqual(launcher);
+  const observed = {
+    pid: 4312,
+    parentPid: 1,
+    uid: f.account.uid,
+    bootId: randomUUID(),
+    startIdentity: "1000:12",
+    executable: f.plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(JSON.stringify(launcher.ProgramArguments))
+      .digest("hex"),
+  };
+  const reader = {
+    readService: async (service: string) => `${service} = {\n\tpid = ${observed.pid}\n}`,
+    inspectProcess: async () => ({ ...observed }),
+  };
+  await expect(
+    verifyMaintenanceLauncherProcess({ ...f, selected: "candidate", pid: observed.pid, reader }),
+  ).resolves.toEqual(observed);
+  observed.argumentsSha256 = createHash("sha256")
+    .update(JSON.stringify([...launcher.ProgramArguments, "maintenance-launcher"]))
+    .digest("hex");
+  await expect(
+    verifyMaintenanceLauncherProcess({ ...f, selected: "candidate", pid: observed.pid, reader }),
+  ).rejects.toThrow("native identity");
+});
+
+test.each([
+  "installation",
+  "state",
+  "source",
+  "missing-access",
+  "primary-origin",
+  "bookmark",
+  "owner",
+  "guest-owner",
+  "controller",
+  "entrypoint",
+])("recovery access admission refuses changed %s binding", async (mode) => {
+  const f = await independentAccessFixture();
+  const release = f.plan.candidate;
+  const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+  if (mode === "installation") setup.control.recoveryAccess.installationId = randomUUID();
+  if (mode === "state") setup.enrollmentStateDirectory = f.account.home;
+  if (mode === "source") setup.sourceCommit = "f".repeat(40);
+  if (mode === "missing-access") delete setup.control.recoveryAccess;
+  if (mode === "primary-origin") {
+    for (const slot of [f.plan.previous!, release]) {
+      const value = JSON.parse(readFileSync(slot.setup.path, "utf8"));
+      value.control.recoveryAccess.origin = "https://app.example.test";
+      const bytes = JSON.stringify(value);
+      writeFileSync(slot.setup.path, bytes);
+      slot.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
+    setup.control.recoveryAccess.origin = "https://app.example.test";
+  }
+  if (mode === "bookmark") setup.control.recoveryAccess.listenPort++;
+  if (mode === "owner") {
+    const owner = JSON.parse(readFileSync(f.ownerConfigurationFile, "utf8"));
+    owner.public.installationId = randomUUID();
+    writeFileSync(f.ownerConfigurationFile, JSON.stringify(owner));
+  }
+  if (mode === "controller") f.plan.identity.target = "maintenance-controller";
+  if (mode === "entrypoint") {
+    release.entrypoint.path = path.join(
+      release.directory,
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+    );
+    release.entrypoint.sha256 = createHash("sha256")
+      .update(readFileSync(release.entrypoint.path))
+      .digest("hex");
+  }
+  const bytes = JSON.stringify(setup);
+  writeFileSync(release.setup.path, bytes);
+  release.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
+  await expect(
+    verifyMaintenanceLauncherArtifacts({
+      ...f,
+      writableMountRoots:
+        mode === "guest-owner" ? [f.ownerConfigurationFile] : f.writableMountRoots,
+    }),
+  ).rejects.toThrow();
+});
+
+test("recovery access retains a separate shared lifecycle directory", async () => {
+  const f = await independentAccessFixture("separate");
+  expect(f.enrollmentStateDirectory).not.toBe(f.plan.identity.stateDirectory);
+  await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({ plan: f.plan });
+});
+
+test("recovery access listener cannot supply native executor authority", async () => {
+  const f = await independentAccessFixture();
+  const { inspectSelectedMaintenanceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  await expect(
+    inspectSelectedMaintenanceExecutor({
+      setupFile: f.plan.candidate.setup.path,
+      expectedTarget: "recovery-launcher",
+      account: f.account,
+      stateDirectory: f.enrollmentStateDirectory,
+      writableMountRoots: [],
+      ports: {
+        reader: {
+          async readService() {
+            throw new Error("No native dispatch inspection expected");
+          },
+          async inspectProcess() {
+            throw new Error("No native dispatch inspection expected");
+          },
+        },
+        assertCurrent: () => undefined,
+      },
+    }),
+  ).rejects.toThrow("does not provide lifecycle execution");
+});
