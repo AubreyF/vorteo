@@ -517,12 +517,7 @@ export async function runNativeBootstrap(
       await trace("boot-artifacts", () => verifyBootstrapRecoveryArtifacts(request.plan, roots));
     }
     await trace("approval", () => renewal.verifyApproval(request));
-    if (
-      request.plan.candidate.directory !== setup.runtimeDirectory ||
-      request.plan.candidate.artifactSha256 !== setup.runtimeSha256 ||
-      !isDeepStrictEqual(request.plan.candidate.node, setup.node)
-    )
-      throw new BootstrapRequestConflict("Runner does not belong to the approved candidate");
+    await verifyBootstrapExecutionRuntime({ request, setupFile, setup, writableMountRoots: roots });
     // The watchdog must not depend on reading the failed candidate tree to restore service.
     if (role === "executor")
       await trace("candidate-artifacts", () =>
@@ -1061,11 +1056,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     });
 }
 
-export async function verifyBootRunnerBinding(
-  request: CoordinatorBootstrapRequest,
-  setupFile: string,
+async function readReviewedBootstrapSetup(
+  request: Pick<CoordinatorBootstrapRequest, "id" | "plan">,
   setup: RunnerSetup,
-): Promise<void> {
+) {
   const recovery = request.plan.bootRecovery;
   if (
     !recovery ||
@@ -1080,6 +1074,15 @@ export async function verifyBootRunnerBinding(
   const prepared = BootstrapRunnerSetupSchema.parse(
     JSON.parse((await readBootstrapPreparedFile(recovery.setup, [])).toString("utf8")),
   );
+  return { recovery, prepared };
+}
+
+export async function verifyBootRunnerBinding(
+  request: CoordinatorBootstrapRequest,
+  setupFile: string,
+  setup: RunnerSetup,
+): Promise<void> {
+  const { recovery, prepared } = await readReviewedBootstrapSetup(request, setup);
   if (!setup.renewal?.request) {
     if (setupFile !== recovery.setup.path || !isDeepStrictEqual(prepared, setup))
       throw new BootstrapRequestConflict("Startup setup differs from approved preparation");
@@ -1108,6 +1111,43 @@ export async function verifyBootRunnerBinding(
     !isDeepStrictEqual(prepared, inertSetup)
   )
     throw new BootstrapRequestConflict("Startup renewal differs from approved preparation");
+}
+
+/** Ordinary runners stay candidate-bound. A separate recovery executor must be
+ * addressed by this request's existing boot-recovery descriptor, never inferred
+ * from a local path or borrowed renewal/maintenance authority. */
+export async function verifyBootstrapExecutionRuntime(input: {
+  request: Pick<
+    CoordinatorBootstrapRequest,
+    "id" | "plan" | "automaticSubmission" | "automaticApproval" | "standingAuthority" | "enrollment"
+  >;
+  setupFile: string;
+  setup: RunnerSetup;
+  writableMountRoots: readonly string[];
+}) {
+  const { setup, request } = input;
+  const candidate = request.plan.candidate;
+  if (
+    candidate.directory === setup.runtimeDirectory &&
+    candidate.artifactSha256 === setup.runtimeSha256 &&
+    isDeepStrictEqual(candidate.node, setup.node)
+  )
+    return;
+  if (setup.renewal || setup.maintenance || setup.supervision)
+    throw new BootstrapRequestConflict("Independent executor cannot borrow another runner role");
+  if (
+    request.automaticSubmission ||
+    request.automaticApproval ||
+    request.standingAuthority ||
+    request.enrollment
+  )
+    throw new BootstrapRequestConflict(
+      "Independent coordinator replacement requires exact manual approval",
+    );
+  const { recovery, prepared } = await readReviewedBootstrapSetup(request, setup);
+  if (input.setupFile !== recovery.setup.path || !isDeepStrictEqual(prepared, setup))
+    throw new BootstrapRequestConflict("Independent executor differs from approved preparation");
+  await verifyBootstrapRecoveryArtifacts(request.plan, input.writableMountRoots);
 }
 
 /** Resolve the already retained generation without deriving from a new Host

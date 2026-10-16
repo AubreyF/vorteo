@@ -40,6 +40,7 @@ import {
 import {
   BootstrapRunnerSetupSchema,
   waitForBootstrapWatchdog,
+  verifyBootstrapExecutionRuntime,
 } from "./coordinator-bootstrap-runner.js";
 import {
   BootstrapRenewalSchema,
@@ -1495,15 +1496,11 @@ export function createDispatchingBootstrapReview(options: {
   dispatchEnrolled(request: CoordinatorBootstrapRequest): Promise<CoordinatorBootstrapRequest>;
 } {
   const { setup, setupFile, requests, verifySetup, automatic: automaticPolicy } = options;
-  const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "plan">) => {
+  const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "id" | "plan">) => {
     const candidate = request.plan.candidate;
-    if (
-      candidate.directory !== setup.runtimeDirectory ||
-      candidate.artifactSha256 !== setup.runtimeSha256 ||
-      !isDeepStrictEqual(candidate.node, setup.node)
-    )
-      throw new BootstrapRequestConflict("Bootstrap request does not match the installed runner");
-    await verifyBootstrapReleaseArtifacts(candidate, await verifySetup());
+    const roots = await verifySetup();
+    await verifyBootstrapExecutionRuntime({ request, setupFile, setup, writableMountRoots: roots });
+    await verifyBootstrapReleaseArtifacts(candidate, roots);
     await verifyRenewalPlan(setup, request.plan);
   };
   const dispatch = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {

@@ -1,15 +1,161 @@
 import { createBootstrapRunnerEvidence } from "./coordinator-bootstrap-evidence.js";
-import { mkdtempSync, realpathSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { bootstrapRecoveryLauncher } from "./coordinator-bootstrap-boot-recovery.js";
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   observeBootstrapExecutorExit,
   observeBootstrapReadiness,
+  verifyBootstrapExecutionRuntime,
+  BootstrapRunnerSetupSchema,
 } from "./coordinator-bootstrap-runner.js";
+
+test
+  .skipIf(process.platform !== "darwin")
+  .each([
+    "valid",
+    "changed-runtime",
+    "changed-setup",
+    "wrong-request",
+    "mixed-renewal",
+    "guest-mount",
+    "automatic-authority",
+  ] as const)(
+  "independent coordinator executor requires its exact reviewed runtime: %s",
+  async (mode) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "independent-bootstrap-")));
+    try {
+      const pin = (file: string, bytes: string) => {
+        mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+        writeFileSync(file, bytes, { mode: 0o600 });
+        return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+      };
+      const runtime = path.join(root, "executor");
+      const node = pin(path.join(runtime, "node"), "fixture executable");
+      const entrypoint = pin(
+        path.join(
+          runtime,
+          "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+        ),
+        "fixture runner",
+      );
+      const ownerLauncher = pin(
+        path.join(runtime, "scripts/run-coordinator-owner.py"),
+        "fixture launcher",
+      );
+      const ownershipVerifier = pin(
+        path.join(runtime, "scripts/verify-coordinator-owner.py"),
+        "fixture verifier",
+      );
+      const setup = BootstrapRunnerSetupSchema.parse({
+        admissionSetupFile: path.join(root, "admission.json"),
+        daemonId: "fixture-host",
+        node,
+        entrypoint,
+        ownerLauncher,
+        ownershipVerifier,
+        runtimeDirectory: runtime,
+        runtimeSha256: await digestBootstrapArtifact(runtime),
+      });
+      const setupFile = pin(path.join(root, "setup.json"), JSON.stringify(setup));
+      const target = path.join(root, "target");
+      const targetNode = pin(path.join(target, "node"), "older compatible target");
+      const targetEntrypoint = pin(path.join(target, "main.js"), "fixture target");
+      const configuration = pin(path.join(root, "configuration.json"), "{}");
+      const launcher = pin(path.join(root, "target.plist"), "{}");
+      const candidate = {
+        sourceCommit: "a".repeat(40),
+        directory: target,
+        artifactSha256: await digestBootstrapArtifact(target),
+        node: targetNode,
+        entrypoint: targetEntrypoint,
+        configuration,
+        launcher,
+      };
+      const id = randomUUID(),
+        account = userInfo();
+      const service = `gui/${account.uid}/local.vorteo.${randomUUID()}.installation`;
+      const label = `${service.split("/")[2]}-recovery-${id}`;
+      const plan = CoordinatorBootstrapPlanSchema.parse({
+        version: 1,
+        operation: "coordinator-bootstrap",
+        installationId: randomUUID(),
+        service,
+        expectedProcess: {
+          pid: 123,
+          bootId: randomUUID(),
+          startIdentity: "123:456",
+          argumentsSha256: "b".repeat(64),
+        },
+        previous: candidate,
+        candidate,
+        state: {
+          directory: root,
+          restartJournal: path.join(root, "restart-jobs.json"),
+          ownerSessions: path.join(root, "owner-sessions.json"),
+        },
+        hostRequestsAfter: null,
+        bootRecovery: {
+          requestId: id,
+          service: `${service}-recovery-${id}`,
+          launcher: { path: path.join(root, "recovery.plist"), sha256: "c".repeat(64) },
+          installedLauncher: path.join(account.homedir, "Library/LaunchAgents", `${label}.plist`),
+          setup: setupFile,
+          ownerLauncher,
+          node,
+          entrypoint,
+        },
+      });
+      if (!plan.bootRecovery) throw new Error("Fixture recovery missing");
+      plan.bootRecovery.launcher = pin(
+        plan.bootRecovery.launcher.path,
+        JSON.stringify(bootstrapRecoveryLauncher(plan)),
+      );
+      if (mode === "changed-runtime") pin(path.join(runtime, "changed.js"), "unreviewed code");
+      if (mode === "changed-setup")
+        pin(setupFile.path, JSON.stringify({ ...setup, daemonId: "changed-host" }));
+      if (mode === "mixed-renewal")
+        setup.maintenance = { installationRoot: root, admissionSha256: "d".repeat(64) };
+      const request = {
+        id: mode === "wrong-request" ? randomUUID() : id,
+        plan,
+        ...(mode === "automatic-authority"
+          ? {
+              automaticSubmission: {
+                credentialBinding: "d".repeat(64),
+                policyActivatedAt: new Date().toISOString(),
+                submittedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+      };
+      const result = verifyBootstrapExecutionRuntime({
+        request,
+        setupFile: setupFile.path,
+        setup,
+        writableMountRoots: mode === "guest-mount" ? [runtime] : [],
+      });
+      if (mode === "valid") await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test.each([false, true])("dispatch notification survives a closed observer: %s", async (closed) => {
   const moduleUrl = new URL("./coordinator-bootstrap-runner.ts", import.meta.url).href;

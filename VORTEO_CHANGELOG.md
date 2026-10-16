@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.616 - 2026-10-16
+
+### Maintenance
+
+- Permit an exact manually reviewed coordinator replacement to use the independent executor already pinned by its existing startup-recovery descriptor. The executor's setup, Node, scripts and complete runtime remain hash-verified and separate from the target release. This removes the candidate-runtime dependency that prevented a newer repair runtime from installing an older compatible coordinator.
+- Ordinary runners remain candidate-bound. A separate executor refuses borrowed renewal, enrollment or automatic authority, another request, changed prepared setup, changed runtime bytes and guest-writable paths. No shared journal field, queue, credential or installed service changes.
+- Focused filesystem and legacy startup-review regressions cover these bindings. This is an uninstalled execution prerequisite, not completed permanent rollback controls or native rollback acceptance. Exact owner review, native custody, exclusive claims and existing startup recovery still apply; README and General availability claims remain unchanged.
+
 ## 0.11.0-beta.3.vorteo.615 - 2026-10-16
 
 ### Maintenance

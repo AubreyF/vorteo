@@ -12,6 +12,8 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
   assertBootstrapPathsProtected,
   readBootstrapPreparedFile,
+  verifyBootstrapPreparedDependency,
+  digestBootstrapArtifact,
 } from "./coordinator-bootstrap-artifact.js";
 import { readBootstrapLauncher } from "./coordinator-bootstrap-service.js";
 
@@ -54,6 +56,8 @@ export function verifyBootstrapRecoveryLauncher(input: {
   hostUid: number;
   hostHome: string;
   launcher: unknown;
+  /** Supplied only after reading the plan-addressed protected executor setup. */
+  runtimeDirectory?: string;
 }): void {
   const { plan } = input;
   const recovery = plan.bootRecovery;
@@ -70,15 +74,16 @@ export function verifyBootstrapRecoveryLauncher(input: {
     throw new BootstrapRequestConflict(
       "Boot recovery must use its own Host account startup service",
     );
+  const directory = input.runtimeDirectory ?? plan.candidate.directory;
+  const separateExecutor = input.runtimeDirectory !== undefined;
   if (
-    !isDeepStrictEqual(recovery.node, plan.candidate.node) ||
+    (!separateExecutor && !isDeepStrictEqual(recovery.node, plan.candidate.node)) ||
     recovery.entrypoint.path !==
       path.join(
-        plan.candidate.directory,
+        directory,
         "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
       ) ||
-    recovery.ownerLauncher.path !==
-      path.join(plan.candidate.directory, "scripts/run-coordinator-owner.py")
+    recovery.ownerLauncher.path !== path.join(directory, "scripts/run-coordinator-owner.py")
   )
     throw new BootstrapRequestConflict("Boot recovery must use the approved candidate runner");
   if (!isDeepStrictEqual(input.launcher, bootstrapRecoveryLauncher(plan)))
@@ -87,25 +92,14 @@ export function verifyBootstrapRecoveryLauncher(input: {
     );
 }
 
-/** Called alongside full candidate verification, which hashes the Node binary
- * and runtime tree. Read setup and scripts as bounded protected documents. */
+/** The existing plan-addressed setup may pin an executor separate from the
+ * target. Its entire protected runtime and Node are verified before use. */
 export async function verifyBootstrapRecoveryArtifacts(
   plan: CoordinatorBootstrapPlan,
   writableMountRoots: readonly string[],
 ): Promise<void> {
   const recovery = plan.bootRecovery;
   if (!recovery) return;
-  const account = userInfo();
-  verifyBootstrapRecoveryLauncher({
-    plan,
-    hostUid: account.uid,
-    hostHome: account.homedir,
-    launcher: await readBootstrapLauncher(recovery.launcher, writableMountRoots),
-  });
-  await assertBootstrapPathsProtected(
-    [path.dirname(recovery.installedLauncher)],
-    writableMountRoots,
-  );
   for (const file of [recovery.ownerLauncher, recovery.entrypoint])
     await readBootstrapPreparedFile(file, writableMountRoots);
   const bytes = await readBootstrapPreparedFile(recovery.setup, writableMountRoots);
@@ -117,16 +111,48 @@ export async function verifyBootstrapRecoveryArtifacts(
       ownerLauncher: fileSchema,
       runtimeDirectory: z.string(),
       runtimeSha256: z.string(),
+      ownershipVerifier: fileSchema,
     })
     .parse(JSON.parse(bytes.toString("utf8")));
   if (
     !isDeepStrictEqual(setup.node, recovery.node) ||
     !isDeepStrictEqual(setup.entrypoint, recovery.entrypoint) ||
     !isDeepStrictEqual(setup.ownerLauncher, recovery.ownerLauncher) ||
-    setup.runtimeDirectory !== plan.candidate.directory ||
-    setup.runtimeSha256 !== plan.candidate.artifactSha256
+    setup.ownershipVerifier.path !==
+      path.join(setup.runtimeDirectory, "scripts/verify-coordinator-owner.py")
   )
     throw new BootstrapRequestConflict("Boot recovery setup does not match its approved runner");
+  const independent = setup.runtimeDirectory !== plan.candidate.directory;
+  if (!independent && setup.runtimeSha256 !== plan.candidate.artifactSha256)
+    throw new BootstrapRequestConflict("Boot recovery runtime differs from the reviewed candidate");
+  await assertBootstrapPathsProtected(
+    [
+      setup.runtimeDirectory,
+      path.dirname(recovery.installedLauncher),
+      recovery.node.path,
+      setup.ownershipVerifier.path,
+    ],
+    writableMountRoots,
+  );
+  const account = userInfo();
+  verifyBootstrapRecoveryLauncher({
+    plan,
+    hostUid: account.uid,
+    hostHome: account.homedir,
+    launcher: await readBootstrapLauncher(recovery.launcher, writableMountRoots),
+    ...(independent ? { runtimeDirectory: setup.runtimeDirectory } : {}),
+  });
+  await readBootstrapPreparedFile(setup.ownershipVerifier, writableMountRoots);
+  if (independent) {
+    await verifyBootstrapPreparedDependency(recovery.node, writableMountRoots);
+    const actual = await digestBootstrapArtifact(setup.runtimeDirectory, {
+      maxFiles: 10_000,
+      maxBytes: 1024 * 1024 * 1024,
+      timeoutMs: 30_000,
+    });
+    if (actual !== setup.runtimeSha256)
+      throw new BootstrapRequestConflict("Independent recovery executor runtime changed");
+  }
 }
 
 interface StartupRecoveryRegistration {
