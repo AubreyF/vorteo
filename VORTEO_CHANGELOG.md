@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.597 - 2026-10-16
+
+- Keep exact native coordinator migration cancellation available after approval until execution is claimed. Require the displayed revision and owner authentication, preserve separate one-shot cancellation and approval fences, and reject claimed or stale requests.
+- Thirteen focused HTTP checks cover both native review scopes. This repair does not restart services, repeat dispatch or mark an interrupted migration successful. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.596 - 2026-10-16
 
 - Isolate retained renewal verification for native bootstrap roles in a bounded read-only child. Preserve the existing native, artifact and history checks, require an exact input-digest acknowledgement and successful exit, and reject timeout without repeating lifecycle effects.

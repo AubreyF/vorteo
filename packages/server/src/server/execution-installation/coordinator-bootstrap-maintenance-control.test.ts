@@ -11,9 +11,14 @@ import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-rev
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
 
-test.each([false, true])(
-  "independent preclaim cancellation uses the displayed revision before claim (%s)",
-  async (claimed) => {
+test.each([
+  { scope: "preclaim-recovery", claimed: false },
+  { scope: "preclaim-recovery", claimed: true },
+  { scope: "coordinator-migration", claimed: false },
+  { scope: "coordinator-migration", claimed: true },
+] as const)(
+  "independent $scope cancellation uses the displayed revision before claim ($claimed)",
+  async ({ scope, claimed }) => {
     const binding = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
     let revision = binding.revision;
     let status: "pending" | "approved" | "canceled" = "pending";
@@ -21,7 +26,7 @@ test.each([false, true])(
     let origin = "";
     const app = createBootstrapOwnerReviewApp({
       binding,
-      scope: "preclaim-recovery",
+      scope,
       origin: () => origin,
       client: {
         async listCoordinatorBootstrapRequests() {

@@ -83,11 +83,10 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
           })
           .parse(request.body);
         const retained = await read();
-        const cancelRecovery =
-          input.scope === "preclaim-recovery" && decision.decision === "cancel";
-        const expectedRevision = cancelRecovery ? decision.revision : binding.revision;
-        const canDecide = cancelRecovery
-          ? canCancelPreclaimReview(retained, cancelAttempted, expectedRevision)
+        const cancelNativeReview = input.scope !== undefined && decision.decision === "cancel";
+        const expectedRevision = cancelNativeReview ? decision.revision : binding.revision;
+        const canDecide = cancelNativeReview
+          ? canCancelNativeReview(retained, cancelAttempted, expectedRevision)
           : !attempted && retained.revision === binding.revision && retained.status === "pending";
         if (!canDecide) {
           response.status(409).json({
@@ -96,7 +95,7 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
           });
           return;
         }
-        if (cancelRecovery) cancelAttempted = true;
+        if (cancelNativeReview) cancelAttempted = true;
         else attempted = true;
         try {
           await input.client.decideCoordinatorBootstrap(
@@ -110,7 +109,7 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
               ? await read()
               : undefined;
           if (fresh?.revision === retained.revision && fresh.status === retained.status) {
-            if (cancelRecovery) cancelAttempted = false;
+            if (cancelNativeReview) cancelAttempted = false;
             else attempted = false;
             response
               .status(401)
@@ -136,7 +135,7 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
   return app;
 }
 
-function canCancelPreclaimReview(
+function canCancelNativeReview(
   retained: { revision: string; status: string; execution?: unknown },
   attempted: boolean,
   revision: string | undefined,
@@ -148,7 +147,12 @@ function canCancelPreclaimReview(
 
 function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
   const html = scope
-    ? ownerReviewHtml.replace("const nativeReview=false;", "const nativeReview=true;")
+    ? ownerReviewHtml
+        .replace("const nativeReview=false;", "const nativeReview=true;")
+        .replace(
+          "After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.",
+          "Approval is sent once. You can cancel with the displayed revision until execution is claimed. A lost reply never repeats an approval or restart.",
+        )
     : ownerReviewHtml;
   if (scope === "coordinator-migration")
     return html
@@ -201,7 +205,7 @@ const ownerReviewHtml = `<!doctype html><html lang="en"><meta charset="utf-8"><m
 <script>
 const recoveryOnly=false;const nativeReview=false;let sending=false;let cancelSending=false;let currentRevision;
 const el=id=>document.getElementById(id);
-async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=recoveryOnly?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
+async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=nativeReview?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
 async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;if(decision==='cancel')cancelSending=true;else sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword,revision:currentRevision})});const result=await response.json();if(nativeReview&&response.status===401){if(decision==='cancel')cancelSending=false;else sending=false;}el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
 el('approve').onclick=()=>decide('approve');el('cancel').onclick=()=>decide('cancel');refresh();setInterval(refresh,5000);
 </script></html>`;
