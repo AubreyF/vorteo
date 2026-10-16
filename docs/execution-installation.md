@@ -204,6 +204,8 @@ The controller serves a loopback-only repair endpoint. Existing Installation con
 
 Provisioning, transport registration and installed acceptance are separate delivery steps. Disposable native, transport and browser tests do not establish live recovery or Factory activation.
 
+If the primary coordinator cannot serve the review page but a compatible Host is still available, a protected operator launcher can serve an independent review on Host loopback using `createBootstrapOwnerReviewApp`. Pin the existing request ID, review revision and plan digest. The launcher must verify its immutable review bundle and protected configuration before connecting to the installed Host; it must not prepare a replacement request or obtain owner credentials from disk. Open its local URL on the Host Mac, review the complete plan and use the password and exact decision button. The existing Host review service records and dispatches that decision. Opening the listener performs no installation effect. After a lost reply, observe the retained request without repeating the decision. This route requires a compatible Host review capability and does not authorize shell restarts or journal repair.
+
 ### Bootstrap runner renewal
 
 A Host source update can install a new coordinator bootstrap runner without rewriting the installed runner setup or admission files. Renewal uses the existing coordinator preparation and exact owner decision controls. Installing the capability does not approve or dispatch coordinator maintenance.

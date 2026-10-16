@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
@@ -7,6 +7,86 @@ import path from "node:path";
 import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
+import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
+
+test.each(["success", "lost-response", "changed-review"])(
+  "independent owner review preserves exact tracked decision: %s",
+  async (mode) => {
+    const binding = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+    let status: "pending" | "approved" = "pending";
+    let revision = binding.revision;
+    const decisions: unknown[] = [];
+    let origin = "";
+    const app = createBootstrapOwnerReviewApp({
+      binding,
+      origin: () => origin,
+      client: {
+        async listCoordinatorBootstrapRequests() {
+          return [{ ...binding, revision, status, reason: "Exact retained fixture" }];
+        },
+        async decideCoordinatorBootstrap(input, password) {
+          decisions.push(input);
+          expect(password).toBe("fixture-owner");
+          status = "approved";
+          if (mode === "lost-response") throw new Error("private fixture failure");
+          return [];
+        },
+      },
+    });
+    const server = createServer(app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing fixture listener");
+    origin = `http://127.0.0.1:${address.port}`;
+    const post = (requestOrigin = origin, extra = {}) =>
+      fetch(origin + "/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: requestOrigin },
+        body: JSON.stringify({ decision: "approve", ownerPassword: "fixture-owner", ...extra }),
+      });
+    try {
+      const page = await fetch(origin);
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain("Approve this exact coordinator migration");
+      expect((await fetch(origin + "/review")).status).toBe(200);
+      expect(decisions).toEqual([]);
+      expect((await post("https://outside.example")).status).toBe(403);
+      const invalidHost = await new Promise<number>((resolve, reject) => {
+        const request = httpRequest(
+          origin + "/review",
+          { headers: { Host: "outside.example" } },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode ?? 0);
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(invalidHost).toBe(403);
+      expect((await post(origin, { id: randomUUID() })).status).toBe(503);
+      expect(decisions).toEqual([]);
+      if (mode === "changed-review") revision = randomUUID();
+      const response = await post();
+      if (mode === "changed-review") {
+        expect(response.status).toBe(409);
+        expect(decisions).toEqual([]);
+      } else {
+        expect(response.status).toBe(mode === "success" ? 200 : 503);
+        expect(await response.text()).not.toContain("private fixture failure");
+        expect(decisions).toEqual([{ ...binding, decision: "approve" }]);
+        const observed = await (await fetch(origin + "/review")).json();
+        expect(observed).toMatchObject({ attempted: true, request: { status: "approved" } });
+        expect((await post()).status).toBe(409);
+        expect(decisions).toHaveLength(1);
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  },
+);
 
 test.each(["legacy", "enrollment"] as const)(
   "maintenance transport authenticates every owner operation: %s",

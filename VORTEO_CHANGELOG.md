@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.580 - 2026-10-15
+
+### Changed
+
+- Add a loopback-only owner review surface for an exact existing coordinator migration when the primary coordinator cannot serve its interface. The bridge uses the existing authenticated Host review service, pins request identity and revision, and never prepares another plan or supplies owner approval.
+- Require an explicit owner password and button decision, reject cross-origin or changed requests, and retain observation without retry after an uncertain reply. Focused real HTTP and disposable browser checks pass. Starting the review listener changes no daemon selection or installation journal; the migration still requires its exact owner decision.
+
 ## 0.11.0-beta.3.vorteo.579 - 2026-10-15
 
 ### Changed
