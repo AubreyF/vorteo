@@ -1980,6 +1980,167 @@ test("supervision recovery waits for recorded cancellation and preserves both mi
   expect(openBootstrapRequests(f.service().list())).toEqual([]);
 });
 
+test("supervision launch is reserved once under shared exclusion and survives lost replies", async () => {
+  const f = await supervisionRecoveryFixture();
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  const pending = await f.service().prepare({
+    id: randomUUID(),
+    reason: "Restore supervision",
+    plan: f.plan,
+  });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const parent = {
+    ...f.plan.expectedProcess,
+    bootId: randomUUID(),
+    startIdentity: "1000:1",
+    parentPid: 1,
+    uid: process.getuid!(),
+    executable: f.plan.previous.node.path,
+  };
+  const setup = { path: path.join(f.root, "supervision-setup.json"), sha256: "a".repeat(64) };
+  const assertCurrent = vi.fn(() => {
+    expect(() => new FileBootstrapRequestJournal(f.root).writeLifecycle([])).toThrow(
+      "storage is busy",
+    );
+  });
+  const reserved = f.journal.reserveSupervisionLaunch({
+    request: approved,
+    setup,
+    parent,
+    assertCurrent,
+  });
+  expect(assertCurrent).toHaveBeenCalledOnce();
+  expect(reserved.supervisionDispatch).toEqual({
+    approvedRevision: approved.revision,
+    requestedAt: expect.any(String),
+    setup,
+    parent,
+  });
+  expect(reserved.revision).not.toBe(approved.revision);
+  expect(reserved.execution).toBeUndefined();
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.read()).toEqual([f.failed, canceled, reserved]);
+  expect(() =>
+    reopened.reserveSupervisionLaunch({ request: approved, setup, parent, assertCurrent }),
+  ).toThrow("unreserved");
+  expect(() =>
+    reopened.reserveSupervisionLaunch({ request: reserved, setup, parent, assertCurrent }),
+  ).toThrow("unreserved");
+  expect(assertCurrent).toHaveBeenCalledOnce();
+  const before = reopened.read();
+  expect(() =>
+    reopened.replace(
+      before,
+      before.filter((record) => record.id !== reserved.id),
+    ),
+  ).toThrow("history cannot change");
+  expect(() =>
+    reopened.replace(
+      before,
+      before.map((record) =>
+        record.id === reserved.id
+          ? {
+              ...record,
+              supervisionDispatch: {
+                ...reserved.supervisionDispatch!,
+                setup: { ...setup, sha256: "b".repeat(64) },
+              },
+            }
+          : record,
+      ),
+    ),
+  ).toThrow("reservation cannot change");
+  expect(reopened.read()).toEqual(before);
+  const ownerCanceled = await f
+    .service()
+    .decide({ ...pickDecision(reserved), decision: "cancel" }, ownerPassword);
+  expect(ownerCanceled.status).toBe("canceled");
+  expect(ownerCanceled.supervisionDispatch).toEqual(reserved.supervisionDispatch);
+  await expect(f.service().claimDispatch(pickDecision(reserved))).rejects.toThrow("undispatched");
+  expect(reopened.read()).toEqual([f.failed, canceled, ownerCanceled]);
+});
+
+test("supervision launch refuses asynchronous or changed custody without persisting authority", async () => {
+  const f = await supervisionRecoveryFixture();
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  const pending = await f
+    .service()
+    .prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const setup = { path: path.join(f.root, "setup.json"), sha256: "a".repeat(64) };
+  const parent = {
+    ...f.plan.expectedProcess,
+    bootId: randomUUID(),
+    startIdentity: "1000:1",
+    parentPid: 1,
+    uid: process.getuid!(),
+    executable: f.plan.previous.node.path,
+  };
+  const before = f.journal.read();
+  expect(() =>
+    f.journal.reserveSupervisionLaunch({
+      request: f.approvedMigration,
+      setup,
+      parent,
+      assertCurrent: () => undefined,
+    }),
+  ).toThrow("unreserved");
+  expect(() =>
+    f.journal.reserveSupervisionLaunch({
+      request: approved,
+      setup,
+      parent,
+      assertCurrent: async () => undefined,
+    }),
+  ).toThrow("synchronous");
+  expect(() =>
+    f.journal.reserveSupervisionLaunch({
+      request: approved,
+      setup,
+      parent,
+      assertCurrent: () => {
+        throw new Error("Custody changed");
+      },
+    }),
+  ).toThrow("Custody changed");
+  expect(() =>
+    f.journal.reserveSupervisionLaunch({
+      request: approved,
+      setup,
+      parent,
+      assertCurrent: async () => {
+        throw new Error("Late custody failure");
+      },
+    }),
+  ).toThrow("synchronous");
+  const forged = CoordinatorBootstrapRequestSchema.parse({
+    ...approved,
+    supervisionDispatch: {
+      approvedRevision: approved.revision,
+      requestedAt: new Date().toISOString(),
+      setup,
+      parent,
+    },
+  });
+  expect(() =>
+    f.journal.replace(
+      before,
+      before.map((record) => (record.id === approved.id ? forged : record)),
+    ),
+  ).toThrow("locked native custody");
+  expect(f.journal.read()).toEqual(before);
+});
+
 test("ordinary native dispatch refuses supervision recovery before ownership or effects", async () => {
   const f = await supervisionRecoveryFixture();
   const canceled = await f

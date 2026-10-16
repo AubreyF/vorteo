@@ -161,6 +161,16 @@ export const CoordinatorEnrollmentAuthoritySchema = z.strictObject({
   generation: z.string().uuid(),
 });
 
+export const BootstrapProcessIdentitySchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().positive(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().uuid(),
+  startIdentity: z.string().regex(/^\d+:\d+$/),
+  argumentsSha256: DigestSchema,
+  executable: z.string().startsWith("/"),
+});
+
 export const CoordinatorBootstrapRequestSchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -187,6 +197,14 @@ export const CoordinatorBootstrapRequestSchema = z.strictObject({
       approvedRevision: z.uuid(),
       requestedAt: z.string().datetime(),
       nativeEvidenceSha256: DigestSchema,
+    })
+    .optional(),
+  supervisionDispatch: z
+    .strictObject({
+      approvedRevision: z.string().uuid(),
+      requestedAt: z.string().datetime(),
+      setup: FileIdentitySchema,
+      parent: BootstrapProcessIdentitySchema,
     })
     .optional(),
   // Separate standing consent; never inferred from legacy approval or policy flags.
@@ -346,15 +364,6 @@ export type CoordinatorBootstrapOutbound = z.infer<
 >;
 
 // Separate recovery records leave historical bootstrap requests readable by old hosts.
-export const BootstrapProcessIdentitySchema = z.strictObject({
-  pid: z.number().int().positive(),
-  parentPid: z.number().int().positive(),
-  uid: z.number().int().nonnegative(),
-  bootId: z.string().uuid(),
-  startIdentity: z.string().regex(/^\d+:\d+$/),
-  argumentsSha256: DigestSchema,
-  executable: z.string().startsWith("/"),
-});
 export const BootstrapAuditedProcessSchema = z.strictObject({
   identity: BootstrapProcessIdentitySchema,
   auditToken: z.array(z.number().int().min(0).max(0xffffffff)).length(8),

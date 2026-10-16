@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.607 - 2026-10-16
+
+### Maintenance
+
+- Reserve one supervision runner launch in the existing bootstrap journal before forking. Bind the original approved revision, protected setup digest and native parent identity while rereading current requests and lifecycle exclusion under the shared lock.
+- Require a synchronous native custody check before persistence. Preserve the immutable reservation and reviewed plan through progress and cancellation; reopening a lost launch response refuses a second reservation. Ordinary journal writes cannot mint this authority.
+- Focused regressions cover reopening, duplicate and forged reservations, lock contention, asynchronous or changed custody, unchanged history and owner cancellation before dispatch. Production runner integration, exact review packaging and installed supervision remain unfinished. No installed capability is enabled.
+
 ## 0.11.0-beta.3.vorteo.606 - 2026-10-16
 
 ### Maintenance

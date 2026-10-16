@@ -608,6 +608,61 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     });
   }
 
+  /** Reserve before forking. Reopening a reserved launch permits observation,
+   * never a second fork, even when the first launch response was lost. */
+  reserveSupervisionLaunch(input: {
+    request: CoordinatorBootstrapRequest;
+    setup: NonNullable<CoordinatorBootstrapRequest["supervisionDispatch"]>["setup"];
+    parent: NonNullable<CoordinatorBootstrapRequest["supervisionDispatch"]>["parent"];
+    assertCurrent(): void;
+  }): CoordinatorBootstrapRequest {
+    const request = CoordinatorBootstrapRequestSchema.parse(input.request);
+    return this.withLock(() => {
+      const expected = this.read();
+      const current = expected.find((record) => record.id === request.id);
+      if (
+        !isDeepStrictEqual(current, request) ||
+        request.status !== "approved" ||
+        !request.decisionAt ||
+        !request.plan.supervisionRecovery ||
+        request.execution ||
+        request.supervisionDispatch ||
+        request.automaticApproval ||
+        request.automaticSubmission ||
+        request.standingAuthority ||
+        request.enrollment
+      )
+        throw new BootstrapRequestConflict("Exact unreserved owner supervision approval required");
+      assertRecoveredBootstrapBase(request.plan, expected);
+      assertCoordinatorLifecycleIdle(this.readLifecycle());
+      if (this.unresolvedActivation().length !== 0)
+        throw new BootstrapRequestConflict(
+          "Installation activation must be reconciled before supervision",
+        );
+      const next = CoordinatorBootstrapRequestSchema.parse({
+        ...request,
+        revision: randomUUID(),
+        supervisionDispatch: {
+          approvedRevision: request.revision,
+          requestedAt: new Date().toISOString(),
+          setup: input.setup,
+          parent: input.parent,
+        },
+      });
+      const checked: unknown = input.assertCurrent();
+      if (checked !== undefined) {
+        if (checked instanceof Promise) void checked.catch(() => {});
+        throw new BootstrapRequestConflict("Supervision launch custody check must be synchronous");
+      }
+      this.replaceLocked(
+        expected,
+        expected.map((record) => (record.id === next.id ? next : record)),
+        next.id,
+      );
+      return structuredClone(next);
+    });
+  }
+
   private verifyRetainedEnrollment(
     previous: CoordinatorBootstrapRequest | undefined,
     record: CoordinatorBootstrapRequest,
@@ -659,14 +714,42 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     }
   }
 
+  private verifySupervisionTransitions(
+    expected: CoordinatorBootstrapRequest[],
+    next: CoordinatorBootstrapRequest[],
+    reservation: string | undefined,
+  ): void {
+    for (const previous of expected) {
+      if (!previous.supervisionDispatch) continue;
+      const retained = next.find((record) => record.id === previous.id);
+      if (
+        !retained ||
+        retained.planSha256 !== previous.planSha256 ||
+        !isDeepStrictEqual(retained.plan, previous.plan)
+      )
+        throw new BootstrapRequestConflict("Reserved supervision history cannot change");
+    }
+    for (const record of next) {
+      const previous = expected.find((item) => item.id === record.id);
+      if (previous?.supervisionDispatch) {
+        if (!isDeepStrictEqual(previous.supervisionDispatch, record.supervisionDispatch))
+          throw new BootstrapRequestConflict("Supervision launch reservation cannot change");
+      } else if (record.supervisionDispatch && record.id !== reservation) {
+        throw new BootstrapRequestConflict("Supervision launch requires locked native custody");
+      }
+    }
+  }
+
   private replaceLocked(
     expected: CoordinatorBootstrapRequest[],
     next: CoordinatorBootstrapRequest[],
+    supervisionReservation?: string,
   ): void {
     if (!isDeepStrictEqual(this.read(), expected))
       throw new BootstrapRequestConflict("Bootstrap request changed. Refresh its review.");
     const { main, pending } = this.snapshots();
     const parsed = RecordsSchema.parse({ version: 1, requests: next });
+    this.verifySupervisionTransitions(expected, parsed.requests, supervisionReservation);
     this.verifyEnrollmentTransitions(expected, parsed.requests);
     const startsClaim = parsed.requests.some(
       (record) =>
