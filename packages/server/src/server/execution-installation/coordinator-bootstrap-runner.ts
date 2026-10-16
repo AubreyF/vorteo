@@ -901,7 +901,17 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && identifier && role === "supervision-control") {
+  if (setup && role === "maintenance-recovery-registration") {
+    void import("./coordinator-bootstrap-maintenance-recovery-activation.js")
+      .then(({ runNativeRecoveryActivation }) =>
+        runNativeRecoveryActivation(setup, process.argv.slice(4)),
+      )
+      .then((observation) => process.stdout.write(JSON.stringify(observation) + "\n"))
+      .catch(() => {
+        process.stderr.write("Recovery registration requires retained generation observation.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && identifier && role === "supervision-control") {
     void import("./coordinator-bootstrap-supervision-control.js")
       .then(({ runBootstrapSupervisionControl }) =>
         runBootstrapSupervisionControl(setup, identifier),

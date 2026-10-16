@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.614 - 2026-10-16
+
+### Maintenance
+
+- Add a bounded one-generation native recovery-registration role. Four enrollment identifiers select the protected initial plan; verify its runtime, exact native arguments, process custody, writable mounts and current reserved activation before registration. This adds no queue, dispatcher or execution credential.
+- Reopen retained effects through observation only, including after revocation. Retain synchronized addressed native receipts and settle the existing activation under shared exclusion with a synchronous final custody check. Verified reconciliation preserves failed history instead of resetting a generation.
+- Focused orchestration and journal tests cover one-time effects, lost start and route replies, revocation, malformed intents, another generation, immutable invocation fields and changed or asynchronous custody. This is source wiring, not compiled native acceptance or installed recovery. Combined activation invocation, compatible rollback controls and owner remote-browser acceptance remain open; README and General availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.613 - 2026-10-16
 
 ### Fixed

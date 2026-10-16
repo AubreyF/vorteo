@@ -1,4 +1,8 @@
 import { hashSync } from "bcryptjs";
+import {
+  reconcileRecoveryAccessActivation,
+  inspectRecoveryActivationInvocation,
+} from "./coordinator-bootstrap-maintenance-recovery-activation.js";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { verifyPersistentMaintenanceReview } from "./coordinator-bootstrap-maintenance-controller.js";
@@ -3017,6 +3021,111 @@ test("initial recovery registration consumes one existing activation intent and 
   await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
   expect(f.commands).toHaveLength(2);
   expect(readFileSync(retained.file)).toEqual(before);
+});
+
+test("one-generation recovery activation settles its reserved step and observes after revocation", async () => {
+  const f = await recoveryRegistrationFixture();
+  const result = await reconcileRecoveryAccessActivation(f.input, f.ports);
+  expect(result.activationSettled).toBe(true);
+  const settled = f.enrollment.read();
+  if (settled.status !== "enrolled") throw new Error("Fixture enrollment missing");
+  const step = settled.activation.steps[0];
+  if (step.status !== "succeeded") throw new Error("Activation not settled");
+  const receipt = readFileSync(
+    path.join(f.enrollmentStateDirectory, `maintenance-observation-${step.observationSha256}.json`),
+    "utf8",
+  );
+  expect(createHash("sha256").update(receipt).digest("hex")).toBe(step.observationSha256);
+  expect(JSON.parse(receipt).intent.generation).toBe(f.input.generation);
+  const commands = structuredClone(f.commands);
+  f.revoke();
+  const revoked = f.enrollment.read();
+  const observed = await reconcileRecoveryAccessActivation(f.input, f.ports);
+  expect(observed.activationSettled).toBe(true);
+  expect(f.commands).toEqual(commands);
+  expect(f.enrollment.read()).toEqual(revoked);
+});
+
+test("recovery activation reconciles a lost route response without repeating effects", async () => {
+  const f = await recoveryRegistrationFixture("lost-route");
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow(
+    "Lost route reply",
+  );
+  const commands = structuredClone(f.commands);
+  f.revoke();
+  expect((await reconcileRecoveryAccessActivation(f.input, f.ports)).activationSettled).toBe(true);
+  expect(f.commands).toEqual(commands);
+});
+
+test("recovery activation keeps a lost start response unverified without retrying routing", async () => {
+  const f = await recoveryRegistrationFixture("lost-start");
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow(
+    "Lost start reply",
+  );
+  const commands = structuredClone(f.commands);
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands).toEqual(commands);
+  const state = f.enrollment.read();
+  expect(state.status === "enrolled" && state.activation.steps[0].status).toBe("reserved");
+});
+
+test("recovery activation preserves failed history when a retained generation becomes verified", async () => {
+  const f = await recoveryRegistrationFixture("lost-route");
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow(
+    "Lost route reply",
+  );
+  const { observeActivationStep } = await import("./maintenance/authorization.js");
+  const failedState = observeActivationStep(f.enrollment, {
+    stepId: f.input.stepId,
+    generation: f.input.generation,
+    outcome: "recovery_required",
+    observationSha256: "e".repeat(64),
+  });
+  if (failedState.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const commands = structuredClone(f.commands);
+  f.revoke();
+  const revoked = f.enrollment.read();
+  expect((await reconcileRecoveryAccessActivation(f.input, f.ports)).activationSettled).toBe(true);
+  const reconciled = f.enrollment.read();
+  if (reconciled.status !== "enrolled" || revoked.status !== "enrolled")
+    throw new Error("Fixture enrollment absent");
+  expect(reconciled.activation.recoveries[0].failed).toEqual(failedState.activation.steps[0]);
+  expect(reconciled.activation.steps[0].status).toBe("succeeded");
+  expect(reconciled.grant).toEqual(revoked.grant);
+  expect(f.commands).toEqual(commands);
+});
+
+test("recovery activation rejects another generation before reserving or dispatching", async () => {
+  const f = await recoveryRegistrationFixture();
+  const before = f.enrollment.read();
+  await expect(
+    reconcileRecoveryAccessActivation({ ...f.input, generation: randomUUID() }, f.ports),
+  ).rejects.toThrow("exact activation");
+  expect(f.enrollment.read()).toEqual(before);
+  expect(f.intent).toThrow();
+  expect(f.commands).toEqual([]);
+});
+
+test("recovery activation refuses a malformed retained intent without granting another attempt", async () => {
+  const f = await recoveryRegistrationFixture("lost-start");
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow();
+  const retained = f.intent();
+  writeFileSync(retained.file, "{", { mode: 0o600 });
+  const commands = structuredClone(f.commands);
+  await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands).toEqual(commands);
+});
+
+test("recovery activation accepts only four immutable enrollment identifiers", () => {
+  const args = Array.from({ length: 4 }, () => randomUUID());
+  expect(inspectRecoveryActivationInvocation(args)).toEqual({
+    grantId: args[0],
+    grantRevision: args[1],
+    stepId: args[2],
+    generation: args[3],
+  });
+  expect(() => inspectRecoveryActivationInvocation([...args, "/other/plan"])).toThrow();
+  expect(() => inspectRecoveryActivationInvocation(["/other/plan", ...args.slice(1)])).toThrow();
 });
 
 test.each([

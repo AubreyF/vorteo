@@ -194,6 +194,70 @@ function enrolled(state: InstallationEnrollmentState) {
   return state;
 }
 
+test.each([
+  ["observation", "valid"],
+  ["observation", "changed"],
+  ["observation", "async"],
+  ["recovery", "valid"],
+  ["recovery", "changed"],
+  ["recovery", "async"],
+])("activation %s rechecks native custody under exclusion: %s", (operation, mode) => {
+  const f = fixture();
+  const grant = enrolled(f.enroll()).grant;
+  const reserved = enrolled(
+    reserveActivationStep(f.journal, {
+      grantRevision: grant.revision,
+      stepId: f.first,
+    }),
+  );
+  const step = reserved.activation.steps[0];
+  if (step.status !== "reserved") throw new Error("Fixture reservation absent");
+  if (operation === "recovery")
+    observeActivationStep(f.journal, {
+      stepId: f.first,
+      generation: step.generation,
+      outcome: "recovery_required",
+      observationSha256: "a".repeat(64),
+    });
+  const before = f.journal.read();
+  const assertCurrent =
+    mode === "async"
+      ? async () => {}
+      : () => {
+          expect(() =>
+            new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined),
+          ).toThrow("storage is busy");
+          if (mode === "changed") throw new Error("Native observation changed");
+        };
+  const apply = () =>
+    operation === "recovery"
+      ? reconcileActivationStep(f.journal, {
+          id: randomUUID(),
+          stepId: f.first,
+          generation: step.generation,
+          failedObservationSha256: "a".repeat(64),
+          observationSha256: "b".repeat(64),
+          assertCurrent,
+        })
+      : observeActivationStep(f.journal, {
+          stepId: f.first,
+          generation: step.generation,
+          outcome: "succeeded",
+          observationSha256: "b".repeat(64),
+          assertCurrent,
+        });
+  if (mode !== "valid") {
+    expect(apply).toThrow();
+    expect(f.journal.read()).toEqual(before);
+    return;
+  }
+  const result = enrolled(apply());
+  expect(result.activation.steps[0].status).toBe("succeeded");
+  expect(result.grant).toEqual(grant);
+  if (operation === "recovery")
+    expect(result.activation.recoveries[0].failed).toEqual(enrolled(before).activation.steps[0]);
+});
+
 function proposal(manifest: InstallationEnrollmentManifest): StandingMaintenanceProposal {
   return {
     id: randomUUID(),

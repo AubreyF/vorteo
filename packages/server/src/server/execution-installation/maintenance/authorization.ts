@@ -436,6 +436,8 @@ interface ActivationObservation {
   generation: string;
   outcome: "succeeded" | "recovery_required";
   observationSha256: string;
+  /** Native observers recheck custody while the journal lock is held. */
+  assertCurrent?(): void;
 }
 
 /** A verified observation may settle a dispatched effect after revocation, but grants no new work. */
@@ -445,6 +447,8 @@ export function observeActivationStep(
 ) {
   return journal.update((current) => {
     if (current.status !== "enrolled") throw new BootstrapRequestConflict("Enrollment is absent");
+    if (input.assertCurrent && input.assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Activation observation custody must be synchronous");
     const step = current.activation.steps.find((item) => item.id === input.stepId);
     if (!step || step.status === "pending" || step.generation !== input.generation)
       throw new BootstrapRequestConflict("Activation observation does not match its dispatch");
@@ -475,6 +479,7 @@ interface ActivationRecoveryObservation {
   generation: string;
   failedObservationSha256: string;
   observationSha256: string;
+  assertCurrent?(): void;
 }
 
 /** Only an independently verified candidate-readiness receipt completes recovery.
@@ -485,6 +490,8 @@ export function reconcileActivationStep(
 ) {
   return journal.update((current) => {
     if (current.status !== "enrolled") throw new BootstrapRequestConflict("Enrollment is absent");
+    if (input.assertCurrent && input.assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Activation recovery custody must be synchronous");
     const retained = current.activation.recoveries.find((recovery) => recovery.id === input.id);
     if (retained) {
       const identical =

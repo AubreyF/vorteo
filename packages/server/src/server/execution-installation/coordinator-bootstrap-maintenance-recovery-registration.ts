@@ -217,6 +217,11 @@ export async function observeMaintenanceRecoveryAccessRegistration(
       observedAt: new Date().toISOString(),
       listenerAndRouteVerified: true as const,
       ownerRemoteAcceptance: false as const,
+      assertCurrent() {
+        native.assertCurrent();
+        if (routing.assertCurrent() !== undefined)
+          throw new BootstrapRequestConflict("Recovery routing observation custody changed");
+      },
     };
   });
 }
