@@ -1,12 +1,13 @@
 import { createServer, request as httpRequest, type RequestOptions } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
+import { runIndependentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-access.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
@@ -541,35 +542,11 @@ test("recovery rendering survives failed journals and authenticates independentl
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fixture listener missing");
   const base = `http://127.0.0.1:${address.port}`;
-  function call(route: string, options: RequestOptions, body?: string): Promise<Response> {
-    return new Promise((resolve, reject) => {
-      const request = httpRequest(base + route, options, (response) => {
-        let text = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          text += chunk;
-        });
-        response.on("error", reject);
-        response.on("end", () =>
-          resolve(
-            new Response(text, {
-              status: response.statusCode,
-              headers: {
-                "cache-control": String(response.headers["cache-control"]),
-                "content-security-policy": String(response.headers["content-security-policy"]),
-              },
-            }),
-          ),
-        );
-      });
-      request.on("error", reject);
-      request.end(body);
-    });
-  }
   const get = (route: string, host = new URL(recoveryOrigin).host) =>
-    call(route, { headers: { Host: host } });
+    callRecoveryFixture(base, route, { headers: { Host: host } });
   const post = (token: string, origin = recoveryOrigin) =>
-    call(
+    callRecoveryFixture(
+      base,
       "/api/installation/maintenance/owner",
       {
         method: "POST",
@@ -614,6 +591,157 @@ test("recovery rendering survives failed journals and authenticates independentl
     expect((await get("/")).status).toBe(200);
     primaryOrigin = recoveryOrigin;
     expect((await post("fixture-owner")).status).toBe(403);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+function callRecoveryFixture(
+  base: string,
+  route: string,
+  options: RequestOptions,
+  body?: string,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(base + route, options, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => {
+        text += chunk;
+      });
+      response.on("error", reject);
+      response.on("end", () =>
+        resolve(
+          new Response(text, {
+            status: response.statusCode,
+            headers: {
+              "cache-control": String(response.headers["cache-control"]),
+              "content-security-policy": String(response.headers["content-security-policy"]),
+            },
+          }),
+        ),
+      );
+    });
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
+test("independent recovery starts with broken enrollment and lifecycle files and cannot dispatch", async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "recovery-startup-")));
+  const installationId = randomUUID();
+  const probe = createServer();
+  probe.listen(0, "127.0.0.1");
+  await once(probe, "listening");
+  const address = probe.address();
+  if (!address || typeof address === "string") throw new Error("Fixture port unavailable");
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  const origin = "https://recovery.example.test";
+  const ownerFile = path.join(directory, "owner.json");
+  const setupFile = path.join(directory, "setup.json");
+  const setup = {
+    version: 1,
+    installationRoot: directory,
+    enrollmentStateDirectory: directory,
+    identitySha256: "a".repeat(64),
+    target: "recovery-launcher",
+    sourceCommit: "b".repeat(40),
+    nativeAdmission: {
+      path: path.join(directory, "unavailable-admission.json"),
+      sha256: "c".repeat(64),
+    },
+    control: {
+      admissionSha256: "d".repeat(64),
+      recoveryAccess: {
+        installationId,
+        origin,
+        listenPort: address.port,
+        ownerConfigurationFile: ownerFile,
+      },
+    },
+  };
+  const owner = {
+    public: { origin: "https://app.example.test", installationId },
+    stateDir: directory,
+    ownerPasswordHash: hashSync("fixture-owner", 4),
+  };
+  const broken = "unsupported retained state";
+  const retainedFiles = [
+    "coordinator-bootstrap.json",
+    "coordinator-bootstrap-pending.json",
+    "maintenance-enrollment.json",
+  ];
+  for (const name of retainedFiles)
+    await writeFile(path.join(directory, name), broken, { mode: 0o600 });
+  await writeFile(setupFile, JSON.stringify(setup), { mode: 0o600 });
+  await writeFile(ownerFile, JSON.stringify(owner), { mode: 0o600 });
+  const server = await runIndependentMaintenanceRecovery(setupFile);
+  const base = `http://127.0.0.1:${address.port}`;
+  const get = () => callRecoveryFixture(base, "/", { headers: { Host: new URL(origin).host } });
+  const post = (body: unknown, token = "fixture-owner") =>
+    callRecoveryFixture(
+      base,
+      "/api/installation/maintenance/owner",
+      {
+        method: "POST",
+        headers: {
+          Host: new URL(origin).host,
+          Origin: origin,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      JSON.stringify(body),
+    );
+  const query = { type: "installation.bootstrap.list_requests.request", requestId: "isolated" };
+  try {
+    expect((await get()).status).toBe(200);
+    expect((await post(query, "wrong")).status).toBe(401);
+    const inspection = await post(query);
+    expect(await inspection.json()).toMatchObject({ payload: { requests: null } });
+    await writeFile(
+      path.join(directory, "coordinator-bootstrap.json"),
+      JSON.stringify({ version: 1, requests: [] }),
+    );
+    await writeFile(
+      path.join(directory, "coordinator-bootstrap-pending.json"),
+      JSON.stringify({ version: 1, requests: [], promotions: [] }),
+    );
+    const decision = await post({
+      type: "installation.bootstrap.decide.request",
+      requestId: "no-dispatch",
+      ownerPassword: "fixture-owner",
+      input: {
+        id: randomUUID(),
+        revision: randomUUID(),
+        planSha256: "e".repeat(64),
+        decision: "approve",
+      },
+    });
+    const refused = await decision.json();
+    expect(refused).toMatchObject({ payload: { requests: null } });
+    expect(refused.payload.error).toContain("inspection only");
+    expect(await readFile(path.join(directory, "maintenance-enrollment.json"), "utf8")).toBe(
+      broken,
+    );
+    await writeFile(ownerFile, broken);
+    expect((await get()).status).toBe(200);
+    expect((await post(query)).status).toBe(503);
+    await writeFile(ownerFile, JSON.stringify(owner));
+    await writeFile(
+      setupFile,
+      JSON.stringify({
+        ...setup,
+        control: {
+          ...setup.control,
+          recoveryAccess: { ...setup.control.recoveryAccess, installationId: randomUUID() },
+        },
+      }),
+    );
+    expect((await get()).status).toBe(200);
+    expect((await post(query)).status).toBe(503);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

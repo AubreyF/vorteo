@@ -1,3 +1,8 @@
+import {
+  BootstrapRequestConflict,
+  BootstrapAuthenticationRequired,
+  BootstrapCoordinatorBusy,
+} from "./coordinator-bootstrap-errors.js";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
@@ -33,10 +38,11 @@ const BindingSchema = z.strictObject({
 });
 export type BootstrapHostBinding = z.infer<typeof BindingSchema>;
 
-export class BootstrapRequestConflict extends Error {}
-export class BootstrapAuthenticationRequired extends Error {}
-/** Positive busy evidence only; parsing or identity failures must never use this type. */
-export class BootstrapCoordinatorBusy extends BootstrapRequestConflict {}
+export {
+  BootstrapRequestConflict,
+  BootstrapAuthenticationRequired,
+  BootstrapCoordinatorBusy,
+} from "./coordinator-bootstrap-errors.js";
 
 export type BootstrapReconciliationLedger = Pick<
   CoordinatorBootstrapRequests,

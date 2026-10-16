@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.599 - 2026-10-16
+
+- Add a standalone read-only recovery entry point using protected recovery-launcher configuration and a fixed loopback port. Start its page independently of enrollment, lifecycle parsing and the primary coordinator entry point; defer inspection until owner authentication.
+- Share the existing private configuration reader and error identities without changing their custody checks. Preserve the existing launcher setup and add optional recovery access configuration. Read-only access cannot prepare, approve or dispatch maintenance.
+- Fifteen control HTTP cases, two focused configuration checks, full workspace types, lint and server compilation pass. Disposable compiled fixtures preserve broken journal bytes and remain renderable with journal/review modules absent. Permanent HTTPS registration, supervision, rollback controls and installed remote-browser acceptance remain open; the README feature claim stays pending.
+
 ## 0.11.0-beta.3.vorteo.598 - 2026-10-16
 
 - Add a self-contained recovery status page to the existing maintenance listener when a separate protected HTTPS origin is explicitly configured. Page rendering does not read owner configuration, maintenance journals, service status or primary app assets.

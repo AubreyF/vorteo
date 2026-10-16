@@ -1,7 +1,4 @@
-import {
-  MaintenanceRuntimeStatusSchema,
-  type MaintenanceRuntimeIdentity,
-} from "./coordinator-bootstrap-maintenance-service-status.js";
+import type { MaintenanceRuntimeIdentity } from "./coordinator-bootstrap-maintenance-service-status.js";
 import path from "node:path";
 import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
 import express, { type ErrorRequestHandler } from "express";
@@ -20,10 +17,7 @@ import {
   maintenanceRecoveryDocument,
   maintenanceRecoveryScript,
 } from "./coordinator-bootstrap-maintenance-recovery-page.js";
-import {
-  handleBootstrapReview,
-  type BootstrapReviewService,
-} from "./coordinator-bootstrap-session.js";
+import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
 
 const MessageSchema = z.discriminatedUnion("type", [
   CoordinatorBootstrapListRequestSchema,
@@ -48,7 +42,7 @@ interface MaintenanceControlInput {
   status(): z.infer<typeof CoordinatorMaintenanceStatusSchema>;
   /** Supplied only after selected persistent startup and native identity checks. */
   runtimeStatus?(): Promise<MaintenanceRuntimeIdentity & { ready: boolean }>;
-  service(): BootstrapReviewService | undefined;
+  service(): BootstrapReviewService | undefined | Promise<BootstrapReviewService | undefined>;
   readOwnerConfiguration(): Promise<z.infer<typeof MaintenanceOwnerConfigurationSchema>>;
   provision(value: z.infer<typeof CoordinatorMaintenanceProvisionRequestSchema>): Promise<void>;
 }
@@ -105,6 +99,8 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
     void (async () => {
       try {
         const status = await input.runtimeStatus!();
+        const { MaintenanceRuntimeStatusSchema } =
+          await import("./coordinator-bootstrap-maintenance-service-status.js");
         response.json(
           MaintenanceRuntimeStatusSchema.parse({ ...status, version: 1, nonce: nonce.data }),
         );
@@ -243,7 +239,8 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
             response.status(400).json({ error: "Invalid maintenance review request" });
             return;
           }
-          response.json(await handleBootstrapReview(parsed.data, input.service()));
+          const { handleBootstrapReview } = await import("./coordinator-bootstrap-session.js");
+          response.json(await handleBootstrapReview(parsed.data, await input.service()));
         } catch (error) {
           next(error);
         }

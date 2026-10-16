@@ -35,25 +35,8 @@ import {
   inspectMaintenanceLauncherSelection,
 } from "./coordinator-bootstrap-maintenance-selection.js";
 
-/** Stable setup does not contain its own artifact or manifest digest. Those
- * pins live in the reviewed plan, avoiding a self-referential digest cycle. */
-export const MaintenanceLauncherSetupSchema = z.strictObject({
-  version: z.literal(1),
-  installationRoot: z.string().startsWith("/"),
-  enrollmentStateDirectory: z.string().startsWith("/"),
-  identitySha256: z.string().regex(/^[a-f0-9]{64}$/),
-  target: z.enum(["maintenance-controller", "recovery-launcher"]),
-  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  control: z
-    .strictObject({
-      admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    })
-    .optional(),
-  nativeAdmission: z.strictObject({
-    path: z.string().startsWith("/"),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  }),
-});
+import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
+export { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 
 /** Protected startup loading is observation-only. Native process and artifact
  * verification follow this binding; callers must not dispatch from it alone. */
