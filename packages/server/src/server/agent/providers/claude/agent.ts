@@ -411,6 +411,19 @@ export interface ClaudeContentChunk {
   [key: string]: unknown;
 }
 
+interface ClaudeClosingRuntime {
+  query: Query | null;
+  input: AsyncMessageInput<SDKUserMessage> | null;
+  child: ChildProcess | null;
+}
+
+class ClaudeProcessCleanupError extends Error {
+  constructor(readonly pid: number | null) {
+    super("Claude process cleanup remains unverified");
+    this.name = "ClaudeProcessCleanupError";
+  }
+}
+
 interface ClaudeAgentClientOptions {
   defaults?: { agents?: Record<string, AgentDefinition> };
   logger: Logger;
@@ -2101,6 +2114,7 @@ class ClaudeAgentSession implements AgentSession {
   private readonly harnessEnvironment: Record<string, string>;
   private readonly usageSessionKey = randomUUID();
   private childProcess: ChildProcess | null = null;
+  private closePromise: Promise<void> | null = null;
   private input: AsyncMessageInput<SDKUserMessage> | null = null;
   /** The exact SDK query/input pair that owns the current foreground turn. */
   private activeForegroundQuery: Query | null = null;
@@ -2725,7 +2739,21 @@ class ClaudeAgentSession implements AgentSession {
     return this.persistence;
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    const runtime: ClaudeClosingRuntime = {
+      query: this.query,
+      input: this.input,
+      child: this.childProcess,
+    };
+    // Close admission and capture exact ownership before the query pump or SDK
+    // callbacks can detach these handles during asynchronous cleanup.
+    this.closed = true;
+    this.closePromise = Promise.resolve().then(() => this.closeSession(runtime));
+    return this.closePromise;
+  }
+
+  private async closeSession(runtime: ClaudeClosingRuntime): Promise<void> {
     this.logger.trace(
       {
         agentId: this.agentId,
@@ -2733,8 +2761,8 @@ class ClaudeAgentSession implements AgentSession {
         sessionId: this.claudeSessionId,
         turnId: this.activeForegroundTurnId ?? this.autonomousTurn?.id ?? undefined,
         turnState: this.turnState,
-        hasQuery: Boolean(this.query),
-        hasInput: Boolean(this.input),
+        hasQuery: Boolean(runtime.query),
+        hasInput: Boolean(runtime.input),
         hasActiveForegroundTurnId: Boolean(this.activeForegroundTurnId),
       },
       "provider.claude.session_close.start",
@@ -2751,28 +2779,13 @@ class ClaudeAgentSession implements AgentSession {
     this.turnState = "idle";
     this.sidechainTracker.clear();
     this.taskProtocolSource.reset();
-    this.input?.end();
-    this.query?.close?.();
-    await this.awaitWithTimeout(this.query?.interrupt?.(), "close query interrupt");
-    await this.awaitWithTimeout(this.query?.return?.(), "close query return");
-    this.query = null;
-    this.input = null;
-    // Terminate the entire process tree (claude + MCP children) to prevent
-    // orphan accumulation. The SDK's internal cleanup may only kill the
-    // direct child process.
-    if (this.childProcess) {
-      const result = await terminateWithTreeKill(this.childProcess, {
-        gracefulTimeoutMs: 2_000,
-        forceTimeoutMs: 2_000,
-      });
-      if (result === "kill-timeout") {
-        this.logger.warn(
-          { pid: this.childProcess.pid, agentId: this.agentId },
-          "Claude process tree did not report exit after SIGKILL",
-        );
-      }
-      this.childProcess = null;
-    }
+    runtime.input?.end();
+    runtime.query?.close?.();
+    await this.awaitWithTimeout(runtime.query?.interrupt?.(), "close query interrupt");
+    await this.awaitWithTimeout(runtime.query?.return?.(), "close query return");
+    if (this.query === runtime.query) this.query = null;
+    if (this.input === runtime.input) this.input = null;
+    await this.closeChildProcess(runtime.child);
     if (this.persistSession === false && this.claudeSessionId) {
       // Claude Code currently ignores --no-session-persistence outside --print mode
       // (see `claude --help`), so the SDK's persistSession=false is silently dropped
@@ -2799,6 +2812,18 @@ class ClaudeAgentSession implements AgentSession {
       },
       "provider.claude.session_close.complete",
     );
+  }
+
+  private async closeChildProcess(child: ChildProcess | null): Promise<void> {
+    if (!child) return;
+    // Tree termination is an attempt, not full descendant-exit proof. Keep the
+    // owned child when its root exit cannot be confirmed by this attempt.
+    const result = await terminateWithTreeKill(child, {
+      gracefulTimeoutMs: 2_000,
+      forceTimeoutMs: 2_000,
+    });
+    if (result === "kill-timeout") throw new ClaudeProcessCleanupError(child.pid ?? null);
+    if (this.childProcess === child) this.childProcess = null;
   }
 
   async listCommands(): Promise<AgentSlashCommand[]> {
@@ -3165,8 +3190,14 @@ class ClaudeAgentSession implements AgentSession {
     return { kind: "fresh-session" };
   }
 
+  private assertOpen(): void {
+    if (this.closed) throw new Error("Claude session is closed");
+  }
+
   private async ensureQuery(): Promise<Query> {
+    this.assertOpen();
     const setupToken = await readClaudeSetupToken(this.harnessEnvironment);
+    this.assertOpen();
     const credentialDigest = setupToken
       ? createHash("sha256").update(setupToken.accessToken).digest("hex")
       : null;
@@ -3227,6 +3258,7 @@ class ClaudeAgentSession implements AgentSession {
       options.settings = { ...options.settings, apiKeyHelper: "" };
     }
     this.logger.debug({ options: summarizeClaudeOptionsForLog(options) }, "claude query");
+    this.assertOpen();
     this.input = input;
     this.queryCredentialDigest = credentialDigest;
     this.query = claudeQuery(
@@ -3236,6 +3268,7 @@ class ClaudeAgentSession implements AgentSession {
         launchEnv: this.launchEnv,
         authEnv,
         queryFactory: this.queryFactory,
+        assertCanSpawn: () => this.assertOpen(),
         onChildProcess: (child) => {
           this.childProcess = child;
           child.once("exit", (code, signal) => this.handleRuntimeExit(child, code, signal));

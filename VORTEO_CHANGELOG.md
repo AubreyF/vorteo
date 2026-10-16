@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.588 - 2026-10-15
+
+- Capture Claude's exact SDK query, input and child before asynchronous close. Concurrent and repeated close calls share the retained result; termination timeout preserves the child handle and reports incomplete cleanup instead of success.
+- Close admission synchronously and check again immediately before SDK process creation, preventing a late spawn after the session closes. Isolated runtime-exit, spawn and interruption regressions pass without live account dependencies. Query retirement, full native descendant proof and installed maintenance acceptance remain open; README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.587 - 2026-10-15
 
 - Retain OpenCode helper generations and their managed records when cleanup is unverified. Concurrent or repeated shutdowns share one termination attempt; known failed cleanup blocks new acquisitions until the owned process actually exits.
