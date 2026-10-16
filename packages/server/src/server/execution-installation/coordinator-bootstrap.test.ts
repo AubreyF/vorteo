@@ -1,6 +1,8 @@
+import { supervisionReviewClient } from "./coordinator-bootstrap-supervision-control.js";
 import {
   BootstrapRunnerSetupSchema,
   verifyBootstrapSupervisionRunner,
+  assertSupervisionHelpers,
 } from "./coordinator-bootstrap-runner.js";
 import * as bootstrapArtifact from "./coordinator-bootstrap-artifact.js";
 import nativeChildProcess from "node:child_process";
@@ -2491,6 +2493,145 @@ test.each(["exact-ack", "wrong-ack", "timeout"])(
     }
   },
 );
+
+test.each(["approval", "lost-dispatch-reply", "cancellation-race"])(
+  "supervision review dispatches only its recorded owner decision: %s",
+  async (scenario) => {
+    const f = await supervisionRecoveryFixture();
+    const canceled = await f
+      .service()
+      .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+    f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+    const pending = await f
+      .service()
+      .prepare({ id: randomUUID(), reason: "Review fixture", plan: f.plan });
+    const dispatch = vi.fn(async (approved: CoordinatorBootstrapRequest) => {
+      expect(f.journal.read().find((request) => request.id === approved.id)).toEqual(approved);
+      if (scenario === "lost-dispatch-reply") {
+        reserveSupervisionFixture(f, approved);
+        throw new Error("Reply lost after reservation");
+      }
+    });
+    const client = supervisionReviewClient({
+      requests: f.service(),
+      binding: pickDecision(pending),
+      dispatch,
+    });
+    const approve = { ...pickDecision(pending), decision: "approve" as const };
+    await expect(client.decideCoordinatorBootstrap(approve, "wrong-password")).rejects.toThrow(
+      "authentication required",
+    );
+    expect(dispatch).not.toHaveBeenCalled();
+    if (scenario === "cancellation-race") {
+      let release = () => {};
+      let entered = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const validating = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      f.setVerify(async () => {
+        entered();
+        await gate;
+      });
+      const result = client.decideCoordinatorBootstrap(approve, ownerPassword);
+      const refused = expect(result).rejects.toThrow("request changed");
+      await validating;
+      await client.decideCoordinatorBootstrap(
+        { ...pickDecision(pending), decision: "cancel" },
+        ownerPassword,
+      );
+      release();
+      await refused;
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(f.journal.read().find((request) => request.id === pending.id)?.status).toBe(
+        "canceled",
+      );
+    } else if (scenario === "lost-dispatch-reply") {
+      await expect(client.decideCoordinatorBootstrap(approve, ownerPassword)).rejects.toThrow(
+        "Reply lost",
+      );
+      const reopened = new FileBootstrapRequestJournal(f.root)
+        .read()
+        .find((request) => request.id === pending.id)!;
+      expect(reopened.status).toBe("approved");
+      expect(reopened.supervisionDispatch?.approvedRevision).toBe(
+        dispatch.mock.calls[0]![0].revision,
+      );
+      await expect(
+        client.decideCoordinatorBootstrap(
+          { ...pickDecision(reopened), decision: "approve" },
+          ownerPassword,
+        ),
+      ).rejects.toThrow("already been decided");
+      expect(dispatch).toHaveBeenCalledOnce();
+    } else {
+      await client.decideCoordinatorBootstrap(approve, ownerPassword);
+      const approved = dispatch.mock.calls[0]![0];
+      expect(approved.status).toBe("approved");
+      expect(approved.revision).not.toBe(pending.revision);
+      await expect(client.decideCoordinatorBootstrap(approve, ownerPassword)).rejects.toThrow(
+        "request changed",
+      );
+      expect(dispatch).toHaveBeenCalledOnce();
+    }
+  },
+);
+
+test("short supervision acknowledgement deadline observes without killing or retrying", async () => {
+  const child = new nativeChildProcess.ChildProcess();
+  const stdout = new PassThrough();
+  Object.defineProperty(child, "stdout", { value: stdout });
+  const kill = vi.spyOn(child, "kill");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const { waitForBootstrapWatchdog } = await import("./coordinator-bootstrap-runner.js");
+    const refused = expect(
+      waitForBootstrapWatchdog(child, { role: "executor", timeoutMs: 25_000 }),
+    ).rejects.toThrow("did not become ready");
+    await vi.advanceTimersByTimeAsync(25_000);
+    await refused;
+    expect(kill).not.toHaveBeenCalled();
+    expect(stdout.listenerCount("data")).toBe(0);
+    expect(child.listenerCount("error")).toBe(0);
+    expect(child.listenerCount("exit")).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    kill.mockRestore();
+  }
+});
+
+test("supervision helper authority stays inside the reviewed runtime", () => {
+  const file = { path: "/reviewed/scripts/helper.py", sha256: "a".repeat(64) };
+  const setup = BootstrapRunnerSetupSchema.parse({
+    admissionSetupFile: "/protected/admission.json",
+    daemonId: "host-id",
+    node: file,
+    entrypoint: file,
+    ownerLauncher: file,
+    ownershipVerifier: file,
+    runtimeDirectory: "/reviewed",
+    runtimeSha256: "b".repeat(64),
+    supervision: { requestId: randomUUID(), configuration: file },
+  });
+  expect(() => assertSupervisionHelpers(setup)).not.toThrow();
+  expect(() =>
+    assertSupervisionHelpers({
+      ...setup,
+      ownerLauncher: { ...file, path: "/unreviewed/helper.py" },
+    }),
+  ).toThrow("outside the reviewed runtime");
+  expect(() =>
+    assertSupervisionHelpers({ ...setup, entrypoint: { ...file, path: "/unreviewed/runner.js" } }),
+  ).toThrow("outside the reviewed runtime");
+  expect(() =>
+    assertSupervisionHelpers({
+      ...setup,
+      ownershipVerifier: { ...file, path: "/reviewed-other/helper.py" },
+    }),
+  ).toThrow("outside the reviewed runtime");
+});
 
 test("ordinary native dispatch refuses supervision recovery before ownership or effects", async () => {
   const f = await supervisionRecoveryFixture();

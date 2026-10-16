@@ -12,7 +12,7 @@ const BindingSchema = z.strictObject({
 export interface OwnerReviewInput {
   binding: z.infer<typeof BindingSchema>;
   origin(): string;
-  scope?: "coordinator-migration" | "preclaim-recovery";
+  scope?: "coordinator-migration" | "preclaim-recovery" | "coordinator-supervision";
   client: {
     // The actual client validates and retains the complete request/plan. Only
     // these identity fields participate in this presentation's admission.
@@ -154,6 +154,31 @@ function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
           "Approval is sent once. You can cancel with the displayed revision until execution is claimed. A lost reply never repeats an approval or restart.",
         )
     : ownerReviewHtml;
+  if (scope === "coordinator-supervision")
+    return html
+      .replace("const supervisionOnly=false;", "const supervisionOnly=true;")
+      .replace(
+        '<pre id="identity"></pre>',
+        '<pre id="identity" hidden></pre><pre id="release" hidden></pre>',
+      )
+      .replace("Review coordinator recovery", "Review coordinator supervision")
+      .replace(
+        "This independent page uses the existing Host review service while the normal coordinator is unavailable.",
+        "This independent page reviews restoring OS supervision to the manually running coordinator.",
+      )
+      .replace(
+        "The exact plan replaces the coordinator. Host and Dev agents are not restarted by this decision. Compatible recovery and the configured delivery tools are included in the plan below. This does not grant standing maintenance authority.",
+        "This exact plan freezes the reviewed coordinator, verifies that it has no preparation children, preserves installation history and sessions, then retires that frozen process with SIGKILL. It starts the reviewed replacement under OS supervision, with the reviewed compatible fallback if needed. Host and Dev agents are not restarted. This does not grant standing maintenance authority.",
+      )
+      .replace("Approve this exact coordinator migration", "Approve this exact supervision handoff")
+      .replace(
+        "Cancel this exact pending coordinator request?",
+        "Cancel this exact supervision handoff before execution is claimed?",
+      )
+      .replace(
+        "Approve this exact coordinator replacement and compatible recovery plan?",
+        "Approve freezing and retiring the reviewed coordinator with SIGKILL, then starting the exact replacement or compatible fallback?",
+      );
   if (scope === "coordinator-migration")
     return html
       .replace(
@@ -203,9 +228,9 @@ const ownerReviewHtml = `<!doctype html><html lang="en"><meta charset="utf-8"><m
 <button id="approve" disabled>Approve this exact coordinator migration</button><button id="cancel" disabled>Cancel this exact request</button>
 <p>After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.</p>
 <script>
-const recoveryOnly=false;const nativeReview=false;let sending=false;let cancelSending=false;let currentRevision;
+const recoveryOnly=false;const nativeReview=false;const supervisionOnly=false;let sending=false;let cancelSending=false;let currentRevision;
 const el=id=>document.getElementById(id);
-async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=nativeReview?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
+async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:(r.status==='approved'&&r.supervisionDispatch?' / Launch outcome unverified':''));el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);if(supervisionOnly){const p=r.plan;el('release').hidden=false;el('release').textContent=['Target: Installation coordinator','Running source: '+p.previous.sourceCommit,'Replacement source: '+p.candidate.sourceCommit,'Compatible fallback source: '+p.compatibleRecovery.sourceCommit,'Reviewed process: '+p.expectedProcess.pid].join('\\n');}const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=nativeReview?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
 async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;if(decision==='cancel')cancelSending=true;else sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword,revision:currentRevision})});const result=await response.json();if(nativeReview&&response.status===401){if(decision==='cancel')cancelSending=false;else sending=false;}el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
 el('approve').onclick=()=>decide('approve');el('cancel').onclick=()=>decide('cancel');refresh();setInterval(refresh,5000);
 </script></html>`;

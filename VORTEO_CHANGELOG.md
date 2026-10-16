@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.611 - 2026-10-16
+
+### Maintenance
+
+- Add the protected supervision-review parent for one exact recorded request. Reuse the installation owner password, existing request journal and one launch reservation; verify native parent custody under shared exclusion before forking the existing executor. Reopening a reserved launch observes instead of forking again.
+- Keep native helper and runner code inside the reviewed runtime. Bound parent acknowledgement observation to twenty-five seconds without killing or retrying the installer; preserve existing observation defaults for other callers.
+- Show the target, running source, replacement, compatible fallback and explicit frozen SIGKILL in the independent review. Keep cancellation available before claim, clear passwords after decisions, and label a reserved launch unverified rather than completed. Canceled requests retain audit data without displaying an active launch.
+- Eleven focused authentication, cancellation, reservation and deadline cases pass. Review scripts are syntax-checked, and an isolated Chromium fixture verifies visible release details, authentication failure, password clearing, one-time submission and cancellation. Types, lint and compilation pass. Full compiled native handoff and rollback acceptance remain open; no real review, route or service was installed.
+
 ## 0.11.0-beta.3.vorteo.610 - 2026-10-16
 
 ### Fixed

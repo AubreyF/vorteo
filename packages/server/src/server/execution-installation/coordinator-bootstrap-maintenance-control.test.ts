@@ -1,3 +1,4 @@
+import { Script } from "node:vm";
 import { createServer, request as httpRequest, type RequestOptions } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -17,6 +18,8 @@ test.each([
   { scope: "preclaim-recovery", claimed: true },
   { scope: "coordinator-migration", claimed: false },
   { scope: "coordinator-migration", claimed: true },
+  { scope: "coordinator-supervision", claimed: false },
+  { scope: "coordinator-supervision", claimed: true },
 ] as const)(
   "independent $scope cancellation uses the displayed revision before claim ($claimed)",
   async ({ scope, claimed }) => {
@@ -64,6 +67,19 @@ test.each([
         body: JSON.stringify({ decision, revision: requestRevision, ownerPassword: password }),
       });
     try {
+      const html = await (await fetch(origin)).text();
+      expect(() => new Script(html.split("<script>")[1]!.split("</script>")[0]!)).not.toThrow();
+      if (scope === "coordinator-supervision") {
+        expect(html).toContain("retires that frozen process with SIGKILL");
+        expect(html).toContain("Host and Dev agents are not restarted");
+        expect(html).toContain("Approve this exact supervision handoff");
+        expect(html).toContain("Launch outcome unverified");
+        expect(html).toContain("Replacement source: ");
+        expect(html).toContain("Compatible fallback source: ");
+        expect(html).toContain(
+          "Cancel this exact supervision handoff before execution is claimed?",
+        );
+      }
       expect((await post("approve", revision, "wrong")).status).toBe(401);
       expect(decisions).toEqual([]);
       expect((await post("approve", revision)).status).toBe(200);

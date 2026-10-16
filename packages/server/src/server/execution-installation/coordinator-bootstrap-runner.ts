@@ -181,14 +181,27 @@ export const BootstrapRunnerSetupSchema = z.strictObject({
  * durable claim with its watchdog armed. Neither message proves completion. */
 export function waitForBootstrapWatchdog(
   child: ChildProcess,
-  role: "watchdog" | "executor" = "watchdog",
+  observation:
+    | "watchdog"
+    | "executor"
+    | { role: "watchdog" | "executor"; timeoutMs: number } = "watchdog",
 ): Promise<void> {
-  const expected = role === "watchdog" ? "waiting\n" : "dispatched\n";
+  const options =
+    typeof observation === "string"
+      ? { role: observation, timeoutMs: observation === "watchdog" ? 10_000 : 15 * 60_000 }
+      : observation;
+  if (
+    !Number.isSafeInteger(options.timeoutMs) ||
+    options.timeoutMs <= 0 ||
+    options.timeoutMs > 15 * 60_000
+  )
+    throw new BootstrapRequestConflict("Invalid bootstrap observation deadline");
+  const expected = options.role === "watchdog" ? "waiting\n" : "dispatched\n";
   return new Promise((resolve, reject) => {
     let bytes = "";
     // Full installed dependency trees can take minutes to verify. This bounds
     // observation only; expiration never proves the executor stopped.
-    const timer = setTimeout(() => finish(false), role === "watchdog" ? 10_000 : 15 * 60_000);
+    const timer = setTimeout(() => finish(false), options.timeoutMs);
     const failed = () => finish(false);
     const data = (chunk: Buffer) => {
       bytes += chunk.toString("utf8");
@@ -213,7 +226,7 @@ export function waitForBootstrapWatchdog(
   });
 }
 
-function nativeRunnerUid(): number {
+export function nativeRunnerUid(): number {
   const uid = process.getuid?.();
   if (process.platform !== "darwin" || uid === undefined)
     throw new BootstrapRequestConflict("Native Host runner required");
@@ -424,7 +437,15 @@ function requireSupervisionSetupBinding(input: {
   return { reservation, supervision };
 }
 
+export function assertSupervisionHelpers(setup: z.infer<typeof BootstrapRunnerSetupSchema>): void {
+  if (!setup.supervision) return;
+  for (const helper of [setup.ownerLauncher, setup.ownershipVerifier, setup.entrypoint])
+    if (!helper.path.startsWith(setup.runtimeDirectory + path.sep))
+      throw new BootstrapRequestConflict("Supervision helper is outside the reviewed runtime");
+}
+
 function verifyRunnerExecutable(setup: RunnerSetup): void {
+  assertSupervisionHelpers(setup);
   if (
     realpathSync(process.execPath) !== setup.node.path ||
     fileURLToPath(import.meta.url) !== setup.entrypoint.path
@@ -880,7 +901,21 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && role === "maintenance-service") {
+  if (setup && identifier && role === "supervision-control") {
+    void import("./coordinator-bootstrap-supervision-control.js")
+      .then(({ runBootstrapSupervisionControl }) =>
+        runBootstrapSupervisionControl(setup, identifier),
+      )
+      .then(({ url, binding }) =>
+        process.stdout.write(
+          JSON.stringify({ url, binding, pageLoadApprovesNothing: true }) + "\n",
+        ),
+      )
+      .catch(() => {
+        process.stderr.write("Supervision review could not verify its protected runtime.\n");
+        process.exitCode = 1;
+      });
+  } else if (setup && role === "maintenance-service") {
     void import("./coordinator-bootstrap-maintenance-service-runner.js")
       .then(({ runNativeMaintenanceService }) =>
         runNativeMaintenanceService(setup, process.argv.slice(4)),
