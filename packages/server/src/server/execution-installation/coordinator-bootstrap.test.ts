@@ -1,3 +1,8 @@
+import * as bootstrapArtifact from "./coordinator-bootstrap-artifact.js";
+import nativeChildProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { PassThrough } from "node:stream";
+import * as bootstrapHost from "./coordinator-bootstrap-host.js";
 import {
   DaemonAutomation,
   coordinatorAutomaticAuthority,
@@ -74,7 +79,10 @@ import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
-import { createBootstrapNativeOperations } from "./coordinator-bootstrap-runtime.js";
+import {
+  createBootstrapNativeOperations,
+  createBootstrapSupervisionControl,
+} from "./coordinator-bootstrap-runtime.js";
 
 import {
   bootstrapRecoveryLauncher,
@@ -2140,6 +2148,160 @@ test("supervision launch refuses asynchronous or changed custody without persist
   ).toThrow("locked native custody");
   expect(f.journal.read()).toEqual(before);
 });
+
+test.each(["success", "changed-generation", "deadline", "private-error"])(
+  "supervision production control binds one native generation: %s",
+  async (scenario) => {
+    const f = await supervisionRecoveryFixture();
+    const canceled = await f
+      .service()
+      .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+    f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+    const pending = await f
+      .service()
+      .prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const reserved = f.journal.reserveSupervisionLaunch({
+      request: approved,
+      setup: { path: path.join(f.root, "setup.json"), sha256: "a".repeat(64) },
+      parent: {
+        ...f.plan.expectedProcess,
+        bootId: randomUUID(),
+        startIdentity: "1000:1",
+        parentPid: 1,
+        uid: process.getuid!(),
+        executable: process.execPath,
+      },
+      assertCurrent: () => undefined,
+    });
+    const claimed = await f.service().claimDispatch(pickDecision(reserved));
+    f.journal.promote(claimed);
+    const request = f
+      .service()
+      .advanceDispatch(
+        { ...pickDecision(claimed), generation: claimed.execution!.generation },
+        "freeze_pending",
+      );
+    const ownerLauncher = {
+      path: path.join(f.root, "owner.py"),
+      sha256: createHash("sha256").update("pass").digest("hex"),
+    };
+    writeFileSync(ownerLauncher.path, "pass", { mode: 0o600 });
+    const host = {
+      daemonId: "host-id",
+      configurationFile: "/protected/actual-config.json",
+      launcherFile: "/protected/selected.plist",
+      docker: "/protected/docker",
+      socket: "/protected/docker.sock",
+      containerId: "a".repeat(64),
+      helperPath: "/protected/inspector.py",
+      helperSha256: "b".repeat(64),
+    };
+    const mounts = vi
+      .spyOn(bootstrapHost, "inspectBootstrapWritableMountRoots")
+      .mockResolvedValue([]);
+    const lateArtifact =
+      scenario === "deadline"
+        ? vi
+            .spyOn(bootstrapArtifact, "readBootstrapPreparedFile")
+            .mockResolvedValue(Buffer.from("pass"))
+        : undefined;
+    const spawn = vi.spyOn(nativeChildProcess, "spawn").mockImplementation(() => {
+      const child = new nativeChildProcess.ChildProcess();
+      const stderr = new PassThrough();
+      Object.defineProperty(child, "stderr", { value: stderr });
+      queueMicrotask(() => {
+        if (scenario === "private-error") stderr.write("private diagnostic must not escape");
+        child.emit("close", scenario === "private-error" ? 1 : 0);
+      });
+      return child;
+    });
+    syncBuiltinESMExports();
+    let release = () => {};
+    const pendingOwnership = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const requireOwnership = vi.fn(() =>
+      scenario === "deadline" ? pendingOwnership : Promise.resolve(),
+    );
+    const control = createBootstrapSupervisionControl({
+      requests: f.service(),
+      host,
+      ownerLauncher,
+      descriptor: 7,
+      requireOwnership,
+    });
+    try {
+      if (scenario === "deadline") {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        const result = expect(control.signal(request, "freeze")).rejects.toThrow(
+          "deadline elapsed",
+        );
+        await vi.advanceTimersByTimeAsync(25_000);
+        await result;
+        release();
+        // Fake wall time is irrelevant to the monotonic fence. Late validation
+        // must be rejected even after the outer deadline has returned.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(spawn).not.toHaveBeenCalled();
+      } else if (scenario === "changed-generation") {
+        f.service().advanceDispatch(
+          { ...pickDecision(request), generation: request.execution!.generation },
+          "recovery_required",
+        );
+        await expect(control.signal(request, "freeze")).rejects.toThrow("generation changed");
+        expect(spawn).not.toHaveBeenCalled();
+      } else if (scenario === "private-error") {
+        await expect(control.signal(request, "freeze")).rejects.toThrow(
+          "reconciliation: verification_failed",
+        );
+        expect(spawn).toHaveBeenCalledOnce();
+      } else {
+        await control.signal(request, "freeze");
+        expect(spawn).toHaveBeenCalledOnce();
+        const [executable, args, options] = spawn.mock.calls[0]!;
+        expect(executable).toBe("/usr/bin/python3");
+        expect(args).toEqual([
+          "-I",
+          "-B",
+          "-c",
+          "pass",
+          "supervision-effect",
+          f.root,
+          request.id,
+          request.revision,
+          request.execution!.generation,
+          request.planSha256,
+          "freeze",
+          host.helperPath,
+          host.helperSha256,
+          host.configurationFile,
+          host.launcherFile,
+          expect.any(String),
+        ]);
+        expect(options).toEqual({
+          env: { PATH: "/usr/bin:/bin" },
+          stdio: ["ignore", "ignore", "pipe", 7],
+          timeout: expect.any(Number),
+          killSignal: "SIGKILL",
+        });
+      }
+      expect(requireOwnership).toHaveBeenCalledOnce();
+      expect(
+        f.journal.read().find((record) => record.id === request.id)?.supervisionDispatch,
+      ).toEqual(reserved.supervisionDispatch);
+    } finally {
+      release();
+      vi.useRealTimers();
+      spawn.mockRestore();
+      mounts.mockRestore();
+      lateArtifact?.mockRestore();
+      syncBuiltinESMExports();
+    }
+  },
+);
 
 test("ordinary native dispatch refuses supervision recovery before ownership or effects", async () => {
   const f = await supervisionRecoveryFixture();

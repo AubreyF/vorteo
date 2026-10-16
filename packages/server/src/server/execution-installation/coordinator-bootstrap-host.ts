@@ -32,6 +32,7 @@ import {
   readBootstrapLauncher,
   verifyBootstrapLaunchers,
   verifyLoadedBootstrapService,
+  verifyUnregisteredBootstrapCoordinator,
 } from "./coordinator-bootstrap-service.js";
 
 import { verifyBootstrapRecoveryArtifacts } from "./coordinator-bootstrap-boot-recovery.js";
@@ -228,6 +229,17 @@ export async function verifyBootstrapPlan(
   plan: CoordinatorBootstrapPlan,
   host: BootstrapAdmissionHost,
 ): Promise<void> {
+  const verifyPrevious = plan.supervisionRecovery
+    ? verifyUnregisteredBootstrapCoordinator
+    : verifyLoadedBootstrapService;
+  const verifyRestorationHistory = () => {
+    if (plan.supervisionRecovery)
+      assertRecoveredBootstrapBase(
+        plan,
+        new FileBootstrapRequestJournal(plan.state.directory).read(),
+      );
+  };
+  verifyRestorationHistory();
   const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
   verifyBootstrapConfiguration({ plan, ...host });
   if (
@@ -272,7 +284,7 @@ export async function verifyBootstrapPlan(
     });
   }
   const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
-  await verifyLoadedBootstrapService({
+  await verifyPrevious({
     plan,
     hostUid: process.getuid!(),
     configurationFile: host.configurationFile,
@@ -293,13 +305,14 @@ export async function verifyBootstrapPlan(
     { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
     finalRoots,
   );
-  await verifyLoadedBootstrapService({
+  await verifyPrevious({
     plan,
     hostUid: process.getuid!(),
     configurationFile: host.configurationFile,
     reader,
   });
   await verifyRecoveredBootstrapExit(plan, finalRoots, reader);
+  verifyRestorationHistory();
   if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
     throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
 }

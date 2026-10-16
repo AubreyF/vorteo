@@ -59,7 +59,7 @@ import { FileClaimedRecoveryReviewJournal } from "./coordinator-bootstrap-claime
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
-import { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import { CoordinatorBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { requireBootstrapOwnership } from "./coordinator-bootstrap-ownership.js";
@@ -775,9 +775,11 @@ test.runIf(process.platform === "darwin")(
       };
     });
     const verifyProcessExited = vi.fn(async (_pid: number) => {});
+    const verifyServiceAbsent = vi.fn(async (_service: string) => {});
     vi.spyOn(serviceCollector, "createNativeBootstrapServiceReader").mockResolvedValue({
       readService: async () => `${service} = {\n\tpid = 123\n}`,
       inspectProcess,
+      verifyServiceAbsent,
       verifyProcessExited,
     });
     await expect(verifyBootstrapPlan(plan, host)).resolves.toBeUndefined();
@@ -849,6 +851,50 @@ test.runIf(process.platform === "darwin")(
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("claimed recovery");
     journalRead.mockReturnValueOnce([recovered, { ...recovered, id: randomUUID() }]);
     await expect(verifyBootstrapPlan(successorPlan, host)).rejects.toThrow("another successor");
+    const canceledPlan = { ...successorPlan, candidate: previous };
+    const canceled = CoordinatorBootstrapRequestSchema.parse({
+      ...recovered,
+      id: randomUUID(),
+      revision: randomUUID(),
+      status: "canceled",
+      plan: canceledPlan,
+      planSha256: coordinatorPlanDigest(canceledPlan),
+      execution: undefined,
+    });
+    const sourceFile = path.join(candidate.directory, ".installation-source.json");
+    const oldSource = readFileSync(sourceFile);
+    save(sourceFile, { sourceCommit: "c".repeat(40) });
+    const newReader = {
+      ...candidate,
+      sourceCommit: "c".repeat(40),
+      artifactSha256: await digestBootstrapArtifact(candidate.directory),
+    };
+    const manualPlan = {
+      ...successorPlan,
+      candidate: newReader,
+      compatibleRecovery: newReader,
+      automaticRecovery: "restore-compatible" as const,
+      supervisionRecovery: {
+        canceledRequest: {
+          id: canceled.id,
+          revision: canceled.revision,
+          planSha256: canceled.planSha256,
+        },
+        terminateFrozen: "SIGKILL" as const,
+      },
+    };
+    journalRead.mockReturnValue([recovered, canceled]);
+    inspectProcess.mockClear();
+    await expect(verifyBootstrapPlan(manualPlan, host)).resolves.toBeUndefined();
+    expect(verifyServiceAbsent).toHaveBeenCalledTimes(6);
+    expect(inspectProcess).toHaveBeenCalledTimes(4);
+    verifyServiceAbsent.mockRejectedValueOnce(new Error("Service unexpectedly registered"));
+    await expect(verifyBootstrapPlan(manualPlan, host)).rejects.toThrow("unexpectedly registered");
+    journalRead.mockReturnValueOnce([recovered]);
+    await expect(verifyBootstrapPlan(manualPlan, host)).rejects.toThrow(
+      "canceled migration changed",
+    );
+    writeFileSync(sourceFile, oldSource);
     journalRead.mockRestore();
     claimedRead.mockRestore();
     reviewRead.mockRestore();

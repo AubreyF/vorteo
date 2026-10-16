@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.608 - 2026-10-16
+
+### Maintenance
+
+- Connect the supervision control port to the audited native helper with the inherited execution descriptor and exact retained request, revision and generation. Validation and helper execution share a twenty-five-second deadline; late validation cannot launch an effect, and failures require retained observation rather than retry.
+- Permit native preparation of the explicitly reviewed manual-restoration path using independent service absence and exact process identity. Recheck canceled migration history before and after preparation; ordinary migration still requires its registered service.
+- Four control cases cover the exact native invocation, generation changes, deadline expiry and private error redaction. The full admission fixture verifies manual restoration, unexpected service registration and missing canceled history. Production runner selection, compiled end-to-end acceptance, owner review packaging and installed supervision remain open; no capability is enabled.
+
 ## 0.11.0-beta.3.vorteo.607 - 2026-10-16
 
 ### Maintenance
