@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.606 - 2026-10-16
+
+### Maintenance
+
+- Add the internal audited supervision effect helper under the existing coordinator execution lock. Bind every effect to the current approved revision, generation, canceled migration, failed ancestry, selected files and kernel process lifetime; consume an exclusive attempt before signaling.
+- Require a frozen coordinator without children and unchanged fsynced state before retirement. Bound the helper with a twenty-five-second deadline and report fixed failure categories without private command output. State transfer checks allow sixteen MiB while legacy dependency-read defaults remain unchanged.
+- A disposable macOS process verifies expired and wrong-generation refusal, actual freeze, replay refusal, missing and changed transfer refusal, recovery-stage retirement, unchanged session bytes and exact-lifetime cleanup. Production controller invocation, independent review packaging and installed supervision remain unfinished; no installed capability is enabled.
+
 ## 0.11.0-beta.3.vorteo.605 - 2026-10-16
 
 ### Maintenance

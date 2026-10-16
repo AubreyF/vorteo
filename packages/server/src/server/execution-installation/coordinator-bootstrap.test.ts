@@ -20,7 +20,10 @@ import {
   statSync,
   symlinkSync,
   writeFileSync,
+  mkdirSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -52,7 +55,9 @@ import {
   verifyLoadedBootstrapService,
   verifyUnregisteredBootstrapCoordinator,
   verifyBootstrapLaunchers,
+  createNativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 
 import {
   executeCoordinatorBootstrap,
@@ -1841,9 +1846,16 @@ test("a fresh review after restoration preserves the failed receipt and rejects 
   ).toBe("fenced");
 });
 
-async function supervisionRecoveryFixture() {
+async function supervisionRecoveryFixture(
+  input: { restored?: CoordinatorBootstrapPlan["previous"] } = {},
+) {
   const f = fixture();
   f.plan.state.directory = f.root;
+  f.plan.state.restartJournal = path.join(f.root, "restart-jobs.json");
+  f.plan.state.ownerSessions = path.join(f.root, "owner-sessions.json");
+  f.plan.service = `gui/${process.getuid!()}/local.vorteo.${f.plan.installationId}.installation`;
+  f.setBinding({ ...f.binding, service: f.plan.service });
+  if (input.restored) f.plan.candidate = input.restored;
   f.plan.automaticRecovery = "restore-compatible";
   f.plan.compatibleRecovery = f.plan.candidate;
   const pending = await f.prepare();
@@ -2170,6 +2182,248 @@ test.runIf(process.platform === "darwin")(
         .find((record) => record.id === canceled.id),
     ).toEqual(canceled);
   },
+);
+
+test.runIf(process.platform === "darwin")(
+  "audited supervision effects consume one generation and require preserved frozen state",
+  async () => {
+    const execute = promisify(execFile);
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "supervision-effect-")));
+    roots.push(root);
+    const runtime = path.join(root, "runtime");
+    mkdirSync(runtime, { mode: 0o700 });
+    const entrypoint = path.join(runtime, "entry.mjs");
+    writeFileSync(entrypoint, "setInterval(() => {}, 1000);", { mode: 0o600 });
+    writeFileSync(
+      path.join(runtime, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: "e".repeat(40) }),
+      { mode: 0o600 },
+    );
+    const configuration = path.join(root, "configuration.json");
+    writeFileSync(configuration, JSON.stringify({ fixture: true }), { mode: 0o600 });
+    const launcher = path.join(root, "launcher.plist");
+    writeFileSync(launcher, "protected fixture launcher", { mode: 0o600 });
+    const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+    const identity = (file: string) => ({ path: file, sha256: hash(file) });
+    const restored = {
+      sourceCommit: "e".repeat(40),
+      directory: runtime,
+      artifactSha256: await digestBootstrapArtifact(runtime),
+      node: identity(realpathSync(process.execPath)),
+      entrypoint: identity(entrypoint),
+      configuration: identity(configuration),
+      launcher: identity(launcher),
+    };
+    const inspector = path.join(root, "inspector.py");
+    writeFileSync(
+      inspector,
+      readFileSync(
+        new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+      ),
+      { mode: 0o600 },
+    );
+    const reader = await createNativeBootstrapServiceReader({
+      helperPath: inspector,
+      helperSha256: hash(inspector),
+      writableMountRoots: [],
+    });
+    const launcherSource = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,${JSON.stringify([entrypoint, configuration])},{detached:true,stdio:'ignore'});child.unref();console.log(child.pid);`;
+    const spawned = await execute(process.execPath, ["-e", launcherSource], {
+      env: { PATH: "/usr/bin:/bin" },
+      timeout: 5000,
+    });
+    const pid = Number(spawned.stdout.trim());
+    expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+    const verifyExit = async () => {
+      const deadline = performance.now() + 2000;
+      for (;;) {
+        try {
+          await reader.verifyProcessExited(pid);
+          return;
+        } catch (error) {
+          if (performance.now() >= deadline) throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    };
+    let retained: Awaited<ReturnType<typeof reader.inspectAuditedProcess>> | undefined;
+    let disposed = false;
+    try {
+      const observed = await reader.inspectAuditedProcess(pid);
+      retained = observed;
+      expect(observed.identity.parentPid).toBe(1);
+      const f = await supervisionRecoveryFixture({ restored });
+      const sessionBytes = Buffer.from(
+        JSON.stringify(
+          Array.from({ length: 15_000 }, (_, index) => ({
+            hash: index.toString(16).padStart(64, "0"),
+            expiresAt: 2_000_000_000_000,
+          })),
+        ),
+      );
+      expect(sessionBytes.length).toBeGreaterThan(1024 * 1024);
+      writeFileSync(f.plan.state.ownerSessions, sessionBytes, { mode: 0o600 });
+      const canceled = await f
+        .service()
+        .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+      f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+      const { pid: expectedPid, bootId, startIdentity, argumentsSha256 } = observed.identity;
+      f.plan.expectedProcess = { pid: expectedPid, bootId, startIdentity, argumentsSha256 };
+      const pending = await f
+        .service()
+        .prepare({ id: randomUUID(), reason: "Fixture exact supervision", plan: f.plan });
+      const approved = await f
+        .service()
+        .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+      let current = await f.service().claimDispatch(pickDecision(approved));
+      f.journal.promote(current);
+      const advance = (stage: CoordinatorBootstrapStage) => {
+        current = f
+          .service()
+          .advanceDispatch(
+            { ...pickDecision(current), generation: current.execution!.generation },
+            stage,
+          );
+      };
+      advance("freeze_pending");
+      const lock = path.join(f.root, "coordinator-bootstrap-execution.lock");
+      writeFileSync(lock, "", { mode: 0o600 });
+      const owner = path.resolve(
+        import.meta.dirname,
+        "../../../../../scripts/run-coordinator-owner.py",
+      );
+      const wrapper = `import os,fcntl,subprocess,sys
+lock=os.open(sys.argv[1],os.O_RDWR|os.O_NOFOLLOW)
+assert lock==3
+fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+result=subprocess.run([sys.executable,'-I','-B',sys.argv[2],'supervision-effect',*sys.argv[3:]],pass_fds=(3,),timeout=12,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+sys.stdout.buffer.write(result.stdout);sys.stderr.buffer.write(result.stderr)
+sys.exit(result.returncode)
+`;
+      const effect = (
+        kind: "freeze" | "terminate-frozen",
+        generation = current.execution!.generation,
+        deadline = Date.now() + 25_000,
+      ) =>
+        execute(
+          "/usr/bin/python3",
+          [
+            "-I",
+            "-B",
+            "-c",
+            wrapper,
+            lock,
+            owner,
+            f.root,
+            current.id,
+            current.revision,
+            generation,
+            current.planSha256,
+            kind,
+            inspector,
+            hash(inspector),
+            configuration,
+            launcher,
+            String(deadline),
+          ],
+          { env: { PATH: "/usr/bin:/bin" }, timeout: 15_000, maxBuffer: 8192 },
+        );
+      await expect(effect("freeze", randomUUID())).rejects.toMatchObject({
+        stderr: "supervision:approval_changed\n",
+      });
+      await expect(
+        effect("freeze", current.execution!.generation, Date.now() - 1),
+      ).rejects.toMatchObject({ stderr: "supervision:deadline_elapsed\n" });
+      expect((await reader.inspectRunningProcess(pid)).stopped).toBe(false);
+      await effect("freeze");
+      expect(await reader.inspectStoppedProcess(pid)).toEqual({
+        ...observed.identity,
+        stopped: true,
+        childPids: [],
+      });
+      await expect(effect("freeze")).rejects.toMatchObject({
+        stderr: "supervision:effect_consumed\n",
+      });
+      expect((await reader.inspectStoppedProcess(pid)).stopped).toBe(true);
+      advance("frozen");
+      advance("unload_pending");
+      await expect(effect("terminate-frozen")).rejects.toMatchObject({
+        stderr: "supervision:transfer_unavailable\n",
+      });
+      expect((await reader.inspectStoppedProcess(pid)).stopped).toBe(true);
+      advance("recovery_required");
+      advance("rollback_pending");
+      await preserveBootstrapState({ request: current, writableMountRoots: [], childPids: [] });
+      writeFileSync(f.plan.state.ownerSessions, Buffer.concat([sessionBytes, Buffer.from("\n")]));
+      await expect(effect("terminate-frozen")).rejects.toMatchObject({
+        stderr: "supervision:state_changed\n",
+      });
+      expect((await reader.inspectStoppedProcess(pid)).stopped).toBe(true);
+      writeFileSync(f.plan.state.ownerSessions, sessionBytes);
+      await effect("terminate-frozen");
+      await verifyExit();
+      disposed = true;
+      await expect(effect("terminate-frozen")).rejects.toThrow();
+      const intent = JSON.parse(
+        readFileSync(
+          path.join(
+            f.root,
+            `coordinator-supervision-effect-${current.execution!.generation}-terminate-frozen.json`,
+          ),
+          "utf8",
+        ),
+      );
+      expect(intent).toEqual({
+        requestId: current.id,
+        revision: current.revision,
+        generation: current.execution!.generation,
+        planSha256: current.planSha256,
+        effect: "terminate-frozen",
+        process: observed.identity,
+        auditToken: observed.auditToken,
+      });
+      expect(readFileSync(f.plan.state.ownerSessions)).toEqual(sessionBytes);
+      expect(
+        f
+          .service()
+          .list()
+          .find((record) => record.id === f.failed.id),
+      ).toEqual(f.failed);
+      expect(
+        f
+          .service()
+          .list()
+          .find((record) => record.id === canceled.id),
+      ).toEqual(canceled);
+    } finally {
+      const observed = retained ?? (await reader.inspectAuditedProcess(pid));
+      expect(observed.identity.pid).toBe(pid);
+      expect(observed.identity.uid).toBe(process.getuid!());
+      expect(observed.identity.executable).toBe(restored.node.path);
+      expect(observed.identity.argumentsSha256).toBe(
+        createHash("sha256")
+          .update(JSON.stringify([restored.node.path, entrypoint, configuration]))
+          .digest("hex"),
+      );
+      // Cleanup also uses the retained audit token, never a potentially reused PID.
+      const cleanup = `import ctypes,json,sys
+library=ctypes.CDLL('/usr/lib/libSystem.B.dylib',use_errno=True)
+library.proc_signal_with_audittoken.argtypes=[ctypes.c_void_p,ctypes.c_int]
+library.proc_signal_with_audittoken.restype=ctypes.c_int
+token=(ctypes.c_uint32*8)(*json.loads(sys.argv[1]))
+result=library.proc_signal_with_audittoken(ctypes.byref(token),9)
+if result!=0 and ctypes.get_errno()!=3: raise RuntimeError('Fixture cleanup is unproven')
+`;
+      if (!disposed)
+        await execute(
+          "/usr/bin/python3",
+          ["-I", "-B", "-c", cleanup, JSON.stringify(observed.auditToken)],
+          { env: { PATH: "/usr/bin:/bin" }, timeout: 5000, maxBuffer: 8192 },
+        );
+      await verifyExit();
+    }
+  },
+  30_000,
 );
 
 test.each([
