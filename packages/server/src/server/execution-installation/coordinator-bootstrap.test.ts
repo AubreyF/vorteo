@@ -32,6 +32,7 @@ import {
   CoordinatorBootstrapPlanSchema,
   type CoordinatorBootstrapPlan,
   type CoordinatorBootstrapRequest,
+  type CoordinatorBootstrapStage,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
 import {
@@ -68,6 +69,7 @@ import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
 
 import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
 import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+import { createBootstrapNativeOperations } from "./coordinator-bootstrap-runtime.js";
 
 import {
   bootstrapRecoveryLauncher,
@@ -1838,6 +1840,384 @@ test("a fresh review after restoration preserves the failed receipt and rejects 
     }).kind,
   ).toBe("fenced");
 });
+
+async function supervisionRecoveryFixture() {
+  const f = fixture();
+  f.plan.state.directory = f.root;
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const failed = f.journal.fenceUnpromotedClaim(claimed, {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "f".repeat(64),
+  });
+  const recoveredFrom = {
+    id: failed.id,
+    revision: failed.revision,
+    generation: failed.execution!.generation,
+    planSha256: failed.planSha256,
+  };
+  const migration = await f.service().prepare({
+    id: randomUUID(),
+    reason: "Reviewed migration before manual restoration",
+    plan: { ...f.plan, recoveredFrom },
+  });
+  const approvedMigration = await f
+    .service()
+    .decide({ ...pickDecision(migration), decision: "approve" }, ownerPassword);
+  const restored = approvedMigration.plan.candidate;
+  const candidate = {
+    ...restored,
+    sourceCommit: "f".repeat(40),
+    artifactSha256: "f".repeat(64),
+    directory: "/protected/reader-aware-replacement",
+    entrypoint: { ...restored.entrypoint, path: "/protected/reader-aware-replacement/main.js" },
+  };
+  const plan: CoordinatorBootstrapPlan = {
+    ...approvedMigration.plan,
+    previous: restored,
+    candidate,
+    compatibleRecovery: candidate,
+    expectedProcess: { ...f.plan.expectedProcess, pid: 456 },
+    supervisionRecovery: {
+      canceledRequest: pickDecision(approvedMigration),
+      terminateFrozen: "SIGKILL",
+    },
+  };
+  return { ...f, failed, approvedMigration, plan };
+}
+
+test("supervision recovery waits for recorded cancellation and preserves both migration histories", async () => {
+  const f = await supervisionRecoveryFixture();
+  const before = f.journal.read();
+  await expect(
+    f.service().prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan }),
+  ).rejects.toThrow("canceled migration changed");
+  expect(f.journal.read()).toEqual(before);
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  const pending = await f
+    .service()
+    .prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan });
+  expect(pending.status).toBe("pending");
+  expect(pending.execution).toBeUndefined();
+  expect(f.service().list()).toEqual([f.failed, canceled, pending]);
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  f.journal.promote(claimed);
+  const started = {
+    ...claimed,
+    execution: { ...claimed.execution!, stage: "start_pending" as const },
+  };
+  const afterPromotion = f.journal.read();
+  f.journal.replace(
+    afterPromotion,
+    afterPromotion.map((record) => (record.id === claimed.id ? started : record)),
+  );
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.root,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  const fence = loadCoordinatorStartupFence(identity);
+  expect(fence?.generation).toBe(started.execution.generation);
+  expect(fence?.released()).toBe(false);
+  const pendingPath = path.join(f.root, "coordinator-bootstrap-pending.json");
+  const pendingBytes = readFileSync(pendingPath);
+  const futurePending = JSON.parse(pendingBytes.toString("utf8"));
+  futurePending.requests.push({
+    ...canceled,
+    id: randomUUID(),
+    plan: { ...canceled.plan, futureMaintenanceField: true },
+  });
+  writeFileSync(pendingPath, JSON.stringify(futurePending), { mode: 0o600 });
+  expect(loadCoordinatorStartupFence(identity)?.generation).toBe(started.execution.generation);
+  const required = futurePending.requests.find(
+    (record: { id: string }) => record.id === canceled.id,
+  );
+  required.plan.futureMaintenanceField = true;
+  writeFileSync(pendingPath, JSON.stringify(futurePending), { mode: 0o600 });
+  const invalidBytes = readFileSync(pendingPath);
+  expect(() => loadCoordinatorStartupFence(identity)).toThrow("futureMaintenanceField");
+  expect(readFileSync(pendingPath)).toEqual(invalidBytes);
+  writeFileSync(pendingPath, pendingBytes, { mode: 0o600 });
+  const finished = {
+    ...started,
+    execution: { ...started.execution, stage: "succeeded" as const },
+  };
+  const beforeCompletion = f.journal.read();
+  f.journal.replace(
+    beforeCompletion,
+    beforeCompletion.map((record) => (record.id === started.id ? finished : record)),
+  );
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+  expect(f.service().list()).toEqual([finished, f.failed, canceled]);
+  expect(openBootstrapRequests(f.service().list())).toEqual([]);
+});
+
+test("ordinary native dispatch refuses supervision recovery before ownership or effects", async () => {
+  const f = await supervisionRecoveryFixture();
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  const pending = await f
+    .service()
+    .prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const verifySetup = vi.fn(async () => {});
+  const armWatchdog = vi.fn(async () => {});
+  const before = f.journal.read();
+  await expect(
+    createBootstrapNativeOperations({
+      requests: f.service(),
+      approved,
+      host: {
+        daemonId: "fixture-host",
+        configurationFile: "/protected/config.json",
+        launcherFile: "/protected/launcher.plist",
+        docker: "/protected/docker",
+        socket: "/protected/docker.sock",
+        containerId: "a".repeat(64),
+        helperPath: "/protected/inspector.py",
+        helperSha256: "a".repeat(64),
+      },
+      descriptor: 3,
+      lockFile: path.join(f.root, "coordinator-bootstrap-execution.lock"),
+      ownershipVerifier: { path: "/protected/verifier.py", sha256: "a".repeat(64) },
+      verifySetup,
+      armWatchdog,
+    }),
+  ).rejects.toThrow("exact unregistered-process executor");
+  expect(verifySetup).not.toHaveBeenCalled();
+  expect(armWatchdog).not.toHaveBeenCalled();
+  expect(f.journal.read()).toEqual(before);
+});
+
+test("supervision recovery can bind a separate compatible fallback source", async () => {
+  const f = await supervisionRecoveryFixture();
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  f.plan.compatibleRecovery = {
+    ...f.plan.candidate,
+    sourceCommit: "7".repeat(40),
+    artifactSha256: "7".repeat(64),
+    directory: "/protected/reader-aware-fallback",
+    entrypoint: {
+      ...f.plan.candidate.entrypoint,
+      path: "/protected/reader-aware-fallback/main.js",
+    },
+  };
+  const pending = await f.service().prepare({
+    id: randomUUID(),
+    reason: "Restore supervision with an independent compatible fallback",
+    plan: f.plan,
+  });
+  expect(pending.status).toBe("pending");
+  expect(pending.automaticSubmission).toBeUndefined();
+  expect(pending.automaticApproval).toBeUndefined();
+  expect(pending.plan.compatibleRecovery).toEqual(f.plan.compatibleRecovery);
+  expect(f.service().list()).toEqual([f.failed, canceled, pending]);
+});
+
+test.runIf(process.platform === "darwin")(
+  "tracked supervision freezes and retires only its admitted manual process without service-label commands",
+  async () => {
+    const f = await supervisionRecoveryFixture();
+    const canceled = await f
+      .service()
+      .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+    f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+    f.plan.state.restartJournal = path.join(f.root, "restart-jobs.json");
+    f.plan.state.ownerSessions = path.join(f.root, "owner-sessions.json");
+    const configurationFile = "/protected/current-config.json";
+    f.plan.expectedProcess.bootId = randomUUID();
+    f.plan.expectedProcess.startIdentity = "1234:5678";
+    f.plan.expectedProcess.argumentsSha256 = createHash("sha256")
+      .update(
+        JSON.stringify([
+          f.plan.previous.node.path,
+          f.plan.previous.entrypoint.path,
+          configurationFile,
+        ]),
+      )
+      .digest("hex");
+    const pending = await f
+      .service()
+      .prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    let current = await f.service().claimDispatch(pickDecision(approved));
+    f.journal.promote(current);
+    const advance = (stage: CoordinatorBootstrapStage) => {
+      current = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(current), generation: current.execution!.generation },
+          stage,
+        );
+    };
+    const processIdentity = {
+      ...f.plan.expectedProcess,
+      uid: process.getuid!(),
+      parentPid: 1,
+      executable: f.plan.previous.node.path,
+    };
+    let alive = true;
+    let stopped = false;
+    const effects: string[] = [];
+    const assertAlive = () => {
+      if (!alive) throw new Error("Reviewed process exited");
+    };
+    const assertAbsent = async () => {};
+    const run = vi.fn(async () => {});
+    const native = createBootstrapNativeLifecycle(
+      {
+        requests: f.service(),
+        configurationFile,
+        launcherFile: "/protected/current.plist",
+        writableMountRoots: async () => [],
+        requireOwnership: async () => {},
+        readHealth: async () => {
+          throw new Error("No replacement in this fixture");
+        },
+        reader: {
+          readService: async () => {
+            throw new Error("Service absent");
+          },
+          verifyServiceAbsent: assertAbsent,
+          inspectProcess: async () => {
+            assertAlive();
+            return processIdentity;
+          },
+          inspectAuditedProcess: async () => {
+            throw new Error("Signal port owns audited proof");
+          },
+          inspectRunningProcess: async () => {
+            assertAlive();
+            if (stopped) throw new Error("Process stopped");
+            return { ...processIdentity, stopped: false };
+          },
+          inspectStoppedProcess: async () => {
+            assertAlive();
+            if (!stopped) throw new Error("Process running");
+            return { ...processIdentity, stopped: true, childPids: [] };
+          },
+          verifyProcessExited: async () => {
+            if (alive) throw new Error("Process alive");
+          },
+        },
+        manualPrevious: {
+          signal: async (request, effect) => {
+            expect(request).toEqual(current);
+            expect(
+              f
+                .service()
+                .list()
+                .find((record) => record.id === current.id),
+            ).toEqual(current);
+            effects.push(effect);
+            if (effect === "freeze") stopped = true;
+            else {
+              expect(stopped).toBe(true);
+              alive = false;
+            }
+          },
+        },
+      },
+      { run },
+    );
+    advance("freeze_pending");
+    await native.freeze(current);
+    expect(await native.inspectFrozen(current)).toEqual({ restartJournal: [], childPids: [] });
+    advance("frozen");
+    await native.preserveTransfer(current);
+    advance("unload_pending");
+    await native.unload(current);
+    expect(effects).toEqual(["freeze", "terminate-frozen"]);
+    expect(alive).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    await expect(native.unload(current)).rejects.toThrow("Reviewed process exited");
+    expect(effects).toEqual(["freeze", "terminate-frozen"]);
+    expect(
+      f
+        .service()
+        .list()
+        .find((record) => record.id === f.failed.id),
+    ).toEqual(f.failed);
+    expect(
+      f
+        .service()
+        .list()
+        .find((record) => record.id === canceled.id),
+    ).toEqual(canceled);
+  },
+);
+
+test.each([
+  "stale-cancellation",
+  "missing-cancellation",
+  "wrong-restored-source",
+  "wrong-rollback",
+  "configuration-change",
+  "missing-history",
+])(
+  "supervision recovery refuses substituted or unsupported handoff evidence: %s",
+  async (change) => {
+    const f = await supervisionRecoveryFixture();
+    const canceled = await f
+      .service()
+      .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+    f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+    switch (change) {
+      case "stale-cancellation":
+        f.plan.supervisionRecovery!.canceledRequest = pickDecision(f.approvedMigration);
+        break;
+      case "missing-cancellation":
+        f.plan.supervisionRecovery!.canceledRequest.id = randomUUID();
+        break;
+      case "wrong-restored-source":
+        f.plan.previous = { ...f.plan.previous, sourceCommit: "a".repeat(40) };
+        break;
+      case "wrong-rollback":
+        f.plan.compatibleRecovery = f.plan.previous;
+        break;
+      case "configuration-change":
+        f.plan.candidate = {
+          ...f.plan.candidate,
+          configuration: { ...f.plan.candidate.configuration, sha256: "c".repeat(64) },
+        };
+        f.plan.compatibleRecovery = f.plan.candidate;
+        break;
+      case "missing-history":
+        delete f.plan.recoveredFrom;
+        break;
+    }
+    const before = f.journal.read();
+    await expect(
+      f.service().prepare({ id: randomUUID(), reason: "Restore supervision", plan: f.plan }),
+    ).rejects.toThrow();
+    expect(f.journal.read()).toEqual(before);
+  },
+);
 
 test("stopped candidate recovery verifies loaded arguments and refuses unrelated jobs", () => {
   const { plan } = fixture();

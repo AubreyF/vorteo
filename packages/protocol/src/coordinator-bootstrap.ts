@@ -77,6 +77,18 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
       planSha256: DigestSchema,
     })
     .optional(),
+  // Manual restoration is not terminal migration evidence. A new exact owner
+  // review retains the canceled proposal and the failed predecessor separately.
+  supervisionRecovery: z
+    .strictObject({
+      canceledRequest: z.strictObject({
+        id: z.string().uuid(),
+        revision: z.string().uuid(),
+        planSha256: DigestSchema,
+      }),
+      terminateFrozen: z.literal("SIGKILL"),
+    })
+    .optional(),
   // Exact reviewed startup configuration for the independent recovery service.
   bootRecovery: z
     .strictObject({

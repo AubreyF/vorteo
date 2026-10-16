@@ -193,7 +193,11 @@ export function assertRecoveredBootstrapBase(
   records: CoordinatorBootstrapRequest[],
 ): CoordinatorBootstrapRequest | null {
   const reference = plan.recoveredFrom;
-  if (!reference) return null;
+  if (!reference) {
+    if (plan.supervisionRecovery)
+      throw new BootstrapRequestConflict("Supervision recovery requires failed migration history");
+    return null;
+  }
   const previous = records.find((request) => request.id === reference.id);
   const sameFailure =
     previous?.revision === reference.revision &&
@@ -202,10 +206,11 @@ export function assertRecoveredBootstrapBase(
     ["recovery_required", "rolled_back", "resumed"].includes(previous.execution.stage);
   if (!previous || !sameFailure)
     throw new BootstrapRequestConflict("Recovered coordinator history changed");
-  const old =
+  let old =
     previous.execution?.stage === "rolled_back"
       ? bootstrapRecoveryRelease(previous.plan)
       : previous.plan.previous;
+  if (plan.supervisionRecovery) old = supervisionRecoveryRelease(plan, records);
   const current = plan.previous;
   const { configuration: oldConfiguration, launcher: oldLauncher, ...oldExecutable } = old;
   const {
@@ -222,6 +227,61 @@ export function assertRecoveredBootstrapBase(
   )
     throw new BootstrapRequestConflict("Fresh review must retain the verified restored release");
   return previous;
+}
+
+/** A canceled migration never proves that it executed. It can only identify
+ * the prepared bytes independently found running after manual restoration.
+ * Native absence/process checks and a fresh owner decision still gate effects. */
+function supervisionRecoveryRelease(
+  plan: CoordinatorBootstrapPlan,
+  records: CoordinatorBootstrapRequest[],
+) {
+  const recovery = plan.supervisionRecovery!;
+  const reference = recovery.canceledRequest;
+  const canceled = records.find((record) => record.id === reference.id);
+  if (
+    !canceled ||
+    canceled.status !== "canceled" ||
+    !canceled.decisionAt ||
+    canceled.execution ||
+    canceled.automaticApproval ||
+    canceled.automaticSubmission ||
+    canceled.revision !== reference.revision ||
+    canceled.planSha256 !== reference.planSha256 ||
+    canceled.planSha256 !== coordinatorPlanDigest(canceled.plan) ||
+    canceled.plan.service !== plan.service ||
+    canceled.plan.installationId !== plan.installationId ||
+    !isDeepStrictEqual(canceled.plan.recoveredFrom, plan.recoveredFrom)
+  )
+    throw new BootstrapRequestConflict("Supervision recovery canceled migration changed");
+  assertSupervisionRecoveryScope(plan);
+  return canceled.plan.candidate;
+}
+
+function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
+  const sameConfiguration =
+    plan.candidate.configuration.sha256 === plan.previous.configuration.sha256 &&
+    plan.compatibleRecovery?.configuration.sha256 === plan.previous.configuration.sha256;
+  if (
+    plan.automaticRecovery !== "restore-compatible" ||
+    !plan.compatibleRecovery ||
+    !sameConfiguration ||
+    plan.hostRequestsAfter !== null ||
+    plan.sourceUpdateTooling !== undefined ||
+    plan.nativeHelperConfiguration !== undefined ||
+    plan.previewMonitorConfiguration !== undefined ||
+    plan.factoryRuntimeAdoptionConfiguration !== undefined
+  )
+    throw new BootstrapRequestConflict(
+      "Supervision recovery requires a separate exact compatible runtime without configuration changes",
+    );
+  if (
+    plan.candidate.sourceCommit === plan.previous.sourceCommit ||
+    plan.compatibleRecovery.sourceCommit === plan.previous.sourceCommit
+  )
+    throw new BootstrapRequestConflict(
+      "Supervision recovery requires a distinct replacement source",
+    );
 }
 
 export function bootstrapRecoveryRelease(plan: CoordinatorBootstrapPlan) {
@@ -255,6 +315,7 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
     plan.candidate.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.compatibleRecovery.configuration.sha256 !== plan.previous.configuration.sha256 ||
     plan.recoveredFrom ||
+    plan.supervisionRecovery ||
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||

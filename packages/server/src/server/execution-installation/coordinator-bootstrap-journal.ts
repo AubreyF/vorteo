@@ -89,15 +89,20 @@ function startupPendingRecords(main: CoordinatorBootstrapRequest[], value: unkno
     const current = queue.pop()!;
     if (walked.has(current.id)) continue;
     walked.add(current.id);
-    const id = current.plan.recoveredFrom?.id;
-    if (!id) continue;
-    required.add(id);
-    let previous = known.get(id);
-    if (!previous && requests.has(id)) {
-      previous = CoordinatorBootstrapRequestSchema.parse(requests.get(id));
-      known.set(id, previous);
+    const references = [
+      current.plan.recoveredFrom?.id,
+      current.plan.supervisionRecovery?.canceledRequest.id,
+    ];
+    for (const id of references) {
+      if (!id) continue;
+      required.add(id);
+      let previous = known.get(id);
+      if (!previous && requests.has(id)) {
+        previous = CoordinatorBootstrapRequestSchema.parse(requests.get(id));
+        known.set(id, previous);
+      }
+      if (previous) queue.push(previous);
     }
-    if (previous) queue.push(previous);
   }
   const select = (records: Map<string, unknown>) =>
     [...records].flatMap(([id, record]) =>
@@ -296,6 +301,12 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
       let current = request;
       for (;;) {
         const previous = assertRecoveredBootstrapBase(current.plan, combined);
+        const canceledId = current.plan.supervisionRecovery?.canceledRequest.id;
+        const canceled = combined.find((record) => record.id === canceledId);
+        if (canceled && !included.has(canceled.id)) {
+          history.push(canceled);
+          included.add(canceled.id);
+        }
         if (!previous) break;
         if (seen.has(previous.id))
           throw new BootstrapRequestConflict("Cyclic bootstrap startup history");

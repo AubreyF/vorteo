@@ -401,7 +401,7 @@ export function verifyBootstrapServiceIdentity(input: {
   verifyBootstrapCoordinatorProcess(input);
 }
 
-function verifyBootstrapCoordinatorProcess(input: {
+export function verifyBootstrapCoordinatorProcess(input: {
   plan: CoordinatorBootstrapPlan;
   process: unknown;
   hostUid: number;

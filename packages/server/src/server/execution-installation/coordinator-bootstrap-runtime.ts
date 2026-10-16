@@ -29,6 +29,10 @@ export async function createBootstrapNativeOperations(input: {
   armWatchdog(request: CoordinatorBootstrapRequest): Promise<void>;
   evidence?: ReturnType<typeof createBootstrapRunnerEvidence>;
 }): Promise<BootstrapExecutorOperations> {
+  if (input.approved.plan.supervisionRecovery)
+    throw new BootstrapRequestConflict(
+      "Supervision recovery requires the exact unregistered-process executor",
+    );
   const trace: ReturnType<typeof createBootstrapRunnerEvidence>["run"] =
     input.evidence?.run ?? ((_phase, operation) => operation());
   const writableMountRoots = () =>
