@@ -360,6 +360,52 @@ test.each(["wrong-worker", "expired-deadline"] as const)(
   },
 );
 
+test("maintenance restart refuses replacement when a descendant retains old worker streams past the deadline", async () => {
+  const result = await runWorker(`
+    import {spawn} from 'node:child_process';
+    import {existsSync,writeFileSync} from 'node:fs';
+    import {randomUUID} from 'node:crypto';
+    const marker=process.argv[1]+'.started';
+    if(existsSync(marker)) {
+      process.send({type:'paseo:ready',listen:'unexpected-replacement',serverId:'srv_test'},()=>process.exit(0));
+    } else {
+      writeFileSync(marker,'started');
+      process.send({type:'paseo:ready',listen:'original',serverId:'srv_test'});
+      let sent=false;
+      process.on('message',message=>{
+        if(message.type==='paseo:supervisor-heartbeat' && !sent) {
+          sent=true;
+          const descendant=spawn(process.execPath,['-e',"setTimeout(()=>process.exit(0),700)"],{stdio:['ignore','inherit','inherit']});
+          console.log('owned-descendant-pid:'+descendant.pid);
+          descendant.unref();
+          process.send({type:'paseo:maintenance-restart',requestId:randomUUID(),generation:randomUUID(),workerPid:process.pid,terminateAt:Date.now()+100});
+        }
+        if(message.type==='paseo:graceful-shutdown')process.exit(0);
+      });
+    }
+  `);
+  expect(result.code, result.output).toBe(1);
+  expect(result.events, result.output).toEqual(["original", null]);
+  expect(result.output).toContain(
+    "Maintenance worker streams did not close before the retained deadline",
+  );
+  expect(result.output).not.toContain("Restarting worker");
+  const match = /owned-descendant-pid:(\d+)/.exec(result.output);
+  expect(match).not.toBeNull();
+  const descendant = Number(match![1]);
+  await expect
+    .poll(() => {
+      try {
+        process.kill(descendant, 0);
+        return false;
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+        throw error;
+      }
+    })
+    .toBe(true);
+});
+
 test("maintenance restart uses one absolute termination budget without adding legacy grace", async () => {
   const result = await runWorker(`
     import {existsSync,writeFileSync} from 'node:fs'; import {randomUUID} from 'node:crypto';

@@ -370,6 +370,35 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
 
     const currentChild = child;
     maintenanceRestart = null;
+    let workerStreamsClosed = false;
+    const closed = new Promise<void>((resolve) => {
+      currentChild.once("close", () => {
+        workerStreamsClosed = true;
+        resolve();
+      });
+    });
+    const verifyMaintenanceStreamClosure = async (): Promise<void> => {
+      const retained = maintenanceRestart;
+      if (!retained || workerStreamsClosed) return;
+      let timer: ReturnType<typeof setTimeout>;
+      try {
+        const expired = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error("Maintenance worker streams did not close before the retained deadline"),
+              ),
+            Math.max(0, retained.terminateAt - Date.now()),
+          );
+        });
+        // Exit alone does not close pipes inherited by provider descendants.
+        // Failure stays uncertainty; never start a replacement behind them.
+        // Closed streams are only a necessary check, not full native exit proof.
+        await Promise.race([closed, expired]);
+      } finally {
+        clearTimeout(timer!);
+      }
+    };
     let reachedReady = false;
     // Serialize endpoint writes with exit/clear before allowing another worker to spawn.
     const heartbeat = setInterval(() => {
@@ -459,9 +488,10 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
       child = null;
       publication = publication
         .then(() => options.onWorkerExit?.())
+        .then(verifyMaintenanceStreamClosure)
         .catch((error) => {
           lifecycleFailed = true;
-          log(`Worker exit callback failed: ${String(error)}`);
+          log(`Worker exit verification failed: ${String(error)}`);
         });
       void publication.then(() => {
         const exitDescriptor = describeExit(code, signal);

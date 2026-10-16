@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.584 - 2026-10-15
+
+- Refuse maintenance worker replacement when inherited worker streams remain open beyond the retained termination deadline. Worker exit alone no longer starts a maintenance replacement behind a descendant that retains those streams; late closure cannot revive the failed attempt.
+- Preserve legacy restart behavior and the existing absolute termination budget. Real disposable-process coverage verifies refusal and descendant cleanup. Closed streams remain only a necessary check, not proof that every provider process exited; full native cleanup and installed acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.583 - 2026-10-15
 
 - Add internal cooperative restart interruption bound to the exact held worker and generation. Preserve restart-owned goal continuation, require observed turn settlement, retain uncertain attempts without repeating provider cancellation, and reject changed holds or expired budgets.
