@@ -122,7 +122,8 @@ test.each([
               { ...binding, status, reason: "Retire only the exact fixture executor" },
             ],
             decideCoordinatorBootstrap: async (decision, ownerPassword) => {
-              expect(ownerPassword).toBe("fixture-owner");
+              if (ownerPassword !== "fixture-owner")
+                throw new BootstrapAuthenticationRequired("fixture refusal");
               decisions.push(decision);
               status = "approved";
               if (mode === "lost-response") throw new Error("private native diagnostic");
@@ -184,6 +185,11 @@ test.each([
         scope === "coordinator-migration",
       );
       expect(html).toContain("admitted native");
+      expect(
+        (await post("/decision", { decision: "approve", ownerPassword: "wrong" })).status,
+      ).toBe(401);
+      expect(decisions).toEqual([]);
+      expect(html).toContain("const nativeReview=true;");
       const decision = { decision: "approve", ownerPassword: "fixture-owner" };
       expect((await post("/decision", decision)).status).toBe(mode === "success" ? 200 : 503);
       expect((await post("/decision", decision)).status).toBe(409);

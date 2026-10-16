@@ -106,7 +106,7 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
           response.json({ request: await read() });
         } catch (error) {
           const fresh =
-            input.scope === "preclaim-recovery" && error instanceof BootstrapAuthenticationRequired
+            input.scope !== undefined && error instanceof BootstrapAuthenticationRequired
               ? await read()
               : undefined;
           if (fresh?.revision === retained.revision && fresh.status === retained.status) {
@@ -147,8 +147,11 @@ function canCancelPreclaimReview(
 }
 
 function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
+  const html = scope
+    ? ownerReviewHtml.replace("const nativeReview=false;", "const nativeReview=true;")
+    : ownerReviewHtml;
   if (scope === "coordinator-migration")
-    return ownerReviewHtml
+    return html
       .replace(
         "This independent page uses the existing Host review service while the normal coordinator is unavailable.",
         "This independent page uses the admitted native maintenance service while the normal coordinator is unavailable.",
@@ -157,8 +160,8 @@ function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
         "Compatible recovery and the configured delivery tools are included in the plan below.",
         "Compatible recovery is included in the exact plan below. The selected configuration is preserved.",
       );
-  if (scope !== "preclaim-recovery") return ownerReviewHtml;
-  return ownerReviewHtml
+  if (scope !== "preclaim-recovery") return html;
+  return html
     .replace("const recoveryOnly=false;", "const recoveryOnly=true;")
     .replace(
       "After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.",
@@ -196,9 +199,9 @@ const ownerReviewHtml = `<!doctype html><html lang="en"><meta charset="utf-8"><m
 <button id="approve" disabled>Approve this exact coordinator migration</button><button id="cancel" disabled>Cancel this exact request</button>
 <p>After a decision is sent, this page only observes. A lost reply never triggers another approval or restart.</p>
 <script>
-const recoveryOnly=false;let sending=false;let cancelSending=false;let currentRevision;
+const recoveryOnly=false;const nativeReview=false;let sending=false;let cancelSending=false;let currentRevision;
 const el=id=>document.getElementById(id);
 async function refresh(){try{const response=await fetch('/review',{cache:'no-store',redirect:'error'});const value=await response.json();if(!response.ok)throw Error(value.error);const r=value.request;el('status').textContent='Status: '+r.status+(r.execution?' / '+r.execution.stage:'');el('identity').textContent=JSON.stringify({id:r.id,revision:r.revision,planSha256:r.planSha256,reason:r.reason},null,2);el('plan').textContent=JSON.stringify(r,null,2);const enabled=!sending&&!value.attempted&&r.status==='pending'&&r.revision===value.binding.revision;currentRevision=r.revision;el('approve').disabled=!enabled;const cancelEnabled=recoveryOnly?!cancelSending&&!value.cancelAttempted&&r.execution===undefined&&(r.status==='pending'||r.status==='approved'):enabled;el('cancel').disabled=!cancelEnabled;}catch{el('error').textContent='Cannot read the retained Host review. No approval was sent or retried.';el('approve').disabled=true;el('cancel').disabled=true;}}
-async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;if(decision==='cancel')cancelSending=true;else sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword,revision:currentRevision})});const result=await response.json();if(recoveryOnly&&response.status===401){if(decision==='cancel')cancelSending=false;else sending=false;}el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
+async function decide(decision){const ownerPassword=el('password').value;if(!ownerPassword){el('error').textContent='Enter the installation owner password.';return;}if(!confirm(decision==='approve'?'Approve this exact coordinator replacement and compatible recovery plan?':'Cancel this exact pending coordinator request?'))return;if(decision==='cancel')cancelSending=true;else sending=true;el('password').value='';el('approve').disabled=true;el('cancel').disabled=true;el('error').textContent='Decision sent once. Native validation can take several minutes; the retained status below remains authoritative.';try{const response=await fetch('/decision',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,ownerPassword,revision:currentRevision})});const result=await response.json();if(nativeReview&&response.status===401){if(decision==='cancel')cancelSending=false;else sending=false;}el('error').textContent=response.ok?'Decision recorded. Observe the retained execution status.':result.error;}catch{el('error').textContent='Decision response unavailable. Observe status. Do not repeat the operation.';}await refresh();}
 el('approve').onclick=()=>decide('approve');el('cancel').onclick=()=>decide('cancel');refresh();setInterval(refresh,5000);
 </script></html>`;

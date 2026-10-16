@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.594 - 2026-10-15
+
+- Allow a corrected owner password after a definite authentication refusal in either independent native review scope, while retaining one-shot behavior for uncertain replies. Migration approval still uses the exact native service and does not acquire the preclaim cancellation exception.
+- Extend the eleven owning HTTP checks to verify definite refusal leaves no decision and enables correction in both scopes. No native dispatch, configuration or standing authority changes; installed coordinator delivery remains pending. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.593 - 2026-10-15
 
 - Give the existing one-operation maintenance controller an independent loopback owner page when the normal installation interface is unavailable. Reuse the preclaim admission presentation and exact native review service, with separate runtime admission and migration decisions. Existing canonical maintenance APIs and enrollment roles remain unchanged.

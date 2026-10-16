@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-15): both independent native review scopes permit correcting an owner password only after a definite authentication refusal and unchanged retained request. Uncertain replies remain one-shot; the preclaim cancellation exception remains confined to preclaim recovery. Eleven owning HTTP checks cover the refusal and correction paths. Native dispatch authority and installed acceptance are unchanged; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-15): the one-operation maintenance controller reuses the independent two-stage loopback owner page while the normal interface is unavailable. Its fixed native service still authenticates provisioning, prepares the pinned request and enforces exact approval before dispatch. Canonical APIs and enrollment roles retain their behavior. Eleven HTTP cases cover both scopes and uncertain replies. Native installation acceptance remains open; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-15): independent preclaim review keeps cancellation available until execution claim and binds it to the displayed retained revision. Approval and cancellation retain separate uncertainty fences; definite owner authentication refusal permits correcting the password. Seven focused HTTP checks pass. Compiled disposable recovery and reopening passed; actual installation recovery still requires separate runtime admission and exact retirement approval. README overview and onboarding are unchanged.
