@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.603 - 2026-10-16
+
+- Add native recovery registration adapters with protected process inspection, exact loopback socket ownership, bounded page asset checks and complete routing custody. Require a private immutable Node runtime for orphan detection and verify actual activation lineage before excluding any process.
+- Recheck retained intent and current grant before native commands, preserve read-only construction after revocation and carry the activation deadline through final dispatch validation. Collect fresh listener evidence after artifact preparation, preserve the configured Host header in native HTTP requests and select headless Tailscale CLI mode explicitly.
+- Seventeen native-helper cases, fourteen owning cases and compiled read-only acceptance pass without changing installed routing or services. Production invocation, full native registration, compatible rollback and owner remote-browser acceptance remain open; no installed capability or README feature claim is enabled.
+
 ## 0.11.0-beta.3.vorteo.602 - 2026-10-16
 
 - Add initial independent recovery registration through the existing exact enrollment activation intent. Publish immutable selected files before native service and private HTTPS routing effects; recheck grant, generation and synchronous native custody under shared exclusion while keeping native commands outside the lock.

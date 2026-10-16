@@ -33,6 +33,7 @@ import {
   observeMaintenanceRecoveryAccessRegistration,
   type RecoveryRegistrationPorts,
 } from "./coordinator-bootstrap-maintenance-recovery-registration.js";
+import { createNativeRecoveryRegistrationPorts } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import { enrollmentNativeIdentityDigest } from "./maintenance/native-identity.js";
 import {
@@ -2677,6 +2678,7 @@ test("recovery access listener cannot supply native executor authority", async (
 async function recoveryRegistrationFixture(mode = "ready") {
   const f = await recoveryRoutingFixture();
   f.plan.previous = null;
+  if (mode === "native-ports") prepareNativeRegistrationFixture(f);
   const {
     FileEnrollmentJournal,
     enrollInstallation,
@@ -2864,6 +2866,80 @@ async function recoveryRegistrationFixture(mode = "ready") {
   return { ...f, input, ports, commands, enrollment, reserved, revoke, intent };
 }
 
+function prepareNativeRegistrationFixture(f: Awaited<ReturnType<typeof recoveryRoutingFixture>>) {
+  const state = f.plan.identity.stateDirectory;
+  const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+  const pin = (file: string, bytes: Buffer | string, mode = 0o600) => {
+    writeFileSync(file, bytes, { mode });
+    return { path: file, sha256: digest(bytes) };
+  };
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const helper = pin(
+    path.join(state, "inspector.py"),
+    readFileSync(path.resolve("scripts/inspect-coordinator-process.py")),
+  );
+  const containerId = "d".repeat(64);
+  const dockerState = pin(
+    path.join(state, "docker.json"),
+    JSON.stringify({ Id: containerId, State: { Running: true }, Mounts: [] }),
+  );
+  const docker = pin(
+    path.join(state, "docker-fixture"),
+    `#!/usr/bin/env bash\nexec /bin/cat ${quote(dockerState.path)}\n`,
+    0o700,
+  );
+  const backend = pin(
+    path.join(state, "tailscale-backend.json"),
+    JSON.stringify(f.routing.backend),
+  );
+  const serve = f.plan.recoveryRoute!.previousServe;
+  f.plan.recoveryRoute!.tailscale = pin(
+    path.join(state, "tailscale-fixture"),
+    `#!/usr/bin/env bash\nif [ "$1" = serve ]; then exec /bin/cat ${quote(serve.path)}; fi\nexec /bin/cat ${quote(backend.path)}\n`,
+    0o700,
+  );
+  const admission = pin(
+    path.join(state, "admission.json"),
+    JSON.stringify({
+      configurationFile: f.ownerConfigurationFile,
+      launcherFile: f.plan.identity.launcherPath,
+      docker: docker.path,
+      socket: path.join(state, "docker.sock"),
+      containerId,
+      helperPath: helper.path,
+      helperSha256: helper.sha256,
+    }),
+  );
+  const setup = JSON.parse(readFileSync(f.plan.candidate.setup.path, "utf8"));
+  setup.nativeAdmission = admission;
+  f.plan.candidate.setup = pin(f.plan.candidate.setup.path, JSON.stringify(setup));
+}
+
+test.skipIf(process.platform !== "darwin")(
+  "native recovery registration ports require an intent and preserve revoked observation",
+  async () => {
+    const f = await recoveryRegistrationFixture("native-ports");
+    const ports = await createNativeRecoveryRegistrationPorts(f.input, []);
+    const observed = await ports.readRouting(f.plan.recoveryRoute!.tailscale.path);
+    expect(observed.serve).toEqual(f.routing.previousServe);
+    observed.assertCurrent();
+    await expect(
+      ports.run(
+        "/bin/launchctl",
+        ["bootstrap", f.plan.identity.serviceDomain, f.plan.identity.launcherPath],
+        () => undefined,
+      ),
+    ).rejects.toThrow();
+    expect(f.intent).toThrow();
+    f.revoke();
+    const reopened = await createNativeRecoveryRegistrationPorts(f.input, []);
+    expect((await reopened.readRouting(f.plan.recoveryRoute!.tailscale.path)).serve).toEqual(
+      f.routing.previousServe,
+    );
+    expect(f.commands).toEqual([]);
+  },
+);
+
 test("recovery route observation rejects unrelated changes and public exposure", async () => {
   const f = await recoveryRoutingFixture();
   const selected = structuredClone(f.routing.currentServe);
@@ -2990,8 +3066,8 @@ test("initial recovery registration timeout retains a dispatched generation with
   const waiting = new Promise<void>((resolve) => {
     started = resolve;
   });
-  f.ports.run = async (executable, args) => {
-    await run(executable, args);
+  f.ports.run = async (executable, args, assertWithinDeadline) => {
+    await run(executable, args, assertWithinDeadline);
     started();
     await new Promise<void>((resolve) => {
       release = resolve;
@@ -3041,4 +3117,35 @@ test("initial recovery registration observation expires without a new effect", a
   await Promise.resolve();
   expect(f.commands).toHaveLength(2);
   expect(f.enrollment.read()).toEqual(f.reserved);
+});
+
+test("initial recovery registration forbids late native dispatch validation", async () => {
+  const f = await recoveryRegistrationFixture();
+  const run = f.ports.run;
+  let release: () => void = () => undefined;
+  let started: () => void = () => undefined;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.run = async (executable, args, assertWithinDeadline) => {
+    started();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    assertWithinDeadline();
+    await run(executable, args, assertWithinDeadline);
+  };
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const outcome = expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "deadline elapsed",
+  );
+  await waiting;
+  const retained = f.intent();
+  await vi.advanceTimersByTimeAsync(60_001);
+  await outcome;
+  release();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(f.commands).toEqual([]);
+  expect(f.intent()).toEqual(retained);
 });

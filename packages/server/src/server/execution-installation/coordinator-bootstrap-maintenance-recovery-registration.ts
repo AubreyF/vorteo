@@ -60,14 +60,19 @@ export interface RecoveryRegistrationPorts {
     origin: string;
     listenPort: number;
   }): Promise<RecoveryListenerCustody>;
-  run(executable: string, args: readonly string[]): Promise<void>;
+  run(executable: string, args: readonly string[], assertWithinDeadline: () => void): Promise<void>;
 }
 
 /** Production commands are bounded separately from the total activation budget.
  * An error or lost reply is uncertain; callers must observe the retained intent. */
-export async function runRecoveryRegistrationCommand(executable: string, args: readonly string[]) {
+export async function runRecoveryRegistrationCommand(
+  executable: string,
+  args: readonly string[],
+  assertWithinDeadline: () => void,
+) {
+  assertWithinDeadline();
   await promisify(execFile)(executable, [...args], {
-    env: { PATH: "/usr/bin:/bin" },
+    env: { PATH: "/usr/bin:/bin", TAILSCALE_BE_CLI: "1" },
     timeout: 10_000,
     maxBuffer: 8192,
   });
@@ -81,7 +86,7 @@ export async function activateMaintenanceRecoveryAccess(
   ports: RecoveryRegistrationPorts,
 ) {
   return withinMaintenanceExecutionDeadline(Date.now() + 60_000, async (checkDeadline) => {
-    const context = await registrationContext(input);
+    const context = await inspectRecoveryRegistrationContext(input);
     checkDeadline();
     const routing = await ports.readRouting(context.route.tailscale.path);
     checkDeadline();
@@ -138,13 +143,11 @@ export async function activateMaintenanceRecoveryAccess(
     });
     withReservedMaintenanceLauncherEffect(absentInput, retained, () => undefined);
     checkDeadline();
-    await ports.run("/bin/launchctl", [
-      "bootstrap",
-      context.identity.serviceDomain,
-      context.identity.launcherPath,
-    ]);
-    checkDeadline();
-    const native = await inspectRegisteredListener(input, ports, retained);
+    await ports.run(
+      "/bin/launchctl",
+      ["bootstrap", context.identity.serviceDomain, context.identity.launcherPath],
+      checkDeadline,
+    );
     checkDeadline();
     const current = await ports.readRouting(context.route.tailscale.path);
     checkDeadline();
@@ -155,6 +158,8 @@ export async function activateMaintenanceRecoveryAccess(
     });
     if (!isDeepStrictEqual(prepared, rechecked))
       throw new BootstrapRequestConflict("Recovery route changed before activation");
+    const native = await inspectRegisteredListener(input, ports, retained);
+    checkDeadline();
     withReservedMaintenanceLauncherEffect(
       {
         ...input,
@@ -172,7 +177,7 @@ export async function activateMaintenanceRecoveryAccess(
       () => undefined,
     );
     checkDeadline();
-    await ports.run(context.route.tailscale.path, prepared.arguments);
+    await ports.run(context.route.tailscale.path, prepared.arguments, checkDeadline);
     checkDeadline();
     return observeMaintenanceRecoveryAccessRegistration(input, ports, retained);
   });
@@ -216,7 +221,7 @@ export async function observeMaintenanceRecoveryAccessRegistration(
   });
 }
 
-async function registrationContext(input: RecoveryRegistrationInput) {
+export async function inspectRecoveryRegistrationContext(input: RecoveryRegistrationInput) {
   const context = inspectMaintenanceLauncherPlan(input.plan, input.account);
   const { identity, previous, recoveryRoute } = context.plan;
   if (
@@ -265,6 +270,7 @@ async function registrationContext(input: RecoveryRegistrationInput) {
     selectionPath: identity.selectionPath,
     route: recoveryRoute,
     access,
+    setup,
     planFile,
     assertCurrent,
     service: `${identity.serviceDomain}/${identity.serviceLabel}`,
@@ -276,7 +282,7 @@ async function inspectRegisteredListener(
   ports: RecoveryRegistrationPorts,
   retained: Intent,
 ) {
-  const context = await registrationContext(input);
+  const context = await inspectRecoveryRegistrationContext(input);
   const startup = await readMaintenanceLauncherStartup({
     setupFile: context.plan.candidate.setup.path,
     account: input.account,
