@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.573 - 2026-10-15
+
+### Changed
+
+- Add exact hold and absolute deadline checks to maintenance checkpointing. A cancelled hold or elapsed budget reports an incomplete checkpoint; late persistence cannot advance the attempt. Capture the reviewed inputs before awaiting persistence and preserve existing unbounded legacy calls.
+
+### Validation and delivery
+
+- Five focused checkpoint regressions, full workspace types and lint pass. The acknowledged restart RPC, durable interruption reservation and provider cleanup remain unfinished; this checkpoint contract is not installed or advertised as bounded interruption. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.572 - 2026-10-15
 
 ### Changed

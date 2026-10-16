@@ -180,6 +180,21 @@ export class AgentManagerShuttingDownError extends Error {
   }
 }
 
+export interface RestartCheckpointDeadline {
+  requestId: string;
+  terminateAt: number;
+}
+
+export class RestartCheckpointError extends Error {
+  constructor(
+    readonly requestId: string,
+    readonly code: "deadline_exceeded" | "hold_released" | "invalid_deadline",
+  ) {
+    super(`Restart checkpoint is incomplete: ${code}`);
+    this.name = "RestartCheckpointError";
+  }
+}
+
 export class AgentRunCancellationError extends Error {
   constructor(agentId: string, action: "reload" | "replace" | "rewind" | "stop") {
     super(
@@ -1702,9 +1717,46 @@ export class AgentManager {
     };
   }
 
-  async checkpointRestartDrain(): Promise<void> {
-    await this.flushForShutdown();
-    for (const agent of this.agents.values()) await this.persistSnapshot(agent);
+  async checkpointRestartDrain(input?: RestartCheckpointDeadline): Promise<void> {
+    const deadline = input ? { ...input } : undefined;
+    const assertCurrent = () => {
+      if (!deadline) return;
+      if (
+        this.restartDrainId !== deadline.requestId ||
+        this.cancelledRestartDrains.has(deadline.requestId)
+      )
+        throw new RestartCheckpointError(deadline.requestId, "hold_released");
+      if (Date.now() >= deadline.terminateAt)
+        throw new RestartCheckpointError(deadline.requestId, "deadline_exceeded");
+    };
+    const checkpoint = async () => {
+      assertCurrent();
+      await this.flushForShutdown();
+      assertCurrent();
+      for (const agent of this.agents.values()) {
+        await this.persistSnapshot(agent);
+        assertCurrent();
+      }
+    };
+    if (!deadline) return checkpoint();
+    const remaining = deadline.terminateAt - Date.now();
+    if (!Number.isSafeInteger(deadline.terminateAt) || remaining > 300_000)
+      throw new RestartCheckpointError(deadline.requestId, "invalid_deadline");
+    assertCurrent();
+    let timer: ReturnType<typeof setTimeout>;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new RestartCheckpointError(deadline.requestId, "deadline_exceeded")),
+        Math.max(0, deadline.terminateAt - Date.now()),
+      );
+    });
+    try {
+      // Persistence already in flight may finish after expiry. It cannot advance
+      // this attempt or start the next snapshot after its hold/deadline changes.
+      await Promise.race([checkpoint(), expired]);
+    } finally {
+      clearTimeout(timer!);
+    }
   }
 
   prepareIdleRestart(): boolean {

@@ -17,6 +17,7 @@ import { createTestLogger } from "../../test-utils/test-logger.js";
 import {
   AgentManager,
   AgentManagerShuttingDownError,
+  RestartCheckpointError,
   commandMayHaveChangedExternalState,
   type AgentManagerEvent,
   type ManagedAgent,
@@ -13217,6 +13218,102 @@ test("idle restart waits for registering sessions and closes admission before ne
     }),
   ).rejects.toThrow("shutting down");
   await manager.closeAgent(agent.id);
+});
+
+test("maintenance checkpoint deadline rejects a hanging flush and fences its late completion", async () => {
+  vi.useFakeTimers();
+  try {
+    const manager = new AgentManager({ clients: {}, logger });
+    const pending = deferred<void>();
+    const flush = vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+    const id = randomUUID();
+    expect(manager.beginRestartDrain(id)).toBe(true);
+    const checkpoint = manager.checkpointRestartDrain({
+      requestId: id,
+      terminateAt: Date.now() + 100,
+    });
+    const refused = expect(checkpoint).rejects.toMatchObject({
+      code: "deadline_exceeded",
+      requestId: id,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await refused;
+    pending.resolve();
+    await Promise.resolve();
+    await expect(checkpoint).rejects.toBeInstanceOf(RestartCheckpointError);
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(manager.getRestartImpact().restartDrainId).toBe(id);
+    expect(manager.cancelRestartDrain(id)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("maintenance checkpoint refuses a hold cancelled during asynchronous persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const pending = deferred<void>();
+  vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const checkpoint = manager.checkpointRestartDrain({
+    requestId: id,
+    terminateAt: Date.now() + 1000,
+  });
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  const next = randomUUID();
+  expect(manager.beginRestartDrain(next)).toBe(true);
+  pending.resolve();
+  await expect(checkpoint).rejects.toMatchObject({ code: "hold_released", requestId: id });
+  expect(manager.getRestartImpact().restartDrainId).toBe(next);
+  expect(manager.cancelRestartDrain(next)).toBe(true);
+});
+
+test("maintenance checkpoint validates exact hold and deadline before starting persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const flush = vi.spyOn(manager, "flushForShutdown");
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  await expect(
+    manager.checkpointRestartDrain({ requestId: randomUUID(), terminateAt: Date.now() + 1000 }),
+  ).rejects.toMatchObject({ code: "hold_released" });
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() - 1 }),
+  ).rejects.toMatchObject({ code: "deadline_exceeded" });
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Infinity }),
+  ).rejects.toMatchObject({ code: "invalid_deadline" });
+  expect(flush).not.toHaveBeenCalled();
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+});
+
+test("maintenance checkpoint completion preserves the hold and legacy checkpoint calls", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const flush = vi.spyOn(manager, "flushForShutdown");
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  await expect(
+    manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() + 1000 }),
+  ).resolves.toBeUndefined();
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  await expect(manager.checkpointRestartDrain()).resolves.toBeUndefined();
+  expect(flush).toHaveBeenCalledTimes(2);
+});
+
+test("maintenance checkpoint captures its request and deadline before awaiting persistence", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const pending = deferred<void>();
+  vi.spyOn(manager, "flushForShutdown").mockReturnValue(pending.promise);
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const input = { requestId: id, terminateAt: Date.now() + 1000 };
+  const checkpoint = manager.checkpointRestartDrain(input);
+  input.requestId = randomUUID();
+  input.terminateAt = Date.now() - 1;
+  pending.resolve();
+  await expect(checkpoint).resolves.toBeUndefined();
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
 });
 
 test("restart drain warns once without interrupting and rejects new turns until cancellation", async () => {
