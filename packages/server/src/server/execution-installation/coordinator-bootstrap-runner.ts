@@ -901,10 +901,17 @@ export async function runNativeBootstrap(
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , setup, role, identifier] = process.argv;
-  if (setup && role === "maintenance-recovery-registration") {
+  if (
+    setup &&
+    (role === "maintenance-recovery-registration" || role === "maintenance-recovery-observation")
+  ) {
     void import("./coordinator-bootstrap-maintenance-recovery-activation.js")
       .then(({ runNativeRecoveryActivation }) =>
-        runNativeRecoveryActivation(setup, process.argv.slice(4)),
+        runNativeRecoveryActivation(
+          setup,
+          process.argv.slice(4),
+          role === "maintenance-recovery-observation" ? { observationOnly: true } : undefined,
+        ),
       )
       .then((observation) => process.stdout.write(JSON.stringify(observation) + "\n"))
       .catch(() => {

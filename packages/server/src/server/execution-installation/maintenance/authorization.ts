@@ -383,6 +383,8 @@ export function changeStandingGrant(journal: FileEnrollmentJournal, change: Gran
 interface ActivationReservation {
   grantRevision: string;
   stepId: string;
+  /** Native launch owners recheck custody before the durable reservation. */
+  assertCurrent?(): void;
 }
 
 /** Reservation is the dispatch boundary. An uncertain reservation is observed, never replayed. */
@@ -414,6 +416,8 @@ export function reserveActivationStep(
       ),
     );
     if (!ready) throw new BootstrapRequestConflict("Activation prerequisites are not verified");
+    if (input.assertCurrent && input.assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Activation reservation custody must be synchronous");
     const reserved: EnrollmentStepProgress = {
       id: step.id,
       status: "reserved",

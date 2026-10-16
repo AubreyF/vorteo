@@ -194,6 +194,36 @@ function enrolled(state: InstallationEnrollmentState) {
   return state;
 }
 
+test.each(["valid", "changed", "async"] as const)(
+  "activation reservation rechecks native custody under exclusion: %s",
+  (mode) => {
+    const f = fixture();
+    const before = enrolled(f.enroll());
+    const assertCurrent = () => {
+      expect(() =>
+        new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined),
+      ).toThrow("storage is busy");
+      if (mode === "changed") throw new Error("Native parent changed");
+      if (mode === "async") return Promise.resolve();
+    };
+    const apply = () =>
+      reserveActivationStep(f.journal, {
+        grantRevision: before.grant.revision,
+        stepId: f.first,
+        assertCurrent,
+      });
+    if (mode !== "valid") {
+      expect(apply).toThrow();
+      expect(f.journal.read()).toEqual(before);
+      return;
+    }
+    const current = enrolled(apply());
+    expect(current.activation.steps[0].status).toBe("reserved");
+    expect(current.grant).toEqual(before.grant);
+    expect(apply).toThrow("requires reconciliation");
+  },
+);
+
 test.each([
   ["observation", "valid"],
   ["observation", "changed"],

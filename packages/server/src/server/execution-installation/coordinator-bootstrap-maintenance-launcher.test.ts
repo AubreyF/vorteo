@@ -2,6 +2,7 @@ import { hashSync } from "bcryptjs";
 import {
   reconcileRecoveryAccessActivation,
   inspectRecoveryActivationInvocation,
+  activateRecoveryBeforeCoordinator,
 } from "./coordinator-bootstrap-maintenance-recovery-activation.js";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -3127,6 +3128,130 @@ test("recovery activation accepts only four immutable enrollment identifiers", (
   expect(() => inspectRecoveryActivationInvocation([...args, "/other/plan"])).toThrow();
   expect(() => inspectRecoveryActivationInvocation(["/other/plan", ...args.slice(1)])).toThrow();
 });
+
+test.each([
+  "success",
+  "lost-reply",
+  "lost-before-intent",
+  "revoked-before-reservation",
+  "async-custody",
+  "dependency-missing",
+] as const)(
+  "combined enrollment launches recovery once before coordinator migration: %s",
+  async (mode) => {
+    const f = await recoveryRegistrationFixture();
+    const { enrollmentManifestDigest } = await import("./maintenance/authorization.js");
+    const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+    const coordinatorStepId = randomUUID();
+    const seeded = f.enrollment.update((current) => {
+      if (current.status !== "enrolled") throw new Error("Fixture enrollment absent");
+      const manifest = {
+        ...current.grant.manifest,
+        provisioning: { admissionSha256: "e".repeat(64), coordinatorStepId },
+        steps: [
+          ...current.grant.manifest.steps,
+          {
+            ...current.grant.manifest.steps[0],
+            id: coordinatorStepId,
+            target: "coordinator" as const,
+            dependsOn: mode === "dependency-missing" ? [] : [f.input.stepId],
+          },
+        ],
+      };
+      const digest = enrollmentManifestDigest(manifest);
+      return {
+        ...current,
+        grant: {
+          ...current.grant,
+          manifest,
+          approval: { ...current.grant.approval, manifestSha256: digest },
+        },
+        activation: {
+          ...current.activation,
+          manifestSha256: digest,
+          steps: manifest.steps.map((step) => ({ id: step.id, status: "pending" as const })),
+        },
+      };
+    });
+    if (seeded.status !== "enrolled") throw new Error("Fixture enrollment absent");
+    let launches = 0;
+    let observations = 0;
+    const settle = async (
+      invocation: Parameters<typeof inspectRecoveryActivationInvocation>[0],
+      options?: { observationOnly: true },
+    ) => {
+      observations++;
+      const exact = inspectRecoveryActivationInvocation(invocation);
+      return reconcileRecoveryAccessActivation({ ...f.input, ...exact }, f.ports, options);
+    };
+    const ports = {
+      async prepare() {
+        if (mode === "revoked-before-reservation") f.revoke();
+        return {
+          assertCurrent() {
+            expect(() =>
+              new FileBootstrapRequestJournal(f.enrollmentStateDirectory).withRecoveryTransaction(
+                () => undefined,
+              ),
+            ).toThrow("storage is busy");
+            if (mode === "async-custody") return Promise.resolve();
+          },
+          async launch(invocation: readonly string[]) {
+            launches++;
+            if (mode === "lost-before-intent") throw new Error("Lost child launch reply");
+            await settle(invocation);
+            if (mode === "lost-reply") throw new Error("Lost child launch reply");
+          },
+          observe: (invocation: readonly string[]) => settle(invocation, { observationOnly: true }),
+        };
+      },
+    };
+    const input = {
+      journal: f.enrollment,
+      manifestSha256: seeded.grant.approval.manifestSha256,
+      coordinatorStepId,
+    };
+    if (
+      mode === "revoked-before-reservation" ||
+      mode === "async-custody" ||
+      mode === "dependency-missing"
+    ) {
+      await expect(activateRecoveryBeforeCoordinator(input, ports)).rejects.toThrow();
+      expect(launches).toBe(0);
+      const current = f.enrollment.read();
+      expect(current.status === "enrolled" && current.activation.steps[0].status).toBe("pending");
+      expect(f.commands).toEqual([]);
+      return;
+    }
+    if (mode === "lost-before-intent") {
+      await expect(activateRecoveryBeforeCoordinator(input, ports)).rejects.toThrow("Lost child");
+      const file = path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json");
+      const before = readFileSync(file);
+      await expect(activateRecoveryBeforeCoordinator(input, ports)).rejects.toThrow(
+        "launch is uncertain",
+      );
+      expect(launches).toBe(1);
+      expect(observations).toBe(1);
+      expect(f.commands).toEqual([]);
+      expect(readFileSync(file)).toEqual(before);
+      return;
+    }
+    if (mode === "lost-reply")
+      await expect(activateRecoveryBeforeCoordinator(input, ports)).rejects.toThrow("Lost child");
+    else await activateRecoveryBeforeCoordinator(input, ports);
+    f.revoke();
+    await activateRecoveryBeforeCoordinator(input, ports);
+    expect(launches).toBe(1);
+    expect(observations).toBe(2);
+    const current = f.enrollment.read();
+    expect(current.status === "enrolled" && current.activation.steps[0].status).toBe("succeeded");
+    expect(current.status === "enrolled" && current.activation.steps[1].status).toBe("pending");
+    expect(f.commands.map((command) => command[0])).toEqual([
+      "/bin/launchctl",
+      f.plan.recoveryRoute!.tailscale.path,
+    ]);
+  },
+);
 
 test.each([
   "lost-start",

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.615 - 2026-10-16
+
+### Maintenance
+
+- Require the initial independent recovery page to be a verified prerequisite of combined coordinator activation. The protected enrollment controller validates its reviewed native plan, runtime and setup before reserving the existing activation step and launching one exact child. No new queue, authority store or credential is introduced.
+- Reopening a reserved generation uses an explicit observation-only native role, including when no child intent exists. Lost launch replies never authorize another registration attempt. Native custody and lifecycle exclusion are checked under the shared reservation lock; child exit alone does not permit coordinator migration.
+- Focused regressions cover ordered activation, lost replies before and after intent, revocation before reservation, asynchronous custody refusal, missing prerequisites and unchanged retained state after refusal. This is source integration, not installed recovery or full combined native acceptance. Private HTTPS delivery, exact rollback controls, remote owner acceptance and README/General availability remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.614 - 2026-10-16
 
 ### Maintenance

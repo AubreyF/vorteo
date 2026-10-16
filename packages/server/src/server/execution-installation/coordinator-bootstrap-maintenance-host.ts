@@ -173,6 +173,19 @@ export async function createProvisionedMaintenanceReview(input: {
           ?.identitySha256 !== initial.coordinatorIdentitySha256
       )
         throw new BootstrapRequestConflict("Native coordinator identity differs from enrollment");
+      const { activateNativeRecoveryBeforeCoordinator } =
+        await import("./coordinator-bootstrap-maintenance-recovery-activation.js");
+      const binding = review.manifest.provisioning;
+      if (!binding)
+        throw new BootstrapRequestConflict("Enrollment provisioning binding is unavailable");
+      await activateNativeRecoveryBeforeCoordinator({
+        installationRoot: input.installationRoot,
+        stateDirectory: initial.plan.state.directory,
+        installationId: initial.receipt.installationId,
+        manifestSha256: enrollmentManifestDigest(review.manifest),
+        coordinatorStepId: binding.coordinatorStepId,
+        verifyParent: verifySetup,
+      });
       const pending = await bound.prepare({
         id: initial.receipt.requestId,
         plan: initial.plan,
