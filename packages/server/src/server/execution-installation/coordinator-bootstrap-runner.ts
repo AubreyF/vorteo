@@ -772,6 +772,25 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         process.stderr.write("Maintenance controls could not establish readiness.\n");
         process.exitCode = 1;
       });
+  } else if (setup && identifier && role === "preclaim-repair-control") {
+    void import("./coordinator-bootstrap-preclaim-control.js")
+      .then(({ runProvisionedPreclaimRepairControl }) =>
+        runProvisionedPreclaimRepairControl({
+          installationRoot: setup,
+          admissionSha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .parse(identifier),
+        }),
+      )
+      .then(({ url, descriptor }) => {
+        process.stdout.write(JSON.stringify({ url, descriptor, recoveryDispatched: false }) + "\n");
+        return undefined;
+      })
+      .catch(() => {
+        process.stderr.write("Provisioned preclaim controls could not establish readiness.\n");
+        process.exitCode = 1;
+      });
   } else if (setup && identifier && role === "claimed-repair-control") {
     void import("./coordinator-bootstrap-claimed-control.js")
       .then(({ runProvisionedClaimedRepairControl }) =>

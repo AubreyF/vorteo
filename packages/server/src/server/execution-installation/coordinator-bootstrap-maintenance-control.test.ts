@@ -8,6 +8,110 @@ import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
+import { createPreclaimRepairControlApp } from "./coordinator-bootstrap-preclaim-control.js";
+import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
+
+test.each(["success", "lost-response"])(
+  "independent preclaim admission keeps the separate one-shot owner decision: %s",
+  async (mode) => {
+    const binding = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+    const digest = "b".repeat(64);
+    let status: "pending" | "approved" = "pending";
+    let origin = "";
+    const decisions: unknown[] = [];
+    const admitted: string[] = [];
+    const app = createPreclaimRepairControlApp({
+      admissionSha256: digest,
+      origin: () => origin,
+      proposal: { originalId: "retained-fixture", scope: "retire only the reviewed executor" },
+      provision: async (password) => {
+        if (password !== "fixture-owner")
+          throw new BootstrapAuthenticationRequired("private fixture password");
+        admitted.push("exact runtime");
+        return {
+          binding,
+          client: {
+            listCoordinatorBootstrapRequests: async () => [
+              { ...binding, status, reason: "Retire only the exact fixture executor" },
+            ],
+            decideCoordinatorBootstrap: async (decision, ownerPassword) => {
+              expect(ownerPassword).toBe("fixture-owner");
+              decisions.push(decision);
+              status = "approved";
+              if (mode === "lost-response") throw new Error("private native diagnostic");
+              return [];
+            },
+          },
+        };
+      },
+    });
+    const server = createServer(app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+    origin = `http://127.0.0.1:${address.port}`;
+    const post = (route: string, body: unknown, requestOrigin = origin) =>
+      fetch(origin + route, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: requestOrigin },
+        body: JSON.stringify(body),
+      });
+    try {
+      expect(await (await fetch(origin)).text()).toContain("Authorize this exact review runtime");
+      expect(
+        (
+          await post(
+            "/provision",
+            { admissionSha256: digest, ownerPassword: "fixture-owner" },
+            "https://outside.example",
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await post("/provision", {
+            admissionSha256: "c".repeat(64),
+            ownerPassword: "fixture-owner",
+          })
+        ).status,
+      ).toBe(409);
+      const refused = await post("/provision", { admissionSha256: digest, ownerPassword: "wrong" });
+      expect(refused.status).toBe(401);
+      expect(await refused.text()).not.toContain("private fixture password");
+      expect(admitted).toEqual([]);
+      expect(decisions).toEqual([]);
+      expect(
+        (await post("/provision", { admissionSha256: digest, ownerPassword: "fixture-owner" }))
+          .status,
+      ).toBe(200);
+      expect(admitted).toEqual(["exact runtime"]);
+      expect(decisions).toEqual([]);
+      const html = await (await fetch(origin)).text();
+      expect(html).toContain("Retire only the reviewed stalled executor");
+      expect(html).not.toContain("The exact plan replaces the coordinator.");
+      const decision = { decision: "approve", ownerPassword: "fixture-owner" };
+      expect((await post("/decision", decision)).status).toBe(mode === "success" ? 200 : 503);
+      expect((await post("/decision", decision)).status).toBe(409);
+      expect(decisions).toEqual([{ ...binding, decision: "approve" }]);
+      expect(await (await fetch(origin + "/review")).json()).toMatchObject({
+        attempted: true,
+        request: { status: "approved" },
+      });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        }),
+      );
+    }
+  },
+);
 
 test.each(["success", "lost-response", "changed-review"])(
   "independent owner review preserves exact tracked decision: %s",

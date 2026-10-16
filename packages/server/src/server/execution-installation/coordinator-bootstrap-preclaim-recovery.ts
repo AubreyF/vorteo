@@ -331,6 +331,36 @@ const legacyPreclaimFiles = {
 };
 const legacyPreclaimOwner = "c7022f08433113bc66f72cdec2ca9f7f9142decb4fa790e4d183099f06cc42c4";
 
+// COMPAT(preclaimRecovery): this reviewed runner performs native validation
+// before claimDispatch. Watchdog registration and lifecycle effects follow the
+// durable claim, so an exact unclaimed executor can use the same retirement fence.
+const reviewedPreclaimRunners: Record<
+  string,
+  { files: Record<string, string>; owner: string; artifactSha256: string | null }
+> = {
+  [legacyPreclaimSource]: {
+    files: legacyPreclaimFiles,
+    owner: legacyPreclaimOwner,
+    artifactSha256: null,
+  },
+  e9922b953658ad7873bf921bb5837a84686f9475: {
+    artifactSha256: "3a52708b9bab4d78e7257c06c478a91d00d91c848e7338a21a1a68a827fcb0eb",
+    files: {
+      "coordinator-bootstrap-runner.js":
+        "a83d7b508c48c424c1fc8a067d7c14b525300a3497ac7201a9975c37374783b3",
+      "coordinator-bootstrap-executor.js":
+        "66a965331d427ebbb1782eda4c3c29822f32dbe9c9f50bea0136e1bac0bf9eaf",
+      "coordinator-bootstrap.js":
+        "267fdff559a5ae881fa1a111fdce7fd189421cb637002451ba277acd0dea220c",
+      "coordinator-bootstrap-journal.js":
+        "5ed14905b94b5ccfc0480080e6317f285f84bb23fd04e2a14ecb0413919de320",
+      "coordinator-bootstrap-runtime.js":
+        "3731a0a0061c71db080a83077ed751eac996b53abba912d7773cded3122cab3d",
+    },
+    owner: "3a1569bfc8c51340af2f818b1e74f431ef8b71359a4c3c457fc1196d204b1bc8",
+  },
+};
+
 /** The canceled journal no longer contains the old approval. Retain its full
  * protected bytes and bind them to the old setup and audited observation below. */
 export async function verifyPreclaimOriginalApproval(
@@ -361,22 +391,27 @@ export async function verifySupportedPreclaimRunner(input: {
 }): Promise<void> {
   const plan = validatePreclaimRecoveryPlan(input.plan);
   await verifyPreclaimOriginalApproval(plan, input.writableMountRoots);
-  if (plan.runner.sourceCommit !== legacyPreclaimSource || !plan.retainedObservation)
+  const supported = reviewedPreclaimRunners[plan.runner.sourceCommit];
+  if (!supported || !plan.retainedObservation)
     throw new BootstrapRequestConflict(
       "Target runner release is not supported for preclaim recovery",
+    );
+  if (supported.artifactSha256 !== null && plan.runner.artifactSha256 !== supported.artifactSha256)
+    throw new BootstrapRequestConflict(
+      "Target runner artifact is not the reviewed preclaim release",
     );
   const directory = path.join(
     plan.runner.directory,
     "packages/server/dist/server/server/execution-installation",
   );
-  for (const [name, sha256] of Object.entries(legacyPreclaimFiles))
+  for (const [name, sha256] of Object.entries(supported.files))
     await readBootstrapPreparedFile(
       { path: path.join(directory, name), sha256 },
       input.writableMountRoots,
     );
   const owner = {
     path: path.join(plan.runner.directory, "scripts/run-coordinator-owner.py"),
-    sha256: legacyPreclaimOwner,
+    sha256: supported.owner,
   };
   if (!isDeepStrictEqual(plan.ownerLauncher, owner))
     throw new BootstrapRequestConflict("Target runner ownership launcher is not supported");

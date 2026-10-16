@@ -8,9 +8,10 @@ const BindingSchema = z.strictObject({
   revision: z.string().uuid(),
   planSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
-interface OwnerReviewInput {
+export interface OwnerReviewInput {
   binding: z.infer<typeof BindingSchema>;
   origin(): string;
+  scope?: "coordinator-migration" | "preclaim-recovery";
   client: {
     // The actual client validates and retains the complete request/plan. Only
     // these identity fields participate in this presentation's admission.
@@ -56,7 +57,9 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
       throw new Error("Exact retained review unavailable");
     return request;
   }
-  app.get("/", (_request, response) => response.type("html").send(ownerReviewHtml));
+  app.get("/", (_request, response) =>
+    response.type("html").send(ownerReviewDocument(input.scope)),
+  );
   app.get("/review", (_request, response, next) => {
     void read().then((request) => response.json({ request, attempted, binding }), next);
   });
@@ -106,6 +109,27 @@ export function createBootstrapOwnerReviewApp(input: OwnerReviewInput) {
   };
   app.use(failure);
   return app;
+}
+
+function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
+  if (scope !== "preclaim-recovery") return ownerReviewHtml;
+  return ownerReviewHtml
+    .replace(
+      "This independent page uses the existing Host review service while the normal coordinator is unavailable.",
+      "This independent page uses the admitted native recovery service while the normal coordinator is unavailable.",
+    )
+    .replace(
+      "The exact plan replaces the coordinator. Host and Dev agents are not restarted by this decision. Compatible recovery and the configured delivery tools are included in the plan below. This does not grant standing maintenance authority.",
+      "This exact plan cancels the retained unclaimed migration and retires only its reviewed stalled executor. It preserves the selected coordinator, Host and Dev, installation data and approval history. It does not install a replacement or grant standing maintenance authority.",
+    )
+    .replace(
+      "Approve this exact coordinator migration",
+      "Retire only the reviewed stalled executor",
+    )
+    .replace(
+      "Approve this exact coordinator replacement and compatible recovery plan?",
+      "Approve cancellation of the retained migration and retirement of only its reviewed stalled executor?",
+    );
 }
 
 const ownerReviewHtml = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Vorteo installation recovery</title>

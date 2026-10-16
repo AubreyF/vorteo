@@ -35,6 +35,7 @@ import {
 import { afterEach, expect, test } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { assertPreclaimControlBinding } from "./coordinator-bootstrap-preclaim-provisioned-host.js";
 import {
   PreclaimRepairProvisioningSchema,
   provisionPreclaimRepair,
@@ -239,6 +240,43 @@ afterEach(() => {
 });
 const password = "disposable-review-owner";
 const ownerPasswordHash = hashSync(password, 4);
+
+test.each(["exact", "host", "executor", "coordinator", "argv", "boot", "uid", "executable"])(
+  "independent preclaim control binds its distinct native role (%s)",
+  (mode) => {
+    const plan = fixture().plan;
+    const setup = { node: plan.runner.node, entrypoint: plan.executorEntrypoint };
+    const root = "/protected";
+    const admissionSha256 = "a".repeat(64);
+    const args = [
+      setup.node.path,
+      setup.entrypoint.path,
+      root,
+      "preclaim-repair-control",
+      admissionSha256,
+    ];
+    const controlProcess = {
+      ...plan.hostProcess,
+      pid: 99,
+      argumentsSha256: createHash("sha256").update(JSON.stringify(args)).digest("hex"),
+    };
+    if (mode === "host") controlProcess.pid = plan.hostProcess.pid;
+    if (mode === "executor") controlProcess.pid = plan.executor.identity.pid;
+    if (mode === "coordinator") controlProcess.pid = plan.coordinatorProcess.pid;
+    if (mode === "argv") controlProcess.argumentsSha256 = "b".repeat(64);
+    if (mode === "boot") controlProcess.bootId = randomUUID();
+    if (mode === "uid") controlProcess.uid++;
+    if (mode === "executable") controlProcess.executable = "/other/node";
+    const inspect = () =>
+      assertPreclaimControlBinding({
+        setup,
+        plan,
+        provision: { installationRoot: root, admissionSha256, controlProcess },
+      });
+    if (mode === "exact") expect(inspect).not.toThrow();
+    else expect(inspect).toThrow("control binding changed");
+  },
+);
 
 test("independent preclaim provisioning preserves approval and requires owner authentication", async () => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "preclaim-provision-")));
@@ -2345,7 +2383,12 @@ execFileSync('/usr/bin/python3',['-I','-B','-c',${JSON.stringify(probe)},${JSON.
   20000,
 );
 
-test.each(["unknown-source", "missing-observation"])(
+test.each([
+  "unknown-source",
+  "missing-observation",
+  "current-missing-observation",
+  "current-wrong-artifact",
+])(
   "legacy runner admission refuses unsupported provenance before file access (%s)",
   async (mode) => {
     const { verifySupportedPreclaimRunner } =
@@ -2354,6 +2397,10 @@ test.each(["unknown-source", "missing-observation"])(
     if (mode === "missing-observation") {
       plan.runner.sourceCommit = "853b193e69c48260366635610501912efff73a0c";
       plan.original.plan.candidate.sourceCommit = plan.runner.sourceCommit;
+    } else if (mode.startsWith("current-")) {
+      plan.runner.sourceCommit = "e9922b953658ad7873bf921bb5837a84686f9475";
+      plan.original.plan.candidate.sourceCommit = plan.runner.sourceCommit;
+      if (mode === "current-wrong-artifact") plan.retainedObservation = plan.setup;
     } else plan.retainedObservation = plan.setup;
     plan.original.planSha256 = coordinatorPlanDigest(plan.original.plan);
     plan.canceled = { ...plan.original, revision: randomUUID(), status: "canceled" };
@@ -2370,7 +2417,11 @@ test.each(["unknown-source", "missing-observation"])(
         },
         writableMountRoots: [],
       }),
-    ).rejects.toThrow("not supported for preclaim recovery");
+    ).rejects.toThrow(
+      mode === "current-wrong-artifact"
+        ? "not the reviewed preclaim release"
+        : "not supported for preclaim recovery",
+    );
   },
 );
 

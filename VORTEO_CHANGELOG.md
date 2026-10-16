@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.591 - 2026-10-15
+
+- Add an independent preclaim controller role and separate owner provisioning and exact recovery pages. Recovery children bind to the admitted controller birth and immutable runtime while retaining the genuine selected Host snapshot. Existing journals, cancellation fencing, single-use launch attempts and observation remain in use.
+- Recognize the reviewed preclaim runner release only with its complete artifact and control-flow digests. Read-only native acceptance verified the retained target's setup, audited process, isolated group, selected coordinator and lock without changing its journal or sending signals.
+- Owning preclaim, parent-binding and HTTP checks pass, and a browser fixture verifies authentication refusal, separate consent and no decision replay after a lost reply. Compiled native retirement and controller reopening remain unaccepted; no live recovery or capability enablement is claimed. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.590 - 2026-10-15
 
 - Add owner-authenticated admission for an exact independent preclaim repair runtime, using existing addressed repair artifacts. Provisioning preserves the original unclaimed approval and creates no recovery decision or process effect; claimed-generation consent cannot substitute for preclaim consent.

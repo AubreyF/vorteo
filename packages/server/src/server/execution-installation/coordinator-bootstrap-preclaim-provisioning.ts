@@ -55,14 +55,14 @@ export async function resolvePreclaimRepairFiles(
   return files;
 }
 
-function assertOriginal(input: PreclaimRepairProvisioningInput) {
+export function assertPreclaimRepairOriginal(input: PreclaimRepairProvisioningInput) {
   const plan = validatePreclaimRecoveryPlan(input.plan);
   const records = new FileBootstrapRequestJournal(plan.original.plan.state.directory).read();
   if (
     plan.original.execution ||
     !isDeepStrictEqual(
       records.find((record) => record.id === plan.original.id),
-      plan.original,
+      plan.ownerCancellation ?? plan.original,
     )
   )
     throw new BootstrapRequestConflict("Exact unclaimed preclaim repair target changed");
@@ -102,9 +102,9 @@ export async function verifyPreclaimRepairProposal(input: PreclaimRepairProvisio
   const receipt = PreclaimRepairProvisioningSchema.parse(JSON.parse(bytes.toString("utf8")));
   if (createHash("sha256").update(JSON.stringify(receipt)).digest("hex") !== input.admissionSha256)
     throw new BootstrapRequestConflict("Preclaim repair proposal must be canonical");
-  assertOriginal(input);
+  assertPreclaimRepairOriginal(input);
   await verifyReceipt(input, receipt);
-  assertOriginal(input);
+  assertPreclaimRepairOriginal(input);
   return { receipt };
 }
 
@@ -147,7 +147,7 @@ export async function provisionPreclaimRepair(
     throw new BootstrapAuthenticationRequired("Installation owner authentication required");
   await verifyPreclaimRepairProposal(input);
   await readBootstrapPreparedFile(plan.selectedConfiguration, input.writableMountRoots);
-  assertOriginal(input);
+  assertPreclaimRepairOriginal(input);
   const files = await resolvePreclaimRepairFiles(input);
   await writeRecoverySnapshot(files.plan, plan);
   await writeRecoverySnapshot(files.admission, receipt);

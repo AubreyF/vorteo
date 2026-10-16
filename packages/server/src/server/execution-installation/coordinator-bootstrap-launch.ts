@@ -83,6 +83,11 @@ interface PreclaimRuntimeInput {
   daemonId: string;
   original: CoordinatorBootstrapRequest;
   ownerCancellation?: CoordinatorBootstrapRequest;
+  plan?: BootstrapPreclaimRecoveryPlan;
+  provisioning?: Pick<
+    z.infer<typeof PreclaimProvisioningContextSchema>,
+    "installationRoot" | "admissionSha256" | "controlProcess"
+  >;
   ports?: NonNullable<Parameters<typeof deriveBootstrapRenewal>[0]["ports"]> & {
     moduleFile: string;
     hostProcessId?: number;
@@ -141,9 +146,24 @@ function readPreclaimRuntimeAnchor(input: PreclaimRuntimeInput) {
   return { request, uid, setup, admission, verifyOriginal };
 }
 
-export async function derivePreclaimHostRuntime(
-  input: PreclaimRuntimeInput,
-): Promise<z.infer<typeof BootstrapRunnerSetupSchema>> {
+export async function derivePreclaimHostRuntime(input: PreclaimRuntimeInput): Promise<
+  z.infer<typeof BootstrapRunnerSetupSchema> & {
+    provisioning?: z.infer<typeof PreclaimProvisioningContextSchema>;
+  }
+> {
+  if (input.provisioning) {
+    if (input.ports || !input.plan || !isDeepStrictEqual(input.plan.original, input.original))
+      throw new BootstrapRequestConflict(
+        "Provisioned preclaim repair requires its exact native plan",
+      );
+    const { deriveProvisionedPreclaimHostRuntime } =
+      await import("./coordinator-bootstrap-preclaim-provisioned-host.js");
+    return deriveProvisionedPreclaimHostRuntime({
+      ...input,
+      plan: input.plan,
+      provisioning: input.provisioning,
+    });
+  }
   const { request, uid, setup, admission, verifyOriginal } = readPreclaimRuntimeAnchor(input);
   verifyOriginal();
   const derived = await deriveBootstrapRenewal({
@@ -416,11 +436,11 @@ export async function createManagedPreclaimRecoveryReview(
   };
 }
 
-async function verifyManagedPreclaimPreparation(
+export async function verifyManagedPreclaimPreparation(
   input: PreclaimRuntimeInput,
   plan: BootstrapPreclaimRecoveryPlan,
 ) {
-  const runtime = await derivePreclaimHostRuntime(input);
+  const runtime = await derivePreclaimHostRuntime({ ...input, plan });
   const renewal = runtime.renewal!;
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse((await readBootstrapPreparedFile(renewal.originalAdmission, [])).toString("utf8")),
@@ -463,6 +483,13 @@ async function verifyManagedPreclaimPreparation(
   if (observed === "alive") await verifyPreclaimPreparationIsolation(context);
 }
 
+export const PreclaimProvisioningContextSchema = z.strictObject({
+  installationRoot: z.string().startsWith("/"),
+  admissionSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  hostRuntime: BootstrapRunnerSetupSchema,
+  controlProcess: ProcessObservationSchema,
+});
+
 export const PreclaimRunnerSetupSchema = BootstrapRunnerSetupSchema.extend({
   version: z.literal(1),
   kind: z.literal("bootstrap-preclaim-recovery"),
@@ -472,6 +499,7 @@ export const PreclaimRunnerSetupSchema = BootstrapRunnerSetupSchema.extend({
   renewal: BootstrapRenewalSchema,
   inspector: BootstrapRunnerSetupSchema.shape.entrypoint,
   selectedLauncherFile: z.string().startsWith("/"),
+  provisioning: PreclaimProvisioningContextSchema.optional(),
 });
 
 /** A fresh execution snapshot does not edit the installed runner/admission.
@@ -530,6 +558,7 @@ async function persistPreclaimLaunchSnapshot(
   refuseAttempt();
   const setup = await derivePreclaimHostRuntime({
     ...input,
+    plan: request.plan,
     original: request.plan.original,
     ownerCancellation: request.plan.ownerCancellation,
   });
@@ -810,7 +839,11 @@ export async function retainPreclaimExecutorBirth(input: {
     setup,
     input.setupFile,
     executor,
-    ProcessObservationSchema.parse(await reader.inspectProcess(setup.renewal.hostProcess.pid)),
+    ProcessObservationSchema.parse(
+      await reader.inspectProcess(
+        setup.provisioning?.controlProcess.pid ?? setup.renewal.hostProcess.pid,
+      ),
+    ),
   );
   if (!isDeepStrictEqual(setup, readPrivateBootstrapConfiguration(input.setupFile, uid)))
     throw new BootstrapRequestConflict("Recovery launch snapshot changed before birth retention");
@@ -871,7 +904,7 @@ function verifyPreclaimBirthObservation(
     identity.planSha256,
   ];
   const uid = process.getuid!();
-  const host = setup.renewal.hostProcess;
+  const host = setup.provisioning?.controlProcess ?? setup.renewal.hostProcess;
   if (
     executor.identity.pid !== process.pid ||
     executor.identity.parentPid !== host.pid ||
@@ -919,11 +952,31 @@ export async function runNativePreclaimRecovery(
   );
   const roots = await inspectBootstrapWritableMountRoots(admission);
   await assertBootstrapPathsProtected([input.setupFile, setup.stateDirectory], roots);
+  const retainedReview = new FileBootstrapPreclaimJournal(setup.stateDirectory)
+    .readReviews()
+    .find((request) => request.id === setup.request.id);
+  if (!retainedReview || retainedReview.planSha256 !== setup.request.planSha256)
+    throw new BootstrapRequestConflict("Retained preclaim review changed");
+  const verifyRuntimeAdmission = async (retained: boolean) => {
+    if (setup.provisioning) {
+      const { verifyProvisionedPreclaimRuntime } =
+        await import("./coordinator-bootstrap-preclaim-provisioned-host.js");
+      await verifyProvisionedPreclaimRuntime({
+        setup,
+        plan: retainedReview.plan,
+        writableMountRoots: roots,
+        retained,
+      });
+    } else {
+      await verifyRetainedRenewal(setup, undefined, retained);
+    }
+  };
+  if (setup.provisioning) await verifyRuntimeAdmission(observationGeneration !== undefined);
   // Retain native birth before either runtime's expensive complete-tree digest.
   const birth = observationGeneration
     ? await verifyPreclaimObserver(input, setup, observationGeneration, roots)
     : await retainPreclaimExecutorBirth({ ...input, writableMountRoots: roots });
-  await verifyRetainedRenewal(setup, undefined, observationGeneration !== undefined);
+  if (!setup.provisioning) await verifyRuntimeAdmission(observationGeneration !== undefined);
   const nativeReader = await createNativeBootstrapServiceReader({
     helperPath: setup.inspector.path,
     helperSha256: setup.inspector.sha256,
@@ -944,13 +997,14 @@ export async function runNativePreclaimRecovery(
   };
   const verifyRuntime = async () => {
     await readBootstrapPreparedFile(birth.setup, roots);
-    await verifyRetainedRenewal(setup, undefined, true);
+    await verifyRuntimeAdmission(true);
     const config = InstallationConfigSchema.parse(
       readPrivateBootstrapConfiguration(setup.renewal.configuration.path, uid),
     );
     if (
       !config.sourceUpdates ||
-      realpathSync(config.sourceUpdates.currentReleaseLink) !== setup.runtimeDirectory ||
+      realpathSync(config.sourceUpdates.currentReleaseLink) !==
+        (setup.provisioning?.hostRuntime.runtimeDirectory ?? setup.runtimeDirectory) ||
       !isDeepStrictEqual(await inspectBootstrapWritableMountRoots(admission), roots)
     )
       throw new BootstrapRequestConflict("Recovery selected Host or mount boundaries changed");
