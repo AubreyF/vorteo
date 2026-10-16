@@ -22,6 +22,113 @@ import {
 const loaderKey = sherpaLoaderEnvKey();
 const loaderEnv = resolveSherpaLoaderEnv();
 
+test("compiled held idle restart replaces the real worker only after exact supervisor acceptance", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-held-native-"));
+  const fixture = path.join(root, "scenario.mjs");
+  const report = path.join(root, "result.json");
+  const supervisor = new URL("../dist/scripts/supervisor.js", import.meta.url).href;
+  const worker = fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url));
+  const clientModule = new URL("../../client/dist/daemon-client.js", import.meta.url).href;
+  await writeFile(
+    fixture,
+    `
+    import assert from 'node:assert/strict';
+    import {writeFile} from 'node:fs/promises';
+    import {randomUUID} from 'node:crypto';
+    import {runSupervisor} from ${JSON.stringify(supervisor)};
+    import {DaemonClient} from ${JSON.stringify(clientModule)};
+    const ready = []; let waiting = null;
+    function nextReady() {
+      const message = ready.shift();
+      if (message) return Promise.resolve(message);
+      return new Promise(resolve => { waiting = resolve; });
+    }
+    const controller = runSupervisor({
+      name:'HeldRestartFixture',startupMessage:'starting',restartOnCrash:true,
+      resolveWorkerEntry:()=>${JSON.stringify(worker)},
+      workerArgs:['--no-mcp','--no-inject-mcp'],workerExecArgv:[],
+      onWorkerReady: message => {
+        if (waiting) { const resolve=waiting; waiting=null; resolve(message); }
+        else ready.push(message);
+      },
+    });
+    let client;
+    async function connect(message) {
+      const value = new DaemonClient({url:'ws://'+message.listen+'/ws',clientId:'held-native-fixture',reconnect:{enabled:false}});
+      await value.connect();
+      assert.equal(value.getLastServerInfoMessage().features.heldIdleRestart,true);
+      return value;
+    }
+    (async()=>{
+      client = await connect(await nextReady());
+      const id=randomUUID(),generation=randomUUID();
+      await client.restartServer(undefined,undefined,{idleMode:'drain',restartDrainId:id});
+      const inspected=await client.restartServer(undefined,undefined,{idleMode:'inspect'});
+      assert.equal(inspected.impact.restartDrainId,id);
+      assert.equal(inspected.impact.agents.length,0);
+      assert.equal(inspected.impact.pendingStarts,0);
+      const held={requestId:id,generation,workerPid:inspected.impact.workerPid,workerInstanceId:inspected.impact.workerInstanceId,terminateAt:Date.now()+10000};
+      const accepted=await client.restartServer(undefined,undefined,{idleMode:'restart',restartDrainId:id,heldRestart:held,timeout:5000});
+      assert.equal(accepted.accepted,true);assert.deepEqual(accepted.heldRestart,held);
+      await client.close();
+      client=await connect(await nextReady());
+      const replaced=await client.restartServer(undefined,undefined,{idleMode:'inspect'});
+      assert.notEqual(replaced.impact.workerPid,held.workerPid);
+      assert.notEqual(replaced.impact.workerInstanceId,held.workerInstanceId);
+      assert.equal(replaced.impact.restartDrainId,null);
+      await client.close();client=null;
+      await writeFile(${JSON.stringify(report)},JSON.stringify({accepted,oldPid:held.workerPid,newPid:replaced.impact.workerPid}));
+      controller.requestShutdown('fixture_complete');
+    })().catch(async error=>{
+      console.error(error);await writeFile(${JSON.stringify(report)},JSON.stringify({error:String(error)}));await client?.close();controller.requestShutdown('fixture_failed');
+    });
+  `,
+  );
+  const child = spawn(process.execPath, [fixture], {
+    cwd: root,
+    env: {
+      PATH: process.env.PATH,
+      TMPDIR: process.env.TMPDIR,
+      HOME: root,
+      USERPROFILE: root,
+      PASEO_HOME: path.join(root, "state"),
+      PASEO_LISTEN: "127.0.0.1:0",
+      PASEO_RELAY_ENABLED: "0",
+      PASEO_MANAGED_WORKER: "1",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once("close", resolve);
+    child.once("error", reject);
+  });
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(output)), 40_000);
+    });
+    const code = await Promise.race([closed, expired]);
+    expect(code, output).toBe(0);
+    const result = JSON.parse(await readFile(report, "utf8"));
+    expect(result.error, output).toBeUndefined();
+    expect(result.accepted.accepted).toBe(true);
+    expect(() => process.kill(result.oldPid, 0)).toThrow();
+    expect(() => process.kill(result.newPid, 0)).toThrow();
+  } finally {
+    clearTimeout(timer!);
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await closed;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 // Agents and terminals inherit the daemon worker's environment, so the local speech
 // runtime's library directory must stay scoped to the speech worker.
 test.runIf(loaderKey && loaderEnv)(
