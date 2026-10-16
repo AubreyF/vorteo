@@ -161,6 +161,7 @@ function restartReply(
     standingDecision: _standingDecision,
     standingHold: _standingHold,
     standingInterruption: _standingInterruption,
+    interruptionChecks: _interruptionChecks,
     standingManualApprovals: _standingManualApprovals,
     updatePreparation: _preparation,
     devRepairs: _devRepairs,
@@ -305,6 +306,11 @@ export function createInstallationServer(
       forTarget(job.target).install(
         job,
         async (target) => {
+          if (job.standingInterruption) {
+            if (!executor.restartHeld)
+              throw new RestartRequestError("Acknowledged restart executor is unavailable");
+            return executor.restartHeld(job);
+          }
           if (!job.whenIdle) return executor.restart(target);
           if (!executor.restartWhenIdle)
             throw new RestartRequestError("Safe update admission is unavailable");

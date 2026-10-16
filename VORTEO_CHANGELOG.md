@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.577 - 2026-10-15
+
+### Changed
+
+- Add queue support for exact interruption reservations before dispatch. Uncertain attempts survive reopening, block competing lifecycle work and permit observation after revocation without another restart. Observation retries retain bounded backoff across reopening.
+- Read the retained running request, approved source and generation before acknowledged execution. Source-update callbacks use that same held restart path. Enrolled worker operations refuse legacy fallback when transport or independent observation is unavailable; native plan operations and the exact initial migration retain their own admission paths.
+
+### Validation and delivery
+
+- Focused queue and shared-journal tests cover lost replies, revocation, retry-budget changes, target exclusion and retained request binding. Production reservation construction and independent native outcome verification are not yet connected, so this does not enable unattended effects or bounded forced interruption. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.576 - 2026-10-15
 
 ### Changed

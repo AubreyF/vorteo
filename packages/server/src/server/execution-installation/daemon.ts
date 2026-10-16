@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
@@ -217,6 +219,78 @@ async function reportRestartTimeout(
 }
 
 export function createInstallationRestartExecutor(config: InstallationConfig): RestartExecutor {
+  function retainedHeldRestart(job: RestartJob) {
+    const current = new FileBootstrapRequestJournal(config.stateDir)
+      .readLifecycle()
+      .find((item) => item.id === job.id);
+    if (
+      !current ||
+      (current.target !== "host" && current.target !== "container-daemon") ||
+      current.status !== "running" ||
+      current.revision !== job.revision ||
+      current.target !== job.target ||
+      !isDeepStrictEqual(current.standingDecision, job.standingDecision) ||
+      !isDeepStrictEqual(current.update, job.update) ||
+      !isDeepStrictEqual(current.sourceBatch, job.sourceBatch) ||
+      !current.standingInterruption ||
+      !isDeepStrictEqual(current.standingInterruption, job.standingInterruption)
+    )
+      throw new Error("Exact durable interruption reservation is unavailable");
+    return current.standingInterruption.held;
+  }
+
+  async function restartHeld(job: RestartJob): Promise<string> {
+    const held = retainedHeldRestart(job);
+    const kind = job.target === "host" ? "host" : "container";
+    const client = await connectInstallationDaemon(config, kind);
+    try {
+      retainedHeldRestart(job);
+      await client.restartServer("approved_exact_held_restart", undefined, {
+        timeout: 5000,
+        idleMode: "restart",
+        restartDrainId: job.id,
+        heldRestart: held,
+      });
+    } catch (error) {
+      const lostReply =
+        error instanceof Error &&
+        "code" in error &&
+        ["DAEMON_CONNECTION_LOST", "DAEMON_REQUEST_TIMEOUT"].includes(String(error.code));
+      if (!lostReply) throw error;
+      // Observe this same generation after a lost reply. Never send again.
+    } finally {
+      await client.close();
+    }
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      await delay(1000);
+      let observed: DaemonClient | null = null;
+      try {
+        observed = await connectInstallationDaemon(config, kind);
+        const response = await observed.restartServer(undefined, undefined, {
+          idleMode: "inspect",
+          timeout: 5000,
+        });
+        const impact = response.impact;
+        if (
+          impact?.workerPid &&
+          impact.workerPid !== held.workerPid &&
+          impact.workerInstanceId &&
+          impact.workerInstanceId !== held.workerInstanceId &&
+          impact.restartDrainId === null
+        )
+          return `Replacement worker ${impact.workerPid} is ready; retained generation observed without replay`;
+      } catch {
+        // Readiness may be temporarily unavailable; this loop has no effects.
+      } finally {
+        await observed?.close();
+      }
+    }
+    throw new Error(
+      "Held restart readiness remains unverified; retain the generation without replay",
+    );
+  }
+
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
     const kind = target === "host" ? "host" : "container";
     let previousPid: number | null = null;
@@ -292,6 +366,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     return reportRestartTimeout(config, target);
   }
   return {
+    restartHeld,
     factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
     async adoptFactoryRuntime(job) {
       const plan = config.container.factoryRuntimeAdoption;
@@ -358,8 +433,8 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         target === "host" ? "host" : "container",
       );
       try {
-        const idleRestartSupported =
-          client.getLastServerInfoMessage()?.features?.idleRestart === true;
+        const features = client.getLastServerInfoMessage()?.features;
+        const idleRestartSupported = features?.idleRestart === true;
         if (idleRestartSupported) {
           const response = await client.restartServer(undefined, undefined, {
             idleMode: "inspect",
@@ -375,10 +450,9 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             ...response.impact,
             agents,
             idleRestartSupported,
-            gracefulRestartSupported:
-              client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
-            restartDrainObservationSupported:
-              client.getLastServerInfoMessage()?.features?.restartDrainObservation === true,
+            gracefulRestartSupported: features?.gracefulRestart === true,
+            restartDrainObservationSupported: features?.restartDrainObservation === true,
+            heldIdleRestartSupported: features?.heldIdleRestart === true,
             error: null,
           };
         }

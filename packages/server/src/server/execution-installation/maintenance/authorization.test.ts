@@ -13,6 +13,8 @@ import type {
   MaintenanceServiceNativeObservation,
 } from "./service-execution.js";
 import { InstallationRestarts } from "../restarts.js";
+import { createInstallationRestartExecutor } from "../daemon.js";
+import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { inspectStandingSourceProvenance } from "./source-provenance.js";
 import {
   maintenanceServiceEvidenceDigest,
@@ -1289,6 +1291,84 @@ test.each([
     expect(f.lifecycle.readLifecycle()).toEqual(before);
   },
 );
+
+test("native held executor reads the exact retained running reservation before connecting", async () => {
+  const f = interruptionFixture();
+  const config: InstallationConfig = {
+    public: {
+      version: 1,
+      installationId: f.manifest.installationId,
+      origin: "https://installation.example",
+      environments: [
+        { kind: "container", serverId: "dev", endpoint: "127.0.0.1:1", useTls: false },
+      ],
+    },
+    stateDir: f.directory,
+    webDistDir: f.directory,
+    listenPort: 6770,
+    ownerPasswordHash: "$2-fixture",
+    hostAgentTokenHash: "0".repeat(64),
+    containerAgentTokenHash: "1".repeat(64),
+    host: {
+      endpoint: "127.0.0.1:1",
+      password: "fixture",
+      launchdService: "gui/501/local.vorteo.fixture",
+    },
+    container: { endpoint: "127.0.0.1:1", password: "fixture" },
+  };
+  const executor = createInstallationRestartExecutor(config);
+  const connect = vi.spyOn(DaemonClient.prototype, "connect");
+  try {
+    await expect(executor.restartHeld!(f.running)).rejects.toThrow(
+      "durable interruption reservation",
+    );
+    f.write([f.running]);
+    const changed = structuredClone(f.running);
+    changed.standingInterruption!.held.generation = randomUUID();
+    await expect(executor.restartHeld!(changed)).rejects.toThrow(
+      "durable interruption reservation",
+    );
+    f.write([{ ...f.running, status: "succeeded" }]);
+    await expect(executor.restartHeld!(f.running)).rejects.toThrow(
+      "durable interruption reservation",
+    );
+    expect(connect).not.toHaveBeenCalled();
+  } finally {
+    connect.mockRestore();
+  }
+});
+
+test("interruption observation budgets cannot reset or advance before retained backoff", () => {
+  const f = interruptionFixture();
+  f.write([f.running]);
+  const checked: RestartJob = {
+    ...f.running,
+    interruptionChecks: {
+      attempts: 1,
+      checkedAt: f.running.standingInterruption!.reservedAt,
+      nextCheckAt: new Date(
+        Date.parse(f.running.standingInterruption!.reservedAt) + 5000,
+      ).toISOString(),
+    },
+  };
+  f.write([checked]);
+  expect(() => f.write([{ ...checked, interruptionChecks: undefined }])).toThrow("retry budget");
+  expect(() =>
+    f.write([
+      {
+        ...checked,
+        interruptionChecks: {
+          attempts: 2,
+          checkedAt: f.running.standingInterruption!.reservedAt,
+          nextCheckAt: new Date(
+            Date.parse(f.running.standingInterruption!.reservedAt) + 15000,
+          ).toISOString(),
+        },
+      },
+    ]),
+  ).toThrow("retry budget");
+  expect(f.lifecycle.readLifecycle()).toEqual([checked]);
+});
 
 test("interruption reservation refuses revoked authority while retained results remain observable", () => {
   const f = interruptionFixture();

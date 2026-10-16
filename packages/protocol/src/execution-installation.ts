@@ -218,6 +218,13 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   standingDecision: StandingRestartDecisionSchema.optional(),
   standingHold: StandingRestartHoldSchema.optional(),
   standingInterruption: StandingInterruptionSchema.optional(),
+  interruptionChecks: z
+    .strictObject({
+      attempts: z.number().int().min(0).max(3),
+      checkedAt: z.string().datetime(),
+      nextCheckAt: z.string().datetime(),
+    })
+    .optional(),
   standingManualApprovals: z
     .array(
       z.strictObject({

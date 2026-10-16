@@ -216,9 +216,12 @@ function assertInterruptionTransition(
       throw new BootstrapRequestConflict(
         "Retained interruption is observation-only; never replay it",
       );
+    assertInterruptionChecks(input, previous!, job);
     return;
   }
   if (!intent) return;
+  if (job.interruptionChecks)
+    throw new BootstrapRequestConflict("A new interruption cannot inherit observation attempts");
   const hold = job.standingHold;
   const decision = job.standingDecision;
   if (
@@ -236,6 +239,30 @@ function assertInterruptionTransition(
   assertInterruptionIdentity(job);
   assertInterruptionDeadline(input, job);
   assertInterruptionNative(job);
+}
+
+function assertInterruptionChecks(
+  input: AdmissionInput,
+  previous: RestartJob,
+  job: RestartJob,
+): void {
+  const before = previous.interruptionChecks;
+  const after = job.interruptionChecks;
+  if (isDeepStrictEqual(before, after)) return;
+  const attempts = before?.attempts ?? 0;
+  const now = input.now ?? Date.now();
+  const checkedAt = after ? Date.parse(after.checkedAt) : NaN;
+  if (
+    !after ||
+    job.status !== "running" ||
+    after.attempts !== attempts + 1 ||
+    attempts >= 3 ||
+    checkedAt > now ||
+    now - checkedAt >= 30_000 ||
+    (before && checkedAt < Date.parse(before.nextCheckAt)) ||
+    Date.parse(after.nextCheckAt) !== checkedAt + [5000, 15000, 60000][attempts]
+  )
+    throw new BootstrapRequestConflict("Interruption observation retry budget changed");
 }
 
 function assertInterruptionIdentity(job: RestartJob): void {

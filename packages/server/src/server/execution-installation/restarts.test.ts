@@ -3443,6 +3443,7 @@ function standingFixture() {
     ...(await inspect(target)),
     restartDrainObservationSupported: inspectSupported,
     restartDrainId: holdId,
+    heldIdleRestartSupported: true,
   });
   f.executor.holdCurrentTurns = async (_target, id) => {
     f.events.push("hold");
@@ -3462,6 +3463,61 @@ function standingFixture() {
     authoritySha256: "4".repeat(64),
     policyActivatedAt: new Date(1000).toISOString(),
   };
+  const workerInstanceId = randomUUID();
+  f.executor.prepareInterruption = async (job) => ({
+    held: {
+      requestId: job.id,
+      generation: randomUUID(),
+      workerPid: 42,
+      workerInstanceId,
+      terminateAt: 12_000,
+    },
+    approvedRevision: job.revision,
+    grantRevision: decision.grantRevision,
+    holdGeneration: job.standingHold!.generation,
+    decisionSha256: createHash("sha256").update(JSON.stringify(job.standingDecision)).digest("hex"),
+    planSha256: decision.planSha256,
+    reservedAt: new Date(2000).toISOString(),
+    finishDeadlineAt: new Date(62_000).toISOString(),
+    native: {
+      identitySha256: decision.targetIdentitySha256,
+      serverId: "fixture",
+      sourceCommit: job.update?.baseCommit ?? "b".repeat(40),
+      selectedRelease: "/fixture/old",
+      observedAt: new Date(2000).toISOString(),
+      worker: {
+        pid: 42,
+        parentPid: 41,
+        uid: 501,
+        bootId: "boot",
+        startIdentity: "birth",
+        executable: "/fixture/node",
+        argumentsSha256: "a".repeat(64),
+      },
+      supervisor: {
+        pid: 41,
+        parentPid: 1,
+        uid: 501,
+        bootId: "boot",
+        startIdentity: "parent",
+        executable: "/fixture/node",
+        argumentsSha256: "a".repeat(64),
+      },
+    },
+    candidate: job.update
+      ? {
+          sourceCommit: job.update.sourceCommit,
+          artifactSha256: "e".repeat(64),
+          release: "/fixture/candidate",
+        }
+      : null,
+  });
+  f.executor.restartHeld = async (job) => {
+    const detail = await f.executor.restartWhenIdle!(job.target);
+    if (detail === null) throw new Error("Fixture worker did not accept restart");
+    return detail;
+  };
+  f.executor.observeInterruption = async (job) => (job.update ? "installed" : "ready");
   const policy = { ...f.policy, standingDecision: () => (enabled ? decision : null) };
   const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
   return {
@@ -3483,6 +3539,176 @@ function standingFixture() {
     },
   };
 }
+
+test("retained interruption is persisted before dispatch and reopening observes without replay after revocation", async () => {
+  const f = standingFixture();
+  f.idle();
+  let executed = 0,
+    observed = 0;
+  f.executor.restartHeld = async (job) => {
+    executed++;
+    expect(f.journal.read().find((item) => item.id === job.id)).toMatchObject({
+      status: "running",
+      standingInterruption: job.standingInterruption,
+    });
+    throw new Error("Lost supervisor acknowledgement");
+  };
+  f.executor.observeInterruption = async () => {
+    observed++;
+    return null;
+  };
+  f.queue.request({ target: "host", reason: "Exact restart" }, "container-agent");
+  await f.queue.drain();
+  const retained = f.queue.list()[0];
+  expect(retained.status).toBe("running");
+  expect(retained.standingInterruption?.approvedRevision).toBe(retained.revision);
+  f.revoke();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  await reopened.drain();
+  expect(executed).toBe(1);
+  expect(observed).toBe(1);
+  expect(reopened.list()[0].standingInterruption).toEqual(retained.standingInterruption);
+  f.executor.observeInterruption = async () => "Independent candidate and old worker exit verified";
+  const ready = new InstallationRestarts(f.journal, f.executor, () => 9000, f.policy);
+  await ready.drain();
+  expect(ready.list()[0].status).toBe("succeeded");
+  expect(executed).toBe(1);
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("interruption reservation rechecks permission after asynchronous preparation", async () => {
+  const f = standingFixture();
+  f.idle();
+  const prepare = f.executor.prepareInterruption!;
+  f.executor.prepareInterruption = async (job) => {
+    f.revoke();
+    return prepare(job);
+  };
+  f.queue.request({ target: "host", reason: "Revoke before reservation" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.queue.list()[0].standingInterruption).toBeUndefined();
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("enrolled restart verifies supervisor support before placing a hold", async () => {
+  const f = standingFixture();
+  f.idle();
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => ({
+    ...(await inspect(target)),
+    heldIdleRestartSupported: false,
+  });
+  f.queue.request({ target: "host", reason: "Old supervisor" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.queue.list()[0].standingHold).toBeUndefined();
+  expect(f.events).toEqual([]);
+});
+
+test("enrolled restart never falls back when independent observation is unavailable", async () => {
+  const f = standingFixture();
+  f.idle();
+  f.executor.observeInterruption = undefined;
+  f.queue.request({ target: "host", reason: "Missing native verification" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.queue.list()[0].detail).toContain("verification is unavailable");
+  expect(f.events).toEqual([]);
+});
+
+test("uncertain interruption checks retain bounded backoff across reopening without another dispatch", async () => {
+  const f = standingFixture();
+  f.idle();
+  let now = 2000,
+    executed = 0,
+    observed = 0;
+  f.executor.restartHeld = async () => {
+    executed++;
+    throw new Error("Uncertain dispatch");
+  };
+  f.executor.observeInterruption = async () => {
+    observed++;
+    return null;
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => now, f.policy);
+  queue.request({ target: "host", reason: "Bound observations" }, "container-agent");
+  await queue.drain();
+  await queue.drain();
+  await queue.drain();
+  expect(observed).toBe(1);
+  now = 7000;
+  await queue.drain();
+  expect(observed).toBe(2);
+  now = 22000;
+  await queue.drain();
+  expect(observed).toBe(3);
+  now = 100000;
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => now, f.policy);
+  await reopened.drain();
+  expect(executed).toBe(1);
+  expect(observed).toBe(3);
+  expect(reopened.list()[0]).toMatchObject({
+    status: "running",
+    interruptionChecks: { attempts: 3 },
+  });
+  expect(reopened.list()[0].detail).toContain("unverified after three checks");
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("interruption execution timeout retains uncertainty and discards late completion", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = standingFixture();
+    f.idle();
+    const pending = Promise.withResolvers<string>();
+    let executed = 0;
+    f.executor.restartHeld = async () => {
+      executed++;
+      return pending.promise;
+    };
+    f.executor.observeInterruption = async () => "Independent outcome verified";
+    f.queue.request({ target: "host", reason: "Bound native callback" }, "container-agent");
+    const draining = f.queue.drain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(executed).toBe(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await draining;
+    expect(f.queue.list()[0].status).toBe("running");
+    const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await reopened.drain();
+    expect(reopened.list()[0].status).toBe("succeeded");
+    pending.resolve("Late callback success");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.journal.read()[0].detail).toBe("Independent outcome verified");
+    expect(executed).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("uncertain interruption blocks another target in the same drain and after reopening", async () => {
+  const f = standingFixture();
+  f.idle();
+  let executions = 0;
+  f.executor.restartHeld = async () => {
+    executions++;
+    throw new Error("Uncertain native outcome");
+  };
+  f.executor.observeInterruption = async () => null;
+  const first = f.queue.request({ target: "host", reason: "First" }, "container-agent");
+  const other = f.queue.request(
+    { target: "container-daemon", reason: "Second" },
+    "container-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === first.id)?.status).toBe("running");
+  expect(f.queue.list().find((job) => job.id === other.id)?.standingInterruption).toBeUndefined();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  await reopened.drain();
+  expect(executions).toBe(1);
+  expect(f.events).toEqual(["hold"]);
+});
 
 test("standing decisions bind the approved revision and preserve Dev source provenance", async () => {
   const f = standingFixture();

@@ -43,6 +43,7 @@ import {
 } from "./maintenance/service-progress.js";
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import { createHash, randomUUID } from "node:crypto";
+import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 import type {
   DevRepairCapture,
   RestartImpact,
@@ -85,6 +86,11 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  prepareInterruption?(job: RestartJob): Promise<StandingInterruption>;
+  restartHeld?(job: RestartJob): Promise<string>;
+  /** Read-only verification of the exact candidate/source and old worker exit.
+   * Null retains uncertainty; this must remain available after grant revocation. */
+  observeInterruption?(job: RestartJob): Promise<string | null>;
   maintenanceServices?: MaintenanceServiceExecutor;
   /** Read-only construction, retried by existing coordinator reconciliation. */
   discoverMaintenanceServices?(): Promise<MaintenanceServiceExecutor>;
@@ -203,6 +209,7 @@ export class InstallationRestarts {
       throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     const recovered = this.jobs.map((job): RestartJob => {
+      if (job.standingInterruption && job.status === "running") return job;
       if (job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing") {
         return {
           ...job,
@@ -1632,13 +1639,22 @@ export class InstallationRestarts {
       if (!this.executor.holdCurrentTurns) throw new Error("Graceful restart unavailable");
       await this.executor.holdCurrentTurns(job.target, job.id);
     }
-    return this.executor.inspect(job.target);
+    return this.inspectHeldTarget(job);
+  }
+
+  private async inspectHeldTarget(job: RestartJob): Promise<RestartImpact> {
+    if (!this.executor.inspect)
+      throw new RestartRequestError("Idle restart inspection is unavailable");
+    const impact = await this.executor.inspect(job.target);
+    if (this.requiresInterruption(job) && impact.heldIdleRestartSupported !== true)
+      throw new RestartRequestError("Update this environment before unattended restarts.");
+    return impact;
   }
 
   private async inspectStandingHold(job: RestartJob): Promise<RestartImpact> {
     if (!this.executor.inspect || !this.executor.holdCurrentTurns || !job.standingDecision)
       throw new RestartRequestError("Standing hold inspection is unavailable");
-    let impact = await this.executor.inspect(job.target);
+    let impact = await this.inspectHeldTarget(job);
     if (!impact.restartDrainObservationSupported || impact.restartDrainId === undefined) {
       if (job.standingDecision.activationStep && this.executor.initialActivationInstance)
         return this.inspectInitialLegacyHold(job);
@@ -1666,7 +1682,7 @@ export class InstallationRestarts {
       // after this reservation permits only observation and authorized stabilization.
       this.replace(job);
       await this.executor.holdCurrentTurns(job.target, job.id);
-      impact = await this.executor.inspect(job.target);
+      impact = await this.inspectHeldTarget(job);
     }
     if (!impact.restartDrainObservationSupported || impact.restartDrainId !== job.id)
       throw new RestartRequestError(
@@ -1926,13 +1942,8 @@ export class InstallationRestarts {
     this.reconcilePending();
     this.running = true;
     try {
-      for (const job of this.jobs.filter(
-        (candidate) =>
-          candidate.finishCurrentTurns &&
-          !candidate.holdReleased &&
-          ["rejected", "failed", "succeeded"].includes(candidate.status),
-      ))
-        await this.releaseCompletedHold(job);
+      await this.releaseFinishedHolds();
+      if (await this.reconcileRetainedInterruptions()) return;
       if (this.hasServiceWork()) await this.drainServices();
       if (this.listServices().some(unresolvedMaintenanceService)) return;
       if (!this.lifecycleAdmitted()) {
@@ -1958,9 +1969,7 @@ export class InstallationRestarts {
       if (this.monitors.some((job) => job.status === "approved")) await this.drainMonitors();
       if (this.monitorRecoveryRequired()) return;
       this.approveTrustedHostRequests();
-      for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
-        await this.dispatch(job);
-      }
+      if (await this.dispatchApprovedRestarts()) return;
       if (!this.jobs.some((job) => job.finishCurrentTurns && !job.holdReleased)) {
         for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
           if (this.helperRecoveryRequired()) break;
@@ -1970,6 +1979,35 @@ export class InstallationRestarts {
     } finally {
       this.running = false;
     }
+  }
+
+  private async reconcileRetainedInterruptions(): Promise<boolean> {
+    const jobs = this.jobs.filter((job) => job.standingInterruption && job.status === "running");
+    for (const job of jobs) await this.observeInterruption(job);
+    return jobs.length > 0;
+  }
+
+  private async dispatchApprovedRestarts(): Promise<boolean> {
+    for (const job of this.jobs.filter((candidate) => candidate.status === "approved")) {
+      await this.dispatch(job);
+      if (
+        this.jobs.some(
+          (candidate) => candidate.status === "running" && candidate.standingInterruption,
+        )
+      )
+        return true;
+    }
+    return false;
+  }
+
+  private async releaseFinishedHolds(): Promise<void> {
+    for (const job of this.jobs.filter(
+      (candidate) =>
+        candidate.finishCurrentTurns &&
+        !candidate.holdReleased &&
+        ["rejected", "failed", "succeeded"].includes(candidate.status),
+    ))
+      await this.releaseCompletedHold(job);
   }
 
   private automaticDispatchReady(job: RestartJob): boolean {
@@ -2024,14 +2062,17 @@ export class InstallationRestarts {
     let impact: RestartImpact;
     try {
       impact = await this.inspectBeforeRestart(job);
-    } catch {
+    } catch (error) {
       impact = {
         target: job.target,
         agents: [],
         pendingStarts: 0,
         checkedAt: new Date(this.now()).toISOString(),
         idleRestartSupported: false,
-        error: "Cannot verify agent activity. Waiting for the target.",
+        error:
+          error instanceof RestartRequestError
+            ? error.message
+            : "Cannot verify agent activity. Waiting for the target.",
       };
     }
     // Policy and credentials may change while the target is being inspected.
@@ -2080,6 +2121,14 @@ export class InstallationRestarts {
 
   private async dispatch(job: RestartJob): Promise<void> {
     if (!this.lifecycleAdmitted(job) || !this.automaticDispatchReady(job)) return;
+    if (!this.interruptionAvailable(job)) {
+      this.replace({
+        ...job,
+        detail:
+          "Unattended restart verification is unavailable. Installation maintenance needs an update.",
+      });
+      return;
+    }
     if (this.factoryDispatchBlocked(job)) {
       this.replace({
         ...job,
@@ -2102,31 +2151,83 @@ export class InstallationRestarts {
       job = prepared;
       if (!this.automaticDispatchReady(job)) return;
     }
-    if (job.standingDecision && job.update && !(await this.standingCandidateReady(job))) return;
+    if (!(await this.standingCandidateReady(job))) return;
     if (job.whenIdle && !(await this.readyAfterInspection(job))) return;
     // Inspection may have durably reserved and observed an enrolled hold.
     job = this.jobs.find((item) => item.id === job.id) ?? job;
-    job = runningRestart(job);
+    const preparedRunning = await this.prepareRunningRestart(job);
+    if (!preparedRunning || !this.automaticDispatchReady(job)) return;
+    job = preparedRunning;
     // Persist uncertainty before executing any plan code. Coordinator recovery
     // keeps this fence even when the process never returned a phase receipt.
     this.replace(job);
     try {
       const detail = await this.executeApproved(job);
-      if (detail === null) {
-        this.replace({
-          ...job,
-          status: "approved",
-          detail: "Waiting for the daemon to confirm it is idle before restarting.",
-        });
-      } else {
-        if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
-        else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
-        else this.replace({ ...job, status: "succeeded", detail });
-      }
+      await this.finishRestartDispatch(job, detail);
     } catch (error) {
       const detail = restartFailureDetail(job, error);
-      this.replace({ ...job, status: "failed", detail });
+      this.replace({
+        ...job,
+        status: job.standingInterruption ? "running" : "failed",
+        detail: job.standingInterruption
+          ? "Restart outcome is unverified. Checking the target without restarting it again."
+          : detail,
+      });
     }
+  }
+
+  private requiresInterruption(job: RestartJob): boolean {
+    // Native plan executors retain their own exact claims; worker transport does
+    // not authorize supervisor replacement or Factory adoption.
+    return Boolean(
+      job.standingDecision &&
+      job.automaticApproval &&
+      !job.standingDecision.activationStep &&
+      !job.supervisorPlanSha256 &&
+      !job.factoryRuntimePlanSha256,
+    );
+  }
+
+  private interruptionAvailable(job: RestartJob): boolean {
+    if (!this.requiresInterruption(job)) return true;
+    return Boolean(
+      this.executor.prepareInterruption &&
+      this.executor.restartHeld &&
+      this.executor.observeInterruption,
+    );
+  }
+
+  private async prepareRunningRestart(job: RestartJob): Promise<RestartJob | null> {
+    if (!this.requiresInterruption(job)) return runningRestart(job);
+    try {
+      const intent = await this.serviceCall(() =>
+        this.executor.prepareInterruption!(structuredClone(job)),
+      );
+      return runningRestart({ ...job, standingInterruption: intent });
+    } catch {
+      const current = this.jobs.find((candidate) => candidate.id === job.id);
+      if (current?.status === "approved" && current.revision === job.revision)
+        this.replace({
+          ...current,
+          detail: "Cannot verify current restart evidence. No new restart was dispatched.",
+        });
+      return null;
+    }
+  }
+
+  private async finishRestartDispatch(job: RestartJob, detail: string | null): Promise<void> {
+    if (job.standingInterruption) {
+      this.replace({ ...job, detail: "Restart was dispatched; its outcome is still unverified." });
+      await this.observeInterruption(job);
+    } else if (detail === null) {
+      this.replace({
+        ...job,
+        status: "approved",
+        detail: "Waiting for the daemon to confirm it is idle before restarting.",
+      });
+    } else if (job.factoryRuntimePlanSha256) this.finishFactoryAdoption(job, detail);
+    else if (job.supervisorPlanSha256) this.finishSupervisorMaintenance(job, detail);
+    else this.replace({ ...job, status: "succeeded", detail });
   }
 
   private finishSupervisorMaintenance(job: RestartJob, detail: string): void {
@@ -2173,6 +2274,11 @@ export class InstallationRestarts {
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
       return this.executor.installUpdate(job);
+    }
+    if (job.standingInterruption) {
+      if (!this.executor.restartHeld)
+        throw new RestartRequestError("Acknowledged restart executor is unavailable");
+      return this.serviceCall(() => this.executor.restartHeld!(structuredClone(job)));
     }
     if (job.whenIdle) {
       if (!this.executor.restartWhenIdle) throw new Error("Idle restart executor unavailable");
@@ -2368,6 +2474,53 @@ export class InstallationRestarts {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async observeInterruption(job: RestartJob): Promise<void> {
+    if (!this.executor.observeInterruption) return;
+    if (
+      job.interruptionChecks &&
+      (job.interruptionChecks.attempts >= 3 ||
+        this.now() < Date.parse(job.interruptionChecks.nextCheckAt))
+    )
+      return;
+    let detail: string | null = null;
+    try {
+      detail = await this.serviceCall(() =>
+        this.executor.observeInterruption!(structuredClone(job)),
+      );
+    } catch {
+      // Failed inspection is uncertainty; preserve the same generation.
+    }
+    const retained = this.journal.read().find((candidate) => candidate.id === job.id);
+    if (!retained || (retained.target !== "host" && retained.target !== "container-daemon"))
+      throw new RestartRequestError("Retained interruption request is unavailable");
+    const current = retained;
+    if (
+      current?.status !== "running" ||
+      current.revision !== job.revision ||
+      !isDeepStrictEqual(current.standingInterruption, job.standingInterruption)
+    )
+      throw new RestartRequestError("Retained interruption generation changed during observation");
+    if (detail === null) {
+      const attempts = Math.min(3, (current.interruptionChecks?.attempts ?? 0) + 1);
+      const delays = [5000, 15000, 60000];
+      const checkedAt = this.now();
+      this.replace({
+        ...current,
+        detail:
+          attempts === 3
+            ? "Restart outcome remains unverified after three checks. Review installation recovery."
+            : "Checking whether the approved restart completed. Its outcome is still unverified.",
+        interruptionChecks: {
+          attempts,
+          checkedAt: new Date(checkedAt).toISOString(),
+          nextCheckAt: new Date(checkedAt + delays[attempts - 1]).toISOString(),
+        },
+      });
+      return;
+    }
+    this.replace({ ...current, status: "succeeded", detail });
   }
 
   private async executeService(job: MaintenanceServiceJob): Promise<void> {
