@@ -5,6 +5,88 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceRestartChannel } from "../src/server/maintenance-restart-channel.js";
+import { createWorkerShutdown } from "../src/server/worker-shutdown.js";
+
+test("worker shutdown consumes the absolute budget without a second shutdown grace", async () => {
+  vi.useFakeTimers();
+  try {
+    const stop = vi.fn(() => new Promise<void>(() => {}));
+    const forceExit = vi.fn();
+    const shutdown = createWorkerShutdown({ stop, forceExit, now: Date.now });
+    const result = shutdown.begin(Date.now() + 1500);
+    const expired = expect(result).rejects.toThrow("cleanup is incomplete");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(shutdown.begin(Date.now() + 60_000)).toBe(result);
+    await vi.advanceTimersByTimeAsync(500);
+    await expired;
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(forceExit).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("worker shutdown permits reviewed grace beyond legacy ten seconds and can only shorten it", async () => {
+  vi.useFakeTimers();
+  try {
+    const forceExit = vi.fn();
+    const shutdown = createWorkerShutdown({
+      stop: () => new Promise<void>(() => {}),
+      forceExit,
+      now: Date.now,
+    });
+    const result = shutdown.begin(Date.now() + 60_000);
+    const expired = expect(result).rejects.toThrow("deadline expired");
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(forceExit).not.toHaveBeenCalled();
+    expect(shutdown.begin(Date.now() + 100)).toBe(result);
+    await vi.advanceTimersByTimeAsync(100);
+    await expired;
+    expect(forceExit).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("successful worker cleanup clears its deadline and invalid budgets never invoke cleanup", async () => {
+  vi.useFakeTimers();
+  try {
+    const stop = vi.fn(async () => {});
+    const forceExit = vi.fn();
+    const shutdown = createWorkerShutdown({ stop, forceExit, now: Date.now });
+    await expect(shutdown.begin(Date.now() + 300_001)).rejects.toThrow("Invalid");
+    expect(stop).not.toHaveBeenCalled();
+    await expect(shutdown.begin()).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(forceExit).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("legacy worker shutdown keeps ten seconds and late cleanup cannot turn timeout into success", async () => {
+  vi.useFakeTimers();
+  try {
+    let finish = () => {};
+    const stopped = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const forceExit = vi.fn();
+    const shutdown = createWorkerShutdown({ stop: () => stopped, forceExit, now: Date.now });
+    const result = shutdown.begin();
+    const expired = expect(result).rejects.toThrow("cleanup is incomplete");
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(forceExit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expired;
+    finish();
+    await expect(shutdown.begin()).rejects.toThrow("cleanup is incomplete");
+    expect(forceExit).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 function restartChannelFixture() {
   const native = { parent: 20, connected: true };

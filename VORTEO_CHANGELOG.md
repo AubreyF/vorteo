@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.572 - 2026-10-15
+
+### Changed
+
+- Apply the supervisor's absolute maintenance deadline to worker shutdown. All daemon cleanup stages share that budget, duplicate requests cannot extend it, and an expired budget reports incomplete cleanup. Legacy shutdown retains its ten-second limit.
+
+### Validation and delivery
+
+- Four worker budget regressions and thirteen existing supervisor/transport cases pass. Full workspace types and lint pass. Exact held-instance dispatch, checkpoint budgeting and provider cleanup remain unfinished; bounded interruption is not advertised or installed. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.571 - 2026-10-15
 
 ### Added
