@@ -11,6 +11,7 @@ import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
 import { createWorkerShutdown } from "./worker-shutdown.js";
+import { createMaintenanceRestartChannel } from "./maintenance-restart-channel.js";
 
 // Managed updates and Host renewal verify the entrypoint through OS arguments.
 // Changing the title overwrites that evidence on macOS.
@@ -160,6 +161,18 @@ async function main() {
 
   applyCliFlagOverrides(config);
 
+  const maintenanceRestart = createMaintenanceRestartChannel({
+    workerPid: process.pid,
+    parentPid: process.ppid,
+    currentParentPid: () => process.ppid,
+    connected: () => process.connected === true,
+    now: Date.now,
+    send: (message) => {
+      if (typeof process.send !== "function") throw new Error("Supervisor IPC is unavailable");
+      process.send(message);
+    },
+  });
+
   const workerShutdown = createWorkerShutdown({
     now: Date.now,
     stop: async () => {
@@ -298,6 +311,7 @@ async function main() {
     };
 
     process.on("message", (message: unknown) => {
+      maintenanceRestart.observe(message);
       if (typeof message !== "object" || message === null || !("type" in message)) {
         return;
       }
@@ -356,6 +370,7 @@ async function main() {
       {
         ...config,
         onLifecycleIntent: handleLifecycleIntent,
+        maintenanceRestart,
       },
       logger,
       { createGovernedScheduleRuntime },

@@ -1,3 +1,4 @@
+import type { HeldRestart } from "@getpaseo/protocol/messages";
 import {
   blockedReviewDue,
   hasReviewableBlockedWork,
@@ -1230,6 +1231,8 @@ export class AgentManager {
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
   private restartDrainId: string | null = null;
+  private readonly restartWorkerInstanceId = randomUUID();
+  private committedRestartDrainId: string | null = null;
   private readonly cancelledRestartDrains = new Set<string>();
   private readonly restartDrainTasks = new Map<string, Promise<void>>();
   private readonly restartDrainPrepared = new Set<string>();
@@ -1673,6 +1676,7 @@ export class AgentManager {
   }
 
   cancelRestartDrain(requestId: string): boolean {
+    if (this.committedRestartDrainId === requestId) return false;
     this.cancelledRestartDrains.add(requestId);
     if (this.restartDrainId !== requestId) return true;
     // Let outstanding goal pauses settle before releasing the barrier so cancellation
@@ -1714,6 +1718,8 @@ export class AgentManager {
       agents,
       pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
       restartDrainId: this.restartDrainId,
+      workerInstanceId: this.restartWorkerInstanceId,
+      workerPid: process.pid,
     };
   }
 
@@ -1765,6 +1771,27 @@ export class AgentManager {
     // This check and admission barrier must stay synchronous: no new turn can
     // enter between observing idleness and dispatching the lifecycle intent.
     this.prepareForShutdown();
+    return true;
+  }
+
+  prepareHeldIdleRestart(
+    input: Pick<HeldRestart, "requestId" | "workerPid" | "workerInstanceId" | "terminateAt">,
+  ): boolean {
+    if (
+      input.workerPid !== process.pid ||
+      input.workerInstanceId !== this.restartWorkerInstanceId ||
+      input.requestId !== this.restartDrainId ||
+      this.cancelledRestartDrains.has(input.requestId) ||
+      this.committedRestartDrainId !== null ||
+      !Number.isSafeInteger(input.terminateAt) ||
+      input.terminateAt <= Date.now() ||
+      input.terminateAt > Date.now() + 300_000
+    )
+      return false;
+    if (!this.prepareIdleRestart()) return false;
+    // The coordinator must reserve this exact attempt durably before the RPC.
+    // Releases after this synchronous barrier are observation-only for this worker.
+    this.committedRestartDrainId = input.requestId;
     return true;
   }
 

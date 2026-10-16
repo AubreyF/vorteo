@@ -2068,10 +2068,20 @@ export const CancelAgentRequestMessageSchema = z.object({
   requestId: z.string().optional(),
 });
 
+export const HeldRestartSchema = z.object({
+  requestId: z.string().uuid(),
+  generation: z.string().uuid(),
+  workerPid: z.number().int().positive(),
+  workerInstanceId: z.string().uuid(),
+  terminateAt: z.number().int().positive(),
+});
+export type HeldRestart = z.infer<typeof HeldRestartSchema>;
+
 export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),
   idleMode: z.enum(["inspect", "restart", "drain", "cancel-drain"]).optional(),
   restartDrainId: z.string().uuid().optional(),
+  heldRestart: HeldRestartSchema.optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3950,6 +3960,8 @@ export const ServerInfoStatusPayloadSchema = z
         gracefulRestart: z.boolean().optional(),
         // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
         restartDrainObservation: z.boolean().optional(),
+        // COMPAT(heldIdleRestart): added v574; retain until daemon floor includes v574.
+        heldIdleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -4171,11 +4183,14 @@ export const RestartRequestedStatusPayloadSchema = z.object({
       agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
       pendingStarts: z.number().int().nonnegative(),
       restartDrainId: z.string().uuid().nullable().optional(),
+      workerInstanceId: z.string().uuid().optional(),
+      workerPid: z.number().int().positive().optional(),
     })
     .optional(),
   clientId: z.string(),
   reason: z.string().optional(),
   requestId: z.string(),
+  heldRestart: HeldRestartSchema.optional(),
 });
 
 export const ShutdownRequestedStatusPayloadSchema = z.object({

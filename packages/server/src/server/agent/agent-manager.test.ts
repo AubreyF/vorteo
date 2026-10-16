@@ -13316,6 +13316,48 @@ test("maintenance checkpoint captures its request and deadline before awaiting p
   expect(manager.cancelRestartDrain(id)).toBe(true);
 });
 
+test("held idle restart binds the exact lifetime and makes release observation-only after dispatch", () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const impact = manager.getRestartImpact();
+  const identity = {
+    requestId: id,
+    workerPid: impact.workerPid,
+    workerInstanceId: impact.workerInstanceId,
+    terminateAt: Date.now() + 1000,
+  };
+  expect(manager.prepareHeldIdleRestart({ ...identity, workerInstanceId: randomUUID() })).toBe(
+    false,
+  );
+  expect(manager.prepareHeldIdleRestart({ ...identity, workerPid: impact.workerPid + 1 })).toBe(
+    false,
+  );
+  expect(manager.prepareHeldIdleRestart({ ...identity, terminateAt: Date.now() - 1 })).toBe(false);
+  expect(manager.prepareHeldIdleRestart(identity)).toBe(true);
+  expect(manager.cancelRestartDrain(id)).toBe(false);
+  expect(manager.getRestartImpact().restartDrainId).toBe(id);
+  expect(manager.prepareHeldIdleRestart(identity)).toBe(false);
+  expect(() => manager.streamAgent(randomUUID(), "new work")).toThrow("held");
+});
+
+test("held idle restart refuses a hold released after checkpoint completion", async () => {
+  const manager = new AgentManager({ clients: {}, logger });
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  const impact = manager.getRestartImpact();
+  await manager.checkpointRestartDrain({ requestId: id, terminateAt: Date.now() + 1000 });
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  expect(
+    manager.prepareHeldIdleRestart({
+      requestId: id,
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    }),
+  ).toBe(false);
+});
+
 test("restart drain warns once without interrupting and rejects new turns until cancellation", async () => {
   const session = new SteeringTestSession({ provider: "codex", cwd: process.cwd() });
   const client = new (class extends TestAgentClient {
@@ -13551,6 +13593,8 @@ test("restart drain leaves loaded archived history out of preparation", async ()
       agents: [],
       pendingStarts: 0,
       restartDrainId: id,
+      workerPid: process.pid,
+      workerInstanceId: expect.any(String),
     });
     expect(manager.cancelRestartDrain(id)).toBe(true);
   } finally {

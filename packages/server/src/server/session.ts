@@ -1,4 +1,6 @@
 import type { SidebarStateStore } from "./sidebar-state/store.js";
+import type { HeldRestart } from "@getpaseo/protocol/messages";
+import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
 import {
   handleBootstrapReview,
   handlePreclaimRecoveryReview,
@@ -478,6 +480,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  maintenanceRestart?: MaintenanceRestartBridge;
   coordinatorBootstrap?: BootstrapReviewService;
   messageQueue?: MessageQueueService;
   browserToolsBroker?: BrowserToolsBroker | null;
@@ -870,10 +873,12 @@ export class Session {
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
   private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
+  private readonly maintenanceRestart: MaintenanceRestartBridge | undefined;
 
   constructor(options: SessionOptions) {
     this.sidebarState = options.sidebarState;
     this.coordinatorBootstrap = options.coordinatorBootstrap;
+    this.maintenanceRestart = options.maintenanceRestart;
     const {
       clientId,
       permissions,
@@ -2771,6 +2776,7 @@ export class Session {
           msg.reason,
           msg.idleMode,
           msg.restartDrainId,
+          msg.heldRestart,
         );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
@@ -3462,7 +3468,14 @@ export class Session {
     reason?: string,
     idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
     restartDrainId?: string,
+    heldRestart?: HeldRestart,
   ): Promise<void> {
+    if (heldRestart) {
+      if (idleMode !== "restart" || restartDrainId !== heldRestart.requestId)
+        throw new Error("Acknowledged restart requires the exact held request");
+      await this.handleHeldIdleRestart(requestId, heldRestart);
+      return;
+    }
     if (idleMode === "drain" || idleMode === "cancel-drain") {
       if (!restartDrainId) throw new Error("Restart hold requires the approved request identity");
       const accepted =
@@ -3522,6 +3535,45 @@ export class Session {
       clientId: this.clientId,
       requestId,
       reason: lifecycleReason,
+    });
+  }
+
+  private async handleHeldIdleRestart(requestId: string, input: HeldRestart): Promise<void> {
+    const held = { ...input };
+    const bridge = this.maintenanceRestart;
+    if (!bridge?.supported()) throw new Error("Running supervisor lacks held restart support");
+    const impact = this.agentManager.getRestartImpact();
+    if (impact.workerPid !== held.workerPid || impact.workerInstanceId !== held.workerInstanceId)
+      throw new Error("Held restart names a different worker lifetime");
+    await this.agentManager.checkpointRestartDrain({
+      requestId: held.requestId,
+      terminateAt: held.terminateAt,
+    });
+    if (!bridge.supported() || !this.agentManager.prepareHeldIdleRestart(held))
+      throw new Error("Exact held worker is no longer ready for restart");
+    const accepted = await bridge.request({
+      requestId: held.requestId,
+      generation: held.generation,
+      workerPid: held.workerPid,
+      terminateAt: held.terminateAt,
+    });
+    if (
+      accepted.accepted !== true ||
+      accepted.requestId !== held.requestId ||
+      accepted.generation !== held.generation ||
+      accepted.workerPid !== held.workerPid ||
+      accepted.terminateAt !== held.terminateAt
+    )
+      throw new Error("Supervisor acceptance differs from the reserved restart");
+    this.emit({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId,
+        clientId: this.clientId,
+        accepted: true,
+        heldRestart: held,
+      },
     });
   }
 

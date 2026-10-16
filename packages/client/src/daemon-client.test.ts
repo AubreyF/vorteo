@@ -4130,6 +4130,119 @@ test("idle restart refuses an older daemon before sending any restart command", 
   expect(mock.sent).toHaveLength(0);
 });
 
+test("held idle restart requires exact acknowledgement and captures its inputs", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { heldIdleRestart: true, idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const expected = { ...held };
+  const result = client.restartServer(undefined, "held-rpc", {
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  held.generation = "033d712b-90f8-4d76-a925-8596afab26be";
+  expect(parseSentFrame(mock.sent[0])).toMatchObject({ heldRestart: expected });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        clientId: "held-test",
+        requestId: "held-rpc",
+        accepted: true,
+        heldRestart: expected,
+      },
+    }),
+  );
+  await expect(result).resolves.toMatchObject({ accepted: true, heldRestart: expected });
+});
+
+test("held idle restart does not accept a legacy acknowledgement as dispatch proof", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { heldIdleRestart: true, idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  const result = client.restartServer(undefined, "held-rpc", {
+    idleMode: "restart",
+    restartDrainId: held.requestId,
+    heldRestart: held,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        clientId: "held-test",
+        requestId: "held-rpc",
+        accepted: true,
+      },
+    }),
+  );
+  await expect(result).rejects.toThrow("observe without replay");
+  expect(mock.sent).toHaveLength(1);
+});
+
+test("held idle restart rejects old supervisor capability before sending", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "held-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connecting = client.connect();
+  mock.triggerOpen({ features: { idleRestart: true } });
+  await connecting;
+  const held = {
+    requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",
+    generation: "43d76338-6f84-4f82-bfbe-c9b42e8e3ba3",
+    workerPid: 42,
+    workerInstanceId: "44b462bd-ee9e-4136-906d-dc5a885f9387",
+    terminateAt: Date.now() + 1000,
+  };
+  await expect(
+    client.restartServer(undefined, "held-rpc", {
+      idleMode: "restart",
+      restartDrainId: held.requestId,
+      heldRestart: held,
+    }),
+  ).rejects.toThrow("running supervisor");
+  expect(mock.sent).toHaveLength(0);
+});
+
 test("restartServer remains restart-only and sends restart_server_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

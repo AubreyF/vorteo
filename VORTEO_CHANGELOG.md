@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.574 - 2026-10-15
+
+### Changed
+
+- Connect held idle restart requests to the running supervisor acknowledgement channel. Bind the request and generation to the observed worker lifetime, retain the absolute checkpoint and shutdown deadline, and report acceptance only after the supervisor accepts the exact attempt.
+- Fence hold release after dispatch admission. Clients reject legacy acknowledgements as proof and require the running supervisor capability before sending the new optional request fields. Existing restart messages remain compatible.
+
+### Validation and delivery
+
+- Twenty-two focused client, session and hold/checkpoint tests pass; full workspace types, lint and client build pass. Queue reservations, forced provider cleanup, compiled worker acceptance and installed delivery remain open. The new transport covers idle held workers and does not advertise bounded forced interruption. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.573 - 2026-10-15
 
 ### Changed

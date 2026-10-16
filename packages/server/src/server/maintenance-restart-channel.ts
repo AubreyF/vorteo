@@ -18,6 +18,11 @@ interface ChannelPorts {
   now(): number;
 }
 
+export interface MaintenanceRestartBridge {
+  supported(): boolean;
+  request(intent: MaintenanceRestartIntent): Promise<MaintenanceRestartAcceptance>;
+}
+
 export function createMaintenanceRestartChannel(ports: ChannelPorts) {
   let protocol = false;
   let consumed = false;
