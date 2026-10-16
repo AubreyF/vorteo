@@ -7,6 +7,7 @@ import {
   digestBootstrapArtifact,
   assertBootstrapPathsProtected,
   verifyBootstrapReleaseArtifacts,
+  verifyBootstrapPreparedDependency,
 } from "./coordinator-bootstrap-artifact.js";
 
 const roots: string[] = [];
@@ -21,6 +22,28 @@ async function fixture() {
   await writeFile(path.join(root, "release", "entry.js"), "export {};", { mode: 0o600 });
   return { root, release: path.join(root, "release") };
 }
+
+test("native CLI custody retains digest, mount and write-protection checks", async () => {
+  const { root } = await fixture();
+  const file = path.join(root, "native-cli");
+  const bytes = "fixture executable";
+  await writeFile(file, bytes, { mode: 0o700 });
+  const pin = { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+  await expect(verifyBootstrapPreparedDependency(pin, [], "host-or-root")).resolves.toBeUndefined();
+  await expect(
+    verifyBootstrapPreparedDependency({ ...pin, sha256: "0".repeat(64) }, [], "host-or-root"),
+  ).rejects.toThrow("digest changed");
+  await expect(verifyBootstrapPreparedDependency(pin, [root], "host-or-root")).rejects.toThrow(
+    "writable container mount",
+  );
+  await chmod(file, 0o722);
+  await expect(verifyBootstrapPreparedDependency(pin, [], "host-or-root")).rejects.toThrow(
+    "writable by another account",
+  );
+  await expect(verifyBootstrapPreparedDependency(pin, [])).rejects.toThrow(
+    "writable by another account",
+  );
+});
 
 test("artifact digests preserve chunk boundaries and isolate concurrent scan buffers", async () => {
   const releases: string[] = [];

@@ -10,6 +10,11 @@ import {
 } from "./coordinator-bootstrap-maintenance-setup.js";
 import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import {
+  MaintenanceRecoveryRouteSchema,
+  inspectMaintenanceRecoveryRouting,
+  verifyMaintenanceRecoveryRouteArtifacts,
+} from "./coordinator-bootstrap-maintenance-recovery-routing.js";
+import {
   loadedCoordinatorPid,
   type BootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
@@ -47,6 +52,7 @@ export const MaintenanceLauncherPlanSchema = z.strictObject({
   candidate: slot,
   retryLimit: z.literal(3),
   recovery: z.literal("after-login"),
+  recoveryRoute: MaintenanceRecoveryRouteSchema.optional(),
 });
 export type MaintenanceLauncherPlan = z.infer<typeof MaintenanceLauncherPlanSchema>;
 
@@ -92,6 +98,8 @@ export function inspectMaintenanceLauncherPlan(
     throw new BootstrapRequestConflict(
       "Maintenance replacement must preserve a distinct previous slot",
     );
+  if (plan.recoveryRoute && !isRecoveryAccessSlot(plan, plan.candidate))
+    throw new BootstrapRequestConflict("Recovery routing requires the standalone access launcher");
   return {
     plan,
     identitySha256: enrollmentNativeIdentityDigest(identity),
@@ -155,6 +163,11 @@ export async function verifyMaintenanceLauncherArtifacts(input: {
     ],
     input.writableMountRoots,
   );
+  if (inspected.plan.recoveryRoute)
+    await verifyMaintenanceRecoveryRouteArtifacts({
+      route: inspected.plan.recoveryRoute,
+      writableMountRoots: input.writableMountRoots,
+    });
   let recoveryAddress: string | undefined;
   for (const release of [inspected.plan.previous, inspected.plan.candidate]) {
     if (!release) continue;
@@ -218,6 +231,34 @@ export async function verifyMaintenanceLauncherArtifacts(input: {
       throw new BootstrapRequestConflict("Maintenance launcher runtime changed");
   }
   return inspected;
+}
+
+/** Preparation is tied to the complete reviewed plan and protected candidate
+ * setup. It does not register a listener, change Serve, or consume authority. */
+export async function prepareMaintenanceLauncherRouting(
+  input: Parameters<typeof verifyMaintenanceLauncherArtifacts>[0] & {
+    backend: unknown;
+    currentServe: unknown;
+  },
+) {
+  const inspected = await verifyMaintenanceLauncherArtifacts(input);
+  const route = inspected.plan.recoveryRoute;
+  if (!route) throw new BootstrapRequestConflict("Recovery route preparation is absent");
+  const setupBytes = await readBootstrapPreparedFile(
+    inspected.plan.candidate.setup,
+    input.writableMountRoots,
+  );
+  const setup = MaintenanceLauncherSetupSchema.parse(JSON.parse(setupBytes.toString("utf8")));
+  const access = setup.control?.recoveryAccess;
+  if (!access) throw new BootstrapRequestConflict("Recovery access configuration is absent");
+  const previousServe = await verifyMaintenanceRecoveryRouteArtifacts({
+    route,
+    writableMountRoots: input.writableMountRoots,
+  });
+  return {
+    planSha256: inspected.planSha256,
+    ...inspectMaintenanceRecoveryRouting({ ...input, previousServe, access }),
+  };
 }
 
 /** Read-only native startup proof. A new login may have a new boot identity;

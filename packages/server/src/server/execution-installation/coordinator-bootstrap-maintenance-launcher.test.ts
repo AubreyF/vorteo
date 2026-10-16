@@ -24,11 +24,13 @@ import {
 } from "./coordinator-bootstrap-artifact.js";
 import { inspectMaintenanceLauncherSelection } from "./coordinator-bootstrap-maintenance-selection.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
+import { inspectMaintenanceRecoveryRouting } from "./coordinator-bootstrap-maintenance-recovery-routing.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import { enrollmentNativeIdentityDigest } from "./maintenance/native-identity.js";
 import {
   inspectMaintenanceLauncherPlan,
   maintenanceUserLauncher,
+  prepareMaintenanceLauncherRouting,
   verifyMaintenanceLauncherArtifacts,
   verifyMaintenanceLauncherProcess,
   type MaintenanceLauncherPlan,
@@ -2430,6 +2432,102 @@ async function independentAccessFixture(enrollment: "shared" | "separate" = "sha
   }
   return { ...f, ownerConfigurationFile };
 }
+
+async function recoveryRoutingFixture() {
+  const f = await independentAccessFixture();
+  const bytes = JSON.stringify({
+    TCP: { "44444": { HTTPS: true } },
+    Web: {
+      "machine.tail123.ts.net:44444": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:6770" } },
+      },
+    },
+    ExtraFutureSetting: { retained: true },
+  });
+  const snapshot = path.join(f.plan.identity.stateDirectory, "previous-serve.json");
+  writeFileSync(snapshot, bytes, { mode: 0o600 });
+  f.plan.recoveryRoute = {
+    tailscale: f.plan.candidate.node,
+    previousServe: {
+      path: snapshot,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+  };
+  for (const release of [f.plan.previous!, f.plan.candidate]) {
+    const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+    setup.control.recoveryAccess.origin = "https://machine.tail123.ts.net:9443";
+    const setupBytes = JSON.stringify(setup);
+    writeFileSync(release.setup.path, setupBytes);
+    release.setup.sha256 = createHash("sha256").update(setupBytes).digest("hex");
+  }
+  const setup = JSON.parse(readFileSync(f.plan.candidate.setup.path, "utf8"));
+  return {
+    ...f,
+    routing: {
+      access: { ...setup.control.recoveryAccess, origin: "https://machine.tail123.ts.net:9443" },
+      backend: { BackendState: "Running", Self: { DNSName: "machine.tail123.ts.net." } },
+      previousServe: JSON.parse(bytes),
+      currentServe: JSON.parse(bytes),
+    },
+  };
+}
+
+test("recovery routing enters the exact plan digest and preserves every existing route", async () => {
+  const f = await recoveryRoutingFixture();
+  const inspected = await verifyMaintenanceLauncherArtifacts(f);
+  const unbound = { ...f.plan };
+  delete unbound.recoveryRoute;
+  expect(inspected.planSha256).not.toBe(
+    inspectMaintenanceLauncherPlan(unbound, f.account).planSha256,
+  );
+  const before = JSON.stringify(f.routing.currentServe);
+  expect(inspectMaintenanceRecoveryRouting(f.routing)).toEqual({
+    origin: f.routing.access.origin,
+    arguments: ["serve", "--bg", "--https=9443", "http://127.0.0.1:4446"],
+    previousServe: f.routing.previousServe,
+  });
+  await expect(prepareMaintenanceLauncherRouting({ ...f, ...f.routing })).resolves.toMatchObject({
+    planSha256: inspected.planSha256,
+    origin: f.routing.access.origin,
+    arguments: ["serve", "--bg", "--https=9443", "http://127.0.0.1:4446"],
+  });
+  expect(JSON.stringify(f.routing.currentServe)).toBe(before);
+  writeFileSync(f.plan.recoveryRoute!.previousServe.path, "{}");
+  await expect(verifyMaintenanceLauncherArtifacts(f)).rejects.toThrow();
+});
+
+test.each(["tcp", "web", "funnel", "drift", "backend", "hostname", "public-name"])(
+  "recovery routing refuses %s conflicts before producing a command",
+  async (mode) => {
+    const f = await recoveryRoutingFixture();
+    const routing = f.routing;
+    if (mode === "tcp") routing.currentServe.TCP["9443"] = { HTTPS: true };
+    if (mode === "web") routing.currentServe.Web["other.tail123.ts.net:9443"] = { Handlers: {} };
+    if (mode === "funnel")
+      routing.currentServe.AllowFunnel = { "machine.tail123.ts.net:9443": false };
+    if (mode === "drift") routing.currentServe.ExtraFutureSetting.retained = false;
+    if (["tcp", "web", "funnel"].includes(mode))
+      routing.previousServe = structuredClone(routing.currentServe);
+    if (mode === "backend") routing.backend.BackendState = "Stopped";
+    if (mode === "hostname") routing.backend.Self.DNSName = "other.tail123.ts.net.";
+    if (mode === "public-name") {
+      routing.backend.Self.DNSName = "public.example.test.";
+      routing.access.origin = "https://public.example.test:9443";
+    }
+    expect(() => inspectMaintenanceRecoveryRouting(routing)).toThrow();
+  },
+);
+
+test("recovery route configuration is refused on ordinary controller plans", async () => {
+  const f = await fixture(false, true);
+  f.plan.recoveryRoute = {
+    tailscale: f.plan.candidate.node,
+    previousServe: f.plan.candidate.setup,
+  };
+  expect(() => inspectMaintenanceLauncherPlan(f.plan, f.account)).toThrow(
+    "standalone access launcher",
+  );
+});
 
 test("recovery access has exact standalone argv and read-only OS supervision", async () => {
   const f = await independentAccessFixture();

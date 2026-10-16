@@ -147,6 +147,7 @@ async function digestFile(
 export async function verifyBootstrapPreparedDependency(
   file: CoordinatorBootstrapPlan["candidate"]["node"],
   writableMountRoots: readonly string[],
+  custody: "host" | "host-or-root" = "host",
 ): Promise<void> {
   const deadline = Date.now() + 30_000;
   const maxBytes = 256 * 1024 * 1024;
@@ -154,7 +155,10 @@ export async function verifyBootstrapPreparedDependency(
   if ((await realpath(file.path)) !== file.path)
     throw new BootstrapRequestConflict("Prepared file requires a canonical path");
   const before = await lstat(file.path, { bigint: true });
-  requireOwned(before);
+  if (custody === "host-or-root" && before.uid === 0n) {
+    if ((before.mode & 0o022n) !== 0n)
+      throw new BootstrapRequestConflict("Native dependency is writable by another account");
+  } else requireOwned(before);
   if (!before.isFile() || before.nlink !== 1n || before.size > BigInt(maxBytes))
     throw new BootstrapRequestConflict("Prepared dependency must be a bounded regular file");
   const digest = await digestFile(file.path, before, { maxBytes, deadline });

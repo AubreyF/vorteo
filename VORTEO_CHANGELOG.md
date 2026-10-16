@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.601 - 2026-10-16
+
+- Bind optional private recovery routing preparation to the existing launcher plan, protected Tailscale executable, complete previous Serve snapshot and exact candidate setup. Preserve all existing and unknown routing settings; refuse occupied ports, configuration drift and mismatched private machine identity.
+- Verify the pinned routing CLI with explicit Host-or-root custody for system-installed binaries. Keep Host-only ownership as the existing dependency default, with digest, canonical path, write protection, mount exclusion and streaming limits preserved.
+- Add focused preparation regressions without performing any live routing or lifecycle operation. Native route execution, uncertainty reconciliation, installed registration, rollback and remote-browser acceptance remain unfinished. General bookmark discovery and README feature advertising remain delivery requirements.
+
 ## 0.11.0-beta.3.vorteo.600 - 2026-10-16
 
 - Bind standalone recovery access to the existing exact launcher plan. Verify its native identity, source, owner configuration and shared lifecycle directory; compatible access slots retain their bookmarked origin and port. Reject access configuration paired with the older entry point.
