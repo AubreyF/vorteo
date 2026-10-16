@@ -8,7 +8,7 @@ import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
-import { createPreclaimRepairControlApp } from "./coordinator-bootstrap-preclaim-control.js";
+import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
 
 test.each([false, true])(
@@ -92,16 +92,22 @@ test.each([false, true])(
   },
 );
 
-test.each(["success", "lost-response"])(
-  "independent preclaim admission keeps the separate one-shot owner decision: %s",
-  async (mode) => {
+test.each([
+  { scope: "preclaim-recovery", mode: "success" },
+  { scope: "preclaim-recovery", mode: "lost-response" },
+  { scope: "coordinator-migration", mode: "success" },
+  { scope: "coordinator-migration", mode: "lost-response" },
+] as const)(
+  "independent runtime admission keeps the separate one-shot owner decision: $scope/$mode",
+  async ({ scope, mode }) => {
     const binding = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
     const digest = "b".repeat(64);
     let status: "pending" | "approved" = "pending";
     let origin = "";
     const decisions: unknown[] = [];
     const admitted: string[] = [];
-    const app = createPreclaimRepairControlApp({
+    const app = createIndependentBootstrapControlApp({
+      scope,
       admissionSha256: digest,
       origin: () => origin,
       proposal: { originalId: "retained-fixture", scope: "retire only the reviewed executor" },
@@ -169,8 +175,15 @@ test.each(["success", "lost-response"])(
       expect(admitted).toEqual(["exact runtime"]);
       expect(decisions).toEqual([]);
       const html = await (await fetch(origin)).text();
-      expect(html).toContain("Retire only the reviewed stalled executor");
-      expect(html).not.toContain("The exact plan replaces the coordinator.");
+      expect(html).toContain(
+        scope === "preclaim-recovery"
+          ? "Retire only the reviewed stalled executor"
+          : "Approve this exact coordinator migration",
+      );
+      expect(html.includes("The exact plan replaces the coordinator.")).toBe(
+        scope === "coordinator-migration",
+      );
+      expect(html).toContain("admitted native");
       const decision = { decision: "approve", ownerPassword: "fixture-owner" };
       expect((await post("/decision", decision)).status).toBe(mode === "success" ? 200 : 503);
       expect((await post("/decision", decision)).status).toBe(409);

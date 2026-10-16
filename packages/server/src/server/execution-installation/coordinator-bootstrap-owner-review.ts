@@ -147,6 +147,16 @@ function canCancelPreclaimReview(
 }
 
 function ownerReviewDocument(scope: OwnerReviewInput["scope"]) {
+  if (scope === "coordinator-migration")
+    return ownerReviewHtml
+      .replace(
+        "This independent page uses the existing Host review service while the normal coordinator is unavailable.",
+        "This independent page uses the admitted native maintenance service while the normal coordinator is unavailable.",
+      )
+      .replace(
+        "Compatible recovery and the configured delivery tools are included in the plan below.",
+        "Compatible recovery is included in the exact plan below. The selected configuration is preserved.",
+      );
   if (scope !== "preclaim-recovery") return ownerReviewHtml;
   return ownerReviewHtml
     .replace("const recoveryOnly=false;", "const recoveryOnly=true;")

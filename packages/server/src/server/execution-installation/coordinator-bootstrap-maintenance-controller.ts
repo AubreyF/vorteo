@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { verifyNativeMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
   observeEnrolledCoordinator,
@@ -28,6 +29,7 @@ import { createNativeBootstrapServiceReader } from "./coordinator-bootstrap-serv
 import { ProcessObservationSchema } from "./coordinator-bootstrap-process.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { createProvisionedMaintenanceReview } from "./coordinator-bootstrap-maintenance-host.js";
+import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
 import {
   provisionCoordinatorMaintenance,
   enrollAndProvisionCoordinatorMaintenance,
@@ -352,6 +354,39 @@ async function startMaintenanceControl(
       return config;
     },
   });
+  let origin = "";
+  if (!persistent && !enrollment) {
+    const review = () => {
+      const retained = state.list().find((request) => request.id === context.receipt.requestId);
+      if (!retained) throw new BootstrapRequestConflict("Exact maintenance review is unavailable");
+      return {
+        binding: { id: retained.id, revision: retained.revision, planSha256: retained.planSha256 },
+        client: {
+          listCoordinatorBootstrapRequests: async () => state.service().list(),
+          decideCoordinatorBootstrap: async (
+            decision: Parameters<BootstrapReviewService["decide"]>[0],
+            password: string,
+          ) => {
+            await state.service().decide(decision, password);
+            return [];
+          },
+        },
+      };
+    };
+    app.use(
+      createIndependentBootstrapControlApp({
+        scope: "coordinator-migration",
+        origin: () => origin,
+        admissionSha256: digest,
+        proposal: { receipt: context.receipt, plan: context.plan },
+        ...(state.list().length ? { admitted: review() } : {}),
+        provision: async (password) => {
+          await state.provision(password);
+          return review();
+        },
+      }),
+    );
+  }
   const server = createServer(app);
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
@@ -360,6 +395,7 @@ async function startMaintenanceControl(
     const address = server.address();
     if (!address || typeof address === "string")
       throw new BootstrapRequestConflict("Maintenance listener unavailable");
+    origin = "http://127.0.0.1:" + address.port;
     const descriptor = {
       version: 1,
       ...(input.enrollmentSha256 ? { enrollmentSha256: input.enrollmentSha256 } : {}),

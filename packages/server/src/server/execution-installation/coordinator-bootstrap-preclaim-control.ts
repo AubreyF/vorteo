@@ -46,13 +46,21 @@ interface PreclaimControlAppInput {
 /** Presentation cannot select paths or plans. Provisioning admits one pinned
  * runtime; the subsequent exact recovery button still supplies separate consent. */
 export function createPreclaimRepairControlApp(input: PreclaimControlAppInput) {
+  return createIndependentBootstrapControlApp({ ...input, scope: "preclaim-recovery" });
+}
+
+/** Both native roles use the same loopback presentation; the fixed service still
+ * owns authentication, admission, preparation and exact decision dispatch. */
+export function createIndependentBootstrapControlApp(
+  input: PreclaimControlAppInput & { scope: OwnerReviewInput["scope"] },
+) {
   const app = express();
   app.disable("x-powered-by");
   let reviewApp = input.admitted
     ? createBootstrapOwnerReviewApp({
         ...input.admitted,
         origin: input.origin,
-        scope: "preclaim-recovery",
+        scope: input.scope,
       })
     : undefined;
   let busy = false;
@@ -75,7 +83,15 @@ export function createPreclaimRepairControlApp(input: PreclaimControlAppInput) {
     if (reviewApp) reviewApp(request, response, next);
     else next();
   });
-  app.get("/", (_request, response) => response.type("html").send(provisionHtml));
+  app.get("/", (_request, response) =>
+    response
+      .type("html")
+      .send(
+        input.scope === "preclaim-recovery"
+          ? provisionHtml
+          : provisionHtml.replaceAll("recovery", "coordinator maintenance"),
+      ),
+  );
   app.get("/proposal", (_request, response) =>
     response.json({ admissionSha256: input.admissionSha256, proposal: input.proposal, busy }),
   );
@@ -101,7 +117,7 @@ export function createPreclaimRepairControlApp(input: PreclaimControlAppInput) {
         reviewApp = createBootstrapOwnerReviewApp({
           ...review,
           origin: input.origin,
-          scope: "preclaim-recovery",
+          scope: input.scope,
         });
         response.json({ provisioned: true });
       } finally {
@@ -115,7 +131,7 @@ export function createPreclaimRepairControlApp(input: PreclaimControlAppInput) {
       error:
         status === 401
           ? "Owner authentication failed. Nothing was approved."
-          : "Preclaim controls could not finish validation. Inspect retained status; no recovery decision was retried.",
+          : "Independent controls could not finish validation. Inspect retained status; no lifecycle decision was retried.",
     });
   };
   app.use(failure);
