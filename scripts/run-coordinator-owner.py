@@ -306,7 +306,7 @@ def supervision_effect(state, request_id, revision, generation, digest, effect,
     plan = request["plan"]
     encode = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":"),
                                        allow_nan=False).encode("utf-8")
-    stages = {"freeze": ("freeze_pending",),
+    stages = {"freeze": ("freeze_pending", "rollback_pending"),
               "terminate-frozen": ("unload_pending", "rollback_pending")}
     if (request["revision"] != revision or request["status"] != "approved"
             or not request.get("decisionAt") or "automaticApproval" in request

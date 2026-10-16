@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.612 - 2026-10-16
+
+### Fixed
+
+- Recover a manual-to-supervised coordinator handoff interrupted before its first freeze. The exact rollback generation may consume its first audited freeze intent, preserve unchanged state and retire the frozen process before starting the reviewed compatible fallback. Existing or uncertain freeze attempts remain non-repeatable.
+- Treat an independently verified changed boot as proof that the original manual lifetime ended. Reused numeric PIDs are neither inspected as the original process nor signaled; missing or inconsistent boot proof still refuses recovery.
+- Ten focused cases pass, including real disposable native freeze and retirement from both normal dispatch and interrupted recovery. These are source and fixture checks, not installed supervision, real reboot acceptance or a new owner approval. The README continues to omit uninstalled recovery claims.
+
 ## 0.11.0-beta.3.vorteo.611 - 2026-10-16
 
 ### Maintenance

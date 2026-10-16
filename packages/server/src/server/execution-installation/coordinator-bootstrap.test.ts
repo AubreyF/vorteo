@@ -2839,9 +2839,206 @@ test.runIf(process.platform === "darwin")(
   },
 );
 
-test.runIf(process.platform === "darwin")(
-  "audited supervision effects consume one generation and require preserved frozen state",
-  async () => {
+test
+  .runIf(process.platform === "darwin")
+  .each([
+    "before-first-freeze",
+    "consumed-freeze",
+    "reboot-pid-reused",
+    "wrong-boot",
+    "missing-boot-plan",
+    "same-boot-recovery",
+    "same-boot-pid-reused",
+  ])("manual supervision rollback preserves exact lifetime boundaries: %s", async (scenario) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "supervision-rollback-")));
+  roots.push(root);
+  const file = (name: string, bytes: string, mode = 0o600) => {
+    const destination = path.join(root, name);
+    writeFileSync(destination, bytes, { mode });
+    return { path: destination, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  const node = file("node", "fixture executable", 0o700);
+  const configuration = file("configuration.json", "{}");
+  const release = async (name: string, sourceCommit: string) => {
+    const directory = path.join(root, name);
+    mkdirSync(directory, { mode: 0o700 });
+    const entrypoint = file(name + "/main.js", "fixture " + name);
+    file(name + "/.installation-source.json", JSON.stringify({ sourceCommit }));
+    return {
+      directory,
+      sourceCommit,
+      node,
+      configuration,
+      entrypoint,
+      launcher: file(name + ".plist", "fixture launcher " + name),
+      artifactSha256: await digestBootstrapArtifact(directory),
+    };
+  };
+  const previous = await release("previous", "e".repeat(40));
+  const candidate = await release("candidate", "f".repeat(40));
+  const selected = file("selected.plist", readFileSync(previous.launcher.path, "utf8"));
+  const f = await supervisionRecoveryFixture({ restored: previous });
+  const canceled = await f
+    .service()
+    .decide({ ...pickDecision(f.approvedMigration), decision: "cancel" }, ownerPassword);
+  f.plan.supervisionRecovery!.canceledRequest = pickDecision(canceled);
+  f.plan.candidate = candidate;
+  f.plan.compatibleRecovery = candidate;
+  f.plan.expectedProcess = {
+    pid: 456,
+    bootId: randomUUID(),
+    startIdentity: "1000:1",
+    argumentsSha256: createHash("sha256")
+      .update(JSON.stringify([node.path, previous.entrypoint.path, configuration.path]))
+      .digest("hex"),
+  };
+  const id = randomUUID();
+  const rebooted = scenario.includes("boot") && scenario !== "same-boot-pid-reused";
+  const currentBoot =
+    rebooted && scenario !== "same-boot-recovery" ? randomUUID() : f.plan.expectedProcess.bootId;
+  if (rebooted && scenario !== "missing-boot-plan")
+    f.plan.bootRecovery = {
+      requestId: id,
+      service: `gui/${process.getuid!()}/local.vorteo.${f.plan.installationId}.installation-recovery-${id}`,
+      launcher: selected,
+      installedLauncher: path.join(root, "recovery.plist"),
+      setup: configuration,
+      ownerLauncher: selected,
+      node,
+      entrypoint: candidate.entrypoint,
+    };
+  const pending = await f.service().prepare({ id, reason: "Fixture rollback", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  let current = await f
+    .service()
+    .claimDispatch(pickDecision(reserveSupervisionFixture(f, approved)));
+  f.journal.promote(current);
+  for (const stage of ["recovery_required", "rollback_pending"] as const)
+    current = f
+      .service()
+      .advanceDispatch(
+        { ...pickDecision(current), generation: current.execution!.generation },
+        stage,
+      );
+  const original = {
+    ...f.plan.expectedProcess,
+    parentPid: 1,
+    uid: process.getuid!(),
+    executable: node.path,
+  };
+  let alive = true;
+  let stopped = false;
+  let loaded = false;
+  const effects: string[] = [];
+  const processReads: number[] = [];
+  const native = createBootstrapNativeLifecycle(
+    {
+      requests: f.service(),
+      configurationFile: configuration.path,
+      launcherFile: selected.path,
+      recoveryBootId: rebooted ? currentBoot : undefined,
+      writableMountRoots: async () => [],
+      requireOwnership: async () => {},
+      readHealth: async () => ({ installationId: f.plan.installationId }),
+      reader: {
+        readService: async () => {
+          if (!loaded) throw new Error("Absent");
+          return `${f.plan.service} = {\n\tpid = 789\n}`;
+        },
+        verifyServiceAbsent: async () => {
+          if (loaded) throw new Error("Loaded");
+        },
+        verifyProcessExited: async (pid) => {
+          processReads.push(pid);
+          if (alive) throw new Error("PID still exists");
+        },
+        inspectProcess: async (pid) => {
+          processReads.push(pid);
+          if (pid === process.pid)
+            return {
+              ...original,
+              pid,
+              bootId: scenario === "wrong-boot" ? randomUUID() : currentBoot,
+            };
+          if (pid === 789)
+            return {
+              ...original,
+              pid,
+              bootId: currentBoot,
+              startIdentity: "1000:2",
+              argumentsSha256: createHash("sha256")
+                .update(JSON.stringify([node.path, candidate.entrypoint.path, configuration.path]))
+                .digest("hex"),
+            };
+          return scenario === "same-boot-pid-reused"
+            ? { ...original, startIdentity: "9999:1" }
+            : original;
+        },
+        inspectAuditedProcess: async () => {
+          throw new Error("Audited signal port owns proof");
+        },
+        inspectRunningProcess: async () => {
+          if (stopped) throw new Error("Stopped");
+          return { ...original, stopped: false };
+        },
+        inspectStoppedProcess: async () => {
+          if (!stopped) throw new Error("Running");
+          return { ...original, stopped: true, childPids: [] };
+        },
+      },
+      manualPrevious: {
+        signal: async (_request, effect) => {
+          effects.push(effect);
+          if (scenario === "consumed-freeze") throw new Error("Freeze intent already consumed");
+          if (effect === "freeze") stopped = true;
+          else {
+            expect(stopped).toBe(true);
+            alive = false;
+          }
+        },
+      },
+    },
+    {
+      run: async (args) => {
+        expect(args[0]).toBe("bootstrap");
+        effects.push("bootstrap");
+        loaded = true;
+      },
+    },
+  );
+  const history = f.service().list();
+  if (
+    scenario === "consumed-freeze" ||
+    scenario === "wrong-boot" ||
+    scenario === "missing-boot-plan" ||
+    scenario === "same-boot-recovery" ||
+    scenario === "same-boot-pid-reused"
+  ) {
+    await expect(native.restorePrevious(current)).rejects.toThrow();
+    expect(effects).toEqual(scenario === "consumed-freeze" ? ["freeze"] : []);
+    expect(readFileSync(selected.path)).toEqual(readFileSync(previous.launcher.path));
+  } else {
+    await native.restorePrevious(current);
+    expect(effects).toEqual(rebooted ? ["bootstrap"] : ["freeze", "terminate-frozen", "bootstrap"]);
+    expect(readFileSync(selected.path)).toEqual(readFileSync(candidate.launcher.path));
+    expect(
+      JSON.parse(
+        readFileSync(
+          path.join(f.root, `coordinator-transfer-${current.execution!.generation}.json`),
+          "utf8",
+        ),
+      ).requestId,
+    ).toBe(current.id);
+  }
+  if (rebooted) expect(processReads).not.toContain(original.pid);
+  expect(f.service().list()).toEqual(history);
+});
+
+test.runIf(process.platform === "darwin").each(["normal", "before-first-freeze"])(
+  "audited supervision effects consume one generation and require preserved frozen state: %s",
+  async (interruption) => {
     const execute = promisify(execFile);
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), "supervision-effect-")));
     roots.push(root);
@@ -2942,7 +3139,10 @@ test.runIf(process.platform === "darwin")(
             stage,
           );
       };
-      advance("freeze_pending");
+      if (interruption === "before-first-freeze") {
+        advance("recovery_required");
+        advance("rollback_pending");
+      } else advance("freeze_pending");
       const lock = path.join(f.root, "coordinator-bootstrap-execution.lock");
       writeFileSync(lock, "", { mode: 0o600 });
       const owner = path.resolve(
@@ -3002,14 +3202,18 @@ sys.exit(result.returncode)
         stderr: "supervision:effect_consumed\n",
       });
       expect((await reader.inspectStoppedProcess(pid)).stopped).toBe(true);
-      advance("frozen");
-      advance("unload_pending");
+      if (interruption === "normal") {
+        advance("frozen");
+        advance("unload_pending");
+      }
       await expect(effect("terminate-frozen")).rejects.toMatchObject({
         stderr: "supervision:transfer_unavailable\n",
       });
       expect((await reader.inspectStoppedProcess(pid)).stopped).toBe(true);
-      advance("recovery_required");
-      advance("rollback_pending");
+      if (interruption === "normal") {
+        advance("recovery_required");
+        advance("rollback_pending");
+      }
       await preserveBootstrapState({ request: current, writableMountRoots: [], childPids: [] });
       writeFileSync(f.plan.state.ownerSessions, Buffer.concat([sessionBytes, Buffer.from("\n")]));
       await expect(effect("terminate-frozen")).rejects.toMatchObject({

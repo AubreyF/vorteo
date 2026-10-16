@@ -427,6 +427,13 @@ export function createBootstrapNativeLifecycle(
   }) => {
     const { request, service, roots } = input;
     if (!request.plan.supervisionRecovery || service !== null) return;
+    if (context.recoveryBootId !== undefined) {
+      // requireStage verifies the independently observed current runner boot.
+      // The old lifetime cannot survive it; its numeric PID may now be unrelated.
+      await requireStage(request, "rollback_pending");
+      await context.reader.verifyServiceAbsent(request.plan.service);
+      return;
+    }
     try {
       await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
       return;
@@ -434,7 +441,16 @@ export function createBootstrapNativeLifecycle(
       // Failed absence is not permission to signal another lifetime.
       await verify(request);
     }
-    await verifyState(request, true);
+    try {
+      await verifyState(request, true);
+    } catch {
+      // Promotion can precede the first freeze. The audited signal port consumes
+      // one exclusive freeze intent, so an uncertain earlier attempt cannot replay.
+      await verifyState(request, false);
+      await requireStage(request, "rollback_pending");
+      await context.manualPrevious!.signal(request, "freeze");
+      await waitFor(() => verifyState(request, true));
+    }
     const stopped = await context.reader.inspectStoppedProcess(request.plan.expectedProcess.pid);
     await preserveBootstrapState({
       request,
