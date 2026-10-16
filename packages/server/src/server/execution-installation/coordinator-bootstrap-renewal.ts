@@ -138,6 +138,20 @@ export function terminalBootstrapRelease(
   input: unknown,
   identity: { installationId: string; stateDirectory: string; service: string },
 ) {
+  const history = bootstrapReleaseHistory(input, identity);
+  if (history && !isCompletedBootstrap(history.request))
+    throw new BootstrapRequestConflict(
+      "Coordinator renewal is unavailable until its bootstrap recovery is terminal",
+    );
+  return history;
+}
+
+/** Structural history validation does not establish recovery completion.
+ * Preclaim admission separately verifies retained native renewal evidence. */
+export function bootstrapReleaseHistory(
+  input: unknown,
+  identity: { installationId: string; stateDirectory: string; service: string },
+) {
   const records = orderBootstrapHistory(z.array(CoordinatorBootstrapRequestSchema).parse(input));
   const ids = new Set<string>();
   const generations = new Set<string>();
@@ -183,10 +197,6 @@ export function terminalBootstrapRelease(
     selected = terminalRelease(request);
   }
   if (!terminal) return undefined;
-  if (!isCompletedBootstrap(terminal))
-    throw new BootstrapRequestConflict(
-      "Coordinator renewal is unavailable until its bootstrap recovery is terminal",
-    );
   return { request: terminal, release: selected! };
 }
 

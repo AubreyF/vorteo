@@ -44,7 +44,7 @@ import {
 import {
   BootstrapRenewalSchema,
   deriveBootstrapRenewal,
-  terminalBootstrapRelease,
+  bootstrapReleaseHistory,
   persistRenewalSetup,
   verifyRenewalPlan,
   verifyRetainedRenewal,
@@ -91,11 +91,11 @@ interface PreclaimRuntimeInput {
 
 function unclaimedPreclaimRequests(
   records: CoordinatorBootstrapRequest[],
-  identity: Parameters<typeof terminalBootstrapRelease>[1],
+  identity: Parameters<typeof bootstrapReleaseHistory>[1],
 ) {
-  // Failed generations remain in history after an exact successor recovers them.
-  // Validate that complete chain before excluding executed records from admission.
-  terminalBootstrapRelease(records, identity);
+  // A failed predecessor is valid recovery input, not a completed renewal.
+  // Native renewal verification remains required before review or effects.
+  bootstrapReleaseHistory(records, identity);
   return records.filter((record) => record.status !== "canceled" && !record.execution);
 }
 

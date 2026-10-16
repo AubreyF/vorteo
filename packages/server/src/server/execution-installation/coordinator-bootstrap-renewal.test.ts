@@ -1746,6 +1746,53 @@ test.runIf(process.platform === "darwin").each(["claimed", "recovery_required"] 
 );
 
 test.runIf(process.platform === "darwin")(
+  "preclaim initialization retains an exact unpromoted failed predecessor",
+  async () => {
+    const f = await fixture();
+    const failed = structuredClone(f.record);
+    failed.id = randomUUID();
+    failed.revision = randomUUID();
+    failed.plan.previous = f.coordinator;
+    failed.plan.candidate = f.host;
+    failed.plan.compatibleRecovery = f.host;
+    failed.plan.automaticRecovery = "restore-compatible";
+    const observed = await f.ports.reader.inspectProcess(404);
+    failed.plan.expectedProcess = {
+      pid: observed.pid,
+      bootId: observed.bootId,
+      startIdentity: observed.startIdentity,
+      argumentsSha256: observed.argumentsSha256,
+    };
+    failed.planSha256 = coordinatorPlanDigest(failed.plan);
+    failed.execution = {
+      generation: randomUUID(),
+      stage: "recovery_required",
+      updatedAt: new Date().toISOString(),
+    };
+    const journal = new FileBootstrapRequestJournal(f.state);
+    journal.replace(journal.read(), [f.record, failed]);
+    const renewed = (await f.derive())!;
+    const original = structuredClone(failed);
+    original.id = randomUUID();
+    original.revision = randomUUID();
+    delete original.execution;
+    original.plan.recoveredFrom = renewed.renewal!.unpromotedFailure;
+    original.planSha256 = coordinatorPlanDigest(original.plan);
+    journal.replace(journal.read(), [f.record, failed, original]);
+    const before = journal.read();
+    const service = await createManagedPreclaimRecoveryReview(f.setupFile, f.original.daemonId, {
+      ...f.ports,
+      moduleFile: path.join(f.host.directory, runnerRelative),
+      hostProcessId: f.hostProcess.pid,
+    });
+    expect(service?.available).toBe(true);
+    expect(service?.list()).toEqual([]);
+    expect(journal.read()).toEqual(before);
+    expect(journal.readPromoted()).toEqual([f.record]);
+  },
+);
+
+test.runIf(process.platform === "darwin")(
   "renews an exact unpromoted failed generation without rewriting its approval or promoting it",
   async () => {
     const f = await fixture();

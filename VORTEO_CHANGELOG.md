@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.589 - 2026-10-15
+
+- Validate preclaim recovery history without requiring its failed predecessor to have completed ordinary renewal. Preserve the strict terminal-release selector and the independent retained native checks before recovery review or effects.
+- Twenty-nine focused history and preclaim checks pass, including an exact unpromoted failure, unresolved or substituted ancestry and unchanged journals. This correction is source only; independent recovery delivery and installed acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.588 - 2026-10-15
 
 - Capture Claude's exact SDK query, input and child before asynchronous close. Concurrent and repeated close calls share the retained result; termination timeout preserves the child handle and reports incomplete cleanup instead of success.
