@@ -86,3 +86,48 @@ export function inspectMaintenanceRecoveryRouting(input: {
     previousServe: previous,
   };
 }
+
+/** Observe one additive private route, including all unrelated settings. This
+ * does not dispatch or accept a partial result after an uncertain CLI reply. */
+export function verifyMaintenanceRecoveryRouteSelection(
+  input: Parameters<typeof inspectMaintenanceRecoveryRouting>[0],
+) {
+  const prepared = inspectMaintenanceRecoveryRouting({
+    ...input,
+    currentServe: input.previousServe,
+  });
+  const current = structuredClone(serveSchema.parse(input.currentServe));
+  const origin = new URL(prepared.origin);
+  const port = origin.port || "443";
+  const address = `${origin.hostname}:${port}`;
+  const tcp = z.record(z.string(), z.unknown()).parse(current.TCP);
+  const web = z.record(z.string(), z.unknown()).parse(current.Web);
+  const expected = {
+    Handlers: { "/": { Proxy: `http://127.0.0.1:${input.access.listenPort}` } },
+  };
+  if (!isDeepStrictEqual(tcp[port], { HTTPS: true }) || !isDeepStrictEqual(web[address], expected))
+    throw new BootstrapRequestConflict("Recovery route does not select the exact private listener");
+  const funnel = z.record(z.string(), z.unknown()).optional().parse(current.AllowFunnel);
+  if (funnel && Object.hasOwn(funnel, address)) {
+    if (funnel[address] !== false)
+      throw new BootstrapRequestConflict("Recovery route must not enable public exposure");
+    delete funnel[address];
+  }
+  delete tcp[port];
+  delete web[address];
+  current.TCP = tcp;
+  current.Web = web;
+  if (funnel) current.AllowFunnel = funnel;
+  for (const key of ["TCP", "Web", "AllowFunnel"]) {
+    const value = current[key];
+    if (
+      !Object.hasOwn(prepared.previousServe, key) &&
+      value &&
+      Object.keys(z.record(z.string(), z.unknown()).parse(value)).length === 0
+    )
+      delete current[key];
+  }
+  if (!isDeepStrictEqual(current, prepared.previousServe))
+    throw new BootstrapRequestConflict("Unrelated private routing changed during activation");
+  return { origin: prepared.origin, ready: true as const };
+}

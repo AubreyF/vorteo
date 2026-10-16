@@ -10,6 +10,7 @@ import {
 } from "./coordinator-bootstrap.js";
 import { FileEnrollmentJournal, enrollmentManifestDigest } from "./maintenance/authorization.js";
 import { MaintenanceLauncherIntentSchema } from "./coordinator-bootstrap-maintenance-selection.js";
+import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import {
   inspectMaintenanceLauncherPlan,
   type MaintenanceLauncherPlan,
@@ -99,6 +100,67 @@ export function reserveMaintenanceLauncherEffect(input: {
       closeSync(parent);
     }
     return { file, intent };
+  });
+}
+
+/** Continue only the original reserved activation, under the same exclusion.
+ * Native commands stay outside this transaction. Uncertain effects never call
+ * reserve again; this check cannot create or repair an intent. */
+export function withReservedMaintenanceLauncherEffect(
+  input: Parameters<typeof reserveMaintenanceLauncherEffect>[0],
+  retained: ReturnType<typeof reserveMaintenanceLauncherEffect>,
+  apply: () => undefined,
+) {
+  const inspected = inspectMaintenanceLauncherPlan(input.plan, input.account);
+  const bootstrap = new FileBootstrapRequestJournal(input.enrollmentStateDirectory);
+  return bootstrap.withRecoveryTransaction((requests) => {
+    if (openBootstrapRequests(requests).some((request) => request.execution))
+      throw new BootstrapRequestConflict(
+        "Coordinator execution conflicts with launcher activation",
+      );
+    assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
+    const state = new FileEnrollmentJournal(
+      input.enrollmentStateDirectory,
+    ).readUnderLifecycleLock();
+    if (
+      state.status !== "enrolled" ||
+      state.grant.id !== input.grantId ||
+      state.grant.revision !== input.grantRevision ||
+      state.grant.paused ||
+      state.grant.revokedAt ||
+      state.grant.disabledTargets.includes(input.plan.identity.target)
+    )
+      throw new BootstrapRequestConflict("Launcher activation authority changed");
+    const step = state.grant.manifest.steps.find((item) => item.id === input.stepId);
+    const progress = state.activation.steps.find((item) => item.id === input.stepId);
+    assertLauncherStep(input, inspected.planSha256, step, progress);
+    const expectedFile = path.join(
+      input.enrollmentStateDirectory,
+      `maintenance-launcher-${input.stepId}-${input.generation}.json`,
+    );
+    const intent = MaintenanceLauncherIntentSchema.parse(
+      readPrivateBootstrapConfiguration(expectedFile, input.account.uid),
+    );
+    const expectedIntent = {
+      ...intent,
+      planSha256: inspected.planSha256,
+      identitySha256: inspected.identitySha256,
+      manifestSha256: enrollmentManifestDigest(state.grant.manifest),
+      grantId: input.grantId,
+      grantRevision: input.grantRevision,
+      stepId: input.stepId,
+      generation: input.generation,
+    };
+    if (
+      retained.file !== expectedFile ||
+      !isDeepStrictEqual(intent, retained.intent) ||
+      !isDeepStrictEqual(intent, expectedIntent)
+    )
+      throw new BootstrapRequestConflict("Launcher activation intent changed");
+    if (typeof input.assertCurrent !== "function" || input.assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Launcher custody requires a synchronous native recheck");
+    if (apply() !== undefined)
+      throw new BootstrapRequestConflict("Launcher activation transaction must remain synchronous");
   });
 }
 

@@ -24,7 +24,15 @@ import {
 } from "./coordinator-bootstrap-artifact.js";
 import { inspectMaintenanceLauncherSelection } from "./coordinator-bootstrap-maintenance-selection.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
-import { inspectMaintenanceRecoveryRouting } from "./coordinator-bootstrap-maintenance-recovery-routing.js";
+import {
+  inspectMaintenanceRecoveryRouting,
+  verifyMaintenanceRecoveryRouteSelection,
+} from "./coordinator-bootstrap-maintenance-recovery-routing.js";
+import {
+  activateMaintenanceRecoveryAccess,
+  observeMaintenanceRecoveryAccessRegistration,
+  type RecoveryRegistrationPorts,
+} from "./coordinator-bootstrap-maintenance-recovery-registration.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import { enrollmentNativeIdentityDigest } from "./maintenance/native-identity.js";
 import {
@@ -2664,4 +2672,373 @@ test("recovery access listener cannot supply native executor authority", async (
       },
     }),
   ).rejects.toThrow("does not provide lifecycle execution");
+});
+
+async function recoveryRegistrationFixture(mode = "ready") {
+  const f = await recoveryRoutingFixture();
+  f.plan.previous = null;
+  const {
+    FileEnrollmentJournal,
+    enrollInstallation,
+    enrollmentManifestDigest,
+    reserveActivationStep,
+    changeStandingGrant,
+  } = await import("./maintenance/authorization.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const inspected = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const base = path.dirname(f.plan.identity.selectionPath!);
+  const plans = path.join(base, "plans");
+  mkdirSync(plans, { mode: 0o700 });
+  writeFileSync(path.join(plans, `${inspected.planSha256}.json`), JSON.stringify(f.plan), {
+    mode: 0o600,
+  });
+  retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
+  const stepId = randomUUID();
+  const manifest = {
+    version: 1 as const,
+    operation: "installation-enrollment" as const,
+    installationId: f.plan.identity.installationId,
+    revision: randomUUID(),
+    createdAt: new Date().toISOString(),
+    trustedRepositories: ["https://example.test/fixture"],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 5 },
+    retryLimit: 3 as const,
+    rollback: "previous-compatible-runtime" as const,
+    recovery: "after-login" as const,
+    targets: [
+      {
+        target: "recovery-launcher" as const,
+        identitySha256: inspected.identitySha256,
+        operations: ["replacement" as const],
+      },
+      {
+        target: "maintenance-controller" as const,
+        identitySha256: "a".repeat(64),
+        operations: ["replacement" as const],
+      },
+      {
+        target: "coordinator" as const,
+        identitySha256: "b".repeat(64),
+        operations: ["replacement" as const],
+      },
+    ],
+    steps: [
+      {
+        id: stepId,
+        target: "recovery-launcher" as const,
+        operation: "replacement" as const,
+        planSha256: inspected.planSha256,
+        candidate: {
+          sourceCommit: f.plan.candidate.sourceCommit,
+          artifactSha256: f.plan.candidate.artifactSha256,
+        },
+        previous: null,
+        dependsOn: [],
+      },
+    ],
+  };
+  const enrollment = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+  const enrolled = enrollInstallation(enrollment, {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: new Date().toISOString(),
+    },
+  });
+  if (enrolled.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const reserved = reserveActivationStep(enrollment, {
+    grantRevision: enrolled.grant.revision,
+    stepId,
+  });
+  if (reserved.status !== "enrolled" || reserved.activation.steps[0].status !== "reserved")
+    throw new Error("Fixture reservation absent");
+  const bootstrap = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const revoke = () =>
+    changeStandingGrant(enrollment, {
+      expectedRevision: enrolled.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+  const commands: string[][] = [];
+  let registered = false;
+  let revoked = false;
+  let serve = structuredClone(f.routing.previousServe);
+  const native = {
+    pid: 43123,
+    parentPid: 1,
+    uid: f.account.uid,
+    bootId: randomUUID(),
+    startIdentity: "1000:42",
+    executable: f.plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(JSON.stringify(maintenanceUserLauncher(f.plan, "candidate").ProgramArguments))
+      .digest("hex"),
+  };
+  const ports: RecoveryRegistrationPorts = {
+    reader: {
+      async readService(service) {
+        if (!registered) throw new Error("Fixture service absent");
+        return `${service} = {\n\tpid = ${native.pid}\n}`;
+      },
+      async inspectProcess(pid) {
+        if (!registered || pid !== native.pid) throw new Error("Fixture process absent");
+        return { ...native };
+      },
+    },
+    async readRouting() {
+      const observed = {
+        backend: structuredClone(f.routing.backend),
+        serve: structuredClone(serve),
+      };
+      return {
+        ...observed,
+        assertCurrent() {
+          if (mode === "route-custody-after-start" && registered)
+            throw new Error("Fixture routing custody changed");
+          expect({ backend: f.routing.backend, serve }).toEqual(observed);
+        },
+      };
+    },
+    assertAbsent() {
+      expect(() => bootstrap.withRecoveryTransaction(() => undefined)).toThrow("storage is busy");
+      if (registered) throw new Error("Fixture service is already present");
+    },
+    async inspectListener({ process: observedProcess }) {
+      bootstrap.withRecoveryTransaction(() => undefined);
+      expect(observedProcess).toEqual(native);
+      if (mode === "revoke-after-start" && !revoked) {
+        revoke();
+        revoked = true;
+      }
+      if (mode === "route-drift-after-start") serve.ExtraFutureSetting.retained = false;
+      return {
+        assertCurrent() {
+          if (!registered) throw new Error("Fixture listener custody changed");
+          expect(observedProcess).toEqual(native);
+        },
+      };
+    },
+    async run(executable, args) {
+      bootstrap.withRecoveryTransaction(() => undefined);
+      commands.push([executable, ...args]);
+      if (executable === "/bin/launchctl") {
+        expect(args).toEqual([
+          "bootstrap",
+          f.plan.identity.serviceDomain,
+          f.plan.identity.launcherPath,
+        ]);
+        expect(registered).toBe(false);
+        registered = true;
+        if (mode === "lost-start") throw new Error("Lost start reply");
+      } else {
+        expect(executable).toBe(f.plan.recoveryRoute!.tailscale.path);
+        expect(args).toEqual(["serve", "--bg", "--https=9443", "http://127.0.0.1:4446"]);
+        serve.TCP["9443"] = { HTTPS: true };
+        serve.Web["machine.tail123.ts.net:9443"] = {
+          Handlers: { "/": { Proxy: "http://127.0.0.1:4446" } },
+        };
+        if (mode === "lost-route") throw new Error("Lost route reply");
+      }
+    },
+  };
+  const input = {
+    ...f,
+    grantId: enrolled.grant.id,
+    grantRevision: enrolled.grant.revision,
+    stepId,
+    generation: reserved.activation.steps[0].generation,
+    assertCurrent: () => undefined,
+  };
+  const intent = () => {
+    const file = path.join(
+      f.enrollmentStateDirectory,
+      `maintenance-launcher-${stepId}-${input.generation}.json`,
+    );
+    return { file, intent: JSON.parse(readFileSync(file, "utf8")) };
+  };
+  return { ...f, input, ports, commands, enrollment, reserved, revoke, intent };
+}
+
+test("recovery route observation rejects unrelated changes and public exposure", async () => {
+  const f = await recoveryRoutingFixture();
+  const selected = structuredClone(f.routing.currentServe);
+  selected.TCP["9443"] = { HTTPS: true };
+  selected.Web["machine.tail123.ts.net:9443"] = {
+    Handlers: { "/": { Proxy: "http://127.0.0.1:4446" } },
+  };
+  const observe = () =>
+    verifyMaintenanceRecoveryRouteSelection({ ...f.routing, currentServe: selected });
+  expect(observe()).toEqual({ origin: f.routing.access.origin, ready: true });
+  selected.AllowFunnel = { "machine.tail123.ts.net:9443": false };
+  expect(observe().ready).toBe(true);
+  selected.AllowFunnel["machine.tail123.ts.net:9443"] = true;
+  expect(observe).toThrow("public exposure");
+  selected.AllowFunnel["machine.tail123.ts.net:9443"] = false;
+  selected.ExtraFutureSetting.retained = false;
+  expect(observe).toThrow("Unrelated private routing changed");
+});
+
+test("initial recovery registration consumes one existing activation intent and never replays", async () => {
+  const f = await recoveryRegistrationFixture();
+  const result = await activateMaintenanceRecoveryAccess(f.input, f.ports);
+  expect(result).toMatchObject({
+    listenerAndRouteVerified: true,
+    ownerRemoteAcceptance: false,
+    process: { pid: 43123 },
+  });
+  expect(f.commands).toHaveLength(2);
+  expect(f.enrollment.read()).toEqual(f.reserved);
+  const retained = f.intent();
+  const before = readFileSync(retained.file);
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands).toHaveLength(2);
+  expect(readFileSync(retained.file)).toEqual(before);
+});
+
+test.each([
+  "lost-start",
+  "lost-route",
+  "revoke-after-start",
+  "route-drift-after-start",
+  "route-custody-after-start",
+])("initial recovery registration retains uncertain %s without a second effect", async (mode) => {
+  const f = await recoveryRegistrationFixture(mode);
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  const retained = f.intent();
+  const count = f.commands.length;
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands).toHaveLength(count);
+  if (mode === "lost-route") {
+    f.revoke();
+    const before = readFileSync(retained.file);
+    const observed = await observeMaintenanceRecoveryAccessRegistration(f.input, f.ports, retained);
+    expect(observed.listenerAndRouteVerified).toBe(true);
+    expect(f.commands).toHaveLength(count);
+    expect(readFileSync(retained.file)).toEqual(before);
+  } else {
+    await expect(
+      observeMaintenanceRecoveryAccessRegistration(f.input, f.ports, retained),
+    ).rejects.toThrow();
+    expect(f.commands).toHaveLength(count);
+  }
+});
+
+test("initial recovery registration rejects revocation before creating an intent", async () => {
+  const f = await recoveryRegistrationFixture();
+  f.revoke();
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "Standing grant",
+  );
+  expect(f.commands).toEqual([]);
+  expect(f.intent).toThrow();
+});
+
+test("initial recovery registration rejects asynchronous absence proof", async () => {
+  const f = await recoveryRegistrationFixture();
+  f.ports.assertAbsent = async () => undefined;
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "synchronous native absence",
+  );
+  expect(f.commands).toEqual([]);
+  expect(f.intent).toThrow();
+});
+
+test("initial recovery registration expires hanging preparation without a late dispatch", async () => {
+  const f = await recoveryRegistrationFixture();
+  let releaseRouting: (
+    value: Awaited<ReturnType<RecoveryRegistrationPorts["readRouting"]>>,
+  ) => void = () => {
+    throw new Error("Fixture routing not waiting");
+  };
+  let started: () => void = () => undefined;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.readRouting = () =>
+    new Promise((resolve) => {
+      releaseRouting = resolve;
+      started();
+    });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const outcome = expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "deadline elapsed",
+  );
+  await waiting;
+  await vi.advanceTimersByTimeAsync(60_001);
+  await outcome;
+  releaseRouting({
+    backend: f.routing.backend,
+    serve: f.routing.previousServe,
+    assertCurrent: () => undefined,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(f.commands).toEqual([]);
+  expect(f.intent).toThrow();
+});
+
+test("initial recovery registration timeout retains a dispatched generation without a late route", async () => {
+  const f = await recoveryRegistrationFixture();
+  const run = f.ports.run;
+  let release: () => void = () => undefined;
+  let started: () => void = () => undefined;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.run = async (executable, args) => {
+    await run(executable, args);
+    started();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const outcome = expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "deadline elapsed",
+  );
+  await waiting;
+  const retained = f.intent();
+  const before = readFileSync(retained.file);
+  await vi.advanceTimersByTimeAsync(60_001);
+  await outcome;
+  release();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(f.commands).toHaveLength(1);
+  expect(readFileSync(retained.file)).toEqual(before);
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands).toHaveLength(1);
+});
+
+test("initial recovery registration observation expires without a new effect", async () => {
+  const f = await recoveryRegistrationFixture();
+  await activateMaintenanceRecoveryAccess(f.input, f.ports);
+  const retained = f.intent();
+  let release: (value: { assertCurrent(): void }) => void = () => undefined;
+  let started: () => void = () => undefined;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.inspectListener = () =>
+    new Promise((resolve) => {
+      release = resolve;
+      started();
+    });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const outcome = expect(
+    observeMaintenanceRecoveryAccessRegistration(f.input, f.ports, retained),
+  ).rejects.toThrow("deadline elapsed");
+  await waiting;
+  await vi.advanceTimersByTimeAsync(10_001);
+  await outcome;
+  release({ assertCurrent: () => undefined });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(f.commands).toHaveLength(2);
+  expect(f.enrollment.read()).toEqual(f.reserved);
 });

@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.602 - 2026-10-16
+
+- Add initial independent recovery registration through the existing exact enrollment activation intent. Publish immutable selected files before native service and private HTTPS routing effects; recheck grant, generation and synchronous native custody under shared exclusion while keeping native commands outside the lock.
+- Bound the complete activation to sixty seconds and read-only reconciliation to ten seconds. Lost replies, timeout and partial writes retain their generation without replay; observation after revocation verifies the selected native lifetime, listener and complete routing result without claiming remote owner acceptance.
+- Twelve focused temporary-filesystem and simulated-native regressions pass. Production native ports, invocation wiring, compiled registration, rollback controls and installed remote-browser acceptance remain unfinished. No installed capability or README feature claim is enabled.
+
 ## 0.11.0-beta.3.vorteo.601 - 2026-10-16
 
 - Bind optional private recovery routing preparation to the existing launcher plan, protected Tailscale executable, complete previous Serve snapshot and exact candidate setup. Preserve all existing and unknown routing settings; refuse occupied ports, configuration drift and mismatched private machine identity.
