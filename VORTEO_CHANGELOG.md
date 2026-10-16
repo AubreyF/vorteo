@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.570 - 2026-10-15
+
+### Maintenance
+
+- Preserve the installed Host and published interface ancestry in the reliability source. Retain both release histories and the newer native recovery implementation; incoming package differences are workspace version metadata only.
+- Installed Host Claude acceptance is complete. Coordinator, Dev and autonomous maintenance installation remain separate and unfinished. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.569 - 2026-10-15
 
 ### Added
@@ -4450,3 +4457,7 @@ This baseline summarizes custom features and fixes present through this version,
 ### Changed
 
 - Apply accepted task-status guidance to the installed Dev source: require in-progress updates before execution, current status at work transitions, and verified completion. Preserve installed Factory code and complete release history from both source branches.
+
+## 0.11.0-beta.3.vorteo.562 - 2026-10-16
+
+#
