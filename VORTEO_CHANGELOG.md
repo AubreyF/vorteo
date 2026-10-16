@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.613 - 2026-10-16
+
+### Fixed
+
+- Verify that the independent recovery listener can bind its reviewed loopback port before consuming initial registration authority, publishing its launcher or starting a service. Repeat the bounded kernel availability probe at the native command boundary; a conflict or incomplete probe refuses registration without disturbing the existing listener.
+- Native socket and enrollment-journal regressions cover occupied and released ports, invalid port values and refusal before intent or selection publication. This does not install the recovery page or change any route. Production invocation, rollback controls, General bookmark discovery and remote owner acceptance remain open; README availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.612 - 2026-10-16
 
 ### Fixed

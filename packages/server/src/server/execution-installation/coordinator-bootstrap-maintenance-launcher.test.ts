@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { verifyPersistentMaintenanceReview } from "./coordinator-bootstrap-maintenance-controller.js";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  existsSync as fileExists,
   linkSync,
   symlinkSync,
   truncateSync,
@@ -2675,8 +2676,18 @@ test("recovery access listener cannot supply native executor authority", async (
   ).rejects.toThrow("does not provide lifecycle execution");
 });
 
-async function recoveryRegistrationFixture(mode = "ready") {
+async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) {
   const f = await recoveryRoutingFixture();
+  if (listenPort !== undefined) {
+    f.routing.access.listenPort = listenPort;
+    for (const release of [f.plan.previous!, f.plan.candidate]) {
+      const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+      setup.control.recoveryAccess.listenPort = listenPort;
+      const bytes = JSON.stringify(setup);
+      writeFileSync(release.setup.path, bytes);
+      release.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
+  }
   f.plan.previous = null;
   if (mode === "native-ports") prepareNativeRegistrationFixture(f);
   const {
@@ -2914,6 +2925,38 @@ function prepareNativeRegistrationFixture(f: Awaited<ReturnType<typeof recoveryR
   setup.nativeAdmission = admission;
   f.plan.candidate.setup = pin(f.plan.candidate.setup.path, JSON.stringify(setup));
 }
+
+test.skipIf(process.platform !== "darwin")(
+  "native recovery activation refuses a port conflict before consuming the enrollment effect",
+  async () => {
+    const server = createServer((_request, response) => response.end("fixture"));
+    const listening = once(server, "listening");
+    server.listen(0, "127.0.0.1");
+    await listening;
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture socket unavailable");
+    try {
+      const f = await recoveryRegistrationFixture("native-ports", address.port);
+      const ports = await createNativeRecoveryRegistrationPorts(f.input, []);
+      const before = f.enrollment.read();
+      await expect(activateMaintenanceRecoveryAccess(f.input, ports)).rejects.toThrow(
+        "Recovery loopback port is unavailable or unverified",
+      );
+      expect(f.enrollment.read()).toEqual(before);
+      expect(f.intent).toThrow();
+      expect(fileExists(f.plan.identity.launcherPath!)).toBe(false);
+      expect(fileExists(f.plan.identity.selectionPath!)).toBe(false);
+      expect(server.listening).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+    }
+  },
+);
 
 test.skipIf(process.platform !== "darwin")(
   "native recovery registration ports require an intent and preserve revoked observation",

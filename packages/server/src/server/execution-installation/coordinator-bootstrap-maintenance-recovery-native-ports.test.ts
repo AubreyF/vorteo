@@ -12,6 +12,7 @@ import {
   maintenanceRecoveryScript,
 } from "./coordinator-bootstrap-maintenance-recovery-page.js";
 import {
+  assertNativeRecoveryPortAvailable,
   inspectNativeRecoveryListener,
   retainNativeRecoveryProcess,
   inspectNativeRecoveryRouting,
@@ -20,6 +21,34 @@ import {
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+test.skipIf(process.platform !== "darwin")(
+  "recovery registration refuses an occupied loopback port without disturbing its listener",
+  async () => {
+    const server = createServer((_request, response) => response.end("fixture"));
+    const listening = once(server, "listening");
+    server.listen(0, "127.0.0.1");
+    await listening;
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture socket unavailable");
+    try {
+      expect(() => assertNativeRecoveryPortAvailable(address.port)).toThrow();
+      expect(server.listening).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+    }
+    expect(() => assertNativeRecoveryPortAvailable(address.port)).not.toThrow();
+  },
+);
+
+test.each([0, 1023, 65536, 1.5, NaN])("recovery port validation rejects %s", (port) => {
+  expect(() => assertNativeRecoveryPortAvailable(port)).toThrow();
 });
 
 function nativeFixture() {

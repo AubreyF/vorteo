@@ -60,6 +60,27 @@ function readNativeCommand(executable: string, args: readonly string[]) {
   return result.stdout;
 }
 
+/** Ask the kernel whether the exact loopback address can be bound. An empty
+ * process listing cannot distinguish an available port from incomplete inspection.
+ * This probe closes immediately; startup must still prove the selected listener. */
+export function assertNativeRecoveryPortAvailable(port: number): void {
+  z.number().int().min(1024).max(65535).parse(port);
+  try {
+    const result = readNativeCommand("/usr/bin/python3", [
+      "-I",
+      "-B",
+      "-c",
+      "import socket,sys\nwith socket.socket(socket.AF_INET,socket.SOCK_STREAM) as listener:\n listener.bind(('127.0.0.1',int(sys.argv[1])))\nprint('available')",
+      String(port),
+    ]);
+    if (result !== "available\n")
+      throw new BootstrapRequestConflict("Unexpected recovery port probe result");
+  } catch (error) {
+    if (!(error instanceof BootstrapRequestConflict)) throw error;
+    throw new BootstrapRequestConflict("Recovery loopback port is unavailable or unverified");
+  }
+}
+
 /** The protected helper reads kernel birth, boot, owner, executable and argv.
  * This is observation only; a caller-selected PID grants no effect authority. */
 export async function retainNativeRecoveryProcess(
@@ -332,6 +353,7 @@ export async function createNativeRecoveryRegistrationPorts(
     if (service !== context.service || listenPort !== context.access.listenPort)
       throw new BootstrapRequestConflict("Recovery absence targets another service");
     assertMaintenanceServiceAbsent(service);
+    assertNativeRecoveryPortAvailable(listenPort);
     assertMaintenanceRuntimeProcessesAbsent({
       uid: input.account.uid,
       executables: [context.plan.candidate.node.path],
