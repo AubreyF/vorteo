@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.571 - 2026-10-15
+
+### Added
+
+- Add private supervisor acknowledgement for an exact maintenance request, generation, worker and absolute termination deadline. Duplicate accepted intents retain the same decision during shutdown and do not repeat effects or extend the budget.
+- Add worker transport checks for the running supervisor handshake, current parent and exact acknowledgement. Lost replies remain uncertain; an explicit refusal permits a different tracked generation without replaying the previous one.
+
+### Validation and delivery
+
+- Thirteen focused supervisor and transport cases pass, including disposable subprocess deadline checks. Public restart capabilities remain unchanged. Worker/session integration, durable interruption admission, checkpoint budgeting and provider cleanup are unfinished; bounded interruption is not advertised or installed. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.570 - 2026-10-15
 
 ### Maintenance
