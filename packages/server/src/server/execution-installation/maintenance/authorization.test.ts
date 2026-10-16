@@ -1964,8 +1964,10 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
     executable: process.execPath,
     argumentsSha256: "a".repeat(64),
   };
-  const workerInstanceId = randomUUID();
+  let workerInstanceId = randomUUID();
   let observedDrainId: string | null = null;
+  let previousAlive = true;
+  let duringExit: () => void = () => {};
   const runtime = createDaemonStandingRuntime(
     config,
     { host: null, "container-daemon": null },
@@ -1987,6 +1989,10 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
           sourceCommit: "a".repeat(40),
           supervisor: runtimeProcess,
           worker: { ...runtimeProcess, pid: 101, parentPid: 100, startIdentity: birth },
+          async verifyPreviousWorkerExited() {
+            if (previousAlive) throw new Error("Previous native worker is still running");
+            duringExit();
+          },
         };
       },
     },
@@ -2153,6 +2159,9 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
           release: path.join(f.directory, "candidate"),
         }),
         async verifyPreparedInstallation() {},
+        async verifyInstalledInterruption() {
+          return () => {};
+        },
       },
       "container-daemon": null,
     },
@@ -2195,6 +2204,52 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
   });
   await expect(runtime.prepareInterruption(held)).rejects.toThrow("exact native hold");
   expect(enrolled(f.journal.read()).grant.revokedAt).not.toBeNull();
+  const runningInterruption: RestartJob = {
+    ...held,
+    status: "running",
+    standingInterruption: interruption,
+  };
+  await expect(runtime.observeInterruption(runningInterruption)).rejects.toThrow(
+    "exact reviewed replacement",
+  );
+  observedDrainId = null;
+  workerInstanceId = randomUUID();
+  await expect(runtime.observeInterruption(runningInterruption)).rejects.toThrow(
+    "Previous native worker",
+  );
+  previousAlive = false;
+  duringExit = () => {
+    birth = "changed-during-exit-proof";
+  };
+  await expect(runtime.observeInterruption(runningInterruption)).rejects.toThrow(
+    "Replacement changed",
+  );
+  duringExit = () => {};
+  await expect(
+    runtime.observeInterruption({
+      ...runningInterruption,
+      update: {
+        sourceCommit: "c".repeat(40),
+        baseCommit: "a".repeat(40),
+        sha256: "d".repeat(64),
+        bytes: 42,
+      },
+      standingInterruption: {
+        ...interruption,
+        candidate: {
+          sourceCommit: "c".repeat(40),
+          artifactSha256: "e".repeat(64),
+          release: path.join(f.directory, "candidate"),
+        },
+      },
+    }),
+  ).rejects.toThrow("exact reviewed replacement");
+  const grantBeforeObservation = enrolled(f.journal.read()).grant;
+  await expect(runtime.observeInterruption(runningInterruption)).resolves.toContain(
+    "independently verified",
+  );
+  expect(enrolled(f.journal.read()).grant).toEqual(grantBeforeObservation);
+  expect(runtime.journal.read()).toEqual([running]);
 });
 
 function serviceAdmissionFixture() {

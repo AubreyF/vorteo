@@ -20,6 +20,7 @@ import {
 import {
   createNativeBootstrapServiceReader,
   loadedCoordinatorPid,
+  verifyRetainedProcessExited,
 } from "../coordinator-bootstrap-service.js";
 import { ProcessObservationSchema } from "../coordinator-bootstrap-process.js";
 import {
@@ -54,6 +55,8 @@ export interface EnrollmentDaemonObservation {
   sourceCommit: string;
   supervisor: z.infer<typeof RuntimeProcessSchema>;
   worker: z.infer<typeof RuntimeProcessSchema>;
+  /** Independent native exit verification, not a comparison of current PIDs. */
+  verifyPreviousWorkerExited?(previous: z.infer<typeof RuntimeProcessSchema>): Promise<void>;
 }
 
 /** Read-only ports. Tests replace native observations, never lifecycle effects.
@@ -67,6 +70,8 @@ export interface EnrollmentDaemonInspectionPorts {
     roots: string[],
   ): Promise<{
     inspectRunningProcess(pid: number): Promise<unknown>;
+    verifyProcessExited?(pid: number): Promise<void>;
+    inspectProcess?(pid: number): Promise<unknown>;
   }>;
   daemon(
     config: InstallationConfig,
@@ -501,6 +506,14 @@ async function inspectHost(
     sourceCommit: receipt.sourceCommit,
     supervisor,
     worker,
+    async verifyPreviousWorkerExited(previous: z.infer<typeof RuntimeProcessSchema>) {
+      RuntimeProcessSchema.parse(previous);
+      requireMatch(previous.uid === worker.uid, "Previous worker custody differs");
+      // The independently inspected replacement supplies the current boot. PID
+      // reuse across a verified boot change cannot preserve the old lifetime.
+      if (previous.bootId !== worker.bootId) return;
+      await verifyRetainedProcessExited(reader, previous);
+    },
   };
 }
 

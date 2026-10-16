@@ -1,5 +1,9 @@
 import { inspectStandingSourceProvenance } from "./maintenance/source-provenance.js";
-import { assertBootstrapPathsProtected } from "./coordinator-bootstrap-artifact.js";
+import {
+  assertBootstrapPathsProtected,
+  readProtectedDocument,
+  verifyBootstrapPreparedDependency,
+} from "./coordinator-bootstrap-artifact.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -14,6 +18,7 @@ import {
   realpathSync,
   symlinkSync,
   renameSync,
+  lstatSync,
 } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -38,6 +43,7 @@ import {
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { isDeepStrictEqual } from "node:util";
+import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 
 export {
   DevRepairCaptureSchema,
@@ -70,6 +76,90 @@ function receiptDigest(buffers: Buffer[]): string {
       JSON.stringify(buffers.map((bytes) => createHash("sha256").update(bytes).digest("hex"))),
     )
     .digest("hex");
+}
+
+interface PublishedInterruption {
+  exported: string;
+  destination: string;
+  sourceCommit: string;
+  writableMountRoots: readonly string[];
+}
+interface InstalledInterruption {
+  job: RestartJob;
+  expected: NonNullable<StandingInterruption["candidate"]>;
+  writableMountRoots: readonly string[];
+}
+
+function publicationFileIdentity(file: string) {
+  const canonical = realpathSync(file);
+  const stat = lstatSync(canonical, { bigint: true });
+  return {
+    canonical,
+    dev: stat.dev,
+    ino: stat.ino,
+    size: stat.size,
+    mode: stat.mode,
+    uid: stat.uid,
+    nlink: stat.nlink,
+    mtime: stat.mtimeNs,
+    ctime: stat.ctimeNs,
+  };
+}
+
+async function verifyPublishedInterruption(input: PublishedInterruption) {
+  const deadline = Date.now() + 30_000;
+  const destination = realpathSync(input.destination);
+  const manifestFile = path.join(input.exported, ".build-manifest.json");
+  const receiptFile = path.join(destination, "release.json");
+  const paths = [manifestFile, receiptFile];
+  const identities = new Map<string, ReturnType<typeof publicationFileIdentity>>();
+  for (const file of paths) identities.set(file, publicationFileIdentity(file));
+  const manifest = z
+    .object({
+      version: z.literal(1),
+      buildId: z.string().min(1),
+      sourceCommit: z.literal(input.sourceCommit),
+      files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
+      deployment: z.object({ destination: z.literal(destination) }),
+    })
+    .parse(JSON.parse((await readProtectedDocument(manifestFile)).toString("utf8")));
+  const receipt = z
+    .object({
+      sourceCommit: z.literal(input.sourceCommit),
+      buildId: z.literal(manifest.buildId),
+      sha256: z.literal(manifest.files["index.html"]),
+    })
+    .parse(JSON.parse((await readProtectedDocument(realpathSync(receiptFile))).toString("utf8")));
+  if (!receipt.sha256 || Object.keys(manifest.files).length > 250_000)
+    throw new Error("Publication manifest is missing its index or exceeds verification limits");
+  let bytes = 0n;
+  for (const [name, sha256] of Object.entries(manifest.files)) {
+    if (name === "metadata.json") continue; // The publisher deliberately omits build metadata.
+    if (name.includes("\\") || name.split("/").some((part) => !part || part.startsWith(".")))
+      throw new Error("Publication manifest contains an unsupported asset path");
+    const file = path.join(destination, name);
+    const before = publicationFileIdentity(file);
+    bytes += before.size;
+    if (
+      !before.canonical.startsWith(destination + path.sep) ||
+      bytes > 8n * 1024n ** 3n ||
+      Date.now() >= deadline
+    )
+      throw new Error("Publication verification exceeded its protected path or scan limits");
+    await verifyBootstrapPreparedDependency(
+      { path: before.canonical, sha256 },
+      input.writableMountRoots,
+    );
+    identities.set(file, before);
+  }
+  const assertCurrent = () => {
+    if (Date.now() >= deadline) throw new Error("Publication verification deadline elapsed");
+    for (const [file, before] of identities)
+      if (!isDeepStrictEqual(publicationFileIdentity(file), before))
+        throw new Error("Published interface changed during interruption observation");
+  };
+  assertCurrent();
+  return assertCurrent;
 }
 
 /** Only the protected coordinator turns an approved bundle into executable code. */
@@ -270,6 +360,50 @@ export class InstallationSourceUpdates {
       sourceCommit: job.update.sourceCommit,
       artifactSha256: evidence.artifactSha256,
       release: evidence.release,
+    };
+  }
+
+  /** Observation only. Never retries installation or publication after a lost reply. */
+  async verifyInstalledInterruption({ job, expected, writableMountRoots }: InstalledInterruption) {
+    if (this.target !== "host" || job.target !== "host" || !job.update)
+      throw new Error("Installed interruption source verification is unavailable for this target");
+    const verified = await this.verifiedHostPreparation(job);
+    if (
+      expected.release !== verified.prepared.release ||
+      expected.sourceCommit !== job.update.sourceCommit ||
+      expected.artifactSha256 !== verified.admission.candidateArtifactSha256
+    )
+      throw new Error("Installed candidate differs from the retained interruption");
+    const settings = this.hostSettings();
+    const activationFile = path.join(settings.releaseRoot, job.id, "activation.json");
+    await assertBootstrapPathsProtected(
+      [activationFile, verified.prepared.release, settings.webDirectory],
+      writableMountRoots,
+    );
+    const activation = z
+      .object({ candidate: z.string(), update: SourceUpdateSchema, status: z.literal("succeeded") })
+      .parse(JSON.parse((await readProtectedDocument(activationFile)).toString("utf8")));
+    if (
+      activation.candidate !== expected.release ||
+      !isDeepStrictEqual(activation.update, job.update) ||
+      realpathSync(settings.currentReleaseLink) !== expected.release
+    )
+      throw new Error("Retained activation or selected source differs from the reviewed candidate");
+    const assertPublication = await verifyPublishedInterruption({
+      exported: verified.prepared.exported,
+      destination: settings.webDirectory,
+      sourceCommit: expected.sourceCommit,
+      writableMountRoots,
+    });
+    const files = [...verified.files, activationFile];
+    const selectedReceipts = receiptDigest(files.map((file) => readFileSync(file)));
+    return () => {
+      if (
+        realpathSync(settings.currentReleaseLink) !== expected.release ||
+        receiptDigest(files.map((file) => readFileSync(file))) !== selectedReceipts
+      )
+        throw new Error("Installed interruption receipts changed during observation");
+      assertPublication();
     };
   }
 

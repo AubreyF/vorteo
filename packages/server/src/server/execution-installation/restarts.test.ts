@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
@@ -823,6 +824,117 @@ function restartTestConfig(root: string, entrypoint: string): InstallationConfig
     },
   };
 }
+
+test("interruption outcome requires the exact installed candidate and published interface", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "interruption-publication-")));
+  try {
+    const job: RestartJob = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Verify retained update",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "running",
+      detail: "Outcome unverified",
+      update: {
+        sourceCommit: "c".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "d".repeat(64),
+        bytes: 42,
+      },
+    };
+    const work = path.join(root, job.id),
+      release = path.join(work, "runtime"),
+      exported = path.join(work, "export"),
+      web = path.join(root, "web");
+    for (const dir of [work, release, exported, web]) await mkdir(dir, { mode: 0o700 });
+    const json = async (file: string, value: unknown) =>
+      writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await json(path.join(release, ".installation-source.json"), {
+      sourceCommit: job.update!.sourceCommit,
+    });
+    const files = {
+      "index.html": "<script src='/app.js'></script>",
+      "app.js": "export const ready = true;",
+    };
+    const hashes: Record<string, string> = {};
+    for (const [name, value] of Object.entries(files)) {
+      hashes[name] = createHash("sha256").update(value).digest("hex");
+      await writeFile(path.join(exported, name), value, { mode: 0o600 });
+      await writeFile(path.join(web, name), value, { mode: 0o600 });
+    }
+    await json(path.join(exported, ".build-manifest.json"), {
+      version: 1,
+      buildId: "fixture",
+      sourceCommit: job.update!.sourceCommit,
+      files: hashes,
+      deployment: { destination: web },
+    });
+    await json(path.join(web, "release.json"), {
+      buildId: "fixture",
+      sourceCommit: job.update!.sourceCommit,
+      sha256: hashes["index.html"],
+    });
+    await json(path.join(work, "prepared.json"), { release, exported });
+    const artifactSha256 = await digestBootstrapArtifact(release);
+    await json(path.join(work, "admission.json"), {
+      previous: path.join(root, "previous"),
+      sourceSha256: job.update!.sha256,
+      webReceipt: "fixture",
+      webIndex: "fixture",
+      candidateArtifactSha256: artifactSha256,
+      exportedArtifactSha256: await digestBootstrapArtifact(exported),
+    });
+    const activation = { candidate: release, update: job.update, status: "succeeded" };
+    const activationFile = path.join(work, "activation.json");
+    await json(activationFile, activation);
+    const link = path.join(root, "current");
+    await symlink(release, link);
+    const config = restartTestConfig(root, path.join(root, "unused-entry"));
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: web,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const input = {
+      job,
+      expected: { release, sourceCommit: job.update!.sourceCommit, artifactSha256 },
+      writableMountRoots: [],
+    };
+    const receiptBefore = await readFile(activationFile);
+    const assertCurrent = await updates.verifyInstalledInterruption(input);
+    assertCurrent();
+    expect(await readFile(activationFile)).toEqual(receiptBefore);
+    await writeFile(path.join(web, "app.js"), "changed", { mode: 0o600 });
+    expect(assertCurrent).toThrow("Published interface changed");
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow("digest changed");
+    await writeFile(path.join(web, "app.js"), files["app.js"], { mode: 0o600 });
+    await json(activationFile, { ...activation, status: "interface-failed" });
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow();
+    await json(activationFile, activation);
+    await expect(
+      updates.verifyInstalledInterruption({
+        ...input,
+        expected: { ...input.expected, artifactSha256: "f".repeat(64) },
+      }),
+    ).rejects.toThrow("retained interruption");
+    await json(path.join(web, "release.json"), {
+      buildId: "wrong",
+      sourceCommit: job.update!.sourceCommit,
+      sha256: hashes["index.html"],
+    });
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow();
+    expect(await readFile(activationFile)).toEqual(receiptBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("source builds fail before activation, uncertain dispatch retains selection, and publication follows readiness", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-activation-")));

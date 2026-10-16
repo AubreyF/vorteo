@@ -31,6 +31,7 @@ type StandingUpdater = Pick<
   | "assertStandingPrepared"
   | "verifyPreparedInstallation"
   | "standingCandidate"
+  | "verifyInstalledInterruption"
 >;
 
 /** Collects evidence on the coordinator's existing drain cycle. It creates no
@@ -280,6 +281,49 @@ export function createDaemonStandingRuntime(
       candidate,
     });
   }
+  async function observeInterruption(job: RestartJob): Promise<string> {
+    const intent = job.standingInterruption;
+    if (job.status !== "running" || !intent)
+      throw new Error("Interruption observation requires its retained running reservation");
+    const descriptor = readEnrollmentNativeIdentity(config.stateDir, intent.native.identitySha256);
+    if (descriptor.target !== job.target)
+      throw new Error("Interruption descriptor belongs to a different target");
+    const current = await ports.inspect(config, descriptor);
+    assertFreshOutcome(current);
+    assertReplacement(job, current);
+    const updater = updates[job.target];
+    let assertSource = () => {};
+    if (job.update) {
+      if (!updater || !intent.candidate)
+        throw new Error("Source outcome verification is unavailable");
+      assertSource = await updater.verifyInstalledInterruption({
+        job,
+        expected: intent.candidate,
+        writableMountRoots: current.writableMountRoots,
+      });
+    }
+    if (!current.verifyPreviousWorkerExited)
+      throw new Error("Independent previous worker exit verification is unavailable");
+    await current.verifyPreviousWorkerExited(intent.native.worker);
+    const final = await ports.inspect(config, descriptor);
+    assertFreshOutcome(final);
+    assertReplacement(job, final);
+    if (
+      instance(current) !== instance(final) ||
+      current.workerInstanceId !== final.workerInstanceId
+    )
+      throw new Error("Replacement changed during interruption observation");
+    current.assertCurrent();
+    final.assertCurrent();
+    assertSource();
+    native.set(job.target, final);
+    return "Reviewed runtime, replacement worker and previous worker exit independently verified.";
+  }
+  function assertFreshOutcome(current: EnrollmentDaemonObservation): void {
+    const age = ports.now() - Date.parse(current.observedAt);
+    if (!Number.isFinite(age) || age < 0 || age >= FRESHNESS_MS)
+      throw new Error("Native interruption outcome observation is stale or invalid");
+  }
   async function verifySelection(job: RestartJob, executor: RestartExecutor): Promise<void> {
     if (!job.standingDecision) return;
     await refresh([job], true);
@@ -330,9 +374,29 @@ export function createDaemonStandingRuntime(
     refresh,
     initialActivationInstance,
     prepareInterruption,
+    observeInterruption,
     verifySelection,
     observations,
   };
+}
+
+function assertReplacement(job: RestartJob, current: EnrollmentDaemonObservation): void {
+  const intent = job.standingInterruption!;
+  const expected = intent.candidate ?? {
+    sourceCommit: intent.native.sourceCommit,
+    release: intent.native.selectedRelease,
+  };
+  if (
+    current.identitySha256 !== intent.native.identitySha256 ||
+    current.serverId !== intent.native.serverId ||
+    current.sourceCommit !== expected.sourceCommit ||
+    current.selectedRelease !== expected.release ||
+    !current.workerInstanceId ||
+    current.workerInstanceId === intent.held.workerInstanceId ||
+    current.restartDrainId !== null ||
+    Date.parse(current.observedAt) < Date.parse(intent.reservedAt)
+  )
+    throw new Error("Native outcome does not prove the exact reviewed replacement");
 }
 
 function assertSelectionImpact(job: RestartJob, impact: RestartImpact): void {

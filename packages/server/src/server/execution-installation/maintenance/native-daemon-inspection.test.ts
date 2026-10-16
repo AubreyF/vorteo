@@ -257,6 +257,7 @@ test("Host observation binds registered service, native birth, selected source a
   const observation = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
   expect(observation).toEqual({
     assertCurrent: expect.any(Function),
+    verifyPreviousWorkerExited: expect.any(Function),
     descriptor: f.expected,
     identitySha256: enrollmentNativeIdentityDigest(f.expected),
     writableMountRoots: [],
@@ -556,6 +557,58 @@ test("a changed worker lifetime with the same PID invalidates native evidence", 
   await expect(inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports)).rejects.toThrow(
     "Daemon changed",
   );
+});
+
+test("replacement inspection requires independent exit proof for the old worker", async () => {
+  const f = await fixture();
+  const previous = { ...f.worker, pid: 90, startIdentity: "99:123" };
+  let alive = true;
+  const checked: number[] = [];
+  f.ports.processes = async () => ({
+    inspectRunningProcess: async (pid) => ({
+      ...(pid === f.supervisor.pid ? f.supervisor : f.worker),
+      stopped: false,
+    }),
+    async verifyProcessExited(pid) {
+      checked.push(pid);
+      if (alive) throw new Error("Worker is still running");
+    },
+    inspectProcess: async () => previous,
+  });
+  const current = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
+  expect(current.worker.pid).not.toBe(previous.pid);
+  await expect(current.verifyPreviousWorkerExited!(previous)).rejects.toThrow("exit is unproven");
+  alive = false;
+  await current.verifyPreviousWorkerExited!(previous);
+  expect(checked).toEqual([90, 90]);
+  await expect(
+    current.verifyPreviousWorkerExited!({ ...previous, uid: previous.uid + 1 }),
+  ).rejects.toThrow("custody differs");
+});
+
+test("replacement exit proof distinguishes PID reuse from a current boot change", async () => {
+  const f = await fixture();
+  const previous = { ...f.worker, pid: 90, startIdentity: "99:123" };
+  let laterBirth = "98:123";
+  let failedExitReads = 0;
+  f.ports.processes = async () => ({
+    inspectRunningProcess: async (pid) => ({
+      ...(pid === f.supervisor.pid ? f.supervisor : f.worker),
+      stopped: false,
+    }),
+    async verifyProcessExited() {
+      failedExitReads++;
+      throw new Error("PID is present");
+    },
+    inspectProcess: async () => ({ ...previous, startIdentity: laterBirth }),
+  });
+  const current = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
+  await expect(current.verifyPreviousWorkerExited!(previous)).rejects.toThrow("exit is unproven");
+  laterBirth = "100:123";
+  await current.verifyPreviousWorkerExited!(previous);
+  expect(failedExitReads).toBe(2);
+  await current.verifyPreviousWorkerExited!({ ...previous, bootId: randomUUID() });
+  expect(failedExitReads).toBe(2);
 });
 
 test("configuration changes during native inspection invalidate the observation", async () => {

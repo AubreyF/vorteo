@@ -302,6 +302,7 @@ export function createInstallationServer(
     },
     initialActivationInstance: (job) => standingRuntime.initialActivationInstance(job),
     prepareInterruption: (job) => standingRuntime.prepareInterruption(job),
+    observeInterruption: (job) => standingRuntime.observeInterruption(job),
     verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
     installUpdate: (job) =>
       forTarget(job.target).install(

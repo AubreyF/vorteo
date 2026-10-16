@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.579 - 2026-10-15
+
+### Changed
+
+- Wire independent interruption observation into the existing queue. It checks the exact selected source and worker lifetime, independently proves the previous worker exited and repeats native inspection after source verification. Revocation permits observation without granting another effect.
+- Host update observation additionally verifies the reviewed runtime artifact, completed activation receipt, published build and interface bytes. Failed publication, changed assets, substituted source or changing native custody retain uncertainty without retrying a restart or publisher.
+
+### Validation and delivery
+
+- Focused filesystem and native-port regressions cover live old workers, PID reuse, boot changes, revocation, changing replacements and publication mismatches. Compiled queue acceptance, Dev launcher registration, active-provider cleanup and installed acceptance remain open. README overview and onboarding are unchanged; this source checkpoint changes no installed service.
+
 ## 0.11.0-beta.3.vorteo.578 - 2026-10-15
 
 ### Changed
