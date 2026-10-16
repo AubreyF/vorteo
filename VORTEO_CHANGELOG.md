@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.581 - 2026-10-15
+
+### Fixed
+
+- Keep unrelated pending plans from disabling the promoted coordinator's startup and web interface when a newer Host adds plan fields. Startup readers validate promoted records, exact recovery ancestors and their promotion evidence; other pending bodies remain untouched.
+- Preserve strict full journal reads and lifecycle effect admission. Unsupported required ancestry, promotion evidence and promoted records still refuse startup. Focused filesystem and real HTTP tests cover both availability and refusal. This source change does not alter the existing live migration request or installed runtime; README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.580 - 2026-10-15
 
 ### Changed

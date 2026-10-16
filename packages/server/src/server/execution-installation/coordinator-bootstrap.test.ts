@@ -2752,6 +2752,84 @@ test("startup retains exact pending recovery ancestry without granting unrelated
   expect(f.journal.readPromoted().map((r) => r.id)).toEqual([f.started.id]);
 });
 
+test("a future unrelated pending plan cannot disable promoted startup or grant mutation authority", async () => {
+  const f = await pendingRecoveryStartupFixture();
+  const mainPath = path.join(f.root, "coordinator-bootstrap.json");
+  const pendingPath = path.join(f.root, "coordinator-bootstrap-pending.json");
+  const pending = JSON.parse(readFileSync(pendingPath, "utf8"));
+  const futurePlan = { ...f.plan, futureMaintenanceTooling: true };
+  pending.requests.push({
+    ...f.failed,
+    id: randomUUID(),
+    revision: randomUUID(),
+    status: "pending",
+    execution: undefined,
+    plan: futurePlan,
+    planSha256: createHash("sha256").update(JSON.stringify(futurePlan)).digest("hex"),
+  });
+  writeFileSync(pendingPath, JSON.stringify(pending), { mode: 0o600 });
+  const before = [mainPath, pendingPath].map((file) => readFileSync(file));
+  expect(f.journal.readPromoted().map((record) => record.id)).toEqual([f.started.id]);
+  const fence = loadCoordinatorStartupFence(f.identity);
+  expect(fence?.released()).toBe(false);
+  expect(() => f.journal.read()).toThrow("futureMaintenanceTooling");
+  expect(() =>
+    f.journal.writeLifecycle([
+      {
+        id: randomUUID(),
+        revision: randomUUID(),
+        target: "host",
+        requestedBy: "host-agent",
+        reason: "Must not gain effect authority",
+        createdAt: new Date().toISOString(),
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        status: "approved",
+        detail: "Fixture admission",
+      },
+    ]),
+  ).toThrow("futureMaintenanceTooling");
+  expect([mainPath, pendingPath].map((file) => readFileSync(file))).toEqual(before);
+  const main = JSON.parse(readFileSync(mainPath, "utf8"));
+  main.requests[0].execution.stage = "succeeded";
+  writeFileSync(mainPath, JSON.stringify(main), { mode: 0o600 });
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(f.identity)).toBeUndefined();
+  expect(readFileSync(pendingPath)).toEqual(before[1]);
+});
+
+test.each(["ancestor", "promotion", "promoted"])(
+  "startup still rejects unsupported required authority: %s",
+  async (location) => {
+    const f = await pendingRecoveryStartupFixture();
+    const mainPath = path.join(f.root, "coordinator-bootstrap.json");
+    const pendingPath = path.join(f.root, "coordinator-bootstrap-pending.json");
+    if (location === "promoted") {
+      const main = JSON.parse(readFileSync(mainPath, "utf8"));
+      main.requests[0].plan.futureMaintenanceTooling = true;
+      writeFileSync(mainPath, JSON.stringify(main), { mode: 0o600 });
+    } else {
+      const pending = JSON.parse(readFileSync(pendingPath, "utf8"));
+      const record = location === "ancestor" ? f.failed : f.started;
+      const changed = { ...record, plan: { ...record.plan, futureMaintenanceTooling: true } };
+      if (location === "ancestor")
+        pending.requests = pending.requests.map((item: { id: string }) =>
+          item.id === f.failed.id ? changed : item,
+        );
+      else
+        pending.promotions = pending.promotions.map(
+          (item: { id: string; plan: CoordinatorBootstrapPlan }) =>
+            item.id === f.started.id
+              ? { ...item, plan: { ...item.plan, futureMaintenanceTooling: true } }
+              : item,
+        );
+      writeFileSync(pendingPath, JSON.stringify(pending), { mode: 0o600 });
+    }
+    const before = [mainPath, pendingPath].map((file) => readFileSync(file));
+    expect(() => loadCoordinatorStartupFence(f.identity)).toThrow("futureMaintenanceTooling");
+    expect([mainPath, pendingPath].map((file) => readFileSync(file))).toEqual(before);
+  },
+);
+
 test.each(["missing", "revision", "generation", "plan"])(
   "startup refuses changed pending recovery ancestry: %s",
   async (change) => {

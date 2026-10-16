@@ -11,7 +11,11 @@ import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-serv
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { InstallationEnrollmentStatusSchema } from "@getpaseo/protocol/installation-enrollment";
 import { DaemonAutomation } from "./daemon-automation.js";
-import type { BootstrapReconciliationLedger } from "./coordinator-bootstrap.js";
+import {
+  coordinatorPlanDigest,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
+import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import type { RestartExecutor } from "./restarts.js";
@@ -1737,6 +1741,79 @@ test("Claude setup login accepts only owner access and sanitizes code failures",
   });
   expect(rejected.status).toBe(409);
   expect(JSON.stringify(await rejected.json())).not.toContain("synthetic-private-code");
+});
+
+test("a future pending plan does not disable HTTP after the exact promoted startup completes", async () => {
+  const retained = coordinatorStatusRequest();
+  retained.execution!.stage = "started";
+  let fence: InstallationStartupFence | undefined;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    {
+      generation: retained.execution!.generation,
+      released() {
+        if (!fence) throw new Error("Fixture startup fence was not initialized");
+        return fence.released();
+      },
+    },
+    undefined,
+    (config) => {
+      retained.plan.installationId = config.public.installationId;
+      retained.plan.state.directory = config.stateDir;
+      retained.planSha256 = coordinatorPlanDigest(retained.plan);
+      writeFileSync(
+        path.join(config.stateDir, "coordinator-bootstrap.json"),
+        JSON.stringify({ version: 1, requests: [retained] }),
+        { mode: 0o600 },
+      );
+      const futurePlan = { ...retained.plan, futureMaintenanceTooling: true };
+      const future = {
+        ...retained,
+        id: randomUUID(),
+        revision: randomUUID(),
+        status: "pending",
+        execution: undefined,
+        plan: futurePlan,
+        planSha256: createHash("sha256").update(JSON.stringify(futurePlan)).digest("hex"),
+      };
+      writeFileSync(
+        path.join(config.stateDir, "coordinator-bootstrap-pending.json"),
+        JSON.stringify({ version: 1, requests: [future], promotions: [] }),
+        { mode: 0o600 },
+      );
+      fence = loadCoordinatorStartupFence({
+        installationId: config.public.installationId,
+        stateDirectory: config.stateDir,
+        node: retained.plan.candidate.node.path,
+        entrypoint: retained.plan.candidate.entrypoint.path,
+        configuration: retained.plan.candidate.configuration.path,
+      });
+    },
+  );
+  const pendingPath = path.join(f.root, "coordinator-bootstrap-pending.json");
+  const before = readFileSync(pendingPath);
+  expect((await (await f.request("/api/installation/health")).json()).bootstrap.fenced).toBe(true);
+  retained.execution!.stage = "succeeded";
+  writeFileSync(
+    path.join(f.root, "coordinator-bootstrap.json"),
+    JSON.stringify({ version: 1, requests: [retained] }),
+    { mode: 0o600 },
+  );
+  const health = await f.request("/api/installation/health");
+  expect(health.status).toBe(200);
+  expect(await health.json()).not.toHaveProperty("bootstrap");
+  const page = await f.request("/");
+  expect(page.status).toBe(200);
+  expect(await page.text()).toContain("trusted application");
+  await f.drain();
+  expect(f.calls).toEqual([]);
+  expect(readFileSync(pendingPath)).toEqual(before);
+  expect(() => new FileBootstrapRequestJournal(f.root).read()).toThrow("futureMaintenanceTooling");
 });
 
 test("bootstrap HTTP readiness stays fenced without journal writes or admitted operations", async () => {

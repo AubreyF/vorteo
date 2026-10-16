@@ -59,6 +59,53 @@ const PendingSchema = z.strictObject({
   promotions: z.array(CoordinatorBootstrapRequestSchema),
 });
 
+// Startup must understand its promoted authority and exact recovered ancestry,
+// not an unrelated plan prepared by a newer Host. Writers still parse all plans.
+const PendingStartupEnvelopeSchema = z.strictObject({
+  version: z.literal(1),
+  requests: z.array(z.unknown()),
+  promotions: z.array(z.unknown()),
+});
+
+function indexStartupRecords(records: unknown[]): Map<string, unknown> {
+  const indexed = new Map<string, unknown>();
+  for (const record of records) {
+    const { id } = z.object({ id: z.string().uuid() }).parse(record);
+    if (indexed.has(id)) throw new BootstrapRequestConflict("Duplicate bootstrap storage identity");
+    indexed.set(id, record);
+  }
+  return indexed;
+}
+
+function startupPendingRecords(main: CoordinatorBootstrapRequest[], value: unknown) {
+  const pending = PendingStartupEnvelopeSchema.parse(value);
+  const requests = indexStartupRecords(pending.requests);
+  const promotions = indexStartupRecords(pending.promotions);
+  const required = new Set(main.map((record) => record.id));
+  const known = new Map(main.map((record) => [record.id, record]));
+  const queue = main.filter((record) => record.execution);
+  const walked = new Set<string>();
+  while (queue.length) {
+    const current = queue.pop()!;
+    if (walked.has(current.id)) continue;
+    walked.add(current.id);
+    const id = current.plan.recoveredFrom?.id;
+    if (!id) continue;
+    required.add(id);
+    let previous = known.get(id);
+    if (!previous && requests.has(id)) {
+      previous = CoordinatorBootstrapRequestSchema.parse(requests.get(id));
+      known.set(id, previous);
+    }
+    if (previous) queue.push(previous);
+  }
+  const select = (records: Map<string, unknown>) =>
+    [...records].flatMap(([id, record]) =>
+      required.has(id) ? [CoordinatorBootstrapRequestSchema.parse(record)] : [],
+    );
+  return { version: 1 as const, requests: select(requests), promotions: select(promotions) };
+}
+
 const ClaimFenceRecoverySchema = z.strictObject({
   id: z.string().uuid(),
   revision: z.string().uuid(),
@@ -164,15 +211,17 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
     }
   }
 
-  private snapshots() {
+  private snapshots(scope: "all" | "startup" = "all") {
     const main = RecordsSchema.parse(this.readFile(this.file) ?? { version: 1, requests: [] });
-    const pending = PendingSchema.parse(
-      this.readFile(this.pendingFile) ?? {
-        version: 1,
-        requests: [],
-        promotions: [],
-      },
-    );
+    const pendingValue = this.readFile(this.pendingFile) ?? {
+      version: 1,
+      requests: [],
+      promotions: [],
+    };
+    const pending =
+      scope === "startup"
+        ? startupPendingRecords(main.requests, pendingValue)
+        : PendingSchema.parse(pendingValue);
     for (const records of [main.requests, pending.requests, pending.promotions]) {
       if (new Set(records.map((record) => record.id)).size !== records.length)
         throw new BootstrapRequestConflict("Duplicate bootstrap storage identity");
@@ -226,7 +275,7 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
 
   /** Startup authority comes only from the promoted main journal. */
   readPromoted(): CoordinatorBootstrapRequest[] {
-    return this.snapshots().main.requests;
+    return this.snapshots("startup").main.requests;
   }
 
   /** Promoted requests alone confer startup authority. An exact recovered
@@ -234,7 +283,7 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
    * Include only that bound history, without promoting it or admitting unrelated
    * pending work. The startup verifier still validates every digest and chain. */
   readStartupHistory(): CoordinatorBootstrapRequest[] {
-    const { main, pending } = this.snapshots();
+    const { main, pending } = this.snapshots("startup");
     const history = [...main.requests];
     const included = new Set(history.map((record) => record.id));
     const combined = [
