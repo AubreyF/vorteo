@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.604 - 2026-10-16
+
+### Maintenance
+
+- Add read-only preparation for restoring coordinator supervision after manual recovery. Require repeated native service absence and exact process birth, boot, owner, parent, executable and launch arguments without fabricating a loaded service.
+- Preserve ordinary registered-service admission and its strict checks. This preparation grants no lifecycle authority; tracked handoff execution, interrupted recovery and installed supervision remain unfinished. The README has no new availability claim.
+
 ## 0.11.0-beta.3.vorteo.603 - 2026-10-16
 
 - Add native recovery registration adapters with protected process inspection, exact loopback socket ownership, bounded page asset checks and complete routing custody. Require a private immutable Node runtime for orphan detection and verify actual activation lineage before excluding any process.

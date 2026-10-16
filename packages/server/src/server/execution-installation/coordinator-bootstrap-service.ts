@@ -325,6 +325,23 @@ export async function verifyLoadedBootstrapService(input: {
     throw new BootstrapRequestConflict("Loaded coordinator PID changed during verification");
 }
 
+/** Read-only preparation for restoring supervision after a manual recovery.
+ * This does not authorize signals, dispatch or registration, and must never
+ * replace the loaded-service check in the ordinary migration path. */
+export async function verifyUnregisteredBootstrapCoordinator(input: {
+  plan: CoordinatorBootstrapPlan;
+  hostUid: number;
+  configurationFile: string;
+  reader: Pick<NativeBootstrapServiceReader, "verifyServiceAbsent" | "inspectProcess">;
+}): Promise<void> {
+  for (let observation = 0; observation < 2; observation++) {
+    await input.reader.verifyServiceAbsent(input.plan.service);
+    const process = await input.reader.inspectProcess(input.plan.expectedProcess.pid);
+    verifyBootstrapCoordinatorProcess({ ...input, process });
+  }
+  await input.reader.verifyServiceAbsent(input.plan.service);
+}
+
 /** Read only the top-level PID from launchctl's service record. Nested resource
  * records and incomplete or ambiguous output cannot identify the coordinator. */
 export function loadedCoordinatorPid(service: string, output: string): number {
@@ -378,12 +395,22 @@ export function verifyBootstrapServiceIdentity(input: {
   hostUid: number;
   configurationFile: string;
 }): void {
-  const observation = ProcessObservationSchema.parse(input.process);
   const pid = loadedCoordinatorPid(input.plan.service, input.launchctlOutput);
+  if (pid !== input.plan.expectedProcess.pid)
+    throw new BootstrapRequestConflict("Loaded coordinator process changed since preparation");
+  verifyBootstrapCoordinatorProcess(input);
+}
+
+function verifyBootstrapCoordinatorProcess(input: {
+  plan: CoordinatorBootstrapPlan;
+  process: unknown;
+  hostUid: number;
+  configurationFile: string;
+}): void {
+  const observation = ProcessObservationSchema.parse(input.process);
   const expected = input.plan.expectedProcess;
   const matchesProcess =
-    pid === expected.pid &&
-    observation.pid === pid &&
+    observation.pid === expected.pid &&
     observation.bootId === expected.bootId &&
     observation.startIdentity === expected.startIdentity &&
     observation.argumentsSha256 === expected.argumentsSha256;

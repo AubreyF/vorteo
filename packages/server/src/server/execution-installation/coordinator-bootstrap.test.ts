@@ -49,6 +49,7 @@ import {
   verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
   verifyLoadedBootstrapService,
+  verifyUnregisteredBootstrapCoordinator,
   verifyBootstrapLaunchers,
 } from "./coordinator-bootstrap-service.js";
 
@@ -259,6 +260,87 @@ test("loaded coordinator identity binds kernel birth, owner, parent and exact la
       },
     }),
   ).rejects.toThrow("changed since preparation");
+});
+
+test.each([
+  "unchanged",
+  "service-appears-before-inspection",
+  "service-appears-between-inspections",
+  "service-appears-after-inspection",
+  "birth-changes",
+  "boot-changes",
+  "owner-changes",
+  "parent-changes",
+  "executable-changes",
+  "arguments-change",
+  "inspection-fails",
+])("unregistered coordinator preparation refuses ambiguous supervision: %s", async (change) => {
+  const { plan } = fixture();
+  const configurationFile = "/protected/config.json";
+  plan.expectedProcess.bootId = randomUUID();
+  plan.expectedProcess.startIdentity = "1234:5678";
+  plan.expectedProcess.argumentsSha256 = createHash("sha256")
+    .update(
+      JSON.stringify([plan.previous.node.path, plan.previous.entrypoint.path, configurationFile]),
+    )
+    .digest("hex");
+  const process = {
+    ...plan.expectedProcess,
+    uid: 501,
+    parentPid: 1,
+    executable: plan.previous.node.path,
+  };
+  const events: string[] = [];
+  let absenceReads = 0;
+  let processReads = 0;
+  const verification = verifyUnregisteredBootstrapCoordinator({
+    plan,
+    configurationFile,
+    hostUid: 501,
+    reader: {
+      async verifyServiceAbsent(service) {
+        expect(service).toBe(plan.service);
+        events.push("absence");
+        absenceReads++;
+        const expectedFailure = [
+          "service-appears-before-inspection",
+          "service-appears-between-inspections",
+          "service-appears-after-inspection",
+        ][absenceReads - 1];
+        if (change === expectedFailure) throw new Error("Native service is present");
+      },
+      async inspectProcess(pid) {
+        expect(pid).toBe(plan.expectedProcess.pid);
+        events.push("process");
+        processReads++;
+        if (processReads === 1) return process;
+        switch (change) {
+          case "birth-changes":
+            return { ...process, startIdentity: "1234:5679" };
+          case "boot-changes":
+            return { ...process, bootId: randomUUID() };
+          case "owner-changes":
+            return { ...process, uid: 502 };
+          case "parent-changes":
+            return { ...process, parentPid: 99 };
+          case "executable-changes":
+            return { ...process, executable: "/other/node" };
+          case "arguments-change":
+            return { ...process, argumentsSha256: "f".repeat(64) };
+          case "inspection-fails":
+            throw new Error("Native inspection unavailable");
+          default:
+            return process;
+        }
+      },
+    },
+  });
+  if (change === "unchanged") {
+    await expect(verification).resolves.toBeUndefined();
+    expect(events).toEqual(["absence", "process", "absence", "process", "absence"]);
+  } else {
+    await expect(verification).rejects.toThrow();
+  }
 });
 
 function fixture() {
