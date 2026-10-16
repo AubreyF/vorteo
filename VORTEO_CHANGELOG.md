@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.590 - 2026-10-15
+
+- Add owner-authenticated admission for an exact independent preclaim repair runtime, using existing addressed repair artifacts. Provisioning preserves the original unclaimed approval and creates no recovery decision or process effect; claimed-generation consent cannot substitute for preclaim consent.
+- Reuse protected runtime and installation verification across both repair kinds. Twenty-seven focused checks cover authentication, immutable admission, changed approvals, substituted policy and runtime bytes, repeat provisioning and existing claimed repair behavior. Native controller routing, exact runner compatibility and installed recovery remain unfinished; no capability is enabled. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.589 - 2026-10-15
 
 - Validate preclaim recovery history without requiring its failed predecessor to have completed ordinary renewal. Preserve the strict terminal-release selector and the independent retained native checks before recovery review or effects.
