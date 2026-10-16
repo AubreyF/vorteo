@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { StandingInterruptionSchema } from "@getpaseo/protocol/maintenance-interruption";
 import type { RestartJob, RestartImpact } from "@getpaseo/protocol/execution-installation";
@@ -125,7 +125,12 @@ export function createDaemonStandingRuntime(
   function assertInterruptionEvidence(job: RestartJob): void {
     const current = observation(job.target);
     const intent = job.standingInterruption;
-    if (!current || !intent || current.workerInstanceId !== intent.held.workerInstanceId)
+    if (
+      !current ||
+      !intent ||
+      current.workerInstanceId !== intent.held.workerInstanceId ||
+      current.restartDrainId !== job.id
+    )
       throw new Error("Interruption worker lifetime differs from current native inspection");
     const expected = StandingInterruptionSchema.shape.native.parse({
       identitySha256: current.identitySha256,
@@ -213,6 +218,68 @@ export function createDaemonStandingRuntime(
     if (!current || !evidence(job)) throw new Error("Initial native identity is unverified");
     return instance(current);
   }
+  function interruptionEvidence(job: RestartJob) {
+    const state = enrollment.readPolicySnapshot();
+    const current = observation(job.target);
+    const hold = job.standingHold;
+    const decision = job.standingDecision;
+    if (
+      state.status !== "enrolled" ||
+      state.grant.paused ||
+      state.grant.revokedAt ||
+      state.grant.disabledTargets.includes(job.target) ||
+      !decision ||
+      decision.grantRevision !== state.grant.revision ||
+      !hold?.observedAt ||
+      hold.releaseRequestedAt ||
+      hold.initialDaemonInstanceSha256 ||
+      !current?.workerInstanceId ||
+      current.restartDrainId !== job.id ||
+      !evidence(job)
+    )
+      throw new Error("Current enrollment and exact native hold evidence are required");
+    return { state, current, hold, decision, holdObservedAt: hold.observedAt };
+  }
+  async function prepareInterruption(job: RestartJob) {
+    if (job.status !== "approved" || job.standingInterruption)
+      throw new Error("Interruption preparation requires an undispatched approved request");
+    await refresh([job], true);
+    const { state, current, hold, decision, holdObservedAt } = interruptionEvidence(job);
+    const candidate = job.update ? updates[job.target]?.standingCandidate(job) : null;
+    if (job.update && !candidate) throw new Error("Verified interruption candidate is unavailable");
+    const reserved = ports.now();
+    const limits = state.grant.manifest.interruption;
+    const finish = Date.parse(holdObservedAt) + limits.finishTurnsSeconds * 1000;
+    const terminateAt = Math.min(reserved, finish) + limits.terminateGraceSeconds * 1000;
+    if (terminateAt <= reserved)
+      throw new Error("Interruption deadline has elapsed; fresh owner review is required");
+    return StandingInterruptionSchema.parse({
+      held: {
+        requestId: job.id,
+        generation: randomUUID(),
+        workerPid: current.worker.pid,
+        workerInstanceId: current.workerInstanceId,
+        terminateAt,
+      },
+      approvedRevision: job.revision,
+      grantRevision: state.grant.revision,
+      holdGeneration: hold.generation,
+      decisionSha256: createHash("sha256").update(JSON.stringify(decision)).digest("hex"),
+      planSha256: standingRestartPlanDigest(job),
+      reservedAt: new Date(reserved).toISOString(),
+      finishDeadlineAt: new Date(finish).toISOString(),
+      native: {
+        identitySha256: current.identitySha256,
+        serverId: current.serverId,
+        sourceCommit: current.sourceCommit,
+        selectedRelease: current.selectedRelease,
+        observedAt: current.observedAt,
+        supervisor: current.supervisor,
+        worker: current.worker,
+      },
+      candidate,
+    });
+  }
   async function verifySelection(job: RestartJob, executor: RestartExecutor): Promise<void> {
     if (!job.standingDecision) return;
     await refresh([job], true);
@@ -258,7 +325,14 @@ export function createDaemonStandingRuntime(
         : [];
     });
   }
-  return { ...adapter, refresh, initialActivationInstance, verifySelection, observations };
+  return {
+    ...adapter,
+    refresh,
+    initialActivationInstance,
+    prepareInterruption,
+    verifySelection,
+    observations,
+  };
 }
 
 function assertSelectionImpact(job: RestartJob, impact: RestartImpact): void {

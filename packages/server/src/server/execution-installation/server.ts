@@ -301,6 +301,7 @@ export function createInstallationServer(
       await standingRuntime.refresh([job], true);
     },
     initialActivationInstance: (job) => standingRuntime.initialActivationInstance(job),
+    prepareInterruption: (job) => standingRuntime.prepareInterruption(job),
     verifyDispatch: (job) => standingRuntime.verifySelection(job, executor),
     installUpdate: (job) =>
       forTarget(job.target).install(

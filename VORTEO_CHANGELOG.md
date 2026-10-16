@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.578 - 2026-10-15
+
+### Changed
+
+- Construct interruption reservations from a newly inspected authenticated worker and exact observed hold, current enrollment limits and verified candidate. Preparation records no effect and rejects released holds, revoked or paused authority, missing evidence and elapsed deadlines.
+- Retain hold identity through native inspection and reject a release or hold change during collection. Independent outcome verification and production dispatch wiring remain unfinished; no unattended effect is enabled. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.577 - 2026-10-15
 
 ### Changed

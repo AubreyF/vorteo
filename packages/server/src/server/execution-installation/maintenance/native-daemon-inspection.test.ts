@@ -515,10 +515,33 @@ test("a changed daemon PID during observation cannot become fresh identity evide
 test("native inspection retains the authenticated worker lifetime", async () => {
   const f = await fixture();
   const workerInstanceId = randomUUID();
-  f.ports.daemon = async () => ({ serverId: "host-id", pid: 102, workerInstanceId });
+  const restartDrainId = randomUUID();
+  f.ports.daemon = async () => ({
+    serverId: "host-id",
+    pid: 102,
+    workerInstanceId,
+    restartDrainId,
+  });
   const result = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
   expect(result.workerInstanceId).toBe(workerInstanceId);
+  expect(result.restartDrainId).toBe(restartDrainId);
   expect(result.worker.pid).toBe(102);
+});
+
+test("a released hold during native observation invalidates the entire proof", async () => {
+  const f = await fixture();
+  const workerInstanceId = randomUUID();
+  const restartDrainId = randomUUID();
+  let calls = 0;
+  f.ports.daemon = async () => ({
+    serverId: "host-id",
+    pid: 102,
+    workerInstanceId,
+    restartDrainId: calls++ === 0 ? restartDrainId : null,
+  });
+  await expect(inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports)).rejects.toThrow(
+    "Daemon changed",
+  );
 });
 
 test("a changed worker lifetime with the same PID invalidates native evidence", async () => {

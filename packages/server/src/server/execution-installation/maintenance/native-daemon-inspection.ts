@@ -49,6 +49,7 @@ export interface EnrollmentDaemonObservation {
   writableMountRoots: string[];
   serverId: string;
   workerInstanceId?: string;
+  restartDrainId?: string | null;
   selectedRelease: string;
   sourceCommit: string;
   supervisor: z.infer<typeof RuntimeProcessSchema>;
@@ -70,7 +71,12 @@ export interface EnrollmentDaemonInspectionPorts {
   daemon(
     config: InstallationConfig,
     kind: "host" | "container",
-  ): Promise<{ serverId: string; pid: number; workerInstanceId?: string }>;
+  ): Promise<{
+    serverId: string;
+    pid: number;
+    workerInstanceId?: string;
+    restartDrainId?: string | null;
+  }>;
   now(): number;
 }
 const nativePorts: EnrollmentDaemonInspectionPorts = {
@@ -99,6 +105,7 @@ const nativePorts: EnrollmentDaemonInspectionPorts = {
           serverId: info.serverId,
           pid: status.pid,
           workerInstanceId: held.impact.workerInstanceId,
+          restartDrainId: held.impact.restartDrainId,
         };
       }
       return { serverId: info!.serverId, pid: status.pid };
@@ -348,6 +355,7 @@ export async function inspectEnrollmentDaemonIdentity(
     custodyStateDirectory: await realpath(config.stateDir),
     serverId: daemon.serverId,
     ...(daemon.workerInstanceId ? { workerInstanceId: daemon.workerInstanceId } : {}),
+    ...(daemon.restartDrainId !== undefined ? { restartDrainId: daemon.restartDrainId } : {}),
     observedAt: new Date(ports.now()).toISOString(),
   };
 }

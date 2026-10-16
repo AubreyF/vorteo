@@ -1964,6 +1964,8 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
     executable: process.execPath,
     argumentsSha256: "a".repeat(64),
   };
+  const workerInstanceId = randomUUID();
+  let observedDrainId: string | null = null;
   const runtime = createDaemonStandingRuntime(
     config,
     { host: null, "container-daemon": null },
@@ -1979,6 +1981,8 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
           assertCurrent() {},
           writableMountRoots: [],
           serverId: "host",
+          workerInstanceId,
+          restartDrainId: observedDrainId,
           selectedRelease: path.join(f.directory, "release"),
           sourceCommit: "a".repeat(40),
           supervisor: runtimeProcess,
@@ -2059,6 +2063,33 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
     standingHold: { ...reserved.standingHold!, observedAt: new Date(now).toISOString() },
   };
   runtime.journal.write([held]);
+  observedDrainId = held.id;
+  const interruption = await runtime.prepareInterruption(held);
+  expect(interruption).toMatchObject({
+    held: { requestId: held.id, workerPid: 101, workerInstanceId },
+    approvedRevision: held.revision,
+    grantRevision: state.grant.revision,
+    holdGeneration: held.standingHold!.generation,
+    candidate: null,
+    native: { identitySha256, sourceCommit: "a".repeat(40) },
+  });
+  expect(interruption.held.terminateAt).toBe(
+    now + f.manifest.interruption.terminateGraceSeconds * 1000,
+  );
+  expect(runtime.journal.read()).toEqual([held]);
+  observedDrainId = randomUUID();
+  await expect(runtime.prepareInterruption(held)).rejects.toThrow("exact native hold");
+  observedDrainId = held.id;
+  await expect(
+    runtime.prepareInterruption({
+      ...held,
+      standingHold: { ...held.standingHold!, releaseRequestedAt: new Date(now).toISOString() },
+    }),
+  ).rejects.toThrow("exact native hold");
+  await expect(
+    runtime.prepareInterruption({ ...held, status: "running", standingInterruption: interruption }),
+  ).rejects.toThrow("undispatched");
+  expect(runtime.journal.read()).toEqual([held]);
   const manualRevision = randomUUID();
   const manual: RestartJob = {
     ...held,
@@ -2152,6 +2183,18 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
   releaseSource();
   await Promise.all([collecting, forced]);
   expect(inspectedBirths).toEqual(["replacement-birth", "changed-at-forced-boundary"]);
+  now +=
+    (f.manifest.interruption.finishTurnsSeconds + f.manifest.interruption.terminateGraceSeconds) *
+    1000;
+  await expect(runtime.prepareInterruption(held)).rejects.toThrow("deadline has elapsed");
+  changeStandingGrant(f.journal, {
+    expectedRevision: state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  await expect(runtime.prepareInterruption(held)).rejects.toThrow("exact native hold");
+  expect(enrolled(f.journal.read()).grant.revokedAt).not.toBeNull();
 });
 
 function serviceAdmissionFixture() {
