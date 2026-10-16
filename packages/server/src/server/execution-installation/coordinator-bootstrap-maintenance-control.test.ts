@@ -1,7 +1,7 @@
-import { createServer, request as httpRequest } from "node:http";
+import { createServer, request as httpRequest, type RequestOptions } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { hashSync } from "bcryptjs";
@@ -495,3 +495,128 @@ test.each(["legacy", "enrollment"] as const)(
     }
   },
 );
+
+test("recovery rendering survives failed journals and authenticates independently of app sessions", async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "recovery-access-")));
+  const installationId = randomUUID();
+  const recoveryOrigin = "https://recovery.example.test:9443";
+  let ownerUnavailable = true;
+  let primaryOrigin = "https://app.example.test";
+  let journalUnavailable = false;
+  let listCalls = 0;
+  const app = createMaintenanceControlApp({
+    installationId,
+    recoveryOrigin,
+    status() {
+      throw new Error("private broken status parser");
+    },
+    async readOwnerConfiguration() {
+      if (ownerUnavailable) throw new Error("private broken owner configuration");
+      return {
+        public: { origin: primaryOrigin, installationId },
+        stateDir: directory,
+        ownerPasswordHash: hashSync("fixture-owner", 4),
+      };
+    },
+    service: () => ({
+      list() {
+        listCalls++;
+        if (journalUnavailable) throw new Error("private unsupported journal field");
+        return [];
+      },
+      async prepare() {
+        throw new Error("No preparation");
+      },
+      async decide() {
+        throw new Error("No effects");
+      },
+    }),
+    async provision() {
+      throw new Error("No provisioning");
+    },
+  });
+  const server = createServer(app);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+  const base = `http://127.0.0.1:${address.port}`;
+  function call(route: string, options: RequestOptions, body?: string): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      const request = httpRequest(base + route, options, (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => {
+          text += chunk;
+        });
+        response.on("error", reject);
+        response.on("end", () =>
+          resolve(
+            new Response(text, {
+              status: response.statusCode,
+              headers: {
+                "cache-control": String(response.headers["cache-control"]),
+                "content-security-policy": String(response.headers["content-security-policy"]),
+              },
+            }),
+          ),
+        );
+      });
+      request.on("error", reject);
+      request.end(body);
+    });
+  }
+  const get = (route: string, host = new URL(recoveryOrigin).host) =>
+    call(route, { headers: { Host: host } });
+  const post = (token: string, origin = recoveryOrigin) =>
+    call(
+      "/api/installation/maintenance/owner",
+      {
+        method: "POST",
+        headers: {
+          Host: new URL(recoveryOrigin).host,
+          Origin: origin,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          Cookie: "__Host-vorteo-owner=primary-session",
+        },
+      },
+      JSON.stringify({
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "independent",
+      }),
+    );
+  try {
+    const page = await get("/");
+    expect(page.status).toBe(200);
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(await page.text()).toContain("Bookmark this page");
+    expect((await get("/recovery.js")).status).toBe(200);
+    expect((await get("/", "outside.example")).status).toBe(403);
+    expect((await post("fixture-owner")).status).toBe(503);
+    expect(listCalls).toBe(0);
+    ownerUnavailable = false;
+    // A broken primary session file must not disable independent password access.
+    await writeFile(
+      path.join(directory, "owner-sessions.json"),
+      "unsupported primary session data",
+    );
+    expect((await post("")).status).toBe(401);
+    expect((await post("fixture-owner", primaryOrigin)).status).toBe(403);
+    const success = await post("fixture-owner");
+    expect(success.status).toBe(200);
+    expect(await success.json()).toMatchObject({ payload: { requests: [], error: null } });
+    journalUnavailable = true;
+    const failed = await post("fixture-owner");
+    expect(failed.status).toBe(200);
+    expect(await failed.json()).toMatchObject({ payload: { requests: null } });
+    expect((await get("/")).status).toBe(200);
+    primaryOrigin = recoveryOrigin;
+    expect((await post("fixture-owner")).status).toBe(403);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});

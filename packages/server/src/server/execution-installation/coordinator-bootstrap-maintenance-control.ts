@@ -17,6 +17,10 @@ import {
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
 import { OwnerSessions } from "./owner-sessions.js";
 import {
+  maintenanceRecoveryDocument,
+  maintenanceRecoveryScript,
+} from "./coordinator-bootstrap-maintenance-recovery-page.js";
+import {
   handleBootstrapReview,
   type BootstrapReviewService,
 } from "./coordinator-bootstrap-session.js";
@@ -33,6 +37,8 @@ export const MaintenanceOwnerConfigurationSchema = z.object({
 
 interface MaintenanceControlInput {
   installationId: string;
+  /** Protected provisioned origin, separate from the primary app and its cookies. */
+  recoveryOrigin?: string;
   enrollment?: {
     decision: { id: string; revision: string; manifestSha256: string };
     review?: { id: string; revision: string; manifest: InstallationEnrollmentManifest };
@@ -50,13 +56,42 @@ interface MaintenanceControlInput {
 /** Transport for a fixed independently admitted operation. HTTP callers cannot
  * select source, runtime, plan, request ID or automatic authority. */
 export function createMaintenanceControlApp(input: MaintenanceControlInput) {
+  const recoveryOrigin =
+    input.recoveryOrigin === undefined
+      ? undefined
+      : z
+          .url()
+          .refine((value) => {
+            const url = new URL(value);
+            return url.protocol === "https:" && url.origin === value;
+          })
+          .parse(input.recoveryOrigin);
   const app = express();
   let provisioning = false;
   app.disable("x-powered-by");
-  app.use((_request, response, next) => {
+  app.use((request, response, next) => {
+    if (recoveryOrigin && request.headers.host !== new URL(recoveryOrigin).host) {
+      response.sendStatus(403);
+      return;
+    }
     response.setHeader("Cache-Control", "no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    if (recoveryOrigin) {
+      response.setHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+      );
+    }
     next();
   });
+  if (recoveryOrigin) {
+    // Rendering does not read configuration, service status or maintenance journals.
+    app.get("/", (_request, response) => response.type("html").send(maintenanceRecoveryDocument));
+    app.get("/recovery.js", (_request, response) =>
+      response.type("js").send(maintenanceRecoveryScript),
+    );
+  }
   app.get("/api/installation/maintenance/runtime-status", (request, response, next) => {
     const nonce = z.string().uuid().safeParse(request.query.nonce);
     if (!input.runtimeStatus) {
@@ -97,9 +132,13 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
         const config = MaintenanceOwnerConfigurationSchema.parse(
           await input.readOwnerConfiguration(),
         );
+        const expectedOrigin = recoveryOrigin ?? config.public.origin;
+        const isolatedRecovery =
+          recoveryOrigin === undefined || recoveryOrigin !== config.public.origin;
         if (
           config.public.installationId !== input.installationId ||
-          request.header("origin") !== config.public.origin
+          request.header("origin") !== expectedOrigin ||
+          !isolatedRecovery
         ) {
           response.sendStatus(403);
           return;
@@ -115,7 +154,7 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
           ?.slice(cookieName.length + 1);
         const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));
         const authenticated =
-          sessions.expiresAt(cookie) !== null ||
+          (recoveryOrigin === undefined && sessions.expiresAt(cookie) !== null) ||
           (await isBearerTokenValidAsync({
             password: config.ownerPasswordHash,
             token: extractHttpBearerToken(request.header("authorization")),

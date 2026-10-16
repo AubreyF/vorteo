@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.598 - 2026-10-16
+
+- Add a self-contained recovery status page to the existing maintenance listener when a separate protected HTTPS origin is explicitly configured. Page rendering does not read owner configuration, maintenance journals, service status or primary app assets.
+- Authenticate recovery inspection with the existing owner password, without relying on main-app cookies or session storage. Enforce the configured host and distinct origin, restrict script loading, bound browser inspection and clear access on lock or page exit.
+- Fourteen owning HTTP checks, workspace typecheck and lint pass. Permanent HTTPS provisioning, supervised installation, rollback controls and remote-browser acceptance remain unfinished. The primary README feature paragraph and General bookmark discovery will accompany delivered recovery, not this source foundation.
+
 ## 0.11.0-beta.3.vorteo.597 - 2026-10-16
 
 - Keep exact native coordinator migration cancellation available after approval until execution is claimed. Require the displayed revision and owner authentication, preserve separate one-shot cancellation and approval fences, and reject claimed or stale requests.
