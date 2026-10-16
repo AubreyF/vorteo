@@ -1159,6 +1159,163 @@ function restartAdmissionFixture() {
   return { ...f, state, pending, approved, evaluate, admit, reserveHold, phases };
 }
 
+function interruptionFixture() {
+  const f = restartAdmissionFixture();
+  const now = Date.now();
+  const held = f.reserveHold(f.approved);
+  const observed: RestartJob = {
+    ...held,
+    standingHold: { ...held.standingHold!, observedAt: new Date(now).toISOString() },
+  };
+  const process = {
+    pid: 101,
+    parentPid: 100,
+    uid: 501,
+    bootId: "test-boot",
+    startIdentity: "test-birth",
+    executable: "/test/node",
+    argumentsSha256: "a".repeat(64),
+  };
+  const running: RestartJob = {
+    ...observed,
+    status: "running",
+    standingInterruption: {
+      held: {
+        requestId: observed.id,
+        generation: randomUUID(),
+        workerPid: process.pid,
+        workerInstanceId: randomUUID(),
+        terminateAt: now + f.manifest.interruption.terminateGraceSeconds * 1000,
+      },
+      approvedRevision: observed.revision,
+      grantRevision: f.state.grant.revision,
+      holdGeneration: held.standingHold!.generation,
+      decisionSha256: createHash("sha256")
+        .update(JSON.stringify(observed.standingDecision))
+        .digest("hex"),
+      planSha256: observed.standingDecision!.planSha256,
+      reservedAt: new Date(now).toISOString(),
+      finishDeadlineAt: new Date(
+        now + f.manifest.interruption.finishTurnsSeconds * 1000,
+      ).toISOString(),
+      native: {
+        identitySha256: observed.standingDecision!.targetIdentitySha256,
+        serverId: "fixture",
+        sourceCommit: "a".repeat(40),
+        selectedRelease: "/test/release",
+        observedAt: new Date(now).toISOString(),
+        worker: process,
+        supervisor: { ...process, pid: 100, parentPid: 1 },
+      },
+      candidate: null,
+    },
+  };
+  const lifecycle = new FileBootstrapRequestJournal(f.directory);
+  function write(jobs: RestartJob[]) {
+    lifecycle.writeLifecycle(jobs, (previous, next) => {
+      assertStandingRestartAdmission({
+        previous,
+        next,
+        state: f.journal.readUnderLifecycleLock(),
+        evaluate: f.evaluate,
+        assertEvidence() {},
+        now,
+      });
+      return undefined;
+    });
+  }
+  write([f.pending]);
+  write([f.approved]);
+  write([held]);
+  write([observed]);
+  return { ...f, lifecycle, write, running, observed };
+}
+
+test("interruption reservation survives journal reopening and cannot be reset or replayed", () => {
+  const f = interruptionFixture();
+  f.write([f.running]);
+  const reopened = new FileBootstrapRequestJournal(f.directory).readLifecycle();
+  expect(reopened).toEqual([f.running]);
+  expect(() => f.write([{ ...f.running, status: "approved" }])).toThrow("observation-only");
+  expect(() => f.write([{ ...f.running, standingInterruption: undefined }])).toThrow(
+    "observation-only",
+  );
+  const changed = structuredClone(f.running);
+  changed.standingInterruption!.held.generation = randomUUID();
+  expect(() => f.write([changed])).toThrow("observation-only");
+  expect(new FileBootstrapRequestJournal(f.directory).readLifecycle()).toEqual(reopened);
+});
+
+test.each([
+  "revision",
+  "hold",
+  "plan",
+  "deadline",
+  "future-observation",
+  "cross-boot",
+  "worker",
+] as const)(
+  "interruption reservation rejects substituted %s before journal persistence",
+  (field) => {
+    const f = interruptionFixture();
+    const before = f.lifecycle.readLifecycle();
+    const invalid = structuredClone(f.running);
+    const intent = invalid.standingInterruption!;
+    const substitutions = {
+      revision: () => {
+        intent.approvedRevision = randomUUID();
+      },
+      hold: () => {
+        intent.holdGeneration = randomUUID();
+      },
+      plan: () => {
+        intent.planSha256 = "f".repeat(64);
+      },
+      deadline: () => {
+        intent.held.terminateAt++;
+      },
+      "future-observation": () => {
+        intent.native.observedAt = new Date(Date.parse(intent.reservedAt) + 1).toISOString();
+      },
+      "cross-boot": () => {
+        intent.native.worker.bootId = "another-boot";
+      },
+      worker: () => {
+        intent.native.worker.pid++;
+      },
+    };
+    substitutions[field]();
+    expect(() => f.write([invalid])).toThrow();
+    expect(f.lifecycle.readLifecycle()).toEqual(before);
+  },
+);
+
+test("interruption reservation refuses revoked authority while retained results remain observable", () => {
+  const f = interruptionFixture();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => f.write([f.running])).toThrow("authority changed");
+  expect(f.lifecycle.readLifecycle()).toEqual([f.observed]);
+});
+
+test("retained interruption permits terminal observation after revocation without another effect", () => {
+  const f = interruptionFixture();
+  f.write([f.running]);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observed: RestartJob = { ...f.running, status: "succeeded" };
+  f.write([observed]);
+  expect(f.lifecycle.readLifecycle()).toEqual([observed]);
+});
+
 test("standing queue admission binds each effect and permits observation after revocation", () => {
   const f = restartAdmissionFixture();
   f.admit([f.pending], [f.approved]);
@@ -1879,6 +2036,11 @@ test("daemon evidence expires, failed refresh clears health, and manual selectio
           return { repository: f.manifest.trustedRepositories[0], assertCurrent() {} };
         },
         assertStandingPrepared() {},
+        standingCandidate: () => ({
+          sourceCommit: "a".repeat(40),
+          artifactSha256: "b".repeat(64),
+          release: path.join(f.directory, "candidate"),
+        }),
         async verifyPreparedInstallation() {},
       },
       "container-daemon": null,

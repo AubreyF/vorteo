@@ -57,7 +57,14 @@ export function createStandingRestartAdapter(input: {
     mutate: (update, evidence) =>
       lifecycle.mutateLifecycle(update, (previous, next) => {
         const state = enrollment.readUnderLifecycleLock();
-        assertStandingRestartAdmission({ ...input.ports, previous, next, state, evaluate });
+        assertStandingRestartAdmission({
+          ...input.ports,
+          previous,
+          next,
+          state,
+          evaluate,
+          now: input.now?.() ?? Date.now(),
+        });
         assertMaintenanceServiceAdmission({
           previous,
           next,
@@ -84,7 +91,14 @@ export function createStandingRestartAdapter(input: {
         jobs,
         (previous, next) => {
           const state = enrollment.readUnderLifecycleLock();
-          assertStandingRestartAdmission({ ...input.ports, previous, next, state, evaluate });
+          assertStandingRestartAdmission({
+            ...input.ports,
+            previous,
+            next,
+            state,
+            evaluate,
+            now: input.now?.() ?? Date.now(),
+          });
           assertMaintenanceServiceAdmission({
             previous,
             next,

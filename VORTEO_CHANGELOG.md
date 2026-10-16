@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.576 - 2026-10-15
+
+### Changed
+
+- Define immutable interruption reservations in the existing lifecycle journal, binding the approved revision, grant, hold generation, native worker lifetime, candidate and enrolled deadlines. Locked admission rejects changed bindings and replay while retaining observations after revocation.
+- Retain authenticated worker lifetime in native inspection and bind candidate summaries to verified artifact receipts. Failed candidate revalidation clears the older cached proof. Private interruption evidence is omitted from legacy responses.
+
+### Validation and delivery
+
+- Real journal tests cover reopening, substitution, revocation and unchanged storage on refusal. Native inspection and candidate-integrity regressions pass, along with types, lint and client build. Queue dispatch and observation consumers, active-provider cleanup and installed acceptance remain open; no new effect is enabled. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.575 - 2026-10-15
 
 ### Validation

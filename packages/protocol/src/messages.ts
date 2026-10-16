@@ -1,4 +1,7 @@
 import { SidebarStateChangeSchema, SidebarStateSnapshotSchema } from "./sidebar-state.js";
+import { HeldRestartSchema } from "./maintenance-interruption.js";
+export { HeldRestartSchema } from "./maintenance-interruption.js";
+export type { HeldRestart } from "./maintenance-interruption.js";
 import {
   AgentTaskItemSchema,
   ChecklistGetRequestSchema,
@@ -2067,15 +2070,6 @@ export const CancelAgentRequestMessageSchema = z.object({
   agentId: z.string(),
   requestId: z.string().optional(),
 });
-
-export const HeldRestartSchema = z.object({
-  requestId: z.string().uuid(),
-  generation: z.string().uuid(),
-  workerPid: z.number().int().positive(),
-  workerInstanceId: z.string().uuid(),
-  terminateAt: z.number().int().positive(),
-});
-export type HeldRestart = z.infer<typeof HeldRestartSchema>;
 
 export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),

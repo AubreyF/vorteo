@@ -923,6 +923,15 @@ test("source builds fail before activation, uncertain dispatch retains selection
     };
     await updates.prepareInstallation(integrityJob);
     await updates.verifyPreparedInstallation(integrityJob);
+    const candidateProof = updates.standingCandidate(integrityJob);
+    const candidateAdmission = JSON.parse(
+      await readFile(path.join(root, integrityJob.id, "admission.json"), "utf8"),
+    );
+    expect(candidateProof).toEqual({
+      sourceCommit: update.sourceCommit,
+      artifactSha256: candidateAdmission.candidateArtifactSha256,
+      release: path.join(root, integrityJob.id, "release"),
+    });
     await expect(
       updates.install(integrityJob, restart, async () => {
         throw new Error("New work or changed daemon before selection");
@@ -941,6 +950,7 @@ test("source builds fail before activation, uncertain dispatch retains selection
     await expect(updates.verifyPreparedInstallation(integrityJob)).rejects.toThrow(
       "content changed",
     );
+    expect(() => updates.standingCandidate(integrityJob)).toThrow("Fresh built candidate evidence");
     await expect(updates.install(integrityJob, restart)).rejects.toThrow("content changed");
     expect(await realpath(link)).toBe(previous);
     expect(restart).not.toHaveBeenCalled();

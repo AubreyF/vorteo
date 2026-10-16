@@ -160,6 +160,7 @@ function restartReply(
   const {
     standingDecision: _standingDecision,
     standingHold: _standingHold,
+    standingInterruption: _standingInterruption,
     standingManualApprovals: _standingManualApprovals,
     updatePreparation: _preparation,
     devRepairs: _devRepairs,

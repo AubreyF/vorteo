@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { DaemonMaintenanceProcessSchema as RuntimeProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
 import { execFile } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { lstatSync, realpathSync } from "node:fs";
@@ -34,16 +35,6 @@ const COMMAND_LIMITS: { timeout: number; maxBuffer: number; env: { PATH: string 
   env: { PATH: "/usr/bin:/bin" },
 };
 const SourceSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
-const RuntimeProcessSchema = z.strictObject({
-  pid: z.number().int().positive(),
-  parentPid: z.number().int().nonnegative(),
-  uid: z.number().int().nonnegative(),
-  gid: z.number().int().nonnegative().optional(),
-  bootId: z.string().min(1).max(128),
-  startIdentity: z.string().min(1).max(128),
-  executable: z.string().startsWith("/"),
-  argumentsSha256: z.string().regex(/^[a-f0-9]{64}$/),
-});
 export interface EnrollmentDaemonObservation {
   /** Synchronous retained custody check for locked admission. Does not refresh
    * kernel process or Docker evidence, acquire locks, or authorize effects. */
@@ -57,6 +48,7 @@ export interface EnrollmentDaemonObservation {
    * Uses the existing bootstrap volume-driver checks, not guest-reported mounts. */
   writableMountRoots: string[];
   serverId: string;
+  workerInstanceId?: string;
   selectedRelease: string;
   sourceCommit: string;
   supervisor: z.infer<typeof RuntimeProcessSchema>;
@@ -78,7 +70,7 @@ export interface EnrollmentDaemonInspectionPorts {
   daemon(
     config: InstallationConfig,
     kind: "host" | "container",
-  ): Promise<{ serverId: string; pid: number }>;
+  ): Promise<{ serverId: string; pid: number; workerInstanceId?: string }>;
   now(): number;
 }
 const nativePorts: EnrollmentDaemonInspectionPorts = {
@@ -94,6 +86,21 @@ const nativePorts: EnrollmentDaemonInspectionPorts = {
     try {
       const info = client.getLastServerInfoMessage();
       const status = await client.getDaemonStatus({ timeout: 10_000 });
+      if (info?.features?.heldIdleRestart === true) {
+        const held = await client.restartServer(undefined, undefined, {
+          idleMode: "inspect",
+          timeout: 10_000,
+        });
+        requireMatch(
+          held.impact?.workerPid === status.pid && held.impact.workerInstanceId,
+          "Worker lifetime observation is unavailable",
+        );
+        return {
+          serverId: info.serverId,
+          pid: status.pid,
+          workerInstanceId: held.impact.workerInstanceId,
+        };
+      }
       return { serverId: info!.serverId, pid: status.pid };
     } finally {
       await client.close();
@@ -340,6 +347,7 @@ export async function inspectEnrollmentDaemonIdentity(
     writableMountRoots: await Promise.all(mounts.roots.map((root) => realpath(root))),
     custodyStateDirectory: await realpath(config.stateDir),
     serverId: daemon.serverId,
+    ...(daemon.workerInstanceId ? { workerInstanceId: daemon.workerInstanceId } : {}),
     observedAt: new Date(ports.now()).toISOString(),
   };
 }

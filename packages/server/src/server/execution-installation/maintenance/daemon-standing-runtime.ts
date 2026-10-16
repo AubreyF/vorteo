@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { StandingInterruptionSchema } from "@getpaseo/protocol/maintenance-interruption";
 import type { RestartJob, RestartImpact } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "../config.js";
 import type { InstallationSourceUpdates } from "../source-updates.js";
@@ -25,7 +27,10 @@ interface DaemonStandingPorts {
 }
 type StandingUpdater = Pick<
   InstallationSourceUpdates,
-  "inspectStandingSource" | "assertStandingPrepared" | "verifyPreparedInstallation"
+  | "inspectStandingSource"
+  | "assertStandingPrepared"
+  | "verifyPreparedInstallation"
+  | "standingCandidate"
 >;
 
 /** Collects evidence on the coordinator's existing drain cycle. It creates no
@@ -102,6 +107,7 @@ export function createDaemonStandingRuntime(
       evidence,
       assertEvidence(job, phase) {
         if (!evidence(job)) throw new Error("Current native maintenance evidence is unavailable");
+        if (job.standingInterruption) assertInterruptionEvidence(job);
         const initial = job.standingHold?.initialDaemonInstanceSha256;
         if (initial && instance(observation(job.target)!) !== initial)
           throw new Error("Initial daemon lifetime changed before dispatch");
@@ -115,6 +121,29 @@ export function createDaemonStandingRuntime(
       },
     },
   });
+
+  function assertInterruptionEvidence(job: RestartJob): void {
+    const current = observation(job.target);
+    const intent = job.standingInterruption;
+    if (!current || !intent || current.workerInstanceId !== intent.held.workerInstanceId)
+      throw new Error("Interruption worker lifetime differs from current native inspection");
+    const expected = StandingInterruptionSchema.shape.native.parse({
+      identitySha256: current.identitySha256,
+      serverId: current.serverId,
+      sourceCommit: current.sourceCommit,
+      selectedRelease: current.selectedRelease,
+      observedAt: current.observedAt,
+      supervisor: current.supervisor,
+      worker: current.worker,
+    });
+    if (JSON.stringify(expected) !== JSON.stringify(intent.native))
+      throw new Error("Interruption native evidence differs from locked admission");
+    if (job.update) {
+      const updater = updates[job.target];
+      if (!updater || !isDeepStrictEqual(updater.standingCandidate(job), intent.candidate))
+        throw new Error("Interruption candidate differs from verified preparation");
+    }
+  }
 
   async function collect(jobs: readonly RestartJob[]) {
     const state = enrollment.readPolicySnapshot();

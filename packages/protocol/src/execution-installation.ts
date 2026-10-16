@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StandingInterruptionSchema } from "./maintenance-interruption.js";
 import {
   ProviderPreferencesSchema,
   SharedProviderPreferencesSchema,
@@ -106,6 +107,9 @@ export const RestartImpactSchema = z.object({
   gracefulRestartSupported: z.boolean().optional(),
   restartDrainObservationSupported: z.boolean().optional(),
   restartDrainId: z.string().uuid().nullable().optional(),
+  workerInstanceId: z.string().uuid().optional(),
+  workerPid: z.number().int().positive().optional(),
+  heldIdleRestartSupported: z.boolean().optional(),
   error: z.string().nullable(),
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
@@ -213,6 +217,7 @@ export const StandingRestartHoldSchema = z.strictObject({
 export const RestartJobSchema = RestartRequestSchema.extend({
   standingDecision: StandingRestartDecisionSchema.optional(),
   standingHold: StandingRestartHoldSchema.optional(),
+  standingInterruption: StandingInterruptionSchema.optional(),
   standingManualApprovals: z
     .array(
       z.strictObject({

@@ -80,6 +80,7 @@ export class InstallationSourceUpdates {
     {
       sourceSha256: string;
       artifactSha256: string;
+      release: string;
       verifiedAt: number;
       files: string[];
       receiptSha256: string;
@@ -261,6 +262,17 @@ export class InstallationSourceUpdates {
       throw new Error("Prepared candidate descriptors changed after verification");
   }
 
+  standingCandidate(job: RestartJob) {
+    this.assertStandingPrepared(job);
+    const evidence = this.candidateEvidence.get(job.id);
+    if (!job.update || !evidence) throw new Error("Verified candidate is unavailable");
+    return {
+      sourceCommit: job.update.sourceCommit,
+      artifactSha256: evidence.artifactSha256,
+      release: evidence.release,
+    };
+  }
+
   async prepareInstallation(job: RestartJob): Promise<void> {
     const update = SourceUpdateSchema.parse(job.update);
     if (job.target !== this.target) throw new Error("Source update target changed");
@@ -351,6 +363,7 @@ export class InstallationSourceUpdates {
     options: { signal?: AbortSignal } = {},
   ): Promise<void> {
     if (job.target !== this.target) throw new Error("Source update target changed");
+    this.candidateEvidence.delete(job.id);
     if (this.target !== "host") {
       const { operation, receiptSha256 } = await verifyPreparedContainerSource(
         this.config,
@@ -361,6 +374,7 @@ export class InstallationSourceUpdates {
         this.candidateEvidence.set(job.id, {
           sourceSha256: operation.update.sha256,
           artifactSha256: operation.artifactSha256,
+          release: operation.release,
           verifiedAt: Date.now(),
           files: [
             path.join(this.config.stateDir, "container-source-updates", job.id, "prepared.json"),
@@ -374,6 +388,7 @@ export class InstallationSourceUpdates {
       this.candidateEvidence.set(job.id, {
         sourceSha256: verified.admission.sourceSha256,
         artifactSha256: verified.admission.candidateArtifactSha256,
+        release: verified.prepared.release,
         verifiedAt: Date.now(),
         files: verified.files,
         receiptSha256: verified.receiptSha256,

@@ -512,6 +512,29 @@ test("a changed daemon PID during observation cannot become fresh identity evide
   );
 });
 
+test("native inspection retains the authenticated worker lifetime", async () => {
+  const f = await fixture();
+  const workerInstanceId = randomUUID();
+  f.ports.daemon = async () => ({ serverId: "host-id", pid: 102, workerInstanceId });
+  const result = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
+  expect(result.workerInstanceId).toBe(workerInstanceId);
+  expect(result.worker.pid).toBe(102);
+});
+
+test("a changed worker lifetime with the same PID invalidates native evidence", async () => {
+  const f = await fixture();
+  const instances = [randomUUID(), randomUUID()];
+  let connection = 0;
+  f.ports.daemon = async () => ({
+    serverId: "host-id",
+    pid: 102,
+    workerInstanceId: instances[connection++],
+  });
+  await expect(inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports)).rejects.toThrow(
+    "Daemon changed",
+  );
+});
+
 test("configuration changes during native inspection invalidate the observation", async () => {
   const f = await fixture();
   f.ports.daemon = async () => {

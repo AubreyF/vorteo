@@ -162,6 +162,7 @@ function activationChildBinding(
 }
 
 interface AdmissionInput {
+  now?: number;
   previous: readonly LifecycleJob[];
   next: readonly LifecycleJob[];
   /** Must be read under the same installation lifecycle lock as this transition. */
@@ -192,9 +193,111 @@ export function assertStandingRestartAdmission(input: AdmissionInput): void {
       prior && (prior.target === "host" || prior.target === "container-daemon") ? prior : undefined;
     assertRetainedBindings(retained, proposed);
     const phase = effectPhase(retained, proposed);
+    assertInterruptionTransition(input, retained, proposed, phase);
     if (!phase) continue;
     assertEffectAdmission(input, retained, proposed, phase);
   }
+}
+
+function assertInterruptionTransition(
+  input: AdmissionInput,
+  previous: RestartJob | undefined,
+  job: RestartJob,
+  phase: StandingRestartPhase | null,
+): void {
+  const retained = previous?.standingInterruption;
+  const intent = job.standingInterruption;
+  if (retained) {
+    if (
+      !isDeepStrictEqual(retained, intent) ||
+      job.status === "approved" ||
+      job.status === "pending"
+    )
+      throw new BootstrapRequestConflict(
+        "Retained interruption is observation-only; never replay it",
+      );
+    return;
+  }
+  if (!intent) return;
+  const hold = job.standingHold;
+  const decision = job.standingDecision;
+  if (
+    phase !== "replacement" ||
+    previous?.status !== "approved" ||
+    input.state.status !== "enrolled" ||
+    !decision ||
+    !hold?.observedAt ||
+    hold.releaseRequestedAt ||
+    hold.initialDaemonInstanceSha256
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption reservation requires a newly admitted exact hold",
+    );
+  assertInterruptionIdentity(job);
+  assertInterruptionDeadline(input, job);
+  assertInterruptionNative(job);
+}
+
+function assertInterruptionIdentity(job: RestartJob): void {
+  const intent = job.standingInterruption!;
+  const decision = job.standingDecision!;
+  const hold = job.standingHold!;
+  if (
+    intent.held.requestId !== job.id ||
+    intent.approvedRevision !== job.revision ||
+    intent.grantRevision !== decision.grantRevision ||
+    intent.holdGeneration !== hold.generation ||
+    intent.decisionSha256 !== digest(decision) ||
+    intent.planSha256 !== decision.planSha256
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption reservation differs from the exact approved hold",
+    );
+}
+
+function assertInterruptionNative(job: RestartJob): void {
+  const intent = job.standingInterruption!;
+  const decision = job.standingDecision!;
+  const native = intent.native;
+  if (
+    native.identitySha256 !== decision.targetIdentitySha256 ||
+    native.worker.pid !== intent.held.workerPid ||
+    native.worker.bootId !== native.supervisor.bootId ||
+    Boolean(job.update) !== Boolean(intent.candidate)
+  )
+    throw new BootstrapRequestConflict("Interruption target or candidate evidence differs");
+  if (
+    job.update &&
+    (native.sourceCommit !== job.update.baseCommit ||
+      intent.candidate?.sourceCommit !== job.update.sourceCommit)
+  )
+    throw new BootstrapRequestConflict("Interruption source differs from the approved update");
+}
+
+function assertInterruptionDeadline(input: AdmissionInput, job: RestartJob): void {
+  if (input.state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Enrollment unavailable");
+  const intent = job.standingInterruption!;
+  const hold = job.standingHold!;
+  const limits = input.state.grant.manifest.interruption;
+  const observed = Date.parse(hold.observedAt!);
+  const reserved = Date.parse(intent.reservedAt);
+  const now = input.now ?? Date.now();
+  const finish = observed + limits.finishTurnsSeconds * 1000;
+  const nativeAt = Date.parse(intent.native.observedAt);
+  if (
+    reserved < observed ||
+    reserved > now ||
+    now - reserved >= 30_000 ||
+    nativeAt > reserved ||
+    reserved - nativeAt >= 30_000 ||
+    Date.parse(intent.finishDeadlineAt) !== finish ||
+    intent.held.terminateAt !== Math.min(reserved, finish) + limits.terminateGraceSeconds * 1000 ||
+    intent.held.terminateAt <= now
+  )
+    throw new BootstrapRequestConflict(
+      "Interruption limits or evidence freshness differ from enrollment",
+    );
 }
 
 function assertEffectAdmission(
