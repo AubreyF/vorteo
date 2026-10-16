@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.585 - 2026-10-15
+
+- Preserve managed helper records when termination reports an unverified exit. Reopening keeps that evidence until a later inspection proves the process absent; a timed-out kill is no longer counted as successful cleanup.
+- Distinguish the exact empty POSIX no-match response from permission errors, command failures, signals and truncated execution. Sixteen focused registry and process-table tests pass, including actual inspection of an exited disposable process. No new cleanup store or installation effect is introduced; full provider descendant cleanup and installed acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.584 - 2026-10-15
 
 - Refuse maintenance worker replacement when inherited worker streams remain open beyond the retained termination deadline. Worker exit alone no longer starts a maintenance replacement behind a descendant that retains those streams; late closure cannot revive the failed attempt.
