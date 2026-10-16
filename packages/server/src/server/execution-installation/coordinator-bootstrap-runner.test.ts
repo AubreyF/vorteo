@@ -34,6 +34,7 @@ test
     "mixed-renewal",
     "guest-mount",
     "automatic-authority",
+    "unsupported-runtime",
   ] as const)(
   "independent coordinator executor requires its exact reviewed runtime: %s",
   async (mode) => {
@@ -60,6 +61,17 @@ test
       const ownershipVerifier = pin(
         path.join(runtime, "scripts/verify-coordinator-owner.py"),
         "fixture verifier",
+      );
+      pin(
+        path.join(runtime, "packages/server/package.json"),
+        JSON.stringify({
+          name: "@getpaseo/server",
+          ...(mode === "unsupported-runtime"
+            ? {}
+            : {
+                vorteoRuntimeContracts: { independentCoordinatorExecutor: 1 },
+              }),
+        }),
       );
       const setup = BootstrapRunnerSetupSchema.parse({
         admissionSetupFile: path.join(root, "admission.json"),
@@ -150,6 +162,8 @@ test
         writableMountRoots: mode === "guest-mount" ? [runtime] : [],
       });
       if (mode === "valid") await expect(result).resolves.toBeUndefined();
+      else if (mode === "unsupported-runtime")
+        await expect(result).rejects.toThrow("does not support independent coordinator execution");
       else await expect(result).rejects.toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });

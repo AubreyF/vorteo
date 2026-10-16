@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.617 - 2026-10-16
+
+### Fixed
+
+- Require the pinned independent coordinator executor to declare its versioned runtime contract before review or dispatch. A valid artifact hash alone cannot establish that an older installer supports a separate target release. The declaration is part of the existing hashed server package metadata; it grants no authority or installed availability.
+- A focused regression retains valid older runtime bytes while omitting contract support and verifies refusal. Runtime identity, exact manual approval, artifact custody and native acceptance remain separate requirements. Permanent rollback controls and installed delivery remain unfinished; README and General availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.616 - 2026-10-16
 
 ### Maintenance

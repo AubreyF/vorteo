@@ -12,6 +12,7 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
   assertBootstrapPathsProtected,
   readBootstrapPreparedFile,
+  readProtectedDocument,
   verifyBootstrapPreparedDependency,
   digestBootstrapArtifact,
 } from "./coordinator-bootstrap-artifact.js";
@@ -144,6 +145,18 @@ export async function verifyBootstrapRecoveryArtifacts(
   });
   await readBootstrapPreparedFile(setup.ownershipVerifier, writableMountRoots);
   if (independent) {
+    // A hash-valid older runtime can still implement candidate-bound execution.
+    // Select the versioned contract before reservation, not after it strands a claim.
+    const metadata = await readProtectedDocument(
+      path.join(setup.runtimeDirectory, "packages/server/package.json"),
+    );
+    const support = z.object({
+      vorteoRuntimeContracts: z.object({ independentCoordinatorExecutor: z.literal(1) }),
+    });
+    if (!support.safeParse(JSON.parse(metadata.toString("utf8"))).success)
+      throw new BootstrapRequestConflict(
+        "Prepared runtime does not support independent coordinator execution",
+      );
     await verifyBootstrapPreparedDependency(recovery.node, writableMountRoots);
     const actual = await digestBootstrapArtifact(setup.runtimeDirectory, {
       maxFiles: 10_000,
