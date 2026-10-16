@@ -13220,6 +13220,172 @@ test("idle restart waits for registering sessions and closes admission before ne
   await manager.closeAgent(agent.id);
 });
 
+test("maintenance interruption preserves restart goal continuation and waits for actual settlement", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-goal",
+    agentId: randomUUID(),
+    turnId: "maintenance-turn",
+    interrupt: async (session) => {
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "maintenance-turn",
+      });
+    },
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Continue after restart",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "blocked" && status !== "active")
+          throw new Error("Unexpected status");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
+      }
+      return { goal };
+    },
+    onChange: () => {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    const hold = structuredClone(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold);
+    expect(hold).toMatchObject({ phase: "held", reason: "restart", goal: { status: "blocked" } });
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    };
+    await fixture.manager.interruptRestartDrain(input);
+    expect(fixture.session.interruptCalled).toBe(true);
+    expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("idle");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold).toEqual(hold);
+    expect(goal.status).toBe("blocked");
+    expect(fixture.manager.getRestartImpact().restartDrainId).toBe(id);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("maintenance interruption deadline does not synthesize settlement or replay provider cancellation", async () => {
+  let interrupts = 0;
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-unsettled",
+    agentId: randomUUID(),
+    turnId: "unsettled-maintenance",
+    interrupt: async () => {
+      interrupts++;
+    },
+  });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    vi.useFakeTimers();
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 100,
+    };
+    const result = fixture.manager.interruptRestartDrain(input);
+    const refused = expect(result).rejects.toMatchObject({ code: "deadline_exceeded" });
+    const sameAttempt = expect(fixture.manager.interruptRestartDrain(input)).rejects.toMatchObject({
+      code: "deadline_exceeded",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await refused;
+    await sameAttempt;
+    expect(interrupts).toBe(1);
+    expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
+    expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("running");
+    await expect(
+      fixture.manager.interruptRestartDrain({
+        ...input,
+        generation: randomUUID(),
+        terminateAt: Date.now() + 100,
+      }),
+    ).rejects.toMatchObject({ code: "different_attempt" });
+    expect(interrupts).toBe(1);
+    fixture.session.pushEvent({
+      type: "turn_completed",
+      provider: fixture.session.provider,
+      turnId: "unsettled-maintenance",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).rejects.toMatchObject({ code: "deadline_exceeded" });
+  } finally {
+    vi.useRealTimers();
+    await fixture.cleanup();
+  }
+});
+
+test("maintenance interruption refuses changed lifetime and hold release during provider cancellation", async () => {
+  const pending = deferred<void>();
+  let interrupts = 0;
+  const fixture = await createControlledInterruptFixture({
+    name: "maintenance-release",
+    agentId: randomUUID(),
+    turnId: "released-maintenance",
+    interrupt: async () => {
+      interrupts++;
+      await pending.promise;
+    },
+  });
+  try {
+    await fixture.startForegroundRun();
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    const impact = fixture.manager.getRestartImpact();
+    const input = {
+      requestId: id,
+      generation: randomUUID(),
+      workerPid: impact.workerPid,
+      workerInstanceId: impact.workerInstanceId,
+      terminateAt: Date.now() + 1000,
+    };
+    await expect(
+      fixture.manager.interruptRestartDrain({ ...input, workerInstanceId: randomUUID() }),
+    ).rejects.toMatchObject({ code: "different_worker" });
+    expect(interrupts).toBe(0);
+    vi.useFakeTimers();
+    const result = fixture.manager.interruptRestartDrain(input);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(interrupts).toBe(1);
+    expect(fixture.manager.cancelRestartDrain(id)).toBe(true);
+    const refused = expect(result).rejects.toMatchObject({ code: "hold_released" });
+    pending.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    await refused;
+    expect(fixture.manager.hasInFlightRun(fixture.agentId)).toBe(true);
+    expect(interrupts).toBe(1);
+  } finally {
+    vi.useRealTimers();
+    pending.resolve();
+    await fixture.cleanup();
+  }
+});
+
 test("maintenance checkpoint deadline rejects a hanging flush and fences its late completion", async () => {
   vi.useFakeTimers();
   try {

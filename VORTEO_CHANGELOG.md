@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.583 - 2026-10-15
+
+- Add internal cooperative restart interruption bound to the exact held worker and generation. Preserve restart-owned goal continuation, require observed turn settlement, retain uncertain attempts without repeating provider cancellation, and reject changed holds or expired budgets.
+- Keep this preparation separate from native provider-process cleanup and restart authority. The new path is not exposed or enabled; dispatch wiring, cleanup proof and installed acceptance remain open. README overview and onboarding are unchanged.
+
 ## 0.11.0-beta.3.vorteo.582 - 2026-10-15
 
 - Extend the compiled idle-restart fixture through durable queue recovery. After real supervisor acceptance and worker replacement, reopen the actual lifecycle journal twice, preserve uncertainty, then verify the new worker lifetime and old process exit without another dispatch.

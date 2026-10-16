@@ -196,6 +196,21 @@ export class RestartCheckpointError extends Error {
   }
 }
 
+export class RestartInterruptionError extends Error {
+  constructor(
+    readonly requestId: string,
+    readonly code:
+      | "deadline_exceeded"
+      | "hold_released"
+      | "different_worker"
+      | "different_attempt"
+      | "invalid_deadline",
+  ) {
+    super(`Restart interruption is incomplete: ${code}`);
+    this.name = "RestartInterruptionError";
+  }
+}
+
 export class AgentRunCancellationError extends Error {
   constructor(agentId: string, action: "reload" | "replace" | "rewind" | "stop") {
     super(
@@ -1233,6 +1248,7 @@ export class AgentManager {
   private restartDrainId: string | null = null;
   private readonly restartWorkerInstanceId = randomUUID();
   private committedRestartDrainId: string | null = null;
+  private restartInterruption: { held: HeldRestart; result: Promise<void> } | null = null;
   private readonly cancelledRestartDrains = new Set<string>();
   private readonly restartDrainTasks = new Map<string, Promise<void>>();
   private readonly restartDrainPrepared = new Set<string>();
@@ -1763,6 +1779,62 @@ export class AgentManager {
     } finally {
       clearTimeout(timer!);
     }
+  }
+
+  /** Cooperative preparation only. Actual turn settlement is not native process
+   * cleanup proof and cannot authorize a restart or extend its retained budget. */
+  async interruptRestartDrain(input: HeldRestart): Promise<void> {
+    const held = { ...input };
+    const assertCurrent = () => {
+      if (held.workerPid !== process.pid || held.workerInstanceId !== this.restartWorkerInstanceId)
+        throw new RestartInterruptionError(held.requestId, "different_worker");
+      if (
+        this.restartDrainId !== held.requestId ||
+        this.cancelledRestartDrains.has(held.requestId) ||
+        this.committedRestartDrainId !== null
+      )
+        throw new RestartInterruptionError(held.requestId, "hold_released");
+      const remaining = held.terminateAt - Date.now();
+      if (!Number.isSafeInteger(held.terminateAt) || remaining > 300_000)
+        throw new RestartInterruptionError(held.requestId, "invalid_deadline");
+      if (remaining <= 0) throw new RestartInterruptionError(held.requestId, "deadline_exceeded");
+    };
+    assertCurrent();
+    if (this.restartInterruption) {
+      if (!isDeepStrictEqual(this.restartInterruption.held, held))
+        throw new RestartInterruptionError(held.requestId, "different_attempt");
+      return this.restartInterruption.result;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new RestartInterruptionError(held.requestId, "deadline_exceeded")),
+        held.terminateAt - Date.now(),
+      );
+    });
+    const operation = async () => {
+      await Promise.all(this.restartDrainTasks.values());
+      assertCurrent();
+      for (const agent of this.agents.values()) {
+        if (!this.hasInFlightRun(agent.id)) continue;
+        await this.runForegroundMutation(agent.id, async () => {
+          assertCurrent();
+          const run = this.runs.getRun(agent.id) ?? this.runs.trackAutonomousRun(agent.id, null);
+          await this.interruptSession(agent.session, agent.id);
+          assertCurrent();
+          // An interrupt acknowledgement does not settle a turn. In particular,
+          // never synthesize turn_canceled or revoke the restart goal hold here.
+          await run.settledPromise;
+          assertCurrent();
+        });
+      }
+      assertCurrent();
+    };
+    const result = Promise.race([operation(), expired]).finally(() => clearTimeout(timer!));
+    // Retain even rejected attempts: lost or late completion cannot send another
+    // provider interrupt under a different generation in this worker lifetime.
+    this.restartInterruption = { held, result };
+    return result;
   }
 
   prepareIdleRestart(): boolean {
