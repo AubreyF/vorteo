@@ -2,7 +2,16 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  mkdirSync,
+  symlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, afterEach } from "vitest";
@@ -17,6 +26,11 @@ import {
   retainNativeRecoveryProcess,
   inspectNativeRecoveryRouting,
 } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
+
+import {
+  readSelectedMaintenanceRecoveryAssets,
+  knownMaintenanceRecoveryAssets,
+} from "./coordinator-bootstrap-maintenance-recovery-assets.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -106,17 +120,46 @@ test
     "oversized",
     "redirect",
     "hanging",
+    "selected-assets",
+    "selected-bytes",
+    "cancelled",
   ])(
   "read-only native recovery socket and HTTP assets: %s",
   async (mode) => {
     const f = nativeFixture();
     const origin = "https://recovery.example.test:9443";
+    const documentBytes =
+      mode === "selected-bytes"
+        ? Buffer.concat([Buffer.from(maintenanceRecoveryDocument), Buffer.from([255])])
+        : Buffer.from(
+            mode === "selected-assets"
+              ? maintenanceRecoveryDocument + "\n<!-- selected release -->"
+              : maintenanceRecoveryDocument,
+          );
+    const scriptBytes = Buffer.from(
+      mode === "selected-assets"
+        ? maintenanceRecoveryScript + "\n// selected release"
+        : maintenanceRecoveryScript,
+    );
+    const expectedAssets = {
+      version: 1 as const,
+      document: {
+        path: "/" as const,
+        byteLength: documentBytes.length,
+        sha256: createHash("sha256").update(documentBytes).digest("hex"),
+      },
+      script: {
+        path: "/recovery.js" as const,
+        byteLength: scriptBytes.length,
+        sha256: createHash("sha256").update(scriptBytes).digest("hex"),
+      },
+    };
     const server = createServer((request, response) => {
       if (request.headers.host !== new URL(origin).host) {
         response.writeHead(403).end();
         return;
       }
-      if (mode === "hanging") return;
+      if (mode === "hanging" || mode === "cancelled") return;
       if (mode === "redirect") {
         response.writeHead(302, { Location: "/other" }).end();
         return;
@@ -146,7 +189,7 @@ test
         response.end(maintenanceRecoveryScript + "\nfetch('/unreviewed');");
         return;
       }
-      response.end(script ? maintenanceRecoveryScript : maintenanceRecoveryDocument);
+      response.end(script ? scriptBytes : documentBytes);
     });
     const listening = once(server, "listening");
     server.listen(0, "127.0.0.1");
@@ -154,8 +197,26 @@ test
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Fixture socket unavailable");
     try {
-      const observation = inspectNativeRecoveryListener({ ...f, origin, listenPort: address.port });
-      if (mode !== "valid") {
+      const controller = new AbortController();
+      const observation = inspectNativeRecoveryListener({
+        ...f,
+        origin,
+        listenPort: address.port,
+        expectedAssets,
+        signal: controller.signal,
+      });
+      if (mode === "cancelled") {
+        const reason = new Error("Fixture owner cancelled collection");
+        controller.abort(reason);
+        try {
+          await observation;
+          expect.fail("Cancelled collection returned proof");
+        } catch (error) {
+          expect(error instanceof Error && "cause" in error ? error.cause : error).toBe(reason);
+        }
+        return;
+      }
+      if (mode !== "valid" && mode !== "selected-assets" && mode !== "selected-bytes") {
         await expect(observation).rejects.toThrow();
         return;
       }
@@ -218,5 +279,45 @@ test
     writeFileSync(serveFile, JSON.stringify(state.serve));
     if (["routing", "machine", "cli"].includes(mode)) expect(custody.assertCurrent).toThrow();
     else custody.assertCurrent();
+  },
+);
+
+test.each(["valid", "changed", "wrong-path", "oversized", "symlink", "mounted", "legacy-unknown"])(
+  "selected recovery asset custody: %s",
+  async (mode) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-assets-")));
+    chmodSync(root, 0o700);
+    roots.push(root);
+    const directory = path.join(root, "packages/server/dist/server/server/execution-installation");
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const file = path.join(directory, "coordinator-bootstrap-maintenance-recovery-assets.json");
+    const manifest = knownMaintenanceRecoveryAssets();
+    if (mode === "wrong-path") Object.assign(manifest.document, { path: "/foreign" });
+    if (mode === "oversized") manifest.script.byteLength = 17000;
+    if (mode === "legacy-unknown")
+      writeFileSync(
+        path.join(directory, "coordinator-bootstrap-maintenance-recovery-page.js"),
+        "unreviewed module",
+        { mode: 0o600 },
+      );
+    else if (mode === "symlink") {
+      writeFileSync(file + ".original", JSON.stringify(manifest), { mode: 0o600 });
+      symlinkSync(file + ".original", file);
+    } else writeFileSync(file, JSON.stringify(manifest), { mode: 0o600 });
+    const proof = readSelectedMaintenanceRecoveryAssets({
+      runtimeDirectory: root,
+      writableMountRoots: mode === "mounted" ? [root] : [],
+    });
+    if (mode !== "valid" && mode !== "changed") {
+      await expect(proof).rejects.toThrow();
+      return;
+    }
+    const current = await proof;
+    expect(current.assets).toEqual(manifest);
+    current.assertCurrent();
+    if (mode === "changed") {
+      writeFileSync(file, JSON.stringify({ ...manifest, version: 2 }));
+      expect(current.assertCurrent).toThrow();
+    }
   },
 );

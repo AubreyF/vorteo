@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.654 - 2026-10-17
+
+### Fixed
+
+- Verify recovery-launcher readiness through its selected native process, exact loopback socket and reviewed page assets. Keep controller descriptor readiness unchanged. Package data-only asset lengths and hashes from the actual compiled page, retain protected metadata custody before reads, and compare response bytes without executing target modules in the observer.
+- Combine caller cancellation with bounded native HTTP probes and retain the existing five-second listener freshness. Legacy pages without metadata require an exact match to the observer's known asset module. Registration and bookmark inspection use selected asset proof too.
+- The preceding disposable compiled queue recovered one consumed controller generation after timeout and revocation without replay. Launcher replacement, Dev and installed activation acceptance remain open; no recovery capability or installation is enabled by this source change.
+
 ## 0.11.0-beta.3.vorteo.653 - 2026-10-17
 
 ### Maintenance

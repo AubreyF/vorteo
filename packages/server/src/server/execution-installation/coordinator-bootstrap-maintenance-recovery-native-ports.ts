@@ -41,9 +41,11 @@ import { MaintenanceLauncherIntentSchema } from "./coordinator-bootstrap-mainten
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import { inspectSelectedMaintenanceRecoveryAccess } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 import {
-  maintenanceRecoveryDocument,
-  maintenanceRecoveryScript,
-} from "./coordinator-bootstrap-maintenance-recovery-page.js";
+  knownMaintenanceRecoveryAssets,
+  readSelectedMaintenanceRecoveryAssets,
+  type MaintenanceRecoveryAssets,
+} from "./coordinator-bootstrap-maintenance-recovery-assets.js";
+import { createHash } from "node:crypto";
 
 const backendIdentity = z.object({
   BackendState: z.string(),
@@ -158,7 +160,7 @@ function readRecoveryAsset(input: {
   port: number;
   asset: string;
   signal: AbortSignal;
-}): Promise<string> {
+}): Promise<Buffer> {
   // Native fetch rewrites Host to the loopback address. The protected listener
   // requires the reviewed HTTPS host even on this direct local connection.
   return new Promise((resolve, reject) => {
@@ -204,7 +206,7 @@ function readRecoveryAsset(input: {
           }
           chunks.push(chunk);
         });
-        response.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        response.once("end", () => resolve(Buffer.concat(chunks)));
       },
     );
     probe.once("error", reject);
@@ -217,11 +219,15 @@ export async function inspectNativeRecoveryListener(
     process: NativeProcess;
     origin: string;
     listenPort: number;
+    expectedAssets?: MaintenanceRecoveryAssets;
+    signal?: AbortSignal;
   },
 ) {
+  input.signal?.throwIfAborted();
   const custody = await retainNativeRecoveryProcess(input);
   assertNativeRecoveryListener(custody.process, input.listenPort);
-  const signal = AbortSignal.timeout(5000);
+  const deadline = AbortSignal.timeout(5000);
+  const signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
   const [document, script] = await Promise.all([
     readRecoveryAsset({ origin: input.origin, port: input.listenPort, asset: "/", signal }),
     readRecoveryAsset({
@@ -231,10 +237,19 @@ export async function inspectNativeRecoveryListener(
       signal,
     }),
   ]);
-  if (document !== maintenanceRecoveryDocument || script !== maintenanceRecoveryScript)
+  signal.throwIfAborted();
+  const expected = input.expectedAssets ?? knownMaintenanceRecoveryAssets();
+  const matches = (
+    bytes: Buffer,
+    asset: MaintenanceRecoveryAssets["document"] | MaintenanceRecoveryAssets["script"],
+  ) =>
+    bytes.length === asset.byteLength &&
+    createHash("sha256").update(bytes).digest("hex") === asset.sha256;
+  if (!matches(document, expected.document) || !matches(script, expected.script))
     throw new BootstrapRequestConflict("Recovery listener does not serve its independent page");
   const observedAt = Date.now();
   const assertCurrent = () => {
+    input.signal?.throwIfAborted();
     if (Date.now() - observedAt >= 5000)
       throw new BootstrapRequestConflict("Recovery listener observation expired");
     custody.assertCurrent();
@@ -267,7 +282,9 @@ export async function inspectNativeRecoveryAccess(input: {
   setupFile: string;
   account: { uid: number; home: string };
   stateDirectory: string;
+  signal?: AbortSignal;
 }) {
+  input.signal?.throwIfAborted();
   const startup = await readMaintenanceLauncherStartup(input);
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse(
@@ -281,8 +298,14 @@ export async function inspectNativeRecoveryAccess(input: {
     writableMountRoots,
     ports,
   });
+  const assets = await readSelectedMaintenanceRecoveryAssets({
+    runtimeDirectory: current.startup.selected.directory,
+    writableMountRoots,
+  });
   const listener = await inspectNativeRecoveryListener({
     ...admission,
+    expectedAssets: assets.assets,
+    signal: input.signal,
     writableMountRoots,
     process: current.process,
     origin: current.access.origin,
@@ -290,6 +313,7 @@ export async function inspectNativeRecoveryAccess(input: {
   });
   const assertCurrent = () => {
     current.assertCurrent();
+    assets.assertCurrent();
     listener.assertCurrent();
   };
   assertCurrent();
@@ -494,11 +518,23 @@ export async function createNativeRecoveryRegistrationPorts(
         throw new BootstrapRequestConflict(
           "Recovery listener process differs from native registration",
         );
-      listener = await inspectNativeRecoveryListener({
+      const assets = await readSelectedMaintenanceRecoveryAssets({
+        runtimeDirectory: context.plan.candidate.directory,
+        writableMountRoots: roots,
+      });
+      const native = await inspectNativeRecoveryListener({
         ...observed,
         ...admission,
         writableMountRoots: roots,
+        expectedAssets: assets.assets,
       });
+      listener = {
+        assertCurrent() {
+          assets.assertCurrent();
+          native.assertCurrent();
+        },
+      };
+      listener.assertCurrent();
       return listener;
     },
     async run(executable, args, assertWithinDeadline) {

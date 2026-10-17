@@ -351,20 +351,32 @@ export async function inspectMaintenanceServiceReadiness(input: {
     )
       throw new BootstrapRequestConflict("Native readiness custody changed");
   };
-  const health = await readRegisteredMaintenanceRuntimeReadiness({
-    installationRoot: identity.installationRoot,
-    writableMountRoots: input.writableMountRoots,
-    expected: {
-      installationId: identity.installationId,
-      target: identity.target,
-      identitySha256,
-      sourceCommit: selected.sourceCommit,
-      artifactSha256: selected.artifactSha256,
-      process,
-    },
-    signal: input.signal,
-    assertCurrent,
-  });
+  const target = identity.target;
+  const controllerReadiness = () =>
+    readRegisteredMaintenanceRuntimeReadiness({
+      installationRoot: identity.installationRoot,
+      writableMountRoots: input.writableMountRoots,
+      expected: {
+        installationId: identity.installationId,
+        target,
+        identitySha256,
+        sourceCommit: selected.sourceCommit,
+        artifactSha256: selected.artifactSha256,
+        process,
+      },
+      signal: input.signal,
+      assertCurrent,
+    });
+  const health =
+    identity.target === "maintenance-controller"
+      ? await controllerReadiness()
+      : await inspectRecoveryPageReadiness({
+          startup,
+          process,
+          signal: input.signal,
+          writableMountRoots: input.writableMountRoots,
+          assertCurrent,
+        });
   const observedAt = new Date().toISOString();
   const record = MaintenanceServiceEvidenceRecordSchema.parse({
     requestId: context.job.id,
@@ -409,6 +421,58 @@ export async function inspectMaintenanceServiceReadiness(input: {
     record,
     assertCurrent: health.assertCurrent,
   };
+}
+
+async function inspectRecoveryPageReadiness(input: {
+  startup: Awaited<ReturnType<typeof readMaintenanceLauncherStartup>>;
+  process: ProcessIdentity;
+  signal: AbortSignal;
+  writableMountRoots: readonly string[];
+  assertCurrent(): void;
+}) {
+  const access = input.startup.setup.control?.recoveryAccess;
+  if (!access || access.installationId !== input.startup.plan.identity.installationId)
+    throw new BootstrapRequestConflict(
+      "Selected recovery page has no exact listener configuration",
+    );
+  const assertAdmission = retainServiceFiles([input.startup.setup.nativeAdmission.path]);
+  const { BootstrapAdmissionSetupSchema } = await import("./coordinator-bootstrap-host.js");
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse(
+      (
+        await readBootstrapPreparedFile(
+          input.startup.setup.nativeAdmission,
+          input.writableMountRoots,
+        )
+      ).toString("utf8"),
+    ),
+  );
+  const { readSelectedMaintenanceRecoveryAssets } =
+    await import("./coordinator-bootstrap-maintenance-recovery-assets.js");
+  const assets = await readSelectedMaintenanceRecoveryAssets({
+    runtimeDirectory: input.startup.selected.directory,
+    writableMountRoots: input.writableMountRoots,
+  });
+  const { inspectNativeRecoveryListener } =
+    await import("./coordinator-bootstrap-maintenance-recovery-native-ports.js");
+  const listener = await inspectNativeRecoveryListener({
+    ...admission,
+    writableMountRoots: input.writableMountRoots,
+    process: input.process,
+    origin: access.origin,
+    listenPort: access.listenPort,
+    expectedAssets: assets.assets,
+    signal: input.signal,
+  });
+  const assertCurrent = () => {
+    input.signal.throwIfAborted();
+    assertAdmission();
+    assets.assertCurrent();
+    listener.assertCurrent();
+    input.assertCurrent();
+  };
+  assertCurrent();
+  return { ready: true, assertCurrent };
 }
 
 function inspectReadinessSelection(
