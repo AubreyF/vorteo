@@ -1,4 +1,5 @@
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
+import { attemptHostContinuationCommand } from "./host-supervisor-command-admission.js";
 import {
   assertMaintenanceEnrollmentClaim,
   unresolvedMaintenanceActivations,
@@ -7,6 +8,7 @@ import { inspectLifecycleActivationChild } from "../coordinator-bootstrap-mainte
 import {
   reconcileInitialHostActivation,
   reconcileNativeInitialHostActivation,
+  type HostContinuationObservationInvocation,
 } from "./host-supervisor-activation.js";
 import {
   executeInitialHostMigrationTransition,
@@ -5520,6 +5522,449 @@ test("Host activation parent refuses changed enrollment interruption before rese
   });
 });
 
+function hostContinuationActivationFixture() {
+  const f = hostContinuationFixture();
+  const planFile = f.restoreInput.publication.plan.path;
+  mkdirSync(path.dirname(planFile), { recursive: true, mode: 0o700 });
+  writeFileSync(planFile, f.restoreInput.publication.plan.bytes!, { mode: 0o600 });
+  const ports = {
+    prepare: vi.fn(async () => {
+      throw new Error("Continuation must not prepare initial migration");
+    }),
+    observe: vi.fn(async () => {
+      throw new Error("Continuation must not observe an initial claim");
+    }),
+    observeContinuation: vi.fn(async (_input: HostContinuationObservationInvocation) => undefined),
+  };
+  return {
+    ...f,
+    planFile,
+    activationInput: {
+      installationId: f.plan.installationId,
+      installationRoot: f.directory,
+      stateDirectory: f.directory,
+    },
+    activationPorts: ports,
+  };
+}
+
+test.each(["restoration", "candidate"] as const)(
+  "Host continuation caller preserves unclaimed %s without initial lookup or effects",
+  async (role) => {
+    const f = hostContinuationActivationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    if (role === "candidate") {
+      f.consume("restoration");
+      f.observe("restoration");
+      reserveHostCandidateContinuation(f.journal, f.candidateInput());
+    }
+    const child = f.lineage().candidate ?? f.lineage().restoration;
+    // A coincidentally present initial claim must never select the old route.
+    writeFileSync(
+      path.join(f.directory, `initial-host-claim-${f.second}-${child.generation}.json`),
+      "Unrelated initial-claim namespace",
+      { mode: 0o600 },
+    );
+    const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+    expect(await reconcileInitialHostActivation(f.activationInput, f.activationPorts)).toBe(
+      "unresolved",
+    );
+    expect(f.activationPorts.prepare).not.toHaveBeenCalled();
+    expect(f.activationPorts.observe).not.toHaveBeenCalled();
+    expect(f.activationPorts.observeContinuation).not.toHaveBeenCalled();
+    expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  },
+);
+
+test("Host continuation caller observes the exact restoration without completing activation", async () => {
+  const f = hostContinuationActivationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  f.activationPorts.observeContinuation.mockImplementation(async (input) => {
+    expect(input.role).toBe("restoration");
+    expect(input.generation).toBe(f.lineage().restoration.generation);
+    expect(input.lineage).toEqual(f.lineage());
+    f.observe("restoration");
+  });
+  expect(await reconcileInitialHostActivation(f.activationInput, f.activationPorts)).toBe(
+    "unresolved",
+  );
+  expect(enrolled(f.journal.read()).activation.steps[1].status).toBe("recovery_required");
+  expect(await reconcileInitialHostActivation(f.activationInput, f.activationPorts)).toBe(
+    "unresolved",
+  );
+  expect(f.activationPorts.observeContinuation).toHaveBeenCalledTimes(1);
+  expect(f.activationPorts.prepare).not.toHaveBeenCalled();
+  expect(f.activationPorts.observe).not.toHaveBeenCalled();
+});
+
+test("Host continuation caller observes only the active candidate after revocation", async () => {
+  const f = hostContinuationActivationFixture();
+  f.restore();
+  reserveHostCandidateContinuation(f.journal, f.candidateInput());
+  f.consume("candidate");
+  changeStandingGrant(f.journal, {
+    expectedRevision: enrolled(f.journal.read()).grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.activationPorts.observeContinuation.mockImplementation(async (input) => {
+    expect(input.role).toBe("candidate");
+    expect(input.generation).toBe(f.lineage().candidate!.generation);
+    expect(input.lineage).toEqual(f.lineage());
+    f.observe("candidate");
+  });
+  expect(await reconcileInitialHostActivation(f.activationInput, f.activationPorts)).toBe(
+    "verified",
+  );
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  expect(await reconcileInitialHostActivation(f.activationInput, f.activationPorts)).toBe(
+    "verified",
+  );
+  expect(f.activationPorts.observeContinuation).toHaveBeenCalledTimes(1);
+  expect(f.activationPorts.prepare).not.toHaveBeenCalled();
+  expect(f.activationPorts.observe).not.toHaveBeenCalled();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+});
+
+test("Host continuation caller refuses missing observation capability without constructing effects", async () => {
+  const f = hostContinuationActivationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  const { observeContinuation: _unused, ...ports } = f.activationPorts;
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  expect(await reconcileInitialHostActivation(f.activationInput, ports)).toBe("unresolved");
+  expect(ports.prepare).not.toHaveBeenCalled();
+  expect(ports.observe).not.toHaveBeenCalled();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+});
+
+test("Host continuation caller rejects changed observation bindings without initial fallback", async () => {
+  const f = hostContinuationActivationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  f.activationPorts.observeContinuation.mockImplementation(async (input) => {
+    input.lineage.restoration.generation = randomUUID();
+  });
+  await expect(
+    reconcileInitialHostActivation(f.activationInput, f.activationPorts),
+  ).rejects.toThrow("observation binding changed");
+  expect(f.activationPorts.prepare).not.toHaveBeenCalled();
+  expect(f.activationPorts.observe).not.toHaveBeenCalled();
+});
+
+function hostCommandAttemptFixture(role: "restoration" | "candidate" = "restoration") {
+  const f = hostContinuationFixture();
+  if (role === "candidate") {
+    f.restore();
+    reserveHostCandidateContinuation(f.journal, f.candidateInput());
+  } else reserveHostRestoration(f.journal, f.restoreInput);
+  const lineage = f.lineage();
+  const child = lineage.candidate ?? lineage.restoration;
+  const executor = {
+    ...f.plan.precondition.supervisor,
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    executable: realpathSync(process.execPath),
+    startIdentity: "1900:1",
+  };
+  const input = {
+    grantRevision: child.grantRevision,
+    stepId: f.second,
+    generation: child.generation,
+    role,
+    plan: f.plan,
+    reservationSha256: hostContinuationReservationDigest(lineage, role),
+    intentSha256: (role === "candidate" ? "5" : "4").repeat(64),
+    claimSha256: (role === "candidate" ? "7" : "6").repeat(64),
+    executor,
+    publication: role === "restoration" ? f.restoreInput.publication : null,
+    ...f.ports,
+  };
+  consumeHostContinuation(f.journal, input);
+  const prefix = path.join(
+    f.directory,
+    `host-continuation-${f.second}-${role}-${child.generation}`,
+  );
+  const fence = {
+    file: prefix + "-bootstrap-attempt.json",
+    bytes: Buffer.from(
+      JSON.stringify({
+        version: 1,
+        role,
+        stepId: f.second,
+        generation: child.generation,
+        reservationSha256: input.reservationSha256,
+        intentSha256: input.intentSha256,
+        claimSha256: input.claimSha256,
+        planSha256: lineage.binding.planSha256,
+        operation: "bootstrap",
+      }),
+    ),
+  };
+  writeFileSync(fence.file, fence.bytes, { mode: 0o600 });
+  const owner = {
+    operation: "bootstrap" as const,
+    executor: structuredClone(executor),
+    command: { kind: "inert-unit-command", action: "bootstrap" },
+    channel: { fixture: true },
+    channelIdentity: { fixture: true, token: randomUUID() },
+    scope: {
+      identitySha256: f.plan.identitySha256,
+      artifactSha256: (role === "candidate" ? f.plan.candidate : f.plan.fallback).artifactSha256,
+      preconditionSha256:
+        role === "candidate"
+          ? lineage.candidate!.evidence.preconditionSha256
+          : f.plan.preconditionSha256,
+    },
+    fence,
+    assertCurrent: vi.fn(() => undefined),
+    enqueue: vi.fn(() => undefined),
+  };
+  return {
+    ...f,
+    commandInput: input,
+    owner,
+    attemptFile: prefix + "-bootstrap-queue-attempt.json",
+  };
+}
+
+test("Host command queue attempt is exclusive across reconstructed factories", () => {
+  const f = hostCommandAttemptFixture();
+  const competing = () =>
+    new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined);
+  f.owner.enqueue.mockImplementation(() => {
+    expect(competing).toThrow("storage is busy");
+  });
+  attemptHostContinuationCommand(f.journal, f.commandInput, f.owner);
+  const before = readFileSync(f.attemptFile);
+  expect(f.owner.enqueue).toHaveBeenCalledTimes(1);
+  const reopened = { ...f.owner, enqueue: vi.fn(() => undefined) };
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, reopened)).toThrow();
+  expect(reopened.enqueue).not.toHaveBeenCalled();
+  expect(readFileSync(f.attemptFile)).toEqual(before);
+});
+
+test.each(["executor", "scope", "fence", "native", "callback", "command"])(
+  "Host command queue refuses invalid %s before consuming the attempt",
+  (changed) => {
+    const f = hostCommandAttemptFixture();
+    if (changed === "executor") f.owner.executor.bootId = randomUUID();
+    if (changed === "scope") f.owner.scope.artifactSha256 = "0".repeat(64);
+    if (changed === "fence") f.owner.fence.file += ".other";
+    if (changed === "native")
+      f.owner.assertCurrent.mockImplementation(() => {
+        throw new Error("Independent native lifetime unavailable");
+      });
+    if (changed === "callback")
+      f.owner.assertCurrent.mockImplementation(() => {
+        f.owner.enqueue = vi.fn(() => undefined);
+      });
+    if (changed === "command")
+      f.owner.assertCurrent.mockImplementation(() => {
+        f.owner.command.action = "changed";
+      });
+    expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+    expect(existsSync(f.attemptFile)).toBe(false);
+    expect(f.owner.enqueue).not.toHaveBeenCalled();
+  },
+);
+
+test("Host command queue leaves refused final admission consumed", () => {
+  const f = hostCommandAttemptFixture();
+  const update = f.journal.update.bind(f.journal);
+  let calls = 0;
+  const spy = vi.spyOn(f.journal, "update").mockImplementation((callback) => {
+    const result = update(callback);
+    if (++calls === 1)
+      changeStandingGrant(f.journal, {
+        expectedRevision: enrolled(result).grant.revision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    return result;
+  });
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  spy.mockRestore();
+  expect(existsSync(f.attemptFile)).toBe(true);
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+});
+
+test.each(["throw", "thenable", "final-fsync"])(
+  "Host command queue preserves uncertainty after %s without replay",
+  (failure) => {
+    const f = hostCommandAttemptFixture();
+    const enqueue = vi.fn(() => {
+      if (failure === "throw") throw new Error("Queue outcome uncertain");
+      return failure === "thenable" ? Promise.resolve() : undefined;
+    });
+    const owner = { ...f.owner, enqueue };
+    const journal =
+      failure === "final-fsync"
+        ? new FileEnrollmentJournal(f.directory, {
+            ...enrollmentWriteFiles,
+            sync(fd) {
+              if (enqueue.mock.calls.length) throw new Error("Final enrollment fsync failed");
+              enrollmentWriteFiles.sync(fd);
+            },
+          })
+        : f.journal;
+    expect(() => attemptHostContinuationCommand(journal, f.commandInput, owner)).toThrow();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const before = readFileSync(f.attemptFile);
+    expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, owner)).toThrow();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(readFileSync(f.attemptFile)).toEqual(before);
+  },
+);
+
+test("Host command queue fences uncertain attempt synchronization before any enqueue", () => {
+  const f = hostCommandAttemptFixture();
+  expect(() =>
+    attemptHostContinuationCommand(f.journal, f.commandInput, f.owner, {
+      ...enrollmentWriteFiles,
+      sync() {
+        throw new Error("Attempt synchronization uncertain");
+      },
+    }),
+  ).toThrow("Attempt synchronization uncertain");
+  const before = readFileSync(f.attemptFile);
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  expect(readFileSync(f.attemptFile)).toEqual(before);
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+});
+
+test.each(["channel", "attempt"])(
+  "Host command queue refuses changed %s after durability",
+  (changed) => {
+    const f = hostCommandAttemptFixture();
+    const update = f.journal.update.bind(f.journal);
+    let calls = 0;
+    vi.spyOn(f.journal, "update").mockImplementation((callback) => {
+      const result = update(callback);
+      if (++calls === 1) {
+        if (changed === "channel") f.owner.channel = { fixture: true };
+        else writeFileSync(f.attemptFile, "substituted queue attempt");
+      }
+      return result;
+    });
+    expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+    expect(f.owner.enqueue).not.toHaveBeenCalled();
+    if (changed === "attempt")
+      expect(readFileSync(f.attemptFile, "utf8")).toBe("substituted queue attempt");
+  },
+);
+
+test("Host command queue rejects a revoked original owner before creating its attempt", () => {
+  const f = hostCommandAttemptFixture();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.commandInput.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  expect(existsSync(f.attemptFile)).toBe(false);
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+});
+
+test("Host command queue rejects attempt mutation inside native custody", () => {
+  const f = hostCommandAttemptFixture();
+  f.owner.assertCurrent.mockImplementation(() => {
+    if (existsSync(f.attemptFile)) writeFileSync(f.attemptFile, "changed during native inspection");
+  });
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+  expect(readFileSync(f.attemptFile, "utf8")).toBe("changed during native inspection");
+});
+
+test("Host command queue rereads authority after the last native callback", () => {
+  const probe = hostCommandAttemptFixture();
+  let probeCalls = 0;
+  let lastBeforeQueue = 0;
+  probe.owner.assertCurrent.mockImplementation(() => {
+    probeCalls++;
+  });
+  probe.owner.enqueue.mockImplementation(() => {
+    lastBeforeQueue = probeCalls;
+  });
+  attemptHostContinuationCommand(probe.journal, probe.commandInput, probe.owner);
+  expect(lastBeforeQueue).toBeGreaterThan(0);
+
+  const f = hostCommandAttemptFixture();
+  const stateFile = path.join(f.directory, "maintenance-enrollment.json");
+  const before = readFileSync(stateFile);
+  let calls = 0;
+  f.owner.assertCurrent.mockImplementation(() => {
+    if (++calls === lastBeforeQueue) {
+      // Inject a change inside the final native callback, without using the
+      // already-held lock. Admission must reread these bytes before queueing.
+      const changed = JSON.parse(readFileSync(stateFile, "utf8"));
+      changed.grant.revokedAt = new Date().toISOString();
+      changed.grant.revision = randomUUID();
+      writeFileSync(stateFile, JSON.stringify(changed));
+    }
+  });
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+  expect(existsSync(f.attemptFile)).toBe(true);
+  writeFileSync(stateFile, before);
+  expect(() => attemptHostContinuationCommand(f.journal, f.commandInput, f.owner)).toThrow();
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+});
+
+test("Host command queue refuses interruption under the restoration role", () => {
+  const f = hostCommandAttemptFixture();
+  expect(() =>
+    attemptHostContinuationCommand(f.journal, f.commandInput, {
+      ...f.owner,
+      operation: "interruption",
+    }),
+  ).toThrow("not permitted");
+  expect(existsSync(f.attemptFile)).toBe(false);
+  expect(f.owner.enqueue).not.toHaveBeenCalled();
+});
+
+test.each(["interruption", "retirement", "bootstrap"] as const)(
+  "Host command queue binds candidate %s to its reviewed target",
+  (operation) => {
+    const f = hostCommandAttemptFixture("candidate");
+    const record = JSON.parse(f.owner.fence.bytes.toString("utf8"));
+    const owner = {
+      ...f.owner,
+      operation,
+      scope: {
+        ...f.owner.scope,
+        artifactSha256:
+          operation === "bootstrap"
+            ? f.plan.candidate.artifactSha256
+            : f.plan.fallback.artifactSha256,
+      },
+      fence: {
+        file: f.owner.fence.file.replace("-bootstrap-attempt.json", `-${operation}-attempt.json`),
+        bytes: Buffer.from(JSON.stringify({ ...record, operation })),
+      },
+    };
+    writeFileSync(owner.fence.file, owner.fence.bytes, { mode: 0o600 });
+    attemptHostContinuationCommand(f.journal, f.commandInput, owner);
+    expect(owner.enqueue).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(
+        readFileSync(
+          f.attemptFile.replace(
+            "-bootstrap-queue-attempt.json",
+            `-${operation}-queue-attempt.json`,
+          ),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ command: operation, role: "candidate", scope: owner.scope });
+  },
+);
+
 test("initial Host child claim consumes its exact intent once without changing activation", () => {
   const f = initialHostClaimFixture();
   const enrollment = path.join(f.directory, "maintenance-enrollment.json");
@@ -7439,3 +7884,768 @@ test("Host restoration child v2 callback receiver cannot rewrite its private bas
   expect(existsSync(f.paths.claim)).toBe(false);
   expect(f.bootstrap).not.toHaveBeenCalled();
 });
+
+import { renameSync } from "node:fs";
+import { readlinkSync } from "node:fs";
+import {
+  HostCandidatePreparationSchema,
+  HostCandidateLaunchIntentSchema,
+  readHostCandidatePreparation,
+  consumeHostCandidateChild,
+  publishHostCandidateContinuation,
+  observeHostCandidateContinuation,
+  executeHostCandidateContinuation,
+  type HostCandidateExecutionPorts,
+  type HostCandidatePublicationPorts,
+  type HostCandidateObservationPorts,
+  type HostCandidateClaimHandle,
+} from "./host-supervisor-candidate-continuation.js";
+import {
+  hostContinuationPaths,
+  hostContinuationPublicationRecords,
+  HostContinuationPhaseSchema,
+} from "./host-supervisor-continuation.js";
+
+async function hostCandidateChildFixture(mode?: "stale-pin") {
+  const f = hostRestorationChildFixture();
+  expect((await executeHostRestorationChild(f.input, f.ports)).status).toBe("bootstrap-requested");
+  expect((await observeHostRestorationChild(f.input, f.observer)).status).toBe("legacy-restored");
+  const restored = JSON.parse(readFileSync(f.paths.result, "utf8"));
+  const captured = (file: string) => {
+    const bytes = readFileSync(file);
+    return {
+      path: file,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      bytesBase64: bytes.toString("base64"),
+    };
+  };
+  const id = randomUUID(),
+    state = enrolled(f.journal.read());
+  const preparation = HostCandidatePreparationSchema.parse({
+    version: 1,
+    operation: "host-candidate-preparation",
+    id,
+    installationId: f.plan.installationId,
+    grantId: state.grant.id,
+    grantRevision: state.grant.revision,
+    manifestSha256: state.activation.manifestSha256,
+    stepId: f.second,
+    planSha256: f.intent.planSha256,
+    originalClaimSha256: f.lineage().original.claimSha256,
+    restorationGeneration: f.lineage().restoration.generation,
+    restorationObservationSha256: f.lineage().restoration.observation!.observationSha256,
+    restorationChildExitSha256: f.lineage().restoration.observation!.childExitSha256,
+    image: {
+      original: {
+        plan: captured(f.restoreInput.publication.plan.path),
+        intent: captured(f.restoreInput.publication.intent.path),
+        claim: captured(f.restoreInput.publication.claim.path),
+      },
+      restoration: Object.fromEntries(
+        [
+          "intent",
+          "claim",
+          "phase",
+          "launcherAttempt",
+          "selectorAttempt",
+          "bootstrapAttempt",
+          "result",
+        ].map((key) => [key, captured(Reflect.get(f.paths, key))]),
+      ),
+      launcher: captured(f.plan.precondition.launcher.path),
+      selector: {
+        path: f.plan.precondition.identity.selectionPath!,
+        text: readlinkSync(f.plan.precondition.identity.selectionPath!),
+        resolvedTarget: realpathSync(f.plan.precondition.identity.selectionPath!),
+      },
+    },
+    precondition: {
+      ...f.plan.precondition,
+      purpose: "host-candidate-continuation",
+      provenance: "sealed-fallback-and-native-custody",
+      selectedRelease: f.plan.fallback.directory,
+      sourceCommit: f.plan.fallback.sourceCommit,
+      supervisor: restored.supervisor,
+      worker: restored.worker,
+      observedAt: new Date().toISOString(),
+    },
+  });
+  const pinFile = path.join(
+    f.directory,
+    `host-continuation-${f.second}-candidate-preparation-${id}.json`,
+  );
+  // Synthetic native-owner pin only; no producer/election or native proof exists in this fixture.
+  writeFileSync(pinFile, JSON.stringify(preparation), { flag: "wx", mode: 0o600 });
+  if (mode === "stale-pin")
+    changeStandingGrant(f.journal, {
+      expectedRevision: state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: false,
+    });
+  const pinned = readHostCandidatePreparation({
+    journal: f.journal,
+    stepId: f.second,
+    plan: f.plan,
+    preparationId: id,
+  });
+  reserveHostCandidateContinuation(f.journal, {
+    ...f.candidateInput(),
+    evidence: pinned.evidence,
+    assertCurrent() {
+      pinned.assertCurrent();
+    },
+  });
+  const child = f.lineage().candidate!;
+  const paths = hostContinuationPaths(f.directory, f.second, "candidate", child.generation);
+  const intent = HostCandidateLaunchIntentSchema.parse({
+    ...f.intent,
+    role: "candidate",
+    generation: child.generation,
+    grantRevision: child.grantRevision,
+    reservationSha256: hostContinuationReservationDigest(f.lineage(), "candidate"),
+    preparationId: id,
+    preparationSha256: pinned.pin.sha256,
+    restorationGeneration: preparation.restorationGeneration,
+    restorationObservationSha256: preparation.restorationObservationSha256,
+    restorationChildExitSha256: preparation.restorationChildExitSha256,
+    preconditionSha256: pinned.evidence.preconditionSha256,
+    publicationSnapshotSha256: pinned.evidence.publicationSnapshotSha256,
+    createdAt: new Date().toISOString(),
+  });
+  writeFileSync(paths.intent, JSON.stringify(intent), { flag: "wx", mode: 0o600 });
+  const nativeBirth = () => {
+    const now = Date.now();
+    return `${Math.floor(now / 1000)}:${(now % 1000) * 1000}`;
+  };
+  const executor = { ...f.executor, startIdentity: nativeBirth() };
+  const input = {
+    journal: f.journal,
+    stepId: f.second,
+    generation: child.generation,
+    plan: f.plan,
+  };
+  const custody = {
+    assertCurrent: vi.fn(() => undefined),
+    assertExclusive: f.ports.assertExclusive,
+  };
+  let handle: HostCandidateClaimHandle | undefined;
+  const consume = () => {
+    handle = consumeHostCandidateChild(input, executor, custody);
+    return handle;
+  };
+  const publish = (ports: HostCandidatePublicationPorts) => {
+    if (!handle) throw new Error("Claim uncertain; observe only");
+    return publishHostCandidateContinuation(handle, ports);
+  };
+  const prepared = {
+    ...f.prepared,
+    launcher: Buffer.from("Candidate Host launcher"),
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const publication = (): HostCandidatePublicationPorts => ({
+    ...custody,
+    prepared,
+    absence: {
+      ...f.absence,
+      observedAt: new Date().toISOString(),
+      assertCurrent: vi.fn(() => undefined),
+    },
+    closure: {
+      claimSha256: f.lineage().candidate!.claim!.claimSha256,
+      preconditionSha256: intent.preconditionSha256,
+      evidenceSha256: "6".repeat(64),
+      assertCurrent: vi.fn(() => undefined),
+    },
+  });
+  let candidateSupervisor: EnrollmentDaemonObservation["supervisor"] | undefined;
+  const observer: HostCandidateObservationPorts = {
+    reader: { verifyProcessExited: vi.fn(async () => undefined) },
+    assertControlCurrent: vi.fn(() => undefined),
+    collectPrepared: vi.fn(async () => prepared),
+    collectCandidate: vi.fn(async () => {
+      candidateSupervisor ??= { ...restored.supervisor, pid: 1901, startIdentity: nativeBirth() };
+      const supervisor = candidateSupervisor;
+      return {
+        descriptor: f.plan.precondition.identity,
+        identitySha256: f.plan.identitySha256,
+        custodyStateDirectory: f.directory,
+        writableMountRoots: [],
+        serverId: f.plan.precondition.serverId,
+        selectedRelease: f.plan.candidate.directory,
+        sourceCommit: f.plan.candidate.sourceCommit,
+        supervisor,
+        worker: { ...supervisor, pid: 1902, parentPid: 1901 },
+        observedAt: new Date().toISOString(),
+        assertCurrent: vi.fn(() => undefined),
+      };
+    }),
+  };
+  return {
+    ...f,
+    candidateInput: input,
+    candidatePaths: paths,
+    preparation,
+    pinned,
+    pinFile,
+    candidateIntent: intent,
+    candidateExecutor: executor,
+    custody,
+    consumeCandidate: consume,
+    publishCandidate: publish,
+    candidatePrepared: prepared,
+    publicationPorts: publication,
+    candidateObserver: observer,
+  };
+}
+
+test("Host candidate child observes only after the injected execution path retains bootstrap attempts", async () => {
+  const f = await hostCandidateChildFixture();
+  const original = JSON.stringify(f.lineage().original);
+  const e = hostCandidateExecutionPorts(f);
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "bootstrap-attempted",
+  });
+  expect(f.bootstrap).toHaveBeenCalledOnce(); // Restoration only. Candidate has no command port.
+  expect(readlinkSync(f.plan.precondition.identity.selectionPath!)).toBe(
+    f.plan.candidate.directory,
+  );
+  expect(
+    (await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).status,
+  ).toBe("candidate-ready");
+  expect(enrolled(f.journal.read()).activation.steps[1].status).toBe("succeeded");
+  expect(JSON.stringify(f.lineage().original)).toBe(original);
+  expect(() => f.consumeCandidate()).toThrow();
+});
+
+test.each(["digest", "old-worker", "configuration", "selector", "restoration-result"] as const)(
+  "Host candidate child refuses substituted pinned %s",
+  async (changed) => {
+    const f = await hostCandidateChildFixture();
+    const record = JSON.parse(readFileSync(f.pinFile, "utf8"));
+    if (changed === "digest") record.image.launcher.sha256 = "1".repeat(64);
+    if (changed === "old-worker") record.precondition.worker = f.plan.precondition.worker;
+    if (changed === "configuration") record.precondition.configuration.sha256 = "1".repeat(64);
+    if (changed === "selector") record.image.selector.text = f.plan.candidate.directory;
+    if (changed === "restoration-result") record.restorationObservationSha256 = "1".repeat(64);
+    writeFileSync(f.pinFile, JSON.stringify(record));
+    expect(() => f.consumeCandidate()).toThrow();
+    expect(f.lineage().candidate!.claim).toBeUndefined();
+    expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+  },
+);
+
+test.each(["closure", "absence", "callback"] as const)(
+  "Host candidate child publication refuses %s",
+  async (changed) => {
+    const f = await hostCandidateChildFixture();
+    f.consumeCandidate();
+    const ports = f.publicationPorts();
+    if (changed === "closure") ports.closure.preconditionSha256 = f.plan.preconditionSha256;
+    if (changed === "absence") ports.absence.runtimeDirectories.pop();
+    if (changed === "callback")
+      ports.absence.assertCurrent = () => {
+        ports.absence.assertCurrent = () => undefined;
+      };
+    expect(() => f.publishCandidate(ports)).toThrow();
+    expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+  },
+);
+
+test("Host candidate child exact exit gates target reads and readiness", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  f.candidateObserver.reader.verifyProcessExited = async () => {
+    throw new Error("Still alive");
+  };
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.candidateObserver.collectPrepared).not.toHaveBeenCalled();
+  expect(f.candidateObserver.collectCandidate).not.toHaveBeenCalled();
+});
+
+test("Host candidate child partial publication stays observation-only and cannot release dependents", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  const ports = f.publicationPorts();
+  ports.prepared.assertCurrent = () => {
+    if (existsSync(f.candidatePaths.phase)) throw new Error("Retained uncertainty");
+  };
+  expect(() => f.publishCandidate(ports)).toThrow();
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(true);
+  expect(() => f.publishCandidate(f.publicationPorts())).toThrow(/observe only/);
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.candidateObserver.collectCandidate).not.toHaveBeenCalled();
+  expect(enrolled(f.journal.read()).activation.steps[1].status).toBe("reserved");
+});
+
+test("Host candidate child revoked observation uses ordinary candidate proof and historical restoration cannot mutate it", async () => {
+  const f = await hostCandidateChildFixture();
+  expect(
+    await executeHostCandidateContinuation(f.candidateInput, hostCandidateExecutionPorts(f).ports),
+  ).toEqual({ status: "bootstrap-attempted" });
+  changeStandingGrant(f.journal, {
+    expectedRevision: enrolled(f.journal.read()).grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({ status: "unresolved" });
+  expect(
+    (await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).status,
+  ).toBe("candidate-ready");
+  expect(
+    (await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).status,
+  ).toBe("candidate-ready");
+});
+
+test("Host candidate child final callback cannot substitute the published image", async () => {
+  const f = await hostCandidateChildFixture();
+  expect(
+    await executeHostCandidateContinuation(f.candidateInput, hostCandidateExecutionPorts(f).ports),
+  ).toEqual({ status: "bootstrap-attempted" });
+  const collect = f.candidateObserver.collectCandidate;
+  f.candidateObserver.collectCandidate = async (context, signal) => {
+    const observed = await collect(context, signal);
+    observed.assertCurrent = () => {
+      writeFileSync(f.plan.precondition.launcher.path, "foreign");
+    };
+    return observed;
+  };
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.lineage().candidate!.observation).toBeUndefined();
+});
+
+test("Host candidate child canonical role builder rejects mixed restoration links", () => {
+  expect(() =>
+    HostContinuationPhaseSchema.parse({ role: "restoration", restorationGeneration: randomUUID() }),
+  ).toThrow();
+  const f = hostRestorationChildFixture();
+  expect(() =>
+    hostContinuationPublicationRecords({
+      plan: f.plan,
+      directory: f.directory,
+      phase: { version: 1, role: "candidate", slot: "fallback" },
+      previousLauncherSha256: f.plan.fallback.launcher.sha256,
+      previousSelector: f.plan.fallback.directory,
+    }),
+  ).toThrow();
+});
+
+test("Host candidate child pre-reservation pin retains original data and file lifetimes", async () => {
+  const f = await hostCandidateChildFixture();
+  f.pinned.preparation.precondition.worker.parentPid++;
+  expect(() => f.pinned.assertCurrent()).toThrow(/binding/);
+  expect(f.lineage().candidate!.claim).toBeUndefined();
+});
+
+test("Host candidate child claim uncertainty is retained without another claim", async () => {
+  const f = await hostCandidateChildFixture();
+  const uncertain = {
+    ...f.candidateInput,
+    journal: new FileEnrollmentJournal(f.directory, failingEnrollmentFiles("after-rename")),
+  };
+  expect(() => consumeHostCandidateChild(uncertain, f.candidateExecutor, f.custody)).toThrow();
+  expect(existsSync(f.candidatePaths.claim)).toBe(true);
+  expect(f.lineage().candidate!.claim).toBeDefined();
+  expect(() => f.consumeCandidate()).toThrow(/observe only/);
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+});
+
+test("Host candidate child changed untouched legacy selector fences the partial publication", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  const ports = f.publicationPorts();
+  ports.prepared.assertCurrent = () => {
+    if (existsSync(f.candidatePaths.phase)) {
+      unlinkSync(f.preparation.image.selector.path);
+      symlinkSync(f.plan.candidate.directory, f.preparation.image.selector.path);
+    }
+  };
+  expect(() => f.publishCandidate(ports)).toThrow();
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(true);
+  expect(existsSync(f.candidatePaths.selectorAttempt)).toBe(false);
+  expect(() => f.publishCandidate(f.publicationPorts())).toThrow(/observe only/);
+});
+
+test("Host candidate child legacy proof cannot satisfy ordinary candidate observation", async () => {
+  const f = await hostCandidateChildFixture();
+  expect(
+    await executeHostCandidateContinuation(f.candidateInput, hostCandidateExecutionPorts(f).ports),
+  ).toEqual({ status: "bootstrap-attempted" });
+  f.candidateObserver.collectCandidate = async () => ({
+    descriptor: f.plan.precondition.identity,
+    identitySha256: f.plan.identitySha256,
+    custodyStateDirectory: f.directory,
+    writableMountRoots: [],
+    serverId: f.plan.precondition.serverId,
+    sourceCommit: f.plan.fallback.sourceCommit,
+    selectedRelease: f.plan.fallback.directory,
+    supervisor: f.preparation.precondition.supervisor,
+    worker: f.preparation.precondition.worker,
+    observedAt: new Date().toISOString(),
+    assertCurrent: () => undefined,
+  });
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.lineage().candidate!.observation).toBeUndefined();
+});
+
+test.each(["truthy", "duplicate"] as const)(
+  "Host candidate child refuses ambiguous absence %s",
+  async (changed) => {
+    const f = await hostCandidateChildFixture();
+    f.consumeCandidate();
+    const ports = f.publicationPorts();
+    if (changed === "truthy") Reflect.set(ports.absence, "absent", "true");
+    else ports.absence.runtimeDirectories.push(ports.absence.runtimeDirectories[0]);
+    expect(() => f.publishCandidate(ports)).toThrow();
+    expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+  },
+);
+
+test("Host candidate child cannot reopen publication after uncertain consume response", async () => {
+  const f = await hostCandidateChildFixture();
+  const uncertain = {
+    ...f.candidateInput,
+    journal: new FileEnrollmentJournal(f.directory, failingEnrollmentFiles("after-rename")),
+  };
+  expect(() => consumeHostCandidateChild(uncertain, f.candidateExecutor, f.custody)).toThrow();
+  expect(f.lineage().candidate!.claim).toBeDefined();
+  expect(() => f.publishCandidate(f.publicationPorts())).toThrow(/observe only/);
+  expect(() => f.consumeCandidate()).toThrow(/observe only/);
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+});
+
+test("Host candidate child local publication continuation is one-use even before file effects", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  const ports = f.publicationPorts();
+  ports.closure.assertCurrent = () => {
+    throw new Error("Closure uncertain");
+  };
+  expect(() => f.publishCandidate(ports)).toThrow();
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+  expect(() => f.publishCandidate(f.publicationPorts())).toThrow(/observe only/);
+  expect(f.lineage().candidate!.observation).toBeUndefined();
+});
+
+test("Host candidate child stale preparation grant is refused before reservation", async () => {
+  await expect(hostCandidateChildFixture("stale-pin")).rejects.toThrow(/preparation/);
+});
+
+test("Host candidate child historical late precondition does not shorten reviewed interruption", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  const later = Date.now() + 31_000;
+  const clock = vi.spyOn(Date, "now").mockReturnValue(later);
+  const ports = f.publicationPorts();
+  ports.absence.observedAt = new Date(later).toISOString();
+  try {
+    expect(f.publishCandidate(ports)).toEqual({ status: "published", bootstrap: "unavailable" });
+    expect(f.bootstrap).toHaveBeenCalledOnce();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+/** All native command/channel facts below are injected synthetic values. These
+ * cases prove queue/admission composition, not native channels or OS closure. */
+function hostCandidateExecutionPorts(f: Awaited<ReturnType<typeof hostCandidateChildFixture>>) {
+  const queued: string[] = [];
+  const ports: HostCandidateExecutionPorts = {
+    ...f.custody,
+    executor: f.candidateExecutor,
+    commandOwner(operation, context, fence) {
+      const command = {
+        operation,
+        service: `${f.plan.precondition.identity.serviceDomain}/${f.plan.precondition.identity.serviceLabel}`,
+        ...(operation === "interruption" ? { interruption: f.plan.interruption } : {}),
+      };
+      return {
+        operation,
+        executor: context.claim.executor,
+        command,
+        channel: { syntheticOnly: true },
+        channelIdentity: { syntheticOnly: true, id: randomUUID() },
+        scope: {
+          identitySha256: f.plan.identitySha256,
+          artifactSha256:
+            operation === "bootstrap"
+              ? f.plan.candidate.artifactSha256
+              : f.plan.fallback.artifactSha256,
+          preconditionSha256: f.candidateIntent.preconditionSha256,
+        },
+        fence,
+        assertCurrent: vi.fn(() => undefined),
+        enqueue() {
+          expect(() =>
+            new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined),
+          ).toThrow("storage is busy");
+          queued.push(operation);
+        },
+      };
+    },
+    observeCompletion: vi.fn(async () => {
+      expect(() =>
+        new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined),
+      ).not.toThrow();
+    }),
+    collectRetirement: vi.fn(async () => ({
+      status: "present" as const,
+      preconditionSha256: f.candidateIntent.preconditionSha256,
+      precondition: f.preparation.precondition,
+      observedAt: new Date().toISOString(),
+      assertCurrent: () => undefined,
+    })),
+    collectPublicationEvidence: vi.fn(async () => f.publicationPorts()),
+  };
+  return { ports, queued };
+}
+
+test("Host candidate child command attempts use fresh queue admission and separate completion", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f);
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "bootstrap-attempted",
+  });
+  expect(e.queued).toEqual(["interruption", "retirement", "bootstrap"]);
+  expect(e.ports.observeCompletion).toHaveBeenCalledTimes(3);
+  for (const operation of e.queued)
+    expect(
+      existsSync(
+        path.join(
+          f.directory,
+          `host-continuation-${f.second}-candidate-${f.candidateInput.generation}-${operation}-queue-attempt.json`,
+        ),
+      ),
+    ).toBe(true);
+  expect(enrolled(f.journal.read()).activation.steps[1].status).toBe("reserved");
+  expect(
+    (await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).status,
+  ).toBe("candidate-ready");
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "observe-only",
+  });
+  expect(e.queued).toHaveLength(3);
+});
+
+test("Host candidate child completion acknowledgment never supplies closure", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f);
+  e.ports.collectPublicationEvidence = async () => {
+    throw new Error("No exhaustive native closure");
+  };
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "unresolved",
+  });
+  expect(e.queued).toEqual(["interruption", "retirement"]);
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "observe-only",
+  });
+});
+
+test("Host candidate child revoked between operations cannot queue retirement or bootstrap", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f);
+  e.ports.observeCompletion = async () => {
+    changeStandingGrant(f.journal, {
+      expectedRevision: enrolled(f.journal.read()).grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+  };
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "unresolved",
+  });
+  expect(e.queued).toEqual(["interruption"]);
+  expect(existsSync(f.candidatePaths.launcherAttempt)).toBe(false);
+});
+
+test("Host candidate child lost enqueue reply retains attempt and cannot replay", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f),
+    factory = e.ports.commandOwner;
+  e.ports.commandOwner = (operation, context, fence) => {
+    const owner = factory(operation, context, fence),
+      enqueue = owner.enqueue;
+    owner.enqueue = () => {
+      enqueue();
+      throw new Error("Queue reply lost");
+    };
+    return owner;
+  };
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "unresolved",
+  });
+  expect(e.queued).toEqual(["interruption"]);
+  expect(e.ports.observeCompletion).not.toHaveBeenCalled();
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "observe-only",
+  });
+  expect(e.queued).toEqual(["interruption"]);
+});
+
+test("Host candidate child wrong native command target never queues", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f),
+    factory = e.ports.commandOwner;
+  e.ports.commandOwner = (operation, context, fence) => {
+    const owner = factory(operation, context, fence);
+    owner.scope.artifactSha256 = f.plan.candidate.artifactSha256;
+    return owner;
+  };
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "unresolved",
+  });
+  expect(e.queued).toEqual([]);
+  expect(existsSync(f.candidatePaths.phase)).toBe(false);
+});
+
+test("Host candidate child affirmative independent absence skips retirement only", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f);
+  e.ports.collectRetirement = async () => ({ status: "absent", evidence: f.publicationPorts() });
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "bootstrap-attempted",
+  });
+  expect(e.queued).toEqual(["interruption", "bootstrap"]);
+});
+
+test.each(["phase", "interruption-queue-attempt"] as const)(
+  "Host candidate child orphaned %s is observation-only before consumption",
+  async (artifact) => {
+    const f = await hostCandidateChildFixture(),
+      e = hostCandidateExecutionPorts(f);
+    const file =
+      artifact === "phase"
+        ? f.candidatePaths.phase
+        : path.join(
+            f.directory,
+            `host-continuation-${f.second}-candidate-${f.candidateInput.generation}-interruption-queue-attempt.json`,
+          );
+    writeFileSync(file, "uncertain", { mode: 0o600 });
+    expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+      status: "observe-only",
+    });
+    expect(f.lineage().candidate!.claim).toBeUndefined();
+    expect(e.queued).toEqual([]);
+  },
+);
+
+test("Host candidate child fresh bootstrap admission refuses revocation after publication", async () => {
+  const f = await hostCandidateChildFixture(),
+    e = hostCandidateExecutionPorts(f),
+    factory = e.ports.commandOwner;
+  e.ports.commandOwner = (operation, context, fence) => {
+    const owner = factory(operation, context, fence);
+    if (operation === "bootstrap")
+      changeStandingGrant(f.journal, {
+        expectedRevision: enrolled(f.journal.read()).grant.revision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    return owner;
+  };
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "unresolved",
+  });
+  expect(e.queued).toEqual(["interruption", "retirement"]);
+  expect(existsSync(f.candidatePaths.bootstrapAttempt)).toBe(true);
+  expect(readlinkSync(f.plan.precondition.identity.selectionPath!)).toBe(
+    f.plan.candidate.directory,
+  );
+  expect(await executeHostCandidateContinuation(f.candidateInput, e.ports)).toEqual({
+    status: "observe-only",
+  });
+});
+
+test("Host candidate child publication without bootstrap attempts cannot become ready", async () => {
+  const f = await hostCandidateChildFixture();
+  f.consumeCandidate();
+  f.publishCandidate(f.publicationPorts());
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.candidateObserver.collectPrepared).not.toHaveBeenCalled();
+  expect(f.candidateObserver.collectCandidate).not.toHaveBeenCalled();
+  expect(f.lineage().candidate!.observation).toBeUndefined();
+});
+
+test.each([
+  "missing-fence",
+  "missing-queue",
+  "fake-fence",
+  "wrong-claim",
+  "wrong-executor",
+  "wrong-scope",
+  "wrong-fence-hash",
+  "extra-field",
+] as const)("Host candidate child refuses bootstrap evidence %s", async (changed) => {
+  const f = await hostCandidateChildFixture();
+  expect(
+    await executeHostCandidateContinuation(f.candidateInput, hostCandidateExecutionPorts(f).ports),
+  ).toEqual({ status: "bootstrap-attempted" });
+  const fence = f.candidatePaths.bootstrapAttempt;
+  const queue = fence.replace(/-attempt\.json$/, "-queue-attempt.json");
+  if (changed === "missing-fence" || changed === "missing-queue") {
+    unlinkSync(changed === "missing-fence" ? fence : queue);
+  } else {
+    const file = changed === "fake-fence" ? fence : queue;
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    if (changed === "fake-fence") record.service = "foreign";
+    if (changed === "wrong-claim") record.claimSha256 = "1".repeat(64);
+    if (changed === "wrong-executor") record.executor.startIdentity = "1:1";
+    if (changed === "wrong-scope") record.scope.artifactSha256 = f.plan.fallback.artifactSha256;
+    if (changed === "wrong-fence-hash") record.fenceSha256 = "1".repeat(64);
+    if (changed === "extra-field") record.authority = true;
+    writeFileSync(file, JSON.stringify(record));
+  }
+  expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+    status: "unresolved",
+  });
+  expect(f.candidateObserver.collectPrepared).not.toHaveBeenCalled();
+  expect(f.candidateObserver.collectCandidate).not.toHaveBeenCalled();
+  expect(f.lineage().candidate!.observation).toBeUndefined();
+});
+
+test.each(["fence-bytes", "queue-bytes", "fence-lifetime", "queue-lifetime"] as const)(
+  "Host candidate child final callback cannot replace bootstrap %s",
+  async (changed) => {
+    const f = await hostCandidateChildFixture();
+    expect(
+      await executeHostCandidateContinuation(
+        f.candidateInput,
+        hostCandidateExecutionPorts(f).ports,
+      ),
+    ).toEqual({ status: "bootstrap-attempted" });
+    const file = changed.startsWith("fence-")
+      ? f.candidatePaths.bootstrapAttempt
+      : f.candidatePaths.bootstrapAttempt.replace(/-attempt\.json$/, "-queue-attempt.json");
+    const collect = f.candidateObserver.collectCandidate;
+    f.candidateObserver.collectCandidate = async (context, signal) => {
+      const observed = await collect(context, signal);
+      observed.assertCurrent = () => {
+        const bytes = readFileSync(file);
+        if (changed.endsWith("-lifetime")) {
+          renameSync(file, `${file}.retired`);
+          writeFileSync(file, bytes, { mode: 0o600 });
+        } else writeFileSync(file, "{}");
+      };
+      return observed;
+    };
+    expect(await observeHostCandidateContinuation(f.candidateInput, f.candidateObserver)).toEqual({
+      status: "unresolved",
+    });
+    expect(f.lineage().candidate!.observation).toBeUndefined();
+  },
+);

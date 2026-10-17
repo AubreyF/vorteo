@@ -1,7 +1,7 @@
 import path from "node:path";
 import { lstatSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import type { EnrollmentStep } from "@getpaseo/protocol/installation-enrollment";
+import type { EnrollmentStep, HostContinuation } from "@getpaseo/protocol/installation-enrollment";
 import type { InstallationConfig } from "../config.js";
 import { inspectMaintenanceObservationRuntime } from "../coordinator-bootstrap-maintenance-observation-runtime.js";
 import { readEnrollmentNativeIdentity } from "./native-registration.js";
@@ -44,6 +44,11 @@ interface HostActivationInvocation {
   generation: string;
 }
 
+export interface HostContinuationObservationInvocation extends HostActivationInvocation {
+  role: "restoration" | "candidate";
+  lineage: HostContinuation;
+}
+
 export interface InitialHostActivationPorts {
   /** This must establish the admitted executor and interruption prerequisites
    * before reservation. An unavailable production proof leaves work pending. */
@@ -56,6 +61,9 @@ export interface InitialHostActivationPorts {
   /** No constructor, launch or fresh effect proof is reachable from this port.
    * The observer verifies exact executor exit before target artifact reads. */
   observe(input: HostActivationInvocation): Promise<unknown>;
+  /** Read-only continuation observation. Missing native composition leaves the
+   * retained generation unresolved; it never falls back to initial migration. */
+  observeContinuation?(input: HostContinuationObservationInvocation): Promise<unknown>;
 }
 
 export type InitialHostActivationResult = "idle" | "verified" | "unresolved";
@@ -181,7 +189,8 @@ export async function reconcileInitialHostActivation(
   requireMatch(steps.length === 1, "Initial Host activation is ambiguous");
   const step = steps[0]!;
   const progress = state.activation.steps.find((entry) => entry.id === step.id)!;
-  if (progress.status === "succeeded") return "verified";
+  const lineage = state.activation.hostContinuations?.find((entry) => entry.stepId === step.id);
+  if (progress.status === "succeeded" && !lineage) return "verified";
   requireMatch(
     manifest.installationId === input.installationId &&
       state.grant.approval.manifestSha256 === enrollmentManifestDigest(manifest),
@@ -233,6 +242,19 @@ export async function reconcileInitialHostActivation(
     );
   };
   assertRetained();
+  if (lineage)
+    return observeRetainedContinuation({
+      journal,
+      lineage,
+      ports,
+      assertRetained,
+      invocation: {
+        enrollmentStateDirectory: input.stateDirectory,
+        plan: inspected.plan,
+        grantId: state.grant.id,
+        stepId: step.id,
+      },
+    });
   if (progress.status !== "pending") {
     const claimFile = path.join(
       input.stateDirectory,
@@ -295,6 +317,39 @@ export async function reconcileInitialHostActivation(
   await prepared.launch(invocation);
   assertRetained();
   return verified(journal, step.id, selected.generation);
+}
+
+async function observeRetainedContinuation(input: {
+  journal: FileEnrollmentJournal;
+  lineage: HostContinuation;
+  ports: InitialHostActivationPorts;
+  assertRetained(): void;
+  invocation: Omit<HostActivationInvocation, "grantRevision" | "generation">;
+}): Promise<InitialHostActivationResult> {
+  const { journal, lineage, ports, assertRetained } = input;
+  const role = lineage.candidate ? "candidate" : "restoration";
+  const child = lineage.candidate ?? lineage.restoration;
+  if (role === "candidate" && child.observation?.outcome === "candidate-ready")
+    return verified(journal, lineage.stepId, child.generation);
+  // A reservation does not identify a born executor. Terminal restoration is
+  // likewise not permission to launch or complete the candidate generation.
+  const observe = ports.observeContinuation;
+  if (!child.claim || child.observation || !observe) return "unresolved";
+  const invocation: HostContinuationObservationInvocation = {
+    ...structuredClone(input.invocation),
+    grantRevision: child.grantRevision,
+    generation: child.generation,
+    role,
+    lineage: structuredClone(lineage),
+  };
+  const retained = structuredClone(invocation);
+  await observe.call(ports, invocation);
+  requireMatch(
+    ports.observeContinuation === observe && isDeepStrictEqual(invocation, retained),
+    "Host continuation observation binding changed",
+  );
+  assertRetained();
+  return role === "candidate" ? verified(journal, lineage.stepId, child.generation) : "unresolved";
 }
 
 function requireHostPlan(

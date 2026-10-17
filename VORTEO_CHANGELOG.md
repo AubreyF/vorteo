@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.682 - 2026-10-17
+
+### Maintenance
+
+- Fence each Host continuation command with an exclusive durable queue-attempt record and fresh locked admission immediately before synchronous enqueue. Retain the original native owner, channel and command bindings across callbacks and share canonical record validation with observers. A queue attempt proves neither delivery nor workload settlement; native command factories remain unavailable.
+- Bind candidate continuation to protected restoration evidence and a separately captured late predecessor, preserving the original reviewed plan. Consume the exact child before returning a local one-use publication continuation, retain separate command fences, and require exact child exit, bootstrap-attempt evidence and ordinary strict candidate readiness before completion. Route retained continuation observation before initial-generation lookup. Native launch election, closure, proof composition and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.681 - 2026-10-17
 
 ### Maintenance

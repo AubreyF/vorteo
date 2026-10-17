@@ -1273,7 +1273,10 @@ export function consumeHostContinuation(
 /** Rechecks one already-consumed, active child under the shared lifecycle lock.
  * The action owns its addressed one-use publication/dispatch fences; this API
  * never elects a constructor or makes a consumed claim replayable. Native
- * commands and asynchronous work remain outside this synchronous boundary. */
+ * waits and asynchronous work remain outside this synchronous boundary. A
+ * fixed synchronous native enqueue requires the separately fenced original-
+ * owner contract in attemptHostContinuationCommand; this generic action never
+ * authorizes dispatch deferred until after admission returns. */
 export function withHostContinuationAdmission(
   journal: FileEnrollmentJournal,
   input: HostContinuationConsumption,

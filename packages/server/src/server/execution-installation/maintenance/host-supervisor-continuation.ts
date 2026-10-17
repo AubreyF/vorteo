@@ -141,7 +141,7 @@ function copyBinding<T>(value: T): T {
   }
   return result as T;
 }
-function retainBinding<T>(source: T) {
+export function retainBinding<T>(source: T) {
   // Keep the comparison baseline private. Callback receivers and consumers get
   // a second copy, so they cannot rewrite the baseline through `this`.
   const captured = copyBinding(source);
@@ -156,7 +156,7 @@ function retainBinding<T>(source: T) {
       ),
   };
 }
-function retainProof<T extends { assertCurrent(): void }>(source: T) {
+export function retainProof<T extends { assertCurrent(): void }>(source: T) {
   const binding = retainBinding(source);
   const callback = source.assertCurrent;
   requireProof(typeof callback === "function", "custody callback is absent");
@@ -171,7 +171,7 @@ function retainProof<T extends { assertCurrent(): void }>(source: T) {
   };
 }
 
-function boundedRead<T>(read: (signal: AbortSignal) => Promise<T>, detail: string) {
+export function boundedRead<T>(read: (signal: AbortSignal) => Promise<T>, detail: string) {
   // Reuse the existing read owner. A deadline must not release custody of an
   // underlying native read that ignores abort. Ports are leaf collectors and
   // must not recursively reacquire this same observation owner.
@@ -182,9 +182,10 @@ function boundedRead<T>(read: (signal: AbortSignal) => Promise<T>, detail: strin
 }
 
 /** Flat addresses only. This does not create or elect a native constructor. */
-export function hostRestorationPaths(
+export function hostContinuationPaths(
   directory: string,
   stepValue: string,
+  role: "restoration" | "candidate",
   generationValue: string,
 ) {
   const step = z.uuid().parse(stepValue),
@@ -193,7 +194,8 @@ export function hostRestorationPaths(
     path.isAbsolute(directory) && path.normalize(directory) === directory && directory !== "/",
     "noncanonical enrollment directory",
   );
-  const prefix = path.join(directory, `host-continuation-${step}-restoration-${generation}`);
+  z.enum(["restoration", "candidate"]).parse(role);
+  const prefix = path.join(directory, `host-continuation-${step}-${role}-${generation}`);
   return {
     intent: prefix + "-intent.json",
     claim: prefix + "-claim.json",
@@ -205,7 +207,11 @@ export function hostRestorationPaths(
   };
 }
 
-function readCaptured<T>(file: string, parse: (value: unknown) => T) {
+export function hostRestorationPaths(directory: string, step: string, generation: string) {
+  return hostContinuationPaths(directory, step, "restoration", generation);
+}
+
+export function readCaptured<T>(file: string, parse: (value: unknown) => T) {
   const parent = lstatSync(path.dirname(file));
   requireProof(
     parent.isDirectory() &&
@@ -348,22 +354,65 @@ function phaseRecord(context: RestorationContext) {
     publicationSnapshotSha256: publication.snapshotSha256,
   };
 }
-function prepareRecords(context: RestorationContext, directory: string) {
-  const { plan, intent, claimSha256, publication } = context;
-  const paths = hostRestorationPaths(directory, intent.stepId, intent.generation);
-  const phase = phaseRecord(context);
-  requireProof(
-    publication.snapshot.launcher.state === "present",
-    "original launcher capture is absent",
-  );
+const continuationPhase = z.strictObject({
+  version: z.literal(1),
+  role: z.literal("restoration"),
+  slot: z.literal("fallback"),
+  stepId: z.uuid(),
+  generation: z.uuid(),
+  intentSha256: digest,
+  claimSha256: digest,
+  reservationSha256: digest,
+  planSha256: digest,
+  originalClaimSha256: digest,
+  publicationSnapshotSha256: digest,
+});
+export const HostContinuationPhaseSchema = z.discriminatedUnion("role", [
+  continuationPhase,
+  continuationPhase.extend({
+    role: z.literal("candidate"),
+    slot: z.literal("candidate"),
+    restorationGeneration: z.uuid(),
+    restorationObservationSha256: digest,
+    restorationChildExitSha256: digest,
+    restorationClaimSha256: digest,
+    preconditionSha256: digest,
+  }),
+]);
+/** Canonical DATA only. Native authority and captured file custody are separate.
+ * The strict role union rejects mixed restoration/candidate namespaces. */
+export function hostContinuationPublicationRecords(input: {
+  plan: unknown;
+  directory: string;
+  phase: unknown;
+  previousLauncherSha256: string;
+  previousSelector: string;
+}) {
+  const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const phase = HostContinuationPhaseSchema.parse(input.phase);
+  requireProof(phase.planSha256 === planSha256, "publication plan binding differs");
+  digest.parse(input.previousLauncherSha256);
+  requireProof(path.isAbsolute(input.previousSelector), "publication selector baseline is invalid");
+  if (phase.role === "candidate")
+    requireProof(
+      input.previousLauncherSha256 === plan.fallback.launcher.sha256 &&
+        input.previousSelector === plan.fallback.directory &&
+        phase.preconditionSha256 !== plan.preconditionSha256 &&
+        phase.restorationGeneration !== phase.generation &&
+        phase.restorationClaimSha256 !== phase.claimSha256 &&
+        phase.originalClaimSha256 !== phase.claimSha256,
+      "candidate publication requires its exact restored predecessor",
+    );
+  const paths = hostContinuationPaths(input.directory, phase.stepId, phase.role, phase.generation);
+  const selected = phase.role === "candidate" ? plan.candidate : plan.fallback;
   const launcherAttempt = {
     version: 1,
-    reservationSha256: claimSha256,
+    reservationSha256: phase.claimSha256,
     files: [
       {
         path: plan.precondition.launcher.path,
-        previousSha256: publication.snapshot.launcher.sha256,
-        sha256: plan.fallback.launcher.sha256,
+        previousSha256: input.previousLauncherSha256,
+        sha256: selected.launcher.sha256,
       },
       { path: paths.phase, previousSha256: null, sha256: hash(phase) },
     ],
@@ -371,12 +420,25 @@ function prepareRecords(context: RestorationContext, directory: string) {
   const selectorAttempt = {
     version: 1,
     operation: "release-link-selection",
-    reservationSha256: claimSha256,
+    reservationSha256: phase.claimSha256,
     link: plan.precondition.identity.selectionPath!,
-    previous: publication.snapshot.selector.resolvedTarget,
-    candidate: plan.fallback.directory,
+    previous: input.previousSelector,
+    candidate: selected.directory,
   };
   return { paths, phase, launcherAttempt, selectorAttempt };
+}
+function prepareRecords(context: RestorationContext, directory: string) {
+  requireProof(
+    context.publication.snapshot.launcher.state === "present",
+    "original launcher capture is absent",
+  );
+  return hostContinuationPublicationRecords({
+    plan: context.plan,
+    directory,
+    phase: phaseRecord(context),
+    previousLauncherSha256: context.publication.snapshot.launcher.sha256,
+    previousSelector: context.publication.snapshot.selector.resolvedTarget,
+  });
 }
 
 function retainOriginal(context: HostRestorationLaunchContext) {
@@ -420,7 +482,7 @@ function requirePrepared(
   verifyInitialHostMigrationLaunchers({ plan: context.plan, ...prepared.launchers });
   retained.assertCurrent();
 }
-function restorationService(plan: Plan) {
+export function restorationService(plan: Plan) {
   const identity = plan.precondition.identity;
   requireProof(
     identity.environment === "host" && identity.target === "host",
