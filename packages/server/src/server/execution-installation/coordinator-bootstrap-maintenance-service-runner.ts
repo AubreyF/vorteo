@@ -6,6 +6,7 @@ import {
   requireReservedMaintenanceExecutor,
   maintenanceRecoveryBootWitness,
   inspectMaintenanceTargetEvidence,
+  inspectMaintenanceCoordinatorWitness,
 } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 import { userInfo } from "node:os";
 import {
@@ -330,8 +331,23 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     currentBoot,
     childCustody: context.childCustody,
   };
-  const targetEvidence = await readBoundedMaintenanceInspection(
-    (signal) => inspectMaintenanceTargetEvidence({ ...nativeInput, signal }),
+  const { targetEvidence, coordinatorCustody } = await readBoundedMaintenanceInspection(
+    async (signal) => {
+      const coordinatorWitness =
+        context.job.operation === "replacement"
+          ? undefined
+          : await inspectMaintenanceCoordinatorWitness({
+              ...nativeInput,
+              installationId: context.startup.plan.identity.installationId,
+            });
+      signal.throwIfAborted();
+      const nativeEvidence = await inspectMaintenanceTargetEvidence({
+        ...nativeInput,
+        coordinatorCustody: coordinatorWitness,
+        signal,
+      });
+      return { targetEvidence: nativeEvidence, coordinatorCustody: coordinatorWitness };
+    },
     { timeoutMs: 10_000, detail: "Native maintenance evidence inspection timed out" },
   );
   const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
@@ -366,6 +382,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     evidence,
     currentBoot,
     childCustody: context.childCustody,
+    coordinatorCustody,
     requireExecutor: context.requireExecutor,
     admission: maintenanceServiceClaimAdmission({
       stateDirectory,

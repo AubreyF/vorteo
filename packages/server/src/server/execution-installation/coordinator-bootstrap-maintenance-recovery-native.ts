@@ -54,6 +54,7 @@ export async function executeAbsentMaintenanceRecovery(
     writableMountRoots: readonly string[];
     currentBoot: Absence["currentBoot"];
     childCustody: NonNullable<Absence["childCustody"]>;
+    coordinatorCustody?: Absence["coordinatorCustody"];
     requireExecutor(): Promise<unknown>;
     readCandidateObservation(signal: AbortSignal): Promise<MaintenanceServiceNativeObservation>;
     assertAbsent?: Absence["assertAbsent"];
@@ -148,6 +149,7 @@ export async function executeAbsentMaintenanceRecovery(
       ),
     ],
     allowedProcesses: [input.currentBoot, input.childCustody],
+    coordinator: input.coordinatorCustody,
   });
   requireClaim();
   await command.run(["bootstrap", identity.serviceDomain, identity.launcherPath]);

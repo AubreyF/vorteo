@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.647 - 2026-10-16
+
+- Verify the enrolled coordinator's selected release, registered native lifetime and retained installer/transfer proofs before exempting it from recovery runtime absence checks. Keep the two-executor limit and refuse unrelated readers.
+- Recheck coordinator custody under existing lifecycle exclusion without nesting enrollment locks. Unrelated selected Node files need no live coordinator witness; revocation preserves read-only custody checks.
+- Seven witness cases, twenty-nine producer/inventory cases and eleven recovery cases pass. Actual shared-runtime native recovery and installed acceptance remain open; no recovery capability or service is enabled.
+
 ## 0.11.0-beta.3.vorteo.646 - 2026-10-16
 
 ### Fixed

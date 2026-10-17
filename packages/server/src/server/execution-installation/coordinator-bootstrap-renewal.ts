@@ -46,6 +46,8 @@ import {
 } from "./coordinator-bootstrap-process.js";
 import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { EnrollmentNativeIdentitySchema } from "./maintenance/native-identity.js";
+import type { MaintenanceServiceInspectionPorts } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import type { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
 
 const FileSchema = z.strictObject({
@@ -441,7 +443,18 @@ async function readSelectedHost(
   return { root, node, settings };
 }
 
-async function verifyTerminalProcess(authority: RenewalAuthority, ports: BootstrapRenewalPorts) {
+interface TerminalCoordinatorAuthority {
+  uid: number;
+  anchor: { binding: { service: string }; stateDirectory: string };
+  terminal: NonNullable<ReturnType<typeof terminalBootstrapRelease>>;
+  selected: Release;
+  configurationFile: string;
+}
+
+async function verifyTerminalProcess(
+  authority: TerminalCoordinatorAuthority,
+  ports: Pick<BootstrapRenewalPorts, "reader">,
+) {
   const { uid, anchor, terminal, selected, configurationFile } = authority;
   const coordinatorPid = loadedCoordinatorPid(
     anchor.binding.service,
@@ -524,6 +537,129 @@ async function verifyTerminalProcess(authority: RenewalAuthority, ports: Bootstr
     )
       throw new BootstrapRequestConflict("Terminal coordinator preservation receipt changed");
   }
+  return coordinator;
+}
+
+/** A registered selected coordinator can share the maintenance Node executable.
+ * Its exemption is bound to retained transfer history and native service custody,
+ * never to a caller-selected PID or health response. */
+export async function inspectSelectedCoordinatorRuntime(input: {
+  identity: unknown;
+  executables: readonly string[];
+  writableMountRoots: readonly string[];
+  ports: {
+    reader: BootstrapServiceReader & Pick<NativeBootstrapServiceReader, "verifyProcessExited">;
+    assertCurrent: MaintenanceServiceInspectionPorts["assertCurrent"];
+  };
+}) {
+  const { retainServiceFiles } =
+    await import("./coordinator-bootstrap-maintenance-service-inspection.js");
+  const identity = EnrollmentNativeIdentitySchema.parse(input.identity);
+  const uid = process.getuid!();
+  if (
+    identity.environment !== "host" ||
+    identity.target !== "coordinator" ||
+    identity.custodyOwnerUid !== uid ||
+    identity.serviceDomain !== `gui/${uid}`
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime witness requires the enrolled native coordinator",
+    );
+  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+  const journal = new FileBootstrapRequestJournal(identity.stateDirectory);
+  const binding = {
+    installationId: identity.installationId,
+    stateDirectory: identity.stateDirectory,
+    service,
+  };
+  const readTerminal = () => terminalBootstrapRelease(journal.readStartupHistory(), binding);
+  const terminal = readTerminal();
+  if (!terminal)
+    throw new BootstrapRequestConflict("Shared runtime coordinator has no terminal history");
+  const selected = terminal.release;
+  if (!input.executables.includes(selected.node.path)) return undefined;
+  const files = [
+    identity.launcherPath,
+    selected.node.path,
+    selected.entrypoint.path,
+    selected.configuration.path,
+    selected.launcher.path,
+    path.join(selected.directory, ".installation-source.json"),
+    path.join(
+      identity.stateDirectory,
+      `coordinator-executor-${terminal.request.execution!.generation}.json`,
+    ),
+    ...(terminal.request.execution!.stage === "resumed"
+      ? []
+      : [
+          path.join(
+            identity.stateDirectory,
+            `coordinator-transfer-${terminal.request.execution!.generation}.json`,
+          ),
+        ]),
+  ];
+  await assertBootstrapPathsProtected(files, input.writableMountRoots);
+  const assertFiles = retainServiceFiles(files);
+  await verifyBootstrapReleaseArtifacts(selected, input.writableMountRoots);
+  const launcher = z
+    .object({ Label: z.string(), ProgramArguments: z.tuple([z.string(), z.string(), z.string()]) })
+    .parse(
+      await readBootstrapLauncher(
+        { path: identity.launcherPath, sha256: selected.launcher.sha256 },
+        input.writableMountRoots,
+      ),
+    );
+  if (
+    launcher.Label !== identity.serviceLabel ||
+    !isDeepStrictEqual(launcher.ProgramArguments, [
+      selected.node.path,
+      selected.entrypoint.path,
+      selected.configuration.path,
+    ])
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime coordinator launcher differs from selected release",
+    );
+  const config = InstallationConfigSchema.parse(
+    JSON.parse(
+      (await readBootstrapPreparedFile(selected.configuration, input.writableMountRoots)).toString(
+        "utf8",
+      ),
+    ),
+  );
+  if (
+    config.public.installationId !== identity.installationId ||
+    config.stateDir !== identity.stateDirectory
+  )
+    throw new BootstrapRequestConflict(
+      "Shared runtime coordinator configuration differs from enrollment",
+    );
+  const observed = await verifyTerminalProcess(
+    {
+      uid,
+      anchor: { binding: { service }, stateDirectory: identity.stateDirectory },
+      terminal,
+      selected,
+      configurationFile: selected.configuration.path,
+    },
+    input.ports,
+  );
+  const assertCurrent = () => {
+    assertFiles();
+    if (
+      !isDeepStrictEqual(readTerminal(), terminal) ||
+      input.ports.assertCurrent(service, observed) !== undefined
+    )
+      throw new BootstrapRequestConflict("Shared runtime coordinator selection or custody changed");
+    assertFiles();
+  };
+  assertCurrent();
+  return {
+    target: "coordinator" as const,
+    installationId: identity.installationId,
+    process: observed,
+    assertCurrent,
+  };
 }
 
 async function readRenewalHistory(

@@ -15,11 +15,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { hashSync } from "bcryptjs";
 import {
   CoordinatorBootstrapPlanSchema,
+  BootstrapProcessIdentitySchema,
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { coordinatorPlanDigest, CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
@@ -37,6 +39,7 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
   deriveBootstrapRenewal,
+  inspectSelectedCoordinatorRuntime,
   persistRenewalSetup,
   retainRenewalGeneration,
   terminalBootstrapRelease,
@@ -413,6 +416,283 @@ async function fixture() {
     identity: { installationId, service, stateDirectory: state },
   };
 }
+
+async function sharedCoordinatorFixture() {
+  const f = await fixture();
+  const identity = {
+    version: 1,
+    environment: "host",
+    target: "coordinator",
+    installationId: f.identity.installationId,
+    custodyOwnerUid: process.getuid!(),
+    installationRoot: f.root,
+    stateDirectory: f.state,
+    serviceDomain: f.identity.service.split("/").slice(0, 2).join("/"),
+    serviceLabel: f.identity.service.split("/").at(-1),
+    launcherPath: path.join(f.root, "selected.plist"),
+    selectionPath: null,
+  };
+  let observed = await f.ports.reader.inspectProcess(404);
+  let serviceCurrent = true;
+  const ports = {
+    reader: {
+      ...f.ports.reader,
+      inspectProcess: async (pid: number) => {
+        if (pid === 404) return observed;
+        return f.ports.reader.inspectProcess(pid);
+      },
+    },
+    assertCurrent(service: string, expected: unknown) {
+      expect(service).toBe(f.identity.service);
+      if (!serviceCurrent || !isDeepStrictEqual(observed, expected))
+        throw new Error("native selection changed");
+    },
+  };
+  const inspect = async () => {
+    const witness = await inspectSelectedCoordinatorRuntime({
+      identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports,
+    });
+    if (!witness) throw new Error("Fixture requires shared runtime proof");
+    return witness;
+  };
+  return {
+    ...f,
+    identity,
+    inspect,
+    ports,
+    changeProcess(value: unknown) {
+      observed = value;
+    },
+    changeService() {
+      serviceCurrent = false;
+    },
+  };
+}
+
+test.each(["succeeded", "rolled_back", "resumed"] as const)(
+  "shared coordinator witness verifies the exact %s selected runtime",
+  async (stage) => {
+    const f = await sharedCoordinatorFixture();
+    const record = structuredClone(f.record);
+    record.execution!.stage = stage;
+    f.writeRecords([record]);
+    const selected = stage === "succeeded" ? f.coordinator : f.previous;
+    f.save(f.identity.launcherPath, JSON.parse(readFileSync(selected.launcher.path, "utf8")));
+    const actual = BootstrapProcessIdentitySchema.parse(await f.ports.reader.inspectProcess(404));
+    f.changeProcess({
+      ...actual,
+      argumentsSha256: sha(
+        JSON.stringify([selected.node.path, selected.entrypoint.path, selected.configuration.path]),
+      ),
+    });
+    const witness = await f.inspect();
+    expect(witness.target).toBe("coordinator");
+    expect(witness.process.pid).toBe(404);
+    expect(witness.process.executable).toBe(f.node.path);
+    witness.assertCurrent();
+    f.changeService();
+    expect(() => witness.assertCurrent()).toThrow("native selection changed");
+  },
+);
+
+test("shared coordinator witness rejects changed lifetime, selected history and transfer proof", async () => {
+  const f = await sharedCoordinatorFixture();
+  const witness = await f.inspect();
+  const actual = BootstrapProcessIdentitySchema.parse(await f.ports.reader.inspectProcess(404));
+  f.changeProcess({ ...actual, startIdentity: "99:99" });
+  expect(() => witness.assertCurrent()).toThrow("native selection changed");
+  f.changeProcess(actual);
+  f.writeRecords([{ ...f.record, revision: randomUUID() }]);
+  expect(() => witness.assertCurrent()).toThrow("selection or custody changed");
+  f.writeRecords([f.record]);
+  const file = path.join(f.state, `coordinator-transfer-${f.record.execution!.generation}.json`);
+  f.save(file, { version: 1, requestId: randomUUID() });
+  expect(() => witness.assertCurrent()).toThrow("custody changed");
+  await expect(f.inspect()).rejects.toThrow();
+});
+
+test("shared coordinator witness refuses live installer, unresolved history and launcher substitution", async () => {
+  const f = await sharedCoordinatorFixture();
+  const inspectProcess = f.ports.reader.inspectProcess;
+  f.ports.reader.inspectProcess = async (pid) =>
+    pid === 777 ? f.hostProcess : inspectProcess(pid);
+  await expect(f.inspect()).rejects.toThrow("updater is still live");
+  const g = await sharedCoordinatorFixture();
+  const running = structuredClone(g.record);
+  running.execution!.stage = "claimed";
+  g.writeRecords([running]);
+  await expect(g.inspect()).rejects.toThrow("terminal");
+  g.writeRecords([g.record]);
+  g.save(g.identity.launcherPath, JSON.parse(readFileSync(g.previous.launcher.path, "utf8")));
+  await expect(g.inspect()).rejects.toThrow("digest changed");
+});
+
+test("shared coordinator exemption is optional for an unrelated selected Node", async () => {
+  const f = await sharedCoordinatorFixture();
+  let nativeCalls = 0;
+  const result = await inspectSelectedCoordinatorRuntime({
+    identity: f.identity,
+    executables: [path.join(f.root, "different-node")],
+    writableMountRoots: [],
+    ports: {
+      reader: {
+        ...f.ports.reader,
+        readService: async () => {
+          nativeCalls++;
+          throw new Error("coordinator absent");
+        },
+      },
+      assertCurrent() {
+        throw new Error("no native witness requested");
+      },
+    },
+  });
+  expect(result).toBeUndefined();
+  expect(nativeCalls).toBe(0);
+});
+
+test("enrolled shared coordinator witness rechecks under the existing lifecycle lock", async () => {
+  const f = await sharedCoordinatorFixture();
+  const {
+    FileEnrollmentJournal,
+    enrollInstallation,
+    enrollmentManifestDigest,
+    changeStandingGrant,
+  } = await import("./maintenance/authorization.js");
+  const { retainEnrollmentNativeIdentity } = await import("./maintenance/native-registration.js");
+  const { inspectMaintenanceLauncherPlan } =
+    await import("./coordinator-bootstrap-maintenance-launcher.js");
+  const { inspectMaintenanceCoordinatorWitness } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const { InstallationEnrollmentManifestSchema } =
+    await import("@getpaseo/protocol/installation-enrollment");
+  const coordinatorDigest = retainEnrollmentNativeIdentity(f.state, f.identity);
+  const label = `local.vorteo.${f.identity.installationId}.controller.installation`;
+  const base = path.join(f.root, "maintenance-services", "maintenance-controller");
+  const commit = "d".repeat(40),
+    directory = path.join(f.root, "maintenance-runtimes", commit);
+  const original = inspectMaintenanceLauncherPlan(
+    {
+      version: 1,
+      operation: "maintenance-launcher-replacement",
+      retryLimit: 3,
+      recovery: "after-login",
+      previous: null,
+      identity: {
+        ...f.identity,
+        target: "maintenance-controller",
+        serviceLabel: label,
+        launcherPath: path.join(f.root, "Library", "LaunchAgents", label + ".plist"),
+        selectionPath: path.join(base, "selection.json"),
+      },
+      candidate: {
+        sourceCommit: commit,
+        directory,
+        artifactSha256: "d".repeat(64),
+        node: f.node,
+        entrypoint: { path: path.join(directory, runnerRelative), sha256: "e".repeat(64) },
+        setup: { path: path.join(base, commit + ".json"), sha256: "f".repeat(64) },
+      },
+    },
+    { uid: process.getuid!(), home: f.root },
+  );
+  const step = randomUUID();
+  const manifest = InstallationEnrollmentManifestSchema.parse({
+    version: 1,
+    operation: "installation-enrollment",
+    installationId: f.identity.installationId,
+    revision: randomUUID(),
+    createdAt: "2026-10-15T00:00:00.000Z",
+    targets: [
+      {
+        target: "maintenance-controller",
+        identitySha256: "a".repeat(64),
+        operations: ["replacement"],
+      },
+      { target: "recovery-launcher", identitySha256: "b".repeat(64), operations: ["replacement"] },
+      { target: "coordinator", identitySha256: coordinatorDigest, operations: ["replacement"] },
+    ],
+    trustedRepositories: ["https://example.test/fixture"],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 5 },
+    retryLimit: 3,
+    rollback: "previous-compatible-runtime",
+    recovery: "after-login",
+    steps: [
+      {
+        id: step,
+        target: "recovery-launcher",
+        operation: "replacement",
+        planSha256: "a".repeat(64),
+        candidate: { sourceCommit: commit, artifactSha256: "d".repeat(64) },
+        previous: null,
+        dependsOn: [],
+      },
+    ],
+  });
+  const enrollment = new FileEnrollmentJournal(f.state);
+  const state = enrollInstallation(enrollment, {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: "2026-10-15T01:00:00.000Z",
+    },
+  });
+  const plan = {
+    version: 2,
+    operation: "maintenance-service-recovery",
+    originalPlanSha256: original.planSha256,
+    original: original.plan,
+    recoveryOf: {
+      requestId: randomUUID(),
+      generation: randomUUID(),
+      planSha256: original.planSha256,
+      observationSha256: "a".repeat(64),
+    },
+  };
+  const witness = await inspectMaintenanceCoordinatorWitness({
+    installationId: f.identity.installationId,
+    stateDirectory: f.state,
+    account: { uid: process.getuid!(), home: f.root },
+    plan,
+    writableMountRoots: [],
+    ports: {
+      ...f.ports,
+      reader: {
+        ...f.ports.reader,
+        inspectAuditedProcess: async () => {
+          throw new Error("unused");
+        },
+        inspectRunningProcess: async () => {
+          throw new Error("unused");
+        },
+        inspectStoppedProcess: async () => {
+          throw new Error("unused");
+        },
+        verifyServiceAbsent: async () => {
+          throw new Error("registered");
+        },
+      },
+    },
+  });
+  if (!witness) throw new Error("Fixture requires shared coordinator witness");
+  const journal = new FileBootstrapRequestJournal(f.state);
+  expect(() => journal.withRecoveryTransaction(() => witness.assertCurrent())).not.toThrow();
+  if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  changeStandingGrant(enrollment, {
+    expectedRevision: state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => journal.withRecoveryTransaction(() => witness.assertCurrent())).not.toThrow();
+});
 
 test("terminal renewal follows exact failure, compatible rollback and fresh-review chains", async () => {
   const f = await fixture();

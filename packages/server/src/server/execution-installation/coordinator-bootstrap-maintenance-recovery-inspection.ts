@@ -35,6 +35,7 @@ export async function inspectAbsentMaintenanceRecovery(input: {
   reader: Parameters<typeof verifyRecoveryExecutorExit>[0]["reader"];
   currentBoot: RecoveryBootWitness;
   childCustody?: Pick<RecoveryBootWitness, "process" | "assertCurrent">;
+  coordinatorCustody?: Parameters<typeof assertMaintenanceRuntimeProcessesAbsent>[0]["coordinator"];
   signal: AbortSignal;
   assertAbsent?: (service: string) => void;
   assertRuntimeAbsent?: typeof assertMaintenanceRuntimeProcessesAbsent;
@@ -95,9 +96,20 @@ export async function inspectAbsentMaintenanceRecovery(input: {
       input.childCustody.assertCurrent() !== undefined)
   )
     throw new BootstrapRequestConflict("Recovery child custody differs from current boot");
+  if (
+    input.coordinatorCustody &&
+    (input.coordinatorCustody.installationId !== identity.installationId ||
+      input.coordinatorCustody.process.bootId !== input.currentBoot.process.bootId ||
+      input.coordinatorCustody.process.pid === input.currentBoot.process.pid ||
+      input.coordinatorCustody.assertCurrent() !== undefined)
+  )
+    throw new BootstrapRequestConflict(
+      "Shared coordinator witness differs from recovery installation",
+    );
   const runtimeInput = {
     uid: input.account.uid,
     executables: [...new Set(slots.map((slot) => slot.node.path))],
+    coordinator: input.coordinatorCustody,
     allowedProcesses: [input.currentBoot, ...(input.childCustody ? [input.childCustody] : [])],
   };
   const inspectRuntimes = input.assertRuntimeAbsent ?? assertMaintenanceRuntimeProcessesAbsent;

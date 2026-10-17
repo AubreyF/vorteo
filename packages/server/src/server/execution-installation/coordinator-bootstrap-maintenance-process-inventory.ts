@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
 import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-bootstrap";
+import type { inspectSelectedCoordinatorRuntime } from "./coordinator-bootstrap-renewal.js";
 import type { RecoveryBootWitness } from "./coordinator-bootstrap-maintenance-recovery-proof.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 
@@ -40,6 +41,7 @@ export function assertMaintenanceRuntimeProcessesAbsent(input: {
   uid: number;
   executables: readonly string[];
   allowedProcesses?: readonly Pick<RecoveryBootWitness, "process" | "assertCurrent">[];
+  coordinator?: NonNullable<Awaited<ReturnType<typeof inspectSelectedCoordinatorRuntime>>>;
 }): void {
   if (process.platform !== "darwin" || input.uid !== process.getuid?.())
     throw new BootstrapRequestConflict("Runtime inventory requires native owner custody");
@@ -52,9 +54,26 @@ export function assertMaintenanceRuntimeProcessesAbsent(input: {
   const allowed = input.allowedProcesses ?? [];
   if (allowed.length > 2)
     throw new BootstrapRequestConflict("Runtime inventory has too many retained executors");
-  const identities = allowed.map((item) => BootstrapProcessIdentitySchema.parse(item.process));
+  const witnesses = [...allowed];
+  if (input.coordinator) {
+    if (
+      input.coordinator.target !== "coordinator" ||
+      input.coordinator.process.parentPid !== 1 ||
+      !input.executables.includes(input.coordinator.process.executable) ||
+      allowed.some(
+        (item) =>
+          item.process.bootId !== input.coordinator!.process.bootId ||
+          item.process.pid === input.coordinator!.process.pid,
+      )
+    )
+      throw new BootstrapRequestConflict(
+        "Shared runtime coordinator witness differs from native executors",
+      );
+    witnesses.push(input.coordinator);
+  }
+  const identities = witnesses.map((item) => BootstrapProcessIdentitySchema.parse(item.process));
   const assertAllowed = () => {
-    for (const [index, item] of allowed.entries()) {
+    for (const [index, item] of witnesses.entries()) {
       if (
         identities[index]!.uid !== input.uid ||
         !isDeepStrictEqual(identities[index], item.process) ||

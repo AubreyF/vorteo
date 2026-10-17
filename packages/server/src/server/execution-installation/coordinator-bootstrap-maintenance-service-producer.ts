@@ -52,6 +52,7 @@ import {
   requireReservedMaintenanceExecutor,
   maintenanceRecoveryBootWitness,
   inspectMaintenanceTargetEvidence,
+  inspectMaintenanceCoordinatorWitness,
 } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 
 const invocationDeadlineMs = 25_000;
@@ -209,14 +210,24 @@ export async function createNativeMaintenanceServiceExecutor(
       const context = await load(request);
       const current = await inspectExecutor(context);
       const target = await readBoundedMaintenanceInspection(
-        (signal) =>
-          inspectMaintenanceTargetEvidence({
+        async (signal) => {
+          const coordinatorCustody =
+            request.operation === "replacement"
+              ? undefined
+              : await inspectMaintenanceCoordinatorWitness({
+                  ...context,
+                  installationId: input.installationId,
+                });
+          signal.throwIfAborted();
+          return inspectMaintenanceTargetEvidence({
             ...context,
             request,
             reader: context.ports.reader,
             currentBoot: maintenanceRecoveryBootWitness(current),
+            coordinatorCustody,
             signal,
-          }),
+          });
+        },
         { timeoutMs: 10_000, detail: "Native maintenance evidence inspection timed out" },
       );
       requireCurrentServiceRequest(journal, request);

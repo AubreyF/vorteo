@@ -25,6 +25,10 @@ import {
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import type { MaintenanceServiceNativeEvidence } from "./maintenance/service-execution.js";
 
+import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
+import { FileEnrollmentJournal } from "./maintenance/authorization.js";
+import { inspectSelectedCoordinatorRuntime } from "./coordinator-bootstrap-renewal.js";
+
 import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 
 /** Parent inspection and the one-generation child use the same target proof.
@@ -42,6 +46,60 @@ export async function inspectMaintenanceTargetEvidence(
       : await inspectAbsentMaintenanceRecovery({ ...input, request: job });
   input.signal.throwIfAborted();
   return evidence;
+}
+
+/** An enrolled descriptor selects the role; retained history and native
+ * inspection independently establish the actual selected coordinator lifetime. */
+export async function inspectMaintenanceCoordinatorWitness(input: {
+  installationId: string;
+  plan: unknown;
+  account: { uid: number; home: string };
+  stateDirectory: string;
+  writableMountRoots: readonly string[];
+  ports: MaintenanceServiceInspectionPorts;
+}) {
+  const journal = new FileEnrollmentJournal(input.stateDirectory);
+  const state = journal.read();
+  if (state.status !== "enrolled")
+    throw new BootstrapRequestConflict("Coordinator runtime witness requires retained enrollment");
+  const target = state.grant.manifest.targets.find((entry) => entry.target === "coordinator");
+  if (!target) return undefined;
+  const identity = readEnrollmentNativeIdentity(input.stateDirectory, target.identitySha256);
+  if (
+    identity.installationId !== input.installationId ||
+    identity.stateDirectory !== input.stateDirectory
+  )
+    throw new BootstrapRequestConflict(
+      "Coordinator runtime witness differs from configured installation",
+    );
+  const recovery = inspectMaintenanceRecoveryPlan(input.plan, input.account);
+  const executables = [recovery.plan.original.previous, recovery.plan.original.candidate].flatMap(
+    (slot) => (slot ? [slot.node.path] : []),
+  );
+  const witness = await inspectSelectedCoordinatorRuntime({ ...input, identity, executables });
+  if (!witness) return undefined;
+  return {
+    ...witness,
+    assertCurrent() {
+      if (
+        !isDeepStrictEqual(
+          identity,
+          readEnrollmentNativeIdentity(input.stateDirectory, target.identitySha256),
+        )
+      )
+        throw new BootstrapRequestConflict("Coordinator runtime identity changed");
+      const current = journal.readPolicySnapshot();
+      if (
+        current.status !== "enrolled" ||
+        !isDeepStrictEqual(
+          target,
+          current.grant.manifest.targets.find((entry) => entry.target === "coordinator"),
+        )
+      )
+        throw new BootstrapRequestConflict("Coordinator runtime enrollment binding changed");
+      witness.assertCurrent();
+    },
+  };
 }
 
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
