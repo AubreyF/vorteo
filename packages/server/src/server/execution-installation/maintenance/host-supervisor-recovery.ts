@@ -5,7 +5,7 @@ import {
   InitialHostMigrationIntentSchema,
   InitialHostSupervisorMigrationPlanSchema,
   initialHostPublicationRecords,
-} from "./host-supervisor-migration.js";
+} from "./host-supervisor-contract.js";
 
 /** Captured by a protected reader. Only an independently conclusive missing-file
  * result may use absent; permission errors and unstable reads are inconclusive. */

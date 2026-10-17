@@ -131,6 +131,72 @@ export const EnrollmentStepProgressSchema = z.discriminatedUnion("status", [
 ]);
 export type EnrollmentStepProgress = z.infer<typeof EnrollmentStepProgressSchema>;
 
+export const HostContinuationBindingSchema = z.strictObject({
+  planSha256: DigestSchema,
+  identitySha256: DigestSchema,
+  candidate: EnrollmentArtifactSchema,
+  previous: EnrollmentArtifactSchema,
+  interruption: InstallationEnrollmentManifestSchema.shape.interruption,
+});
+
+const hostContinuationClaim = z.strictObject({
+  reservationSha256: DigestSchema,
+  intentSha256: DigestSchema,
+  claimSha256: DigestSchema,
+  // Exact native lifetime, retained in the independently protected child claim.
+  executorSha256: DigestSchema,
+  consumedAt: z.string().datetime(),
+});
+const hostContinuationObservation = z.strictObject({
+  outcome: z.enum(["legacy-restored", "candidate-ready", "recovery_required"]),
+  observationSha256: DigestSchema,
+  childExitSha256: DigestSchema,
+  observedAt: z.string().datetime(),
+});
+const hostContinuationChild = {
+  generation: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  reservedAt: z.string().datetime(),
+  claim: hostContinuationClaim.optional(),
+  observation: hostContinuationObservation.optional(),
+};
+export const HostRestorationEvidenceSchema = z.strictObject({
+  failedChildExitSha256: DigestSchema,
+  publicationSnapshotSha256: DigestSchema,
+  targetAbsenceSha256: DigestSchema,
+});
+export const HostCandidateEvidenceSchema = z.strictObject({
+  restorationGeneration: z.string().uuid(),
+  restorationObservationSha256: DigestSchema,
+  restorationChildExitSha256: DigestSchema,
+  publicationSnapshotSha256: DigestSchema,
+  // Fresh native predecessor binding for the restored legacy runtime. It does
+  // not replace the original reviewed plan's precondition.
+  preconditionSha256: DigestSchema,
+});
+export const HostContinuationSchema = z.strictObject({
+  stepId: z.string().uuid(),
+  binding: HostContinuationBindingSchema,
+  original: z.strictObject({
+    failed: EnrollmentStepProgressSchema.options[2].extend({
+      status: z.literal("recovery_required"),
+    }),
+    manifestSha256: DigestSchema,
+    grantId: z.string().uuid(),
+    intentSha256: DigestSchema,
+    claimSha256: DigestSchema,
+    executorSha256: DigestSchema,
+  }),
+  restoration: z.strictObject({
+    ...hostContinuationChild,
+    evidence: HostRestorationEvidenceSchema,
+  }),
+  candidate: z
+    .strictObject({ ...hostContinuationChild, evidence: HostCandidateEvidenceSchema })
+    .optional(),
+});
+export type HostContinuation = z.infer<typeof HostContinuationSchema>;
+
 export const InstallationActivationSchema = z.strictObject({
   id: z.string().uuid(),
   manifestSha256: DigestSchema,
@@ -153,6 +219,8 @@ export const InstallationActivationSchema = z.strictObject({
       }),
     )
     .max(32),
+  // Compatibility: absent for enrollments created before linked Host recovery.
+  hostContinuations: z.array(HostContinuationSchema).max(32).optional(),
 });
 export type InstallationActivation = z.infer<typeof InstallationActivationSchema>;
 

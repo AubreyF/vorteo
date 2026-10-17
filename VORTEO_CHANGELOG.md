@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.679 - 2026-10-17
+
+### Maintenance
+
+- Track one Host restoration and at most one linked candidate generation inside the existing enrollment ledger. Preserve the original failed dispatch, fence historical completion from restoration reservation, and keep legacy restoration incomplete until the fresh candidate independently succeeds. Shared lifecycle and activation-child admission retain unresolved lineage exclusion.
+- Add a retained Dev registration child launcher with a reviewed pre-body descriptor gate, minimal environment, independent Host runtime and child-proof dependencies, bounded diagnostics and one local release attempt. Include the gate in whole-script hashes before enrollment; queued delivery, native root admission and workload settlement remain unverified. Add a synchronous audited-process read using the existing verified native inspector for later lock-held child custody. Production callers and native factories remain unfinished, and no capability is enabled.
+- Keep reviewed Host schemas, plan validation and canonical publication records in a data-only module. Separate the gated native launcher from the legacy supervisor utility so app typechecking does not import native execution code.
+
 ## 0.11.0-beta.3.vorteo.678 - 2026-10-17
 
 ### Maintenance

@@ -1,3 +1,8 @@
+import {
+  InitialHostSupervisorPreconditionSchema,
+  type InitialHostSupervisorPrecondition,
+} from "./host-supervisor-contract.js";
+export { InitialHostSupervisorPreconditionSchema } from "./host-supervisor-contract.js";
 import { createHash } from "node:crypto";
 import { DaemonMaintenanceProcessSchema as RuntimeProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
 import { execFile, execFileSync } from "node:child_process";
@@ -46,40 +51,6 @@ const COMMAND_LIMITS: { timeout: number; maxBuffer: number; env: { PATH: string 
 };
 const SourceSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
 
-const MigrationFileSchema = z.strictObject({
-  path: z.string().startsWith("/").max(4096),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-});
-/** Initial service custody is deliberately not running-runtime provenance. The
- * incumbent's overwritten argv cannot establish its imported module graph. */
-export const InitialHostSupervisorPreconditionSchema = z.strictObject({
-  version: z.literal(1),
-  purpose: z.literal("initial-host-supervisor-migration"),
-  provenance: z.literal("service-custody-and-observed-files"),
-  identity: EnrollmentNativeIdentitySchema,
-  configuration: MigrationFileSchema,
-  launcher: MigrationFileSchema,
-  clientConfiguration: MigrationFileSchema,
-  node: MigrationFileSchema,
-  supervisorEntrypoint: MigrationFileSchema,
-  workerEntrypoint: MigrationFileSchema,
-  sourceReceipt: MigrationFileSchema,
-  selectedRelease: z.string().startsWith("/").max(4096),
-  sourceCommit: SourceSchema.shape.sourceCommit,
-  serverId: z.string().min(1).max(200),
-  workerInstanceId: z.string().min(1).max(200).nullable(),
-  workerInstanceSupport: z.enum(["supported", "unsupported"]),
-  hostEndpoint: z.string().min(1).max(4096),
-  registration: z.strictObject({
-    program: z.string().nullable(),
-    arguments: z.array(z.string()).min(2).max(16),
-    environment: z.record(z.string(), z.string()),
-    loadedEnvironment: z.record(z.string(), z.string()),
-  }),
-  supervisor: RuntimeProcessSchema,
-  worker: RuntimeProcessSchema,
-});
-type InitialHostSupervisorPrecondition = z.infer<typeof InitialHostSupervisorPreconditionSchema>;
 interface InitialHostMigrationProof {
   precondition: InitialHostSupervisorPrecondition;
   preconditionSha256: string;

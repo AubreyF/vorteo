@@ -1178,9 +1178,34 @@ async function hostScriptBoundary(
   };
   const p = f.candidate.provisioner.plan;
   let rootRequest: unknown = null;
+  let gateReads = 0;
+  let gateOpen = true;
   const execute = () =>
     runInNewContext(source, {
-      fs,
+      fs: {
+        ...fs,
+        readSync(
+          fd: number,
+          buffer: Uint8Array,
+          offset: number,
+          length: number,
+          position: number | null,
+        ) {
+          if (fd !== 3 || !gateOpen) return fs.readSync(fd, buffer, offset, length, position);
+          if (gateReads++ === 0) {
+            buffer[offset] = 1;
+            return 1;
+          }
+          return 0;
+        },
+        closeSync(fd: number) {
+          if (fd === 3 && gateOpen) {
+            gateOpen = false;
+            return;
+          }
+          fs.closeSync(fd);
+        },
+      },
       path: pathApi,
       createHash,
       isDeepStrictEqual,

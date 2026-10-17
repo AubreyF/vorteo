@@ -1,5 +1,10 @@
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 import {
+  assertMaintenanceEnrollmentClaim,
+  unresolvedMaintenanceActivations,
+} from "../coordinator-bootstrap-maintenance-enrollment.js";
+import { inspectLifecycleActivationChild } from "../coordinator-bootstrap-maintenance-child.js";
+import {
   reconcileInitialHostActivation,
   reconcileNativeInitialHostActivation,
 } from "./host-supervisor-activation.js";
@@ -16,6 +21,9 @@ import {
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
   InitialHostSupervisorMigrationPlanSchema,
+  InitialHostMigrationIntentSchema,
+  InitialHostMigrationClaimSchema,
+  initialHostPublicationRecords,
   inspectInitialHostSupervisorMigrationPlan,
   inspectInitialHostMigrationEnrollment,
   reserveInitialHostMigrationIntent,
@@ -110,7 +118,18 @@ import {
   reconcileActivationStep,
   reserveActivationStep,
   validateEnrollmentManifest,
+  reserveHostRestoration,
+  reserveHostCandidateContinuation,
+  consumeHostContinuation,
+  observeHostContinuation,
+  hostContinuationReservationDigest,
+  assertHostContinuationExclusion,
+  type HostContinuationCustody,
 } from "./authorization.js";
+import {
+  classifyInitialHostPublication,
+  type InitialHostRecoveryImage,
+} from "./host-supervisor-recovery.js";
 import {
   projectEnrollmentStatus,
   readMaintenanceServiceObservations,
@@ -223,6 +242,822 @@ function enrolled(state: InstallationEnrollmentState) {
   if (state.status !== "enrolled") throw new Error("Fixture was not enrolled");
   return state;
 }
+
+function hostContinuationFixture(
+  operations: InstallationEnrollmentManifest["targets"][number]["operations"] = [
+    "replacement",
+    "rollback",
+    "recovery",
+  ],
+) {
+  const launcherBytes = Buffer.from("Retained original Host launcher");
+  const f = initialHostPlanFixture((plan) => {
+    plan.precondition.launcher.sha256 = createHash("sha256").update(launcherBytes).digest("hex");
+    plan.fallback.launcher.sha256 = plan.precondition.launcher.sha256;
+    plan.candidate.launcher.sha256 = createHash("sha256")
+      .update("Candidate Host launcher")
+      .digest("hex");
+  }, operations);
+  const failedState = enrolled(
+    observeActivationStep(f.journal, {
+      stepId: f.second,
+      generation: f.input.generation,
+      outcome: "recovery_required",
+      observationSha256: "9".repeat(64),
+    }),
+  );
+  const failed = failedState.activation.steps[1];
+  if (failed.status !== "recovery_required") throw new Error("Expected failed Host step");
+  const digest = (value: unknown) =>
+    createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const intent = InitialHostMigrationIntentSchema.parse({
+    version: 1,
+    id: randomUUID(),
+    operation: "initial-host-supervisor-migration",
+    grantId: failedState.grant.id,
+    grantRevision: failed.grantRevision,
+    manifestSha256: failedState.activation.manifestSha256,
+    stepId: f.second,
+    generation: failed.generation,
+    planSha256: f.manifest.steps[1].planSha256,
+    identitySha256: f.plan.identitySha256,
+    preconditionSha256: f.plan.preconditionSha256,
+    observedAt: failed.reservedAt,
+    createdAt: failed.reservedAt,
+  });
+  const originalClaim = InitialHostMigrationClaimSchema.parse({
+    version: 1,
+    operation: "initial-host-supervisor-migration",
+    intentId: intent.id,
+    intentSha256: digest(intent),
+    stepId: f.second,
+    generation: failed.generation,
+    planSha256: intent.planSha256,
+    executor: f.plan.precondition.supervisor,
+    consumedAt: failed.reservedAt,
+  });
+  const ports = {
+    assertCurrent: vi.fn(() => undefined),
+    assertExclusive: vi.fn(() => {
+      expect(() =>
+        new FileBootstrapRequestJournal(f.directory).withRecoveryTransaction(() => undefined),
+      ).toThrow("storage is busy");
+    }),
+  };
+  const records = initialHostPublicationRecords({
+    plan: f.plan,
+    intent,
+    claim: originalClaim,
+    enrollmentStateDirectory: f.directory,
+  });
+  const publication: InitialHostRecoveryImage = {
+    enrollmentStateDirectory: f.directory,
+    plan: {
+      path: path.join(f.directory, "initial-host-migrations", "plans", `${intent.planSha256}.json`),
+      state: "present",
+      bytes: Buffer.from(JSON.stringify(f.plan, null, 2)),
+    },
+    intent: {
+      path: path.join(f.directory, `initial-host-${f.second}-${failed.generation}.json`),
+      state: "present",
+      bytes: Buffer.from(JSON.stringify(intent)),
+    },
+    claim: {
+      path: path.join(f.directory, `initial-host-claim-${f.second}-${failed.generation}.json`),
+      state: "present",
+      bytes: Buffer.from(JSON.stringify(originalClaim)),
+    },
+    launcher: { path: records.launcher.path, state: "present", bytes: launcherBytes },
+    phase: { path: records.phase.file, state: "absent" },
+    launcherAttempt: { path: records.launcherAttempt.file, state: "absent" },
+    selectorAttempt: { path: records.selectorAttempt.file, state: "absent" },
+    selector: {
+      path: records.selector.path,
+      state: "present",
+      text: records.selector.original,
+      resolvedTarget: records.selector.original,
+    },
+  };
+  const restoreInput = {
+    grantRevision: failedState.grant.revision,
+    stepId: f.second,
+    plan: f.plan,
+    originalIntent: intent,
+    originalClaim,
+    publication,
+    evidence: {
+      failedChildExitSha256: "1".repeat(64),
+      publicationSnapshotSha256: classifyInitialHostPublication(publication).snapshotSha256,
+      targetAbsenceSha256: "3".repeat(64),
+    },
+    ...ports,
+  };
+  function lineage() {
+    const value = enrolled(f.journal.read()).activation.hostContinuations?.[0];
+    if (!value) throw new Error("Expected retained lineage");
+    return value;
+  }
+  function consume(role: "restoration" | "candidate", journal = f.journal) {
+    const retained = lineage();
+    const child = role === "restoration" ? retained.restoration : retained.candidate;
+    if (!child) throw new Error("Child is not reserved");
+    const executor = {
+      ...f.plan.precondition.supervisor,
+      pid: role === "restoration" ? 401 : 402,
+      startIdentity: role === "restoration" ? "401:1" : "402:1",
+    };
+    const input = {
+      grantRevision: enrolled(f.journal.read()).grant.revision,
+      stepId: f.second,
+      generation: child.generation,
+      role,
+      plan: f.plan,
+      reservationSha256: hostContinuationReservationDigest(retained, role),
+      intentSha256: (role === "restoration" ? "4" : "5").repeat(64),
+      claimSha256: (role === "restoration" ? "6" : "7").repeat(64),
+      executor,
+      publication: role === "restoration" ? publication : null,
+      ...ports,
+    };
+    const state = consumeHostContinuation(journal, input);
+    return { input, state };
+  }
+  function observe(
+    role: "restoration" | "candidate",
+    outcome: "legacy-restored" | "candidate-ready" | "recovery_required" = role === "restoration"
+      ? "legacy-restored"
+      : "candidate-ready",
+  ) {
+    const retained = lineage();
+    const child = role === "restoration" ? retained.restoration : retained.candidate;
+    if (!child?.claim) throw new Error("Child is not consumed");
+    const executor = {
+      ...f.plan.precondition.supervisor,
+      pid: role === "restoration" ? 401 : 402,
+      startIdentity: role === "restoration" ? "401:1" : "402:1",
+    };
+    const input = {
+      stepId: f.second,
+      generation: child.generation,
+      role,
+      claimSha256: child.claim.claimSha256,
+      executor,
+      outcome,
+      observationSha256: (role === "restoration" ? "8" : "a").repeat(64),
+      childExitSha256: (role === "restoration" ? "b" : "c").repeat(64),
+      assertCurrent: vi.fn(() => undefined),
+    };
+    return { input, state: observeHostContinuation(f.journal, input) };
+  }
+  function candidateInput() {
+    const retained = lineage();
+    const restored = retained.restoration.observation;
+    if (!restored) throw new Error("Restoration is not observed");
+    return {
+      grantRevision: enrolled(f.journal.read()).grant.revision,
+      stepId: f.second,
+      plan: f.plan,
+      evidence: {
+        restorationGeneration: retained.restoration.generation,
+        restorationObservationSha256: restored.observationSha256,
+        restorationChildExitSha256: restored.childExitSha256,
+        publicationSnapshotSha256: "d".repeat(64),
+        preconditionSha256: "e".repeat(64),
+      },
+      ...ports,
+    };
+  }
+  function restore() {
+    reserveHostRestoration(f.journal, restoreInput);
+    consume("restoration");
+    return observe("restoration");
+  }
+  return {
+    ...f,
+    failed,
+    failedState,
+    intent,
+    originalClaim,
+    ports,
+    restoreInput,
+    lineage,
+    consume,
+    observe,
+    candidateInput,
+    restore,
+  };
+}
+
+test.each(["reserved", "consumed", "legacy-restored", "candidate-reserved", "candidate-ready"])(
+  "Host continuation integration retains cross-ledger exclusion through %s",
+  (phase) => {
+    const f = hostContinuationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    if (phase !== "reserved") f.consume("restoration");
+    if (["legacy-restored", "candidate-reserved", "candidate-ready"].includes(phase))
+      f.observe("restoration");
+    if (["candidate-reserved", "candidate-ready"].includes(phase))
+      reserveHostCandidateContinuation(f.journal, f.candidateInput());
+    if (phase === "candidate-ready") {
+      f.consume("candidate");
+      f.observe("candidate");
+    }
+    const state = enrolled(f.journal.read());
+    const projection = structuredClone(state);
+    projection.activation.steps[1] = { ...f.failed, status: "succeeded" };
+    const settled = phase === "candidate-ready";
+    expect(unresolvedMaintenanceActivations(projection).some((step) => step.id === f.second)).toBe(
+      !settled,
+    );
+    const lifecycle = new FileBootstrapRequestJournal(f.directory);
+    expect(lifecycle.lifecycleAdmissionAvailable()).toBe(settled);
+    const job: RestartJob = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Competing installation operation",
+      whenIdle: false,
+      status: "approved",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      detail: "Prepared competing operation",
+      approvedAt: new Date().toISOString(),
+    };
+    const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+    if (settled) expect(() => lifecycle.writeLifecycle([job])).not.toThrow();
+    else {
+      expect(() => lifecycle.writeLifecycle([job])).toThrow(/activation must be reconciled/);
+      expect(lifecycle.readLifecycle()).toEqual([]);
+    }
+    expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  },
+);
+
+test("Host continuation integration rejects ordinary activation-child and coordinator claim exceptions", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const state = enrolled(f.journal.read());
+  expect(() =>
+    inspectLifecycleActivationChild(
+      {
+        grantId: state.grant.id,
+        grantRevision: state.grant.revision,
+        manifestSha256: state.activation.manifestSha256,
+        stepId: f.second,
+        generation: f.lineage().restoration.generation,
+        requestId: randomUUID(),
+        requestRevision: randomUUID(),
+        planSha256: f.restoreInput.originalIntent.planSha256,
+        target: "host",
+      },
+      state,
+      [],
+    ),
+  ).toThrow(/unresolved child/);
+  // A structurally valid coordinator request must still fail the Host fence
+  // before its ordinary enrollment exception could be considered.
+  const process = f.plan.precondition.supervisor;
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.plan.installationId,
+    service: `gui/${process.uid}/local.vorteo.fixture.installation`,
+    expectedProcess: {
+      pid: process.pid,
+      bootId: process.bootId,
+      startIdentity: process.startIdentity,
+      argumentsSha256: process.argumentsSha256,
+    },
+    previous: f.plan.fallback,
+    candidate: f.plan.candidate,
+    state: {
+      directory: f.directory,
+      restartJournal: path.join(f.directory, "restart-jobs.json"),
+      ownerSessions: path.join(f.directory, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const request = CoordinatorBootstrapRequestSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Coordinator enrollment exclusion",
+    createdAt: new Date().toISOString(),
+    plan,
+    planSha256: createHash("sha256").update(JSON.stringify(plan)).digest("hex"),
+    status: "approved",
+    decisionAt: new Date().toISOString(),
+  });
+  expect(() => assertMaintenanceEnrollmentClaim(request, state)).toThrow(/unresolved child/);
+});
+
+test("Host continuation reserves once and fences old completion before consumption", () => {
+  const f = hostContinuationFixture();
+  const first = reserveHostRestoration(f.journal, f.restoreInput);
+  const retained = f.lineage();
+  expect(retained.original.failed).toEqual(f.failed);
+  expect(retained.restoration.generation).not.toBe(f.failed.generation);
+  expect(reserveHostRestoration(f.journal, f.restoreInput)).toEqual(first);
+  expect(f.ports.assertCurrent).toHaveBeenCalledTimes(1);
+  expect(() =>
+    observeActivationStep(f.journal, {
+      stepId: f.second,
+      generation: f.failed.generation,
+      outcome: "succeeded",
+      observationSha256: "f".repeat(64),
+    }),
+  ).toThrow("fenced");
+  expect(() =>
+    reconcileActivationStep(f.journal, {
+      id: randomUUID(),
+      stepId: f.second,
+      generation: f.failed.generation,
+      failedObservationSha256: f.failed.observationSha256,
+      observationSha256: "f".repeat(64),
+    }),
+  ).toThrow("fenced");
+  expect(f.journal.read()).toEqual(first);
+});
+
+test("Host continuation legacy restoration cannot complete activation or release dependents", () => {
+  const f = hostContinuationFixture();
+  f.restore();
+  const state = enrolled(f.journal.read());
+  expect(state.activation.steps[1]).toEqual(f.failed);
+  expect(f.lineage().restoration.observation?.outcome).toBe("legacy-restored");
+  expect(() =>
+    reserveActivationStep(f.journal, {
+      grantRevision: state.grant.revision,
+      stepId: f.followingId,
+    }),
+  ).toThrow();
+  expect(() => assertHostContinuationExclusion(state)).toThrow("unresolved child");
+  const counterfeitRootStatus = structuredClone(state);
+  counterfeitRootStatus.activation.steps[1] = { ...f.failed, status: "succeeded" };
+  expect(() => assertHostContinuationExclusion(counterfeitRootStatus)).toThrow("unresolved child");
+});
+
+test("Host continuation completes only its one fresh linked candidate generation", () => {
+  const f = hostContinuationFixture();
+  f.restore();
+  const original = f.lineage().original;
+  const input = f.candidateInput();
+  const reserved = reserveHostCandidateContinuation(f.journal, input);
+  const child = f.lineage().candidate;
+  expect(child).toBeDefined();
+  expect(
+    new Set([f.failed.generation, f.lineage().restoration.generation, child?.generation]).size,
+  ).toBe(3);
+  expect(reserveHostCandidateContinuation(f.journal, input)).toEqual(reserved);
+  expect(() => f.observe("candidate")).toThrow("not consumed");
+  f.consume("candidate");
+  f.observe("candidate");
+  const state = enrolled(f.journal.read());
+  expect(state.activation.steps[1]).toMatchObject({
+    status: "succeeded",
+    generation: child?.generation,
+  });
+  expect(f.lineage().original).toEqual(original);
+  expect(() => assertHostContinuationExclusion(state)).not.toThrow();
+  expect(
+    enrolled(
+      reserveActivationStep(f.journal, {
+        grantRevision: state.grant.revision,
+        stepId: f.followingId,
+      }),
+    ).activation.steps[2].status,
+  ).toBe("reserved");
+});
+
+test.each(["restoration", "candidate"] as const)(
+  "Host continuation %s consumption has no redispatch path",
+  (role) => {
+    const f = hostContinuationFixture();
+    if (role === "candidate") {
+      f.restore();
+      reserveHostCandidateContinuation(f.journal, f.candidateInput());
+    } else reserveHostRestoration(f.journal, f.restoreInput);
+    const consumed = f.consume(role);
+    expect(() => consumeHostContinuation(f.journal, consumed.input)).toThrow("observe only");
+    expect(f.journal.read()).toEqual(consumed.state);
+  },
+);
+
+test.each(["after-rename", "directory-sync"] as const)(
+  "Host continuation uncertain reservation survives %s without another generation",
+  (stage) => {
+    const f = hostContinuationFixture();
+    const uncertain = new FileEnrollmentJournal(f.directory, failingEnrollmentFiles(stage));
+    expect(() => reserveHostRestoration(uncertain, f.restoreInput)).toThrow();
+    const generation = f.lineage().restoration.generation;
+    reserveHostRestoration(f.journal, f.restoreInput);
+    expect(f.lineage().restoration.generation).toBe(generation);
+  },
+);
+
+test("Host continuation uncertain consumption retains claim and refuses another executor", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  expect(() =>
+    f.consume(
+      "restoration",
+      new FileEnrollmentJournal(f.directory, failingEnrollmentFiles("after-rename")),
+    ),
+  ).toThrow();
+  expect(f.lineage().restoration.claim).toBeDefined();
+  expect(() => f.consume("restoration")).toThrow("observe only");
+});
+
+test.each(["restoration", "candidate"] as const)(
+  "Host continuation failed %s remains fenced without recursive retries",
+  (role) => {
+    const f = hostContinuationFixture();
+    if (role === "candidate") {
+      f.restore();
+      reserveHostCandidateContinuation(f.journal, f.candidateInput());
+    } else reserveHostRestoration(f.journal, f.restoreInput);
+    f.consume(role);
+    f.observe(role, "recovery_required");
+    const state = f.journal.read();
+    expect(() => assertHostContinuationExclusion(state)).toThrow();
+    expect(() => f.observe(role)).toThrow("immutable");
+    if (role === "restoration")
+      expect(() => reserveHostCandidateContinuation(f.journal, f.candidateInput())).toThrow();
+    else {
+      reserveHostCandidateContinuation(f.journal, f.candidateInput());
+      expect(f.journal.read()).toEqual(state);
+    }
+    expect(() => f.consume(role)).toThrow("observe only");
+  },
+);
+
+test("Host continuation observes exact consumed readiness after revocation without effects", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.restoreInput.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observed = f.observe("restoration");
+  expect(observeHostContinuation(f.journal, observed.input)).toEqual(observed.state);
+  expect(() => reserveHostCandidateContinuation(f.journal, f.candidateInput())).toThrow(
+    "paused or revoked",
+  );
+});
+
+test.each(["rollback", "recovery"] as const)(
+  "Host continuation restoration requires explicit %s authority",
+  (missing) => {
+    const f = hostContinuationFixture([
+      "replacement",
+      ...(["rollback", "recovery"] as const).filter((operation) => operation !== missing),
+    ]);
+    expect(() => reserveHostRestoration(f.journal, f.restoreInput)).toThrow("explicit");
+    expect(enrolled(f.journal.read()).activation.hostContinuations).toBeUndefined();
+  },
+);
+
+test.each(["assertCurrent", "assertExclusive"] as const)(
+  "Host continuation %s must be synchronous and preserve exact bindings",
+  (port) => {
+    const f = hostContinuationFixture();
+    const before = f.journal.read();
+    // oxlint-disable-next-line unicorn/no-thenable -- Deliberate invalid synchronous proof return.
+    for (const callback of [() => Promise.resolve(), () => ({ then() {} })]) {
+      expect(() =>
+        reserveHostRestoration(f.journal, { ...f.restoreInput, [port]: callback }),
+      ).toThrow("synchronous");
+    }
+    expect(() =>
+      reserveHostRestoration(f.journal, {
+        ...f.restoreInput,
+        [port]: (context: HostContinuationCustody) => {
+          context.lineage.binding.candidate.sourceCommit = "f".repeat(40);
+        },
+      }),
+    ).toThrow("mutated");
+    expect(f.journal.read()).toEqual(before);
+  },
+);
+
+test("Host continuation requires caller lock-held global exclusion, not a default allow port", () => {
+  const f = hostContinuationFixture();
+  const input = { ...f.restoreInput };
+  Reflect.deleteProperty(input, "assertExclusive");
+  expect(() => reserveHostRestoration(f.journal, input)).toThrow("global exclusion");
+  expect(() =>
+    reserveHostRestoration(f.journal, {
+      ...f.restoreInput,
+      assertExclusive() {
+        throw new Error("Coordinator execution is running");
+      },
+    }),
+  ).toThrow("Coordinator execution");
+  expect(enrolled(f.journal.read()).activation.hostContinuations).toBeUndefined();
+});
+
+test.each(["assertCurrent", "assertExclusive"] as const)(
+  "Host continuation rereads grant revocation after %s",
+  (port) => {
+    const f = hostContinuationFixture();
+    expect(() =>
+      reserveHostRestoration(f.journal, {
+        ...f.restoreInput,
+        [port]: () => {
+          const state = enrolled(f.journal.readUnderLifecycleLock());
+          state.grant.revision = randomUUID();
+          state.grant.revokedAt = new Date().toISOString();
+          writeFileSync(
+            path.join(f.directory, "maintenance-enrollment.json"),
+            JSON.stringify(state),
+          );
+        },
+      }),
+    ).toThrow();
+    const state = enrolled(f.journal.read());
+    expect(state.grant.revokedAt).not.toBeNull();
+    expect(state.activation.hostContinuations).toBeUndefined();
+  },
+);
+
+test("Host continuation detects a competing activation introduced during custody", () => {
+  const f = hostContinuationFixture();
+  expect(() =>
+    reserveHostRestoration(f.journal, {
+      ...f.restoreInput,
+      assertCurrent() {
+        const state = enrolled(f.journal.readUnderLifecycleLock());
+        state.activation.steps[2] = {
+          id: f.followingId,
+          status: "reserved",
+          generation: randomUUID(),
+          grantRevision: state.grant.revision,
+          reservedAt: new Date().toISOString(),
+        };
+        writeFileSync(path.join(f.directory, "maintenance-enrollment.json"), JSON.stringify(state));
+      },
+    }),
+  ).toThrow("another activation");
+  expect(enrolled(f.journal.read()).activation.hostContinuations).toBeUndefined();
+});
+
+test.each(["interruption", "candidate", "fallback", "identity", "generation"] as const)(
+  "Host continuation rejects substituted original %s before reservation",
+  (changed) => {
+    const f = hostContinuationFixture();
+    const input = structuredClone({
+      plan: f.restoreInput.plan,
+      originalIntent: f.intent,
+      originalClaim: f.originalClaim,
+    });
+    if (changed === "interruption") input.plan.interruption.terminateGraceSeconds++;
+    if (changed === "candidate") input.plan.candidate.sourceCommit = "0".repeat(40);
+    if (changed === "fallback") input.plan.fallback.artifactSha256 = "0".repeat(64);
+    if (changed === "identity") input.originalIntent.identitySha256 = "0".repeat(64);
+    if (changed === "generation") input.originalClaim.generation = randomUUID();
+    expect(() => reserveHostRestoration(f.journal, { ...f.restoreInput, ...input })).toThrow();
+    expect(enrolled(f.journal.read()).activation.hostContinuations).toBeUndefined();
+  },
+);
+
+test.each([
+  "restorationGeneration",
+  "restorationObservationSha256",
+  "restorationChildExitSha256",
+  "preconditionSha256",
+] as const)("Host continuation candidate rejects stale %s", (changed) => {
+  const f = hostContinuationFixture();
+  f.restore();
+  const input = f.candidateInput();
+  input.evidence[changed] = changed === "restorationGeneration" ? randomUUID() : "0".repeat(64);
+  if (changed === "preconditionSha256")
+    input.evidence.preconditionSha256 = f.plan.preconditionSha256;
+  expect(() => reserveHostCandidateContinuation(f.journal, input)).toThrow(
+    "exact restored predecessor",
+  );
+  expect(f.lineage().candidate).toBeUndefined();
+});
+
+test.each(["pid", "parentPid", "uid", "bootId", "startIdentity"] as const)(
+  "Host continuation observation refuses changed executor %s",
+  (changed) => {
+    const f = hostContinuationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    f.consume("restoration");
+    const observed = f.observe("restoration");
+    const executor = { ...observed.input.executor };
+    if (changed === "pid" || changed === "parentPid" || changed === "uid") executor[changed]++;
+    if (changed === "bootId") executor.bootId = randomUUID();
+    if (changed === "startIdentity") executor.startIdentity = "999:1";
+    expect(() => observeHostContinuation(f.journal, { ...observed.input, executor })).toThrow(
+      "lifetime",
+    );
+    expect(f.journal.read()).toEqual(observed.state);
+  },
+);
+
+test("Host continuation observer must retain exact exit and readiness custody", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  const observed = f.observe("restoration");
+  expect(() =>
+    observeHostContinuation(f.journal, {
+      ...observed.input,
+      assertCurrent() {
+        throw new Error("Child exit is unproven");
+      },
+    }),
+  ).toThrow("exit is unproven");
+  expect(() =>
+    // oxlint-disable-next-line unicorn/no-thenable -- Deliberate invalid observer return.
+    observeHostContinuation(f.journal, { ...observed.input, assertCurrent: () => ({ then() {} }) }),
+  ).toThrow("synchronous");
+});
+
+test("Host continuation historical observer and stale whole-state write cannot alter successor", () => {
+  const f = hostContinuationFixture();
+  const old = f.restore();
+  const stale = f.journal.read();
+  reserveHostCandidateContinuation(f.journal, f.candidateInput());
+  const current = f.journal.read();
+  expect(() => observeHostContinuation(f.journal, old.input)).toThrow("historical observer");
+  expect(() => f.journal.update(() => stale)).toThrow();
+  expect(() =>
+    f.journal.update((state) => {
+      if (state.status === "enrolled") delete state.activation.hostContinuations;
+      return state;
+    }),
+  ).toThrow();
+  expect(f.journal.read()).toEqual(current);
+});
+
+test("Host continuation generic writes cannot rewrite archived failure or active generation", () => {
+  const f = hostContinuationFixture();
+  f.restore();
+  for (const change of ["failure", "generation"] as const) {
+    expect(() =>
+      f.journal.update((state) => {
+        if (state.status !== "enrolled" || !state.activation.hostContinuations)
+          throw new Error("Missing lineage");
+        const lineage = state.activation.hostContinuations[0];
+        if (change === "failure") {
+          lineage.original.failed.observationSha256 = "0".repeat(64);
+          state.activation.steps[1] = lineage.original.failed;
+        } else lineage.restoration.generation = randomUUID();
+        return state;
+      }),
+    ).toThrow();
+  }
+});
+
+test("Host continuation grant revision changes prevent unconsumed child dispatch", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.restoreInput.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: false,
+  });
+  expect(() => f.consume("restoration")).toThrow("current child reservation");
+  expect(f.lineage().restoration.claim).toBeUndefined();
+});
+
+test("Host continuation binds the classifier snapshot and original claim before custody", () => {
+  const f = hostContinuationFixture();
+  const before = f.journal.read();
+  expect(() =>
+    reserveHostRestoration(f.journal, {
+      ...f.restoreInput,
+      evidence: { ...f.restoreInput.evidence, publicationSnapshotSha256: "0".repeat(64) },
+    }),
+  ).toThrow("classified publication");
+  const substituted = structuredClone(f.restoreInput.publication);
+  if (substituted.selector.state !== "present") throw new Error("Expected selector");
+  substituted.selector.text += "/.";
+  expect(() =>
+    reserveHostRestoration(f.journal, { ...f.restoreInput, publication: substituted }),
+  ).toThrow("classified publication");
+  expect(f.ports.assertCurrent).not.toHaveBeenCalled();
+  expect(f.journal.read()).toEqual(before);
+});
+
+test("Host continuation refuses an inconclusive publication read before reservation", () => {
+  const f = hostContinuationFixture();
+  expect(() =>
+    reserveHostRestoration(f.journal, {
+      ...f.restoreInput,
+      publication: {
+        ...f.restoreInput.publication,
+        phase: { path: f.restoreInput.publication.phase.path, state: "inconclusive" },
+      },
+    }),
+  ).toThrow("inconclusive");
+  expect(enrolled(f.journal.read()).activation.hostContinuations).toBeUndefined();
+});
+
+test("Host continuation consumption rechecks publication bytes and prevents reused executor lifetimes", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const child = f.lineage().restoration;
+  const input = {
+    grantRevision: f.restoreInput.grantRevision,
+    stepId: f.second,
+    generation: child.generation,
+    role: "restoration" as const,
+    plan: f.plan,
+    reservationSha256: hostContinuationReservationDigest(f.lineage(), "restoration"),
+    intentSha256: "4".repeat(64),
+    claimSha256: "6".repeat(64),
+    executor: f.originalClaim.executor,
+    publication: f.restoreInput.publication,
+    ...f.ports,
+  };
+  expect(() => consumeHostContinuation(f.journal, input)).toThrow("executor lifetimes");
+  const changed = structuredClone(f.restoreInput.publication);
+  if (changed.launcher.state !== "present") throw new Error("Expected launcher");
+  changed.launcher.bytes = Buffer.from("Foreign launcher");
+  expect(() => consumeHostContinuation(f.journal, { ...input, publication: changed })).toThrow(
+    "launcher bytes",
+  );
+  expect(f.lineage().restoration.claim).toBeUndefined();
+});
+
+test("Host continuation observation lost reply reopens its immutable receipt after revocation", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  f.consume("restoration");
+  const observed = f.observe("restoration");
+  // Reuse the exact consumed identity with a distinct fresh fixture so the
+  // observation's first publication loses its rename response.
+  const g = hostContinuationFixture();
+  reserveHostRestoration(g.journal, g.restoreInput);
+  const consumed = g.consume("restoration");
+  const input = {
+    ...observed.input,
+    stepId: g.second,
+    generation: g.lineage().restoration.generation,
+    claimSha256: consumed.input.claimSha256,
+    executor: consumed.input.executor,
+  };
+  expect(() =>
+    observeHostContinuation(
+      new FileEnrollmentJournal(g.directory, failingEnrollmentFiles("after-rename")),
+      input,
+    ),
+  ).toThrow("lost rename response");
+  const receipt = g.lineage().restoration.observation;
+  changeStandingGrant(g.journal, {
+    expectedRevision: g.restoreInput.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  observeHostContinuation(g.journal, input);
+  expect(g.lineage().restoration.observation).toEqual(receipt);
+});
+
+test("Host continuation state validation rejects an active candidate generation mismatch", () => {
+  const f = hostContinuationFixture();
+  f.restore();
+  reserveHostCandidateContinuation(f.journal, f.candidateInput());
+  const before = f.journal.read();
+  expect(() =>
+    f.journal.update((state) => {
+      if (state.status === "enrolled") {
+        const step = state.activation.steps[1];
+        if (step.status !== "pending") step.generation = randomUUID();
+      }
+      return state;
+    }),
+  ).toThrow("logical step");
+  expect(f.journal.read()).toEqual(before);
+});
+
+test("Host continuation shared journal rejects a combined unrelated activation reservation", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const before = f.journal.read();
+  expect(() =>
+    f.journal.update((state) => {
+      if (state.status === "enrolled")
+        state.activation.steps[2] = {
+          id: f.followingId,
+          status: "reserved",
+          generation: randomUUID(),
+          grantRevision: state.grant.revision,
+          reservedAt: new Date().toISOString(),
+        };
+      return state;
+    }),
+  ).toThrow("another activation");
+  expect(f.journal.read()).toEqual(before);
+});
 
 test.each(["valid", "changed", "async"] as const)(
   "activation reservation rechecks native custody under exclusion: %s",
@@ -4233,6 +5068,7 @@ test("rollback-only producer retains the failed replacement while selecting its 
 
 function initialHostPlanFixture(
   preparePlan?: (plan: ReturnType<typeof InitialHostSupervisorMigrationPlanSchema.parse>) => void,
+  operations: InstallationEnrollmentManifest["targets"][number]["operations"] = ["replacement"],
 ) {
   const f = fixture();
   const uid = process.getuid!();
@@ -4331,7 +5167,7 @@ function initialHostPlanFixture(
   f.manifest.targets[2] = {
     target: "host",
     identitySha256: plan.identitySha256,
-    operations: ["replacement"],
+    operations,
   };
   const following = { ...f.manifest.steps[1], id: randomUUID(), dependsOn: [f.second] };
   f.manifest.steps[1] = {

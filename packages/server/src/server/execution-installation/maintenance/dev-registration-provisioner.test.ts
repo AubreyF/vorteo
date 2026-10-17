@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { expect, test } from "vitest";
 import {
   DevRegistrationProvisionerInputSchema,
   DEV_REGISTRATION_PROVISIONING_SCRIPT,
+  DEV_REGISTRATION_GATE_PREFIX,
   devRegistrationLinuxArtifactDigest,
   prepareDevRegistrationProvisioner,
 } from "./dev-registration-provisioner.js";
@@ -551,3 +553,61 @@ test.each([
     ).toBe(expected);
   },
 );
+
+test.each([
+  "valid",
+  "empty",
+  "extra",
+  "read-error",
+  "missing-eof",
+  "invalid-token",
+  "second-read-error",
+])("fixed registration gate handles %s before any authority load", (mode) => {
+  const calls: string[] = [];
+  let reads = 0;
+  const source = DEV_REGISTRATION_GATE_PREFIX.replace(/^import .*;\n/gm, "") + "body();";
+  const execute = () =>
+    runInNewContext(source, {
+      fs: {
+        readSync(fd: number, bytes: Uint8Array, offset: number, length: number, position: null) {
+          expect([fd, offset, length, position]).toEqual([3, 0, 1, null]);
+          calls.push("read");
+          reads++;
+          if (mode === "read-error") throw Error("EIO");
+          if (mode === "empty") return 0;
+          if (reads === 1) {
+            bytes[offset] = mode === "invalid-token" ? 2 : 1;
+            return 1;
+          }
+          if (mode === "missing-eof") throw Error("EAGAIN");
+          if (mode === "second-read-error") throw Error("EIO");
+          return mode === "extra" ? 1 : 0;
+        },
+        closeSync(fd: number) {
+          expect(fd).toBe(3);
+          calls.push("close");
+        },
+      },
+      body() {
+        calls.push("body");
+      },
+    });
+  if (mode === "valid") {
+    expect(execute).not.toThrow();
+    expect(calls).toEqual(["read", "read", "close", "body"]);
+  } else {
+    expect(execute).toThrow();
+    expect(calls.at(-1)).toBe("close");
+    expect(calls).not.toContain("body");
+  }
+});
+test("both prepared scripts bind the fixed gate into the whole reviewed buffer before enrollment", () => {
+  const prepared = prepareDevRegistrationProvisioner(fixture());
+  expect(prepared.script.startsWith(DEV_REGISTRATION_GATE_PREFIX)).toBe(true);
+  expect(prepared.rollback.script.startsWith(DEV_REGISTRATION_GATE_PREFIX)).toBe(true);
+  expect(hash(prepared.script)).toBe(prepared.sha256);
+  expect(hash(prepared.rollback.script)).toBe(prepared.rollback.sha256);
+  expect(prepared.script.indexOf("const reviewed=")).toBeGreaterThan(
+    DEV_REGISTRATION_GATE_PREFIX.length - 1,
+  );
+});

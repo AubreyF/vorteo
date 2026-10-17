@@ -1,4 +1,8 @@
-import { FileEnrollmentJournal } from "./maintenance/authorization.js";
+import {
+  assertHostContinuationExclusion,
+  FileEnrollmentJournal,
+  unresolvedHostContinuations,
+} from "./maintenance/authorization.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { InstallationEnrollmentStateSchema } from "@getpaseo/protocol/installation-enrollment";
@@ -16,6 +20,7 @@ export function assertMaintenanceEnrollmentClaim(value: unknown, retained: unkno
   const request = CoordinatorBootstrapRequestSchema.parse(value);
   const proof = request.enrollment;
   const state = InstallationEnrollmentStateSchema.parse(retained);
+  assertHostContinuationExclusion(state);
   if (!proof || state.status !== "enrolled") throw new Error("Exact enrollment authority required");
   const { grant, activation } = state;
   const manifest = grant.manifest;
@@ -102,9 +107,13 @@ function assertEnrollmentPlan(
  * grant does not erase an uncertain effect. Only observation can settle it. */
 export function unresolvedMaintenanceActivations(retained: unknown) {
   const state = InstallationEnrollmentStateSchema.parse(retained);
+  const continuationSteps = new Set(unresolvedHostContinuations(state).map((item) => item.stepId));
   return state.status === "enrolled"
     ? state.activation.steps.filter(
-        (step) => step.status === "reserved" || step.status === "recovery_required",
+        (step) =>
+          step.status === "reserved" ||
+          step.status === "recovery_required" ||
+          continuationSteps.has(step.id),
       )
     : [];
 }

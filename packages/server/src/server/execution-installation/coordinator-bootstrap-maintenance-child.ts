@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { InstallationEnrollmentStateSchema } from "@getpaseo/protocol/installation-enrollment";
-import { enrollmentManifestDigest } from "./maintenance/authorization.js";
+import {
+  assertHostContinuationExclusion,
+  enrollmentManifestDigest,
+} from "./maintenance/authorization.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import type { LifecycleJob } from "./lifecycle-journal.js";
 import { standingRestartPlanDigest } from "./maintenance/restart-admission.js";
@@ -133,6 +136,7 @@ function requireSupervisorChildRequest(
 
 function requireChildReservation(proof: LifecycleActivationChild, retained: unknown) {
   const state = InstallationEnrollmentStateSchema.parse(retained);
+  assertHostContinuationExclusion(state);
   if (state.status !== "enrolled")
     throw new BootstrapRequestConflict("Activation enrollment is absent");
   const { grant, activation } = state;

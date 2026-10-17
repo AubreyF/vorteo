@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { promisify, isDeepStrictEqual } from "node:util";
@@ -60,6 +60,9 @@ export interface BootstrapServiceReader {
 
 export interface NativeBootstrapServiceReader extends BootstrapServiceReader {
   inspectAuditedProcess(pid: number): Promise<z.infer<typeof AuditedProcessObservationSchema>>;
+  /** Supplied by the native reader; older injected readers must explicitly
+   * refuse callers that require a lock-held live-child recheck. */
+  inspectAuditedProcessSync?(pid: number): z.infer<typeof AuditedProcessObservationSchema>;
   inspectRunningProcess(pid: number): Promise<z.infer<typeof RunningProcessObservationSchema>>;
   verifyProcessExited(pid: number): Promise<void>;
   verifyServiceAbsent(service: string): Promise<void>;
@@ -301,6 +304,15 @@ export async function createNativeBootstrapServiceReader(input: {
         options,
       );
       return AuditedProcessObservationSchema.parse(JSON.parse(result.stdout));
+    },
+    inspectAuditedProcessSync(pid) {
+      z.number().int().positive().parse(pid);
+      const result = execFileSync(
+        "/usr/bin/python3",
+        ["-I", "-B", "-c", source, String(pid), "--audit-token"],
+        { ...options, encoding: "utf8" },
+      );
+      return AuditedProcessObservationSchema.parse(JSON.parse(result));
     },
   };
 }

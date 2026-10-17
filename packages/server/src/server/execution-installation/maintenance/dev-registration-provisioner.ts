@@ -327,13 +327,21 @@ const PROTECTED_SUPERVISOR_CHECK = `def protected_supervisor(file):
         current = parent
 `;
 
+/** This gate is part of the exact reviewed eval buffer, never a launch wrapper. */
+export const DEV_REGISTRATION_GATE_PREFIX = `import fs from 'node:fs';
+const registrationGateByte=new Uint8Array(1);
+try {
+ if(fs.readSync(3,registrationGateByte,0,1,null)!==1||registrationGateByte[0]!==1)throw Error('Registration gate token refused');
+ if(fs.readSync(3,registrationGateByte,0,1,null)!==0)throw Error('Registration gate EOF refused');
+} finally { fs.closeSync(3); }
+`;
+
 function hostScript(input: {
   plan: ReturnType<typeof provisioningPlan>;
   planSha256: string;
   operation: "replace" | "rollback";
 }): string {
-  return `import fs from 'node:fs';
-import path from 'node:path';
+  return `${DEV_REGISTRATION_GATE_PREFIX}import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
