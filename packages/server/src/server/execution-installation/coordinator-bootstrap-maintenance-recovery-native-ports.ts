@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFile, spawnSync } from "node:child_process";
 import { request } from "node:http";
 import { isDeepStrictEqual, promisify } from "node:util";
@@ -9,7 +10,10 @@ import {
   readBootstrapPreparedFile,
   verifyBootstrapPreparedDependency,
 } from "./coordinator-bootstrap-artifact.js";
-import { retainServiceFiles } from "./coordinator-bootstrap-maintenance-service-inspection.js";
+import {
+  retainServiceFiles,
+  createMaintenanceServiceInspectionPorts,
+} from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import {
   BootstrapAdmissionSetupSchema,
   inspectBootstrapWritableMountRoots,
@@ -33,6 +37,11 @@ import { withReservedMaintenanceLauncherEffect } from "./coordinator-bootstrap-m
 import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import { MaintenanceLauncherIntentSchema } from "./coordinator-bootstrap-maintenance-selection.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
+import { inspectSelectedMaintenanceRecoveryAccess } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
+import {
+  maintenanceRecoveryDocument,
+  maintenanceRecoveryScript,
+} from "./coordinator-bootstrap-maintenance-recovery-page.js";
 
 const backendIdentity = z.object({
   BackendState: z.string(),
@@ -220,11 +229,7 @@ export async function inspectNativeRecoveryListener(
       signal,
     }),
   ]);
-  if (
-    !document.includes("<title>Vorteo recovery</title>") ||
-    !document.includes('src="/recovery.js"') ||
-    script.length < 100
-  )
+  if (document !== maintenanceRecoveryDocument || script !== maintenanceRecoveryScript)
     throw new BootstrapRequestConflict("Recovery listener does not serve its independent page");
   const observedAt = Date.now();
   const assertCurrent = () => {
@@ -235,6 +240,47 @@ export async function inspectNativeRecoveryListener(
   };
   assertCurrent();
   return { assertCurrent };
+}
+
+/** Lazy authenticated review preparation uses this proof. Opening the page
+ * never calls it, so damaged maintenance history cannot prevent rendering. */
+export async function inspectNativeRecoveryReviewParent(input: {
+  setupFile: string;
+  account: { uid: number; home: string };
+  stateDirectory: string;
+}) {
+  const startup = await readMaintenanceLauncherStartup(input);
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse(
+      (await readBootstrapPreparedFile(startup.setup.nativeAdmission, [])).toString("utf8"),
+    ),
+  );
+  const writableMountRoots = await inspectBootstrapWritableMountRoots(admission);
+  const ports = await createMaintenanceServiceInspectionPorts({ ...admission, writableMountRoots });
+  const current = await inspectSelectedMaintenanceRecoveryAccess({
+    ...input,
+    writableMountRoots,
+    ports,
+  });
+  const expectedModule = path.join(
+    current.startup.selected.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-native-ports.js",
+  );
+  if (current.process.pid !== process.pid || fileURLToPath(import.meta.url) !== expectedModule)
+    throw new BootstrapRequestConflict("Recovery review is outside its selected native listener");
+  const listener = await inspectNativeRecoveryListener({
+    ...admission,
+    writableMountRoots,
+    process: current.process,
+    origin: current.access.origin,
+    listenPort: current.access.listenPort,
+  });
+  const assertCurrent = () => {
+    current.assertCurrent();
+    listener.assertCurrent();
+  };
+  assertCurrent();
+  return { ...current, writableMountRoots, assertCurrent };
 }
 
 /** Preserve the full Serve document, but do not bind peer presence or traffic

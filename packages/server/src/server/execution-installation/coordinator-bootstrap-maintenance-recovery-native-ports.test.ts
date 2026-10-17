@@ -96,7 +96,17 @@ test.skipIf(process.platform !== "darwin").each(["valid", "birth", "owner", "hel
 
 test
   .skipIf(process.platform !== "darwin")
-  .each(["valid", "document", "script", "media-type", "oversized", "redirect", "hanging"])(
+  .each([
+    "valid",
+    "document",
+    "script",
+    "modified-document",
+    "modified-script",
+    "media-type",
+    "oversized",
+    "redirect",
+    "hanging",
+  ])(
   "read-only native recovery socket and HTTP assets: %s",
   async (mode) => {
     const f = nativeFixture();
@@ -124,6 +134,16 @@ test
       }
       if (mode === "script" && script) {
         response.end("");
+        return;
+      }
+      if (mode === "modified-document" && !script) {
+        response.end(
+          maintenanceRecoveryDocument.replace("Bookmark this page.", "Unreviewed page."),
+        );
+        return;
+      }
+      if (mode === "modified-script" && script) {
+        response.end(maintenanceRecoveryScript + "\nfetch('/unreviewed');");
         return;
       }
       response.end(script ? maintenanceRecoveryScript : maintenanceRecoveryDocument);

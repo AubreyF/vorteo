@@ -38,16 +38,18 @@ export function maintenanceExecutorStartupBinding(
   };
 }
 
-/** Read the explicitly selected executor role, not a constructor-time queue snapshot.
- * Mutable lifecycle bookkeeping is verified by startup but is not execution identity. */
-export async function inspectSelectedMaintenanceExecutor(input: {
+interface SelectedMaintenanceInspection {
   setupFile: string;
   expectedTarget?: "maintenance-controller" | "recovery-launcher";
   account: { uid: number; home: string };
   stateDirectory: string;
   writableMountRoots: readonly string[];
   ports: MaintenanceServiceInspectionPorts;
-}) {
+}
+
+/** Read the explicitly selected executor role, not a constructor-time queue snapshot.
+ * Mutable lifecycle bookkeeping is verified by startup but is not execution identity. */
+export async function inspectSelectedMaintenanceExecutor(input: SelectedMaintenanceInspection) {
   const setup = MaintenanceLauncherSetupSchema.parse(
     JSON.parse((await readProtectedDocument(input.setupFile)).toString("utf8")),
   );
@@ -56,6 +58,32 @@ export async function inspectSelectedMaintenanceExecutor(input: {
     throw new BootstrapRequestConflict(
       "Selected recovery access listener does not provide lifecycle execution",
     );
+  const current = await inspectSelectedMaintenanceRole(input);
+  const executor = MaintenanceServiceExecutorEvidenceSchema.parse(current.evidence);
+  return { startup: current.startup, executor, assertCurrent: current.assertCurrent };
+}
+
+/** A selected listener can own a review without becoming an effect executor.
+ * Keep this result separate from addressed lifecycle executor evidence. */
+export async function inspectSelectedMaintenanceRecoveryAccess(
+  input: Omit<SelectedMaintenanceInspection, "expectedTarget">,
+) {
+  const current = await inspectSelectedMaintenanceRole({
+    ...input,
+    expectedTarget: "recovery-launcher",
+  });
+  const access = current.startup.setup.control?.recoveryAccess;
+  if (!access)
+    throw new BootstrapRequestConflict("Selected recovery launcher has no independent review page");
+  return {
+    startup: current.startup,
+    process: current.evidence.native.process,
+    access,
+    assertCurrent: current.assertCurrent,
+  };
+}
+
+async function inspectSelectedMaintenanceRole(input: SelectedMaintenanceInspection) {
   const startup = await readMaintenanceLauncherStartup(input);
   const context = await verifyMaintenanceLauncherArtifacts({
     ...input,
@@ -102,7 +130,7 @@ export async function inspectSelectedMaintenanceExecutor(input: {
     )
   )
     throw new BootstrapRequestConflict("Executor selection changed during native inspection");
-  const executor = MaintenanceServiceExecutorEvidenceSchema.parse({
+  const evidence = {
     target: identity.target,
     identitySha256: context.identitySha256,
     planSha256: startup.planSha256,
@@ -130,7 +158,7 @@ export async function inspectSelectedMaintenanceExecutor(input: {
         artifactSha256: selected.artifactSha256,
       },
     },
-  });
+  };
   const assertCurrent = () => {
     assertFiles();
     if (
@@ -143,7 +171,7 @@ export async function inspectSelectedMaintenanceExecutor(input: {
       throw new BootstrapRequestConflict("Executor native custody changed before admission");
   };
   assertCurrent();
-  return { startup, executor, assertCurrent };
+  return { startup, evidence, assertCurrent };
 }
 
 export function bindMaintenanceExecutorEvidence(

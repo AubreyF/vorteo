@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.618 - 2026-10-16
+
+### Maintenance
+
+- Separate native recovery-page review custody from lifecycle executor authority. The review proof binds the protected selected plan, launcher, process lifetime and assets, remains observable after revocation, and grants no execution permission. The native composition requires the actual selected listener process and runtime module.
+- Require the exact standalone HTML and JavaScript during native listener verification. A matching title or a long substituted script no longer passes inspection. Focused cases cover changed assets, revoked observation, changed native custody and continued executor refusal.
+- This is an uninstalled prerequisite for permanent owner rollback controls. Exact rollback preparation and decisions, private HTTPS delivery and remote owner acceptance remain unfinished. README and General availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.617 - 2026-10-16
 
 ### Fixed

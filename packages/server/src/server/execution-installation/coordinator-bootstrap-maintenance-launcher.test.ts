@@ -3024,6 +3024,51 @@ test("initial recovery registration consumes one existing activation intent and 
   expect(readFileSync(retained.file)).toEqual(before);
 });
 
+test("selected recovery listener supplies review custody without executor authority", async () => {
+  const f = await recoveryRegistrationFixture();
+  const result = await reconcileRecoveryAccessActivation(f.input, f.ports);
+  const { inspectSelectedMaintenanceRecoveryAccess, inspectSelectedMaintenanceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  let changed = false;
+  const input = {
+    setupFile: f.plan.candidate.setup.path,
+    account: f.account,
+    stateDirectory: f.enrollmentStateDirectory,
+    writableMountRoots: [],
+    ports: {
+      reader: f.ports.reader,
+      assertCurrent() {
+        if (changed) throw new Error("Fixture native lifetime changed");
+      },
+    },
+  };
+  const commands = structuredClone(f.commands);
+  const journal = readFileSync(
+    path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json"),
+  );
+  const reviewed = await inspectSelectedMaintenanceRecoveryAccess(input);
+  expect(reviewed.process).toEqual(result.process);
+  expect(reviewed.access).toEqual(f.routing.access);
+  expect(reviewed).not.toHaveProperty("executor");
+  reviewed.assertCurrent();
+  f.revoke();
+  const revoked = readFileSync(
+    path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json"),
+  );
+  expect(revoked).not.toEqual(journal);
+  const afterRevocation = await inspectSelectedMaintenanceRecoveryAccess(input);
+  expect(afterRevocation.process).toEqual(reviewed.process);
+  expect(
+    readFileSync(path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json")),
+  ).toEqual(revoked);
+  await expect(inspectSelectedMaintenanceExecutor(input)).rejects.toThrow(
+    "does not provide lifecycle execution",
+  );
+  changed = true;
+  expect(afterRevocation.assertCurrent).toThrow("native lifetime changed");
+  expect(f.commands).toEqual(commands);
+});
+
 test("one-generation recovery activation settles its reserved step and observes after revocation", async () => {
   const f = await recoveryRegistrationFixture();
   const result = await reconcileRecoveryAccessActivation(f.input, f.ports);
