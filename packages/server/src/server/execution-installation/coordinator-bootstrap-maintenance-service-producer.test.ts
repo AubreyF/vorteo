@@ -580,3 +580,423 @@ test.each(["duplicate", "invalid-pid", "unexpected-field", "truncated", "symlink
     expect(collect).not.toHaveBeenCalled();
   },
 );
+
+import { createNativeMaintenanceServiceRouter } from "./coordinator-bootstrap-maintenance-service-routing.js";
+import {
+  MaintenanceServiceJobSchema,
+  MaintenanceServiceEvidenceRecordSchema,
+  type MaintenanceServiceJob,
+  type MaintenanceServiceEvidenceRecord,
+} from "@getpaseo/protocol/maintenance-service";
+import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
+
+function routedJob(operation: MaintenanceServiceJob["operation"] = "replacement") {
+  const id = randomUUID(),
+    installationId = randomUUID(),
+    now = new Date().toISOString();
+  const request = MaintenanceServiceJobSchema.parse({
+    id,
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation,
+    reason: "Routing fixture",
+    detail: "Pending",
+    createdAt: now,
+    status: "pending",
+    evidence: [],
+    proposal: {
+      id,
+      installationId,
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation,
+      repository: "https://example.test/fixture",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+      ...(operation === "replacement"
+        ? {}
+        : {
+            recoveryOf: {
+              requestId: randomUUID(),
+              generation: randomUUID(),
+              planSha256: "e".repeat(64),
+              observationSha256: "f".repeat(64),
+            },
+          }),
+    },
+  });
+  function reserve(role: "maintenance-controller" | "recovery-launcher") {
+    const bootId = randomUUID(),
+      revision = randomUUID();
+    const native: MaintenanceServiceEvidenceRecord["native"] = {
+      bootId,
+      process: null,
+      service: {
+        domain: `gui/${process.getuid!()}`,
+        label: "local.vorteo.fixture.installation",
+        registered: false,
+        launcherPath: "/fixture/launcher.plist",
+        launcherSha256: null,
+        registrationSha256: null,
+      },
+      selection: {
+        path: "/fixture/selection.json",
+        receiptSha256: null,
+        sourceCommit: null,
+        artifactSha256: null,
+      },
+    };
+    const record: MaintenanceServiceEvidenceRecord = {
+      requestId: id,
+      requestRevision: revision,
+      observedAt: now,
+      planSha256: request.proposal.planSha256,
+      identitySha256: request.proposal.identitySha256,
+      sourceCommit: request.proposal.sourceCommit,
+      artifactSha256: request.proposal.artifactSha256,
+      native,
+      executor: {
+        target: role,
+        identitySha256: "1".repeat(64),
+        planSha256: "2".repeat(64),
+        sourceCommit: "3".repeat(40),
+        artifactSha256: "4".repeat(64),
+        runtimeDirectory: "/fixture/runtime",
+        node: { path: "/fixture/node", sha256: "5".repeat(64) },
+        entrypoint: { path: "/fixture/entry.js", sha256: "6".repeat(64) },
+        setup: { path: "/fixture/setup.json", sha256: "7".repeat(64) },
+        native: {
+          ...native,
+          process: {
+            pid: 42,
+            parentPid: 1,
+            uid: process.getuid!(),
+            bootId,
+            startIdentity: "1:0",
+            executable: "/fixture/node",
+            argumentsSha256: "8".repeat(64),
+          },
+          service: {
+            ...native.service,
+            registered: true,
+            launcherSha256: "9".repeat(64),
+            registrationSha256: "a".repeat(64),
+          },
+          selection: {
+            ...native.selection,
+            receiptSha256: "b".repeat(64),
+            sourceCommit: "3".repeat(40),
+            artifactSha256: "4".repeat(64),
+          },
+        },
+      },
+    };
+    const parsedRecord = MaintenanceServiceEvidenceRecordSchema.parse(record);
+    const sha256 = createHash("sha256").update(JSON.stringify(parsedRecord)).digest("hex");
+    return MaintenanceServiceJobSchema.parse({
+      ...request,
+      status: "running",
+      evidence: [{ sha256, record: parsedRecord }],
+      reservation: {
+        requestId: id,
+        requestRevision: revision,
+        generation: randomUUID(),
+        target: request.target,
+        operation,
+        grantId: randomUUID(),
+        grantRevision: randomUUID(),
+        manifestSha256: "c".repeat(64),
+        proposalSha256: "d".repeat(64),
+        planSha256: record.planSha256,
+        identitySha256: record.identitySha256,
+        sourceCommit: record.sourceCommit,
+        artifactSha256: record.artifactSha256,
+        previous: null,
+        recoveryOf: request.proposal.recoveryOf,
+        nativeEvidenceSha256: sha256,
+        reservedAt: now,
+      },
+    });
+  }
+  return { request, installationId, stateDirectory: "/fixture/state", reserve };
+}
+
+function routedProducer(label: string): MaintenanceServiceExecutor {
+  return {
+    inspect: vi.fn(async () => {
+      throw new Error(`${label} inspect`);
+    }),
+    execute: vi.fn(async () => {
+      throw new Error(`${label} execute`);
+    }),
+    observe: vi.fn(async () => {
+      throw new Error(`${label} observe`);
+    }),
+  };
+}
+
+test("default routing constructs only the controller and preserves replacement-only support", async () => {
+  const f = routedJob(),
+    controller = routedProducer("controller");
+  const construct = vi.fn(async () => controller);
+  const router = await createNativeMaintenanceServiceRouter(f, construct);
+  expect(router.operations).toEqual(["replacement"]);
+  await expect(router.inspect(f.request)).rejects.toThrow("controller inspect");
+  await expect(router.inspect(routedJob("recovery").request)).rejects.toThrow("not enabled");
+  expect(construct).toHaveBeenCalledExactlyOnceWith("maintenance-controller");
+});
+
+test("linked controller routing constructs the page first and refuses unsupported targets before native inspection", async () => {
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    controller = routedProducer("controller");
+  const construct = vi.fn(async (role: string) =>
+    role === "recovery-launcher" ? page : controller,
+  );
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  expect(construct).toHaveBeenCalledExactlyOnceWith("recovery-launcher");
+  await expect(router.inspect(f.request)).rejects.toThrow("page inspect");
+  expect(construct).toHaveBeenCalledTimes(1);
+  await expect(router.inspect({ ...f.request, target: "recovery-launcher" })).rejects.toThrow(
+    "readiness is not accepted",
+  );
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("controller inspect");
+  expect(construct).toHaveBeenCalledTimes(2);
+  expect(page.execute).not.toHaveBeenCalled();
+});
+
+test("reserved execution never constructs or substitutes another role", async () => {
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    construct = vi.fn(async () => page);
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const request = f.reserve("recovery-launcher");
+  await expect(router.execute(request, request.reservation!)).rejects.toThrow("page execute");
+  const foreign = f.reserve("maintenance-controller");
+  await expect(router.execute(foreign, foreign.reservation!)).rejects.toThrow("role differs");
+  await expect(
+    router.execute(request, { ...request.reservation!, generation: randomUUID() }),
+  ).rejects.toThrow("generation changed");
+  const replacement = routedJob().reserve("maintenance-controller");
+  await expect(router.execute(replacement, replacement.reservation!)).rejects.toThrow(
+    "unavailable",
+  );
+  expect(construct).toHaveBeenCalledTimes(1);
+  expect(page.execute).toHaveBeenCalledOnce();
+});
+
+test("consumed legacy observation uses cached tools without constructing a substitute", async () => {
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    construct = vi.fn(async () => page);
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const request = f.reserve("recovery-launcher"),
+    entry = request.evidence[0]!;
+  request.effectIntent = {
+    id: randomUUID(),
+    requestRevision: request.reservation!.requestRevision,
+    generation: request.reservation!.generation,
+    nativeEvidenceSha256: entry.sha256,
+    executor: entry.record.executor!.native.process,
+    consumedAt: new Date().toISOString(),
+  };
+  request.reservation!.nativeEvidenceSha256 = "f".repeat(64);
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow("page observe");
+  delete request.effectIntent;
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow(
+    "proof is unavailable",
+  );
+  expect(construct).toHaveBeenCalledTimes(1);
+  expect(page.observe).toHaveBeenCalledOnce();
+});
+
+test("present tampered or ambiguous executor evidence never falls back to legacy observation", async () => {
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    construct = vi.fn(async () => page);
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const request = f.reserve("recovery-launcher"),
+    entry = request.evidence[0]!;
+  entry.record.planSha256 = "0".repeat(64);
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow("evidence changed");
+  request.evidence.push(entry);
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow("ambiguous");
+  expect(page.observe).not.toHaveBeenCalled();
+  expect(construct).toHaveBeenCalledTimes(1);
+});
+
+test("one constructor remains owned after timeout and blocks cached dispatch until settlement", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    controller = routedProducer("controller");
+  let complete: ((producer: MaintenanceServiceExecutor) => void) | undefined;
+  let controllerAttempts = 0;
+  const construct = vi.fn(async (role: string) => {
+    if (role === "recovery-launcher") return page;
+    if (++controllerAttempts > 1) return controller;
+    return new Promise<MaintenanceServiceExecutor>((resolve) => {
+      complete = resolve;
+    });
+  });
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const constructing = router.inspect(routedJob().request).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(0);
+  const duplicate = router.inspect(routedJob().request).catch((error: Error) => error);
+  const request = f.reserve("recovery-launcher");
+  await expect(router.execute(request, request.reservation!)).rejects.toThrow("unavailable");
+  await vi.advanceTimersByTimeAsync(25_001);
+  expect(await constructing).toBeInstanceOf(Error);
+  expect(await duplicate).toBeInstanceOf(Error);
+  await expect(router.execute(request, request.reservation!)).rejects.toThrow("unavailable");
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("not settled");
+  expect(construct).toHaveBeenCalledTimes(2);
+  complete!(controller);
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("defer");
+  expect(controller.inspect).not.toHaveBeenCalled();
+  expect(page.execute).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("controller inspect");
+  expect(construct).toHaveBeenCalledTimes(3);
+});
+
+test("a timed-out underlying dispatch retains exclusion until it settles", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const f = routedJob("recovery"),
+    page = routedProducer("page");
+  let fail: ((error: Error) => void) | undefined;
+  page.execute = vi.fn(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const construct = vi.fn(async () => page);
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const request = f.reserve("recovery-launcher");
+  const executing = router.execute(request, request.reservation!).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(25_001);
+  expect(await executing).toBeInstanceOf(Error);
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("dispatch is still active");
+  expect(construct).toHaveBeenCalledTimes(1);
+  fail!(new Error("Late dispatch refusal"));
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("page inspect");
+  expect(construct).toHaveBeenCalledTimes(2);
+  expect(page.execute).toHaveBeenCalledOnce();
+});
+
+test("addressed retained page observation works without enabling page effects or falling back after refusal", async () => {
+  const f = routedJob("recovery"),
+    controller = routedProducer("controller"),
+    page = routedProducer("page");
+  const construct = vi.fn(async (role: string) =>
+    role === "maintenance-controller" ? controller : page,
+  );
+  const router = await createNativeMaintenanceServiceRouter(f, construct);
+  const retained = f.reserve("recovery-launcher");
+  await expect(router.observe(retained, retained.reservation!)).rejects.toThrow("page observe");
+  expect(construct.mock.calls.map(([role]) => role)).toEqual([
+    "maintenance-controller",
+    "recovery-launcher",
+  ]);
+  expect(controller.observe).not.toHaveBeenCalled();
+  expect(router.operations).toEqual(["replacement"]);
+});
+
+test("timed-out native inspection retains read ownership until settlement and discards late proof", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const f = routedJob(),
+    controller = routedProducer("controller"),
+    page = routedProducer("page");
+  let finish:
+    | ((value: Awaited<ReturnType<MaintenanceServiceExecutor["inspect"]>>) => void)
+    | undefined;
+  controller.inspect = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const construct = vi.fn(async (role: string) =>
+    role === "maintenance-controller" ? controller : page,
+  );
+  const router = await createNativeMaintenanceServiceRouter(f, construct);
+  const inspected = router.inspect(f.request).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(25_001);
+  expect(await inspected).toBeInstanceOf(Error);
+  const running = f.reserve("maintenance-controller");
+  await expect(router.execute(running, running.reservation!)).rejects.toThrow("unavailable");
+  const retainedPage = routedJob("recovery").reserve("recovery-launcher");
+  await expect(router.observe(retainedPage, retainedPage.reservation!)).rejects.toThrow(
+    "construction is unavailable",
+  );
+  expect(construct).toHaveBeenCalledTimes(1);
+  const proof = running.evidence[0]!;
+  finish!({ ...proof.record, evidenceSha256: proof.sha256, assertCurrent() {} });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await inspected).toBeInstanceOf(Error);
+  await expect(router.observe(retainedPage, retainedPage.reservation!)).rejects.toThrow(
+    "page observe",
+  );
+  expect(construct).toHaveBeenCalledTimes(2);
+  expect(controller.execute).not.toHaveBeenCalled();
+});
+
+test("timed-out retained observation cannot leave an abandoned artifact reader", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const f = routedJob("recovery"),
+    page = routedProducer("page"),
+    controller = routedProducer("controller");
+  let fail: ((error: Error) => void) | undefined;
+  page.observe = vi.fn(
+    () =>
+      new Promise<never>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const construct = vi.fn(async (role: string) =>
+    role === "recovery-launcher" ? page : controller,
+  );
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery" },
+    construct,
+  );
+  const retained = f.reserve("recovery-launcher");
+  const observed = router.observe(retained, retained.reservation!).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(30_001);
+  expect(await observed).toBeInstanceOf(Error);
+  await expect(router.execute(retained, retained.reservation!)).rejects.toThrow("unavailable");
+  await expect(router.observe(retained, retained.reservation!)).rejects.toThrow(
+    "reader or dispatch is still active",
+  );
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("construction is unavailable");
+  expect(construct).toHaveBeenCalledTimes(1);
+  fail!(new Error("Late observation refusal"));
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(router.inspect(routedJob().request)).rejects.toThrow("controller inspect");
+  expect(construct).toHaveBeenCalledTimes(2);
+  expect(page.observe).toHaveBeenCalledOnce();
+});

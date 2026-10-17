@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.650 - 2026-10-17
+
+### Changed
+
+- Route maintenance service tools through one adapter behind the existing queue. Replacement uses the controller; explicitly enabled linked controller recovery uses the registered recovery page. Reserved work keeps its addressed executor, and launcher-target effects remain refused pending readiness acceptance.
+- Keep one constructor across roles and retain native inspection, observation and dispatch ownership until the underlying call settles, including after caller timeout. Late results cannot become admission evidence or permit overlapping adapter construction and effects.
+- Preserve consumed legacy observation through cached tools without construction or new authority. Production discovery remains replacement-only. Forty producer and routing cases pass; full queue/native composition, Dev registration and installed activation remain open. Nothing is installed.
+
 ## 0.11.0-beta.3.vorteo.649 - 2026-10-17
 
 ### Fixed

@@ -1,9 +1,6 @@
 import { observeNativeMaintenanceServices } from "./coordinator-bootstrap-maintenance-health.js";
 import { observeNativeRecoveryAccess } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
-import {
-  createNativeMaintenanceServiceExecutor,
-  resolveNativeMaintenanceExecutorSetup,
-} from "./coordinator-bootstrap-maintenance-service-producer.js";
+import { createNativeMaintenanceServiceRouter } from "./coordinator-bootstrap-maintenance-service-routing.js";
 import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
@@ -48,13 +45,12 @@ if (process.platform === "darwin") {
       stateDirectory: config.stateDir,
       signal,
     });
-  executor.discoverMaintenanceServices = async () => {
-    const selected = await resolveNativeMaintenanceExecutorSetup({
+  executor.discoverMaintenanceServices = () =>
+    createNativeMaintenanceServiceRouter({
       installationId: config.public.installationId,
       stateDirectory: config.stateDir,
+      mode: "replacement-only",
     });
-    return createNativeMaintenanceServiceExecutor(selected);
-  };
 }
 if (config.nativeHelper) {
   if (process.platform !== "darwin")
