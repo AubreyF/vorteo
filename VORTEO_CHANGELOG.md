@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.641 - 2026-10-16
+
+### Maintenance
+
+- Retain private per-generation stderr for native service launches. Exclusive creation refuses an existing file or symlink, records the guarded launch attempt and leaves the detached child running after a parent timeout. Diagnostics grant no authority and do not change the effect journal, deadline or replay rules.
+- Record recovery child entry and verified invocation/evidence stages. Recovery-entry failures retain controlled policy messages or an error class, avoiding parser source bytes. Public failure responses remain generic; private diagnostics are not returned through owner or agent endpoints.
+- Add actual subprocess checks for private file permissions, refusal preservation, duplicate launch refusal, symlink safety and continued child observation after a descriptor-close failure. Full compiled recovery dispatch remains unaccepted after a retained timeout before effect intent; no installed service, capability or README availability claim changes.
+
 ## 0.11.0-beta.3.vorteo.640 - 2026-10-16
 
 ### Fixed

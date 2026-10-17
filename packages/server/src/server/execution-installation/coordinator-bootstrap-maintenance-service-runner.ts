@@ -300,6 +300,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     args,
     account,
   });
+  process.stderr.write("Maintenance service invocation verified.\n");
   const stateDirectory = context.startup.setup.enrollmentStateDirectory;
   const ports = await createMaintenanceServiceInspectionPorts({
     ...context.nativeAdmission,
@@ -334,6 +335,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
   };
   const targetEvidence = await inspectMaintenanceTargetEvidence(nativeInput);
   const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
+  process.stderr.write("Maintenance service native evidence verified.\n");
   const { evidenceSha256, assertCurrent, ...record } = evidence;
   const observationInput = {
     stateDirectory,

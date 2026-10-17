@@ -101,6 +101,9 @@ export async function runIndependentMaintenanceService(input: {
     );
   const { runNativeMaintenanceService } =
     await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  process.stderr.write(
+    JSON.stringify({ phase: "child-entry", pid: process.pid, at: new Date().toISOString() }) + "\n",
+  );
   return runNativeMaintenanceService(input.setupFile, input.args);
 }
 
@@ -116,8 +119,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const running = service
       ? runIndependentMaintenanceService({ setupFile, args: process.argv.slice(4) })
       : runIndependentMaintenanceRecovery(setupFile);
-    void running.catch(() => {
-      process.stderr.write("Independent recovery requires retained inspection.\n");
+    void running.catch((error: unknown) => {
+      // Only controlled policy refusals reach the private generation diagnostic.
+      // Parsing errors can contain source bytes, so retain their class only.
+      let failure = "Unknown failure";
+      if (error instanceof BootstrapRequestConflict) failure = error.message;
+      else if (error instanceof Error) {
+        failure = error.name;
+        if (
+          "code" in error &&
+          typeof error.code === "string" &&
+          ["ETIMEDOUT", "ENOENT", "EACCES", "EPERM", "EIO"].includes(error.code)
+        )
+          failure += ` (${error.code})`;
+      }
+      process.stderr.write(`Independent recovery requires retained inspection: ${failure}\n`);
       process.exitCode = 1;
     });
   }

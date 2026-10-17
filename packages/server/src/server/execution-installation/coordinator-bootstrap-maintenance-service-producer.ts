@@ -1,3 +1,4 @@
+import { closeSync, constants, openSync, writeSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
@@ -251,6 +252,10 @@ export async function createNativeMaintenanceServiceExecutor(
             reservation.planSha256,
           ],
           deadline,
+          diagnosticFile: path.join(
+            stateDirectory,
+            `maintenance-service-${request.id}-${reservation.generation}.stderr`,
+          ),
         });
         // Child exit is never a success receipt. Independently inspect the exact
         // retained generation; a child without intent remains unresolved.
@@ -348,23 +353,61 @@ async function verifySelectedServiceRunner(input: {
 
 /** One launch, no retry or signal. A lost reply, nonzero exit or elapsed bound
  * leaves the queue's reservation intact and must be reconciled by observation. */
-export function launchRetainedMaintenanceService(input: {
-  node: string;
-  args: readonly string[];
-  deadline: number;
-}): Promise<void> {
+export function launchRetainedMaintenanceService(
+  input: { node: string; args: readonly string[]; deadline: number; diagnosticFile?: string },
+  closeDiagnostic: (descriptor: number) => void = closeSync,
+): Promise<void> {
   if (Date.now() >= input.deadline)
     return Promise.reject(new BootstrapRequestConflict("Native service launch deadline elapsed"));
   return new Promise((resolve, reject) => {
-    const child = spawn(input.node, [...input.args], {
-      detached: true,
-      stdio: "ignore",
-      env: { PATH: "/usr/bin:/bin" },
-    });
+    // The queue and child own authority. This exclusive private file records
+    // preclaim refusals that would otherwise disappear with the detached child.
+    const diagnostic = input.diagnosticFile
+      ? openSync(
+          input.diagnosticFile,
+          constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+          0o600,
+        )
+      : undefined;
+    let closeFailed = false;
+    const closeParentDiagnostic = () => {
+      if (diagnostic === undefined) return;
+      try {
+        closeDiagnostic(diagnostic);
+      } catch {
+        closeFailed = true;
+      }
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      if (Date.now() >= input.deadline)
+        throw new BootstrapRequestConflict("Native service launch deadline elapsed");
+      if (diagnostic !== undefined)
+        writeSync(
+          diagnostic,
+          JSON.stringify({ phase: "launch-attempt", at: new Date().toISOString() }) + "\n",
+        );
+      child = spawn(input.node, [...input.args], {
+        detached: true,
+        stdio: ["ignore", "ignore", diagnostic ?? "ignore"],
+        env: { PATH: "/usr/bin:/bin" },
+      });
+    } catch (error) {
+      closeParentDiagnostic();
+      reject(error);
+      return;
+    }
+    let settled = false;
     const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       child.unref();
       if (error) reject(error);
+      else if (closeFailed)
+        reject(
+          new BootstrapRequestConflict("Native service diagnostic cleanup failed; observe only"),
+        );
       else resolve();
     };
     const timer = setTimeout(
@@ -388,6 +431,7 @@ export function launchRetainedMaintenanceService(input: {
             ),
       ),
     );
+    closeParentDiagnostic();
   });
 }
 

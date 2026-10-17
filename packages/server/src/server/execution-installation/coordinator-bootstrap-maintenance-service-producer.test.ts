@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  statSync,
+  closeSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { launchRetainedMaintenanceService } from "./coordinator-bootstrap-maintenance-service-producer.js";
@@ -50,6 +58,75 @@ test("failed child is uncertain, not a candidate success receipt", async () => {
       deadline: Date.now() + 3000,
     }),
   ).rejects.toThrow("did not verify completion; observe only");
+});
+
+test("private generation diagnostics retain refusal without becoming a success receipt", async () => {
+  const diagnosticFile = fixture();
+  await expect(
+    launchRetainedMaintenanceService({
+      node: process.execPath,
+      args: ["-e", "process.stderr.write('Fixture preclaim refusal'); process.exitCode = 23"],
+      deadline: Date.now() + 3000,
+      diagnosticFile,
+    }),
+  ).rejects.toThrow("did not verify completion; observe only");
+  expect(readFileSync(diagnosticFile, "utf8")).toContain("Fixture preclaim refusal");
+  const beforeReplay = readFileSync(diagnosticFile, "utf8");
+  const spawned = JSON.parse(beforeReplay.split("\n")[0]!);
+  expect(spawned.phase).toBe("launch-attempt");
+  expect(Number.isNaN(Date.parse(spawned.at))).toBe(false);
+  expect(statSync(diagnosticFile).mode & 0o777).toBe(0o600);
+  await expect(
+    launchRetainedMaintenanceService({
+      node: process.execPath,
+      args: ["-e", "process.stderr.write('replayed')"],
+      deadline: Date.now() + 3000,
+      diagnosticFile,
+    }),
+  ).rejects.toThrow("EEXIST");
+  expect(readFileSync(diagnosticFile, "utf8")).toBe(beforeReplay);
+});
+
+test("diagnostic close failure retains child observation and refuses a success receipt", async () => {
+  const receipt = fixture(),
+    diagnosticFile = fixture();
+  let closes = 0;
+  const launch = launchRetainedMaintenanceService(
+    {
+      node: process.execPath,
+      args: [
+        "-e",
+        "setTimeout(()=>require('node:fs').writeFileSync(process.argv[1], 'completed once'), 50)",
+        receipt,
+      ],
+      deadline: Date.now() + 3000,
+      diagnosticFile,
+    },
+    (descriptor) => {
+      closes++;
+      closeSync(descriptor);
+      throw new Error("Fixture close failed after descriptor retirement");
+    },
+  );
+  await expect(launch).rejects.toThrow("diagnostic cleanup failed; observe only");
+  expect(readFileSync(receipt, "utf8")).toBe("completed once");
+  expect(closes).toBe(1);
+});
+
+test("generation diagnostics refuse symlinks without touching their destination", async () => {
+  const target = fixture(),
+    diagnosticFile = fixture();
+  writeFileSync(target, "preserved", { mode: 0o600 });
+  symlinkSync(target, diagnosticFile);
+  await expect(
+    launchRetainedMaintenanceService({
+      node: process.execPath,
+      args: [],
+      deadline: Date.now() + 3000,
+      diagnosticFile,
+    }),
+  ).rejects.toThrow("EEXIST");
+  expect(readFileSync(target, "utf8")).toBe("preserved");
 });
 
 test("launch timeout does not signal or relaunch the disposable child", async () => {
