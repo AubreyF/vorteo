@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.631 - 2026-10-16
+
+### Maintenance
+
+- Refuse readiness returned after its existing thirty-second observation budget even when synchronous native validation delays timer delivery. Compare the monotonic clock after the awaited result, abort the observation signal on refusal and preserve the consumed operation without replay.
+- Add a regression that models native validation exhausting the budget before the timer runs. It must reject the late result, abort its signal, leave the lifecycle journal unchanged and issue no additional native command. This is deadline logic with simulated native ports, not active-provider cleanup or installed acceptance.
+- No service, route, selection, credentials or standing authority changes. Permanent recovery delivery and the primary README feature remain open.
+
 ## 0.11.0-beta.3.vorteo.630 - 2026-10-16
 
 ### Maintenance

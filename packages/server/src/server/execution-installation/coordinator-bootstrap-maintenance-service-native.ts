@@ -402,6 +402,8 @@ function assertNativeTarget(
 export async function readBoundedCandidateObservation(
   read: (signal: AbortSignal) => Promise<MaintenanceServiceNativeObservation>,
 ): Promise<MaintenanceServiceNativeObservation> {
+  const timeoutMs = 30_000;
+  const deadlineAt = performance.now() + timeoutMs;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -409,10 +411,17 @@ export async function readBoundedCandidateObservation(
       const error = new BootstrapRequestConflict("Candidate readiness observation timed out");
       reject(error);
       controller.abort(error);
-    }, 30_000);
+    }, timeoutMs);
   });
   try {
-    return await Promise.race([Promise.resolve().then(() => read(controller.signal)), deadline]);
+    const result = await Promise.race([
+      Promise.resolve().then(() => read(controller.signal)),
+      deadline,
+    ]);
+    // Native synchronous checks can consume the budget before timers run.
+    if (performance.now() >= deadlineAt)
+      throw new BootstrapRequestConflict("Candidate readiness observation timed out");
+    return result;
   } catch (error) {
     controller.abort(error);
     throw error;

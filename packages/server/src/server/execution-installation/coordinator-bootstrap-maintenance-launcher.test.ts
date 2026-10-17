@@ -666,6 +666,7 @@ test.each([
   "recover-observe-rollback",
   "recover-observe-unready",
   "recover-observe-timeout",
+  "recover-observe-late",
   "recover-wrong-observation",
   "recover-unready-execution",
   "native-success",

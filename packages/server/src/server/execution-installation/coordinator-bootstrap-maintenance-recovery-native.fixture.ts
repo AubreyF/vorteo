@@ -382,4 +382,29 @@ export async function exerciseAbsentRecovery(input: {
     expect(commands).toHaveLength(1);
     vi.useRealTimers();
   }
+  if (input.mode === "recover-observe-late") {
+    const before = JSON.stringify(journal.readLifecycle());
+    const startedAt = performance.now();
+    const clock = vi.spyOn(performance, "now").mockReturnValue(startedAt);
+    let observedSignal: AbortSignal | undefined;
+    try {
+      await expect(
+        observeMaintenanceRecovery({
+          ...executeInput,
+          readObservation: async (signal) => {
+            observedSignal = signal;
+            const result = await executeInput.readCandidateObservation();
+            // Model native validation exhausting its budget before timer delivery.
+            clock.mockReturnValue(startedAt + 30_001);
+            return result;
+          },
+        }),
+      ).rejects.toThrow("timed out");
+    } finally {
+      clock.mockRestore();
+    }
+    expect(observedSignal?.aborted).toBe(true);
+    expect(JSON.stringify(journal.readLifecycle())).toBe(before);
+    expect(commands).toHaveLength(1);
+  }
 }
