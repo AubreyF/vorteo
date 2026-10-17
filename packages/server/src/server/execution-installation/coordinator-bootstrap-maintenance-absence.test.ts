@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import {
   assertMaintenanceServiceAbsent,
+  inspectMaintenanceServicePresence,
   requireMaintenanceServiceAbsenceResult,
 } from "./coordinator-bootstrap-maintenance-absence.js";
 
@@ -40,6 +41,7 @@ test.skipIf(process.platform !== "darwin")(
   "reads native absence without registering a service",
   () => {
     const unique = `gui/${uid}/local.vorteo.absence-${randomUUID()}.installation`;
+    expect(inspectMaintenanceServicePresence(unique)).toBe("absent");
     expect(() => assertMaintenanceServiceAbsent(unique)).not.toThrow();
   },
 );

@@ -13,6 +13,7 @@ import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintena
 import { readBootstrapLauncher, loadedCoordinatorPid } from "./coordinator-bootstrap-service.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
+  inspectMaintenanceLauncherPlan,
   verifyMaintenanceLauncherArtifacts,
   verifyMaintenanceLauncherProcess,
   maintenanceUserLauncher,
@@ -25,7 +26,10 @@ import {
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import type { MaintenanceServiceNativeEvidence } from "./maintenance/service-execution.js";
 
-import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
+import {
+  MaintenanceRecoveryPlanSchema,
+  inspectMaintenanceRecoveryPlan,
+} from "./coordinator-bootstrap-maintenance-recovery-plan.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { inspectSelectedCoordinatorRuntime } from "./coordinator-bootstrap-renewal.js";
 
@@ -72,9 +76,11 @@ export async function inspectMaintenanceCoordinatorWitness(input: {
     throw new BootstrapRequestConflict(
       "Coordinator runtime witness differs from configured installation",
     );
-  const recovery = inspectMaintenanceRecoveryPlan(input.plan, input.account);
-  const executables = [recovery.plan.original.previous, recovery.plan.original.candidate].flatMap(
-    (slot) => (slot ? [slot.node.path] : []),
+  const original = MaintenanceRecoveryPlanSchema.safeParse(input.plan).success
+    ? inspectMaintenanceRecoveryPlan(input.plan, input.account).plan.original
+    : inspectMaintenanceLauncherPlan(input.plan, input.account).plan;
+  const executables = [original.previous, original.candidate].flatMap((slot) =>
+    slot ? [slot.node.path] : [],
   );
   const witness = await inspectSelectedCoordinatorRuntime({ ...input, identity, executables });
   if (!witness) return undefined;

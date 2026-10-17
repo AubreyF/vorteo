@@ -19,6 +19,7 @@ import {
   observeMaintenanceRecovery,
 } from "./coordinator-bootstrap-maintenance-recovery-native.js";
 import { FileEnrollmentJournal, changeStandingGrant } from "./maintenance/authorization.js";
+import { observeConsumedMaintenanceServiceAbsence } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import { inspectMaintenanceServiceReadiness } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
@@ -178,8 +179,10 @@ export async function exerciseAbsentRecovery(input: {
     verifyProcessExited: async () => undefined,
     verifyServiceAbsent: async () => assertAbsent(),
   };
+  const counterTarget: "maintenance-controller" | "recovery-launcher" =
+    identity.target === "maintenance-controller" ? "recovery-launcher" : "maintenance-controller";
   const currentBoot = {
-    target: "maintenance-controller" as const,
+    target: counterTarget,
     installationId: identity.installationId,
     process: executor,
     assertCurrent: () => undefined,
@@ -430,6 +433,21 @@ export async function exerciseAbsentRecovery(input: {
       };
     },
   };
+  if (["recover-observe-original-absent", "recover-observe-consumed-absent"].includes(input.mode)) {
+    await exerciseConsumedAbsence({
+      kind: input.mode === "recover-observe-original-absent" ? "replacement" : "recovery",
+      failed: input.failed,
+      originalPlan: f.plan,
+      recoveryPlan: plan,
+      claim: executeInput,
+      absence: absenceInput,
+      setRegistered(value) {
+        started = value;
+      },
+    });
+    expect(commands).toEqual([]);
+    return;
+  }
   const lostStartReply = [
     "recover-lost-start",
     "recover-observe-lost-start",
@@ -612,7 +630,19 @@ export async function exerciseAbsentRecovery(input: {
       );
     }
   }
-  if (input.mode === "recover-observe-timeout") {
+  await exerciseRecoveryObservationDeadlines({ mode: input.mode, executeInput, journal, commands });
+}
+
+interface RecoveryObservationDeadlines {
+  mode: string;
+  executeInput: Parameters<typeof executeAbsentMaintenanceRecovery>[0];
+  journal: FileBootstrapRequestJournal;
+  commands: string[][];
+}
+
+async function exerciseRecoveryObservationDeadlines(input: RecoveryObservationDeadlines) {
+  const { mode, executeInput, journal, commands } = input;
+  if (mode === "recover-observe-timeout") {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     let signal: AbortSignal | undefined;
     let notify: () => void = () => undefined;
@@ -635,7 +665,7 @@ export async function exerciseAbsentRecovery(input: {
     expect(commands).toHaveLength(1);
     vi.useRealTimers();
   }
-  if (input.mode === "recover-observe-late") {
+  if (mode === "recover-observe-late") {
     const before = JSON.stringify(journal.readLifecycle());
     const startedAt = performance.now();
     const clock = vi.spyOn(performance, "now").mockReturnValue(startedAt);
@@ -646,7 +676,7 @@ export async function exerciseAbsentRecovery(input: {
           ...executeInput,
           readObservation: async (signal) => {
             observedSignal = signal;
-            const result = await executeInput.readCandidateObservation();
+            const result = await executeInput.readCandidateObservation(signal);
             // Model native validation exhausting its budget before timer delivery.
             clock.mockReturnValue(startedAt + 30_001);
             return result;
@@ -660,4 +690,133 @@ export async function exerciseAbsentRecovery(input: {
     expect(JSON.stringify(journal.readLifecycle())).toBe(before);
     expect(commands).toHaveLength(1);
   }
+}
+
+interface ConsumedAbsenceFixture {
+  kind: "replacement" | "recovery";
+  failed: MaintenanceServiceJob;
+  originalPlan: MaintenanceLauncherPlan;
+  recoveryPlan: unknown;
+  claim: Parameters<typeof claimMaintenanceServiceEffect>[0];
+  absence: Parameters<typeof observeConsumedMaintenanceServiceAbsence>[0];
+  setRegistered(value: boolean): void;
+}
+
+async function exerciseConsumedAbsence(input: ConsumedAbsenceFixture) {
+  const journal = new FileBootstrapRequestJournal(input.absence.stateDirectory);
+  const replacement = input.kind === "replacement";
+  const job = replacement
+    ? structuredClone(input.failed)
+    : claimMaintenanceServiceEffect(input.claim);
+  if (replacement) {
+    job.status = "running";
+    delete job.observation;
+    journal.writeLifecycle([job]);
+  }
+  const identity = input.originalPlan.identity;
+  if (identity.environment !== "host" || !identity.selectionPath)
+    throw new Error("Fixture requires native selection");
+  writeFileSync(identity.selectionPath, "{partial selection", { mode: 0o600 });
+  const before = readFileSync(path.join(input.absence.stateDirectory, "restart-jobs.json"));
+  const currentBoot = {
+    ...input.absence.currentBoot,
+    process: { ...input.absence.currentBoot.process, pid: process.pid + 200000 },
+  };
+  const plan = replacement ? input.originalPlan : input.recoveryPlan;
+  if (replacement) {
+    const node = input.originalPlan.candidate.node.path;
+    const bytes = readFileSync(node);
+    writeFileSync(node, "Unverified runtime bytes");
+    try {
+      await expect(
+        observeConsumedMaintenanceServiceAbsence({
+          ...input.absence,
+          request: job,
+          plan,
+          currentBoot: {
+            ...currentBoot,
+            process: { ...currentBoot.process, bootId: job.effectIntent!.executor.bootId },
+          },
+          reader: {
+            ...input.absence.reader,
+            inspectProcess: async () => job.effectIntent!.executor,
+            verifyProcessExited: async () => {
+              throw new Error("Consumed executor live");
+            },
+          },
+        }),
+      ).rejects.toThrow("Retained process lifetime");
+    } finally {
+      writeFileSync(node, bytes);
+    }
+  }
+  const observation = await observeConsumedMaintenanceServiceAbsence({
+    ...input.absence,
+    request: job,
+    plan,
+    currentBoot,
+    assertRuntimeAbsent(value) {
+      expect(value.allowedProcesses).toEqual([currentBoot]);
+      input.absence.assertRuntimeAbsent!(value);
+    },
+  });
+  expect(observation).toMatchObject({
+    requestId: job.id,
+    requestRevision: job.reservation!.requestRevision,
+    generation: job.reservation!.generation,
+    outcome: "unknown",
+    ready: false,
+    sourceCommit: null,
+    artifactSha256: null,
+  });
+  expect(observation.record).toMatchObject({
+    requestRevision: job.reservation!.requestRevision,
+    sourceCommit: null,
+    artifactSha256: null,
+    native: {
+      process: null,
+      service: { registered: false },
+      selection: {
+        receiptSha256: hash("{partial selection"),
+        sourceCommit: null,
+        artifactSha256: null,
+      },
+    },
+  });
+  expect(observation.evidenceSha256).toBe(hash(JSON.stringify(observation.record)));
+  observation.assertCurrent();
+  expect(readFileSync(path.join(input.absence.stateDirectory, "restart-jobs.json"))).toEqual(
+    before,
+  );
+  input.setRegistered(true);
+  expect(observation.assertCurrent).toThrow();
+  input.setRegistered(false);
+  const { observeServiceJob } = await import("./maintenance/service-progress.js");
+  const uncertain = observeServiceJob(job, observation, Date.now()).job;
+  expect(uncertain.status).toBe("running");
+  expect(uncertain.effectIntent).toEqual(job.effectIntent);
+  journal.writeLifecycle(replacement ? [uncertain] : [input.failed, uncertain]);
+  expect(observation.assertCurrent).toThrow();
+  const recovery = inspectMaintenanceRecoveryPlan(input.recoveryPlan, input.absence.account);
+  const nextPlan = {
+    ...recovery.plan,
+    recoveryOf: {
+      requestId: uncertain.id,
+      generation: uncertain.reservation!.generation,
+      planSha256: uncertain.proposal.planSha256,
+      observationSha256: uncertain.observation!.evidenceSha256,
+    },
+  };
+  const { inspectNativeMaintenanceRecoveryHistory } =
+    await import("./coordinator-bootstrap-maintenance-recovery-history.js");
+  const history = await inspectNativeMaintenanceRecoveryHistory({
+    ...input.absence,
+    plan: nextPlan,
+  });
+  expect(history.ancestors.map((ancestor) => ancestor.job.id)).toEqual(
+    replacement ? [uncertain.id] : [uncertain.id, input.failed.id],
+  );
+  history.assertCurrent();
+  journal.writeLifecycle(replacement ? [] : [uncertain]);
+  expect(history.assertCurrent).toThrow();
 }

@@ -1,3 +1,8 @@
+import { inspectMaintenanceServicePresence } from "./coordinator-bootstrap-maintenance-absence.js";
+import { observeConsumedMaintenanceServiceAbsence } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
+import { inspectRetainedMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-binding.js";
+import { inspectRetainedMaintenanceRecoveryEffect } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
+import { verifyRetainedProcessExited } from "./coordinator-bootstrap-service.js";
 import { verifySelectedServiceRunner } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
 import { closeSync, constants, openSync, writeSync } from "node:fs";
@@ -184,6 +189,55 @@ export async function createNativeMaintenanceServiceExecutor(
           signal,
         }),
     };
+    const consumed = requireCurrentServiceRequest(journal, request);
+    if (consumed.effectIntent) {
+      const effect =
+        consumed.operation === "replacement"
+          ? inspectRetainedMaintenanceServiceEffect({ ...observationInput, retained: consumed })
+          : inspectRetainedMaintenanceRecoveryEffect({ ...observationInput, retained: consumed });
+      const identity = "identity" in effect ? effect.identity : effect.plan.identity;
+      if (identity.environment !== "host")
+        throw new BootstrapRequestConflict("Consumed observation requires enrolled Host custody");
+      if (
+        inspectMaintenanceServicePresence(`${identity.serviceDomain}/${identity.serviceLabel}`) ===
+        "absent"
+      ) {
+        // Counter-role discovery also hashes runtime files. The exact child must
+        // be gone before any new artifact reader can disturb its native inventory.
+        await verifyRetainedProcessExited(context.ports.reader, effect.intent.executor);
+        return readBoundedMaintenanceInspection(
+          async (signal) => {
+            requireCurrentServiceRequest(journal, request);
+            const target =
+              request.target === "maintenance-controller"
+                ? "recovery-launcher"
+                : "maintenance-controller";
+            const resolved = await resolveNativeMaintenanceRoleSetup({ ...input, target });
+            signal.throwIfAborted();
+            const counter = await inspectSelectedMaintenanceExecutor({
+              ...context,
+              setupFile: resolved.executorSetupFile,
+              expectedTarget: target,
+            });
+            const coordinatorCustody = await inspectMaintenanceCoordinatorWitness({
+              ...context,
+              installationId: input.installationId,
+            });
+            signal.throwIfAborted();
+            requireCurrentServiceRequest(journal, request);
+            return observeConsumedMaintenanceServiceAbsence({
+              ...context,
+              request,
+              reader: context.ports.reader,
+              currentBoot: maintenanceRecoveryBootWitness(counter),
+              coordinatorCustody,
+              signal,
+            });
+          },
+          { timeoutMs: 30_000, detail: "Consumed native absence inspection timed out" },
+        );
+      }
+    }
     if (request.operation === "replacement")
       return observeMaintenanceServiceReplacement(observationInput);
     const retained = requireCurrentServiceRequest(journal, request);

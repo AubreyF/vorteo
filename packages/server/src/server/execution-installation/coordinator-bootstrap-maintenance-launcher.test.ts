@@ -819,6 +819,8 @@ test.each([
   "recovery",
   "recover-absent",
   "recover-observe-unclaimed",
+  "recover-observe-original-absent",
+  "recover-observe-consumed-absent",
   "recover-rollback",
   "recover-lost-start",
   "recover-observe-lost-start",
@@ -845,7 +847,7 @@ test.each([
 ] as const)("native service independently binds retained reservation: %s", async (mode) => {
   const f = await fixture(
     false,
-    /^(?:native-|valid-controller$)/.test(mode),
+    /^(?:native-|valid-controller$|recover-observe-(?:runtime|rollback|unready)$)/.test(mode),
     mode === "valid-controller",
   );
   const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");

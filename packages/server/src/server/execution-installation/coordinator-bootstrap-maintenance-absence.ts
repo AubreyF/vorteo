@@ -6,6 +6,12 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
  * exact missing service in this user's domain. Timeouts and permission errors
  * must remain uncertainty, including inside the final lifecycle transaction. */
 export function assertMaintenanceServiceAbsent(service: string): void {
+  if (inspectMaintenanceServicePresence(service) !== "absent")
+    throw new BootstrapRequestConflict("Maintenance service is still registered");
+}
+
+/** Branch selection only. A later observation must retain native custody. */
+export function inspectMaintenanceServicePresence(service: string): "registered" | "absent" {
   requireLocalService(service);
   try {
     execFileSync("/bin/launchctl", ["print", service], {
@@ -17,9 +23,9 @@ export function assertMaintenanceServiceAbsent(service: string): void {
     });
   } catch (error) {
     requireMaintenanceServiceAbsenceResult(service, error);
-    return;
+    return "absent";
   }
-  throw new BootstrapRequestConflict("Maintenance service is still registered");
+  return "registered";
 }
 
 export function requireMaintenanceServiceAbsenceResult(service: string, value: unknown): void {

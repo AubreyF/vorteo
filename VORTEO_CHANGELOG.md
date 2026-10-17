@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.656 - 2026-10-17
+
+### Fixed
+
+- Collect independently verified native absence for an exact consumed maintenance generation, including replacement and linked recovery. Verify executor exit before counter-role discovery or runtime hashing, preserve full history and partial file receipts, and retain synchronous absence, inventory and identity custody.
+- Address the unknown observation to its retained reservation with null observed source and artifact. Keep the generation running and its consumed intent unchanged; a successor still requires fresh linked admission. A live service continues through strong readiness verification, and inspection errors never count as absence.
+- Exercise original and linked consumed absence in the owning fixture, including live-executor, reappearing-service and changed-history refusal. Correct older controller-readiness fixtures to name the controller role. This is source validation, not installed recovery or final activation readiness.
+
 ## 0.11.0-beta.3.vorteo.655 - 2026-10-17
 
 ### Maintenance
