@@ -81,7 +81,7 @@ export function selectMaintenanceReleaseLink(input: {
   };
   const receiptBytes = Buffer.from(JSON.stringify(receipt));
   writeExclusive(attemptFile, receiptBytes);
-  const assertAttempt = retainReleaseSelectionAttempt(attemptFile, receiptBytes);
+  const assertAttempt = retainMaintenancePublishedFile(attemptFile, receiptBytes);
   syncDirectory(attemptParent.directory);
   const temporary = path.join(parent.directory, `.maintenance-release-${randomUUID()}`);
   symlinkSync(candidate, temporary);
@@ -105,7 +105,9 @@ export function selectMaintenanceReleaseLink(input: {
   return receipt;
 }
 
-function retainReleaseSelectionAttempt(file: string, bytes: Buffer) {
+/** Retain both exact bytes and lifetime across later native/file phases. */
+export function retainMaintenancePublishedFile(file: string, bytes: Buffer) {
+  bytes = Buffer.from(bytes);
   const expected = linkStatIdentity(lstatSync(file, { bigint: true }));
   const selected = { path: file, previousSha256: digest(bytes), bytes };
   const assertCurrent = () => {
@@ -117,6 +119,17 @@ function retainReleaseSelectionAttempt(file: string, bytes: Buffer) {
   };
   assertCurrent();
   return assertCurrent;
+}
+
+/** Retain the exact published selector across later custody callbacks. */
+export function retainMaintenancePublishedLink(link: string, target: string) {
+  const parent = protectedParent(link);
+  const expected = releaseLinkIdentity(link, target);
+  return () => {
+    requireSameParent(link, parent);
+    if (releaseLinkIdentity(link, target) !== expected)
+      throw new BootstrapRequestConflict("Published release selector changed");
+  };
 }
 
 function removeRetainedReleaseLink(file: string, target: string, expected: string) {

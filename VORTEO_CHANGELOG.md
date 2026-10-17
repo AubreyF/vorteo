@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.672 - 2026-10-17
+
+### Maintenance
+
+- Bind an initial Host migration's durable intent to one exclusive native child claim under current enrollment and shared lifecycle exclusion. Retain uncertain claim writes as replay fences.
+- Connect that claim to launcher-first, selector-second publication through the existing file publisher. Both attempts bind the same claim; synchronous native and prepared-file custody, exact final selector lifetime, launcher bytes and addressed artifacts must remain valid. Preserve partial publication for independent reconciliation rather than replay. This prepares the file phase, not native service transition or installed activation.
+
 ## 0.11.0-beta.3.vorteo.671 - 2026-10-17
 
 ### Maintenance

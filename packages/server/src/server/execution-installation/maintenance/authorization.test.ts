@@ -10,6 +10,8 @@ import {
   inspectInitialHostSupervisorMigrationPlan,
   inspectInitialHostMigrationEnrollment,
   reserveInitialHostMigrationIntent,
+  claimInitialHostMigration,
+  publishInitialHostMigrationSelection,
   verifyInitialHostMigrationLaunchers,
 } from "./host-supervisor-migration.js";
 import type { LifecycleJob } from "../lifecycle-journal.js";
@@ -4220,7 +4222,9 @@ test("rollback-only producer retains the failed replacement while selecting its 
   expect(queue.listServices().find((job) => job.id === original.id)).toEqual(original);
 });
 
-function initialHostPlanFixture() {
+function initialHostPlanFixture(
+  preparePlan?: (plan: ReturnType<typeof InitialHostSupervisorMigrationPlanSchema.parse>) => void,
+) {
   const f = fixture();
   const uid = process.getuid!();
   const file = (name: string) => ({ path: path.join(f.directory, name), sha256: "a".repeat(64) });
@@ -4309,6 +4313,12 @@ function initialHostPlanFixture() {
     fallbackProvenance: file("fallback-copy.json"),
     interruption: f.manifest.interruption,
   });
+  if (preparePlan) {
+    preparePlan(plan);
+    plan.preconditionSha256 = createHash("sha256")
+      .update(JSON.stringify(plan.precondition))
+      .digest("hex");
+  }
   f.manifest.targets[2] = {
     target: "host",
     identitySha256: plan.identitySha256,
@@ -4383,8 +4393,8 @@ test("initial Host migration enrollment binds the whole plan and exact reservati
   expect(readFileSync(file)).toEqual(before);
 });
 
-function initialHostIntentFixture() {
-  const f = initialHostPlanFixture();
+function initialHostIntentFixture(preparePlan?: Parameters<typeof initialHostPlanFixture>[0]) {
+  const f = initialHostPlanFixture(preparePlan);
   const planSha256 = inspectInitialHostSupervisorMigrationPlan(f.plan).planSha256;
   const native = {
     precondition: f.plan.precondition,
@@ -4392,7 +4402,12 @@ function initialHostIntentFixture() {
     observedAt: new Date().toISOString(),
     assertCurrent: vi.fn(() => undefined),
   };
-  const artifacts = { plan: f.plan, planSha256, assertCurrent: vi.fn(() => undefined) };
+  const artifacts = {
+    plan: f.plan,
+    planSha256,
+    assertCurrent: vi.fn(() => undefined),
+    assertPreparedCurrent: vi.fn(() => undefined),
+  };
   return {
     ...f,
     native,
@@ -4400,6 +4415,239 @@ function initialHostIntentFixture() {
     intentInput: { ...f.input, enrollmentStateDirectory: f.directory, native, artifacts },
   };
 }
+
+function initialHostClaimFixture(preparePlan?: Parameters<typeof initialHostPlanFixture>[0]) {
+  const f = initialHostIntentFixture(preparePlan);
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  const executor = {
+    process: {
+      ...f.plan.precondition.supervisor,
+      pid: process.pid,
+      parentPid: process.ppid,
+      executable: process.execPath,
+      startIdentity: "200:1",
+    },
+    assertCurrent: vi.fn(() => undefined),
+  };
+  return { ...f, retained, executor, claimInput: { ...f.intentInput, executor } };
+}
+
+test("initial Host child claim consumes its exact intent once without changing activation", () => {
+  const f = initialHostClaimFixture();
+  const enrollment = path.join(f.directory, "maintenance-enrollment.json");
+  const before = readFileSync(enrollment);
+  const retained = claimInitialHostMigration(f.claimInput);
+  const intentSha256 = createHash("sha256").update(JSON.stringify(f.retained.intent)).digest("hex");
+  expect(retained.claim).toMatchObject({
+    intentId: f.retained.intent.id,
+    intentSha256,
+    generation: f.input.generation,
+    executor: f.executor.process,
+  });
+  expect(JSON.parse(readFileSync(retained.file, "utf8"))).toEqual(retained.claim);
+  expect(f.executor.assertCurrent).toHaveBeenCalled();
+  expect(() => claimInitialHostMigration(f.claimInput)).toThrow();
+  expect(readFileSync(enrollment)).toEqual(before);
+});
+
+test.each(["pid", "boot", "generation", "intent", "revoked", "custody"])(
+  "initial Host child claim refuses changed %s before consumption",
+  (changed) => {
+    const f = initialHostClaimFixture();
+    if (changed === "pid") f.executor.process.pid++;
+    if (changed === "boot") f.executor.process.bootId = randomUUID();
+    if (changed === "generation") f.claimInput.generation = randomUUID();
+    if (changed === "intent")
+      writeFileSync(
+        f.retained.file,
+        JSON.stringify({ ...f.retained.intent, planSha256: "f".repeat(64) }),
+      );
+    if (changed === "revoked")
+      changeStandingGrant(f.journal, {
+        expectedRevision: f.input.grantRevision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    if (changed === "custody")
+      f.executor.assertCurrent.mockImplementation(() => {
+        throw new Error("Child changed");
+      });
+    expect(() => claimInitialHostMigration(f.claimInput)).toThrow();
+    expect(
+      existsSync(
+        path.join(f.directory, `initial-host-claim-${f.input.stepId}-${f.input.generation}.json`),
+      ),
+    ).toBe(false);
+  },
+);
+
+test("initial Host child claim fences uncertain directory synchronization", () => {
+  const f = initialHostClaimFixture();
+  let count = 0;
+  expect(() =>
+    claimInitialHostMigration(f.claimInput, {
+      ...enrollmentWriteFiles,
+      sync(fd) {
+        if (++count === 2) throw new Error("Claim directory synchronization failed");
+        enrollmentWriteFiles.sync(fd);
+      },
+    }),
+  ).toThrow("Claim directory synchronization failed");
+  const file = path.join(
+    f.directory,
+    `initial-host-claim-${f.input.stepId}-${f.input.generation}.json`,
+  );
+  const before = readFileSync(file);
+  expect(() => claimInitialHostMigration(f.claimInput)).toThrow();
+  expect(readFileSync(file)).toEqual(before);
+});
+
+function initialHostPublicationFixture() {
+  const candidateLauncher = Buffer.from("synthetic managed plist");
+  const originalLauncher = Buffer.from("synthetic legacy plist");
+  const f = initialHostClaimFixture((plan) => {
+    for (const directory of [
+      plan.precondition.selectedRelease,
+      plan.candidate.directory,
+      plan.fallback.directory,
+    ])
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+    plan.precondition.launcher.sha256 = createHash("sha256").update(originalLauncher).digest("hex");
+    plan.fallback.launcher.sha256 = plan.precondition.launcher.sha256;
+    plan.candidate.launcher.sha256 = createHash("sha256").update(candidateLauncher).digest("hex");
+    writeFileSync(plan.precondition.launcher.path, originalLauncher, { mode: 0o600 });
+    symlinkSync(plan.precondition.selectedRelease, plan.precondition.identity.selectionPath!);
+  });
+  const claim = claimInitialHostMigration(f.claimInput);
+  const absence = {
+    identitySha256: f.plan.identitySha256,
+    preconditionSha256: f.plan.preconditionSha256,
+    bootId: f.executor.process.bootId,
+    observedAt: new Date().toISOString(),
+    assertCurrent: vi.fn(() => undefined),
+  };
+  return {
+    ...f,
+    claim,
+    absence,
+    originalLauncher,
+    candidateLauncher,
+    publication: { ...f.claimInput, absence, candidateLauncher },
+  };
+}
+
+test("initial Host publication joins one claim to both exact file publications", () => {
+  const f = initialHostPublicationFixture();
+  const result = publishInitialHostMigrationSelection(f.publication);
+  expect(result).toMatchObject({
+    intentId: f.retained.intent.id,
+    generation: f.input.generation,
+    slot: "candidate",
+  });
+  expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.candidateLauncher);
+  expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+    f.plan.candidate.directory,
+  );
+  const publication = path.join(
+    f.directory,
+    `initial-host-publication-${f.retained.intent.id}.json`,
+  );
+  const before = readFileSync(publication);
+  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(readFileSync(publication)).toEqual(before);
+  expect(f.absence.assertCurrent).toHaveBeenCalled();
+});
+
+test.each(["absence", "stale", "launcher", "claim", "grant"])(
+  "initial Host publication refuses changed %s before selecting files",
+  (changed) => {
+    const f = initialHostPublicationFixture();
+    if (changed === "absence")
+      f.absence.assertCurrent.mockImplementation(() => {
+        throw new Error("Service reappeared");
+      });
+    if (changed === "stale") f.absence.observedAt = new Date(Date.now() - 30_000).toISOString();
+    if (changed === "launcher") f.publication.candidateLauncher = Buffer.from("different plist");
+    if (changed === "claim")
+      writeFileSync(f.claim.file, JSON.stringify({ ...f.claim.claim, intentId: randomUUID() }));
+    if (changed === "grant")
+      changeStandingGrant(f.journal, {
+        expectedRevision: f.input.grantRevision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+    expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
+    expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+      f.plan.precondition.selectedRelease,
+    );
+  },
+);
+
+test("initial Host partial publication preserves its fence without replaying the launcher", () => {
+  const f = initialHostPublicationFixture();
+  const selector = path.join(
+    f.directory,
+    `initial-host-selector-attempt-${f.retained.intent.id}.json`,
+  );
+  writeFileSync(selector, "retained uncertain selector attempt", { mode: 0o600 });
+  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.candidateLauncher);
+  expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+    f.plan.precondition.selectedRelease,
+  );
+  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(readFileSync(selector, "utf8")).toBe("retained uncertain selector attempt");
+});
+
+test.each(["initial", "prepared"])(
+  "initial Host publication refuses async %s artifact custody before publication",
+  (stage) => {
+    const f = initialHostPublicationFixture();
+    const artifacts = {
+      ...f.artifacts,
+      assertCurrent: () => {
+        if (stage === "initial") return Promise.resolve();
+      },
+      assertPreparedCurrent: () => {
+        if (stage === "prepared") return Promise.resolve();
+      },
+    };
+    expect(() => publishInitialHostMigrationSelection({ ...f.publication, artifacts })).toThrow(
+      "synchronous",
+    );
+    expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
+    expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+      f.plan.precondition.selectedRelease,
+    );
+  },
+);
+
+test.each(["selector", "phase", "launcher attempt", "selector attempt"])(
+  "initial Host publication retains final %s custody after callbacks",
+  (changed) => {
+    const f = initialHostPublicationFixture();
+    const link = f.plan.precondition.identity.selectionPath!;
+    f.absence.assertCurrent.mockImplementation(() => {
+      if (realpathSync(link) !== f.plan.candidate.directory) return;
+      if (changed === "selector") {
+        unlinkSync(link);
+        symlinkSync(f.plan.candidate.directory, link);
+        return;
+      }
+      let artifact = "publication";
+      if (changed === "launcher attempt") artifact = "launcher-attempt";
+      if (changed === "selector attempt") artifact = "selector-attempt";
+      writeFileSync(
+        path.join(f.directory, `initial-host-${artifact}-${f.retained.intent.id}.json`),
+        "foreign callback bytes",
+      );
+    });
+    expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  },
+);
 
 test("initial Host intent consumes one exact reservation under the real shared lock", () => {
   const f = initialHostIntentFixture();
