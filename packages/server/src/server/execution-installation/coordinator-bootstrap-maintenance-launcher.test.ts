@@ -2104,13 +2104,13 @@ async function exerciseNativeReplacement(
   ).rejects.toThrow("invocation differs");
   const { maintenanceServiceClaimAdmission } =
     await import("./coordinator-bootstrap-maintenance-service-runner.js");
-  const { inspectMaintenanceServiceNative } =
-    await import("./coordinator-bootstrap-maintenance-service-inspection.js");
   let nativeRechecks = 0;
   const {
     inspectSelectedMaintenanceExecutor,
     bindMaintenanceExecutorEvidence,
     requireReservedMaintenanceExecutor,
+    inspectMaintenanceTargetEvidence,
+    maintenanceRecoveryBootWitness,
   } = await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
   const selectedExecutor = await inspectSelectedMaintenanceExecutor({
     setupFile: f.plan.previous!.setup.path,
@@ -2138,7 +2138,10 @@ async function exerciseNativeReplacement(
     }),
   ).toThrow("reserved native evidence");
   const nativeEvidence = bindMaintenanceExecutorEvidence(
-    await inspectMaintenanceServiceNative({
+    await inspectMaintenanceTargetEvidence({
+      currentBoot: maintenanceRecoveryBootWitness(selectedExecutor),
+      reader,
+      signal: new AbortController().signal,
       request: journal.readLifecycle()[0],
       plan: f.plan,
       account: f.account,

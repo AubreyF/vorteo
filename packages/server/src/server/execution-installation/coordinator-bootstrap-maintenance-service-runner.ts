@@ -5,11 +5,11 @@ import {
   bindMaintenanceExecutorEvidence,
   requireReservedMaintenanceExecutor,
   maintenanceRecoveryBootWitness,
+  inspectMaintenanceTargetEvidence,
 } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 import { userInfo } from "node:os";
 import {
   createMaintenanceServiceInspectionPorts,
-  inspectMaintenanceServiceNative,
   inspectMaintenanceServiceReadiness,
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import {
@@ -46,7 +46,6 @@ import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintena
 import { inspectMaintenanceServiceExecution } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 import { inspectMaintenanceRecoveryExecution } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
-import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import {
   executeAbsentMaintenanceRecovery,
   observeMaintenanceRecovery,
@@ -333,10 +332,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     childCustody: context.childCustody,
     signal: AbortSignal.timeout(10_000),
   };
-  const targetEvidence =
-    context.job.operation === "replacement"
-      ? await inspectMaintenanceServiceNative(nativeInput)
-      : await inspectAbsentMaintenanceRecovery(nativeInput);
+  const targetEvidence = await inspectMaintenanceTargetEvidence(nativeInput);
   const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
   const { evidenceSha256, assertCurrent, ...record } = evidence;
   const observationInput = {

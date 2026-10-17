@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.634 - 2026-10-16
+
+### Maintenance
+
+- Use one target-evidence inspector in the selected native producer and one-generation child. Replacement verifies the running target; recovery and rollback require protected retained history, independent absence and the selected executor's current-boot witness. Aborted inspection cannot return admission evidence.
+- Make the producer consume the child's exact request, approved revision, generation and plan binding before launch, including recovery wrappers. Preserve the refreshed selected executor check, total execution deadline, locked intent admission and observation-only handling after uncertain replies.
+- Keep operation advertisement replacement-only and recovery listeners outside generic executor authority. Focused filesystem/native-port and producer subprocess checks validate source composition; explicit launcher-role integration, compiled combined recovery, Dev custody, installed delivery and remote acceptance remain open. No service, route, credentials or approval changes. README recovery availability remains pending delivery.
+
 ## 0.11.0-beta.3.vorteo.633 - 2026-10-16
 
 ### Maintenance

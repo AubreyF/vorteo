@@ -31,10 +31,9 @@ import {
   inspectBootstrapWritableMountRoots,
 } from "./coordinator-bootstrap-host.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
-import { inspectMaintenanceServiceExecution } from "./coordinator-bootstrap-maintenance-service-binding.js";
+import { inspectMaintenanceServiceInvocation } from "./coordinator-bootstrap-maintenance-service-runner.js";
 import {
   createMaintenanceServiceInspectionPorts,
-  inspectMaintenanceServiceNative,
   inspectMaintenanceServiceReadiness,
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { observeMaintenanceServiceReplacement } from "./coordinator-bootstrap-maintenance-service-native.js";
@@ -45,6 +44,8 @@ import {
   inspectSelectedMaintenanceExecutor,
   bindMaintenanceExecutorEvidence,
   requireReservedMaintenanceExecutor,
+  maintenanceRecoveryBootWitness,
+  inspectMaintenanceTargetEvidence,
 } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 
 const invocationDeadlineMs = 25_000;
@@ -167,9 +168,12 @@ export async function createNativeMaintenanceServiceExecutor(input: {
     inspect: async (request) => {
       const context = await load(request);
       const current = await inspectExecutor(context);
-      const target = await inspectMaintenanceServiceNative({
+      const target = await inspectMaintenanceTargetEvidence({
         ...context,
         request,
+        reader: context.ports.reader,
+        currentBoot: maintenanceRecoveryBootWitness(current),
+        signal: AbortSignal.timeout(10_000),
       });
       requireCurrentServiceRequest(journal, request);
       return bindMaintenanceExecutorEvidence(target, current);
@@ -188,11 +192,10 @@ export async function createNativeMaintenanceServiceExecutor(input: {
       attempted.add(key);
       return withinMaintenanceExecutionDeadline(deadline, async (assertWithinDeadline) => {
         const context = await load(request);
-        inspectMaintenanceServiceExecution({
-          ...context,
-          retained: request,
-          reservation,
-        });
+        inspectMaintenanceServiceInvocation(
+          [request.id, reservation.requestRevision, reservation.generation, reservation.planSha256],
+          { ...context, retained: request, reservation },
+        );
         const current = await inspectExecutor(context);
         requireReservedMaintenanceExecutor(request, current.executor);
         const roots = await inspectBootstrapWritableMountRoots(context.admission);

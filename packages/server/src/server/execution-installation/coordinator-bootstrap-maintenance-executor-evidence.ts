@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
+  MaintenanceServiceJobSchema,
   MaintenanceServiceExecutorEvidenceSchema,
   MaintenanceServiceEvidenceRecordSchema,
   type MaintenanceServiceJob,
@@ -17,10 +18,30 @@ import {
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 import { readEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
+  inspectMaintenanceServiceNative,
   retainServiceFiles,
   type MaintenanceServiceInspectionPorts,
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import type { MaintenanceServiceNativeEvidence } from "./maintenance/service-execution.js";
+
+import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
+
+/** Parent inspection and the one-generation child use the same target proof.
+ * This gathers evidence only; locked admission still owns every new effect. */
+export async function inspectMaintenanceTargetEvidence(
+  input: Parameters<typeof inspectAbsentMaintenanceRecovery>[0] & {
+    ports: MaintenanceServiceInspectionPorts;
+  },
+): Promise<MaintenanceServiceNativeEvidence> {
+  input.signal.throwIfAborted();
+  const job = MaintenanceServiceJobSchema.parse(input.request);
+  const evidence =
+    job.operation === "replacement"
+      ? await inspectMaintenanceServiceNative({ ...input, request: job })
+      : await inspectAbsentMaintenanceRecovery({ ...input, request: job });
+  input.signal.throwIfAborted();
+  return evidence;
+}
 
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 

@@ -19,7 +19,6 @@ import {
 } from "./coordinator-bootstrap-maintenance-recovery-native.js";
 import { FileEnrollmentJournal, changeStandingGrant } from "./maintenance/authorization.js";
 import { inspectMaintenanceServiceReadiness } from "./coordinator-bootstrap-maintenance-service-inspection.js";
-import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
   maintenanceUserLauncher,
@@ -166,7 +165,21 @@ export async function exerciseAbsentRecovery(input: {
     assertRuntimeAbsent,
     signal: new AbortController().signal,
   };
-  const evidence = await inspectAbsentMaintenanceRecovery(absenceInput);
+  const { inspectMaintenanceTargetEvidence } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const aborted = new AbortController();
+  aborted.abort();
+  await expect(
+    inspectMaintenanceTargetEvidence({
+      ...absenceInput,
+      signal: aborted.signal,
+      ports: { reader, assertCurrent: () => undefined },
+    }),
+  ).rejects.toThrow();
+  const evidence = await inspectMaintenanceTargetEvidence({
+    ...absenceInput,
+    ports: { reader, assertCurrent: () => undefined },
+  });
   const commands: string[][] = [];
   const executeInput = {
     ...input.claimInput,
