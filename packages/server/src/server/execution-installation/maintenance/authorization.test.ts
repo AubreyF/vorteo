@@ -1,3 +1,9 @@
+import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
+import {
+  InitialHostSupervisorMigrationPlanSchema,
+  inspectInitialHostSupervisorMigrationPlan,
+  inspectInitialHostMigrationEnrollment,
+} from "./host-supervisor-migration.js";
 import type { LifecycleJob } from "../lifecycle-journal.js";
 import {
   approveServiceJob,
@@ -4202,4 +4208,253 @@ test("rollback-only producer retains the failed replacement while selecting its 
   expect(inspected).toEqual([pending.id]);
   expect(queue.listServices().find((job) => job.id === pending.id)?.status).toBe("approved");
   expect(queue.listServices().find((job) => job.id === original.id)).toEqual(original);
+});
+
+function initialHostPlanFixture() {
+  const f = fixture();
+  const uid = process.getuid!();
+  const file = (name: string) => ({ path: path.join(f.directory, name), sha256: "a".repeat(64) });
+  const legacy = path.join(f.directory, "legacy");
+  const identity = {
+    version: 1 as const,
+    environment: "host" as const,
+    target: "host" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: uid,
+    installationRoot: f.directory,
+    stateDirectory: path.join(f.directory, "home"),
+    serviceDomain: `gui/${uid}`,
+    serviceLabel: "local.vorteo.test.host",
+    launcherPath: path.join(f.directory, "host.plist"),
+    selectionPath: path.join(f.directory, "current"),
+  };
+  const environment = {
+    PASEO_HOME: identity.stateDirectory,
+    VORTEO_INSTALLATION_CLIENT_CONFIG: file("client.json").path,
+  };
+  const supervisor = {
+    pid: 101,
+    parentPid: 1,
+    uid,
+    bootId: randomUUID(),
+    startIdentity: "100:1",
+    executable: file("node").path,
+    argumentsSha256: "b".repeat(64),
+  };
+  const precondition = InitialHostSupervisorPreconditionSchema.parse({
+    version: 1,
+    purpose: "initial-host-supervisor-migration",
+    provenance: "service-custody-and-observed-files",
+    identity,
+    configuration: file("installation.json"),
+    launcher: file("host.plist"),
+    clientConfiguration: file("client.json"),
+    node: file("node"),
+    supervisorEntrypoint: {
+      ...file("unused"),
+      path: path.join(legacy, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    },
+    workerEntrypoint: {
+      ...file("unused"),
+      path: path.join(legacy, "packages/server/dist/server/server/daemon-worker.js"),
+    },
+    sourceReceipt: { ...file("unused"), path: path.join(legacy, ".installation-source.json") },
+    selectedRelease: legacy,
+    sourceCommit: "b".repeat(40),
+    serverId: "host-fixture",
+    workerInstanceId: null,
+    workerInstanceSupport: "unsupported",
+    hostEndpoint: "127.0.0.1:1234",
+    registration: {
+      program: null,
+      arguments: [
+        file("node").path,
+        path.join(identity.selectionPath, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      ],
+      environment,
+      loadedEnvironment: environment,
+    },
+    supervisor,
+    worker: { ...supervisor, pid: 102, parentPid: 101, startIdentity: "101:1" },
+  });
+  const release = (name: string, source: string, artifact: string) => ({
+    directory: path.join(f.directory, name),
+    sourceCommit: source.repeat(40),
+    artifactSha256: artifact.repeat(64),
+    node: precondition.node,
+    configuration: precondition.configuration,
+    launcher: file(name + "/host.plist"),
+    entrypoint: file(name + "/packages/server/dist/scripts/supervisor-entrypoint.js"),
+  });
+  const plan = InitialHostSupervisorMigrationPlanSchema.parse({
+    version: 1,
+    operation: "initial-host-supervisor-migration",
+    installationId: f.manifest.installationId,
+    identitySha256: enrollmentNativeIdentityDigest(identity),
+    preconditionSha256: createHash("sha256").update(JSON.stringify(precondition)).digest("hex"),
+    precondition,
+    candidate: release("candidate", "c", "d"),
+    fallback: release("fallback", "e", "f"),
+    interruption: f.manifest.interruption,
+  });
+  f.manifest.targets[2] = {
+    target: "host",
+    identitySha256: plan.identitySha256,
+    operations: ["replacement"],
+  };
+  const following = { ...f.manifest.steps[1], id: randomUUID(), dependsOn: [f.second] };
+  f.manifest.steps[1] = {
+    id: f.second,
+    target: "host",
+    operation: "replacement",
+    planSha256: inspectInitialHostSupervisorMigrationPlan(plan).planSha256,
+    candidate: {
+      sourceCommit: plan.candidate.sourceCommit,
+      artifactSha256: plan.candidate.artifactSha256,
+    },
+    previous: {
+      sourceCommit: plan.fallback.sourceCommit,
+      artifactSha256: plan.fallback.artifactSha256,
+    },
+    dependsOn: [f.first],
+  };
+  f.manifest.steps.push(following);
+  f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
+  const state = enrolled(f.enroll());
+  const revision = state.grant.revision;
+  const reserved = enrolled(
+    reserveActivationStep(f.journal, { grantRevision: revision, stepId: f.first }),
+  ).activation.steps[0];
+  if (reserved.status !== "reserved") throw new Error("First fixture step was not reserved");
+  observeActivationStep(f.journal, {
+    stepId: f.first,
+    generation: reserved.generation,
+    outcome: "succeeded",
+    observationSha256: "a".repeat(64),
+  });
+  const current = enrolled(
+    reserveActivationStep(f.journal, { grantRevision: revision, stepId: f.second }),
+  );
+  const migration = current.activation.steps[1];
+  if (migration.status !== "reserved") throw new Error("Host fixture step was not reserved");
+  const input = {
+    journal: f.journal,
+    plan,
+    grantId: current.grant.id,
+    grantRevision: current.grant.revision,
+    stepId: f.second,
+    generation: migration.generation,
+  };
+  return { ...f, plan, input, followingId: following.id };
+}
+
+test("initial Host migration enrollment binds the whole plan and exact reservation without writing", () => {
+  const f = initialHostPlanFixture();
+  const file = path.join(f.directory, "maintenance-enrollment.json");
+  const before = readFileSync(file);
+  const locked = new FileBootstrapRequestJournal(f.directory);
+  const result = locked.withRecoveryTransaction(() =>
+    inspectInitialHostMigrationEnrollment(f.input),
+  );
+  expect(result).toEqual({
+    grantId: f.input.grantId,
+    grantRevision: f.input.grantRevision,
+    manifestSha256: f.approval.manifestSha256,
+    stepId: f.second,
+    generation: f.input.generation,
+    planSha256: inspectInitialHostSupervisorMigrationPlan(f.plan).planSha256,
+    preconditionSha256: f.plan.preconditionSha256,
+    candidate: f.manifest.steps[1].candidate,
+    fallback: f.manifest.steps[1].previous,
+  });
+  expect(inspectInitialHostMigrationEnrollment(f.input)).toEqual(result);
+  expect(readFileSync(file)).toEqual(before);
+});
+
+test.each([
+  "precondition",
+  "identity",
+  "candidate",
+  "fallback",
+  "generation",
+  "grant",
+  "limits",
+  "entry",
+])("initial Host migration enrollment rejects changed %s binding", (changed) => {
+  const f = initialHostPlanFixture();
+  if (changed === "precondition") f.plan.preconditionSha256 = "f".repeat(64);
+  if (changed === "identity") f.plan.identitySha256 = "f".repeat(64);
+  if (changed === "candidate") f.plan.candidate.artifactSha256 = "e".repeat(64);
+  if (changed === "fallback") f.plan.fallback.sourceCommit = "a".repeat(40);
+  if (changed === "generation") f.input.generation = randomUUID();
+  if (changed === "grant") f.input.grantId = randomUUID();
+  if (changed === "limits") f.plan.interruption.terminateGraceSeconds++;
+  if (changed === "entry")
+    f.plan.candidate.entrypoint.path = path.join(f.directory, "wrong-entry.js");
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+});
+
+test.each(["pause", "revoke", "disable"])(
+  "initial Host migration enrollment rejects current %s",
+  (change) => {
+    const f = initialHostPlanFixture();
+    const next = enrolled(
+      changeStandingGrant(f.journal, {
+        expectedRevision: f.input.grantRevision,
+        paused: change === "pause",
+        disabledTargets: change === "disable" ? ["host"] : [],
+        revoke: change === "revoke",
+      }),
+    );
+    f.input.grantRevision = next.grant.revision;
+    expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow("authority changed");
+  },
+);
+
+test("initial Host migration plan refuses using its candidate as the fallback", () => {
+  const f = initialHostPlanFixture();
+  f.plan.fallback = f.plan.candidate;
+  expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow(
+    "distinct compatible fallback",
+  );
+});
+
+test.each(["dependency", "competing reservation"])(
+  "initial Host migration enrollment refuses changed %s",
+  (changed) => {
+    const f = initialHostPlanFixture();
+    f.journal.update((state) => {
+      if (state.status !== "enrolled") throw new Error("Missing fixture enrollment");
+      state.activation.steps = state.activation.steps.map((step) => {
+        if (changed === "dependency" && step.id === f.first)
+          return { id: step.id, status: "pending" };
+        if (changed === "competing reservation" && step.id === f.followingId)
+          return {
+            id: step.id,
+            status: "reserved",
+            generation: randomUUID(),
+            grantRevision: state.grant.revision,
+            reservedAt: "2026-10-17T00:00:00.000Z",
+          };
+        return step;
+      });
+      return state;
+    });
+    expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow(
+      "prerequisites require reconciliation",
+    );
+  },
+);
+
+test("initial Host migration enrollment refuses a terminal reservation", () => {
+  const f = initialHostPlanFixture();
+  observeActivationStep(f.journal, {
+    stepId: f.second,
+    generation: f.input.generation,
+    outcome: "succeeded",
+    observationSha256: "a".repeat(64),
+  });
+  expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow("exact reserved step");
 });

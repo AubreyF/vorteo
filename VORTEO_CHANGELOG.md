@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.663 - 2026-10-17
+
+### Maintenance
+
+- Define the exact initial Host supervisor migration plan, including its service-custody precondition, stable identity, candidate, distinct compatible fallback and interruption limits. Both releases preserve the pinned Node and installation configuration and name the canonical supervisor entry.
+- Bind that plan to the active enrollment, exact reserved step and generation, reviewed release digests and completed dependencies. Revocation, pause, disabled Host scope, competing reservations and terminal steps refuse. This read-only scope validator does not verify runtime artifacts, consume intent or authorize service effects.
+
 ## 0.11.0-beta.3.vorteo.662 - 2026-10-17
 
 ### Maintenance
