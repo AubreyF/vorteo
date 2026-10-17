@@ -1,4 +1,6 @@
 import { userInfo } from "node:os";
+import { observeNativeRecoveryBeforeCoordinator } from "./coordinator-bootstrap-maintenance-recovery-activation.js";
+import { retainServiceFiles } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import { verifyNativeMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
@@ -150,6 +152,127 @@ export function readPersistentMaintenanceReview(
   return { id: approval.requestId, revision: approval.reviewRevision, manifest };
 }
 
+interface MaintenanceEnrollmentControlsInput {
+  input: MaintenanceControlInput;
+  prepared: Omit<
+    Parameters<typeof recordCoordinatorMaintenanceEnrollment>[0],
+    "review" | "decision" | "ownerPassword"
+  >;
+  context: Awaited<ReturnType<typeof verifyMaintenanceProposalFiles>>;
+  review: Awaited<ReturnType<typeof readMaintenanceEnrollmentReview>>;
+  persistent: boolean;
+  verifyObservationParent(): Promise<readonly string[]>;
+}
+
+/** The HTTP front door and inert composition tests use these same callbacks.
+ * Native factories remain fixed imports; owner input cannot supply executors. */
+export function createMaintenanceEnrollmentControls(
+  options: MaintenanceEnrollmentControlsInput,
+): NonNullable<Parameters<typeof createMaintenanceControlApp>[0]["enrollment"]> {
+  const { input, prepared, context, persistent, verifyObservationParent } = options;
+  const review = structuredClone(options.review);
+  const digest = input.admissionSha256;
+  const directory = path.join(input.installationRoot, "maintenance-admissions", digest);
+  async function requireReview() {
+    const current = persistent
+      ? readPersistentMaintenanceReview(
+          context.plan.state.directory,
+          digest,
+          context.receipt.installationId,
+        )
+      : await readMaintenanceEnrollmentReview(
+          directory,
+          input.enrollmentSha256!,
+          digest,
+          context.receipt.installationId,
+        );
+    if (!isDeepStrictEqual(current, review))
+      throw new BootstrapRequestConflict("Enrollment review changed");
+  }
+  return {
+    decision: {
+      id: review.id,
+      revision: review.revision,
+      manifestSha256: enrollmentManifestDigest(review.manifest),
+    },
+    review,
+    observe: async () => {
+      await requireReview();
+      const setup = {
+        ...context.runner,
+        maintenance: { installationRoot: input.installationRoot, admissionSha256: digest },
+      };
+      const retainedRequest = new FileBootstrapRequestJournal(context.plan.state.directory)
+        .read()
+        .find((item) => item.id === context.receipt.requestId);
+      if (retainedRequest) {
+        await verifyObservationParent();
+        await observeEnrolledCoordinator({
+          directory: context.plan.state.directory,
+          requestId: context.receipt.requestId,
+          verify: (request) => verifyEnrolledCoordinatorCandidate(setup, request),
+        });
+        return;
+      }
+      const binding = review.manifest.provisioning;
+      if (!binding)
+        throw new BootstrapRequestConflict("Enrollment provisioning binding is unavailable");
+      await observeNativeRecoveryBeforeCoordinator({
+        installationRoot: input.installationRoot,
+        stateDirectory: context.plan.state.directory,
+        installationId: context.receipt.installationId,
+        manifestSha256: enrollmentManifestDigest(review.manifest),
+        coordinatorStepId: binding.coordinatorStepId,
+        verifyParent: verifyObservationParent,
+      });
+      // Recovery success creates no coordinator request and settles no
+      // coordinator step. A distinct enrollment action owns dispatch.
+    },
+    ...(!persistent
+      ? {
+          saveConsent: async (decision) => {
+            const current = await readMaintenanceEnrollmentReview(
+              directory,
+              input.enrollmentSha256!,
+              digest,
+              context.receipt.installationId,
+            );
+            if (!isDeepStrictEqual(current, review))
+              throw new BootstrapRequestConflict("Enrollment review changed");
+            await recordCoordinatorMaintenanceEnrollment({
+              ...prepared,
+              review,
+              decision,
+              ownerPassword: decision.ownerPassword,
+            });
+          },
+        }
+      : {}),
+    enroll: async (decision) => {
+      if (persistent)
+        throw new BootstrapRequestConflict("Installation enrollment is already retained");
+      const current = await readMaintenanceEnrollmentReview(
+        directory,
+        input.enrollmentSha256!,
+        digest,
+        context.receipt.installationId,
+      );
+      if (!isDeepStrictEqual(current, review))
+        throw new BootstrapRequestConflict("Enrollment review changed");
+      await enrollAndProvisionCoordinatorMaintenance({
+        ...prepared,
+        review,
+        decision,
+        ownerPassword: decision.ownerPassword,
+      });
+      const executor = await createProvisionedMaintenanceReview(input);
+      if (!executor.activateEnrollment)
+        throw new BootstrapRequestConflict("Enrolled native execution unavailable");
+      await executor.activateEnrollment();
+    },
+  };
+}
+
 async function startMaintenanceControl(
   input: MaintenanceControlInput,
   persistent?: { selected: SelectedStartup; inspect(): Promise<SelectedStartup> },
@@ -252,6 +375,42 @@ async function startMaintenanceControl(
       );
     });
   }
+  const assertObservationFiles = enrollment
+    ? retainServiceFiles([
+        path.join(input.installationRoot, "coordinator-bootstrap-runner.json"),
+        anchor.admissionSetupFile,
+        admission.helperPath,
+        ...[
+          "proposal-plan.json",
+          "proposal-host.json",
+          "proposal-runner.json",
+          "proposal.json",
+        ].map((name) => path.join(directory, name)),
+        fileURLToPath(import.meta.url),
+      ])
+    : () => undefined;
+  const verifyObservationParent = async () => {
+    assertObservationFiles();
+    const currentRoots = await inspectBootstrapWritableMountRoots(admission);
+    if (!isDeepStrictEqual(currentRoots, roots))
+      throw new BootstrapRequestConflict("Controller observation mount custody changed");
+    const current = await verifyMaintenanceProposalFiles({
+      ...prepared,
+      receiptFile: { path: path.join(directory, "proposal.json"), sha256: digest },
+      writableMountRoots: currentRoots,
+    });
+    if (!isDeepStrictEqual(current, context))
+      throw new BootstrapRequestConflict("Controller observation runtime changed");
+    const observed = ProcessObservationSchema.parse(await reader.inspectProcess(process.pid));
+    await verifyControlRuntime(context, observed, args, persistent);
+    if (
+      !isDeepStrictEqual(observed, identity) ||
+      !isDeepStrictEqual(currentRoots, await inspectBootstrapWritableMountRoots(admission))
+    )
+      throw new BootstrapRequestConflict("Controller observation native custody changed");
+    assertObservationFiles();
+    return currentRoots;
+  };
   const app = createMaintenanceControlApp({
     ...(persistent
       ? {
@@ -284,67 +443,14 @@ async function startMaintenanceControl(
     installationId: context.receipt.installationId,
     ...(enrollment
       ? {
-          enrollment: {
-            decision: {
-              id: enrollment.id,
-              revision: enrollment.revision,
-              manifestSha256: enrollmentManifestDigest(enrollment.manifest),
-            },
+          enrollment: createMaintenanceEnrollmentControls({
+            input,
+            prepared,
+            context,
             review: enrollment,
-            observe: async () => {
-              const setup = {
-                ...context.runner,
-                maintenance: { installationRoot: input.installationRoot, admissionSha256: digest },
-              };
-              await observeEnrolledCoordinator({
-                directory: context.plan.state.directory,
-                requestId: context.receipt.requestId,
-                verify: (request) => verifyEnrolledCoordinatorCandidate(setup, request),
-              });
-            },
-            ...(!persistent
-              ? {
-                  saveConsent: async (decision) => {
-                    const current = await readMaintenanceEnrollmentReview(
-                      directory,
-                      input.enrollmentSha256!,
-                      digest,
-                      context.receipt.installationId,
-                    );
-                    if (!isDeepStrictEqual(current, enrollment))
-                      throw new BootstrapRequestConflict("Enrollment review changed");
-                    await recordCoordinatorMaintenanceEnrollment({
-                      ...prepared,
-                      review: enrollment,
-                      decision,
-                      ownerPassword: decision.ownerPassword,
-                    });
-                  },
-                }
-              : {}),
-            enroll: async (decision) => {
-              if (persistent)
-                throw new BootstrapRequestConflict("Installation enrollment is already retained");
-              const current = await readMaintenanceEnrollmentReview(
-                directory,
-                input.enrollmentSha256!,
-                digest,
-                context.receipt.installationId,
-              );
-              if (!isDeepStrictEqual(current, enrollment))
-                throw new BootstrapRequestConflict("Enrollment review changed");
-              await enrollAndProvisionCoordinatorMaintenance({
-                ...prepared,
-                review: enrollment,
-                decision,
-                ownerPassword: decision.ownerPassword,
-              });
-              const executor = await createProvisionedMaintenanceReview(input);
-              if (!executor.activateEnrollment)
-                throw new BootstrapRequestConflict("Enrolled native execution unavailable");
-              await executor.activateEnrollment();
-            },
-          },
+            persistent: Boolean(persistent),
+            verifyObservationParent,
+          }),
         }
       : {}),
     service: state.service,

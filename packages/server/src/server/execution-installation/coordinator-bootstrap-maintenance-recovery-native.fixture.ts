@@ -1,3 +1,7 @@
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
+import type { RecoveryRegistrationPorts } from "./coordinator-bootstrap-maintenance-recovery-registration.js";
+import type { z } from "zod";
 import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,6 +28,7 @@ import { inspectMaintenanceServiceReadiness } from "./coordinator-bootstrap-main
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
   maintenanceUserLauncher,
+  inspectMaintenanceLauncherPlan,
   type MaintenanceLauncherPlan,
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 
@@ -819,4 +824,246 @@ async function exerciseConsumedAbsence(input: ConsumedAbsenceFixture) {
   history.assertCurrent();
   journal.writeLifecycle(replacement ? [] : [uncertain]);
   expect(history.assertCurrent).toThrow();
+}
+
+interface RecoveryFixtureServe {
+  TCP: Record<string, { HTTPS: boolean }>;
+  Web: Record<string, { Handlers: Record<string, { Proxy: string }> }>;
+  ExtraFutureSetting: { retained: boolean };
+}
+interface RecoveryPortFixture {
+  plan: MaintenanceLauncherPlan;
+  account: { uid: number; home: string };
+  enrollmentStateDirectory: string;
+  routing: {
+    access: NonNullable<
+      NonNullable<z.infer<typeof MaintenanceLauncherSetupSchema>["control"]>["recoveryAccess"]
+    >;
+    backend: unknown;
+    previousServe: RecoveryFixtureServe;
+  };
+}
+
+/** Existing inert registration ports shared by seeded and unseeded source tests. */
+export function prepareRecoveryRegistrationFixturePorts(
+  f: RecoveryPortFixture,
+  mode: string,
+  revoke: () => unknown,
+) {
+  const bootstrap = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const commands: string[][] = [];
+  let registered = false;
+  let revoked = false;
+  let serve = structuredClone(f.routing.previousServe);
+  const native = {
+    pid: 43123,
+    parentPid: 1,
+    uid: f.account.uid,
+    bootId: randomUUID(),
+    startIdentity: "1000:42",
+    executable: f.plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(JSON.stringify(maintenanceUserLauncher(f.plan, "candidate").ProgramArguments))
+      .digest("hex"),
+  };
+  const ports: RecoveryRegistrationPorts = {
+    reader: {
+      async readService(service) {
+        if (!registered) throw new Error("Fixture service absent");
+        return `${service} = {\n\tpid = ${native.pid}\n}`;
+      },
+      async inspectProcess(pid) {
+        if (!registered || pid !== native.pid) throw new Error("Fixture process absent");
+        return { ...native };
+      },
+    },
+    async readRouting() {
+      const observed = {
+        backend: structuredClone(f.routing.backend),
+        serve: structuredClone(serve),
+      };
+      return {
+        ...observed,
+        assertCurrent() {
+          if (mode === "route-custody-after-start" && registered)
+            throw new Error("Fixture routing custody changed");
+          expect({ backend: f.routing.backend, serve }).toEqual(observed);
+        },
+      };
+    },
+    assertAbsent() {
+      expect(() => bootstrap.withRecoveryTransaction(() => undefined)).toThrow("storage is busy");
+      if (registered) throw new Error("Fixture service is already present");
+    },
+    async inspectListener({ process: observedProcess }) {
+      bootstrap.withRecoveryTransaction(() => undefined);
+      expect(observedProcess).toEqual(native);
+      if (mode === "revoke-after-start" && !revoked) {
+        revoke();
+        revoked = true;
+      }
+      if (mode === "route-drift-after-start") serve.ExtraFutureSetting.retained = false;
+      return {
+        assertCurrent() {
+          if (!registered) throw new Error("Fixture listener custody changed");
+          expect(observedProcess).toEqual(native);
+        },
+      };
+    },
+    async run(executable, args) {
+      bootstrap.withRecoveryTransaction(() => undefined);
+      commands.push([executable, ...args]);
+      if (executable === "/bin/launchctl") {
+        const identity = f.plan.identity;
+        if (identity.environment !== "host")
+          throw new Error("Recovery fixture requires Host identity");
+        expect(args).toEqual(["bootstrap", identity.serviceDomain, identity.launcherPath]);
+        expect(registered).toBe(false);
+        registered = true;
+        if (mode === "lost-start") throw new Error("Lost start reply");
+      } else {
+        expect(executable).toBe(f.plan.recoveryRoute!.tailscale.path);
+        expect(args).toEqual(["serve", "--bg", "--https=9443", "http://127.0.0.1:4446"]);
+        serve.TCP["9443"] = { HTTPS: true };
+        serve.Web["machine.tail123.ts.net:9443"] = {
+          Handlers: { "/": { Proxy: "http://127.0.0.1:4446" } },
+        };
+        if (mode === "lost-route") throw new Error("Lost route reply");
+      }
+    },
+  };
+
+  return { ports, commands };
+}
+
+/** Files and inert native/routing ports only. Creates no grant or provisioning. */
+export async function prepareUnseededRecoveryRegistrationFixture(input: {
+  root: string;
+  stateDirectory: string;
+  installationId: string;
+  ownerConfigurationFile: string;
+  mode: string;
+}) {
+  const home = path.join(input.root, "fixture-home");
+  const base = path.join(input.root, "maintenance-services/recovery-launcher");
+  mkdirSync(path.join(home, "Library/LaunchAgents"), { recursive: true, mode: 0o700 });
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  function pin(file: string, bytes: string) {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: hash(bytes) };
+  }
+  const directory = path.join(input.root, "maintenance-runtimes", "c".repeat(40));
+  const entrypoint = pin(
+    path.join(
+      directory,
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-access.js",
+    ),
+    "inert recovery entrypoint",
+  );
+  const node = pin(path.join(directory, "node"), "inert recovery node");
+  const access = {
+    installationId: input.installationId,
+    origin: "https://machine.tail123.ts.net:9443",
+    listenPort: 4446,
+    ownerConfigurationFile: input.ownerConfigurationFile,
+  };
+  const plan: MaintenanceLauncherPlan = {
+    version: 1,
+    operation: "maintenance-launcher-replacement",
+    retryLimit: 3,
+    recovery: "after-login",
+    identity: {
+      version: 1,
+      environment: "host",
+      target: "recovery-launcher",
+      installationId: input.installationId,
+      custodyOwnerUid: process.getuid!(),
+      installationRoot: input.root,
+      stateDirectory: input.stateDirectory,
+      serviceDomain: `gui/${process.getuid!()}`,
+      serviceLabel: "local.vorteo.fixture-recovery.installation",
+      launcherPath: path.join(
+        home,
+        "Library/LaunchAgents/local.vorteo.fixture-recovery.installation.plist",
+      ),
+      selectionPath: path.join(base, "selection.json"),
+    },
+    previous: null,
+    candidate: {
+      sourceCommit: "c".repeat(40),
+      directory,
+      artifactSha256: "0".repeat(64),
+      node,
+      entrypoint,
+      setup: pin(
+        path.join(base, "c".repeat(40) + ".json"),
+        JSON.stringify({
+          version: 1,
+          installationRoot: input.root,
+          enrollmentStateDirectory: input.stateDirectory,
+          identitySha256: "0".repeat(64),
+          target: "recovery-launcher",
+          sourceCommit: "c".repeat(40),
+          nativeAdmission: {
+            path: path.join(input.root, "inert-admission.json"),
+            sha256: "a".repeat(64),
+          },
+          control: { admissionSha256: "d".repeat(64), recoveryAccess: access },
+        }),
+      ),
+    },
+  };
+  const { enrollmentNativeIdentityDigest } = await import("./maintenance/native-identity.js");
+  const setup = JSON.parse(readFileSync(plan.candidate.setup.path, "utf8"));
+  setup.identitySha256 = enrollmentNativeIdentityDigest(plan.identity);
+  plan.candidate.setup = pin(plan.candidate.setup.path, JSON.stringify(setup));
+  const previousServe: RecoveryFixtureServe = {
+    TCP: { "44444": { HTTPS: true } },
+    Web: {
+      "machine.tail123.ts.net:44444": { Handlers: { "/": { Proxy: "http://127.0.0.1:6770" } } },
+    },
+    ExtraFutureSetting: { retained: true },
+  };
+  plan.recoveryRoute = {
+    tailscale: node,
+    previousServe: pin(path.join(input.root, "previous-serve.json"), JSON.stringify(previousServe)),
+  };
+  plan.candidate.artifactSha256 = await digestBootstrapArtifact(directory);
+  const f = {
+    plan,
+    account: { uid: process.getuid!(), home },
+    enrollmentStateDirectory: input.stateDirectory,
+    writableMountRoots: [],
+    routing: {
+      access,
+      backend: { BackendState: "Running", Self: { DNSName: "machine.tail123.ts.net." } },
+      previousServe,
+    },
+  };
+  const inspected = inspectMaintenanceLauncherPlan(plan, f.account);
+  mkdirSync(path.join(base, "plans"), { mode: 0o700 });
+  writeFileSync(path.join(base, "plans", inspected.planSha256 + ".json"), JSON.stringify(plan), {
+    mode: 0o600,
+  });
+  // Synthetic native identity metadata is a fixture input, never installed evidence.
+  retainEnrollmentNativeIdentity(input.stateDirectory, plan.identity);
+  const journal = new FileEnrollmentJournal(input.stateDirectory);
+  const revoke = () => {
+    const current = journal.read();
+    if (current.status !== "enrolled") throw Error("Fixture grant absent");
+    return changeStandingGrant(journal, {
+      expectedRevision: current.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+  };
+  return {
+    ...f,
+    inspected,
+    journal,
+    revoke,
+    ...prepareRecoveryRegistrationFixturePorts(f, input.mode, revoke),
+  };
 }

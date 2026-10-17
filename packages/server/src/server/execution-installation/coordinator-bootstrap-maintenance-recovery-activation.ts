@@ -18,6 +18,7 @@ import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-priva
 import {
   readProtectedDocument,
   readBootstrapPreparedFile,
+  inspectBootstrapArtifact,
 } from "./coordinator-bootstrap-artifact.js";
 import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 import {
@@ -120,7 +121,7 @@ export async function activateRecoveryBeforeCoordinator(
       (step) => step.target === "recovery-launcher",
     );
     const coordinator = state.grant.manifest.steps.find(
-      (step) => step.id === input.coordinatorStepId,
+      (candidate) => candidate.id === input.coordinatorStepId,
     );
     const step = recovery[0];
     if (
@@ -175,147 +176,351 @@ export async function activateRecoveryBeforeCoordinator(
   });
 }
 
-/** Called only by the already verified enrollment controller. Candidate paths
- * come from the protected manifest and canonical plan, never the owner request. */
-export async function activateNativeRecoveryBeforeCoordinator(input: {
+interface RecoveryParentInput {
+  journal: FileEnrollmentJournal;
+  manifestSha256: string;
+  coordinatorStepId: string;
+}
+interface PreparedRecoveryObservation {
+  assertCurrent(): void;
+  observe(invocation: readonly string[]): Promise<unknown>;
+}
+interface RecoveryObservationParentPorts {
+  prepare(step: EnrollmentStep): Promise<PreparedRecoveryObservation>;
+}
+
+function retainRecoveryObservation(input: RecoveryParentInput) {
+  const state = input.journal.read();
+  if (
+    state.status !== "enrolled" ||
+    state.grant.approval.manifestSha256 !== input.manifestSha256 ||
+    hash(JSON.stringify(state.grant.manifest)) !== input.manifestSha256 ||
+    state.activation.manifestSha256 !== input.manifestSha256 ||
+    state.grant.manifest.provisioning?.coordinatorStepId !== input.coordinatorStepId
+  )
+    throw new BootstrapRequestConflict("Recovery observation belongs to another enrollment");
+  const steps = state.grant.manifest.steps.filter((step) => step.target === "recovery-launcher");
+  const step = steps[0];
+  const coordinator = state.grant.manifest.steps.find(
+    (candidate) => candidate.id === input.coordinatorStepId,
+  );
+  const progress = state.activation.steps.find((item) => item.id === step?.id);
+  if (
+    steps.length !== 1 ||
+    !step ||
+    step.operation !== "replacement" ||
+    step.previous !== null ||
+    coordinator?.target !== "coordinator" ||
+    !coordinator.dependsOn.includes(step.id) ||
+    !progress ||
+    progress.status === "pending"
+  )
+    throw new BootstrapRequestConflict("Recovery observation requires an existing generation");
+  return structuredClone({
+    grantId: state.grant.id,
+    manifest: state.grant.manifest,
+    approval: state.grant.approval,
+    step,
+    stepId: step.id,
+    generation: progress.generation,
+    grantRevision: progress.grantRevision,
+  });
+}
+
+/** Reopening cannot reserve or launch registration, even if verification succeeds.
+ * Revocation changes current grant revision, never the original effect revision. */
+export async function observeRecoveryBeforeCoordinator(
+  input: RecoveryParentInput,
+  ports: RecoveryObservationParentPorts,
+) {
+  const captured = {
+    journal: input.journal,
+    manifestSha256: input.manifestSha256,
+    coordinatorStepId: input.coordinatorStepId,
+  };
+  return withinMaintenanceExecutionDeadline(Date.now() + 95_000, async (checkDeadline) => {
+    // Pending is refused before preparation, including any native observer setup.
+    const retained = retainRecoveryObservation(captured);
+    const assertBinding = () => {
+      checkDeadline();
+      if (!isDeepStrictEqual(retainRecoveryObservation(captured), retained))
+        throw new BootstrapRequestConflict("Recovery observation generation changed");
+    };
+    const prepared = await ports.prepare(structuredClone(retained.step));
+    const assertCurrent = prepared.assertCurrent;
+    const observe = prepared.observe;
+    const assertCustody = () => {
+      assertBinding();
+      if (assertCurrent() !== undefined)
+        throw new BootstrapRequestConflict("Recovery observation custody must remain synchronous");
+      assertBinding();
+    };
+    assertCustody();
+    await observe([retained.grantId, retained.grantRevision, retained.stepId, retained.generation]);
+    assertCustody();
+    requireVerifiedRecovery({
+      ...captured,
+      grantId: retained.grantId,
+      stepId: retained.stepId,
+      generation: retained.generation,
+      grantRevision: retained.grantRevision,
+    });
+    assertCustody();
+  });
+}
+
+interface NativeRecoveryParentInput {
   installationRoot: string;
   stateDirectory: string;
   installationId: string;
   manifestSha256: string;
   coordinatorStepId: string;
   verifyParent(): Promise<readonly string[]>;
-}) {
+}
+
+interface NativeRecoveryCandidateBinding {
+  input: NativeRecoveryParentInput;
+  step: EnrollmentStep;
+  inspected: ReturnType<typeof inspectMaintenanceLauncherPlan>;
+  setup: z.infer<typeof MaintenanceLauncherSetupSchema>;
+}
+function assertNativeRecoveryCandidate({
+  input,
+  step,
+  inspected,
+  setup,
+}: NativeRecoveryCandidateBinding): void {
+  const enrollment = new FileEnrollmentJournal(input.stateDirectory).read();
+  const targetIdentity =
+    enrollment.status === "enrolled"
+      ? enrollment.grant.manifest.targets.find((target) => target.target === "recovery-launcher")
+          ?.identitySha256
+      : undefined;
+  if (
+    inspected.planSha256 !== step.planSha256 ||
+    inspected.identitySha256 !== targetIdentity ||
+    step.candidate.sourceCommit !== inspected.plan.candidate.sourceCommit ||
+    step.candidate.artifactSha256 !== inspected.plan.candidate.artifactSha256 ||
+    inspected.plan.previous !== null ||
+    inspected.plan.identity.installationId !== input.installationId ||
+    inspected.plan.identity.installationRoot !== input.installationRoot ||
+    setup.installationRoot !== input.installationRoot ||
+    setup.enrollmentStateDirectory !== input.stateDirectory ||
+    setup.target !== "recovery-launcher" ||
+    !setup.control?.recoveryAccess
+  )
+    throw new BootstrapRequestConflict("Recovery candidate differs from the enrolled installation");
+}
+
+/** Shared fixed runtime preparation has no grant, provisioning or idle admission.
+ * Only the activation wrapper below adds effect exclusions. */
+async function prepareNativeRecoveryParent(
+  input: NativeRecoveryParentInput,
+  step: EnrollmentStep,
+  deadline: number,
+) {
+  const account = userInfo();
+  if (process.platform !== "darwin" || account.uid !== process.getuid?.())
+    throw new BootstrapRequestConflict("Recovery activation requires native Host custody");
+  const planFile = path.join(
+    input.installationRoot,
+    "maintenance-services",
+    "recovery-launcher",
+    "plans",
+    `${step.planSha256}.json`,
+  );
+  const localRunnerFile = fileURLToPath(
+    new URL("./coordinator-bootstrap-runner.js", import.meta.url),
+  );
+  const assertControl = retainServiceFiles([
+    planFile,
+    localRunnerFile,
+    fileURLToPath(import.meta.url),
+  ]);
+  const writableMountRoots = await input.verifyParent();
+  assertControl();
+  const plan = MaintenanceLauncherPlanSchema.parse(
+    JSON.parse((await readProtectedDocument(planFile)).toString("utf8")),
+  );
+  assertControl();
+  const declared = inspectMaintenanceLauncherPlan(plan, {
+    uid: account.uid,
+    home: account.homedir,
+  });
+  if (declared.planSha256 !== step.planSha256)
+    throw new BootstrapRequestConflict("Recovery plan differs from its addressed commitment");
+  const runner = path.join(
+    plan.candidate.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+  );
+  const assertCandidate = retainServiceFiles([
+    plan.candidate.directory,
+    plan.candidate.node.path,
+    plan.candidate.entrypoint.path,
+    plan.candidate.setup.path,
+    runner,
+    ...(plan.recoveryRoute
+      ? [plan.recoveryRoute.tailscale.path, plan.recoveryRoute.previousServe.path]
+      : []),
+  ]);
+  const artifact = await inspectBootstrapArtifact(plan.candidate.directory, {
+    timeoutMs: Math.max(0, deadline - Date.now()),
+  });
+  const assertArtifact = artifact.assertCurrent;
+  assertControl();
+  assertCandidate();
+  if (artifact.sha256 !== plan.candidate.artifactSha256)
+    throw new BootstrapRequestConflict(
+      "Recovery complete runtime differs from its reviewed artifact",
+    );
+  const assertRuntime = () => {
+    assertControl();
+    assertCandidate();
+    assertArtifact();
+  };
+  assertRuntime();
+  const setup = MaintenanceLauncherSetupSchema.parse(
+    JSON.parse(
+      (await readBootstrapPreparedFile(plan.candidate.setup, writableMountRoots)).toString("utf8"),
+    ),
+  );
+  assertRuntime();
+  const assertAdmission = retainServiceFiles([
+    setup.nativeAdmission.path,
+    ...(setup.control?.recoveryAccess ? [setup.control.recoveryAccess.ownerConfigurationFile] : []),
+  ]);
+  const inspected = await verifyMaintenanceLauncherArtifacts({
+    plan,
+    account: { uid: account.uid, home: account.homedir },
+    writableMountRoots,
+  });
+  assertRuntime();
+  assertAdmission();
+  assertNativeRecoveryCandidate({ input, step, inspected, setup });
+  const localRunner = await readProtectedDocument(localRunnerFile);
+  assertRuntime();
+  await readBootstrapPreparedFile(
+    { path: runner, sha256: hash(localRunner.toString("utf8")) },
+    writableMountRoots,
+  );
+  assertRuntime();
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse(
+      (await readBootstrapPreparedFile(setup.nativeAdmission, writableMountRoots)).toString("utf8"),
+    ),
+  );
+  assertRuntime();
+  assertAdmission();
+  const assertHelper = retainServiceFiles([admission.helperPath]);
+  const assertFiles = () => {
+    assertRuntime();
+    assertAdmission();
+    assertHelper();
+  };
+  const reader = await createNativeBootstrapServiceReader({
+    ...admission,
+    writableMountRoots,
+  });
+  assertFiles();
+  const expected = await reader.inspectProcess(process.pid);
+  assertFiles();
+  const custody = await createMaintenanceChildCustody({
+    expected,
+    ...admission,
+    writableMountRoots,
+  });
+  assertFiles();
+  if (!isDeepStrictEqual(writableMountRoots, await input.verifyParent()))
+    throw new BootstrapRequestConflict("Recovery parent mount custody changed");
+  const assertCurrent = () => {
+    if (Date.now() >= deadline)
+      throw new BootstrapRequestConflict("Recovery activation parent deadline elapsed");
+    assertFiles();
+    custody.assertCurrent();
+    assertFiles();
+    if (Date.now() >= deadline)
+      throw new BootstrapRequestConflict("Recovery activation parent deadline elapsed");
+  };
+  assertCurrent();
+  const invoke = async (
+    role: "maintenance-recovery-registration" | "maintenance-recovery-observation",
+    invocation: readonly string[],
+  ) => {
+    assertCurrent();
+    const { stepId, generation } = inspectRecoveryActivationInvocation(invocation);
+    // Registration is launched once per durable reservation. Repeated
+    // read-only reopening must not create an unbounded diagnostic stream.
+    const diagnosticFile =
+      role === "maintenance-recovery-registration"
+        ? path.join(
+            input.stateDirectory,
+            `maintenance-recovery-registration-${stepId}-${generation}-${randomUUID()}.stderr`,
+          )
+        : undefined;
+    await launchRetainedMaintenanceService({
+      node: plan.candidate.node.path,
+      args: [runner, plan.candidate.setup.path, role, ...invocation],
+      deadline,
+      diagnosticFile,
+    });
+    assertCurrent();
+  };
+  return {
+    assertCurrent,
+    invoke,
+    async verifyAfterObservation() {
+      if (!isDeepStrictEqual(writableMountRoots, await input.verifyParent()))
+        throw new BootstrapRequestConflict(
+          "Recovery parent mount custody changed after observation",
+        );
+      assertCurrent();
+    },
+  };
+}
+
+/** Called only by the already verified enrollment controller. Candidate paths
+ * come from the protected manifest and canonical plan, never the owner request. */
+export async function activateNativeRecoveryBeforeCoordinator(input: NativeRecoveryParentInput) {
   const deadline = Date.now() + 95_000;
-  const journal = new FileEnrollmentJournal(input.stateDirectory);
+  const captured = { ...input };
   return activateRecoveryBeforeCoordinator(
-    { ...input, journal },
+    { ...captured, journal: new FileEnrollmentJournal(captured.stateDirectory) },
     {
       async prepare(step) {
-        const account = userInfo();
-        if (process.platform !== "darwin" || account.uid !== process.getuid?.())
-          throw new BootstrapRequestConflict("Recovery activation requires native Host custody");
-        const writableMountRoots = await input.verifyParent();
-        const planFile = path.join(
-          input.installationRoot,
-          "maintenance-services",
-          "recovery-launcher",
-          "plans",
-          `${step.planSha256}.json`,
-        );
-        const plan = MaintenanceLauncherPlanSchema.parse(
-          JSON.parse((await readProtectedDocument(planFile)).toString("utf8")),
-        );
-        const inspected = await verifyMaintenanceLauncherArtifacts({
-          plan,
-          account: { uid: account.uid, home: account.homedir },
-          writableMountRoots,
-        });
-        const setup = MaintenanceLauncherSetupSchema.parse(
-          JSON.parse(
-            (await readBootstrapPreparedFile(plan.candidate.setup, writableMountRoots)).toString(
-              "utf8",
-            ),
-          ),
-        );
-        const enrollment = journal.read();
-        const targetIdentity =
-          enrollment.status === "enrolled"
-            ? enrollment.grant.manifest.targets.find(
-                (target) => target.target === "recovery-launcher",
-              )?.identitySha256
-            : undefined;
-        if (
-          inspected.planSha256 !== step.planSha256 ||
-          inspected.identitySha256 !== targetIdentity ||
-          step.candidate.sourceCommit !== plan.candidate.sourceCommit ||
-          step.candidate.artifactSha256 !== plan.candidate.artifactSha256 ||
-          plan.previous !== null ||
-          plan.identity.installationId !== input.installationId ||
-          plan.identity.installationRoot !== input.installationRoot ||
-          setup.installationRoot !== input.installationRoot ||
-          setup.enrollmentStateDirectory !== input.stateDirectory ||
-          setup.target !== "recovery-launcher" ||
-          !setup.control?.recoveryAccess
-        )
-          throw new BootstrapRequestConflict(
-            "Recovery candidate differs from the enrolled installation",
-          );
-        const runner = path.join(
-          plan.candidate.directory,
-          "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
-        );
-        const localRunner = await readProtectedDocument(
-          fileURLToPath(new URL("./coordinator-bootstrap-runner.js", import.meta.url)),
-        );
-        await readBootstrapPreparedFile(
-          { path: runner, sha256: hash(localRunner.toString("utf8")) },
-          writableMountRoots,
-        );
-        const admission = BootstrapAdmissionSetupSchema.parse(
-          JSON.parse(
-            (await readBootstrapPreparedFile(setup.nativeAdmission, writableMountRoots)).toString(
-              "utf8",
-            ),
-          ),
-        );
-        const reader = await createNativeBootstrapServiceReader({
-          ...admission,
-          writableMountRoots,
-        });
-        const custody = await createMaintenanceChildCustody({
-          expected: await reader.inspectProcess(process.pid),
-          ...admission,
-          writableMountRoots,
-        });
-        const assertFiles = retainServiceFiles([
-          planFile,
-          plan.candidate.setup.path,
-          setup.nativeAdmission.path,
-          runner,
-          fileURLToPath(import.meta.url),
-        ]);
-        if (!isDeepStrictEqual(writableMountRoots, await input.verifyParent()))
-          throw new BootstrapRequestConflict("Recovery parent mount custody changed");
-        const assertCurrent = () => {
-          if (Date.now() >= deadline)
-            throw new BootstrapRequestConflict("Recovery activation parent deadline elapsed");
-          assertFiles();
-          custody.assertCurrent();
-        };
-        const invoke = (
-          role: "maintenance-recovery-registration" | "maintenance-recovery-observation",
-          invocation: readonly string[],
-        ) => {
-          assertCurrent();
-          const { stepId, generation } = inspectRecoveryActivationInvocation(invocation);
-          // Registration is launched once per durable reservation. Repeated
-          // read-only reopening must not create an unbounded diagnostic stream.
-          const diagnosticFile =
-            role === "maintenance-recovery-registration"
-              ? path.join(
-                  input.stateDirectory,
-                  `maintenance-recovery-registration-${stepId}-${generation}-${randomUUID()}.stderr`,
-                )
-              : undefined;
-          return launchRetainedMaintenanceService({
-            node: plan.candidate.node.path,
-            args: [runner, plan.candidate.setup.path, role, ...invocation],
-            deadline,
-            diagnosticFile,
-          });
-        };
+        const runtime = await prepareNativeRecoveryParent(captured, step, deadline);
         return {
           assertCurrent() {
-            assertCurrent();
-            const bootstrap = new FileBootstrapRequestJournal(input.stateDirectory);
+            runtime.assertCurrent();
+            const bootstrap = new FileBootstrapRequestJournal(captured.stateDirectory);
             if (openBootstrapRequests(bootstrap.read()).length > 0)
               throw new BootstrapRequestConflict(
                 "Existing coordinator work must reconcile before recovery activation",
               );
             assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
           },
-          launch: (invocation) => invoke("maintenance-recovery-registration", invocation),
-          observe: (invocation) => invoke("maintenance-recovery-observation", invocation),
+          launch: (invocation) => runtime.invoke("maintenance-recovery-registration", invocation),
+          observe: (invocation) => runtime.invoke("maintenance-recovery-observation", invocation),
+        };
+      },
+    },
+  );
+}
+
+/** Fixed read-only role only. The prepared interface deliberately has no launch. */
+export async function observeNativeRecoveryBeforeCoordinator(input: NativeRecoveryParentInput) {
+  const deadline = Date.now() + 95_000;
+  const captured = { ...input };
+  return observeRecoveryBeforeCoordinator(
+    { ...captured, journal: new FileEnrollmentJournal(captured.stateDirectory) },
+    {
+      async prepare(step) {
+        const runtime = await prepareNativeRecoveryParent(captured, step, deadline);
+        return {
+          assertCurrent: runtime.assertCurrent,
+          async observe(invocation) {
+            await runtime.invoke("maintenance-recovery-observation", invocation);
+            await runtime.verifyAfterObservation();
+          },
         };
       },
     },
@@ -558,29 +763,39 @@ export async function runNativeRecoveryActivation(
       },
     };
     requireActivationBinding(input);
-    const executors = [custody];
-    const parent = BootstrapProcessIdentitySchema.parse(await reader.inspectProcess(process.ppid));
-    if (parent.executable === plan.candidate.node.path) {
-      // Shared runtime files do not make an arbitrary parent safe to exclude.
-      // Only the independently selected controller can share this executor node.
-      const selected = await resolveNativeMaintenanceExecutorSetup({
-        installationId: plan.identity.installationId,
-        stateDirectory: setup.enrollmentStateDirectory,
-      });
-      const inspected = await inspectSelectedMaintenanceExecutor({
-        setupFile: selected.executorSetupFile,
-        account: input.account,
-        stateDirectory: setup.enrollmentStateDirectory,
-        writableMountRoots,
-        ports: await createMaintenanceServiceInspectionPorts({ ...admission, writableMountRoots }),
-      });
-      if (!isDeepStrictEqual(parent, inspected.executor.native.process))
-        throw new BootstrapRequestConflict(
-          "Recovery activation parent is not the selected controller",
-        );
-      executors.push({ process: parent, assertCurrent: inspected.assertCurrent });
+    async function effectExecutors() {
+      // Absence exclusions are irrelevant to read-only listener observation.
+      if (options?.observationOnly) return [];
+      const executors = [custody];
+      const parent = BootstrapProcessIdentitySchema.parse(
+        await reader.inspectProcess(process.ppid),
+      );
+      if (parent.executable === plan.candidate.node.path) {
+        // Shared runtime files do not make an arbitrary parent safe to exclude.
+        // Only the independently selected controller can share this executor node.
+        const selected = await resolveNativeMaintenanceExecutorSetup({
+          installationId: plan.identity.installationId,
+          stateDirectory: setup.enrollmentStateDirectory,
+        });
+        const inspected = await inspectSelectedMaintenanceExecutor({
+          setupFile: selected.executorSetupFile,
+          account: input.account,
+          stateDirectory: setup.enrollmentStateDirectory,
+          writableMountRoots,
+          ports: await createMaintenanceServiceInspectionPorts({
+            ...admission,
+            writableMountRoots,
+          }),
+        });
+        if (!isDeepStrictEqual(parent, inspected.executor.native.process))
+          throw new BootstrapRequestConflict(
+            "Recovery activation parent is not the selected controller",
+          );
+        executors.push({ process: parent, assertCurrent: inspected.assertCurrent });
+      }
+      return executors;
     }
-    const ports = await createNativeRecoveryRegistrationPorts(input, executors);
+    const ports = await createNativeRecoveryRegistrationPorts(input, await effectExecutors());
     checkDeadline();
     return reconcileRecoveryAccessActivation(input, ports, options);
   });

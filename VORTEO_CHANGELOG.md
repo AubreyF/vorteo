@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.684 - 2026-10-17
+
+### Maintenance
+
+- Prepare initial Host construction from the approved selected coordinator, complete retained runtime and independently audited controller. Retain the original child and descriptor writer, bind its protected claim to an independent native observation, and queue release only through the existing constructor and admission. Bounded notices are hints; delivery and settlement remain unknown.
+- Reopen recovery registration through owner enrollment controls before a coordinator request exists, including after revocation. Preserve the original generation and revision without new registration, provisioning or coordinator dispatch. Retain control files before reads and complete runtime custody through invocation and observation.
+- Add real-journal launcher admission and replay cases, unseeded owner HTTP enrollment composition, preparation substitution regressions and large-executable file verification. Native effects remain synthetic in these tests; the fixed Host child, genuine workload closure, native acceptance and installed activation remain unfinished. No capability is enabled.
+
 ## 0.11.0-beta.3.vorteo.683 - 2026-10-17
 
 ### Maintenance

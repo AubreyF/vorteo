@@ -1,3 +1,16 @@
+import { createServer } from "node:http";
+import { once } from "node:events";
+import * as nativeRecoveryActivation from "./coordinator-bootstrap-maintenance-recovery-activation.js";
+import * as maintenanceHost from "./coordinator-bootstrap-maintenance-host.js";
+import * as coordinatorObservation from "./coordinator-bootstrap-maintenance-observation.js";
+import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
+import { createMaintenanceEnrollmentControls } from "./coordinator-bootstrap-maintenance-controller.js";
+import { prepareUnseededRecoveryRegistrationFixture } from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
+import { CoordinatorBootstrapRequests } from "./coordinator-bootstrap.js";
+import {
+  approveEnrolledBootstrap as approveHttpEnrolledBootstrap,
+  reserveEnrolledBootstrapLaunch as reserveHttpEnrolledBootstrapLaunch,
+} from "./coordinator-bootstrap-maintenance-dispatch.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, realpath, mkdir, rm, writeFile, readFile, readdir } from "node:fs/promises";
@@ -807,14 +820,18 @@ test.each([
   expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
 });
 
-async function enrollmentFixture() {
+async function enrollmentFixture(ownerHttp = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "enrolled-maintenance-")));
   roots.push(root);
   const input: ReturnType<typeof fixture> = JSON.parse(
     JSON.stringify(fixture()).replaceAll("/fixture", root),
   );
   const ownerBytes = JSON.stringify({
-    public: { installationId: input.plan.installationId },
+    public: {
+      installationId: input.plan.installationId,
+      ...(ownerHttp ? { origin: "https://fixture.example.test" } : {}),
+    },
+    ...(ownerHttp ? { stateDir: input.plan.state.directory } : {}),
     ownerPasswordHash: hashSync("fixture-owner", 4),
   });
   await writeFile(input.hostSetup.renewal.configuration.path, ownerBytes, { mode: 0o600 });
@@ -1700,4 +1717,479 @@ test.each([
   });
   expect(() => journal.replace([dispatch], [claim])).toThrow();
   expect(journal.read()).toEqual([dispatch]);
+});
+
+async function ownerHttpRecoveryFixture(mode = "ready") {
+  const f = await enrollmentFixture(true);
+  const recovery = await prepareUnseededRecoveryRegistrationFixture({
+    root: f.input.installationRoot,
+    stateDirectory: f.input.plan.state.directory,
+    installationId: f.input.plan.installationId,
+    ownerConfigurationFile: f.input.hostSetup.renewal.configuration.path,
+    mode,
+  });
+  const { InstallationEnrollmentManifestSchema } =
+    await import("@getpaseo/protocol/installation-enrollment");
+  const recoveryStepId = randomUUID(),
+    coordinatorStepId = f.manifest.steps[0].id;
+  const manifest = InstallationEnrollmentManifestSchema.parse({
+    ...f.manifest,
+    targets: f.manifest.targets
+      .map((target) =>
+        target.target === "recovery-launcher"
+          ? { ...target, identitySha256: recovery.inspected.identitySha256 }
+          : target,
+      )
+      .concat(
+        ["host", "container-daemon"].map((target) => ({
+          target,
+          identitySha256: "f".repeat(64),
+          operations: ["source-update"],
+        })),
+      ),
+    steps: [
+      {
+        id: recoveryStepId,
+        target: "recovery-launcher",
+        operation: "replacement",
+        planSha256: recovery.inspected.planSha256,
+        candidate: {
+          sourceCommit: recovery.plan.candidate.sourceCommit,
+          artifactSha256: recovery.plan.candidate.artifactSha256,
+        },
+        previous: null,
+        dependsOn: [],
+      },
+      { ...f.manifest.steps[0], dependsOn: [recoveryStepId] },
+      ...["host", "container-daemon"].map((target) => ({
+        id: randomUUID(),
+        target,
+        operation: "source-update",
+        planSha256: "e".repeat(64),
+        candidate: { sourceCommit: "e".repeat(40), artifactSha256: "e".repeat(64) },
+        previous: null,
+        dependsOn: [coordinatorStepId],
+      })),
+    ],
+  });
+  const review = { id: randomUUID(), revision: manifest.revision, manifest };
+  const reviewBytes = JSON.stringify(review),
+    reviewSha256 = createHash("sha256").update(reviewBytes).digest("hex");
+  await writeFile(path.join(f.directory, "enrollment-review.json"), reviewBytes, { mode: 0o600 });
+  vi.spyOn(nativeMaintenance, "verifyNativeMaintenanceProposal").mockResolvedValue(f.context);
+  const bootstrap = new FileBootstrapRequestJournal(f.input.plan.state.directory);
+  let launches = 0,
+    observations = 0,
+    dispatches = 0,
+    parentChecks = 0;
+  let parentChanged = false;
+  const verifyParent = async () => {
+    parentChecks++;
+    if (parentChanged) throw Error("Synthetic native parent changed");
+    return [];
+  };
+  const parent = {
+    journal: f.journal,
+    manifestSha256: f.enrollmentManifestDigest(manifest),
+    coordinatorStepId,
+  };
+  const reconcile = async (invocation: readonly string[], observationOnly: boolean) => {
+    const exact = nativeRecoveryActivation.inspectRecoveryActivationInvocation(invocation);
+    const input = { ...recovery, ...exact, assertCurrent() {} };
+    return nativeRecoveryActivation.reconcileRecoveryAccessActivation(
+      input,
+      recovery.ports,
+      observationOnly ? { observationOnly: true } : undefined,
+    );
+  };
+  // Only native execution arrangement is synthetic. Actual owner callbacks,
+  // authentication, consent/provisioning and both durable journals execute.
+  // No native service, routing command or coordinator process is launched.
+  const owner = JSON.parse(await readFile(f.input.hostSetup.renewal.configuration.path, "utf8"));
+  vi.spyOn(maintenanceHost, "createProvisionedMaintenanceReview").mockImplementation(async () => {
+    await readProvisionedMaintenance({
+      installationRoot: f.input.installationRoot,
+      admissionSha256: f.digest,
+    });
+    const requests = new CoordinatorBootstrapRequests(
+      bootstrap,
+      () => ({
+        environment: "host",
+        installationId: manifest.installationId,
+        service: f.input.plan.service,
+        ownerPasswordHash: owner.ownerPasswordHash,
+      }),
+      async () => undefined,
+    );
+    return {
+      available: true,
+      list: () => requests.list(),
+      prepare: (value) => requests.prepare(value),
+      decide: (value, password) => requests.decide(value, password),
+      async activateEnrollment() {
+        await nativeRecoveryActivation.activateRecoveryBeforeCoordinator(parent, {
+          async prepare() {
+            return {
+              assertCurrent() {},
+              async launch(invocation) {
+                launches++;
+                if (mode === "lost-before-intent")
+                  throw Error("Synthetic lost child acknowledgment");
+                await reconcile(invocation, false);
+              },
+              async observe(invocation) {
+                observations++;
+                await reconcile(invocation, true);
+              },
+            };
+          },
+        });
+        if (mode === "lost-parent-reply") throw Error("Synthetic lost parent acknowledgment");
+        const pending = await requests.prepare({
+          id: f.context.receipt.requestId,
+          plan: f.input.plan,
+          reason: "Exact synthetic native dispatch boundary",
+        });
+        const approved = approveHttpEnrolledBootstrap({
+          request: pending,
+          admissionSha256: f.digest,
+          review: {
+            id: review.id,
+            revision: review.revision,
+            manifestSha256: parent.manifestSha256,
+          },
+        });
+        const dispatched = reserveHttpEnrolledBootstrapLaunch(approved);
+        dispatches++;
+        return dispatched;
+      },
+    };
+  });
+  vi.spyOn(nativeRecoveryActivation, "observeNativeRecoveryBeforeCoordinator").mockImplementation(
+    async (input) => {
+      return nativeRecoveryActivation.observeRecoveryBeforeCoordinator(parent, {
+        async prepare() {
+          await input.verifyParent();
+          return {
+            assertCurrent() {},
+            async observe(invocation) {
+              observations++;
+              await reconcile(invocation, true);
+            },
+          };
+        },
+      });
+    },
+  );
+  const controllers: ReturnType<typeof createServer>[] = [];
+  const open = async () => {
+    const enrollment = createMaintenanceEnrollmentControls({
+      input: {
+        installationRoot: f.input.installationRoot,
+        admissionSha256: f.digest,
+        enrollmentSha256: reviewSha256,
+      },
+      prepared: { ...f.input, admissionSha256: f.digest },
+      context: f.context,
+      review,
+      persistent: false,
+      verifyObservationParent: verifyParent,
+    });
+    const app = createMaintenanceControlApp({
+      installationId: manifest.installationId,
+      enrollment,
+      status: () => ({
+        version: 1,
+        installationId: manifest.installationId,
+        available: false,
+        phase: "unprovisioned",
+        requests: bootstrap.read().length,
+        provisioning: {
+          admissionSha256: f.digest,
+          requestId: f.context.receipt.requestId,
+          sourceCommit: f.context.receipt.runtime.sourceCommit,
+          artifactSha256: f.context.receipt.runtime.artifactSha256,
+        },
+      }),
+      service: () => undefined,
+      readOwnerConfiguration: async () =>
+        JSON.parse(await readFile(f.input.hostSetup.renewal.configuration.path, "utf8")),
+      provision: async () => {
+        throw Error("Legacy provision route must not run");
+      },
+    });
+    const server = createServer(app);
+    controllers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("Fixture listener absent");
+    return async (
+      type: "consent" | "enroll" | "observe",
+      options?: {
+        token?: string;
+        password?: string;
+        origin?: string;
+        revision?: string;
+        digest?: string;
+      },
+    ) => {
+      const names = {
+        consent: "installation.maintenance.enrollment.save_consent.request",
+        enroll: "installation.maintenance.enroll.request",
+        observe: "installation.maintenance.observe.request",
+      };
+      return fetch(`http://127.0.0.1:${address.port}/api/installation/maintenance/owner`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: options?.origin ?? "https://fixture.example.test",
+          Authorization: "Bearer " + (options?.token ?? "fixture-owner"),
+        },
+        body: JSON.stringify({
+          type: names[type],
+          id: review.id,
+          revision: options?.revision ?? review.revision,
+          manifestSha256: options?.digest ?? parent.manifestSha256,
+          ...(type === "observe" ? {} : { ownerPassword: options?.password ?? "fixture-owner" }),
+        }),
+      });
+    };
+  };
+  const close = async () => {
+    for (const server of controllers.splice(0)) {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        }),
+      );
+    }
+  };
+  return {
+    ...f,
+    recovery,
+    review,
+    manifest,
+    bootstrap,
+    open,
+    close,
+    counts: () => ({ launches, observations, dispatches, parentChecks }),
+    changeParent: () => {
+      parentChanged = true;
+    },
+  };
+}
+
+test("owner HTTP recovery composition starts absent and saves real consent before any provisioning", async () => {
+  const f = await ownerHttpRecoveryFixture();
+  try {
+    const post = await f.open();
+    expect(f.journal.read()).toEqual({ version: 1, status: "absent" });
+    expect((await post("consent", { token: "" })).status).toBe(401);
+    expect((await post("consent", { token: "wrong" })).status).toBe(401);
+    expect((await post("consent", { password: "wrong" })).status).toBe(503);
+    expect((await post("consent", { origin: "https://outside.example.test" })).status).toBe(403);
+    expect((await post("consent", { revision: randomUUID() })).status).toBe(400);
+    expect((await post("consent", { digest: "0".repeat(64) })).status).toBe(400);
+    expect(f.journal.read().status).toBe("absent");
+    expect((await post("consent")).status).toBe(200);
+    const consent = f.journal.read();
+    expect(consent.status).toBe("enrolled");
+    expect(consent.status === "enrolled" && consent.grant.approval.requestId).toBe(f.review.id);
+    expect(
+      consent.status === "enrolled" && consent.activation.steps.map((step) => step.status),
+    ).toEqual(["pending", "pending", "pending", "pending"]);
+    expect(await readdir(f.directory)).toEqual(["enrollment-review.json"]);
+    expect(f.bootstrap.read()).toEqual([]);
+    expect(f.recovery.commands).toEqual([]);
+    expect((await post("consent")).status).toBe(200);
+    expect(f.journal.read()).toEqual(consent);
+    const before = await readFile(
+      path.join(f.input.plan.state.directory, "maintenance-enrollment.json"),
+    );
+    expect((await post("observe")).status).toBe(503);
+    expect(
+      await readFile(path.join(f.input.plan.state.directory, "maintenance-enrollment.json")),
+    ).toEqual(before);
+    expect(f.counts()).toEqual({ launches: 0, observations: 0, dispatches: 0, parentChecks: 0 });
+  } finally {
+    await f.close();
+  }
+});
+
+test("owner HTTP recovery composition provisions and verifies recovery before canonical coordinator dispatch", async () => {
+  const f = await ownerHttpRecoveryFixture();
+  try {
+    const post = await f.open();
+    expect((await post("enroll")).status).toBe(200);
+    const state = f.journal.read();
+    expect(
+      state.status === "enrolled" && state.activation.steps.map((step) => step.status),
+    ).toEqual(["succeeded", "reserved", "pending", "pending"]);
+    expect(f.counts()).toMatchObject({ launches: 1, dispatches: 1 });
+    const [request] = f.bootstrap.read();
+    expect(request.enrollmentDispatch).toBeDefined();
+    expect(request.execution).toBeUndefined();
+    expect(request.enrollment?.reviewId).toBe(f.review.id);
+    expect(f.recovery.commands.map((command) => command[0])).toEqual([
+      "/bin/launchctl",
+      f.recovery.plan.recoveryRoute!.tailscale.path,
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["lost-parent-reply", "lost-route"])(
+  "owner HTTP recovery composition cold reopening observes %s after revocation without redispatch",
+  async (mode) => {
+    const f = await ownerHttpRecoveryFixture(mode);
+    try {
+      const post = await f.open();
+      expect((await post("enroll")).status).toBe(503);
+      const state = f.journal.read();
+      if (state.status !== "enrolled" || state.activation.steps[0].status === "pending")
+        throw Error("Recovery generation absent");
+      const progress = state.activation.steps[0],
+        approval = state.grant.approval;
+      const commands = structuredClone(f.recovery.commands);
+      f.recovery.revoke();
+      await f.close();
+      const reopened = await f.open();
+      expect((await reopened("enroll")).status).toBe(503);
+      expect((await reopened("observe")).status).toBe(200);
+      expect((await reopened("observe")).status).toBe(200);
+      const after = f.journal.read();
+      expect(after.status === "enrolled" && after.grant.approval).toEqual(approval);
+      expect(after.status === "enrolled" && after.activation.steps[0]).toMatchObject({
+        status: "succeeded",
+        generation: progress.generation,
+        grantRevision: progress.grantRevision,
+      });
+      expect(
+        after.status === "enrolled" && after.activation.steps.slice(1).map((step) => step.status),
+      ).toEqual(["pending", "pending", "pending"]);
+      expect(f.bootstrap.read()).toEqual([]);
+      expect(f.recovery.commands).toEqual(commands);
+      expect(f.counts()).toMatchObject({ launches: 1, dispatches: 0, observations: 2 });
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.each(["lost-start", "lost-before-intent"])(
+  "owner HTTP recovery composition preserves unresolved %s and prevents coordinator migration",
+  async (mode) => {
+    const f = await ownerHttpRecoveryFixture(mode);
+    try {
+      const post = await f.open();
+      expect((await post("enroll")).status).toBe(503);
+      const commands = structuredClone(f.recovery.commands);
+      await f.close();
+      const reopened = await f.open();
+      expect((await reopened("observe")).status).toBe(503);
+      expect(f.recovery.commands).toEqual(commands);
+      expect(f.bootstrap.read()).toEqual([]);
+      const current = f.journal.read();
+      expect(
+        current.status === "enrolled" && current.activation.steps.map((step) => step.status),
+      ).toEqual(["reserved", "pending", "pending", "pending"]);
+      expect(f.counts()).toMatchObject({ launches: 1, dispatches: 0 });
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("owner HTTP recovery composition refuses changed parent custody after real consent without new effects", async () => {
+  const f = await ownerHttpRecoveryFixture("lost-parent-reply");
+  try {
+    const post = await f.open();
+    expect((await post("enroll")).status).toBe(503);
+    const before = f.journal.read(),
+      commands = structuredClone(f.recovery.commands);
+    f.changeParent();
+    expect((await post("observe")).status).toBe(503);
+    expect(f.journal.read()).toEqual(before);
+    expect(f.bootstrap.read()).toEqual([]);
+    expect(f.recovery.commands).toEqual(commands);
+  } finally {
+    await f.close();
+  }
+});
+
+test("owner HTTP recovery composition preserves existing incomplete coordinator observation without another recovery call", async () => {
+  const f = await ownerHttpRecoveryFixture();
+  try {
+    const post = await f.open();
+    expect((await post("enroll")).status).toBe(200);
+    const before = f.journal.read(),
+      requests = f.bootstrap.read(),
+      commands = structuredClone(f.recovery.commands),
+      counts = f.counts();
+    const verify = vi.spyOn(coordinatorObservation, "verifyEnrolledCoordinatorCandidate");
+    expect((await post("observe")).status).toBe(503);
+    expect(verify).not.toHaveBeenCalled();
+    expect(f.journal.read()).toEqual(before);
+    expect(f.bootstrap.read()).toEqual(requests);
+    expect(f.recovery.commands).toEqual(commands);
+    expect(f.counts().observations).toBe(counts.observations);
+  } finally {
+    await f.close();
+  }
+});
+
+test("owner HTTP recovery composition settles a synthetic completed coordinator only through its existing verifier", async () => {
+  const f = await ownerHttpRecoveryFixture();
+  try {
+    const post = await f.open();
+    expect((await post("enroll")).status).toBe(200);
+    const [dispatched] = f.bootstrap.read();
+    // Synthetic executor bookkeeping tests the callback composition only.
+    // This is not a native completion or installed readiness receipt.
+    const claimed = CoordinatorBootstrapRequestSchema.parse({
+      ...dispatched,
+      revision: randomUUID(),
+      execution: {
+        generation: randomUUID(),
+        stage: "claimed",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    f.bootstrap.replace([dispatched], [claimed]);
+    const completed = CoordinatorBootstrapRequestSchema.parse({
+      ...claimed,
+      revision: randomUUID(),
+      execution: {
+        ...claimed.execution,
+        stage: "succeeded",
+      },
+    });
+    f.bootstrap.replace([claimed], [completed]);
+    f.recovery.revoke();
+    const before = f.journal.read(),
+      commands = structuredClone(f.recovery.commands);
+    const verify = vi
+      .spyOn(coordinatorObservation, "verifyEnrolledCoordinatorCandidate")
+      .mockRejectedValueOnce(Error("Synthetic native completion proof missing"));
+    expect((await post("observe")).status).toBe(503);
+    expect(f.journal.read()).toEqual(before);
+    verify.mockResolvedValueOnce(undefined);
+    expect((await post("observe")).status).toBe(200);
+    expect(verify).toHaveBeenCalledTimes(2);
+    const settled = f.journal.read();
+    expect(
+      settled.status === "enrolled" && settled.activation.steps.map((step) => step.status),
+    ).toEqual(["succeeded", "succeeded", "pending", "pending"]);
+    expect(f.bootstrap.read()).toEqual([completed]);
+    expect(f.recovery.commands).toEqual(commands);
+  } finally {
+    await f.close();
+  }
 });

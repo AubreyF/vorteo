@@ -1,14 +1,26 @@
+import nativeOs from "node:os";
+import nativeUrl from "node:url";
+import * as recoveryArtifacts from "./coordinator-bootstrap-artifact.js";
+import * as recoveryLaunchers from "./coordinator-bootstrap-maintenance-launcher.js";
+import * as recoveryServices from "./coordinator-bootstrap-service.js";
+import * as recoveryCustody from "./coordinator-bootstrap-maintenance-child-custody.js";
+import * as recoveryProducer from "./coordinator-bootstrap-maintenance-service-producer.js";
 import { spawnSync } from "node:child_process";
 import nativeFs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { selectMaintenanceReleaseLink } from "./coordinator-bootstrap-maintenance-file-selection.js";
 import { fileURLToPath } from "node:url";
-import { retainFixtureServiceAdmission } from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
+import {
+  prepareRecoveryRegistrationFixturePorts,
+  retainFixtureServiceAdmission,
+} from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
 import { hashSync } from "bcryptjs";
 import {
   reconcileRecoveryAccessActivation,
   inspectRecoveryActivationInvocation,
   activateRecoveryBeforeCoordinator,
+  observeRecoveryBeforeCoordinator,
+  observeNativeRecoveryBeforeCoordinator,
 } from "./coordinator-bootstrap-maintenance-recovery-activation.js";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -3551,7 +3563,6 @@ async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) 
     reserveActivationStep,
     changeStandingGrant,
   } = await import("./maintenance/authorization.js");
-  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
   const inspected = inspectMaintenanceLauncherPlan(f.plan, f.account);
   const base = path.dirname(f.plan.identity.selectionPath!);
   const plans = path.join(base, "plans");
@@ -3623,7 +3634,6 @@ async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) 
   });
   if (reserved.status !== "enrolled" || reserved.activation.steps[0].status !== "reserved")
     throw new Error("Fixture reservation absent");
-  const bootstrap = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
   const revoke = () =>
     changeStandingGrant(enrollment, {
       expectedRevision: enrolled.grant.revision,
@@ -3631,88 +3641,7 @@ async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) 
       disabledTargets: [],
       revoke: true,
     });
-  const commands: string[][] = [];
-  let registered = false;
-  let revoked = false;
-  let serve = structuredClone(f.routing.previousServe);
-  const native = {
-    pid: 43123,
-    parentPid: 1,
-    uid: f.account.uid,
-    bootId: randomUUID(),
-    startIdentity: "1000:42",
-    executable: f.plan.candidate.node.path,
-    argumentsSha256: createHash("sha256")
-      .update(JSON.stringify(maintenanceUserLauncher(f.plan, "candidate").ProgramArguments))
-      .digest("hex"),
-  };
-  const ports: RecoveryRegistrationPorts = {
-    reader: {
-      async readService(service) {
-        if (!registered) throw new Error("Fixture service absent");
-        return `${service} = {\n\tpid = ${native.pid}\n}`;
-      },
-      async inspectProcess(pid) {
-        if (!registered || pid !== native.pid) throw new Error("Fixture process absent");
-        return { ...native };
-      },
-    },
-    async readRouting() {
-      const observed = {
-        backend: structuredClone(f.routing.backend),
-        serve: structuredClone(serve),
-      };
-      return {
-        ...observed,
-        assertCurrent() {
-          if (mode === "route-custody-after-start" && registered)
-            throw new Error("Fixture routing custody changed");
-          expect({ backend: f.routing.backend, serve }).toEqual(observed);
-        },
-      };
-    },
-    assertAbsent() {
-      expect(() => bootstrap.withRecoveryTransaction(() => undefined)).toThrow("storage is busy");
-      if (registered) throw new Error("Fixture service is already present");
-    },
-    async inspectListener({ process: observedProcess }) {
-      bootstrap.withRecoveryTransaction(() => undefined);
-      expect(observedProcess).toEqual(native);
-      if (mode === "revoke-after-start" && !revoked) {
-        revoke();
-        revoked = true;
-      }
-      if (mode === "route-drift-after-start") serve.ExtraFutureSetting.retained = false;
-      return {
-        assertCurrent() {
-          if (!registered) throw new Error("Fixture listener custody changed");
-          expect(observedProcess).toEqual(native);
-        },
-      };
-    },
-    async run(executable, args) {
-      bootstrap.withRecoveryTransaction(() => undefined);
-      commands.push([executable, ...args]);
-      if (executable === "/bin/launchctl") {
-        expect(args).toEqual([
-          "bootstrap",
-          f.plan.identity.serviceDomain,
-          f.plan.identity.launcherPath,
-        ]);
-        expect(registered).toBe(false);
-        registered = true;
-        if (mode === "lost-start") throw new Error("Lost start reply");
-      } else {
-        expect(executable).toBe(f.plan.recoveryRoute!.tailscale.path);
-        expect(args).toEqual(["serve", "--bg", "--https=9443", "http://127.0.0.1:4446"]);
-        serve.TCP["9443"] = { HTTPS: true };
-        serve.Web["machine.tail123.ts.net:9443"] = {
-          Handlers: { "/": { Proxy: "http://127.0.0.1:4446" } },
-        };
-        if (mode === "lost-route") throw new Error("Lost route reply");
-      }
-    },
-  };
+  const { ports, commands } = prepareRecoveryRegistrationFixturePorts(f, mode, revoke);
   const input = {
     ...f,
     grantId: enrolled.grant.id,
@@ -4894,5 +4823,449 @@ test.skipIf(process.platform !== "darwin")(
       return { ...state, grant: { ...state.grant, id: randomUUID() } };
     });
     expect(() => fresh.assertCurrent()).toThrow("enrollment binding changed");
+  },
+);
+
+// Parent-only fixture history is synthetic; unseeded HTTP consent is exercised
+// in the admission suite. These tests never execute a native service command.
+async function recoveryObservationParentFixture() {
+  const f = await recoveryRegistrationFixture();
+  const { enrollmentManifestDigest } = await import("./maintenance/authorization.js");
+  const coordinatorStepId = randomUUID();
+  const state = f.enrollment.update((current) => {
+    if (current.status !== "enrolled") throw Error("Fixture grant absent");
+    const manifest = {
+      ...current.grant.manifest,
+      provisioning: { admissionSha256: "e".repeat(64), coordinatorStepId },
+      steps: [
+        ...current.grant.manifest.steps,
+        {
+          ...current.grant.manifest.steps[0],
+          id: coordinatorStepId,
+          target: "coordinator" as const,
+          dependsOn: [f.input.stepId],
+        },
+      ],
+    };
+    const digest = enrollmentManifestDigest(manifest);
+    return {
+      ...current,
+      grant: {
+        ...current.grant,
+        manifest,
+        approval: { ...current.grant.approval, manifestSha256: digest },
+      },
+      activation: {
+        ...current.activation,
+        manifestSha256: digest,
+        steps: [...current.activation.steps, { id: coordinatorStepId, status: "pending" as const }],
+      },
+    };
+  });
+  if (state.status !== "enrolled") throw Error("Fixture grant absent");
+  const input = {
+    journal: f.enrollment,
+    manifestSha256: state.grant.approval.manifestSha256,
+    coordinatorStepId,
+  };
+  const observed: string[][] = [];
+  const ports = {
+    async prepare() {
+      return {
+        assertCurrent() {},
+        async observe(invocation: readonly string[]) {
+          observed.push([...invocation]);
+          const exact = inspectRecoveryActivationInvocation(invocation);
+          await reconcileRecoveryAccessActivation({ ...f.input, ...exact }, f.ports, {
+            observationOnly: true,
+          });
+        },
+      };
+    },
+  };
+  return { ...f, parentInput: input, parentPorts: ports, observed };
+}
+
+test("read-only recovery parent refuses pending before preparing any observer", async () => {
+  const f = await recoveryObservationParentFixture();
+  f.enrollment.update((current) => {
+    if (current.status !== "enrolled") throw Error("Fixture grant absent");
+    return {
+      ...current,
+      activation: {
+        ...current.activation,
+        steps: current.activation.steps.map((step) => ({
+          id: step.id,
+          status: "pending" as const,
+        })),
+      },
+    };
+  });
+  const prepare = vi.fn(f.parentPorts.prepare);
+  const before = f.enrollment.read();
+  await expect(observeRecoveryBeforeCoordinator(f.parentInput, { prepare })).rejects.toThrow(
+    "existing generation",
+  );
+  expect(prepare).not.toHaveBeenCalled();
+  expect(f.enrollment.read()).toEqual(before);
+  expect(f.commands).toEqual([]);
+});
+
+test("read-only recovery parent retains original revision after revocation without coordinator effects", async () => {
+  const f = await recoveryObservationParentFixture();
+  await reconcileRecoveryAccessActivation(f.input, f.ports);
+  const commands = structuredClone(f.commands),
+    before = f.enrollment.read();
+  if (before.status !== "enrolled" || before.activation.steps[0].status === "pending")
+    throw Error("Fixture progress absent");
+  const originalRevision = before.activation.steps[0].grantRevision;
+  f.revoke();
+  await observeRecoveryBeforeCoordinator(f.parentInput, f.parentPorts);
+  expect(f.observed).toEqual([
+    [f.input.grantId, originalRevision, f.input.stepId, f.input.generation],
+  ]);
+  const after = f.enrollment.read();
+  expect(after.status === "enrolled" && after.grant.revision).not.toBe(originalRevision);
+  expect(after.status === "enrolled" && after.activation.steps[1].status).toBe("pending");
+  expect(f.commands).toEqual(commands);
+  expect(
+    new (await import("./coordinator-bootstrap-journal.js")).FileBootstrapRequestJournal(
+      f.enrollmentStateDirectory,
+    ).read(),
+  ).toEqual([]);
+});
+
+test("read-only recovery parent leaves missing intent unresolved and never registers", async () => {
+  const f = await recoveryObservationParentFixture();
+  await expect(observeRecoveryBeforeCoordinator(f.parentInput, f.parentPorts)).rejects.toThrow(
+    "no effect intent",
+  );
+  expect(f.commands).toEqual([]);
+  expect(f.enrollment.read().status).toBe("enrolled");
+});
+
+test.each(["grant", "manifest", "generation", "original-revision"] as const)(
+  "read-only recovery parent refuses %s substitution across preparation",
+  async (field) => {
+    const f = await recoveryObservationParentFixture();
+    const prepare = f.parentPorts.prepare;
+    f.parentPorts.prepare = async () => {
+      f.enrollment.update((current) => {
+        if (current.status !== "enrolled") throw Error("Fixture grant absent");
+        const next = structuredClone(current);
+        if (field === "grant") next.grant.id = randomUUID();
+        if (field === "manifest") next.grant.manifest.revision = randomUUID();
+        const progress = next.activation.steps[0];
+        if (progress.status === "pending") throw Error("Fixture progress absent");
+        if (field === "generation") progress.generation = randomUUID();
+        if (field === "original-revision") progress.grantRevision = randomUUID();
+        return next;
+      });
+      return prepare();
+    };
+    await expect(observeRecoveryBeforeCoordinator(f.parentInput, f.parentPorts)).rejects.toThrow();
+    expect(f.observed).toEqual([]);
+    expect(f.commands).toEqual([]);
+  },
+);
+
+test("read-only recovery parent rechecks generation after observation and rejects async custody", async () => {
+  const f = await recoveryObservationParentFixture();
+  await reconcileRecoveryAccessActivation(f.input, f.ports);
+  const commands = structuredClone(f.commands);
+  await expect(
+    observeRecoveryBeforeCoordinator(f.parentInput, {
+      async prepare() {
+        return {
+          assertCurrent: async () => undefined,
+          observe: async () => {
+            throw Error("Must not observe");
+          },
+        };
+      },
+    }),
+  ).rejects.toThrow("synchronous");
+  await expect(
+    observeRecoveryBeforeCoordinator(f.parentInput, {
+      async prepare() {
+        return {
+          assertCurrent() {},
+          async observe() {
+            f.enrollment.update((current) => {
+              if (current.status !== "enrolled") throw Error("Fixture grant absent");
+              const next = structuredClone(current),
+                progress = next.activation.steps[0];
+              if (progress.status === "pending") throw Error("Fixture progress absent");
+              progress.generation = randomUUID();
+              return next;
+            });
+          },
+        };
+      },
+    }),
+  ).rejects.toThrow("generation changed");
+  expect(f.commands).toEqual(commands);
+});
+
+async function retainedNativePreparationFixture(mode: string) {
+  const f = await recoveryObservationParentFixture();
+  const pin = (file: string, bytes: string) => {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, bytes, { mode: 0o600 });
+    return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  const runner = pin(
+    path.join(
+      f.plan.candidate.directory,
+      "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+    ),
+    "inert runner source",
+  );
+  const localRunner = pin(
+    path.join(f.plan.identity.installationRoot, "observer-source/coordinator-bootstrap-runner.js"),
+    "inert runner source",
+  );
+  const dependency = pin(
+    path.join(f.plan.candidate.directory, "packages/server/dist/runtime-dependency.js"),
+    "inert runtime dependency",
+  );
+  const helper = pin(
+    path.join(f.plan.identity.installationRoot, "inert-native-helper.py"),
+    "inert native helper, never executed",
+  );
+  const admission = pin(
+    path.join(f.plan.identity.installationRoot, "inert-native-admission.json"),
+    JSON.stringify({
+      configurationFile: f.ownerConfigurationFile,
+      launcherFile: f.plan.identity.launcherPath,
+      docker: "/inert/docker",
+      socket: "/inert/socket",
+      containerId: "a".repeat(64),
+      helperPath: helper.path,
+      helperSha256: helper.sha256,
+    }),
+  );
+  const setup = JSON.parse(readFileSync(f.plan.candidate.setup.path, "utf8"));
+  setup.nativeAdmission = admission;
+  f.plan.candidate.setup = pin(f.plan.candidate.setup.path, JSON.stringify(setup));
+  f.plan.candidate.artifactSha256 = await digestBootstrapArtifact(f.plan.candidate.directory);
+  const inspected = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const planFile = path.join(
+    f.plan.identity.installationRoot,
+    "maintenance-services/recovery-launcher/plans",
+    inspected.planSha256 + ".json",
+  );
+  pin(planFile, JSON.stringify(f.plan));
+  const { enrollmentManifestDigest } = await import("./maintenance/authorization.js");
+  const retained = f.enrollment.update((current) => {
+    if (current.status !== "enrolled") throw Error("Fixture enrollment absent");
+    const manifest = {
+      ...current.grant.manifest,
+      steps: current.grant.manifest.steps.map((step) =>
+        step.id === f.input.stepId
+          ? {
+              ...step,
+              planSha256: inspected.planSha256,
+              candidate: {
+                sourceCommit: f.plan.candidate.sourceCommit,
+                artifactSha256: f.plan.candidate.artifactSha256,
+              },
+            }
+          : step,
+      ),
+    };
+    const digest = enrollmentManifestDigest(manifest);
+    return {
+      ...current,
+      grant: {
+        ...current.grant,
+        manifest,
+        approval: { ...current.grant.approval, manifestSha256: digest },
+      },
+      activation: { ...current.activation, manifestSha256: digest },
+    };
+  });
+  if (retained.status !== "enrolled") throw Error("Fixture enrollment absent");
+  // Synthetic registration/listener facts only; this never runs a service.
+  await reconcileRecoveryAccessActivation(f.input, f.ports);
+  const paths = {
+    plan: planFile,
+    setup: f.plan.candidate.setup.path,
+    runner: runner.path,
+    admission: admission.path,
+    helper: helper.path,
+    node: f.plan.candidate.node.path,
+    dependency: dependency.path,
+  };
+  function substitute(key: keyof typeof paths) {
+    const file = paths[key],
+      temporary = file + ".replacement";
+    writeFileSync(temporary, readFileSync(file), { mode: 0o600 });
+    nativeFs.renameSync(temporary, file);
+  }
+  const originalUrl = nativeUrl.fileURLToPath;
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  if (!descriptor) throw Error("Fixture platform descriptor absent");
+  Object.defineProperty(process, "platform", { ...descriptor, value: "darwin" });
+  vi.spyOn(nativeOs, "userInfo").mockReturnValue({
+    uid: f.account.uid,
+    gid: process.getgid!(),
+    homedir: f.account.home,
+    username: "fixture",
+    shell: "/bin/sh",
+  });
+  vi.spyOn(nativeUrl, "fileURLToPath").mockImplementation((value, options) => {
+    if (value.toString().endsWith("/coordinator-bootstrap-runner.js")) return localRunner.path;
+    return originalUrl(value, options);
+  });
+  syncBuiltinESMExports();
+  const read = recoveryArtifacts.readProtectedDocument;
+  vi.spyOn(recoveryArtifacts, "readProtectedDocument").mockImplementation(async (file) => {
+    const bytes = await read(file);
+    if (mode === "plan-read" && file === paths.plan) substitute("plan");
+    return bytes;
+  });
+  const readPinned = recoveryArtifacts.readBootstrapPreparedFile;
+  let replacedRead = false;
+  vi.spyOn(recoveryArtifacts, "readBootstrapPreparedFile").mockImplementation(async (...args) => {
+    const bytes = await readPinned(...args);
+    for (const key of ["setup", "runner", "admission"] as const) {
+      if (!replacedRead && mode === key + "-read" && args[0].path === paths[key]) {
+        replacedRead = true;
+        substitute(key);
+      }
+    }
+    return bytes;
+  });
+  const verify = recoveryLaunchers.verifyMaintenanceLauncherArtifacts;
+  vi.spyOn(recoveryLaunchers, "verifyMaintenanceLauncherArtifacts").mockImplementation(
+    async (input) => {
+      const verified = await verify(input);
+      if (mode === "after-verify-dependency") substitute("dependency");
+      if (mode === "after-verify-node") substitute("node");
+      return verified;
+    },
+  );
+  const native = {
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: f.account.uid,
+    bootId: "synthetic-boot",
+    startIdentity: "1:1",
+    executable: paths.node,
+    argumentsSha256: "a".repeat(64),
+  };
+  vi.spyOn(recoveryServices, "createNativeBootstrapServiceReader").mockImplementation(async () => {
+    if (mode === "helper-reader") substitute("helper");
+    return {
+      async readService() {
+        throw Error("No service read permitted");
+      },
+      async inspectProcess() {
+        return native;
+      },
+    };
+  });
+  let nativeAssertions = 0;
+  vi.spyOn(recoveryCustody, "createMaintenanceChildCustody").mockResolvedValue({
+    process: native,
+    assertCurrent() {
+      nativeAssertions++;
+      if (mode === "preparation-native-callback" && nativeAssertions === 1)
+        substitute("dependency");
+      // One preparation assertion and one parent assertion precede invoke's own
+      // native assertion. Substitution inside that callback must block queuing.
+      if (mode === "before-invoke-node" && nativeAssertions === 3) substitute("node");
+      if (mode === "before-invoke-dependency" && nativeAssertions === 3) substitute("dependency");
+      if (mode === "before-invoke-added-dependency" && nativeAssertions === 3)
+        writeFileSync(path.join(f.plan.candidate.directory, "injected-dependency.js"), "changed", {
+          mode: 0o600,
+        });
+    },
+  });
+  const launch = vi
+    .spyOn(recoveryProducer, "launchRetainedMaintenanceService")
+    .mockImplementation(async () => {
+      if (mode === "child-return-dependency") substitute("dependency");
+    });
+  let parentReads = 0;
+  const run = () =>
+    observeNativeRecoveryBeforeCoordinator({
+      installationRoot: f.plan.identity.installationRoot,
+      stateDirectory: f.enrollmentStateDirectory,
+      installationId: f.plan.identity.installationId,
+      manifestSha256: retained.grant.approval.manifestSha256,
+      coordinatorStepId: f.parentInput.coordinatorStepId,
+      async verifyParent() {
+        parentReads++;
+        if (mode === "before-plan-read" && parentReads === 1) substitute("plan");
+        if (mode === "unreviewed-runtime" && parentReads === 1)
+          writeFileSync(paths.dependency, "unreviewed bytes", { mode: 0o600 });
+        if (mode === "post-observation-runtime" && parentReads === 3) substitute("dependency");
+        return [];
+      },
+    });
+  return {
+    run,
+    launch,
+    f,
+    paths,
+    nativeAssertions: () => nativeAssertions,
+    restore() {
+      vi.restoreAllMocks();
+      Object.defineProperty(process, "platform", descriptor);
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+test("retained native recovery preparation queues only its fixed observation role with inert native ports", async () => {
+  const f = await retainedNativePreparationFixture("none");
+  try {
+    await f.run();
+    expect(f.launch).toHaveBeenCalledTimes(1);
+    const [request] = f.launch.mock.calls[0];
+    expect(request.node).toBe(f.paths.node);
+    expect(request.args[2]).toBe("maintenance-recovery-observation");
+    expect(request.diagnosticFile).toBeUndefined();
+  } finally {
+    f.restore();
+  }
+});
+
+test.each([
+  "before-plan-read",
+  "plan-read",
+  "setup-read",
+  "runner-read",
+  "admission-read",
+  "helper-reader",
+  "after-verify-dependency",
+  "after-verify-node",
+  "preparation-native-callback",
+  "before-invoke-node",
+  "before-invoke-dependency",
+  "before-invoke-added-dependency",
+  "unreviewed-runtime",
+])("retained native recovery preparation refuses %s substitution before queuing", async (mode) => {
+  const f = await retainedNativePreparationFixture(mode);
+  try {
+    await expect(f.run()).rejects.toThrow();
+    expect(f.launch).not.toHaveBeenCalled();
+  } finally {
+    f.restore();
+  }
+});
+
+test.each(["child-return-dependency", "post-observation-runtime"])(
+  "retained native recovery preparation refuses %s after the inert observation child",
+  async (mode) => {
+    const f = await retainedNativePreparationFixture(mode);
+    try {
+      await expect(f.run()).rejects.toThrow();
+      expect(f.launch).toHaveBeenCalledTimes(1);
+    } finally {
+      f.restore();
+    }
   },
 );
