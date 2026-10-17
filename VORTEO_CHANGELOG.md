@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.673 - 2026-10-17
+
+### Maintenance
+
+- Compose the claimed initial Host transition with exact retirement custody, verified native absence, fenced launcher and selector publication, and candidate readiness. Recheck absence immediately before bootstrap and bind the written readiness receipt to an immutable observation snapshot.
+- Add independent observation after executor exit, including lost bootstrap replies, grant revocation and repeated reopening without service replay. Preserve exact result bytes and retry their synchronization. Focused tests use injected native ports; production proof construction, interruption custody, fallback continuation and installed transition acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.672 - 2026-10-17
 
 ### Maintenance

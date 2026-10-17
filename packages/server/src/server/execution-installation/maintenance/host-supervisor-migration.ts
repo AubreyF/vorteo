@@ -257,7 +257,7 @@ interface MigrationEnrollmentInput {
   generation: string;
 }
 
-const InitialHostMigrationIntentSchema = z.strictObject({
+export const InitialHostMigrationIntentSchema = z.strictObject({
   version: z.literal(1),
   id: z.string().uuid(),
   operation: z.literal("initial-host-supervisor-migration"),
@@ -273,7 +273,7 @@ const InitialHostMigrationIntentSchema = z.strictObject({
   createdAt: z.iso.datetime(),
 });
 
-const InitialHostMigrationClaimSchema = z.strictObject({
+export const InitialHostMigrationClaimSchema = z.strictObject({
   version: z.literal(1),
   operation: z.literal("initial-host-supervisor-migration"),
   intentId: z.uuid(),
@@ -445,11 +445,23 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
         Buffer.from(JSON.stringify(selectorAttempt)),
       ),
     ];
+    const assertSelection = () => {
+      requireMatch(
+        input.artifacts.assertPreparedCurrent() === undefined,
+        "Initial Host prepared custody must be synchronous",
+      );
+      requireMatch(
+        input.artifacts.planSha256 === planSha256 && hash(input.artifacts.plan) === planSha256,
+        "Initial Host prepared plan changed",
+      );
+      assertFiles();
+      assertLauncher();
+      assertLink();
+      for (const assertArtifact of retainedArtifacts) assertArtifact();
+    };
     assertCurrent();
-    assertLauncher();
-    assertLink();
-    for (const assertArtifact of retainedArtifacts) assertArtifact();
-    return receipt;
+    assertSelection();
+    return { ...receipt, assertSelection };
   });
 }
 
@@ -559,12 +571,16 @@ export function claimInitialHostMigration(
   });
 }
 
-function writeInitialHostArtifact(
+export function writeInitialHostArtifact(
   directory: string,
   file: string,
   value: unknown,
-  files: Pick<EnrollmentWriteFiles, "open" | "write" | "sync" | "close">,
+  files: Pick<EnrollmentWriteFiles, "open" | "write" | "sync" | "close"> = enrollmentWriteFiles,
 ) {
+  requireMatch(
+    path.isAbsolute(file) && path.dirname(file) === directory,
+    "Initial Host artifact must remain in its private controller state",
+  );
   const parent = lstatSync(directory);
   requireMatch(
     realpathSync(directory) === directory &&

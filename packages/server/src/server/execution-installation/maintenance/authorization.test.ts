@@ -1,4 +1,8 @@
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
+import {
+  executeInitialHostMigrationTransition,
+  observeInitialHostMigrationTransition,
+} from "./host-supervisor-execution.js";
 import { digestBootstrapArtifact } from "../coordinator-bootstrap-artifact.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
 import {
@@ -4503,7 +4507,7 @@ test("initial Host child claim fences uncertain directory synchronization", () =
   expect(readFileSync(file)).toEqual(before);
 });
 
-function initialHostPublicationFixture() {
+function initialHostPreparedClaimFixture() {
   const candidateLauncher = Buffer.from("synthetic managed plist");
   const originalLauncher = Buffer.from("synthetic legacy plist");
   const f = initialHostClaimFixture((plan) => {
@@ -4519,6 +4523,12 @@ function initialHostPublicationFixture() {
     writeFileSync(plan.precondition.launcher.path, originalLauncher, { mode: 0o600 });
     symlinkSync(plan.precondition.selectedRelease, plan.precondition.identity.selectionPath!);
   });
+  writeFileSync(f.plan.candidate.launcher.path, candidateLauncher, { mode: 0o600 });
+  return { ...f, originalLauncher, candidateLauncher };
+}
+
+function initialHostPublicationFixture() {
+  const f = initialHostPreparedClaimFixture();
   const claim = claimInitialHostMigration(f.claimInput);
   const absence = {
     identitySha256: f.plan.identitySha256,
@@ -4531,11 +4541,230 @@ function initialHostPublicationFixture() {
     ...f,
     claim,
     absence,
-    originalLauncher,
-    candidateLauncher,
-    publication: { ...f.claimInput, absence, candidateLauncher },
+    publication: { ...f.claimInput, absence, candidateLauncher: f.candidateLauncher },
   };
 }
+
+function initialHostTransitionFixture() {
+  const f = initialHostPreparedClaimFixture();
+  const commands: string[][] = [];
+  const absence = {
+    identitySha256: f.plan.identitySha256,
+    preconditionSha256: f.plan.preconditionSha256,
+    bootId: f.executor.process.bootId,
+    observedAt: new Date().toISOString(),
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const ports: Parameters<typeof executeInitialHostMigrationTransition>[1] = {
+    writableMountRoots: [],
+    reader: {
+      verifyProcessExited: vi.fn(async () => undefined),
+      inspectProcess: vi.fn(async () => {
+        throw new Error("Unexpected live process");
+      }),
+      verifyServiceAbsent: vi.fn(async () => undefined),
+    },
+    interrupt: vi.fn(async (context) => ({
+      claimSha256: createHash("sha256").update(JSON.stringify(context.claim)).digest("hex"),
+      planSha256: f.artifacts.planSha256,
+      interruption: f.plan.interruption,
+      assertCurrent: vi.fn(() => undefined),
+    })),
+    collectRetirement: vi.fn(async () => ({ status: "present", native: f.native })),
+    collectAbsence: vi.fn(async () => absence),
+    command: {
+      run: vi.fn(async (args) => {
+        commands.push([...args]);
+      }),
+    },
+    readCandidate: vi.fn(async () => {
+      const now = Date.now();
+      const startIdentity = `${Math.floor(now / 1000)}:${(now % 1000) * 1000}`;
+      return {
+        assertCurrent: vi.fn(() => undefined),
+        descriptor: f.plan.precondition.identity,
+        identitySha256: f.plan.identitySha256,
+        observedAt: new Date(now).toISOString(),
+        custodyStateDirectory: f.directory,
+        writableMountRoots: [],
+        serverId: f.plan.precondition.serverId,
+        selectedRelease: f.plan.candidate.directory,
+        sourceCommit: f.plan.candidate.sourceCommit,
+        supervisor: { ...f.plan.precondition.supervisor, pid: 901, startIdentity },
+        worker: { ...f.plan.precondition.worker, pid: 902, parentPid: 901, startIdentity },
+      };
+    }),
+  };
+  return { ...f, ports, absence, commands };
+}
+
+function hostTransitionObserver(f: ReturnType<typeof initialHostTransitionFixture>) {
+  const input = {
+    enrollmentStateDirectory: f.directory,
+    plan: f.plan,
+    stepId: f.input.stepId,
+    generation: f.input.generation,
+  };
+  let observation: Awaited<ReturnType<typeof f.ports.readCandidate>> | undefined;
+  const collectCandidate = vi.fn(async (_context: unknown, signal: AbortSignal) => {
+    observation ??= await f.ports.readCandidate(signal);
+    observation.observedAt = new Date().toISOString();
+    return {
+      observation,
+      assertSelection: () => {
+        expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.candidateLauncher);
+        expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+          f.plan.candidate.directory,
+        );
+      },
+    };
+  });
+  return { input, ports: { reader: f.ports.reader, collectCandidate } };
+}
+
+test("initial Host observation settles lost bootstrap reply after revocation without another effect", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.command!.run = async (args) => {
+    f.commands.push([...args]);
+    if (args[0] === "bootstrap") throw new Error("Lost bootstrap reply");
+  };
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    /Lost bootstrap reply/,
+  );
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.input.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observer = hostTransitionObserver(f);
+  const result = await observeInitialHostMigrationTransition(observer.input, observer.ports);
+  expect(result.record.generation).toBe(f.input.generation);
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout", "bootstrap"]);
+  const journalFile = path.join(f.directory, "maintenance-enrollment.json");
+  const journalBytes = readFileSync(journalFile);
+  const resultBytes = readFileSync(result.file);
+  const reopened = await observeInitialHostMigrationTransition(observer.input, observer.ports);
+  expect(reopened.observationSha256).toBe(result.observationSha256);
+  expect(readFileSync(journalFile)).toEqual(journalBytes);
+  expect(readFileSync(result.file)).toEqual(resultBytes);
+  expect(f.commands).toHaveLength(2);
+});
+
+test("initial Host observation refuses live executor before collecting candidate files", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.command!.run = async (args) => {
+    if (args[0] === "bootstrap") throw new Error("Uncertain bootstrap");
+  };
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    /Uncertain bootstrap/,
+  );
+  const observer = hostTransitionObserver(f);
+  observer.ports.reader.verifyProcessExited = async () => {
+    throw new Error("Still live");
+  };
+  observer.ports.reader.inspectProcess = async () => f.executor.process;
+  await expect(
+    observeInitialHostMigrationTransition(observer.input, observer.ports),
+  ).rejects.toThrow(/exit is unproven/);
+  expect(observer.ports.collectCandidate).not.toHaveBeenCalled();
+});
+
+test("initial Host observation refuses a collector substituting the retained plan", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.command!.run = async (args) => {
+    if (args[0] === "bootstrap") throw new Error("Uncertain bootstrap");
+  };
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    /Uncertain bootstrap/,
+  );
+  const observer = hostTransitionObserver(f);
+  const collect = observer.ports.collectCandidate;
+  observer.ports.collectCandidate = vi.fn(async (context: unknown, signal: AbortSignal) => {
+    const result = await collect(context, signal);
+    (context as { plan: typeof f.plan }).plan.interruption.finishTurnsSeconds++;
+    return result;
+  });
+  await expect(
+    observeInitialHostMigrationTransition(observer.input, observer.ports),
+  ).rejects.toThrow(/plan changed/);
+  expect(
+    existsSync(path.join(f.directory, `initial-host-result-${f.retained.intent.id}.json`)),
+  ).toBe(false);
+});
+
+test("initial Host transition records one claimed stop/publication/start and exact candidate", async () => {
+  const f = initialHostTransitionFixture();
+  const result = await executeInitialHostMigrationTransition(f.claimInput, f.ports);
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout", "bootstrap"]);
+  expect(result.record.worker.pid).toBe(902);
+  expect(enrolled(f.journal.readPolicySnapshot()).activation.steps[1].status).toBe("succeeded");
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow();
+  expect(f.commands).toHaveLength(2);
+});
+
+test("initial Host transition refuses changed registration before bootout", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.collectRetirement = async () => ({
+    status: "present",
+    native: {
+      ...f.native,
+      precondition: {
+        ...f.native.precondition,
+        supervisor: {
+          ...f.native.precondition.supervisor,
+          pid: 999,
+        },
+      },
+    },
+  });
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    /registration changed/,
+  );
+  expect(f.commands).toEqual([]);
+});
+
+test("initial Host transition refuses target reappearance after final awaited absence", async () => {
+  const f = initialHostTransitionFixture();
+  let checks = 0;
+  f.ports.reader.verifyServiceAbsent = async () => {
+    checks++;
+  };
+  f.absence.assertCurrent.mockImplementation(() => {
+    if (checks >= 2) throw new Error("Target reappeared");
+  });
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    /Target reappeared/,
+  );
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
+});
+
+test.each(["worker", "selector"])(
+  "initial Host transition refuses readiness callback changing %s",
+  async (changed) => {
+    const f = initialHostTransitionFixture();
+    const read = f.ports.readCandidate;
+    f.ports.readCandidate = async (signal) => {
+      const observed = await read(signal);
+      observed.assertCurrent = () => {
+        if (changed === "worker") observed.worker.pid++;
+        else {
+          unlinkSync(f.plan.precondition.identity.selectionPath!);
+          symlinkSync(
+            f.plan.precondition.selectedRelease,
+            f.plan.precondition.identity.selectionPath!,
+          );
+        }
+      };
+      return observed;
+    };
+    await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow();
+    expect(
+      existsSync(path.join(f.directory, `initial-host-result-${f.retained.intent.id}.json`)),
+    ).toBe(false);
+    expect(enrolled(f.journal.readPolicySnapshot()).activation.steps[1].status).toBe("reserved");
+  },
+);
 
 test("initial Host publication joins one claim to both exact file publications", () => {
   const f = initialHostPublicationFixture();
@@ -4557,7 +4786,23 @@ test("initial Host publication joins one claim to both exact file publications",
   expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
   expect(readFileSync(publication)).toEqual(before);
   expect(f.absence.assertCurrent).toHaveBeenCalled();
+  expect(() => result.assertSelection()).not.toThrow();
 });
+
+test.each(["launcher", "selector"])(
+  "initial Host retained publication proof refuses later %s substitution",
+  (changed) => {
+    const f = initialHostPublicationFixture();
+    const result = publishInitialHostMigrationSelection(f.publication);
+    if (changed === "launcher") {
+      writeFileSync(f.plan.precondition.launcher.path, "substituted launcher");
+    } else {
+      unlinkSync(f.plan.precondition.identity.selectionPath!);
+      symlinkSync(f.plan.precondition.selectedRelease, f.plan.precondition.identity.selectionPath!);
+    }
+    expect(() => result.assertSelection()).toThrow();
+  },
+);
 
 test.each(["absence", "stale", "launcher", "claim", "grant"])(
   "initial Host publication refuses changed %s before selecting files",
