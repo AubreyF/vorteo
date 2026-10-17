@@ -1,3 +1,4 @@
+import { maintenanceServiceCustodyBinding } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import path from "node:path";
 import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import { createHash } from "node:crypto";
@@ -111,7 +112,12 @@ export async function executeMaintenanceServiceReplacement(
   const claimed = claimMaintenanceServiceEffect(input);
   const requireClaim = () => {
     const current = journal.readLifecycle().find((job) => job.id === claimed.id);
-    if (!isDeepStrictEqual(current, claimed))
+    if (
+      !isDeepStrictEqual(
+        maintenanceServiceCustodyBinding(MaintenanceServiceJobSchema.parse(current)),
+        maintenanceServiceCustodyBinding(claimed),
+      )
+    )
       throw new BootstrapRequestConflict("Native service effect ownership changed");
   };
   // Recheck after durable consumption, before the first native command. Errors

@@ -71,7 +71,10 @@ export async function inspectAbsentMaintenanceRecovery(input: {
   const assertArtifacts = retainServiceFiles(
     slots.flatMap((slot) => [slot.setup.path, slot.node.path, slot.entrypoint.path]),
   );
-  const history = await inspectNativeMaintenanceRecoveryHistory(input);
+  const history = await inspectNativeMaintenanceRecoveryHistory({
+    ...input,
+    currentRequest: job,
+  });
   const targetExits: Array<() => void> = [];
   for (const ancestor of history.ancestors) {
     for (const evidence of ancestor.job.evidence) {

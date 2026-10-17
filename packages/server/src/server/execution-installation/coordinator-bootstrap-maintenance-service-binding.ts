@@ -10,6 +10,12 @@ import {
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { inspectMaintenanceLauncherPlan } from "./coordinator-bootstrap-maintenance-launcher.js";
 
+/** Queue checks may advance current CAS without changing effect authority.
+ * Every other field, including intent, evidence and resolution, remains exact. */
+export function maintenanceServiceCustodyBinding(job: MaintenanceServiceJob) {
+  return { ...job, revision: null, detail: null, reconciliation: null };
+}
+
 /** This is the native executor's independent binding check, not queue approval.
  * The caller supplies the job freshly read under mutateLifecycle and compares
  * native evidence before inserting its exclusive effectIntent in that job. */

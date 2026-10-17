@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.651 - 2026-10-17
+
+### Fixed
+
+- Preserve native claim and recovery custody across queue status-check bookkeeping. Only the exact current request's revision, detail and reconciliation may change; authority, reservation, evidence, intent, status, resolution, ancestors and other records remain exact.
+- Readdress fresh evidence to the current revision inside the existing lifecycle transaction, without changing its timestamp or native proof. Admission and intent use the same digest, and the claim preserves the latest bookkeeping. Current grant, global exclusion, freshness and native custody remain required.
+- Retain strict claim behavior for existing callers. Native invocation and postclaim checks preserve the same narrow bookkeeping boundary. Full queue/native acceptance and installed delivery remain open; the preceding fixture refused before intent and was cleaned up without replay.
+
 ## 0.11.0-beta.3.vorteo.650 - 2026-10-17
 
 ### Changed

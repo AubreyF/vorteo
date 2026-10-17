@@ -1,6 +1,11 @@
 import { verifyUnclaimedMaintenanceExecutor } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import {
+  MaintenanceServiceJobSchema,
+  type MaintenanceServiceJob,
+} from "@getpaseo/protocol/maintenance-service";
+import { maintenanceServiceCustodyBinding } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { readProtectedDocument } from "./coordinator-bootstrap-artifact.js";
@@ -25,6 +30,7 @@ export async function inspectNativeMaintenanceRecoveryHistory(input: {
   reader: Parameters<typeof verifyMaintenanceRecoveryPredecessor>[0]["reader"];
   signal: AbortSignal;
   currentBoot?: Parameters<typeof verifyMaintenanceRecoveryPredecessor>[0]["currentBoot"];
+  currentRequest?: MaintenanceServiceJob;
 }) {
   const history = await readRetainedMaintenanceRecoveryHistory(input);
   const ancestors: Awaited<ReturnType<typeof verifyMaintenanceRecoveryPredecessor>>[] = [];
@@ -53,10 +59,35 @@ export async function readRetainedMaintenanceRecoveryHistory(input: {
   plan: unknown;
   account: { uid: number; home: string };
   signal: AbortSignal;
+  currentRequest?: MaintenanceServiceJob;
 }) {
   const initial = inspectMaintenanceRecoveryPlan(input.plan, input.account);
   const journal = new FileBootstrapRequestJournal(input.stateDirectory);
   const snapshot = journal.readLifecycle();
+  const currentRequest =
+    input.currentRequest?.status === "running" ? input.currentRequest : undefined;
+  if (
+    currentRequest &&
+    (currentRequest.proposal.planSha256 !== initial.planSha256 ||
+      snapshot.filter((job) => job.id === currentRequest!.id).length !== 1)
+  )
+    throw new BootstrapRequestConflict("Recovery current request is missing or differs from plan");
+  const snapshotBinding = (jobs: typeof snapshot) =>
+    jobs.map((job) => {
+      if (job.id !== currentRequest?.id) return job;
+      const current = MaintenanceServiceJobSchema.parse(job);
+      if (
+        currentRequest.status !== "running" ||
+        !currentRequest.reservation ||
+        !isDeepStrictEqual(
+          maintenanceServiceCustodyBinding(currentRequest),
+          maintenanceServiceCustodyBinding(current),
+        )
+      )
+        throw new BootstrapRequestConflict("Recovery current request authority changed");
+      return maintenanceServiceCustodyBinding(current);
+    });
+  const retainedBinding = snapshotBinding(snapshot);
   const seen = new Set<string>();
   const files: Array<() => void> = [];
   const ancestors: ReturnType<typeof inspectMaintenanceRecoveryPredecessor>[] = [];
@@ -64,6 +95,8 @@ export async function readRetainedMaintenanceRecoveryHistory(input: {
   for (;;) {
     input.signal.throwIfAborted();
     const link = current.plan.recoveryOf;
+    if (link.requestId === currentRequest?.id)
+      throw new BootstrapRequestConflict("Recovery current request cannot be its own ancestor");
     if (seen.has(link.requestId) || seen.size >= initial.predecessor.plan.retryLimit)
       throw new BootstrapRequestConflict(
         "Recovery history is cyclic or exceeds its retained retry budget",
@@ -103,7 +136,7 @@ export async function readRetainedMaintenanceRecoveryHistory(input: {
   const assertCurrent = () => {
     input.signal.throwIfAborted();
     for (const assertFile of files) assertFile();
-    if (!isDeepStrictEqual(snapshot, journal.readLifecycle()))
+    if (!isDeepStrictEqual(retainedBinding, snapshotBinding(journal.readLifecycle())))
       throw new BootstrapRequestConflict(
         "Recovery history changed during native exit verification",
       );

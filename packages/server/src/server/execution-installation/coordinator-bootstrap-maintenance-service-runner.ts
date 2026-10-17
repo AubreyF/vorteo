@@ -1,3 +1,4 @@
+import { maintenanceServiceCustodyBinding } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { createMaintenanceChildCustody } from "./coordinator-bootstrap-maintenance-child-custody.js";
 import {
   inspectSelectedMaintenanceExecutor,
@@ -119,7 +120,10 @@ export async function readMaintenanceServiceInvocation(input: {
     account: input.account,
   });
   if (
-    !isDeepStrictEqual(job, readJob()) ||
+    !isDeepStrictEqual(
+      maintenanceServiceCustodyBinding(job),
+      maintenanceServiceCustodyBinding(readJob()),
+    ) ||
     !isDeepStrictEqual(
       maintenanceExecutorStartupBinding(startup),
       maintenanceExecutorStartupBinding(
@@ -257,9 +261,16 @@ export async function verifyNativeMaintenanceServiceInvocation(
   const currentInvocation = await readMaintenanceServiceInvocation(input);
   if (
     !isDeepStrictEqual(
-      { ...context, startup: maintenanceExecutorStartupBinding(context.startup) },
+      {
+        ...context,
+        expectedRevision: null,
+        job: maintenanceServiceCustodyBinding(context.job),
+        startup: maintenanceExecutorStartupBinding(context.startup),
+      },
       {
         ...currentInvocation,
+        expectedRevision: null,
+        job: maintenanceServiceCustodyBinding(currentInvocation.job),
         startup: maintenanceExecutorStartupBinding(currentInvocation.startup),
       },
     )
@@ -384,6 +395,10 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     childCustody: context.childCustody,
     coordinatorCustody,
     requireExecutor: context.requireExecutor,
+    bookkeeping: {
+      inspectedJob: context.job,
+      admission: (proof) => maintenanceServiceClaimAdmission({ stateDirectory, evidence: proof }),
+    },
     admission: maintenanceServiceClaimAdmission({
       stateDirectory,
       evidence: {

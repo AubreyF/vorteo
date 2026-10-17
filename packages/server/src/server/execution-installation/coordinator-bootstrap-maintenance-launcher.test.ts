@@ -801,6 +801,7 @@ test.each(["complete", "partial", "custody", "symlink", "hardlink", "missing"] a
 test.each([
   "valid",
   "valid-controller",
+  "claim-bookkeeping",
   "request",
   "identity",
   "approved-revision",
@@ -830,6 +831,7 @@ test.each([
   "recover-unready-execution",
   "native-runner-contract",
   "native-success",
+  "native-bookkeeping",
   "native-unclaimed",
   "native-unclaimed-race",
   "native-unclaimed-candidate",
@@ -891,10 +893,9 @@ test.each([
       (target) => ({
         target,
         identitySha256: target === proposal.target ? native.identitySha256 : "a".repeat(64),
-        operations:
-          ["valid", "valid-controller"].includes(mode) || mode.startsWith("recover-")
-            ? ["replacement" as const, "recovery" as const, "rollback" as const]
-            : ["replacement" as const],
+        operations: /^(?:valid(?:-controller)?$|recover-)/.test(mode)
+          ? ["replacement" as const, "recovery" as const, "rollback" as const]
+          : ["replacement" as const],
       }),
     ),
     steps: [
@@ -912,6 +913,7 @@ test.each([
   if (
     [
       "native-success",
+      "native-bookkeeping",
       "native-unclaimed",
       "native-unclaimed-race",
       "native-unclaimed-candidate",
@@ -1078,9 +1080,9 @@ test.each([
       plan: f.plan,
       account: f.account,
     });
-  const nativeCase = /^native-(?!evidence$)/.test(mode);
+  const nativeCase = /^(?:native-(?!evidence$)|claim-bookkeeping$)/.test(mode);
   if (
-    !["valid", "valid-controller"].includes(mode) &&
+    !["valid", "valid-controller", "claim-bookkeeping"].includes(mode) &&
     !mode.startsWith("recover-") &&
     !nativeCase
   ) {
@@ -1571,10 +1573,19 @@ test.each([
   const { inspectAbsentMaintenanceRecovery } =
     await import("./coordinator-bootstrap-maintenance-recovery-inspection.js");
   const absentPlan = inspectMaintenanceRecoveryPlan(historyPlan, f.account);
+  const absentId = randomUUID();
   const absentRequest = {
     ...recoveryJob,
+    id: absentId,
+    reservation: {
+      ...recoveryJob.reservation!,
+      requestId: absentId,
+      planSha256: absentPlan.planSha256,
+      recoveryOf: historyPlan.recoveryOf,
+    },
     proposal: {
       ...recoveryJob.proposal,
+      id: absentId,
       planSha256: absentPlan.planSha256,
       recoveryOf: historyPlan.recoveryOf,
     },
@@ -1598,6 +1609,7 @@ test.each([
     assertAbsent: vi.fn(() => undefined),
     assertRuntimeAbsent: vi.fn(() => undefined),
   };
+  writeFileSync(historyFile, JSON.stringify([...historyJobs, absentRequest]), { mode: 0o600 });
   retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, f.plan.identity);
   const absent = await inspectAbsentMaintenanceRecovery(absentInput);
   expect(absent.native.process).toBeNull();
@@ -1646,6 +1658,34 @@ test.each([
       },
     }),
   ).rejects.toThrow("differs from retained native plan");
+  const { failedServiceCheck } = await import("./maintenance/service-progress.js");
+  const currentClaimed = MaintenanceServiceJobSchema.parse({
+    ...absentRequest,
+    effectIntent: recoveryClaimed.effectIntent,
+  });
+  writeFileSync(historyFile, JSON.stringify([...historyJobs, currentClaimed]), { mode: 0o600 });
+  const bookkeepingAbsence = await inspectAbsentMaintenanceRecovery({
+    ...absentInput,
+    request: currentClaimed,
+    assertRuntimeAbsent: () => {
+      writeFileSync(
+        historyFile,
+        JSON.stringify([...historyJobs, failedServiceCheck(currentClaimed, Date.now())]),
+        { mode: 0o600 },
+      );
+    },
+  });
+  bookkeepingAbsence.assertCurrent();
+  writeFileSync(
+    historyFile,
+    JSON.stringify([
+      ...historyJobs,
+      { ...currentClaimed, effectIntent: { ...currentClaimed.effectIntent!, id: randomUUID() } },
+    ]),
+    { mode: 0o600 },
+  );
+  expect(bookkeepingAbsence.assertCurrent).toThrow("current request authority changed");
+  writeFileSync(historyFile, JSON.stringify(historyJobs), { mode: 0o600 });
   rmSync(f.plan.identity.selectionPath!);
   const bootWitness = {
     target: recoveryExecutorTarget,
@@ -2110,7 +2150,7 @@ async function exerciseNativeReplacement(
   >[0],
   mode: string,
 ) {
-  const { MaintenanceServiceEvidenceRecordSchema } =
+  const { MaintenanceServiceEvidenceRecordSchema, MaintenanceServiceJobSchema } =
     await import("@getpaseo/protocol/maintenance-service");
   const { executeMaintenanceServiceReplacement } =
     await import("./coordinator-bootstrap-maintenance-service-native.js");
@@ -2122,6 +2162,14 @@ async function exerciseNativeReplacement(
   const { renderMaintenanceUserLauncher } =
     await import("./coordinator-bootstrap-maintenance-launcher.js");
   const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  if (mode === "claim-bookkeeping") {
+    await exerciseBookkeepingClaim({
+      fixture: f,
+      job: MaintenanceServiceJobSchema.parse(journal.readLifecycle()[0]),
+      claimInput: claim,
+    });
+    return;
+  }
   const jobs = journal.readLifecycle();
   // Establish disposable prior-selection history before restoring the fixture's
   // later running job. This is test setup, not a production history rewrite.
@@ -2485,7 +2533,17 @@ async function exerciseNativeReplacement(
       assertCurrent,
     },
   });
+  input.bookkeeping = {
+    inspectedJob: MaintenanceServiceJobSchema.parse(journal.readLifecycle()[0]),
+    admission: (proof) =>
+      maintenanceServiceClaimAdmission({ stateDirectory: input.stateDirectory, evidence: proof }),
+  };
+  if (mode === "native-bookkeeping" || mode === "native-grant-revoked") {
+    const { failedServiceCheck } = await import("./maintenance/service-progress.js");
+    journal.writeLifecycle([failedServiceCheck(input.bookkeeping.inspectedJob, Date.now())]);
+  }
   const run = () => executeMaintenanceServiceReplacement(input, command);
+  await assertBookkeepingExclusion(input, mode);
   if (mode.startsWith("native-unclaimed")) {
     await exerciseNativeObservation(
       f,
@@ -2514,7 +2572,11 @@ async function exerciseNativeReplacement(
     return;
   }
 
-  if (mode === "native-success" || mode === "native-runtime-readiness")
+  if (
+    mode === "native-success" ||
+    mode === "native-bookkeeping" ||
+    mode === "native-runtime-readiness"
+  )
     await expect(run()).resolves.toMatchObject({ outcome: "candidate", ready: true });
   else if (mode === "native-observation-timeout") {
     await expect(run()).rejects.toThrow("Candidate readiness observation timed out");
@@ -2740,8 +2802,13 @@ async function verifyUnclaimedObservation(input: {
   });
   expect(terminal.reservation).toEqual(before.reservation);
   expect(terminal.approval).toEqual(before.approval);
+  expect(() => claimMaintenanceServiceEffect(claim)).toThrow("inspected state changed");
   expect(() =>
-    claimMaintenanceServiceEffect({ ...claim, expectedRevision: terminal.revision }),
+    claimMaintenanceServiceEffect({
+      ...claim,
+      bookkeeping: undefined,
+      expectedRevision: terminal.revision,
+    }),
   ).toThrow("unconsumed");
   expect(commands).toHaveLength(0);
   expect(journal.readLifecycle()).toEqual([terminal]);
@@ -4144,3 +4211,115 @@ test("initial recovery registration forbids late native dispatch validation", as
   expect(f.commands).toEqual([]);
   expect(f.intent()).toEqual(retained);
 });
+
+async function exerciseBookkeepingClaim(input: {
+  fixture: Awaited<ReturnType<typeof fixture>>;
+  job: import("@getpaseo/protocol/maintenance-service").MaintenanceServiceJob;
+  claimInput: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-claim.js").claimMaintenanceServiceEffect
+  >[0];
+}) {
+  const { fixture: f, job, claimInput } = input;
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const { claimMaintenanceServiceEffect } =
+    await import("./coordinator-bootstrap-maintenance-service-claim.js");
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const { failedServiceCheck } = await import("./maintenance/service-progress.js");
+  const current = failedServiceCheck(job, Date.now());
+  journal.writeLifecycle([current]);
+  const received: import("./maintenance/service-admission.js").MaintenanceServiceAdmissionEvidence[] =
+    [];
+  const claimed = claimMaintenanceServiceEffect({
+    ...claimInput,
+    bookkeeping: {
+      inspectedJob: job,
+      admission: (proof) => {
+        received.push(proof);
+        return () => undefined;
+      },
+    },
+  });
+  expect(received).toHaveLength(1);
+  expect(received[0]!.expectedRevision).toBe(current.revision);
+  expect(received[0]!.record.requestRevision).toBe(current.revision);
+  expect(received[0]!.record.observedAt).toBe(claimInput.evidence.observedAt);
+  expect(received[0]!.sha256).toBe(claimed.effectIntent!.nativeEvidenceSha256);
+  expect(claimed.reconciliation).toEqual(current.reconciliation);
+  expect(claimed.detail).toBe(current.detail);
+  expect(claimed.reservation).toEqual(job.reservation);
+  const changes = [
+    { ...current, status: "approved" },
+    { ...current, reservation: { ...current.reservation!, generation: randomUUID() } },
+    { ...current, evidence: [...current.evidence, current.evidence[0]!] },
+    { ...current, effectIntent: claimed.effectIntent },
+    {
+      ...current,
+      resolvedBy: {
+        requestId: randomUUID(),
+        generation: randomUUID(),
+        planSha256: "a".repeat(64),
+        observationSha256: "b".repeat(64),
+      },
+    },
+    { ...current, approval: { ...current.approval!, grantRevision: randomUUID() } },
+  ];
+  for (const changed of changes) {
+    journal.writeLifecycle([changed]);
+    const before = readFileSync(path.join(f.enrollmentStateDirectory, "restart-jobs.json"));
+    expect(() =>
+      claimMaintenanceServiceEffect({
+        ...claimInput,
+        bookkeeping: { inspectedJob: job, admission: () => () => undefined },
+      }),
+    ).toThrow("inspected state changed");
+    expect(readFileSync(path.join(f.enrollmentStateDirectory, "restart-jobs.json"))).toEqual(
+      before,
+    );
+  }
+  journal.writeLifecycle([current]);
+  expect(() =>
+    claimMaintenanceServiceEffect({
+      ...claimInput,
+      bookkeeping: {
+        inspectedJob: job,
+        admission: () => () => {
+          throw new Error("Current grant revoked");
+        },
+      },
+    }),
+  ).toThrow("Current grant revoked");
+  expect(journal.readLifecycle()).toEqual([current]);
+}
+
+async function assertBookkeepingExclusion(
+  input: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-claim.js").claimMaintenanceServiceEffect
+  >[0],
+  mode: string,
+) {
+  if (mode !== "native-bookkeeping") return;
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const journal = new FileBootstrapRequestJournal(input.stateDirectory);
+  const { RestartJobSchema } = await import("@getpaseo/protocol/execution-installation");
+  const current = journal.readLifecycle();
+  const competitor = RestartJobSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "host",
+    reason: "Competing fixture operation",
+    requestedBy: "owner",
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    status: "approved",
+    detail: "Fixture lifecycle ownership",
+  });
+  journal.writeLifecycle([...current, competitor]);
+  const before = journal.readLifecycle();
+  const { claimMaintenanceServiceEffect } =
+    await import("./coordinator-bootstrap-maintenance-service-claim.js");
+  expect(() => claimMaintenanceServiceEffect(input)).toThrow(
+    "Another installation operation owns lifecycle admission",
+  );
+  expect(journal.readLifecycle()).toEqual(before);
+  journal.writeLifecycle(current);
+}

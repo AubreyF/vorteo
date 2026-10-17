@@ -1,3 +1,4 @@
+import { maintenanceServiceCustodyBinding } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { verifyUnclaimedMaintenanceExecutor } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import path from "node:path";
 import {
@@ -107,7 +108,12 @@ export async function executeAbsentMaintenanceRecovery(
   // generation consumes its single durable intent. No native work holds the lock.
   const claimed = claimMaintenanceServiceEffect(input);
   const requireClaim = () => {
-    if (!isDeepStrictEqual(readJob(), claimed))
+    if (
+      !isDeepStrictEqual(
+        maintenanceServiceCustodyBinding(MaintenanceServiceJobSchema.parse(readJob())),
+        maintenanceServiceCustodyBinding(claimed),
+      )
+    )
       throw new BootstrapRequestConflict("Recovery effect ownership changed");
   };
   await requireExecutor();
