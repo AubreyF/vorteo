@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.625 - 2026-10-16
+
+### Documentation
+
+- Reconcile the installation architecture with implemented independent rollback reviews, authenticated application diagnostics and the dedicated supervision handoff. Preserve the distinction between disposable native acceptance, installed delivery and remote owner acceptance.
+- Document the existing 120-second isolated preparation bound and temporary authenticated SSH forwarding for loopback operator reviews. Native acceptance measured refusal after 120.007 seconds with a deliberately hung child that ignored graceful termination; the exact child was gone and fixture history stayed unchanged. This covers the production parent timeout boundary, not full plan verification, the broader failure matrix or installed recovery.
+- No service, private route, credential or runtime selection changes in this documentation update. The primary README feature paragraph remains pending delivered recovery and remote acceptance.
+
 ## 0.11.0-beta.3.vorteo.624 - 2026-10-16
 
 ### Maintenance
