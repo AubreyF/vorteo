@@ -203,3 +203,31 @@ export const InstallationEnrollmentStatusSchema = z.strictObject({
     .max(32),
 });
 export type InstallationEnrollmentStatus = z.infer<typeof InstallationEnrollmentStatusSchema>;
+
+/** Separate owner HTTP response; existing enrollment and WebSocket shapes stay unchanged. */
+export const InstallationRecoveryOriginSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.origin === value && url.hostname.endsWith(".ts.net");
+});
+const recoveryAccessStatus = {
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  checkedAt: z.string().datetime(),
+};
+export const InstallationRecoveryAccessStatusSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    ...recoveryAccessStatus,
+    status: z.literal("verified"),
+    url: InstallationRecoveryOriginSchema,
+    validUntil: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...recoveryAccessStatus,
+    status: z.literal("unverified"),
+    url: z.null(),
+    validUntil: z.null(),
+  }),
+]);
+export type InstallationRecoveryAccessStatus = z.infer<
+  typeof InstallationRecoveryAccessStatusSchema
+>;

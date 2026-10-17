@@ -4,6 +4,8 @@ import { afterEach, expect, test } from "vitest";
 import { page } from "vitest/browser";
 import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { MaintenanceDashboard } from "./maintenance-dashboard";
+import { RecoveryBookmark } from "./recovery-bookmark";
+import type { InstallationRecoveryAccessStatus } from "@getpaseo/protocol/installation-enrollment";
 import {
   MaintenanceServiceQueue,
   type MaintenanceServiceQueueProps,
@@ -11,6 +13,75 @@ import {
 import type { MaintenanceServiceView } from "@getpaseo/protocol/maintenance-service-status";
 
 const mounted: Array<{ root: Root; container: HTMLElement }> = [];
+
+test.each([390, 1133])(
+  "recovery bookmark uses only verified addresses at width %s",
+  async (width) => {
+    await page.viewport(width, 900);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+    const opened = bookmarkOpened;
+    opened.length = 0;
+    const copied = bookmarkCopied;
+    copied.length = 0;
+    const bookmark = recoveryBookmarkFixture();
+    const render = (value: InstallationRecoveryAccessStatus, error: string | null = null) =>
+      act(() =>
+        root.render(
+          <RecoveryBookmark
+            status={value}
+            error={error}
+            refreshing={false}
+            onRefresh={recordRefresh}
+            open={recordBookmarkOpen}
+            copy={recordBookmarkCopy}
+          />,
+        ),
+      );
+    render(bookmark);
+    expect(container.textContent).toContain("Bookmark");
+    if (width === 390) await page.screenshot({ path: "recovery-bookmark-phone.png" });
+    await page.getByRole("button", { name: "Open recovery", exact: true }).click();
+    await expect.poll(() => opened).toEqual([bookmark.url]);
+    await page.getByRole("button", { name: "Copy address", exact: true }).click();
+    await expect.poll(() => copied).toEqual([bookmark.url]);
+    expect(container.textContent).toContain("address copied");
+    render({ ...bookmark, validUntil: new Date(Date.now() + 100).toISOString() });
+    await expect.poll(() => container.textContent).not.toContain(bookmark.url);
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    render(bookmark, "Refresh failed");
+    expect(container.textContent).not.toContain(bookmark.url);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+  },
+);
+
+test("recovery bookmark reports clipboard refusal without claiming a copy", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  mounted.push({ root, container });
+  const bookmark = recoveryBookmarkFixture();
+
+  act(() =>
+    root.render(
+      <RecoveryBookmark
+        status={bookmark}
+        error={null}
+        refreshing={false}
+        onRefresh={recordRefresh}
+        copy={refuseCopy}
+      />,
+    ),
+  );
+  await page.getByRole("button", { name: "Copy address", exact: true }).click();
+  await expect.poll(() => container.textContent).toContain("Unable to copy");
+  expect(container.textContent).not.toContain("address copied");
+});
+async function refuseCopy() {
+  return false;
+}
 let refreshCount = 0;
 function recordRefresh() {
   refreshCount++;
@@ -202,4 +273,28 @@ test.each([390, 1133])(
 
 function renderServiceQueue(root: Root, props: MaintenanceServiceQueueProps) {
   act(() => root.render(<MaintenanceServiceQueue {...props} />));
+}
+
+const bookmarkOpened: string[] = [];
+const bookmarkCopied: string[] = [];
+async function recordBookmarkOpen(url: string) {
+  bookmarkOpened.push(url);
+}
+async function recordBookmarkCopy(url: string) {
+  bookmarkCopied.push(url);
+  return true;
+}
+function recoveryBookmarkFixture(): Extract<
+  InstallationRecoveryAccessStatus,
+  { status: "verified" }
+> {
+  const checkedAt = new Date().toISOString();
+  return {
+    version: 1,
+    installationId: "00000000-0000-4000-8000-000000000001",
+    checkedAt,
+    status: "verified",
+    url: "https://machine.tail123.ts.net:8443",
+    validUntil: new Date(Date.parse(checkedAt) + 30_000).toISOString(),
+  };
 }

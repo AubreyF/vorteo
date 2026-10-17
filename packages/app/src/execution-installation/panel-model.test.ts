@@ -18,7 +18,7 @@ function enrollmentStatusModel(
   read: () => Promise<InstallationEnrollmentStatus | null>,
   restartSummary: () => Promise<null> = async () => null,
   services: Partial<
-    Pick<InstallationClient, "maintenanceServices" | "cancelMaintenanceService">
+    Pick<InstallationClient, "maintenanceServices" | "cancelMaintenanceService" | "recoveryAccess">
   > = {},
 ) {
   return new InstallationPanelModel({
@@ -882,4 +882,59 @@ test("service cancellation expiry clears private state and permits unlocking aga
   expect(model.getState().unlocked).toBe(true);
   expect(model.getState().busy).toBe(false);
   expect(model.getState().serviceQueue?.jobs).toEqual([job]);
+});
+
+test("recovery bookmark refresh clears failed proof and expires private state on lock", async () => {
+  let unavailable = false;
+  const recovery = {
+    version: 1 as const,
+    installationId: enrollmentStatusFixture.installationId,
+    checkedAt: new Date().toISOString(),
+    status: "verified" as const,
+    url: "https://machine.tail123.ts.net:8443",
+    validUntil: new Date(Date.now() + 30_000).toISOString(),
+  };
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      recoveryAccess: async () => {
+        if (unavailable) throw new Error("native refused");
+        return recovery;
+      },
+    },
+  );
+  await model.initialize();
+  expect(model.getState().recoveryAccess).toEqual(recovery);
+  unavailable = true;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessError).toContain("Unable to verify");
+  unavailable = false;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().recoveryAccess).toEqual(recovery);
+  await model.lock();
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessRefreshing).toBe(false);
+});
+
+test("expired recovery owner access clears bookmark and does not leave controls busy", async () => {
+  let expire = false;
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      recoveryAccess: async () => {
+        if (expire) throw new OwnerAccessExpired("Owner access expired");
+        return null;
+      },
+    },
+  );
+  await model.initialize();
+  expire = true;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().unlocked).toBe(false);
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessRefreshing).toBe(false);
+  expect(model.getState().busy).toBe(false);
 });

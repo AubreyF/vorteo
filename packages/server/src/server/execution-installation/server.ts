@@ -1,4 +1,5 @@
 import { DaemonAutomation } from "./daemon-automation.js";
+import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
 import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
 import { maintenanceServiceView } from "./maintenance/service-view.js";
@@ -1442,6 +1443,13 @@ export function createInstallationServer(
       freshnessMs: 30_000,
     });
   }
+  const recoveryAccessStatus = createRecoveryAccessStatusReader({
+    installationId: config.public.installationId,
+    read: executor.observeRecoveryAccess,
+  });
+  app.post("/api/installation/owner/recovery-access/query", (_req, res, next) => {
+    void recoveryAccessStatus().then((status) => res.json(status), next);
+  });
   app.post("/api/installation/owner/enrollment/query", (_req, res, next) => {
     void enrollmentStatus().then((status) => res.json(status), next);
   });

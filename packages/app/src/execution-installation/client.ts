@@ -10,6 +10,8 @@ import {
 } from "@getpaseo/protocol/maintenance-service-status";
 import {
   InstallationEnrollmentStatusSchema,
+  InstallationRecoveryAccessStatusSchema,
+  type InstallationRecoveryAccessStatus,
   type InstallationEnrollmentStatus,
 } from "@getpaseo/protocol/installation-enrollment";
 import {
@@ -78,6 +80,7 @@ export class InstallationClient {
   private servicePermissionsSupported = false;
   private maintenanceStatusSupported = false;
   private enrollmentStatusSupported = false;
+  private recoveryAccessSupported = false;
   private devRepairSupported = false;
   private devRepairAvailable = false;
   private monitorRetryAt = 0;
@@ -316,6 +319,24 @@ export class InstallationClient {
     if (result.id !== job.id || result.status !== "rejected" || result.cancelable)
       throw new Error("Maintenance cancellation was not confirmed. Refresh its receipt.");
     return result;
+  }
+
+  async recoveryAccess(): Promise<InstallationRecoveryAccessStatus | null> {
+    try {
+      const status = InstallationRecoveryAccessStatusSchema.parse(
+        await this.request("recovery-access/query", {}),
+      );
+      if (status.installationId !== this.installation.installationId)
+        throw new Error("Recovery bookmark belongs to another installation");
+      this.recoveryAccessSupported = true;
+      return status;
+    } catch (error) {
+      // COMPAT(recoveryBookmark): added in Vorteo 623; remove when every supported
+      // coordinator provides the separate owner recovery-access query.
+      if (error instanceof InstallationRouteUnavailable && !this.recoveryAccessSupported)
+        return null;
+      throw error;
+    }
   }
 
   async enrollmentStatus(): Promise<InstallationEnrollmentStatus | null> {

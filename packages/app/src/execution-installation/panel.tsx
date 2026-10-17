@@ -1,5 +1,6 @@
 import { MaintenanceServiceQueue } from "./maintenance-service-queue";
 import { MaintenanceDashboard } from "./maintenance-dashboard";
+import { RecoveryBookmark } from "./recovery-bookmark";
 import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { SettingsExpansion } from "@/components/settings/settings-expansion";
@@ -305,6 +306,12 @@ function InstallationPanel({
               error={state.enrollmentError}
               refreshing={state.enrollmentRefreshing}
               onRefresh={model.refreshEnrollmentStatus}
+            />
+            <RecoveryBookmark
+              status={state.recoveryAccess}
+              error={state.recoveryAccessError}
+              refreshing={state.recoveryAccessRefreshing}
+              onRefresh={model.refreshRecoveryAccess}
             />
             <MaintenanceServiceQueue
               status={state.serviceQueue}

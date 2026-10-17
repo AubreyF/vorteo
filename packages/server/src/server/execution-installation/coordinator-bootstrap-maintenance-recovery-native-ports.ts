@@ -1,4 +1,5 @@
 import path from "node:path";
+import { userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile, spawnSync } from "node:child_process";
 import { request } from "node:http";
@@ -31,6 +32,7 @@ import {
 import {
   inspectMaintenanceRecoveryRouting,
   verifyMaintenanceRecoveryRouteArtifacts,
+  verifyMaintenanceRecoveryRouteSelection,
 } from "./coordinator-bootstrap-maintenance-recovery-routing.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import { withReservedMaintenanceLauncherEffect } from "./coordinator-bootstrap-maintenance-launcher-state.js";
@@ -249,6 +251,23 @@ export async function inspectNativeRecoveryReviewParent(input: {
   account: { uid: number; home: string };
   stateDirectory: string;
 }) {
+  const current = await inspectNativeRecoveryAccess(input);
+  const expectedModule = path.join(
+    current.startup.selected.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-native-ports.js",
+  );
+  if (current.process.pid !== process.pid || fileURLToPath(import.meta.url) !== expectedModule)
+    throw new BootstrapRequestConflict("Recovery review is outside its selected native listener");
+  return current;
+}
+
+/** External read-only discovery proves the selected listener without borrowing
+ * its review-parent authority. Only the wrapper above may own page decisions. */
+export async function inspectNativeRecoveryAccess(input: {
+  setupFile: string;
+  account: { uid: number; home: string };
+  stateDirectory: string;
+}) {
   const startup = await readMaintenanceLauncherStartup(input);
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse(
@@ -262,12 +281,6 @@ export async function inspectNativeRecoveryReviewParent(input: {
     writableMountRoots,
     ports,
   });
-  const expectedModule = path.join(
-    current.startup.selected.directory,
-    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-native-ports.js",
-  );
-  if (current.process.pid !== process.pid || fileURLToPath(import.meta.url) !== expectedModule)
-    throw new BootstrapRequestConflict("Recovery review is outside its selected native listener");
   const listener = await inspectNativeRecoveryListener({
     ...admission,
     writableMountRoots,
@@ -281,6 +294,53 @@ export async function inspectNativeRecoveryReviewParent(input: {
   };
   assertCurrent();
   return { ...current, writableMountRoots, assertCurrent };
+}
+
+/** Return a bookmark only after proving its exact selected page and private
+ * routing. No controller liveness, active grant or main browser session is needed. */
+export async function observeNativeRecoveryAccess(input: {
+  installationId: string;
+  stateDirectory: string;
+  signal: AbortSignal;
+}) {
+  input.signal.throwIfAborted();
+  const { resolveNativeMaintenanceRoleSetup } =
+    await import("./coordinator-bootstrap-maintenance-service-producer.js");
+  const resolved = await resolveNativeMaintenanceRoleSetup({
+    ...input,
+    target: "recovery-launcher",
+  });
+  const owner = userInfo();
+  const current = await inspectNativeRecoveryAccess({
+    ...input,
+    setupFile: resolved.executorSetupFile,
+    account: { uid: owner.uid, home: owner.homedir },
+  });
+  const route = current.startup.plan.recoveryRoute;
+  if (!route || current.access.installationId !== input.installationId)
+    throw new BootstrapRequestConflict("Recovery bookmark has no matching private route");
+  const previousServe = await verifyMaintenanceRecoveryRouteArtifacts({
+    route,
+    writableMountRoots: current.writableMountRoots,
+  });
+  const routing = await inspectNativeRecoveryRouting({
+    tailscale: route.tailscale,
+    writableMountRoots: current.writableMountRoots,
+  });
+  verifyMaintenanceRecoveryRouteSelection({
+    access: current.access,
+    previousServe,
+    currentServe: routing.serve,
+    backend: routing.backend,
+  });
+  input.signal.throwIfAborted();
+  current.assertCurrent();
+  routing.assertCurrent();
+  return {
+    installationId: input.installationId,
+    url: current.access.origin,
+    observedAt: new Date().toISOString(),
+  };
 }
 
 /** Preserve the full Serve document, but do not bind peer presence or traffic

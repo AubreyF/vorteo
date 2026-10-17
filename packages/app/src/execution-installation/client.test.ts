@@ -1,5 +1,8 @@
 import { helperReviewFixture } from "./helper-review.fixture";
-import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
+import type {
+  InstallationEnrollmentStatus,
+  InstallationRecoveryAccessStatus,
+} from "@getpaseo/protocol/installation-enrollment";
 import { InstallationRouteUnavailable } from "./client";
 import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
@@ -511,4 +514,52 @@ test("maintenance queue binds installation identity and cancellation uses the re
   await expect(
     client.cancelMaintenanceService({ ...job, status: "running", cancelable: false }),
   ).rejects.toThrow("already dispatched");
+});
+
+test("recovery bookmark binds the installation and distinguishes missing routes from later failures", async () => {
+  let outcome: "old" | "ready" | "wrong-installation" = "old";
+  const status: InstallationRecoveryAccessStatus = {
+    version: 1,
+    installationId: installation.installationId,
+    checkedAt: new Date().toISOString(),
+    status: "verified",
+    url: "https://machine.tail123.ts.net:8443",
+    validUntil: new Date(Date.now() + 30_000).toISOString(),
+  };
+  const resources: string[] = [];
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      resources.push(resource);
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (outcome === "old") throw new InstallationRouteUnavailable("Route unavailable");
+      if (outcome === "wrong-installation")
+        return { ...status, installationId: "00000000-0000-4000-8000-000000000099" };
+      return status;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.recoveryAccess()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect(await client.recoveryAccess()).toBeNull();
+  outcome = "ready";
+  expect(await client.recoveryAccess()).toEqual(status);
+  outcome = "old";
+  await expect(client.recoveryAccess()).rejects.toThrow("Route unavailable");
+  outcome = "wrong-installation";
+  await expect(client.recoveryAccess()).rejects.toThrow("another installation");
+  expect(
+    resources
+      .filter((resource) => resource !== "unlock")
+      .every((resource) => resource === "recovery-access/query"),
+  ).toBe(true);
 });

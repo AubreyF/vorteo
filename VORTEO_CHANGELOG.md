@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.623 - 2026-10-16
+
+### Maintenance
+
+- Add an owner-authenticated recovery-bookmark query. Native discovery verifies the selected recovery listener, protected assets and exact private HTTPS route before returning its non-secret origin. Missing, foreign, stale or failed proof returns no address. One in-flight inspection and a ten-second response deadline prevent repeated refreshes from multiplying a hung reader.
+- Add General installation controls for opening and copying a verified recovery address, with bookmark guidance, expiry and explicit action failures. Older coordinators retain their existing HTTP and WebSocket contracts. These controls await tracked installation and remote owner acceptance; no service, route or standing authority is enabled by discovery.
+
 ## 0.11.0-beta.3.vorteo.622 - 2026-10-16
 
 ### Maintenance

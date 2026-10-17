@@ -1,5 +1,8 @@
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
-import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
+import type {
+  InstallationEnrollmentStatus,
+  InstallationRecoveryAccessStatus,
+} from "@getpaseo/protocol/installation-enrollment";
 import type {
   MaintenanceServiceQueueStatus,
   MaintenanceServiceView,
@@ -22,6 +25,9 @@ interface InstallationPanelState {
   serviceQueue: MaintenanceServiceQueueStatus | null;
   serviceQueueError: string | null;
   serviceQueueRefreshing: boolean;
+  recoveryAccess: InstallationRecoveryAccessStatus | null;
+  recoveryAccessError: string | null;
+  recoveryAccessRefreshing: boolean;
   enrollmentStatus: InstallationEnrollmentStatus | null;
   enrollmentError: string | null;
   enrollmentRefreshing: boolean;
@@ -53,6 +59,9 @@ export class InstallationPanelModel {
     serviceQueue: null,
     serviceQueueError: null,
     serviceQueueRefreshing: false,
+    recoveryAccess: null,
+    recoveryAccessError: null,
+    recoveryAccessRefreshing: false,
     enrollmentStatus: null,
     enrollmentError: null,
     enrollmentRefreshing: false,
@@ -108,6 +117,7 @@ export class InstallationPanelModel {
           | "daemonAutomation"
           | "maintenanceStatus"
           | "enrollmentStatus"
+          | "recoveryAccess"
           | "maintenanceServices"
           | "cancelMaintenanceService"
           | "changeDaemonAutomation"
@@ -163,6 +173,9 @@ export class InstallationPanelModel {
         profileSharing: null,
         daemonAutomation: null,
         maintenanceStatus: null,
+        recoveryAccess: null,
+        recoveryAccessError: null,
+        recoveryAccessRefreshing: false,
         enrollmentStatus: null,
         enrollmentError: null,
         enrollmentRefreshing: false,
@@ -221,6 +234,7 @@ export class InstallationPanelModel {
       const [restartSummary] = await Promise.all([
         this.client.restartSummary(),
         this.refreshEnrollmentStatus(),
+        this.refreshRecoveryAccess(),
         this.refreshServiceQueue(),
       ]);
       this.publish({ restartSummary });
@@ -333,6 +347,28 @@ export class InstallationPanelModel {
         });
     } finally {
       if (generation === this.accessGeneration) this.publish({ busy: false });
+    }
+  };
+
+  refreshRecoveryAccess = async (): Promise<void> => {
+    if (!this.state.unlocked || !this.client.recoveryAccess || this.state.recoveryAccessRefreshing)
+      return;
+    const generation = this.accessGeneration;
+    this.publish({ recoveryAccessRefreshing: true });
+    try {
+      const status = await this.client.recoveryAccess();
+      if (generation === this.accessGeneration)
+        this.publish({ recoveryAccess: status, recoveryAccessError: null });
+    } catch (error) {
+      if (generation !== this.accessGeneration) return;
+      if (error instanceof OwnerAccessExpired) this.fail(error);
+      else
+        this.publish({
+          recoveryAccess: null,
+          recoveryAccessError: "Unable to verify the recovery bookmark. Refresh to check again.",
+        });
+    } finally {
+      if (generation === this.accessGeneration) this.publish({ recoveryAccessRefreshing: false });
     }
   };
 
@@ -566,6 +602,9 @@ export class InstallationPanelModel {
         daemonAutomation: null,
         maintenanceStatus: null,
         daemonAutomationError: null,
+        recoveryAccess: null,
+        recoveryAccessError: null,
+        recoveryAccessRefreshing: false,
         enrollmentStatus: null,
         enrollmentError: null,
         enrollmentRefreshing: false,

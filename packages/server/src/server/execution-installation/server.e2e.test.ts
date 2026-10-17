@@ -66,6 +66,67 @@ import {
 
 const cleanups: Array<() => Promise<void>> = [];
 
+test("recovery bookmark discovery is owner-only, read-only and installation-bound", async () => {
+  let installationId = "";
+  let calls = 0;
+  let foreign = false;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    {
+      observeRecoveryAccess: async () => {
+        calls++;
+        return {
+          installationId: foreign ? randomUUID() : installationId,
+          url: "https://machine.tail123.ts.net:8443",
+          observedAt: new Date().toISOString(),
+        };
+      },
+    },
+    (config) => {
+      installationId = config.public.installationId;
+    },
+  );
+  const route = "/api/installation/owner/recovery-access/query";
+  for (const credential of [undefined, "host-agent-test-token", "guest-agent-test-token"])
+    expect((await f.request(route, credential, {})).status).toBe(401);
+  expect(
+    (await f.request(route, "owner-test-password", {}, "https://foreign.example.test")).status,
+  ).toBe(403);
+  expect(calls).toBe(0);
+  const response = await f.request(route, "owner-test-password", {});
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    installationId,
+    status: "verified",
+    url: "https://machine.tail123.ts.net:8443",
+  });
+  foreign = true;
+  expect(await (await f.request(route, "owner-test-password", {})).json()).toMatchObject({
+    status: "unverified",
+    url: null,
+  });
+  expect(f.calls).toEqual([]);
+  expect(existsSync(path.join(f.root, "maintenance-enrollment.json"))).toBe(false);
+});
+
+test("recovery bookmark discovery does not invent an address without native support", async () => {
+  const f = await fixture();
+  const response = await f.request(
+    "/api/installation/owner/recovery-access/query",
+    "owner-test-password",
+    {},
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ status: "unverified", url: null });
+  expect(f.calls).toEqual([]);
+});
+
 test("service maintenance status and cancellation require owner access", async () => {
   const f = await fixture();
   const query = "/api/installation/owner/maintenance-services/query";
@@ -457,7 +518,11 @@ async function fixture(
   startupFence?: InstallationStartupFence,
   helperExecutor?: Pick<
     RestartExecutor,
-    "validateHelperPlan" | "installHelper" | "verifyHelperRecovery" | "discoverMaintenanceServices"
+    | "validateHelperPlan"
+    | "installHelper"
+    | "verifyHelperRecovery"
+    | "discoverMaintenanceServices"
+    | "observeRecoveryAccess"
   >,
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,

@@ -1,4 +1,5 @@
 import { observeNativeMaintenanceServices } from "./coordinator-bootstrap-maintenance-health.js";
+import { observeNativeRecoveryAccess } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
 import {
   createNativeMaintenanceServiceExecutor,
   resolveNativeMaintenanceExecutorSetup,
@@ -35,6 +36,12 @@ const startupFence = loadCoordinatorStartupFence({
 initializePackagedClaudeCli(true);
 const executor = createInstallationRestartExecutor(config);
 if (process.platform === "darwin") {
+  executor.observeRecoveryAccess = (signal) =>
+    observeNativeRecoveryAccess({
+      installationId: config.public.installationId,
+      stateDirectory: config.stateDir,
+      signal,
+    });
   executor.observeMaintenanceServices = (signal) =>
     observeNativeMaintenanceServices({
       installationId: config.public.installationId,
