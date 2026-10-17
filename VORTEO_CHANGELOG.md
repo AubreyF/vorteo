@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.668 - 2026-10-17
+
+### Maintenance
+
+- Generate a bounded data-only initial Host module contract after compiled server and CLI builds. Trace supervisor, daemon and forked worker modules without filesystem-glob expansion or warning exclusions; retain package-resolution metadata and workspace links. Unknown warnings and changes to audited optional-load implementations refuse generation.
+- Replace the initial migration's hand-picked module comparisons with exact trusted-build contract matching and retained reference/candidate custody. Record lookup absences and package-scope metadata, reject nearer-package shadows and optional dependencies becoming present, and retain those predicates through final custody. Add real-filesystem regressions for module, metadata, link and declaration substitution and cancellation. This proves module-file compatibility only; filesystem assets, external configuration, runtime readiness, native effect admission and installed migration remain separate unfinished gates.
+
 ## 0.11.0-beta.3.vorteo.667 - 2026-10-17
 
 ### Maintenance
