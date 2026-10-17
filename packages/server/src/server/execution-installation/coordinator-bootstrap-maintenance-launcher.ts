@@ -40,6 +40,9 @@ const slot = z.strictObject({
   node: pin,
   entrypoint: pin,
   setup: pin,
+  // Owner controls need responsive native inspection. Pin scheduling per slot
+  // so a new policy never changes the launcher of an older reviewed release.
+  processType: z.literal("Interactive").optional(),
 });
 
 /** Both immutable slots and the stable user service identity enter the owner
@@ -81,6 +84,10 @@ export function inspectMaintenanceLauncherPlan(
     throw new BootstrapRequestConflict("Maintenance launcher paths differ from enrolled custody");
   for (const release of [plan.previous, plan.candidate]) {
     if (!release) continue;
+    if (release.processType && !isRecoveryAccessSlot(plan, release))
+      throw new BootstrapRequestConflict(
+        "Interactive scheduling requires the standalone owner recovery page",
+      );
     if (
       release.directory !==
         path.join(identity.installationRoot, "maintenance-runtimes", release.sourceCommit) ||
@@ -131,6 +138,9 @@ export function maintenanceUserLauncher(
   if (!release || plan.identity.environment !== "host")
     throw new BootstrapRequestConflict("Maintenance launcher slot is unavailable");
   const recoveryAccess = isRecoveryAccessSlot(plan, release);
+  // COMPAT(recoveryAccessScheduling): added in Vorteo 622. Retain Background
+  // until no preserved approved slot omits its explicit scheduling policy.
+  const processType = release.processType ?? "Background";
   const args = [release.node.path, release.entrypoint.path, release.setup.path];
   if (!recoveryAccess) args.push("maintenance-launcher");
   return {
@@ -139,7 +149,7 @@ export function maintenanceUserLauncher(
     RunAtLoad: true,
     KeepAlive: recoveryAccess,
     ...(recoveryAccess ? { ThrottleInterval: 10 } : {}),
-    ProcessType: "Background",
+    ProcessType: processType,
     Umask: 0o077,
     StandardErrorPath: path.join(plan.identity.stateDirectory, `${plan.identity.target}.stderr`),
   };

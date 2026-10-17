@@ -2592,6 +2592,36 @@ test("recovery access has exact standalone argv and read-only OS supervision", a
   ).rejects.toThrow("native identity");
 });
 
+test("recovery page scheduling is reviewed per slot without changing retained launchers", async () => {
+  const f = await independentAccessFixture();
+  const original = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const previousLauncher = maintenanceUserLauncher(f.plan, "previous");
+  expect(maintenanceUserLauncher(f.plan, "candidate").ProcessType).toBe("Background");
+  f.plan.candidate.processType = "Interactive";
+  const selected = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  expect(selected.planSha256).not.toBe(original.planSha256);
+  expect(maintenanceUserLauncher(f.plan, "candidate")).toMatchObject({
+    ProcessType: "Interactive",
+    KeepAlive: true,
+    ThrottleInterval: 10,
+  });
+  expect(maintenanceUserLauncher(f.plan, "previous")).toEqual(previousLauncher);
+  await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({
+    plan: selected.plan,
+  });
+});
+
+test.each([false, true])(
+  "interactive scheduling is refused outside the recovery page: controller=%s",
+  async (controller) => {
+    const f = await fixture(false, controller);
+    f.plan.candidate.processType = "Interactive";
+    expect(() => inspectMaintenanceLauncherPlan(f.plan, f.account)).toThrow(
+      "standalone owner recovery page",
+    );
+  },
+);
+
 test.each([
   "installation",
   "state",

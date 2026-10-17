@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.622 - 2026-10-16
+
+### Maintenance
+
+- Permit an explicitly reviewed interactive macOS process policy for a standalone owner recovery-page slot. The registered Background-page fixture exposed slow native artifact inspection and socket-check timeouts; native comparison of the new policy remains required. The policy enters the immutable plan digest and is refused for ordinary controller or execution-launcher slots.
+- Preserve the exact Background launcher for retained slots without a scheduling field, including an unchanged previous slot during replacement. Focused checks cover the reviewed digest, candidate policy, previous launcher bytes and role restrictions.
+- This remains source awaiting native acceptance and installation. The permanent page, remote owner rollback, private HTTPS routing, General bookmark discovery and README feature delivery are still unfinished.
+
 ## 0.11.0-beta.3.vorteo.621 - 2026-10-16
 
 ### Fixed
