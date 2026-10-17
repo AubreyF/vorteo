@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.657 - 2026-10-17
+
+### Maintenance
+
+- Add explicit opt-in routing for linked recovery-launcher recovery and rollback through the verified controller. Require the existing linked-recovery mode and exact predecessor link, preserve reserved executor-role checks, and keep production disabled.
+- Test controller-only routing, disabled refusal, missing-link refusal and wrong reserved executor rejection for both operations. Native consumed-replacement absence passed separately; compiled linked launcher dispatch and installed activation remain open.
+
 ## 0.11.0-beta.3.vorteo.656 - 2026-10-17
 
 ### Fixed

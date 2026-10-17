@@ -802,6 +802,55 @@ test("explicit launcher replacement support uses the controller without enabling
   expect(enabled.operations).toEqual(["replacement"]);
 });
 
+test.each(["recovery", "rollback"] as const)(
+  "explicit linked launcher %s uses only the controller and retains reserved-role checks",
+  async (operation) => {
+    const f = routedJob(operation);
+    const controller = routedProducer("controller");
+    const page = routedProducer("page");
+    const construct = vi.fn(async (role: string) =>
+      role === "maintenance-controller" ? controller : page,
+    );
+    function launcherRequest(request: MaintenanceServiceJob): MaintenanceServiceJob {
+      return MaintenanceServiceJobSchema.parse({
+        ...request,
+        target: "recovery-launcher",
+        proposal: { ...request.proposal, target: "recovery-launcher" },
+        ...(request.reservation
+          ? { reservation: { ...request.reservation, target: "recovery-launcher" } }
+          : {}),
+      });
+    }
+    const disabled = await createNativeMaintenanceServiceRouter(
+      { ...f, launcherRecovery: "enabled" },
+      construct,
+    );
+    await expect(disabled.inspect(launcherRequest(f.request))).rejects.toThrow(
+      "readiness is not accepted",
+    );
+    const enabled = await createNativeMaintenanceServiceRouter(
+      { ...f, mode: "linked-controller-recovery", launcherRecovery: "enabled" },
+      construct,
+    );
+    await expect(enabled.inspect(launcherRequest(f.request))).rejects.toThrow("controller inspect");
+    expect(controller.inspect).toHaveBeenCalledOnce();
+    expect(page.inspect).not.toHaveBeenCalled();
+    const missingLink = launcherRequest(f.request);
+    delete missingLink.proposal.recoveryOf;
+    await expect(enabled.inspect(missingLink)).rejects.toThrow("requires recovery linkage");
+    const reserved = launcherRequest(f.reserve("maintenance-controller"));
+    await expect(enabled.execute(reserved, reserved.reservation!)).rejects.toThrow(
+      "controller execute",
+    );
+    const wrongRole = launcherRequest(f.reserve("recovery-launcher"));
+    await expect(enabled.execute(wrongRole, wrongRole.reservation!)).rejects.toThrow(
+      "role differs",
+    );
+    expect(controller.execute).toHaveBeenCalledOnce();
+    expect(page.execute).not.toHaveBeenCalled();
+  },
+);
+
 test("reserved execution never constructs or substitutes another role", async () => {
   const f = routedJob("recovery"),
     page = routedProducer("page"),
