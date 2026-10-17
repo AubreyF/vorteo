@@ -179,6 +179,7 @@ export class InstallationSourceUpdates {
   constructor(
     private readonly config: InstallationConfig,
     private readonly target: RestartJob["target"] = "host",
+    private readonly assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
   ) {
     this.directory = path.join(
       config.stateDir,
@@ -415,6 +416,7 @@ export class InstallationSourceUpdates {
         config: this.config,
         job,
         bundleFile: this.bundlePath(update),
+        assertRegistrationReadiness: this.assertRegistrationReadiness,
       });
     const settings = this.hostSettings();
     if (job.target !== "host" || this.source().baseCommit !== update.baseCommit)
@@ -588,6 +590,7 @@ export class InstallationSourceUpdates {
         config: this.config,
         job,
         bundleFile: this.bundlePath(update),
+        assertRegistrationReadiness: this.assertRegistrationReadiness,
         restart,
         beforeSelection,
       });

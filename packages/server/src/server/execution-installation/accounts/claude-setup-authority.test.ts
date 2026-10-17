@@ -1,3 +1,13 @@
+import { createServer } from "node:http";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createClaudeSetupRuntime } from "./claude-setup-runtime.js";
+import { writeClaudeSetupFile } from "./claude-setup-file.js";
+import { ClaudeSetupDeliverySchema } from "./claude-setup-delivery.js";
+import { InstallationConfigSchema } from "../config.js";
+import { InstallationSettingsService } from "../settings/service.js";
+import { SettingsJournalFake, SettingsEnvironmentFake } from "../settings/fakes.js";
 import { expect, test } from "vitest";
 import {
   ClaudeSetupAuthority,
@@ -132,4 +142,102 @@ test("offline disconnect remains visible until the consumer acknowledges removal
   expect(
     f.authority.status("one").environments.every((item) => item.status === "disconnected"),
   ).toBe(true);
+});
+
+test("unready Dev keeps credential delivery pending but permits credential withdrawal", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "claude-registration-guard-")));
+  const deliveries: Array<unknown> = [];
+  const server = createServer((request, response) => {
+    void (async () => {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const value = ClaudeSetupDeliverySchema.parse(JSON.parse(body));
+      deliveries.push(value.credential);
+      const { credential, ...scope } = value;
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify({
+          ...scope,
+          digest: setupCredentialDigest(credential),
+          phase: "applied",
+          active: credential !== null,
+        }),
+      );
+    })().catch(() => {
+      response.statusCode = 500;
+      response.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  let runtime: ReturnType<typeof createClaudeSetupRuntime> | undefined;
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Missing isolated delivery listener");
+    const endpoint = `127.0.0.1:${address.port}`;
+    const environment = new SettingsEnvironmentFake("dev");
+    environment.config.providers = {
+      "claude-one": { extends: "claude", enabled: true, label: "Isolated Claude" },
+    };
+    const settings = new InstallationSettingsService(new SettingsJournalFake(), [environment]);
+    const snapshot = await settings.reconcile();
+    const definition = snapshot.settings?.providerDefinitions?.[0];
+    if (!definition) throw new Error("Missing isolated account definition");
+    const authority = fixture();
+    authority.policy.revision = snapshot.revision;
+    authority.policy.targets = [{ serverId: "dev", providerId: "claude-one", excluded: false }];
+    await authority.authority.save(definition.id, token);
+    writeClaudeSetupFile(join(root, "claude-setup/authority.json"), authority.ports.read());
+    const config = InstallationConfigSchema.parse({
+      public: {
+        version: 1,
+        installationId: authority.ports.installationId,
+        origin: "https://isolated.example",
+        environments: [
+          { kind: "host", serverId: "host", endpoint, useTls: false },
+          { kind: "container", serverId: "dev", endpoint, useTls: false },
+        ],
+      },
+      stateDir: root,
+      listenPort: 6767,
+      webDistDir: root,
+      ownerPasswordHash: "$2fixture",
+      hostAgentTokenHash: "a".repeat(64),
+      containerAgentTokenHash: "b".repeat(64),
+      host: {
+        endpoint,
+        password: "isolated-host",
+        launchdService: "gui/501/local.vorteo.fixture.host",
+      },
+      container: {
+        endpoint,
+        password: "isolated-dev",
+        persistentRegistration: {
+          receiptFile: join(root, "missing-receipt.json"),
+          sha256: "a".repeat(64),
+        },
+      },
+    });
+    runtime = createClaudeSetupRuntime(config, settings);
+    await runtime.reconcile();
+    expect(deliveries).toEqual([]);
+    expect(runtime.read(definition.id).connection.environments).toEqual([
+      expect.objectContaining({ serverId: "dev", status: "pending" }),
+    ]);
+    await runtime.signOut(definition.id);
+    expect(deliveries).toEqual([null]);
+    expect(runtime.read(definition.id).connection.connected).toBe(false);
+  } finally {
+    await runtime?.dispose();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }),
+    );
+    rmSync(root, { recursive: true, force: true });
+  }
 });

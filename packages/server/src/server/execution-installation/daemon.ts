@@ -218,7 +218,31 @@ async function reportRestartTimeout(
   );
 }
 
-export function createInstallationRestartExecutor(config: InstallationConfig): RestartExecutor {
+export function createInstallationRegistrationAdmission(
+  config: InstallationConfig,
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+): (target: RestartJob["target"]) => void {
+  const configuration = structuredClone(config);
+  const registrationRequired = configuration.container.persistentRegistration !== undefined;
+  return function assertReady(target: RestartJob["target"]): void {
+    if (target !== "container-daemon") return;
+    if (!registrationRequired && config.container.persistentRegistration === undefined) return;
+    if (!registrationRequired || !isDeepStrictEqual(config, configuration))
+      throw new Error("Dev registration configuration changed");
+    if (
+      !assertRegistrationReadiness ||
+      assertRegistrationReadiness(target) !== undefined ||
+      !isDeepStrictEqual(config, configuration)
+    )
+      throw new Error("Verified Dev registration readiness is unavailable");
+  };
+}
+
+export function createInstallationRestartExecutor(
+  config: InstallationConfig,
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+): RestartExecutor {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   function retainedHeldRestart(job: RestartJob) {
     const current = new FileBootstrapRequestJournal(config.stateDir)
       .readLifecycle()
@@ -240,11 +264,13 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
   }
 
   async function restartHeld(job: RestartJob): Promise<string> {
+    assertReady(job.target);
     const held = retainedHeldRestart(job);
     const kind = job.target === "host" ? "host" : "container";
     const client = await connectInstallationDaemon(config, kind);
     try {
       retainedHeldRestart(job);
+      assertReady(job.target);
       await client.restartServer("approved_exact_held_restart", undefined, {
         timeout: 5000,
         idleMode: "restart",
@@ -292,6 +318,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
   }
 
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
+    assertReady(target);
     const kind = target === "host" ? "host" : "container";
     let previousPid: number | null = null;
     let before: DaemonClient | null = null;
@@ -315,6 +342,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         return null;
       }
       try {
+        assertReady(target);
         const result = await client.restartServer("owner_approved_idle_restart", undefined, {
           timeout: 5000,
           idleMode: "restart",
@@ -333,6 +361,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       const client = await connectInstallationDaemon(config, kind);
       try {
         // The container and its supervisor remain in place. Never recreate it.
+        assertReady(target);
         await client.restartServer("owner_approved_installation_restart", undefined, {
           timeout: 5000,
         });
@@ -369,6 +398,11 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     restartHeld,
     factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
     async adoptFactoryRuntime(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error(
+          "Dev Factory adoption requires independently verified transition-phase readiness",
+        );
       const plan = config.container.factoryRuntimeAdoption;
       const environment = config.public.environments.find((entry) => entry.kind === "container");
       if (!plan || !environment || job.factoryRuntimePlanSha256 !== factoryRuntimePlanDigest(plan))
@@ -381,6 +415,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
         await before.close();
       }
       const phase = { plan, job, serverId: environment.serverId, previousPid };
+      assertReady("container-daemon");
       await runFactoryRuntimePhase({ ...phase, phase: "stage", replacementPid: null });
       // This is the existing tracked restart executor, after exact adoption approval.
       // Once staging starts, failure retains this request; it never requeues or rolls state back.
@@ -399,6 +434,9 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     },
     supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
     async restartSupervisor(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error("Dev supervisor maintenance requires an independently bound operation");
       const plan = config.container.supervisorMaintenance;
       if (!plan || job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)
         throw new Error("Supervisor maintenance plan is unavailable or changed");
@@ -409,6 +447,7 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       } finally {
         await before.close();
       }
+      assertReady("container-daemon");
       await runSupervisorMaintenance(plan, job);
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline) {
@@ -488,11 +527,13 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
       }
     },
     async holdCurrentTurns(target, requestId) {
+      assertReady(target);
       const client = await connectInstallationDaemon(
         config,
         target === "host" ? "host" : "container",
       );
       try {
+        assertReady(target);
         const result = await client.restartServer(undefined, undefined, {
           timeout: 5000,
           idleMode: "drain",

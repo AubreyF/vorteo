@@ -1,3 +1,8 @@
+import { readBoundedMaintenanceInspection } from "./coordinator-bootstrap-maintenance-service-native.js";
+import {
+  readInitialHostObservation,
+  initialHostObservationPending,
+} from "./maintenance/host-supervisor-recovery-inspection.js";
 import {
   derivePreclaimHostRuntime,
   createManagedPreclaimRecoveryReview,
@@ -37,7 +42,18 @@ import {
   verifyBootRunnerBinding,
 } from "./coordinator-bootstrap-runner.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { InstallationConfigSchema } from "./config.js";
+import { BootstrapAdmissionSetupSchema } from "./coordinator-bootstrap-host.js";
+import { InstallationEnrollmentManifestSchema } from "@getpaseo/protocol/installation-enrollment";
 import {
+  enrollInstallation,
+  enrollmentManifestDigest,
+  FileEnrollmentJournal,
+} from "./maintenance/authorization.js";
+import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
+import { inspectEffectiveMaintenanceConfiguration } from "./coordinator-bootstrap-maintenance-observation-runtime.js";
+import {
+  createCoordinatorObservationCollection,
   deriveBootstrapRenewal,
   inspectSelectedCoordinatorRuntime,
   persistRenewalSetup,
@@ -514,6 +530,209 @@ test("shared coordinator witness rejects changed lifetime, selected history and 
   await expect(f.inspect()).rejects.toThrow();
 });
 
+async function successorConfigurationFixture() {
+  const f = await sharedCoordinatorFixture();
+  const identitySha256 = retainEnrollmentNativeIdentity(f.state, f.identity);
+  const manifest = InstallationEnrollmentManifestSchema.parse({
+    version: 1,
+    operation: "installation-enrollment",
+    installationId: f.identity.installationId,
+    revision: randomUUID(),
+    createdAt: "2026-10-17T00:00:00.000Z",
+    targets: [
+      { target: "coordinator", identitySha256, operations: ["replacement"] },
+      {
+        target: "maintenance-controller",
+        identitySha256: "1".repeat(64),
+        operations: ["replacement"],
+      },
+      { target: "recovery-launcher", identitySha256: "2".repeat(64), operations: ["replacement"] },
+    ],
+    trustedRepositories: ["https://example.test/installation.git"],
+    provisioning: null,
+    interruption: { finishTurnsSeconds: 60, terminateGraceSeconds: 10 },
+    retryLimit: 3,
+    rollback: "previous-compatible-runtime",
+    recovery: "after-login",
+    steps: [
+      {
+        id: randomUUID(),
+        target: "coordinator",
+        operation: "replacement",
+        planSha256: coordinatorPlanDigest(f.plan),
+        candidate: {
+          sourceCommit: f.coordinator.sourceCommit,
+          artifactSha256: f.coordinator.artifactSha256,
+        },
+        previous: {
+          sourceCommit: f.previous.sourceCommit,
+          artifactSha256: f.previous.artifactSha256,
+        },
+        dependsOn: [],
+      },
+    ],
+  });
+  const enrollment = new FileEnrollmentJournal(f.state);
+  enrollInstallation(enrollment, {
+    manifest,
+    approval: {
+      operation: "installation-enrollment",
+      requestId: randomUUID(),
+      reviewRevision: manifest.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+      approvedAt: "2026-10-17T00:00:00.000Z",
+    },
+  });
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse(readFileSync(f.original.admissionSetupFile, "utf8")),
+  );
+  const configuration = InstallationConfigSchema.parse(f.config);
+  const input = {
+    configuration,
+    configurationFile: f.configuration.path,
+    admission,
+    writableMountRoots: [],
+    ports: f.ports,
+  };
+  return { ...f, enrollment, input };
+}
+
+test("effective maintenance configuration preserves cold anchor observation without terminal history", async () => {
+  const f = await fixture();
+  f.writeRecords([]);
+  const admission = BootstrapAdmissionSetupSchema.parse(
+    JSON.parse(readFileSync(f.original.admissionSetupFile, "utf8")),
+  );
+  const configuration = InstallationConfigSchema.parse(
+    JSON.parse(readFileSync(f.originalConfiguration.path, "utf8")),
+  );
+  const proof = await inspectEffectiveMaintenanceConfiguration({
+    configuration,
+    configurationFile: f.originalConfiguration.path,
+    admission,
+    writableMountRoots: [],
+  });
+  expect(proof.admission).toEqual(admission);
+  proof.assertCurrent();
+  f.save(f.originalConfiguration.path, { ...configuration, listenPort: 6765 });
+  expect(proof.assertCurrent).toThrow("custody changed");
+});
+
+test("effective maintenance configuration verifies the selected successor without rewriting its anchor", async () => {
+  const f = await successorConfigurationFixture();
+  const original = readFileSync(f.originalConfiguration.path);
+  const proof = await inspectEffectiveMaintenanceConfiguration(f.input);
+  expect(proof.admission).toEqual({
+    ...f.input.admission,
+    configurationFile: f.configuration.path,
+  });
+  expect(f.input.admission.configurationFile).toBe(f.originalConfiguration.path);
+  expect(readFileSync(f.originalConfiguration.path)).toEqual(original);
+  proof.admission.configurationFile = f.originalConfiguration.path;
+  expect(proof.assertCurrent).toThrow("approval or custody changed");
+  proof.admission.configurationFile = f.configuration.path;
+  f.enrollment.update((state) => {
+    if (state.status !== "enrolled") throw Error("Fixture enrollment absent");
+    return { ...state, grant: { ...state.grant, revokedAt: "2026-10-17T00:01:00.000Z" } };
+  });
+  proof.assertCurrent();
+  f.changeService();
+  expect(proof.assertCurrent).toThrow("native selection changed");
+});
+
+test.each(["wrong-path", "unresolved-history", "credentials", "unpinned-bytes"])(
+  "effective maintenance configuration refuses %s without adopting caller expectations",
+  async (kind) => {
+    const f = await successorConfigurationFixture();
+    if (kind === "wrong-path")
+      f.input.configurationFile = f.save(path.join(f.root, "unselected.json"), f.config).path;
+    if (kind === "unresolved-history") {
+      const record = structuredClone(f.record);
+      record.execution!.stage = "claimed";
+      f.writeRecords([record]);
+    }
+    if (kind === "credentials") f.input.configuration.containerAgentTokenHash = "c".repeat(64);
+    if (kind === "unpinned-bytes") f.save(f.configuration.path, { ...f.config, listenPort: 6765 });
+    await expect(inspectEffectiveMaintenanceConfiguration(f.input)).rejects.toThrow();
+  },
+);
+
+test.each(["runtime-file", "native-callback"])(
+  "shared coordinator witness retains %s through its final assertion",
+  async (kind) => {
+    const f = await sharedCoordinatorFixture();
+    const witness = await f.inspect();
+    if (kind === "runtime-file")
+      f.save(path.join(f.coordinator.directory, workerRelative), "changed", true);
+    else f.ports.assertCurrent = () => {};
+    expect(witness.assertCurrent).toThrow();
+  },
+);
+
+test.each(["initial-process", "process", "history", "returned-process", "returned-release"])(
+  "shared coordinator witness refuses %s mutation across native custody",
+  async (kind) => {
+    const f = await sharedCoordinatorFixture();
+    const native = f.ports.assertCurrent;
+    let mutate = kind === "initial-process";
+    f.ports.assertCurrent = (service, expected) => {
+      native(service, expected);
+      if (!mutate) return;
+      if (kind === "history") f.writeRecords([{ ...f.record, revision: randomUUID() }]);
+      else if (expected && typeof expected === "object" && "pid" in expected) expected.pid = 999;
+    };
+    if (kind === "initial-process") {
+      await expect(f.inspect()).rejects.toThrow("selection or custody changed");
+      return;
+    }
+    const witness = await f.inspect();
+    if (kind === "returned-process") witness.process.pid = 999;
+    else if (kind === "returned-release")
+      witness.release.configuration.path = f.originalConfiguration.path;
+    else mutate = true;
+    expect(witness.assertCurrent).toThrow("selection or custody changed");
+  },
+);
+
+test("effective maintenance configuration rechecks the original anchor after the final native callback", async () => {
+  const f = await successorConfigurationFixture();
+  const host = await import("./coordinator-bootstrap-host.js");
+  const inspection = await import("./coordinator-bootstrap-maintenance-service-inspection.js");
+  const { inspectMaintenanceObservationRuntime } =
+    await import("./coordinator-bootstrap-maintenance-observation-runtime.js");
+  const anchor = path.join(f.root, "coordinator-bootstrap-runner.json");
+  f.save(anchor, { admissionSetupFile: f.original.admissionSetupFile });
+  let mutate = false;
+  vi.spyOn(host, "inspectBootstrapWritableMountRoots").mockResolvedValue([]);
+  vi.spyOn(inspection, "createMaintenanceServiceInspectionPorts").mockResolvedValue({
+    reader: {
+      ...f.ports.reader,
+      async inspectAuditedProcess() {
+        throw Error("Unused audited reader");
+      },
+      async inspectRunningProcess() {
+        throw Error("Unused running reader");
+      },
+      async verifyServiceAbsent() {
+        throw Error("Unused absence reader");
+      },
+      async inspectStoppedProcess() {
+        throw Error("Unused stopped reader");
+      },
+    },
+    assertCurrent(service, process) {
+      f.ports.assertCurrent(service, process);
+      if (mutate) f.save(anchor, { admissionSetupFile: "/substituted/admission.json" });
+    },
+  });
+  const proof = await inspectMaintenanceObservationRuntime({
+    configuration: f.input.configuration,
+    configurationFile: f.configuration.path,
+  });
+  mutate = true;
+  expect(proof.assertCurrent).toThrow("custody changed");
+});
+
 test("shared coordinator witness refuses live installer, unresolved history and launcher substitution", async () => {
   const f = await sharedCoordinatorFixture();
   const inspectProcess = f.ports.reader.inspectProcess;
@@ -556,19 +775,11 @@ test("shared coordinator exemption is optional for an unrelated selected Node", 
 
 test("enrolled shared coordinator witness rechecks under the existing lifecycle lock", async () => {
   const f = await sharedCoordinatorFixture();
-  const {
-    FileEnrollmentJournal,
-    enrollInstallation,
-    enrollmentManifestDigest,
-    changeStandingGrant,
-  } = await import("./maintenance/authorization.js");
-  const { retainEnrollmentNativeIdentity } = await import("./maintenance/native-registration.js");
+  const { changeStandingGrant } = await import("./maintenance/authorization.js");
   const { inspectMaintenanceLauncherPlan } =
     await import("./coordinator-bootstrap-maintenance-launcher.js");
   const { inspectMaintenanceCoordinatorWitness } =
     await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
-  const { InstallationEnrollmentManifestSchema } =
-    await import("@getpaseo/protocol/installation-enrollment");
   const coordinatorDigest = retainEnrollmentNativeIdentity(f.state, f.identity);
   const label = `local.vorteo.${f.identity.installationId}.controller.installation`;
   const base = path.join(f.root, "maintenance-services", "maintenance-controller");
@@ -2339,6 +2550,377 @@ test.runIf(process.platform === "darwin")(
     writeFileSync(prepared.path, JSON.stringify({ ...setup, daemonId: "substituted-host" }));
     await expect(verifyBootRunnerBinding(claimed, file, snapshot)).rejects.toThrow(
       "digest changed",
+    );
+  },
+);
+
+test("effective successor budget reserves every original native read before starting it", async () => {
+  const f = await sharedCoordinatorFixture();
+  let now = 0,
+    services = 0,
+    processes = 0;
+  const readService = f.ports.reader.readService;
+  f.ports.reader.readService = async (service) => {
+    services++;
+    now = 51_000;
+    return readService(service);
+  };
+  const inspectProcess = f.ports.reader.inspectProcess;
+  f.ports.reader.inspectProcess = async (pid) => {
+    processes++;
+    return inspectProcess(pid);
+  };
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { deadline: 60_000, now: () => now },
+    }),
+  ).rejects.toThrow("deadline exceeded");
+  expect(services).toBe(1);
+  expect(processes).toBe(0);
+});
+
+test("effective successor budget refuses late native results and preserves the raw Host reader", async () => {
+  const f = await sharedCoordinatorFixture();
+  let resolveRead: ((value: string) => void) | undefined;
+  let raw: Promise<unknown> | undefined;
+  let started: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.reader.readService = () =>
+    new Promise<string>((resolve) => {
+      resolveRead = resolve;
+      started!();
+    });
+  const controller = new AbortController();
+  raw = readInitialHostObservation(() =>
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { signal: controller.signal },
+    }),
+  );
+  await Promise.race([
+    entered,
+    raw.then(() => {
+      throw Error("Synthetic read returned before entry");
+    }),
+  ]);
+  const outward = readBoundedMaintenanceInspection(
+    (signal) => {
+      signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+      return raw!;
+    },
+    { timeoutMs: 10, detail: "synthetic Host anchor timeout" },
+  );
+  await expect(outward).rejects.toThrow("synthetic Host anchor timeout");
+  expect(initialHostObservationPending()).toBe(true);
+  let secondRead = false;
+  await expect(
+    readInitialHostObservation(async () => {
+      secondRead = true;
+    }),
+  ).rejects.toThrow("still in progress");
+  expect(secondRead).toBe(false);
+  if (!resolveRead || !raw) throw Error("Synthetic native read did not start");
+  resolveRead(`${f.identity.service} = {\n\tpid = 404\n}\n`);
+  await expect(raw).rejects.toThrow("synthetic Host anchor timeout");
+  expect(initialHostObservationPending()).toBe(false);
+});
+
+test("effective successor budget refuses caller cancellation after a raw native read", async () => {
+  const f = await sharedCoordinatorFixture();
+  const controller = new AbortController();
+  let calls = 0;
+  const original = f.ports.reader.readService;
+  f.ports.reader.readService = async (service) => {
+    calls++;
+    controller.abort(new Error("owner cancelled observation"));
+    return original(service);
+  };
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { signal: controller.signal },
+    }),
+  ).rejects.toThrow("owner cancelled observation");
+  expect(calls).toBe(1);
+});
+
+test("effective successor budget passes cancellation and remaining time into full artifact verification", async () => {
+  const f = await sharedCoordinatorFixture();
+  const artifacts = await import("./coordinator-bootstrap-artifact.js");
+  const original = artifacts.inspectBootstrapReleaseArtifacts;
+  const controller = new AbortController();
+  let fullArtifact = 0;
+  vi.spyOn(artifacts, "inspectBootstrapReleaseArtifacts").mockImplementation(
+    async (release, mountRoots, limits) => {
+      fullArtifact++;
+      expect(limits?.signal).toBeDefined();
+      expect(limits?.timeoutMs).toBeGreaterThan(0);
+      expect(limits?.timeoutMs).toBeLessThanOrEqual(12_345);
+      controller.abort(new Error("cancel full artifact"));
+      return original(release, mountRoots, limits);
+    },
+  );
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { signal: controller.signal, timeoutMs: 12_345 },
+    }),
+  ).rejects.toThrow("cancel full artifact");
+  expect(fullArtifact).toBe(1);
+});
+
+test("effective successor budget clears its deadline after success while retaining caller cancellation", async () => {
+  const f = await successorConfigurationFixture();
+  const controller = new AbortController();
+  let now = 0,
+    collecting = true;
+  const proof = await inspectEffectiveMaintenanceConfiguration({
+    ...f.input,
+    collection: {
+      signal: controller.signal,
+      now() {
+        if (!collecting) throw Error("collection clock reused");
+        return now;
+      },
+    },
+  });
+  now = 600_000;
+  collecting = false;
+  proof.assertRetained();
+  proof.assertCurrent();
+  controller.abort(new Error("later caller cancellation"));
+  expect(proof.assertRetained).toThrow("later caller cancellation");
+  expect(proof.assertCurrent).toThrow("later caller cancellation");
+});
+
+test("effective successor budget charges final synchronous native assertions", async () => {
+  const f = await sharedCoordinatorFixture();
+  let now = 0;
+  const native = f.ports.assertCurrent;
+  f.ports.assertCurrent = (service, process) => {
+    native(service, process);
+    now = 60_000;
+  };
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { deadline: 60_000, now: () => now },
+    }),
+  ).rejects.toThrow("deadline exceeded");
+});
+
+test("effective successor budget retains reader callbacks and rejects post-success collection replay", async () => {
+  const f = await sharedCoordinatorFixture();
+  const proof = await f.inspect();
+  f.ports.reader.readService = async () => "substituted reader";
+  expect(proof.assertRetained).toThrow("reader changed");
+  const collection = createCoordinatorObservationCollection();
+  collection.finish(true);
+  let called = false;
+  await expect(
+    collection.read(async () => {
+      called = true;
+    }),
+  ).rejects.toThrow("finished");
+  expect(called).toBe(false);
+});
+
+test("effective successor budget reserves both bounded synchronous native checks", async () => {
+  const f = await sharedCoordinatorFixture();
+  let now = 0,
+    nativeCalls = 0;
+  const exit = f.ports.reader.verifyProcessExited;
+  f.ports.reader.verifyProcessExited = async (pid) => {
+    await exit(pid);
+    now = 56_001;
+  };
+  f.ports.assertCurrent = () => {
+    nativeCalls++;
+  };
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { deadline: 60_000, now: () => now },
+    }),
+  ).rejects.toThrow("deadline exceeded");
+  expect(nativeCalls).toBe(0);
+});
+
+test("effective successor budget rejects an already expired collection before reading", async () => {
+  const f = await successorConfigurationFixture();
+  let called = false;
+  f.ports.reader.readService = async () => {
+    called = true;
+    return "unexpected";
+  };
+  await expect(
+    inspectEffectiveMaintenanceConfiguration({
+      ...f.input,
+      collection: { deadline: 1, now: () => 2 },
+    }),
+  ).rejects.toThrow("deadline exceeded");
+  expect(called).toBe(false);
+});
+
+test("effective successor budget cannot be extended by its original clock callback", () => {
+  const limits = {
+    deadline: 10_000,
+    now(): number {
+      limits.deadline = 60_000;
+      return 0;
+    },
+  };
+  const collection = createCoordinatorObservationCollection(limits);
+  try {
+    expect(() => collection.remaining(10_001)).toThrow("deadline exceeded");
+  } finally {
+    collection.finish(false);
+  }
+});
+
+test("effective successor budget refuses a ten-second read near the original Host thirty-second deadline", async () => {
+  const f = await sharedCoordinatorFixture();
+  let now = 0,
+    reads = 0,
+    processReads = 0;
+  const clock = () => now;
+  const deadline = clock() + 30_000;
+  const original = f.ports.reader.readService;
+  f.ports.reader.readService = async (service) => {
+    reads++;
+    now = 21_000;
+    return original(service);
+  };
+  f.ports.reader.inspectProcess = async () => {
+    processReads++;
+    throw Error("must not start near Host deadline");
+  };
+  await expect(
+    inspectSelectedCoordinatorRuntime({
+      identity: f.identity,
+      executables: [f.node.path],
+      writableMountRoots: [],
+      ports: f.ports,
+      collection: { deadline, now: clock },
+    }),
+  ).rejects.toThrow("deadline exceeded");
+  expect(reads).toBe(1);
+  expect(processReads).toBe(0);
+});
+
+test("effective successor budget uses monotonic remaining time after wall-clock rollback", async () => {
+  let wall = 0;
+  const collection = createCoordinatorObservationCollection({ now: () => wall, timeoutMs: 1000 });
+  wall = -60_000;
+  let started = false;
+  try {
+    expect(collection.remaining()).toBeLessThanOrEqual(1000);
+    await expect(
+      collection.read(async () => {
+        started = true;
+      }, 10_000),
+    ).rejects.toThrow("deadline exceeded");
+    expect(started).toBe(false);
+  } finally {
+    collection.finish(false);
+  }
+});
+
+test("effective successor nested budget refuses native reads after parent wall rollback", async () => {
+  const f = await sharedCoordinatorFixture();
+  let wall = 0;
+  const parent = createCoordinatorObservationCollection({ now: () => wall, timeoutMs: 1000 });
+  wall = -60_000;
+  let reads = 0;
+  f.ports.reader.readService = async () => {
+    reads++;
+    throw Error("native read must not start");
+  };
+  try {
+    await expect(
+      inspectSelectedCoordinatorRuntime({
+        identity: f.identity,
+        executables: [f.node.path],
+        writableMountRoots: [],
+        ports: f.ports,
+        collection: parent.limits,
+      }),
+    ).rejects.toThrow("deadline exceeded");
+    expect(reads).toBe(0);
+    expect(Object.isFrozen(parent.limits)).toBe(true);
+  } finally {
+    parent.finish(false);
+  }
+});
+
+test("effective successor nested budget captures the inherited cutoff before clock callbacks", () => {
+  const parent = createCoordinatorObservationCollection({ now: () => 0, timeoutMs: 1000 });
+  const originalCutoff = parent.limits.monotonicDeadline;
+  const limits = {
+    ...parent.limits,
+    now() {
+      limits.monotonicDeadline += 60_000;
+      return -60_000;
+    },
+  };
+  const child = createCoordinatorObservationCollection(limits);
+  let reads = 0;
+  try {
+    expect(child.limits.monotonicDeadline).toBe(originalCutoff);
+    expect(() => child.sync(() => reads++, 10_000)).toThrow("deadline exceeded");
+    expect(reads).toBe(0);
+  } finally {
+    child.finish(false);
+    parent.finish(false);
+  }
+});
+
+test("effective successor nested budget charges collection clock callback time", () => {
+  const collection = createCoordinatorObservationCollection({
+    timeoutMs: 20,
+    now() {
+      const until = performance.now() + 40;
+      while (performance.now() < until) {
+        // Inert synchronous callback work must consume the original budget.
+      }
+      return 0;
+    },
+  });
+  let reads = 0;
+  try {
+    expect(() => collection.sync(() => reads++, 1)).toThrow("deadline exceeded");
+    expect(reads).toBe(0);
+  } finally {
+    collection.finish(false);
+  }
+});
+
+test.each([NaN, Infinity, -Infinity])(
+  "effective successor nested budget rejects nonfinite inherited cutoff %s",
+  (monotonicDeadline) => {
+    expect(() => createCoordinatorObservationCollection({ monotonicDeadline })).toThrow(
+      "deadline is invalid",
     );
   },
 );

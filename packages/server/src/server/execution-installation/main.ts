@@ -34,7 +34,10 @@ const startupFence = loadCoordinatorStartupFence({
 });
 // This installation entrypoint uses its release CLI, independent of daemon worker markers.
 initializePackagedClaudeCli(true);
-const executor = createInstallationRestartExecutor(config);
+function assertRegistrationReadiness(target: "host" | "container-daemon"): void {
+  app.assertRegistrationReadiness(target);
+}
+const executor = createInstallationRestartExecutor(config, assertRegistrationReadiness);
 if (process.platform === "darwin") {
   executor.reconcileInitialHostActivation = () =>
     reconcileNativeInitialHostActivation({
@@ -96,8 +99,8 @@ if (config.previewMonitor)
       writableMountRoots: () => inspectBootstrapWritableMountRoots(config.previewMonitor!),
     }),
   );
-const profiles = createInstallationProfiles(config);
-const settings = createInstallationSettings(config);
+const profiles = createInstallationProfiles(config, assertRegistrationReadiness);
+const settings = createInstallationSettings(config, assertRegistrationReadiness);
 let stopProfileSynchronization: (() => void) | undefined;
 let stopSettingsReconciliation: (() => void) | undefined;
 let synchronizing = false;
@@ -107,8 +110,7 @@ function activateSynchronization() {
   stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
   synchronizing = true;
 }
-activateSynchronization();
-const claudeSetup = createClaudeSetupRuntime(config, settings);
+const claudeSetup = createClaudeSetupRuntime(config, settings, assertRegistrationReadiness);
 const host = config.public.environments.find((environment) => environment.kind === "host");
 if (!host) throw new Error("Installation Host identity is missing");
 const coordinatorRequests = createBootstrapReconciliationLedger(configFile, host.serverId);
@@ -130,6 +132,7 @@ const app = createInstallationServer(
   startupFence,
   coordinatorRequests,
 );
+activateSynchronization();
 const restartTimer = setInterval(() => {
   try {
     activateSynchronization();

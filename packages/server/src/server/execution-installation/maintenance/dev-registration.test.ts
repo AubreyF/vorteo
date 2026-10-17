@@ -25,6 +25,9 @@ import {
   hashDevRegistrationFile,
   prepareDevRegistrationPublication,
   publishDevRegistration,
+  captureC1RegistrationDocuments,
+  retainC1RegistrationDocuments,
+  type CapturedRegistrationDocument,
 } from "./dev-registration.js";
 
 function fixture() {
@@ -616,5 +619,283 @@ test("complete observer traversal retains a separate account anchor parent chain
   } finally {
     rmSync(f.root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+function c1PublicationFixture(root: string, receiptFile = path.join(root, "installed.json")) {
+  const f = publicationFixture();
+  f.configurationFile = path.join(root, "replacement.json");
+  f.receiptFile = receiptFile;
+  f.configurationBytes = Buffer.from(JSON.stringify(f.config));
+  f.configurationSha256 = createHash("sha256").update(f.configurationBytes).digest("hex");
+  const original = structuredClone(f.config);
+  delete original.container.supervisorMaintenance;
+  const rollback = structuredClone(f.config);
+  rollback.container.supervisorMaintenance = {
+    ...f.config.container.supervisorMaintenance!,
+    script: "/host/rollback.mjs",
+    sha256: "d".repeat(64),
+  };
+  const legacy = prepareDevRegistrationPublication(f);
+  function document<T>(name: string, parsed: T): CapturedRegistrationDocument<T> {
+    const bytes = Buffer.from(JSON.stringify(parsed));
+    return {
+      path: path.join(root, name),
+      bytes,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      parsed,
+    };
+  }
+  const documents = {
+    original: document("original.json", original),
+    replacement: document("replacement.json", f.config),
+    rollback: document("rollback.json", rollback),
+    selected: document("selected.json", JSON.parse(legacy.configurationBytes.toString("utf8"))),
+    preparedReceipt: document("prepared-receipt.json", f.receipt),
+  };
+  for (const item of Object.values(documents))
+    writeFileSync(item.path, item.bytes, { mode: 0o600 });
+  return { ...f, documents, registrationPlanSha256: "a".repeat(64) };
+}
+test("C1 receipt-only publication retains all original configuration bytes and inodes", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-publication-")));
+  fs.chmodSync(root, 0o700);
+  try {
+    const f = c1PublicationFixture(root),
+      prepared = prepareDevRegistrationPublication(f);
+    const identities = Object.fromEntries(
+      Object.entries(f.documents).map(([name, item]) => [
+        name,
+        fs.lstatSync(item.path, { bigint: true }).ino,
+      ]),
+    );
+    const assertDocuments = retainC1RegistrationDocuments(f.documents);
+    publishDevRegistration({
+      prepared,
+      attemptFile: path.join(root, "attempt.json"),
+      reservationSha256: "b".repeat(64),
+      assertCurrent: assertDocuments,
+    });
+    expect(readFileSync(f.receiptFile)).toEqual(prepared.receiptBytes);
+    for (const [name, item] of Object.entries(f.documents)) {
+      expect(readFileSync(item.path)).toEqual(item.bytes);
+      expect(fs.lstatSync(item.path, { bigint: true }).ino).toBe(identities[name]);
+    }
+    expect(() =>
+      publishDevRegistration({
+        prepared,
+        attemptFile: path.join(root, "attempt.json"),
+        reservationSha256: "b".repeat(64),
+        assertCurrent: assertDocuments,
+      }),
+    ).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test.each(["raw", "parsed", "projection", "original-reference"])(
+  "C1 captured %s substitution refuses",
+  (change) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-publication-")));
+    fs.chmodSync(root, 0o700);
+    try {
+      const f = c1PublicationFixture(root);
+      if (change === "raw") f.documents.selected.bytes[0] = 32;
+      if (change === "parsed") f.documents.selected.parsed.listenPort++;
+      if (change === "projection") {
+        f.documents.selected.parsed.listenPort++;
+        f.documents.selected.bytes = Buffer.from(JSON.stringify(f.documents.selected.parsed));
+        f.documents.selected.sha256 = createHash("sha256")
+          .update(f.documents.selected.bytes)
+          .digest("hex");
+      }
+      if (change === "original-reference") {
+        f.documents.original.parsed.container.supervisorMaintenance =
+          f.config.container.supervisorMaintenance;
+        f.documents.original.bytes = Buffer.from(JSON.stringify(f.documents.original.parsed));
+        f.documents.original.sha256 = createHash("sha256")
+          .update(f.documents.original.bytes)
+          .digest("hex");
+      }
+      expect(() => captureC1RegistrationDocuments(f.documents)).toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+test("C1 callback replacement of selected configuration refuses before installed receipt", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-publication-")));
+  fs.chmodSync(root, 0o700);
+  try {
+    const f = c1PublicationFixture(root),
+      prepared = prepareDevRegistrationPublication(f);
+    let calls = 0;
+    expect(() =>
+      publishDevRegistration({
+        prepared,
+        attemptFile: path.join(root, "attempt.json"),
+        reservationSha256: "b".repeat(64),
+        assertCurrent() {
+          if (++calls === 2) {
+            const d = f.documents.selected;
+            const next = d.path + ".substitute";
+            writeFileSync(next, d.bytes, { mode: 0o600 });
+            fs.renameSync(next, d.path);
+          }
+        },
+      }),
+    ).toThrow("custody changed");
+    expect(existsSync(f.receiptFile)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("C1 receipt transaction refuses a substituted durable attempt before receipt write", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-publication-")));
+  fs.chmodSync(root, 0o700);
+  try {
+    const f = c1PublicationFixture(root),
+      prepared = prepareDevRegistrationPublication(f),
+      attemptFile = path.join(root, "attempt.json");
+    let replaced = false;
+    expect(() =>
+      publishDevRegistration({
+        prepared,
+        attemptFile,
+        reservationSha256: "b".repeat(64),
+        assertCurrent() {
+          if (existsSync(attemptFile) && !replaced) {
+            replaced = true;
+            const replacement = attemptFile + ".replacement";
+            writeFileSync(replacement, readFileSync(attemptFile), { mode: 0o600 });
+            fs.renameSync(replacement, attemptFile);
+          }
+        },
+      }),
+    ).toThrow("record custody changed");
+    expect(replaced).toBe(true);
+    expect(existsSync(f.receiptFile)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.each(
+  ["parent", "grandparent"].flatMap((level) =>
+    [0o720, 0o702, 0o770, 0o777].map((mode) => ({ level, mode })),
+  ),
+)("C1 full ancestry rejects writable $level mode $mode", ({ level, mode }) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-ancestry-")));
+  fs.chmodSync(root, 0o700);
+  try {
+    const ancestor = path.join(root, "ancestor"),
+      documents = path.join(ancestor, "documents");
+    fs.mkdirSync(documents, { recursive: true, mode: 0o700 });
+    const f = c1PublicationFixture(documents);
+    fs.chmodSync(level === "parent" ? documents : ancestor, mode);
+    expect(() => retainC1RegistrationDocuments(f.documents)).toThrow("custody is unsafe");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test.each(["parent", "grandparent"])(
+  "C1 full ancestry accepts protected current-user %s and root ancestors",
+  (level) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-ancestry-")));
+    fs.chmodSync(root, 0o700);
+    try {
+      const ancestor = path.join(root, "ancestor"),
+        documents = path.join(ancestor, "documents");
+      fs.mkdirSync(documents, { recursive: true, mode: 0o700 });
+      const f = c1PublicationFixture(documents);
+      fs.chmodSync(level === "parent" ? documents : ancestor, 0o750);
+      expect(() => retainC1RegistrationDocuments(f.documents)()).not.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+const c1ParentRaces = [1, 2, 3, 4].flatMap((call) =>
+  ["attempt", "receipt"].flatMap((target) =>
+    ["replace", "chmod"].map((change) => ({ call, target, change })),
+  ),
+);
+test.each(c1ParentRaces)(
+  "C1 output-only $target parent $change at callback $call refuses publication",
+  ({ call, target, change }) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "c1-output-parent-")));
+    fs.chmodSync(root, 0o700);
+    try {
+      const documents = path.join(root, "documents"),
+        attemptParent = path.join(root, "attempt-only"),
+        receiptParent = path.join(root, "receipt-only");
+      for (const dir of [documents, attemptParent, receiptParent])
+        fs.mkdirSync(dir, { mode: 0o700 });
+      const attemptFile = path.join(attemptParent, "attempt.json"),
+        receiptFile = path.join(receiptParent, "installed.json");
+      const f = c1PublicationFixture(documents, receiptFile),
+        prepared = prepareDevRegistrationPublication(f);
+      const victim = target === "attempt" ? attemptParent : receiptParent,
+        retained = victim + ".retained";
+      let calls = 0,
+        mutated = false,
+        attemptBytes: Buffer | undefined,
+        attemptInode: bigint | undefined;
+      expect(() =>
+        publishDevRegistration({
+          prepared,
+          attemptFile,
+          reservationSha256: "b".repeat(64),
+          assertCurrent() {
+            if (++calls !== call) return;
+            if (existsSync(attemptFile)) {
+              attemptBytes = readFileSync(attemptFile);
+              attemptInode = fs.lstatSync(attemptFile, { bigint: true }).ino;
+            }
+            mutated = true;
+            if (change === "chmod") fs.chmodSync(victim, 0o720);
+            else {
+              fs.renameSync(victim, retained);
+              fs.mkdirSync(victim, { mode: 0o700 });
+            }
+          },
+        }),
+      ).toThrow("parent changed");
+      expect(calls).toBe(call);
+      expect(mutated).toBe(true);
+      const actualAttempt =
+        target === "attempt" && change === "replace"
+          ? path.join(retained, "attempt.json")
+          : attemptFile;
+      const actualReceipt =
+        target === "receipt" && change === "replace"
+          ? path.join(retained, "installed.json")
+          : receiptFile;
+      expect(existsSync(actualAttempt)).toBe(call >= 3);
+      expect(existsSync(actualReceipt)).toBe(call === 4);
+      if (attemptBytes) {
+        expect(readFileSync(actualAttempt)).toEqual(attemptBytes);
+        expect(fs.lstatSync(actualAttempt, { bigint: true }).ino).toBe(attemptInode);
+      }
+      if (call === 4) expect(readFileSync(actualReceipt)).toEqual(prepared.receiptBytes);
+      for (const d of Object.values(f.documents)) expect(readFileSync(d.path)).toEqual(d.bytes);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("C1 full ancestry refuses a root-owned writable temporary ancestor", () => {
+  const root = realpathSync(mkdtempSync(path.join("/tmp", "c1-root-ancestor-")));
+  fs.chmodSync(root, 0o700);
+  try {
+    const parent = fs.lstatSync(path.dirname(root));
+    expect(parent.uid).toBe(0);
+    expect(parent.mode & 0o022).not.toBe(0);
+    const f = c1PublicationFixture(root);
+    expect(() => retainC1RegistrationDocuments(f.documents)).toThrow("custody is unsafe");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

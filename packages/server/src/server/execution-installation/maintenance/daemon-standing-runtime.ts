@@ -5,6 +5,8 @@ import type { RestartJob, RestartImpact } from "@getpaseo/protocol/execution-ins
 import type { InstallationConfig } from "../config.js";
 import type { InstallationSourceUpdates } from "../source-updates.js";
 import type { RestartExecutor } from "../restarts.js";
+import { retainCustodyBinding, retainCustodyProof } from "../retained-custody-binding.js";
+import { BootstrapRequestConflict } from "../coordinator-bootstrap.js";
 import { FileEnrollmentJournal } from "./authorization.js";
 import { readEnrollmentNativeIdentity } from "./native-registration.js";
 import {
@@ -41,8 +43,13 @@ export function createDaemonStandingRuntime(
   updates: Record<RestartJob["target"], StandingUpdater | null>,
   ports: DaemonStandingPorts = { inspect: inspectEnrollmentDaemonIdentity, now: Date.now },
 ) {
+  const registrationRequired = config.container.persistentRegistration !== undefined;
+  const configuration = retainCustodyBinding(config, requireRegistration);
+  const inspectionPorts = retainCustodyBinding(ports, requireRegistration);
+  const clock = ports.now;
   const enrollment = new FileEnrollmentJournal(config.stateDir);
   const native = new Map<RestartJob["target"], EnrollmentDaemonObservation>();
+  let registrationObservation: EnrollmentDaemonObservation | null = null;
   const sources = new Map<string, SourceEvidence>();
   const admittedInstances = new Map<string, string>();
   let refreshing: Promise<void> | null = null;
@@ -58,6 +65,77 @@ export function createDaemonStandingRuntime(
     )
     .digest("hex");
 
+  function requireRegistration(value: unknown, message: string): asserts value {
+    if (!value) throw new BootstrapRequestConflict(`Dev registration readiness: ${message}`);
+  }
+  function retainRegistration(current: EnrollmentDaemonObservation) {
+    const proof = retainCustodyProof(current, requireRegistration);
+    function assertCurrent() {
+      configuration.check();
+      inspectionPorts.check();
+      proof.assertCurrent();
+      const age = clock.call(ports) - Date.parse(proof.data.observedAt);
+      configuration.check();
+      inspectionPorts.check();
+      proof.check();
+      const state = enrollment.readPolicySnapshot();
+      requireRegistration(state.status === "enrolled", "enrollment is unavailable");
+      const target = state.grant.manifest.targets.find(
+        (item) => item.target === "container-daemon",
+      );
+      requireRegistration(target, "enrolled Dev target is unavailable");
+      const descriptor = readEnrollmentNativeIdentity(config.stateDir, target.identitySha256);
+      const data = proof.data;
+      // Native custody and clock callbacks have finished. These final data and
+      // enrollment checks cannot be bypassed by replacing their original callbacks.
+      requireRegistration(
+        Number.isFinite(age) && age >= 0 && age < FRESHNESS_MS,
+        "evidence expired",
+      );
+      requireRegistration(
+        data.identitySha256 === target.identitySha256 &&
+          isDeepStrictEqual(data.descriptor, descriptor) &&
+          descriptor.environment === "container" &&
+          descriptor.target === "container-daemon" &&
+          descriptor.installationId === config.public.installationId &&
+          descriptor.stateDirectory === config.stateDir &&
+          data.custodyStateDirectory === config.stateDir &&
+          data.serverId ===
+            config.public.environments.find((item) => item.kind === "container")?.serverId,
+        "native observation differs from the configured enrolled target",
+      );
+    }
+    assertCurrent();
+    return { ...proof.data, assertCurrent };
+  }
+  /** This prerequisite grants no standing, interruption or Factory authority. */
+  function assertRegistrationReadiness(target: RestartJob["target"]): void {
+    if (target !== "container-daemon") return;
+    if (!registrationRequired && config.container.persistentRegistration === undefined) return;
+    try {
+      requireRegistration(registrationRequired, "configuration changed");
+      configuration.check();
+      const current = native.get(target);
+      requireRegistration(
+        current && current === registrationObservation,
+        "independent current registration is unavailable",
+      );
+      const result: unknown = current.assertCurrent();
+      requireRegistration(result === undefined, "custody assertion must be synchronous");
+    } catch (error) {
+      native.delete(target);
+      registrationObservation = null;
+      throw error;
+    }
+  }
+  function registrationReadiness(): { available: boolean } {
+    try {
+      assertRegistrationReadiness("container-daemon");
+      return { available: true };
+    } catch {
+      return { available: false };
+    }
+  }
   function observation(target: RestartJob["target"]) {
     const result = native.get(target);
     if (!result) return null;
@@ -106,6 +184,7 @@ export function createDaemonStandingRuntime(
     credentialBindingSha256,
     ports: {
       evidence,
+      assertRegistrationReadiness,
       assertEvidence(job, phase) {
         if (!evidence(job)) throw new Error("Current native maintenance evidence is unavailable");
         if (job.standingInterruption) assertInterruptionEvidence(job);
@@ -155,20 +234,36 @@ export function createDaemonStandingRuntime(
     const state = enrollment.readPolicySnapshot();
     if (state.status === "absent") {
       native.clear();
+      registrationObservation = null;
       sources.clear();
       return;
     }
     await Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => {
         native.delete(target);
+        if (target === "container-daemon") registrationObservation = null;
         const binding = state.grant.manifest.targets.find((item) => item.target === target);
         if (!binding) return;
         try {
           const expected = readEnrollmentNativeIdentity(config.stateDir, binding.identitySha256);
-          const current = await ports.inspect(config, expected);
+          if (target === "container-daemon" && registrationRequired) {
+            configuration.check();
+            inspectionPorts.check();
+          }
+          const inspect =
+            target === "container-daemon" && registrationRequired
+              ? inspectionPorts.snapshot.inspect
+              : ports.inspect;
+          const current = await inspect.call(ports, config, expected);
           if (current.identitySha256 !== binding.identitySha256)
             throw new Error("Observed daemon identity differs from enrollment");
-          native.set(target, current);
+          const retained =
+            target === "container-daemon" && registrationRequired
+              ? retainRegistration(current)
+              : current;
+          native.set(target, retained);
+          if (target === "container-daemon" && registrationRequired)
+            registrationObservation = retained;
         } catch {
           // Missing evidence is unknown health and denied authority. Never reuse
           // a successful observation after a failed refresh.
@@ -325,6 +420,7 @@ export function createDaemonStandingRuntime(
       throw new Error("Native interruption outcome observation is stale or invalid");
   }
   async function verifySelection(job: RestartJob, executor: RestartExecutor): Promise<void> {
+    assertRegistrationReadiness(job.target);
     if (!job.standingDecision) return;
     await refresh([job], true);
     const current = observation(job.target);
@@ -371,6 +467,8 @@ export function createDaemonStandingRuntime(
   }
   return {
     ...adapter,
+    registrationReadiness,
+    assertRegistrationReadiness,
     refresh,
     initialActivationInstance,
     prepareInterruption,

@@ -4,6 +4,7 @@ import {
 } from "./host-supervisor-contract.js";
 export { InitialHostSupervisorPreconditionSchema } from "./host-supervisor-contract.js";
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { DaemonMaintenanceProcessSchema as RuntimeProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
 import { execFile, execFileSync } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
@@ -35,6 +36,7 @@ import {
   enrollmentNativeIdentityDigest,
   type EnrollmentNativeIdentity,
 } from "./native-identity.js";
+import { inspectEffectiveMaintenanceConfiguration } from "../coordinator-bootstrap-maintenance-observation-runtime.js";
 
 import {
   DEV_REGISTRATION_INSPECTION_SCRIPT,
@@ -283,14 +285,29 @@ async function inspectDaemonCustody(
       expected.installationId === config.public.installationId,
     "Installation custody or identity differs",
   );
-  const started = ports.now();
+  const clock = ports.now.bind(ports);
+  const monotonic = performance.now.bind(performance);
+  const monotonicStarted = monotonic();
+  const started = clock();
+  // Nested collectors receive the original wall clock with a monotonic floor,
+  // so a clock rollback cannot restart their available collection window.
+  const collectionClock = () => Math.max(clock(), started + monotonic() - monotonicStarted);
   const command = ports.command.bind(ports);
   ports = {
     ...ports,
+    now: clock,
     command: async (file, args, limits) => {
-      const remaining = 60_000 - (ports.now() - started);
+      const remaining = 60_000 - (collectionClock() - started);
       requireMatch(remaining > 0, "Native observation exceeded freshness deadline");
-      return command(file, args, { ...limits, timeout: Math.min(limits.timeout, remaining) });
+      const result = await command(file, args, {
+        ...limits,
+        timeout: Math.min(limits.timeout, remaining),
+      });
+      requireMatch(
+        collectionClock() - started <= 60_000,
+        "Native observation exceeded freshness deadline",
+      );
+      return result;
     },
   };
   const custody = retainCustody();
@@ -306,13 +323,6 @@ async function inspectDaemonCustody(
     readPrivateBootstrapConfiguration(runner.admissionSetupFile, ports.uid),
   );
   custody.capture([setup.configurationFile]);
-  requireMatch(
-    isDeepStrictEqual(
-      readPrivateBootstrapConfiguration(setup.configurationFile, ports.uid),
-      config,
-    ),
-    "Protected installation configuration differs",
-  );
   const docker = async (args: string[]) =>
     JSON.parse(
       await ports.command(
@@ -376,12 +386,27 @@ async function inspectDaemonCustody(
     mounts.roots,
     ports.uid,
   );
+  const effective = await inspectEffectiveMaintenanceConfiguration({
+    configuration: config,
+    admission: setup,
+    writableMountRoots: mounts.roots,
+    collection: { deadline: started + 60_000, now: collectionClock },
+  });
+  const effectiveSetup = effective.admission;
+  const assertEffective = effective.assertCurrent;
+  const assertEffectiveRetained = effective.assertRetained;
   let assertMigrationCurrent = () => {};
   if (purpose.kind === "initial-migration") {
     requireMatch(ports.retainInitialHostCustody, "Initial Host native custody is unavailable");
-    await verifyInitialHostFiles(config, setup, purpose.precondition, mounts.roots, ports.uid);
+    await verifyInitialHostFiles(
+      config,
+      effectiveSetup,
+      purpose.precondition,
+      mounts.roots,
+      ports.uid,
+    );
     assertMigrationCurrent = await ports.retainInitialHostCustody(
-      setup,
+      effectiveSetup,
       mounts.roots,
       purpose.precondition,
     );
@@ -406,14 +431,14 @@ async function inspectDaemonCustody(
       ? await inspectHost(
           config,
           expected,
-          setup,
+          effectiveSetup,
           mounts.roots,
           daemon.pid,
           ports,
           custody,
           purpose,
         )
-      : await inspectDev(config, expected, setup, daemon.pid, ports, {
+      : await inspectDev(config, expected, effectiveSetup, daemon.pid, ports, {
           custody,
           roots: mounts.roots,
           startup: {
@@ -446,13 +471,16 @@ async function inspectDaemonCustody(
       ) &&
       isDeepStrictEqual(
         config,
-        readPrivateBootstrapConfiguration(setup.configurationFile, ports.uid),
+        readPrivateBootstrapConfiguration(effectiveSetup.configurationFile, ports.uid),
       ),
     "Native configuration changed during inspection",
   );
   const finalDaemon = await ports.daemon(config, kind);
   requireMatch(isDeepStrictEqual(daemon, finalDaemon), "Daemon changed during inspection");
-  requireMatch(ports.now() - started <= 60_000, "Native observation exceeded freshness deadline");
+  requireMatch(
+    collectionClock() - started <= 60_000,
+    "Native observation exceeded freshness deadline",
+  );
   const descriptor = EnrollmentNativeIdentitySchema.parse(observed.descriptor);
   requireMatch(
     enrollmentNativeIdentityDigest(descriptor) === enrollmentNativeIdentityDigest(expected),
@@ -468,6 +496,8 @@ async function inspectDaemonCustody(
   const observedAt = new Date(ports.now()).toISOString();
   const assertCurrent = () => {
     custody.assertCurrent();
+    assertEffective();
+    custody.assertCurrent();
     if (purpose.kind === "initial-migration") {
       const age = ports.now() - Date.parse(observedAt);
       requireMatch(age >= 0 && age < 30_000, "Initial Host custody proof expired");
@@ -479,16 +509,34 @@ async function inspectDaemonCustody(
       const finalAge = ports.now() - Date.parse(observedAt);
       requireMatch(finalAge >= 0 && finalAge < 30_000, "Initial Host custody proof expired");
     }
+    requireMatch(
+      effective.assertCurrent === assertEffective &&
+        effective.assertRetained === assertEffectiveRetained,
+      "Effective configuration custody callbacks changed",
+    );
+    assertEffectiveRetained();
+    custody.assertCurrent();
   };
+  const writableMountRoots = await Promise.all(mounts.roots.map((root) => realpath(root)));
+  const custodyStateDirectory = await realpath(config.stateDir);
+  requireMatch(
+    collectionClock() - started <= 60_000,
+    "Native observation exceeded freshness deadline",
+  );
   assertCurrent();
-  requireMatch(ports.now() - started <= 60_000, "Native observation exceeded freshness deadline");
+  requireMatch(
+    collectionClock() - started <= 60_000,
+    "Native observation exceeded freshness deadline",
+  );
+  assertEffectiveRetained();
+  custody.assertCurrent();
   return {
     ...observed,
     assertCurrent,
     descriptor,
     identitySha256: enrollmentNativeIdentityDigest(descriptor),
-    writableMountRoots: await Promise.all(mounts.roots.map((root) => realpath(root))),
-    custodyStateDirectory: await realpath(config.stateDir),
+    writableMountRoots,
+    custodyStateDirectory,
     serverId: daemon.serverId,
     ...(daemon.workerInstanceId ? { workerInstanceId: daemon.workerInstanceId } : {}),
     ...(daemon.restartDrainId !== undefined ? { restartDrainId: daemon.restartDrainId } : {}),

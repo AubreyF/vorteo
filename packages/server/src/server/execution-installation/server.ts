@@ -286,7 +286,9 @@ export function createInstallationServer(
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,
     "container-daemon": config.containerSourceUpdates
-      ? new InstallationSourceUpdates(config, "container-daemon")
+      ? new InstallationSourceUpdates(config, "container-daemon", (target) =>
+          standingRuntime.assertRegistrationReadiness(target),
+        )
       : null,
   };
   const forTarget = (target: RestartJob["target"]) => {
@@ -296,16 +298,34 @@ export function createInstallationServer(
     return updater;
   };
   const standingRuntime = createDaemonStandingRuntime(config, updates);
+  function assertUpdateReadiness(target: RestartJob["target"]): void {
+    standingRuntime.assertRegistrationReadiness(target);
+    if (target === "container-daemon" && config.container.persistentRegistration)
+      throw new RestartRequestError(
+        "Dev source updates require independently verified transition-phase readiness",
+      );
+  }
   const restartExecutor: RestartExecutor = {
     ...executor,
     supportsUpdate: (target) => updates[target] !== null,
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,
-    prepareUpdate: (items, target) => forTarget(target).prepare(items),
-    captureDevRepair: (items) => forTarget("container-daemon").captureDevRepair(items),
-    prepareDevRepair: (capture, items) =>
-      forTarget("container-daemon").prepareDevRepair(capture, items),
-    prepareInstallation: (job) => forTarget(job.target).prepareInstallation(job),
+    prepareUpdate: (items, target) => {
+      assertUpdateReadiness(target);
+      return forTarget(target).prepare(items);
+    },
+    captureDevRepair: (items) => {
+      assertUpdateReadiness("container-daemon");
+      return forTarget("container-daemon").captureDevRepair(items);
+    },
+    prepareDevRepair: (capture, items) => {
+      assertUpdateReadiness("container-daemon");
+      return forTarget("container-daemon").prepareDevRepair(capture, items);
+    },
+    prepareInstallation: (job) => {
+      assertUpdateReadiness(job.target);
+      return forTarget(job.target).prepareInstallation(job);
+    },
     verifyPreparedInstallation: async (job, options) => {
       await forTarget(job.target).verifyPreparedInstallation(job, options);
       await standingRuntime.refresh([job], true);
@@ -318,6 +338,7 @@ export function createInstallationServer(
       forTarget(job.target).install(
         job,
         async (target) => {
+          assertUpdateReadiness(target);
           if (job.standingInterruption) {
             if (!executor.restartHeld)
               throw new RestartRequestError("Acknowledged restart executor is unavailable");
@@ -545,6 +566,12 @@ export function createInstallationServer(
   }
   async function updateCapability(target: RestartJob["target"]) {
     try {
+      standingRuntime.assertRegistrationReadiness(target);
+      if (target === "container-daemon" && config.container.persistentRegistration)
+        return {
+          available: false,
+          reason: "Dev source updates require independently verified transition-phase readiness.",
+        };
       forTarget(target).source();
       if (target === "container-daemon" && config.containerSourceUpdates)
         await inspectContainerSource(config.containerSourceUpdates);
@@ -694,14 +721,21 @@ export function createInstallationServer(
       extractHttpBearerToken(req.header("authorization")),
       config.hostAgentTokenHash,
     );
-    const supervisorPlan = host ? executor.supervisorPlan?.() : undefined;
-    const factoryRuntimePlan = host ? executor.factoryRuntimePlan?.() : undefined;
+    const devReady = standingRuntime.registrationReadiness().available;
+    const supervisorPlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.supervisorPlan?.()
+        : undefined;
+    const factoryRuntimePlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.factoryRuntimePlan?.()
+        : undefined;
     const permissions = daemonAutomation.servicePermissions();
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
     // the conservative aggregate until legacy capability clients retire after 2027-04-15.
     const automaticHost = Boolean(
-      permissions.host && permissions["container-daemon"] && automaticSupported,
+      permissions.host && permissions["container-daemon"] && automaticSupported && devReady,
     );
     void (async () => {
       const monitorCompatible = host ? ((await executor.monitorCompatible?.()) ?? false) : false;
@@ -709,9 +743,16 @@ export function createInstallationServer(
       return Promise.all(
         (["host", "container-daemon"] as const).map(async (target) => ({
           target,
-          restart: true,
-          ownerApprovalRequired: !(host && permissions[target] && automaticSupported),
-          hostAutomaticRestarts: Boolean(permissions[target] && automaticSupported),
+          restart: target === "host" || devReady,
+          ownerApprovalRequired: !(
+            host &&
+            permissions[target] &&
+            automaticSupported &&
+            (target === "host" || devReady)
+          ),
+          hostAutomaticRestarts: Boolean(
+            permissions[target] && automaticSupported && (target === "host" || devReady),
+          ),
           sourceUpdate: await updateCapability(target),
         })),
       ).then(
@@ -1711,5 +1752,9 @@ export function createInstallationServer(
     logger.error({ err: error }, "Installation request failed");
     res.status(500).json({ error: "Installation request failed" });
   });
-  return Object.assign(app, { drainRestarts });
+  return Object.assign(app, {
+    drainRestarts,
+    assertRegistrationReadiness: standingRuntime.assertRegistrationReadiness,
+    registrationReadiness: standingRuntime.registrationReadiness,
+  });
 }

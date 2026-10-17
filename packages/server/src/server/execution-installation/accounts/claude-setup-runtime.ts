@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
 import { ProviderLoginService } from "../../../services/provider-login/service.js";
 import { ClaudeSetupTokenLoginSession } from "../../agent/providers/claude/setup-token-login.js";
@@ -7,6 +8,7 @@ import {
   resolveProviderLaunch,
 } from "../../agent/provider-launch-config.js";
 import type { InstallationConfig } from "../config.js";
+import { createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { ClaudeSetupAuthority } from "./claude-setup-authority.js";
 import {
@@ -19,7 +21,10 @@ import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.j
 export function createClaudeSetupRuntime(
   config: InstallationConfig,
   settings: InstallationSettingsService,
+  assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
 ) {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  const configuration = structuredClone(config);
   const file = join(config.stateDir, "claude-setup", "authority.json");
   function definition(definitionId: string) {
     const snapshot = settings.snapshot();
@@ -91,6 +96,10 @@ export function createClaudeSetupRuntime(
       );
       if (!environment) throw new ClaudeSetupDeliveryError();
       const target = environment.kind === "host" ? config.host : config.container;
+      // Credential withdrawal remains available while ordinary Dev work is fenced.
+      if (delivery.credential !== null)
+        assertReady(environment.kind === "host" ? "host" : "container-daemon");
+      if (!isDeepStrictEqual(config, configuration)) throw new ClaudeSetupDeliveryError();
       // Explicit loopback endpoints are validated by installation config, never supplied by clients.
       const response = await fetch(
         `http://${target.endpoint}/api/installation/claude/setup-token`,

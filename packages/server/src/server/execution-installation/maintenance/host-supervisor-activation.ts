@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+import { readBoundedMaintenanceInspection } from "../coordinator-bootstrap-maintenance-service-native.js";
 import path from "node:path";
 import { lstatSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -135,8 +137,18 @@ export async function reconcileNativeInitialHostActivation(input: {
             inspected.plan.precondition.configuration.path === input.configurationFile,
           "Initial Host observation differs from configured identity",
         );
-        const anchor = await readInitialHostObservation(() =>
-          inspectMaintenanceObservationRuntime(input),
+        const now = performance.now.bind(performance);
+        const deadline = now() + 30_000;
+        const anchor = await readBoundedMaintenanceInspection(
+          (signal) =>
+            readInitialHostObservation(() =>
+              inspectMaintenanceObservationRuntime({
+                ...input,
+                signal,
+                collection: { deadline, now },
+              }),
+            ),
+          { timeoutMs: 30_000, detail: "Initial Host anchor inspection timed out" },
         );
         requireMatch(
           anchor.installationRoot === identity.installationRoot,

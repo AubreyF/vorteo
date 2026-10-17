@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.685 - 2026-10-17
+
+### Maintenance
+
+- Prepare separate immutable Dev predecessor, replacement, rollback and selected-coordinator configurations. Verify their exact deterministic projection under coordinator policy, retain approved Docker and Host Node bindings, and publish only the registration receipt. Historical attempts remain observation-only.
+- Resolve selected successor configuration through approved coordinator history without rewriting the original admission anchor. Retain native, configuration and release custody after callbacks, carry absolute and monotonic collection bounds through nested reads, and preserve raw read ownership after timeout.
+- Require independent registration readiness for ordinary Dev work, including manual restart approval, outbound dispatch, profile/settings synchronization and credential delivery. Credential withdrawal remains available. Configured source updates, Factory adoption and generic supervisor execution refuse before mutation because their transition proofs remain unavailable.
+- Add configuration projection, publication-custody, successor-budget, readiness and HTTP approval regressions. Native launch and workload closure, Dev final root admission and settlement, combined activation and installed acceptance remain unfinished. Nothing is installed or enabled.
+
 ## 0.11.0-beta.3.vorteo.684 - 2026-10-17
 
 ### Maintenance

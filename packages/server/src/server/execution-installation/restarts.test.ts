@@ -18,7 +18,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { createInstallationRestartExecutor, validateHostStartup } from "./daemon.js";
+import {
+  createInstallationRestartExecutor,
+  createInstallationRegistrationAdmission,
+  validateHostStartup,
+} from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
 import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
@@ -4311,4 +4315,90 @@ test("worker launch cannot borrow Host, Factory or source-update authority", () 
   expect(() =>
     queue.request({ ...input, factoryRuntimePlanSha256: "a".repeat(64) }, "container-agent"),
   ).toThrow("separate Dev requester");
+});
+
+function registrationReadinessConfig(): InstallationConfig {
+  const config = restartTestConfig("/fixture/installation", "/fixture/entrypoint");
+  config.container.persistentRegistration = {
+    receiptFile: "/fixture/registration.json",
+    sha256: "a".repeat(64),
+  };
+  return config;
+}
+
+test("configured Dev registration refuses outbound effects without independent readiness", async () => {
+  const executor = createInstallationRestartExecutor(registrationReadinessConfig());
+  await expect(executor.restart("container-daemon")).rejects.toThrow("readiness");
+  await expect(executor.restartWhenIdle!("container-daemon")).rejects.toThrow("readiness");
+  await expect(executor.holdCurrentTurns!("container-daemon", "fixture-request")).rejects.toThrow(
+    "readiness",
+  );
+});
+
+test("Dev readiness admission retains configuration across its original callback", () => {
+  const config = registrationReadinessConfig();
+  let calls = 0;
+  const check = createInstallationRegistrationAdmission(config, () => {
+    calls++;
+    config.container.endpoint = "replacement.example";
+  });
+  expect(() => check("container-daemon")).toThrow("readiness");
+  expect(calls).toBe(1);
+  expect(() => check("container-daemon")).toThrow("configuration changed");
+  expect(calls).toBe(1);
+});
+
+test("removing a configured receipt cannot disable Dev readiness admission", () => {
+  const config = registrationReadinessConfig();
+  const check = createInstallationRegistrationAdmission(config, () => undefined);
+  delete config.container.persistentRegistration;
+  expect(() => check("container-daemon")).toThrow("configuration changed");
+  expect(() => check("host")).not.toThrow();
+});
+
+test("Dev readiness admission remains fresh on every call and preserves legacy targets", () => {
+  let ready = true;
+  const check = createInstallationRegistrationAdmission(registrationReadinessConfig(), () => {
+    if (!ready) throw new Error("native custody expired");
+  });
+  expect(() => check("container-daemon")).not.toThrow();
+  ready = false;
+  expect(() => check("container-daemon")).toThrow("native custody expired");
+  expect(() =>
+    createInstallationRegistrationAdmission(restartTestConfig("/fixture", "/entry"))(
+      "container-daemon",
+    ),
+  ).not.toThrow();
+});
+
+test("configured Dev transitions refuse before selection, staging or supervisor launch", async () => {
+  const config = registrationReadinessConfig();
+  const job: RestartJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "container-daemon",
+    requestedBy: "owner",
+    reason: "Test unavailable phase transition",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "approved",
+    detail: "No effect permitted",
+  };
+  let restarts = 0;
+  await expect(
+    installContainerSource({
+      config,
+      job,
+      bundleFile: "/unread/bundle",
+      assertRegistrationReadiness: () => undefined,
+      restart: async () => {
+        restarts++;
+        return "unexpected";
+      },
+    }),
+  ).rejects.toThrow("transition-phase readiness");
+  const executor = createInstallationRestartExecutor(config, () => undefined);
+  await expect(executor.adoptFactoryRuntime!(job)).rejects.toThrow("transition-phase readiness");
+  await expect(executor.restartSupervisor!(job)).rejects.toThrow("independently bound operation");
+  expect(restarts).toBe(0);
 });

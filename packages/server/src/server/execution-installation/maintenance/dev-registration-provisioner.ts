@@ -3,7 +3,14 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import { z } from "zod";
-import { DevStartupSchema } from "./dev-registration.js";
+import { InstallationConfigSchema } from "../config.js";
+import {
+  DevRegistrationReceiptSchema,
+  captureC1RegistrationDocuments,
+  type CapturedRegistrationDocument,
+  type C1RegistrationDocuments,
+  DevStartupSchema,
+} from "./dev-registration.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const absolute = z
@@ -78,6 +85,27 @@ export const DevRegistrationProvisionerInputSchema = z.strictObject({
   installationId: z.uuid(),
   preparationNonce: z.uuid(),
   configurationFile: absolute,
+  c1First: z
+    .strictObject({
+      format: z.literal("c1-first-v1"),
+      configurationFiles: z.strictObject({
+        original: absolute,
+        replacement: absolute,
+        rollback: absolute,
+        selected: absolute,
+      }),
+      preparedReceiptFile: absolute,
+      scripts: z.strictObject({ node: absolute, replacement: absolute, rollback: absolute }),
+      /** Reviewed startup evidence commitments only. Independent native preflight
+       * must establish these semantic roles; labels and membership are not proof. */
+      startupReceiptRoles: z.strictObject({
+        containerEntrypoint: sourceFile,
+        supervisorConfiguration: sourceFile,
+        profileLauncher: sourceFile,
+        dockerEntrypoint: sourceFile,
+      }),
+    })
+    .optional(),
   hostReceiptFile: absolute,
   /** Existing read-only audited bootstrap inspector; no native resolver is supplied. */
   hostInspector: sourceFile.refine((file) => file.size <= 1024 * 1024),
@@ -279,6 +307,32 @@ export function prepareDevRegistrationProvisioner(
   return prepareRetainedProvisioner(input);
 }
 
+/** Decode only the bounded data envelope, then compare the entire program to
+ * this trusted generator. This does not approve its installation or file pins.
+ * The limit matches the protected bootstrap document reader's 1 MiB bound. */
+export function verifyDevRegistrationC1Script(script: string): PreparedDevRegistrationProvisioner {
+  if (Buffer.byteLength(script, "utf8") > 1024 * 1024)
+    throw new Error("C1 replacement script exceeds its byte bound");
+  const envelopes = [...script.matchAll(/^const reviewed=([^\r\n]+);$/gm)];
+  if (envelopes.length !== 1)
+    throw new Error("C1 replacement requires one canonical reviewed envelope");
+  const bytes = envelopes[0][1];
+  const parsed: unknown = JSON.parse(bytes);
+  if (JSON.stringify(parsed) !== bytes)
+    throw new Error("C1 reviewed envelope is not canonical JSON");
+  const reviewed = z
+    .strictObject({ plan: z.unknown(), planSha256: digest, operation: z.literal("replace") })
+    .parse(parsed);
+  // Extraction is not validation of derived plan fields. Only exact generation
+  // below can establish that the supplied program is this fixed replacement.
+  const input = DevRegistrationProvisionerInputSchema.strip().parse(reviewed.plan);
+  if (input.c1First?.format !== "c1-first-v1") throw new Error("C1 replacement format is required");
+  const prepared = prepareDevRegistrationProvisioner(input);
+  if (prepared.planSha256 !== reviewed.planSha256 || prepared.script !== script)
+    throw new Error("C1 replacement script differs from the exact fixed generator");
+  return prepared;
+}
+
 /** Historical parsing never approves or supplies missing executable pins. */
 export function assertDevRegistrationDockerPin(docker: ProvisionerInput["docker"]): void {
   sourceFile
@@ -301,6 +355,32 @@ export function verifyRetainedDevRegistrationProvisioner(
   const input = DevRegistrationProvisionerInputSchema.strip().parse(retained.plan);
   if (!isDeepStrictEqual(prepareRetainedProvisioner(input), retained))
     throw new Error("Registration artifact differs from the exact fixed preparer");
+}
+
+function assertC1ProvisionerInput(input: ProvisionerInput) {
+  if (input.c1First) {
+    assertDevRegistrationDockerPin(input.docker);
+    const c = input.c1First;
+    const paths = [
+      ...Object.values(c.configurationFiles),
+      ...Object.values(c.scripts),
+      c.preparedReceiptFile,
+      input.hostReceiptFile,
+    ];
+    if (
+      new Set(paths).size !== paths.length ||
+      input.configurationFile !== c.configurationFiles.replacement
+    )
+      throw new Error("C1 static configuration paths differ or collide");
+    const roles = Object.values(c.startupReceiptRoles);
+    if (
+      new Set(roles.map((file) => file.path)).size !== 4 ||
+      roles.some((role) => !input.startupFiles.some((file) => isDeepStrictEqual(file, role)))
+    )
+      throw new Error("Named startup receipt roles differ from reviewed closure");
+    if (input.parent.executable !== input.systemPython.path)
+      throw new Error("Parent executable differs from reviewed Python");
+  }
 }
 
 function prepareRetainedProvisioner(input: ProvisionerInput): PreparedDevRegistrationProvisioner {
@@ -343,6 +423,7 @@ function prepareRetainedProvisioner(input: ProvisionerInput): PreparedDevRegistr
     )
   )
     throw new Error("Linux artifact lacks its supervisor or worker entrypoint");
+  assertC1ProvisionerInput(input);
   const plan = provisioningPlan(input);
   const planSha256 = sha(JSON.stringify(plan));
   const script = hostScript({ plan, planSha256, operation: "replace" });
@@ -403,11 +484,12 @@ const prefix=['--host','unix://'+plan.docker.socket];`,
     "const docker=args=>execFileSync(plan.docker.path,[...prefix,...args],{timeout:10000,maxBuffer:1024*1024,encoding:'utf8'});",
     "const docker=args=>{verifyDocker();return execFileSync(plan.docker.path,[...prefix,...args],{timeout:10000,maxBuffer:1024*1024,encoding:'utf8'});};",
   );
-  return replaceExactly(
+  const result = replaceExactly(
     checked,
     "const result=JSON.parse(execFileSync(plan.docker.path,",
     "verifyDocker();\nconst result=JSON.parse(execFileSync(plan.docker.path,",
   );
+  return input.plan.c1First ? c1HostScript(result) : result;
 }
 
 // This v682 template also defines historical rollback bytes. Do not add new
@@ -716,3 +798,205 @@ result=dict(planSha256=request['planSha256'],claimSha256=request['claimSha256'],
 create(p['nativeReceiptFile'] if operation=='replace' else p['destination']+'/rollback-result.json',json.dumps(result,separators=(',',':')).encode(),0o600)
 print(json.dumps(result,separators=(',',':')))
 `;
+
+function c1HostScript(script: string): string {
+  let result = replaceExactly(
+    script,
+    "function load(){",
+    `${C1_SCRIPT_DOCUMENTS}
+function load(){`,
+  );
+  result = replaceExactly(
+    result,
+    "const configurationBytes=protectedFile(plan.configurationFile),config=JSON.parse(configurationBytes);",
+    "const documents=readC1Documents();const configurationBytes=documents[operation==='replace'?'replacement':'rollback'].bytes,config=JSON.parse(configurationBytes);",
+  );
+  result = replaceExactly(
+    result,
+    "return {config,configured,job,claim:authority(effect),original,configurationSha256:hash(configurationBytes)};",
+    "return {config,configured,job,claim:authority(effect),original,configurationSha256:hash(configurationBytes),documents};",
+  );
+  result = replaceExactly(
+    result,
+    "const context=load();inspectExecutor(context);",
+    "const context=load();inspectExecutor(context);assertC1Documents(context.documents);",
+  );
+  result = replaceExactly(
+    result,
+    "check(child.pid===process.pid,'Consumed child is not this executor');",
+    "check(child.pid===process.pid&&child.executable.path===context.configured.node,'Consumed child is not this executor');",
+  );
+  result = replaceExactly(
+    result,
+    "}else check(b.original===null,'Replacement cannot borrow rollback authority');",
+    "check(documents.replacement.parsed.container.supervisorMaintenance.sha256===original.binding.supervisorPlanSha256,'Rollback replacement configuration differs from original consumed script');\n }else check(b.original===null,'Replacement cannot borrow rollback authority');",
+  );
+  result = replaceExactly(
+    result,
+    "const publicationConfig={...config,container:{...config.container}};delete publicationConfig.container.supervisorMaintenance;",
+    "const publicationConfig={...context.documents.replacement.parsed,container:{...context.documents.replacement.parsed.container}};delete publicationConfig.container.supervisorMaintenance;",
+  );
+  result = replaceExactly(
+    result,
+    "const publicationSnapshot={planSha256,claimSha256:originalClaimSha256,jobId:originalClaim.binding.requestId,scriptSha256:originalClaim.binding.supervisorPlanSha256,configurationSha256:digest(publicationConfig),receiptAbsent:true};",
+    "const publicationSnapshot={version:2,planSha256,claimSha256:originalClaimSha256,jobId:originalClaim.binding.requestId,scriptSha256:originalClaim.binding.supervisorPlanSha256,configurationSha256:digest(publicationConfig),documents:documentPins(context.documents),receiptAbsent:true};",
+  );
+  result = replaceExactly(
+    result,
+    "const final=load();check(isDeepStrictEqual(final.claim,claim)&&isDeepStrictEqual(final.original,original)&&final.configurationSha256===context.configurationSha256,'Consumed authority changed before root invocation');inspectExecutor(final);",
+    "assertC1Documents(context.documents);const final=load();check(isDeepStrictEqual(final.claim,claim)&&isDeepStrictEqual(final.original,original)&&final.configurationSha256===context.configurationSha256&&isDeepStrictEqual(documentPins(final.documents),documentPins(context.documents)),'Consumed authority changed before root invocation');inspectExecutor(final);assertC1Documents(context.documents);assertC1Documents(final.documents);check(isDeepStrictEqual(documentPins(readC1Documents()),documentPins(context.documents)),'C1 documents changed after native inspection');",
+  );
+  return result;
+}
+const C1_SCRIPT_DOCUMENTS = `
+const c1Custody=new WeakMap();
+function retainC1Files(paths){
+ const records=new Map();
+ const identity=file=>{const s=fs.lstatSync(file,{bigint:true});check(fs.realpathSync(file)===file&&!s.isSymbolicLink()&&(s.uid===0n||s.uid===BigInt(process.getuid()))&&(s.mode&0o022n)===0n&&(s.isDirectory()||(s.isFile()&&s.nlink===1n&&s.size<=268435456n)),'C1 document custody differs');return [s.dev,s.ino,s.uid,s.gid,s.mode,...(s.isDirectory()?[]:[s.size,s.mtimeNs,s.ctimeNs,s.nlink])].join(':');};
+ for(const file of paths)for(let current=file;;current=path.dirname(current)){const value=identity(current);check(!records.has(current)||records.get(current)===value,'C1 ancestry raced');records.set(current,value);check(records.size<=256,'C1 ancestry exceeds bound');if(path.dirname(current)===current)break;}
+ return ()=>{for(const [file,value] of records)check(identity(file)===value,'C1 document lifetime changed');};
+}
+function assertC1Documents(documents){const verify=c1Custody.get(documents);check(typeof verify==='function','C1 retained custody is absent');verify();}
+function documentPins(documents){return Object.fromEntries(Object.entries(documents).map(([name,item])=>[name,{path:item.path,sha256:hash(item.bytes)}]));}
+function receiptForC1(replacement){
+ const roles=plan.c1First.startupReceiptRoles;
+ const file=item=>({path:item.path,sha256:item.sha256});
+ const supervisor=plan.linuxArtifact.entries.find(item=>item.kind==='file'&&item.path==='packages/server/dist/scripts/supervisor-entrypoint.js');
+ return {version:1,purpose:'dev-persistent-registration',installationId:plan.installationId,containerId:plan.docker.containerId,startup:plan.startup,account:plan.account,
+ supervisorPlanSha256:replacement.container.supervisorMaintenance.sha256,launcherPath:plan.originalPointer.path,selectionPath:plan.selectionPath,releaseRoot:plan.releaseRoot,selectionCustody:'configured-dev-user',parentArgumentsSha256:plan.parent.argumentsSha256,
+ files:{containerEntrypoint:file(roles.containerEntrypoint),supervisorConfiguration:file(roles.supervisorConfiguration),profileLauncher:file(roles.profileLauncher),dockerEntrypoint:file(roles.dockerEntrypoint),entrySelection:{path:plan.originalPointer.path,sha256:hash(plan.pointerContent)},factoryEntrypoint:file(plan.files.find(item=>item.path===plan.destination+'/factory-main-entry.mjs')),factoryLauncher:file(plan.files.find(item=>item.path===plan.destination+'/factory-launch.py')),supervisorEntrypoint:{path:plan.supervisorEntrypoint,sha256:supervisor.sha256},parentExecutable:{path:plan.parent.executable,sha256:plan.systemPython.sha256},node:{path:plan.protectedNode,sha256:plan.node.sha256}}};
+}
+function readC1Documents(){
+ const paths={...plan.c1First.configurationFiles,preparedReceipt:plan.c1First.preparedReceiptFile};
+ const assertFiles=retainC1Files([...Object.values(paths),...Object.values(plan.c1First.scripts)]);
+ const documents=Object.fromEntries(Object.entries(paths).map(([name,file])=>{const bytes=protectedFile(file,1048576);return [name,{path:file,bytes,parsed:JSON.parse(bytes)}];}));
+ const {original,replacement,rollback,selected,preparedReceipt}=Object.fromEntries(Object.entries(documents).map(([name,item])=>[name,item.parsed]));
+ check(!original.container.supervisorMaintenance&&!original.container.persistentRegistration&&!replacement.container.persistentRegistration&&!rollback.container.persistentRegistration,'C1 original or operation registration differs');
+ const a=replacement.container.supervisorMaintenance,b=rollback.container.supervisorMaintenance;
+ check(a?.node===plan.c1First.scripts.node&&b?.node===plan.c1First.scripts.node&&a?.script===plan.c1First.scripts.replacement&&b?.script===plan.c1First.scripts.rollback,'C1 fixed script selectors differ');
+ check(a&&b&&a.node===b.node&&a.script!==b.script&&a.sha256!==b.sha256,'C1 operation references differ');
+ check(hash(protectedFile(a.script))===a.sha256&&hash(protectedFile(b.script))===b.sha256,'C1 operation script changed');
+ const common=config=>{const copy=structuredClone(config);delete copy.container.supervisorMaintenance;return copy;};
+ check(isDeepStrictEqual(common(replacement),original)&&isDeepStrictEqual(common(rollback),original),'C1 operation common projection differs');
+ const receipt=receiptForC1(replacement);check(isDeepStrictEqual(receipt,preparedReceipt),'C1 prepared receipt projection differs');
+ const expected=structuredClone(replacement);expected.containerSourceUpdates.node=plan.protectedNode;
+ expected.container.persistentRegistration={receiptFile:plan.hostReceiptFile,sha256:hash(documents.preparedReceipt.bytes)};
+ check(isDeepStrictEqual(expected,selected),'C1 selected projection differs');
+ assertFiles();c1Custody.set(documents,assertFiles);return documents;
+}
+`;
+export function devRegistrationC1Receipt(prepared: PreparedDevRegistrationProvisioner) {
+  const plan = prepared.plan,
+    c = plan.c1First;
+  if (!c) throw new Error("C1 registration format is absent");
+  const file = (item: { path: string; sha256: string } | undefined) => {
+    if (!item) throw new Error("Named receipt artifact is absent");
+    return { path: item.path, sha256: item.sha256 };
+  };
+  const supervisor = plan.linuxArtifact.entries.find(
+    (item) =>
+      item.kind === "file" && item.path === "packages/server/dist/scripts/supervisor-entrypoint.js",
+  );
+  if (!supervisor || supervisor.kind !== "file")
+    throw new Error("Receipt supervisor artifact is absent");
+  return DevRegistrationReceiptSchema.parse({
+    version: 1,
+    purpose: "dev-persistent-registration",
+    installationId: plan.installationId,
+    containerId: plan.docker.containerId,
+    startup: plan.startup,
+    account: plan.account,
+    supervisorPlanSha256: prepared.sha256,
+    launcherPath: plan.originalPointer.path,
+    selectionPath: plan.selectionPath,
+    releaseRoot: plan.releaseRoot,
+    selectionCustody: "configured-dev-user",
+    parentArgumentsSha256: plan.parent.argumentsSha256,
+    files: {
+      containerEntrypoint: file(c.startupReceiptRoles.containerEntrypoint),
+      supervisorConfiguration: file(c.startupReceiptRoles.supervisorConfiguration),
+      profileLauncher: file(c.startupReceiptRoles.profileLauncher),
+      dockerEntrypoint: file(c.startupReceiptRoles.dockerEntrypoint),
+      entrySelection: { path: plan.originalPointer.path, sha256: sha(plan.pointerContent) },
+      factoryEntrypoint: file(
+        plan.files.find((item) => item.path === plan.destination + "/factory-main-entry.mjs"),
+      ),
+      factoryLauncher: file(
+        plan.files.find((item) => item.path === plan.destination + "/factory-launch.py"),
+      ),
+      supervisorEntrypoint: { path: plan.supervisorEntrypoint, sha256: supervisor.sha256 },
+      parentExecutable: { path: plan.parent.executable, sha256: plan.systemPython.sha256 },
+      node: { path: plan.protectedNode, sha256: plan.node.sha256 },
+    },
+  });
+}
+export function prepareDevRegistrationC1Documents(input: {
+  provisioner: PreparedDevRegistrationProvisioner;
+  original: CapturedRegistrationDocument<z.infer<typeof InstallationConfigSchema>>;
+  replacementScript: { path: string; bytes: Buffer; sha256: string };
+  rollbackScript: { path: string; bytes: Buffer; sha256: string };
+  hostNode: string;
+}): C1RegistrationDocuments {
+  const { provisioner } = input;
+  verifyRetainedDevRegistrationProvisioner(provisioner);
+  const plan = provisioner.plan,
+    c = plan.c1First;
+  if (!c) throw new Error("C1 registration format is absent");
+  const original = structuredClone(input.original);
+  original.bytes = Buffer.from(input.original.bytes);
+  original.parsed = InstallationConfigSchema.parse(original.parsed);
+  if (
+    original.path !== c.configurationFiles.original ||
+    sha(original.bytes) !== original.sha256 ||
+    !isDeepStrictEqual(JSON.parse(original.bytes.toString("utf8")), original.parsed)
+  )
+    throw new Error("C1 original captured bytes differ");
+  const script = (value: typeof input.replacementScript, expected: string, expectedSha: string) => {
+    absolute.parse(value.path);
+    if (
+      !value.bytes.equals(Buffer.from(expected)) ||
+      sha(value.bytes) !== value.sha256 ||
+      value.sha256 !== expectedSha
+    )
+      throw new Error("C1 reviewed script bytes differ");
+    return { node: absolute.parse(input.hostNode), script: value.path, sha256: value.sha256 };
+  };
+  const replacement = structuredClone(original.parsed),
+    rollback = structuredClone(original.parsed);
+  replacement.container.supervisorMaintenance = script(
+    input.replacementScript,
+    provisioner.script,
+    provisioner.sha256,
+  );
+  rollback.container.supervisorMaintenance = script(
+    input.rollbackScript,
+    provisioner.rollback.script,
+    provisioner.rollback.sha256,
+  );
+  const receipt = devRegistrationC1Receipt(provisioner);
+  if (
+    input.hostNode !== c.scripts.node ||
+    input.replacementScript.path !== c.scripts.replacement ||
+    input.rollbackScript.path !== c.scripts.rollback
+  )
+    throw new Error("C1 fixed script selectors differ");
+  const document = <T>(file: string, parsed: T): CapturedRegistrationDocument<T> => {
+    const bytes = Buffer.from(JSON.stringify(parsed));
+    return { path: file, bytes, sha256: sha(bytes), parsed };
+  };
+  const preparedReceipt = document(c.preparedReceiptFile, receipt),
+    selected = structuredClone(replacement);
+  if (!selected.containerSourceUpdates) throw new Error("C1 source updater is absent");
+  selected.containerSourceUpdates.node = plan.protectedNode;
+  selected.container.persistentRegistration = {
+    receiptFile: plan.hostReceiptFile,
+    sha256: preparedReceipt.sha256,
+  };
+  return captureC1RegistrationDocuments({
+    original,
+    replacement: document(c.configurationFiles.replacement, replacement),
+    rollback: document(c.configurationFiles.rollback, rollback),
+    selected: document(c.configurationFiles.selected, selected),
+    preparedReceipt,
+  });
+}

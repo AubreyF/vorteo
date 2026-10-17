@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { SourceUpdateSchema, type RestartJob } from "@getpaseo/protocol/execution-installation";
 import { writeLifecycleReceipt } from "./lifecycle-journal.js";
-import { connectInstallationDaemon } from "./daemon.js";
+import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "./daemon.js";
 import type { InstallationConfig, ContainerSourceUpdates } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
 
@@ -21,6 +21,7 @@ interface ContainerCommand {
   operation: Record<string, unknown>;
   archive?: Buffer;
   signal?: AbortSignal;
+  assertCurrent?: () => void;
 }
 
 /** Docker remains a Host-only capability. No command, container or credential comes from an upload. */
@@ -29,6 +30,7 @@ async function containerCommand({
   operation,
   archive,
   signal,
+  assertCurrent,
 }: ContainerCommand): Promise<unknown> {
   const helper = readFileSync(
     path.join(settings.toolingDirectory, "installation-container-runtime.mjs"),
@@ -56,6 +58,7 @@ async function containerCommand({
     }),
   ];
   const stdout = await new Promise<string>((resolve, reject) => {
+    assertCurrent?.();
     const child = execFile(
       settings.docker,
       args,
@@ -90,16 +93,22 @@ interface ContainerInstallation {
   bundleFile: string;
   restart: RestartExecutor["restart"];
   beforeSelection?: () => Promise<void>;
+  assertRegistrationReadiness?: (target: RestartJob["target"]) => void;
 }
 
 export async function prepareContainerSource({
   config,
   job,
   bundleFile,
+  assertRegistrationReadiness,
 }: Omit<ContainerInstallation, "restart">): Promise<void> {
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  assertReady("container-daemon");
+  if (config.container.persistentRegistration)
+    throw new Error("Dev source updates require independently verified transition-phase readiness");
   const update = SourceUpdateSchema.parse(job.update);
   const installed = SelectionSchema.parse(
     await containerCommand({ settings, operation: { action: "inspect" } }),
@@ -151,6 +160,7 @@ export async function prepareContainerSource({
     await containerCommand({
       settings,
       archive,
+      assertCurrent: () => assertReady("container-daemon"),
       operation: {
         action: "prepare",
         jobId: job.id,
@@ -227,7 +237,12 @@ export async function installContainerSource({
   job,
   restart,
   beforeSelection,
+  assertRegistrationReadiness,
 }: ContainerInstallation): Promise<string> {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  assertReady("container-daemon");
+  if (config.container.persistentRegistration)
+    throw new Error("Dev source updates require independently verified transition-phase readiness");
   const settings = config.containerSourceUpdates;
   if (!settings || job.target !== "container-daemon")
     throw new Error("Dev source updates are not configured");
@@ -252,7 +267,11 @@ export async function installContainerSource({
 
   await beforeSelection?.();
   writeLifecycleReceipt(receipt, { ...operation, status: "activating" });
-  await containerCommand({ settings, operation: { ...operation, action: "activate" } });
+  await containerCommand({
+    settings,
+    operation: { ...operation, action: "activate" },
+    assertCurrent: () => assertReady("container-daemon"),
+  });
   try {
     await restart("container-daemon");
     const client = await connectInstallationDaemon(config, "container");

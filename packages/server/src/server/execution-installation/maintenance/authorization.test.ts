@@ -9385,3 +9385,452 @@ test.each(["retirement", "bootstrap"] as const)(
     expect(changed === "retirement" ? retired : started).toBe(true);
   },
 );
+
+function devRegistrationReadinessFixture(configured = true, omitTarget = false) {
+  const f = fixture();
+  const descriptor = {
+    version: 1 as const,
+    environment: "container" as const,
+    target: "container-daemon" as const,
+    installationId: f.manifest.installationId,
+    custodyOwnerUid: process.getuid!(),
+    installationRoot: f.directory,
+    stateDirectory: f.directory,
+    containerId: "a".repeat(64),
+    containerUid: 1000,
+    containerGid: 1000,
+    containerHome: "/home/paseo",
+    containerStateDirectory: "/home/paseo/state",
+    launcherPath: "/opt/vorteo/launcher",
+    selectionPath: "/home/paseo/current",
+  };
+  const identitySha256 = retainEnrollmentNativeIdentity(f.directory, descriptor);
+  f.manifest.targets[2].identitySha256 = identitySha256;
+  if (omitTarget)
+    f.manifest.targets[2] = { target: "host", identitySha256, operations: ["restart"] };
+  f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
+  let state = enrolled(f.enroll());
+  for (const stepId of [f.first, f.second]) {
+    state = enrolled(
+      reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId }),
+    );
+    const progress = state.activation.steps.find((item) => item.id === stepId)!;
+    if (progress.status !== "reserved") throw new Error("Expected fixture reservation");
+    state = enrolled(
+      observeActivationStep(f.journal, {
+        stepId,
+        generation: progress.generation,
+        outcome: "succeeded",
+        observationSha256: "7".repeat(64),
+      }),
+    );
+  }
+  const config: InstallationConfig = {
+    public: {
+      version: 1,
+      installationId: f.manifest.installationId,
+      origin: "https://installation.example",
+      environments: [
+        { kind: "host", serverId: "host", endpoint: "host.example", useTls: true },
+        { kind: "container", serverId: "dev", endpoint: "dev.example", useTls: true },
+      ],
+    },
+    stateDir: f.directory,
+    webDistDir: f.directory,
+    listenPort: 6770,
+    ownerPasswordHash: "$2-fixture",
+    hostAgentTokenHash: "0".repeat(64),
+    containerAgentTokenHash: "1".repeat(64),
+    host: {
+      endpoint: "localhost:6771",
+      password: "fixture",
+      launchdService: `gui/${process.getuid!()}/local.vorteo.readiness.host`,
+    },
+    container: {
+      endpoint: "localhost:6772",
+      password: "fixture",
+      ...(configured
+        ? {
+            persistentRegistration: {
+              receiptFile: path.join(f.directory, "future-receipt.json"),
+              sha256: "b".repeat(64),
+            },
+          }
+        : {}),
+    },
+  };
+  let now = Date.parse("2026-10-15T02:00:00Z");
+  let unavailable = false;
+  let hook: () => void = () => undefined;
+  const processIdentity = {
+    pid: 100,
+    parentPid: 1,
+    uid: 1000,
+    bootId: "boot",
+    startIdentity: "birth",
+    executable: "/opt/vorteo/node",
+    argumentsSha256: "a".repeat(64),
+  };
+  const current = {
+    descriptor,
+    identitySha256,
+    observedAt: new Date(now).toISOString(),
+    custodyStateDirectory: f.directory,
+    writableMountRoots: [],
+    serverId: "dev",
+    selectedRelease: "/opt/vorteo/release",
+    sourceCommit: "a".repeat(40),
+    supervisor: processIdentity,
+    worker: { ...processIdentity, pid: 101, parentPid: 100 },
+    assertCurrent() {
+      return hook();
+    },
+  };
+  const runtime = createDaemonStandingRuntime(
+    config,
+    { host: null, "container-daemon": null },
+    {
+      now: () => now,
+      inspect: async () => {
+        if (unavailable) throw new Error("Native registration unavailable");
+        return current;
+      },
+    },
+  );
+  const pending: RestartJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "container-daemon",
+    reason: "Readiness fixture",
+    requestedBy: "owner",
+    createdAt: new Date(now).toISOString(),
+    expiresAt: "2026-10-16T00:00:00.000Z",
+    status: "pending",
+    detail: "Prepared",
+  };
+  return {
+    ...f,
+    config,
+    current,
+    runtime,
+    pending,
+    advance(ms: number) {
+      now += ms;
+    },
+    fail() {
+      unavailable = true;
+    },
+    onCurrent(callback: () => void) {
+      hook = callback;
+    },
+  };
+}
+
+test("Dev registration readiness requires independent evidence, not receipt existence", async () => {
+  const f = devRegistrationReadinessFixture();
+  writeFileSync(f.config.container.persistentRegistration!.receiptFile, "synthetic receipt", {
+    mode: 0o600,
+  });
+  expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+  expect(() => f.runtime.assertRegistrationReadiness("container-daemon")).toThrow(
+    "registration readiness",
+  );
+  await f.runtime.refresh([]);
+  expect(f.runtime.registrationReadiness()).toEqual({ available: true });
+  f.fail();
+  await f.runtime.refresh([], true);
+  expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+});
+
+test.each([
+  "callback",
+  "worker",
+  "descriptor",
+  "reference",
+  "config",
+  "age",
+  "thenable",
+  "return",
+] as const)(
+  "Dev registration readiness rejects retained mutation after native callbacks: %s",
+  async (change) => {
+    const f = devRegistrationReadinessFixture();
+    await f.runtime.refresh([]);
+    const mutations = {
+      callback: () => {
+        f.current.assertCurrent = () => undefined;
+      },
+      worker: () => {
+        f.current.worker.startIdentity = "changed";
+      },
+      descriptor: () => {
+        f.current.descriptor.containerId = "c".repeat(64);
+      },
+      reference: () => {
+        f.config.container.persistentRegistration!.sha256 = "c".repeat(64);
+      },
+      config: () => {
+        f.config.container.endpoint = "localhost:9999";
+      },
+      age: () => {
+        f.advance(30_000);
+      },
+      // oxlint-disable-next-line unicorn/no-thenable -- Verify that custody rejects thenables.
+      thenable: () => ({ then() {} }),
+      return: () => 1,
+    };
+    f.onCurrent(mutations[change]);
+    expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+    f.onCurrent(() => undefined);
+    expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+  },
+);
+
+test.each([-1, 30_000, 60_000])(
+  "Dev registration readiness rejects invalid age %s",
+  async (age) => {
+    const f = devRegistrationReadinessFixture();
+    await f.runtime.refresh([]);
+    f.advance(age);
+    expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+  },
+);
+
+test.each(["no enrollment", "no target", "wrong server", "wrong native target"] as const)(
+  "Dev registration readiness rejects missing or substituted enrollment: %s",
+  async (change) => {
+    const f = devRegistrationReadinessFixture(true, change === "no target");
+    if (change === "wrong server") f.current.serverId = "substituted";
+    if (change === "wrong native target") f.current.identitySha256 = "c".repeat(64);
+    await f.runtime.refresh([]);
+    if (change === "no enrollment")
+      unlinkSync(path.join(f.directory, "maintenance-enrollment.json"));
+    expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+  },
+);
+
+const registrationEffectCases = [
+  "manual",
+  "standing",
+  "hold",
+  "running",
+  "batch",
+  "build",
+  "repair",
+  "Factory",
+  "supervisor",
+] as const;
+function registrationEffectJob(
+  pending: RestartJob,
+  kind: (typeof registrationEffectCases)[number],
+): RestartJob {
+  const next: RestartJob = { ...pending, status: "approved", approvedAt: pending.createdAt };
+  if (kind === "standing")
+    next.automaticApproval = {
+      policyActivatedAt: pending.createdAt,
+      requestRevision: next.revision,
+    };
+  if (kind === "hold") {
+    next.status = "pending";
+    next.standingHold = {
+      generation: randomUUID(),
+      grantRevision: randomUUID(),
+      decisionSha256: "a".repeat(64),
+      reservedAt: pending.createdAt,
+    };
+  }
+  if (kind === "running") next.status = "running";
+  if (kind === "batch") {
+    next.status = "pending";
+    next.sourceBatch = { status: "preparing", contributions: [] };
+  }
+  if (kind === "build") {
+    next.status = "pending";
+    next.updatePreparation = "preparing";
+  }
+  if (kind === "repair") {
+    next.status = "pending";
+    next.devRepairs = [
+      {
+        id: randomUUID(),
+        capturedRevision: pending.revision,
+        createdAt: pending.createdAt,
+        status: "preparing",
+        detail: "Prepared",
+        capture: {
+          hostReleaseDirectory: "/protected/release",
+          baseCommit: "a".repeat(40),
+          sourceCommit: "b".repeat(40),
+          integrationRef: "refs/heads/main",
+          contributionCommits: [],
+        },
+      },
+    ];
+  }
+  if (kind === "Factory") next.factoryRuntimePlanSha256 = "a".repeat(64);
+  if (kind === "supervisor") next.supervisorPlanSha256 = "a".repeat(64);
+  return next;
+}
+
+test.each(
+  registrationEffectCases.flatMap((kind) =>
+    (["write", "mutate"] as const).map((writer) => ({ kind, writer })),
+  ),
+)("Dev registration shared admission gates $kind through $writer", ({ kind, writer }) => {
+  const f = devRegistrationReadinessFixture();
+  f.runtime.journal.write([f.pending]);
+  const before = readFileSync(path.join(f.directory, "restart-jobs.json"));
+  const next = registrationEffectJob(f.pending, kind);
+  const attempt = () =>
+    writer === "write" ? f.runtime.journal.write([next]) : f.runtime.journal.mutate!(() => [next]);
+  expect(attempt).toThrow("registration readiness");
+  expect(readFileSync(path.join(f.directory, "restart-jobs.json"))).toEqual(before);
+});
+
+test("Dev registration shared admission refuses absent enrollment and checks every proposed row", () => {
+  const f = devRegistrationReadinessFixture();
+  f.runtime.journal.write([f.pending]);
+  unlinkSync(path.join(f.directory, "maintenance-enrollment.json"));
+  const ordinary = registrationEffectJob(f.pending, "manual");
+  const other: RestartJob = {
+    ...f.pending,
+    id: randomUUID(),
+    supervisorPlanSha256: "a".repeat(64),
+  };
+  expect(() => f.runtime.journal.mutate!(() => [other, ordinary])).toThrow(
+    "registration readiness",
+  );
+  expect(f.runtime.journal.read()).toEqual([f.pending]);
+});
+
+test("Dev registration readiness permits passive revoked observation and cancellation", () => {
+  const f = devRegistrationReadinessFixture();
+  f.runtime.journal.write([f.pending]);
+  const state = enrolled(f.journal.read());
+  changeStandingGrant(f.journal, {
+    expectedRevision: state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observed: RestartJob = {
+    ...f.pending,
+    status: "failed",
+    detail: "Unresolved observation only",
+  };
+  f.runtime.journal.write([observed]);
+  expect(f.runtime.journal.read()).toEqual([observed]);
+});
+
+test("Dev registration readiness preserves reference-absent manual behavior and Host admission", async () => {
+  const legacy = devRegistrationReadinessFixture(false);
+  legacy.fail();
+  await legacy.runtime.refresh([]);
+  expect(legacy.runtime.registrationReadiness()).toEqual({ available: true });
+  legacy.runtime.journal.write([registrationEffectJob(legacy.pending, "manual")]);
+  const configured = devRegistrationReadinessFixture();
+  configured.runtime.assertRegistrationReadiness("host");
+  configured.runtime.journal.write([
+    { ...registrationEffectJob(configured.pending, "manual"), target: "host" },
+  ]);
+});
+
+test("Dev registration readiness admits verified manual effects without granting standing authority", async () => {
+  const f = devRegistrationReadinessFixture();
+  await f.runtime.refresh([]);
+  const approved = registrationEffectJob(f.pending, "manual");
+  f.runtime.journal.write([approved]);
+  f.runtime.journal.write([{ ...approved, status: "running" }]);
+  f.advance(30_000);
+  expect(() => f.runtime.assertRegistrationReadiness("container-daemon")).toThrow();
+});
+
+test("Dev registration readiness is required before manual verifySelection can return", async () => {
+  const f = devRegistrationReadinessFixture();
+  await expect(
+    f.runtime.verifySelection(f.pending, { restart: async () => "unused" }),
+  ).rejects.toThrow("registration readiness");
+});
+
+test.each(["thenable", "mutation"] as const)(
+  "Dev registration shared admission rejects callback authority changes: %s",
+  (change) => {
+    const f = restartAdmissionFixture();
+    const next: RestartJob = { ...f.pending, status: "approved" };
+    const input = {
+      previous: [f.pending],
+      next: [next],
+      state: f.state,
+      evaluate: f.evaluate,
+      assertEvidence() {},
+      assertRegistrationReadiness() {
+        // oxlint-disable-next-line unicorn/no-thenable -- Verify that admission rejects thenables.
+        if (change === "thenable") return { then() {} };
+        next.target = "host";
+      },
+    };
+    expect(() => assertStandingRestartAdmission(input)).toThrow(
+      change === "thenable" ? "synchronous" : "binding changed",
+    );
+  },
+);
+
+test("Dev registration readiness cannot use receipt-only evidence after the native Factory refusal", async () => {
+  const f = devRegistrationReadinessFixture();
+  f.onCurrent(() => {
+    throw new Error("Dev opaque Factory startup handoff remains unverified");
+  });
+  await f.runtime.refresh([]);
+  expect(f.runtime.registrationReadiness()).toEqual({ available: false });
+  expect(() => f.runtime.journal.write([registrationEffectJob(f.pending, "manual")])).toThrow(
+    "registration readiness",
+  );
+});
+
+test("Dev registration readiness remains a prerequisite after successful observation", async () => {
+  const f = devRegistrationReadinessFixture();
+  await f.runtime.refresh([]);
+  const approved = registrationEffectJob(f.pending, "manual");
+  f.runtime.journal.write([approved]);
+  const before = readFileSync(path.join(f.directory, "restart-jobs.json"));
+  f.onCurrent(() => f.advance(30_000));
+  expect(() => f.runtime.journal.mutate!(() => [{ ...approved, status: "running" }])).toThrow(
+    "expired",
+  );
+  expect(readFileSync(path.join(f.directory, "restart-jobs.json"))).toEqual(before);
+});
+
+test("native Host anchor passes its actual collection signal without effects", async () => {
+  const f = initialHostActivationFixture();
+  const configuration = hostActivationConfiguration(f);
+  await reconcileInitialHostActivation(f.input, f.ports);
+  const progress = enrolled(f.journal.read()).activation.steps[1];
+  if (progress.status !== "reserved") throw Error("Fixture reservation missing");
+  // Only an address-presence hint is needed to reach anchor collection. The
+  // injected refusal occurs before any authoritative claim read or target action.
+  writeFileSync(
+    path.join(f.directory, `initial-host-claim-${f.second}-${progress.generation}.json`),
+    "{}",
+    { mode: 0o600 },
+  );
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  const observation = await import("../coordinator-bootstrap-maintenance-observation-runtime.js");
+  let called = false;
+  vi.spyOn(observation, "inspectMaintenanceObservationRuntime").mockImplementation(
+    async (input) => {
+      called = true;
+      expect(input.signal).toBeInstanceOf(AbortSignal);
+      expect(input.signal?.aborted).toBe(false);
+      throw Error("inert anchor refuses before claim inspection");
+    },
+  );
+  await expect(
+    reconcileNativeInitialHostActivation({
+      configuration,
+      configurationFile: f.plan.precondition.configuration.path,
+    }),
+  ).rejects.toThrow("inert anchor refuses");
+  expect(called).toBe(true);
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  expect(f.prepared.launch).toHaveBeenCalledTimes(1);
+});

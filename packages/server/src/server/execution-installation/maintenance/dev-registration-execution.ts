@@ -40,10 +40,14 @@ import {
   DevRegistrationReceiptSchema,
   prepareDevRegistrationPublication,
   publishDevRegistration,
+  captureC1RegistrationDocuments,
+  retainC1RegistrationDocuments,
+  c1RegistrationPublicationAttempt,
 } from "./dev-registration.js";
 import {
   verifyRetainedDevRegistrationProvisioner,
   assertDevRegistrationDockerPin,
+  devRegistrationC1Receipt,
   type PreparedDevRegistrationProvisioner,
 } from "./dev-registration-provisioner.js";
 import { DaemonMaintenanceProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
@@ -56,6 +60,9 @@ export interface DevRegistrationExecutionCandidate {
   publicationAttemptFile: string;
 }
 export interface DevRegistrationExecutionPreflight {
+  /** New format requires this pin from the independently verified actual Host
+   * release/admission, retained by assertCurrent. Candidate bytes are not proof. */
+  selectedConfiguration?: { path: string; sha256: string };
   /** Actual retained executor arrangement, never a PID chosen for a later fork. */
   controller: SupervisorEffectExecutor;
   nativeIdentitySha256: string;
@@ -80,7 +87,9 @@ export interface DevRegistrationExecutionObservation {
   } | null;
   readiness: unknown | null;
   /** Verifies retained executor lifetime/artifacts, native result, Host attempt,
-   * readiness and claimed child/root-executor/workload settlement, without effects. */
+   * readiness and claimed child/root-executor/workload settlement, without effects.
+   * New-format observation also retains the actual selected C1 Host runtime and
+   * admission, not a C0 descriptor substituted as runtime authority. */
   assertCurrent(): void;
 }
 export interface DevRegistrationExecutionChildProof {
@@ -296,7 +305,13 @@ export function assertDevRegistrationEffectAdmission(input: EffectAdmission): vo
     }
 }
 
+const candidateCustody = new WeakMap<object, () => void>();
+function assertCandidateCurrent(candidate: DevRegistrationExecutionCandidate) {
+  candidateCustody.get(candidate)?.();
+}
 function captureCandidate(value: DevRegistrationExecutionCandidate) {
+  assertCandidateCurrent(value);
+  const inheritedCustody = candidateCustody.get(value);
   const candidate = structuredClone(value);
   candidate.publication.configurationBytes = Buffer.from(value.publication.configurationBytes);
   const { provisioner, publication } = candidate;
@@ -321,6 +336,13 @@ function captureCandidate(value: DevRegistrationExecutionCandidate) {
     "Registration publication descriptor differs from the prepared plan",
   );
   const receipt = DevRegistrationReceiptSchema.parse(publication.receipt);
+  captureC1Candidate(candidate, value);
+  const retainedCustody = candidateCustody.get(candidate);
+  if (inheritedCustody)
+    candidateCustody.set(candidate, () => {
+      inheritedCustody();
+      retainedCustody?.();
+    });
   requireMatch(
     receipt.supervisorPlanSha256 === provisioner.sha256 &&
       receipt.installationId === plan.installationId &&
@@ -340,6 +362,67 @@ function captureCandidate(value: DevRegistrationExecutionCandidate) {
     "Publication attempt must be a separate declared canonical path",
   );
   return candidate;
+}
+function captureC1Candidate(
+  candidate: DevRegistrationExecutionCandidate,
+  value: DevRegistrationExecutionCandidate,
+) {
+  const { publication, provisioner } = candidate;
+  const plan = provisioner.plan;
+  const receipt = DevRegistrationReceiptSchema.parse(publication.receipt);
+  if (plan.c1First) {
+    const documents = publication.documents;
+    requireMatch(
+      Boolean(documents) && publication.registrationPlanSha256 === provisioner.planSha256,
+      "C1 registration documents are absent or plan differs",
+    );
+    if (!documents) conflict("C1 registration documents are absent");
+    publication.documents = captureC1RegistrationDocuments(documents);
+    for (const name of ["original", "replacement", "rollback", "selected"] as const) {
+      requireMatch(
+        publication.documents[name].path === plan.c1First.configurationFiles[name],
+        "C1 document path differs from static plan",
+      );
+      InstallationConfigSchema.parse(publication.documents[name].parsed);
+    }
+    requireMatch(
+      publication.documents.preparedReceipt.path === plan.c1First.preparedReceiptFile &&
+        isDeepStrictEqual(receipt, devRegistrationC1Receipt(provisioner)) &&
+        isDeepStrictEqual(publication.documents.preparedReceipt.parsed, receipt) &&
+        publication.documents.replacement.bytes.equals(publication.configurationBytes) &&
+        isDeepStrictEqual(publication.documents.replacement.parsed, publication.config) &&
+        publication.documents.selected.parsed.container.persistentRegistration?.receiptFile ===
+          plan.hostReceiptFile &&
+        candidate.publicationAttemptFile ===
+          plan.hostReceiptFile + ".publication-attempt-" + plan.preparationNonce + ".json",
+      "C1 publication differs from static plan",
+    );
+    const refs = publication.documents;
+    requireMatch(
+      refs.replacement.parsed.container.supervisorMaintenance?.script ===
+        plan.c1First.scripts.replacement &&
+        refs.rollback.parsed.container.supervisorMaintenance?.script ===
+          plan.c1First.scripts.rollback &&
+        refs.replacement.parsed.container.supervisorMaintenance?.node ===
+          plan.c1First.scripts.node &&
+        refs.rollback.parsed.container.supervisorMaintenance?.sha256 ===
+          provisioner.rollback.sha256,
+      "C1 configured operation reference differs",
+    );
+    const assertFiles = retainC1RegistrationDocuments(refs, [
+      { path: plan.c1First.scripts.replacement, bytes: Buffer.from(provisioner.script) },
+      { path: plan.c1First.scripts.rollback, bytes: Buffer.from(provisioner.rollback.script) },
+    ]);
+    const original = captureC1RegistrationDocuments(value.publication.documents!);
+    candidateCustody.set(candidate, () => {
+      requireMatch(
+        isDeepStrictEqual(captureC1RegistrationDocuments(value.publication.documents!), original),
+        "C1 caller document snapshot changed",
+      );
+      assertFiles();
+    });
+  } else
+    requireMatch(!publication.documents, "Historical registration cannot acquire C1 authority");
 }
 function child(job: RestartJob): LifecycleActivationChild {
   const decision = job.standingDecision;
@@ -386,6 +469,14 @@ function originalLink(
     "Rollback original consumed registration differs",
   );
   if (!effect) conflict("Rollback original consumed registration differs");
+  if (candidate.provisioner.plan.c1First)
+    requireMatch(
+      effect.binding.supervisorPlanSha256 ===
+        candidate.publication.documents?.replacement.parsed.container.supervisorMaintenance
+          ?.sha256 &&
+        effect.binding.candidateSha256 === sha({ ...candidate, operation: "replace" }),
+      "Rollback original immutable document tuple differs",
+    );
   return { requestId: original.id, claimSha256: devRegistrationAuthorityDigest(effect) };
 }
 function makeBinding(
@@ -433,6 +524,52 @@ function makeBinding(
   });
 }
 
+const preflightIdentity = new WeakMap<object, () => void>();
+function capturePreflight(
+  value: DevRegistrationExecutionPreflight,
+): DevRegistrationExecutionPreflight {
+  const { assertCurrent, ...data } = value;
+  const snapshot = structuredClone(data);
+  const assertIdentity = () => {
+    const { assertCurrent: currentCallback, ...currentData } = value;
+    const { assertCurrent: wrappedCallback, ...wrappedData } = proof;
+    requireMatch(
+      currentCallback === assertCurrent &&
+        isDeepStrictEqual(currentData, snapshot) &&
+        wrappedCallback === retainedCallback &&
+        isDeepStrictEqual(wrappedData, snapshot),
+      "Registration preflight snapshot or callback changed",
+    );
+  };
+  const proof = {
+    ...snapshot,
+    assertCurrent() {
+      assertIdentity();
+      sync(assertCurrent);
+      assertIdentity();
+    },
+  };
+  const retainedCallback = proof.assertCurrent;
+  preflightIdentity.set(proof, assertIdentity);
+  return proof;
+}
+function assertSelectedConfiguration(
+  proof: DevRegistrationExecutionPreflight,
+  candidate: DevRegistrationExecutionCandidate,
+) {
+  preflightIdentity.get(proof)?.();
+  if (candidate.provisioner.plan.c1First) {
+    const selected = candidate.publication.documents?.selected;
+    requireMatch(
+      Boolean(selected) &&
+        isDeepStrictEqual(proof.selectedConfiguration, {
+          path: selected?.path,
+          sha256: selected?.sha256,
+        }),
+      "C1 actual Host configuration proof differs",
+    );
+  }
+}
 function assertCurrentAdmission(
   input: ExecutionInput,
   job: RestartJob,
@@ -441,7 +578,11 @@ function assertCurrentAdmission(
   candidate: DevRegistrationExecutionCandidate,
   assertNativeCurrent: () => void = proof.assertCurrent,
 ): void {
+  assertCandidateCurrent(candidate);
+  assertSelectedConfiguration(proof, candidate);
   sync(assertNativeCurrent);
+  assertCandidateCurrent(candidate);
+  assertSelectedConfiguration(proof, candidate);
   const state = new FileEnrollmentJournal(input.directory).readUnderLifecycleLock();
   const decision = evaluateStandingRestart({
     state,
@@ -526,7 +667,9 @@ function observeResult(
   proof: DevRegistrationExecutionObservation,
   candidate: DevRegistrationExecutionCandidate,
 ) {
+  assertCandidateCurrent(candidate);
   sync(proof.assertCurrent);
+  assertCandidateCurrent(candidate);
   requireMatch(
     isDeepStrictEqual(
       SupervisorEffectExecutorSchema.parse(proof.controller),
@@ -596,11 +739,22 @@ function observeResult(
       candidate.provisioner.plan.hostAttemptFile,
       Buffer.from(
         JSON.stringify({
+          ...(candidate.provisioner.plan.c1First ? { version: 2 } : {}),
           planSha256: candidate.provisioner.planSha256,
           claimSha256: devRegistrationAuthorityDigest(effect),
           jobId: effect.binding.requestId,
           scriptSha256: effect.binding.supervisorPlanSha256,
           configurationSha256: sha(captured),
+          ...(candidate.publication.documents
+            ? {
+                documents: Object.fromEntries(
+                  Object.entries(candidate.publication.documents).map(([name, item]) => [
+                    name,
+                    { path: item.path, sha256: item.sha256 },
+                  ]),
+                ),
+              }
+            : {}),
           receiptAbsent: true,
         }),
       ),
@@ -627,18 +781,24 @@ function assertPublished(
   effect: SupervisorEffect,
   prepared: ReturnType<typeof prepareDevRegistrationPublication>,
 ): void {
-  const attempt = {
-    version: 1,
-    reservationSha256: devRegistrationAuthorityDigest(effect),
-    files: [
-      { path: prepared.receiptFile, previousSha256: null, sha256: prepared.reference.sha256 },
-      {
-        path: prepared.configurationFile,
-        previousSha256: prepared.previousConfigurationSha256,
-        sha256: prepared.configurationSha256,
-      },
-    ],
-  };
+  const attempt = prepared.documents
+    ? c1RegistrationPublicationAttempt(
+        prepared,
+        candidate.publicationAttemptFile,
+        devRegistrationAuthorityDigest(effect),
+      )
+    : {
+        version: 1,
+        reservationSha256: devRegistrationAuthorityDigest(effect),
+        files: [
+          { path: prepared.receiptFile, previousSha256: null, sha256: prepared.reference.sha256 },
+          {
+            path: prepared.configurationFile,
+            previousSha256: prepared.previousConfigurationSha256,
+            sha256: prepared.configurationSha256,
+          },
+        ],
+      };
   for (const [file, bytes] of [
     [prepared.receiptFile, prepared.receiptBytes],
     [prepared.configurationFile, prepared.configurationBytes],
@@ -706,6 +866,7 @@ export async function observeDevRegistrationExecution(
   const proof = captureObservation(
     await input.ports.observe(structuredClone(effect), structuredClone(candidate)),
   );
+  assertCandidateCurrent(candidate);
   const captured = observeResult(effect, proof, candidate);
   const { record } = captured;
   const next: SupervisorEffect = {
@@ -762,7 +923,15 @@ export async function executeDevRegistration(
   // Every retained effect, including unresolved reservations, is observation-only.
   // A historical verifier cannot make a pinless replacement or rollback fresh.
   assertDevRegistrationDockerPin(candidate.provisioner.plan.docker);
-  const proof = await input.ports.preflight(structuredClone(initial), structuredClone(candidate));
+  requireMatch(
+    Boolean(candidate.provisioner.plan.c1First),
+    "Historical registration preparation is observation-only",
+  );
+  const proof = capturePreflight(
+    await input.ports.preflight(structuredClone(initial), structuredClone(candidate)),
+  );
+  assertCandidateCurrent(candidate);
+  assertSelectedConfiguration(proof, candidate);
   const reserved: SupervisorEffect = {
     binding: makeBinding(
       initial,
@@ -844,6 +1013,7 @@ export async function executeDevRegistration(
           assertConsume: (job) => {
             assertCurrentAdmission(input, job, proof, next, candidate);
             assertChildProof(childProof, childClaim);
+            assertCandidateCurrent(candidate);
           },
         });
         return undefined;
@@ -864,6 +1034,7 @@ export async function executeDevRegistration(
         );
         assertCurrentAdmission(input, job, proof, next, candidate);
         assertChildProof(childProof, childClaim);
+        assertCandidateCurrent(candidate);
         assertDevRegistrationEffectAdmission({ previous, next });
         // This port only releases the verified one-use gate. It must not block or
         // perform copying/native collection inside the lifecycle admission hook.

@@ -1,3 +1,4 @@
+import { retainCustodyBinding } from "../retained-custody-binding.js";
 import { assertWorkerLaunchAdmission, workerLaunchRequestCompatible } from "./worker-launch.js";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 import { createHash } from "node:crypto";
@@ -181,6 +182,7 @@ interface AdmissionInput {
   /** Read protected preparation/admission receipts only. Heavy native validation
    * happens before the lock; the executor rechecks actual selection before effects. */
   assertEvidence(job: RestartJob, phase: StandingRestartPhase): void;
+  assertRegistrationReadiness?(target: RestartJob["target"]): void;
   assertNativeWorkerEvidence?: Parameters<
     typeof assertWorkerLaunchAdmission
   >[0]["assertNativeWorkerEvidence"];
@@ -208,6 +210,20 @@ export function assertStandingRestartAdmission(input: AdmissionInput): void {
     assertRetainedBindings(retained, proposed);
     const phase = effectPhase(retained, proposed);
     assertInterruptionTransition(input, retained, proposed, phase);
+    if (phase || registrationPreparation(retained, proposed)) {
+      const assertRegistration = input.assertRegistrationReadiness;
+      if (assertRegistration) {
+        const binding = retainCustodyBinding(input, (value, message) => {
+          if (!value) throw new BootstrapRequestConflict(message);
+        });
+        const result: unknown = assertRegistration(proposed.target);
+        if (result !== undefined)
+          throw new BootstrapRequestConflict(
+            "Registration readiness admission must be synchronous",
+          );
+        binding.check();
+      }
+    }
     if (!phase) continue;
     // Native worker launch has no accepted executor yet. Neither manual approval
     // nor ordinary restart evidence may turn these hints into a daemon restart.
@@ -446,6 +462,19 @@ function holdConfirmed(job: RestartJob): boolean {
       !hold.observedAt,
     );
   return Boolean(hold?.observedAt);
+}
+
+/** Builds and repair preparation can begin while the ordinary job is pending.
+ * Keep this prerequisite separate from standing policy's existing phase rules. */
+function registrationPreparation(previous: RestartJob | undefined, next: RestartJob): boolean {
+  if (!["pending", "approved", "running"].includes(next.status)) return false;
+  return (
+    (next.sourceBatch?.status === "preparing" &&
+      !isDeepStrictEqual(previous?.sourceBatch, next.sourceBatch)) ||
+    (next.updatePreparation === "preparing" && previous?.updatePreparation !== "preparing") ||
+    (next.devRepairs?.at(-1)?.status === "preparing" &&
+      !isDeepStrictEqual(previous?.devRepairs, next.devRepairs))
+  );
 }
 
 function effectPhase(

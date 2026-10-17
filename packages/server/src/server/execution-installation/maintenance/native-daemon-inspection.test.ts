@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +21,7 @@ import {
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   );
@@ -1010,6 +1011,42 @@ test.each(["file", "expiry"])(
     expect(() => proof.assertCurrent()).toThrow(changed === "file" ? "custody changed" : "expired");
   },
 );
+
+test("initial Host migration retains effective configuration after its final native callback", async () => {
+  const f = await initialHostMigrationFixture();
+  const observation = await import("../coordinator-bootstrap-maintenance-observation-runtime.js");
+  const { retainServiceFiles } =
+    await import("../coordinator-bootstrap-maintenance-service-inspection.js");
+  const marker = path.join(f.root, "selected-successor-history.json");
+  writeFileSync(marker, "original", { mode: 0o600 });
+  const assertMarker = retainServiceFiles([marker]);
+  const started = f.ports.now();
+  let wall = started;
+  f.ports.now = () => wall;
+  vi.spyOn(observation, "inspectEffectiveMaintenanceConfiguration").mockImplementation(
+    async (input) => {
+      expect(input.collection?.deadline).toBe(started + 60_000);
+      const clock = input.collection?.now;
+      if (!clock) throw new Error("Existing collection clock was not forwarded");
+      wall = started - 10_000;
+      expect(clock()).toBeGreaterThanOrEqual(started);
+      expect(clock()).toBeLessThan(started + 60_000);
+      wall = started;
+      return {
+        admission: structuredClone(input.admission),
+        assertCurrent: assertMarker,
+        assertRetained: assertMarker,
+      };
+    },
+  );
+  let mutate = false;
+  f.ports.retainInitialHostCustody = async () => () => {
+    if (mutate) writeFileSync(marker, "substituted");
+  };
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  mutate = true;
+  expect(proof.assertCurrent).toThrow("custody changed");
+});
 
 test("initial Host migration records unavailable legacy instance evidence without inventing an identity", async () => {
   const f = await initialHostMigrationFixture();

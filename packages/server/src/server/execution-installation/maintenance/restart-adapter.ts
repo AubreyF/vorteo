@@ -29,6 +29,9 @@ export interface StandingRestartAdmissionPorts {
   evidence(job: RestartJob): StandingRestartEvidence | null;
   /** Synchronous protected evidence checks only. Native collection precedes admission. */
   assertEvidence(job: RestartJob, phase: StandingRestartPhase): void;
+  /** Configured Dev registration is an independent prerequisite for manual and
+   * standing effects. The runtime supplies its retained native assertion. */
+  assertRegistrationReadiness?(target: RestartJob["target"]): void;
   /** Remains absent until protected Linux launch/observation is accepted. */
   assertNativeWorkerEvidence?: Parameters<
     typeof import("./worker-launch.js").assertWorkerLaunchAdmission

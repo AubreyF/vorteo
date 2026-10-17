@@ -3808,3 +3808,57 @@ test("worker launch lookup HTTP rejects duplicate selectors and refuses another 
   expect(f.activationChecks()).toBe(0);
   expect(f.calls).toEqual([]);
 });
+
+test("missing independent Dev readiness disables ordinary capabilities without blocking Host", async () => {
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    true,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      config.container.persistentRegistration = {
+        receiptFile: path.join(config.stateDir, "not-published.json"),
+        sha256: "a".repeat(64),
+      };
+    },
+  );
+  const response = await f.request("/api/installation/capabilities", "host-agent-test-token");
+  expect(response.status).toBe(200);
+  const capabilities = await response.json();
+  expect(capabilities.targets).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ target: "host", restart: true }),
+      expect.objectContaining({
+        target: "container-daemon",
+        restart: false,
+        hostAutomaticRestarts: false,
+        sourceUpdate: expect.objectContaining({ available: false }),
+      }),
+    ]),
+  );
+  expect(capabilities.supervisorMaintenance.available).toBe(false);
+  expect(capabilities.factoryRuntimeAdoption.available).toBe(false);
+  const created = await f.request("/api/installation/restart-requests", "host-agent-test-token", {
+    target: "container-daemon",
+    reason: "Manual request must not bypass registration readiness",
+  });
+  expect(created.status).toBe(201);
+  const pending = RestartJobSchema.parse(await created.json());
+  expect(pending.status).toBe("pending");
+  const refused = await f.request(
+    `/api/installation/owner/restarts/${pending.id}/decision`,
+    "owner-test-password",
+    {
+      revision: pending.revision,
+      decision: "approve",
+    },
+  );
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ error: expect.stringContaining("registration") });
+  expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([pending]);
+  expect(f.calls).toEqual([]);
+});
