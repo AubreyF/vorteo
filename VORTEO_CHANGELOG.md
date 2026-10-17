@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.667 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host migration plans to an addressed sealed-copy provenance document. Verify the legacy source, critical incumbent hashes, complete destination file/link inventory, both sides' bytes and retained source, manifest and runtime custody. Candidate startup-contract checks remain separate from legacy fallback restoration.
+- Add focused plan and real-filesystem copy regressions for changed, missing, duplicate and escaping inventory, source substitutions, internal links, retained custody and cancellation. Source-copy hard links require every physical name inside the protected inventory; ordinary external dependencies remain single-link. A compiled read-only check verifies the actual sealed legacy copy. This proves copy integrity only; dependency completeness, compatible execution, tracked migration and installed acceptance remain open. Legacy restoration must keep activation in recovery required.
+
 ## 0.11.0-beta.3.vorteo.666 - 2026-10-17
 
 ### Maintenance

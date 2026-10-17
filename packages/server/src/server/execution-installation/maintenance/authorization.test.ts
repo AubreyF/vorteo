@@ -1,3 +1,5 @@
+import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
+import { digestBootstrapArtifact } from "../coordinator-bootstrap-artifact.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
 import {
   InitialHostSupervisorMigrationPlanSchema,
@@ -61,8 +63,10 @@ import {
   fstatSync,
   linkSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
+  lstatSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -4287,14 +4291,15 @@ function initialHostPlanFixture() {
     entrypoint: file(name + "/packages/server/dist/scripts/supervisor-entrypoint.js"),
   });
   const plan = InitialHostSupervisorMigrationPlanSchema.parse({
-    version: 1,
+    version: 2,
     operation: "initial-host-supervisor-migration",
     installationId: f.manifest.installationId,
     identitySha256: enrollmentNativeIdentityDigest(identity),
     preconditionSha256: createHash("sha256").update(JSON.stringify(precondition)).digest("hex"),
     precondition,
     candidate: release("candidate", "c", "d"),
-    fallback: release("fallback", "e", "f"),
+    fallback: release("sealed-legacy", "b", "f"),
+    fallbackProvenance: file("fallback-copy.json"),
     interruption: f.manifest.interruption,
   });
   f.manifest.targets[2] = {
@@ -4468,3 +4473,191 @@ test.each(["candidate", "fallback"] as const)(
     expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow("persistent launcher");
   },
 );
+
+test.each(["source", "supervisor", "worker path", "receipt path"])(
+  "initial Host fallback binds the reviewed incumbent %s",
+  (changed) => {
+    const f = initialHostPlanFixture();
+    expect(inspectInitialHostSupervisorMigrationPlan(f.plan).plan).toEqual(f.plan);
+    if (changed === "source") f.plan.fallback.sourceCommit = "0".repeat(40);
+    if (changed === "supervisor") f.plan.fallback.entrypoint.sha256 = "0".repeat(64);
+    if (changed === "worker path") f.plan.precondition.workerEntrypoint.path += ".other";
+    if (changed === "receipt path") f.plan.precondition.sourceReceipt.path += ".other";
+    f.plan.preconditionSha256 = createHash("sha256")
+      .update(JSON.stringify(f.plan.precondition))
+      .digest("hex");
+    expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow(
+      "reviewed incumbent fallback",
+    );
+  },
+);
+
+test("initial Host migration refuses a fallback without addressed provenance", () => {
+  const f = initialHostPlanFixture();
+  const { fallbackProvenance: _removed, ...missing } = f.plan;
+  expect(() => inspectInitialHostSupervisorMigrationPlan(missing)).toThrow();
+});
+
+async function initialHostCopyFixture() {
+  const f = initialHostPlanFixture();
+  const source = f.plan.precondition.selectedRelease;
+  const target = f.plan.fallback.directory;
+  f.plan.fallback.launcher = { ...f.plan.precondition.launcher };
+  const digestBytes = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
+  const relativeFiles = [
+    ["packages/server/dist/scripts/supervisor-entrypoint.js", "legacy supervisor"],
+    ["packages/server/dist/server/server/daemon-worker.js", "legacy worker"],
+    [".installation-source.json", JSON.stringify({ sourceCommit: f.plan.fallback.sourceCommit })],
+    ["dependency.js", "legacy dependency"],
+  ];
+  for (const [name, bytes] of relativeFiles) {
+    for (const root of [source, target]) {
+      mkdirSync(path.dirname(path.join(root, name)), { recursive: true, mode: 0o700 });
+      writeFileSync(path.join(root, name), bytes, { mode: 0o600 });
+    }
+  }
+  linkSync(path.join(source, "dependency.js"), path.join(source, "dependency-alias.js"));
+  writeFileSync(path.join(target, "dependency-alias.js"), "legacy dependency", { mode: 0o600 });
+  relativeFiles.push(["dependency-alias.js", "legacy dependency"]);
+  symlinkSync("dependency.js", path.join(source, "dependency-link"));
+  symlinkSync("dependency.js", path.join(target, "dependency-link"));
+  for (const [key, index] of [
+    ["supervisorEntrypoint", 0],
+    ["workerEntrypoint", 1],
+    ["sourceReceipt", 2],
+  ] as const) {
+    f.plan.precondition[key].sha256 = digestBytes(relativeFiles[index][1]);
+  }
+  for (const [file, bytes, mode] of [
+    [f.plan.fallback.node.path, "node", 0o700],
+    [f.plan.fallback.configuration.path, "{}", 0o600],
+    [f.plan.fallback.launcher.path, "launcher", 0o600],
+  ] as const) {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, bytes, { mode });
+  }
+  f.plan.fallback.node.sha256 = digestBytes("node");
+  f.plan.fallback.configuration.sha256 = digestBytes("{}");
+  f.plan.fallback.launcher.sha256 = digestBytes("launcher");
+  f.plan.fallback.entrypoint.sha256 = f.plan.precondition.supervisorEntrypoint.sha256;
+  f.plan.fallback.artifactSha256 = await digestBootstrapArtifact(target);
+  const identify = (file: string) => {
+    const s = lstatSync(file, { bigint: true });
+    return createHash("sha256")
+      .update([s.dev, s.ino, s.mode, s.uid, s.gid, s.nlink, s.size, s.mtimeNs, s.ctimeNs].join(":"))
+      .digest("hex");
+  };
+  const parents = new Set<string>(["."]);
+  for (const [name] of relativeFiles) {
+    let current = path.dirname(name);
+    while (current !== ".") {
+      parents.add(current);
+      current = path.dirname(current);
+    }
+  }
+  const manifest = {
+    version: 1,
+    operation: "initial-host-fallback-copy",
+    sourceDirectory: source,
+    directory: target,
+    sourceCommit: f.plan.fallback.sourceCommit,
+    artifactSha256: f.plan.fallback.artifactSha256,
+    absent: [],
+    entries: [
+      ...relativeFiles.map(([name, bytes]) => ({
+        path: name,
+        type: "file",
+        sha256: digestBytes(bytes),
+        mode: 0o600,
+        sourceIdentitySha256: identify(path.join(source, name)),
+      })),
+      {
+        path: "dependency-link",
+        type: "link",
+        sourceTarget: "dependency.js",
+        target: "dependency.js",
+        sourceIdentitySha256: identify(path.join(source, "dependency-link")),
+      },
+    ],
+    sourceParents: [...parents].map((name) => ({
+      path: name,
+      identitySha256: identify(path.join(source, name)),
+    })),
+  };
+  const writeManifest = () => {
+    const bytes = JSON.stringify(manifest);
+    writeFileSync(f.plan.fallbackProvenance.path, bytes, { mode: 0o600 });
+    f.plan.fallbackProvenance.sha256 = digestBytes(bytes);
+  };
+  writeManifest();
+  const controller = new AbortController();
+  const inspect = () =>
+    inspectInitialHostFallbackCopy({
+      reference: f.plan.fallbackProvenance,
+      release: f.plan.fallback,
+      precondition: f.plan.precondition,
+      writableMountRoots: [],
+      signal: controller.signal,
+    });
+  return { ...f, source, target, manifest, writeManifest, inspect, controller };
+}
+
+test("initial Host sealed copy verifies original bytes, internal links and retained custody", async () => {
+  const f = await initialHostCopyFixture();
+  const proof = await f.inspect();
+  expect(() => proof.assertCurrent()).not.toThrow();
+  writeFileSync(path.join(f.source, "dependency.js"), "changed");
+  expect(() => proof.assertCurrent()).toThrow("provenance changed");
+});
+
+test.each([
+  "source",
+  "directory",
+  "artifact",
+  "duplicate",
+  "escaping path",
+  "missing parent",
+  "missing worker",
+  "wrong source bytes",
+  "wrong link",
+])("initial Host sealed copy refuses repinned %s provenance", async (changed) => {
+  const f = await initialHostCopyFixture();
+  if (changed === "source") f.manifest.sourceCommit = "0".repeat(40);
+  if (changed === "directory") f.manifest.directory += "/other";
+  if (changed === "artifact") f.manifest.artifactSha256 = "0".repeat(64);
+  if (changed === "duplicate") f.manifest.entries.push(f.manifest.entries[0]);
+  if (changed === "escaping path") f.manifest.entries[0].path = "../escape";
+  if (changed === "missing parent")
+    f.manifest.sourceParents = f.manifest.sourceParents.filter((p) => p.path !== ".");
+  if (changed === "missing worker") f.manifest.entries.splice(1, 1);
+  if (changed === "wrong source bytes") f.manifest.entries[3].sha256 = "0".repeat(64);
+  if (changed === "wrong link") {
+    const link = f.manifest.entries.at(-1)!;
+    if (link.type !== "link") throw new Error("Missing fixture link");
+    link.target = "other.js";
+  }
+  f.writeManifest();
+  await expect(f.inspect()).rejects.toThrow();
+});
+
+test.each(["target dependency", "provenance file", "caller cancellation"])(
+  "initial Host sealed copy retains %s after collection",
+  async (changed) => {
+    const f = await initialHostCopyFixture();
+    const proof = await f.inspect();
+    if (changed === "target dependency")
+      writeFileSync(path.join(f.target, "dependency.js"), "changed");
+    if (changed === "provenance file") f.writeManifest();
+    if (changed === "caller cancellation") f.controller.abort();
+    expect(() => proof.assertCurrent()).toThrow();
+  },
+);
+
+test("initial Host sealed copy refuses inventory omission despite repinned whole artifact", async () => {
+  const f = await initialHostCopyFixture();
+  writeFileSync(path.join(f.target, "extra.js"), "extra", { mode: 0o600 });
+  f.plan.fallback.artifactSha256 = await digestBootstrapArtifact(f.target);
+  f.manifest.artifactSha256 = f.plan.fallback.artifactSha256;
+  f.writeManifest();
+  await expect(f.inspect()).rejects.toThrow("provenance changed");
+});

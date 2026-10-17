@@ -19,10 +19,11 @@ import { retainServiceFiles } from "../coordinator-bootstrap-maintenance-service
 import { FileEnrollmentJournal, enrollmentManifestDigest } from "./authorization.js";
 import { enrollmentNativeIdentityDigest } from "./native-identity.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
+import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const InitialHostSupervisorMigrationPlanSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   operation: z.literal("initial-host-supervisor-migration"),
   installationId: z.string().uuid(),
   identitySha256: digest,
@@ -30,6 +31,10 @@ export const InitialHostSupervisorMigrationPlanSchema = z.strictObject({
   precondition: InitialHostSupervisorPreconditionSchema,
   candidate: CoordinatorBootstrapPlanSchema.shape.candidate,
   fallback: CoordinatorBootstrapPlanSchema.shape.candidate,
+  fallbackProvenance: z.strictObject({
+    path: z.string().startsWith("/").max(4096),
+    sha256: digest,
+  }),
   interruption: z.strictObject({
     finishTurnsSeconds: z.number().int().min(1).max(3600),
     terminateGraceSeconds: z.number().int().min(1).max(300),
@@ -83,6 +88,23 @@ export function inspectInitialHostSupervisorMigrationPlan(value: unknown) {
       "Initial Host migration changed its startup or protected configuration",
     );
   }
+  requireMatch(
+    plan.fallback.sourceCommit === previous.sourceCommit &&
+      plan.fallback.entrypoint.sha256 === previous.supervisorEntrypoint.sha256 &&
+      previous.supervisorEntrypoint.path ===
+        path.join(
+          previous.selectedRelease,
+          "packages/server/dist/scripts/supervisor-entrypoint.js",
+        ) &&
+      previous.workerEntrypoint.path ===
+        path.join(
+          previous.selectedRelease,
+          "packages/server/dist/server/server/daemon-worker.js",
+        ) &&
+      previous.sourceReceipt.path ===
+        path.join(previous.selectedRelease, ".installation-source.json"),
+    "Initial Host migration changed its reviewed incumbent fallback",
+  );
   return { plan, planSha256: hash(plan) };
 }
 
@@ -118,8 +140,8 @@ export function inspectInitialHostMigrationEnrollment(input: MigrationEnrollment
     sourceCommit: release.sourceCommit,
     artifactSha256: release.artifactSha256,
   });
-  // For this initial migration, previous explicitly names the reviewed compatible
-  // fallback. The incumbent service-custody record claims no loaded-code provenance.
+  // Previous names the sealed legacy restoration, not new standing readiness.
+  // Restoration must leave activation recovery_required, preserving dependencies.
   requireMatch(
     isDeepStrictEqual(step.candidate, artifact(plan.candidate)) &&
       isDeepStrictEqual(step.previous, artifact(plan.fallback)) &&
@@ -240,7 +262,7 @@ export async function inspectInitialHostMigrationArtifacts(input: {
     contract.push({ name, sha256: createHash("sha256").update(bytes).digest("hex") });
   }
   const proofs: Array<{ assertCurrent(): void }> = [];
-  for (const release of [plan.candidate, plan.fallback]) {
+  for (const release of [plan.candidate]) {
     checkCollection();
     const proof = await inspectBootstrapReleaseArtifacts(release, roots, {
       signal,
@@ -261,6 +283,16 @@ export async function inspectInitialHostMigrationArtifacts(input: {
     }
     proof.assertCurrent();
   }
+  checkCollection();
+  proofs.push(
+    await inspectInitialHostFallbackCopy({
+      reference: plan.fallbackProvenance,
+      release: plan.fallback,
+      precondition: plan.precondition,
+      writableMountRoots: roots,
+      signal,
+    }),
+  );
   const assertCurrent = () => {
     signal.throwIfAborted();
     assertContract();

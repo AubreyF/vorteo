@@ -21,6 +21,7 @@ import {
   verifyBootstrapReleaseArtifacts,
   inspectBootstrapReleaseArtifacts,
   verifyBootstrapPreparedDependency,
+  verifyBootstrapPreparedCopySource,
 } from "./coordinator-bootstrap-artifact.js";
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -320,4 +321,27 @@ test("release collection refuses crossing its deadline during final synchronous 
     stat.mockImplementation(originalStat);
     clock.mockRestore();
   }
+});
+
+test("copy source verification counts every internal hard link without loosening external dependencies", async () => {
+  const { root, release } = await fixture();
+  const first = path.join(release, "entry.js");
+  const second = path.join(release, "alias.js");
+  await link(first, second);
+  const pin = { path: first, sha256: createHash("sha256").update("export {};").digest("hex") };
+  await expect(
+    verifyBootstrapPreparedCopySource(pin, release, [first, second], []),
+  ).resolves.toBeUndefined();
+  await expect(verifyBootstrapPreparedDependency(pin, [])).rejects.toThrow("bounded regular file");
+  await expect(verifyBootstrapPreparedCopySource(pin, release, [first], [])).rejects.toThrow(
+    "incomplete",
+  );
+  await expect(verifyBootstrapPreparedCopySource(pin, release, [first, first], [])).rejects.toThrow(
+    "incomplete",
+  );
+  const outside = path.join(root, "outside.js");
+  await link(first, outside);
+  await expect(
+    verifyBootstrapPreparedCopySource(pin, release, [first, second, outside], []),
+  ).rejects.toThrow("escape");
 });

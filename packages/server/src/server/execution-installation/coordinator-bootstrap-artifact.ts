@@ -190,6 +190,30 @@ export async function verifyBootstrapPreparedDependency(
   writableMountRoots: readonly string[],
   custody: "host" | "host-or-root" = "host",
 ): Promise<void> {
+  await verifyPreparedDependency({ ...file }, writableMountRoots, custody);
+}
+
+/** Source-copy inventory may contain npm's internal executable hard links. Every
+ * physical name must be canonical, protected, inside the source root and bound
+ * to the same inode; ordinary external dependencies still require one link. */
+export async function verifyBootstrapPreparedCopySource(
+  file: CoordinatorBootstrapPlan["candidate"]["node"],
+  sourceRoot: string,
+  aliases: readonly string[],
+  writableMountRoots: readonly string[],
+): Promise<void> {
+  await verifyPreparedDependency({ ...file }, writableMountRoots, "host", {
+    root: sourceRoot,
+    aliases: [...aliases],
+  });
+}
+
+async function verifyPreparedDependency(
+  file: CoordinatorBootstrapPlan["candidate"]["node"],
+  writableMountRoots: readonly string[],
+  custody: "host" | "host-or-root",
+  copy?: { root: string; aliases: string[] },
+): Promise<void> {
   const deadline = Date.now() + 30_000;
   const maxBytes = 256 * 1024 * 1024;
   await assertBootstrapPathsProtected([file.path], writableMountRoots);
@@ -200,12 +224,62 @@ export async function verifyBootstrapPreparedDependency(
     if ((before.mode & 0o022n) !== 0n)
       throw new BootstrapRequestConflict("Native dependency is writable by another account");
   } else requireOwned(before);
-  if (!before.isFile() || before.nlink !== 1n || before.size > BigInt(maxBytes))
+  if (!before.isFile() || (!copy && before.nlink !== 1n) || before.size > BigInt(maxBytes))
     throw new BootstrapRequestConflict("Prepared dependency must be a bounded regular file");
-  const digest = await digestFile(file.path, before, { maxBytes, deadline });
+  const aliasStats = copy
+    ? await inspectCopyAliases(file.path, before, copy, writableMountRoots)
+    : [];
+  const digest = await digestFile(file.path, before, {
+    maxBytes,
+    deadline,
+    verifyLinksInTree: !!copy,
+  });
+  for (const [alias, stat] of aliasStats) {
+    requireUnchanged(stat, await lstat(alias, { bigint: true }));
+    if ((await realpath(alias)) !== alias)
+      throw new BootstrapRequestConflict("Prepared copy source custody changed");
+  }
   requireUnchanged(before, await lstat(file.path, { bigint: true }));
   if (digest !== file.sha256)
     throw new BootstrapRequestConflict("Prepared dependency digest changed");
+  if (Date.now() >= deadline)
+    throw new BootstrapRequestConflict("Prepared dependency verification timed out");
+}
+
+async function inspectCopyAliases(
+  file: string,
+  before: BigIntStats,
+  copy: { root: string; aliases: string[] },
+  roots: readonly string[],
+): Promise<Array<[string, BigIntStats]>> {
+  const unique = new Set(copy.aliases);
+  const complete = unique.size === copy.aliases.length && BigInt(unique.size) === before.nlink;
+  if (
+    !complete ||
+    unique.size > 100_000 ||
+    !unique.has(file) ||
+    (await realpath(copy.root)) !== copy.root
+  )
+    throw new BootstrapRequestConflict("Prepared copy source hard links are incomplete");
+  await assertBootstrapPathsProtected(copy.aliases, roots);
+  const rootStat = await lstat(copy.root, { bigint: true });
+  requireOwned(rootStat);
+  if (!rootStat.isDirectory())
+    throw new BootstrapRequestConflict("Prepared copy source root changed");
+  const result: Array<[string, BigIntStats]> = [[copy.root, rootStat]];
+  for (const alias of copy.aliases) {
+    const stat = await lstat(alias, { bigint: true });
+    requireOwned(stat);
+    const sameFile =
+      stat.isFile() &&
+      stat.dev === before.dev &&
+      stat.ino === before.ino &&
+      stat.nlink === before.nlink;
+    if (!sameFile || !containsPath(copy.root, alias) || (await realpath(alias)) !== alias)
+      throw new BootstrapRequestConflict("Prepared copy source hard links escape their inventory");
+    result.push([alias, stat]);
+  }
+  return result;
 }
 
 /** Return the reviewed buffer so parsers never reopen a substitutable pathname. */
