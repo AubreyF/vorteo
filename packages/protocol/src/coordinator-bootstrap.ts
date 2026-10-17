@@ -267,6 +267,38 @@ export const CoordinatorBootstrapRequestViewSchema = CoordinatorBootstrapRequest
 export type CoordinatorBootstrapRequestView = z.infer<typeof CoordinatorBootstrapRequestViewSchema>;
 
 // Independent recovery HTTP only. The browser never supplies a plan or runtime path.
+export const RecoveryApplicationDiagnosticsRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.application_diagnostics.request"),
+  requestId: z.string().min(1).max(128),
+});
+export const RecoveryApplicationDiagnosticsSchema = z.strictObject({
+  version: z.literal(1),
+  installationId: z.string().uuid(),
+  applicationOrigin: z.url(),
+  checkedAt: z.string().datetime(),
+  scope: z.literal("recovery-host"),
+  browserUsability: z.literal("unverified"),
+  checks: z
+    .array(
+      z.strictObject({
+        id: z.enum(["health", "owner-api", "document", "scripts"]),
+        state: z.enum(["reached", "failed", "unverified"]),
+        detail: z.string().max(500),
+        httpStatus: z.number().int().min(100).max(599).nullable(),
+      }),
+    )
+    .length(4),
+});
+export type RecoveryApplicationDiagnostics = z.infer<typeof RecoveryApplicationDiagnosticsSchema>;
+export const RecoveryApplicationDiagnosticsResponseSchema = z.strictObject({
+  type: z.literal("installation.maintenance.application_diagnostics.response"),
+  payload: z.strictObject({
+    requestId: z.string(),
+    report: RecoveryApplicationDiagnosticsSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const CoordinatorMaintenanceRollbackPrepareRequestSchema = z.strictObject({
   type: z.literal("installation.maintenance.rollback.prepare.request"),
   requestId: z.string().min(1).max(128),

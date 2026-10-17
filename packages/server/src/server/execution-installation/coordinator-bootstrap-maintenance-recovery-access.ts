@@ -45,6 +45,16 @@ export async function runIndependentMaintenanceRecovery(setupFile: string) {
     recoveryOrigin: access.origin,
     status: refuseEffects,
     provision: refuseEffects,
+    async diagnoseApplication(ownerCredential, signal) {
+      const { inspectRecoveryApplication } =
+        await import("./coordinator-bootstrap-maintenance-recovery-diagnostics.js");
+      return inspectRecoveryApplication({
+        installationId: access.installationId,
+        configuration: readPrivateBootstrapConfiguration(access.ownerConfigurationFile, uid),
+        ownerCredential,
+        signal,
+      });
+    },
     async prepareRollback() {
       await (await review()).prepareRollback();
     },

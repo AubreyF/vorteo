@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.624 - 2026-10-16
+
+### Maintenance
+
+- Add authenticated application-path diagnostics to the independent recovery page. Checks cover installation health, the owner API, the application document and entry scripts, without reading maintenance history or creating an app session. Green health is reported separately from missing scripts or rejected authentication; full browser usability remains unverified.
+- Bound probe time and response bytes, refuse redirects and browser-selected destinations, and send owner authentication only to the configured application after matching installation health. Concurrent checks share exclusion, failed authentication and Lock clear private results, and reports omit credentials and response bodies.
+- This remains source awaiting tracked installation and remote owner acceptance. It does not change the running installation, approve maintenance or enable the permanent recovery address. The primary README feature paragraph remains a delivery requirement.
+
 ## 0.11.0-beta.3.vorteo.623 - 2026-10-16
 
 ### Maintenance

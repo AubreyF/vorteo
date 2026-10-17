@@ -8,6 +8,7 @@ import path from "node:path";
 import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
+import { inspectRecoveryApplication } from "./coordinator-bootstrap-maintenance-recovery-diagnostics.js";
 import { runIndependentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-access.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
@@ -15,6 +16,322 @@ import {
   BootstrapAuthenticationRequired,
   BootstrapRequestConflict,
 } from "./coordinator-bootstrap.js";
+
+test.each([
+  "missing-script",
+  "owner-refused",
+  "foreign-health",
+  "redirect",
+  "foreign-script",
+  "oversized-document",
+] as const)(
+  "application diagnostics distinguish green health from unusable access: %s",
+  async (mode) => {
+    const installationId = randomUUID();
+    const environments = [
+      { kind: "host", serverId: "fixture-host", endpoint: "host.example.test", useTls: true },
+      { kind: "container", serverId: "fixture-dev", endpoint: "dev.example.test", useTls: true },
+    ];
+    const authorization: Array<{ path: string; authorization: string | null }> = [];
+    const server = createServer((request, response) => {
+      authorization.push({
+        path: request.url!,
+        authorization: request.headers.authorization ?? null,
+      });
+      if (request.url === "/api/installation/health") {
+        if (mode === "redirect") {
+          response.writeHead(302, { Location: "/must-not-follow" });
+          response.end();
+          return;
+        }
+        response.setHeader("Content-Type", "application/json");
+        response.end(
+          JSON.stringify({
+            installationId: mode === "foreign-health" ? randomUUID() : installationId,
+          }),
+        );
+      } else if (request.url === "/api/installation/owner/connections") {
+        response.statusCode = mode === "owner-refused" ? 401 : 200;
+        response.setHeader("Content-Type", "application/json");
+        response.end(
+          JSON.stringify({
+            installationId,
+            connections: environments.map((environment) => ({
+              ...environment,
+              password: "private-fixture-response",
+            })),
+          }),
+        );
+      } else if (request.url === "/") {
+        response.setHeader("Content-Type", "text/html");
+        const src =
+          mode === "foreign-script" ? "https://outside.example.test/entry.js" : "/entry.js";
+        const padding = mode === "oversized-document" ? " ".repeat(1024 * 1024) : "";
+        response.end(`<html><script src="${src}"></script>${padding}</html>`);
+      } else {
+        response.statusCode = mode === "missing-script" ? 404 : 200;
+        response.setHeader("Content-Type", "application/javascript");
+        response.end('document.body.textContent = "fixture";');
+      }
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+    const origin = `http://127.0.0.1:${address.port}`;
+    try {
+      const report = await inspectRecoveryApplication({
+        installationId,
+        configuration: {
+          public: { version: 1, installationId, origin, environments },
+          invalidMaintenanceHistory: true,
+        },
+        ownerCredential: "fixture-owner-only",
+        signal: new AbortController().signal,
+      });
+      const states = Object.fromEntries(report.checks.map((check) => [check.id, check.state]));
+      const expected = {
+        "missing-script": {
+          health: "reached",
+          "owner-api": "reached",
+          document: "reached",
+          scripts: "failed",
+        },
+        "owner-refused": {
+          health: "reached",
+          "owner-api": "failed",
+          document: "reached",
+          scripts: "reached",
+        },
+        "foreign-health": {
+          health: "failed",
+          "owner-api": "unverified",
+          document: "reached",
+          scripts: "reached",
+        },
+        redirect: {
+          health: "unverified",
+          "owner-api": "unverified",
+          document: "reached",
+          scripts: "reached",
+        },
+        "foreign-script": {
+          health: "reached",
+          "owner-api": "reached",
+          document: "unverified",
+          scripts: "unverified",
+        },
+        "oversized-document": {
+          health: "reached",
+          "owner-api": "reached",
+          document: "unverified",
+          scripts: "unverified",
+        },
+      };
+      expect(states).toEqual(expected[mode]);
+      expect(report.browserUsability).toBe("unverified");
+      expect(report.scope).toBe("recovery-host");
+      expect(JSON.stringify(report)).not.toContain("fixture-owner-only");
+      expect(JSON.stringify(report)).not.toContain("private-fixture-response");
+      const authenticated = authorization.filter((request) => request.authorization !== null);
+      expect(authenticated).toEqual(
+        mode === "foreign-health" || mode === "redirect"
+          ? []
+          : [
+              {
+                path: "/api/installation/owner/connections",
+                authorization: "Bearer fixture-owner-only",
+              },
+            ],
+      );
+      expect(authorization.some((request) => request.path === "/must-not-follow")).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        }),
+      );
+    }
+  },
+);
+
+test("application diagnostics cancel a hanging script body without claiming browser readiness", async () => {
+  const installationId = randomUUID();
+  const entered = Promise.withResolvers<void>();
+  const controller = new AbortController();
+  const server = createServer((request, response) => {
+    if (request.url === "/api/installation/health") {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ installationId }));
+    } else if (request.url === "/") {
+      response.end('<html><script src="/hanging.js"></script></html>');
+    } else {
+      response.setHeader("Content-Type", "application/javascript");
+      response.write("/* incomplete body */");
+      entered.resolve();
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const pending = inspectRecoveryApplication({
+      installationId,
+      configuration: {
+        public: {
+          version: 1,
+          installationId,
+          origin,
+          environments: [
+            { kind: "host", serverId: "fixture-host", endpoint: "host.example.test", useTls: true },
+            {
+              kind: "container",
+              serverId: "fixture-dev",
+              endpoint: "dev.example.test",
+              useTls: true,
+            },
+          ],
+        },
+      },
+      ownerCredential: "fixture-owner",
+      signal: controller.signal,
+    });
+    await entered.promise;
+    controller.abort();
+    const report = await pending;
+    expect(report.checks.find((check) => check.id === "scripts")?.state).toBe("unverified");
+    expect(report.browserUsability).toBe("unverified");
+  } finally {
+    controller.abort();
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }),
+    );
+  }
+});
+
+test("independent application diagnostics authenticate without loading broken maintenance history", async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), "recovery-diagnostics-")));
+  const installationId = randomUUID();
+  const origin = "https://recovery.example.test:9443";
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let calls = 0;
+  const app = createMaintenanceControlApp({
+    installationId,
+    recoveryOrigin: origin,
+    status() {
+      throw new Error("Unsupported maintenance history");
+    },
+    async readOwnerConfiguration() {
+      return {
+        public: { origin: "https://app.example.test", installationId },
+        stateDir: directory,
+        ownerPasswordHash: hashSync("fixture-owner", 4),
+      };
+    },
+    service() {
+      throw new Error("Unsupported maintenance history");
+    },
+    async provision() {
+      throw new Error("No provisioning");
+    },
+    async diagnoseApplication(credential, signal) {
+      expect(credential).toBe("fixture-owner");
+      calls++;
+      entered.resolve();
+      await release.promise;
+      signal.throwIfAborted();
+      return {
+        version: 1,
+        installationId,
+        applicationOrigin: "https://app.example.test",
+        checkedAt: new Date().toISOString(),
+        scope: "recovery-host",
+        browserUsability: "unverified",
+        checks: ["health", "owner-api", "document", "scripts"].map((id) => ({
+          id,
+          state: "unverified",
+          detail: "Fixture observation",
+          httpStatus: null,
+        })),
+      };
+    },
+  });
+  const server = createServer(app);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+  const base = `http://127.0.0.1:${address.port}`;
+  const post = (password: string, extra = {}) =>
+    callRecoveryFixture(
+      base,
+      "/api/installation/maintenance/owner",
+      {
+        method: "POST",
+        headers: {
+          Host: new URL(origin).host,
+          Origin: origin,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${password}`,
+        },
+      },
+      JSON.stringify({
+        type: "installation.maintenance.application_diagnostics.request",
+        requestId: "diagnostic",
+        ...extra,
+      }),
+    );
+  try {
+    expect((await post("wrong")).status).toBe(401);
+    expect((await post("fixture-owner", { destination: "https://foreign.example" })).status).toBe(
+      400,
+    );
+    expect(calls).toBe(0);
+    const pending = post("fixture-owner");
+    await entered.promise;
+    expect((await post("fixture-owner")).status).toBe(409);
+    release.resolve();
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      type: "installation.maintenance.application_diagnostics.response",
+      payload: {
+        requestId: "diagnostic",
+        error: null,
+        report: { installationId, browserUsability: "unverified" },
+      },
+    });
+    expect(calls).toBe(1);
+  } finally {
+    release.resolve();
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }),
+    );
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test.each([
   { scope: "preclaim-recovery", claimed: false },

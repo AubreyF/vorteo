@@ -7,6 +7,8 @@ export const maintenanceRecoveryDocument = `<!doctype html>
 <p>Basic health does not prove the main interface works. You can request a reviewed compatible coordinator rollback even when health is green.</p>
 <form id="access"><label>Installation owner password <input id="password" type="password" autocomplete="current-password" required maxlength="4096"></label>
 <button id="check" type="submit">Check maintenance status</button></form>
+<button id="diagnose" type="button">Check application access</button>
+<section id="application" aria-label="Application diagnostics"></section>
 <button id="prepare" type="button" disabled>Prepare compatible coordinator rollback</button>
 <p>Preparation creates a review and does not restart anything. Approval replaces the coordinator and briefly interrupts the main interface. Host and Dev agents and retained histories are preserved.</p>
 <button id="lock" type="button">Lock recovery access</button>
@@ -20,6 +22,8 @@ const form=document.getElementById("access");
 const password=document.getElementById("password");
 const button=document.getElementById("check");
 const prepare=document.getElementById("prepare");
+const diagnose=document.getElementById("diagnose");
+const application=document.getElementById("application");
 const result=document.getElementById("result");
 const requests=document.getElementById("requests");
 let active=null;
@@ -29,6 +33,7 @@ const attempted=new Set();
 const flags={bootRecovery:true,compatibleRecovery:true,factoryRuntimeAdoption:true,sourceUpdateTooling:true,previewMonitor:true};
 function controls(){
   button.disabled=Boolean(active);
+  diagnose.disabled=Boolean(active);
   prepare.disabled=Boolean(active)||!unlocked;
   for(const item of requests.querySelectorAll("button"))item.disabled=Boolean(active)||item.dataset.attempted==="true";
 }
@@ -39,6 +44,7 @@ function lock(){
   unlocked=false;
   password.value="";
   requests.replaceChildren();
+  application.replaceChildren();
   controls();
   result.textContent="Recovery access locked. Submitted decisions may still be in progress. Unlock to inspect recorded status.";
 }
@@ -82,6 +88,24 @@ function render(retained){
     requests.append(item);
   }
 }
+function renderDiagnostics(report){
+  if(report?.version!==1||report.scope!=="recovery-host"||report.browserUsability!=="unverified"||!Array.isArray(report.checks)||report.checks.length!==4)throw new Error("Application diagnostic evidence is incomplete.");
+  const origin=new URL(report.applicationOrigin);
+  const local=origin.protocol==="http:"&&["127.0.0.1","localhost","[::1]"].includes(origin.hostname);
+  if(origin.origin!==report.applicationOrigin||!(origin.protocol==="https:"||local))throw new Error("Application diagnostic address is unverified.");
+  application.replaceChildren();
+  text(application,"h2","Application diagnostics");
+  text(application,"p","These checks run from the recovery machine. This browser's access and full interface rendering remain unverified, even when every check is reached.");
+  text(application,"p","Checked "+String(report.checkedAt));
+  const labels={health:"Basic health","owner-api":"Authenticated application API",document:"Application document",scripts:"Application entry scripts"};
+  for(const check of report.checks){
+    if(!Object.hasOwn(labels,check.id)||!["reached","failed","unverified"].includes(check.state))throw new Error("Application diagnostic check is unverified.");
+    text(application,"h3",labels[check.id]+": "+check.state);
+    text(application,"p",check.detail);
+  }
+  const link=document.createElement("a");link.href=origin.origin;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Open main application in this browser";application.append(link);
+  text(application,"p","No maintenance decision was submitted. Basic health never prevents you from preparing an exact compatible rollback review.");
+}
 async function run(pending,message,timeout,expectedType){
   if(active)return;
   const current=++generation;
@@ -94,14 +118,19 @@ async function run(pending,message,timeout,expectedType){
       body:JSON.stringify(message),signal:controller.signal
     });
     if(current!==generation)return;
-    if(response.status===401){password.value="";unlocked=false;requests.replaceChildren();throw new Error("Owner authentication failed.");}
+    if(response.status===401){password.value="";unlocked=false;requests.replaceChildren();application.replaceChildren();throw new Error("Owner authentication failed.");}
     if(!response.ok)throw new Error("Maintenance controls are unavailable. Check retained status before trying another action.");
     const reply=await response.json();if(current!==generation)return;
     if(reply.type!==expectedType||reply.payload?.requestId!==message.requestId)throw new Error("The reply could not be matched to this action. Check retained status; do not repeat a decision.");
     if(reply.payload?.error)throw new Error(String(reply.payload.error));
-    if(!Array.isArray(reply.payload?.requests))throw new Error("Retained maintenance state could not be verified. Do not repeat a decision.");
-    render(reply.payload.requests);unlocked=true;
-    result.textContent="Retained reviews checked. Preparation is not approval; approval is not verified completion. Check the recorded outcome before any further action.";
+    if(expectedType==="installation.maintenance.application_diagnostics.response"){
+      renderDiagnostics(reply.payload.report);unlocked=true;
+      result.textContent="Application checks completed from the recovery machine. Browser usability remains unverified. No maintenance decision was submitted.";
+    }else{
+      if(!Array.isArray(reply.payload?.requests))throw new Error("Retained maintenance state could not be verified. Do not repeat a decision.");
+      render(reply.payload.requests);unlocked=true;
+      result.textContent="Retained reviews checked. Preparation is not approval; approval is not verified completion. Check the recorded outcome before any further action.";
+    }
   }catch(error){
     if(current===generation)result.textContent=controller.signal.aborted
       ? "The reply timed out. Submitted work may still be running. Check retained status; do not repeat approval."
@@ -111,6 +140,12 @@ async function run(pending,message,timeout,expectedType){
   }
 }
 document.getElementById("lock").addEventListener("click",lock);
+diagnose.addEventListener("click",()=>{
+  if(active||!password.reportValidity())return;
+  void run("Checking application paths without changing maintenance state...",{
+    type:"installation.maintenance.application_diagnostics.request",requestId:crypto.randomUUID()
+  },12000,"installation.maintenance.application_diagnostics.response");
+});
 window.addEventListener("pagehide",lock);
 form.addEventListener("submit",event=>{
   event.preventDefault();

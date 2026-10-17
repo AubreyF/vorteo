@@ -12,6 +12,10 @@ import {
   CoordinatorBootstrapDecideRequestSchema,
   CoordinatorMaintenanceRollbackPrepareRequestSchema,
   CoordinatorMaintenanceRollbackPrepareResponseSchema,
+  RecoveryApplicationDiagnosticsRequestSchema,
+  RecoveryApplicationDiagnosticsResponseSchema,
+  RecoveryApplicationDiagnosticsSchema,
+  type RecoveryApplicationDiagnostics,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
 import { OwnerSessions } from "./owner-sessions.js";
@@ -46,6 +50,10 @@ interface MaintenanceControlInput {
   readOwnerConfiguration(): Promise<z.infer<typeof MaintenanceOwnerConfigurationSchema>>;
   provision(value: z.infer<typeof CoordinatorMaintenanceProvisionRequestSchema>): Promise<void>;
   prepareRollback?(): Promise<void>;
+  diagnoseApplication?(
+    ownerCredential: string,
+    signal: AbortSignal,
+  ): Promise<RecoveryApplicationDiagnostics>;
 }
 
 /** Transport for a fixed independently admitted operation. HTTP callers cannot
@@ -63,6 +71,7 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
           .parse(input.recoveryOrigin);
   const app = express();
   let provisioning = false;
+  let diagnosing: Promise<RecoveryApplicationDiagnostics> | null = null;
   app.disable("x-powered-by");
   app.use((request, response, next) => {
     if (recoveryOrigin && request.headers.host !== new URL(recoveryOrigin).host) {
@@ -167,6 +176,78 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
     })();
   });
   app.use("/api/installation/maintenance/owner", express.json({ limit: "1mb" }));
+  app.post("/api/installation/maintenance/owner", (request, response, next) => {
+    if (request.body?.type !== "installation.maintenance.application_diagnostics.request") {
+      next();
+      return;
+    }
+    const parsed = RecoveryApplicationDiagnosticsRequestSchema.safeParse(request.body);
+    const diagnose = input.diagnoseApplication;
+    const credential = extractHttpBearerToken(request.header("authorization"));
+    if (!parsed.success || !recoveryOrigin || !diagnose || !credential) {
+      response.status(400).json({ error: "Independent application diagnostics are unavailable" });
+      return;
+    }
+    if (diagnosing) {
+      response.status(409).json({ error: "Application diagnostics are already running" });
+      return;
+    }
+    const controller = new AbortController();
+    const disconnected = () => {
+      if (!response.writableEnded) controller.abort();
+    };
+    response.once("close", disconnected);
+    const inspection = Promise.resolve().then(() => diagnose(credential, controller.signal));
+    diagnosing = inspection;
+    void inspection
+      .finally(() => {
+        if (diagnosing === inspection) diagnosing = null;
+      })
+      .catch(() => {});
+    void (async () => {
+      try {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let report: RecoveryApplicationDiagnostics | null = null;
+        let error: string | null = null;
+        const expiresAt = Date.now() + 10_000;
+        try {
+          const timeout = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new Error("Diagnostic deadline"));
+            }, 10_000);
+            timer.unref();
+          });
+          const observed = RecoveryApplicationDiagnosticsSchema.parse(
+            await Promise.race([inspection, timeout]),
+          );
+          if (
+            controller.signal.aborted ||
+            Date.now() >= expiresAt ||
+            observed.installationId !== input.installationId
+          )
+            throw new Error("Unverified diagnostic result");
+          report = observed;
+        } catch {
+          error =
+            "Application checks could not be verified. No maintenance decision was submitted.";
+        } finally {
+          clearTimeout(timer);
+          controller.abort();
+          response.off("close", disconnected);
+        }
+        if (!response.destroyed)
+          response.json(
+            RecoveryApplicationDiagnosticsResponseSchema.parse({
+              type: "installation.maintenance.application_diagnostics.response",
+              payload: { requestId: parsed.data.requestId, report, error },
+            }),
+          );
+      } catch (error) {
+        next(error);
+      }
+    })();
+  });
   app.post("/api/installation/maintenance/owner", (request, response, next) => {
     if (request.body?.type !== "installation.maintenance.rollback.prepare.request") {
       next();
