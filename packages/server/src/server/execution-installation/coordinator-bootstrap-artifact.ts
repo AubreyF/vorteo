@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants, type BigIntStats } from "node:fs";
+import { constants, lstatSync, realpathSync, type BigIntStats } from "node:fs";
 import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -210,15 +210,24 @@ export async function digestBootstrapArtifact(
   directory: string,
   limits: BootstrapArtifactDigestLimits = {},
 ): Promise<string> {
-  const deadline = limits.timeoutMs === undefined ? Infinity : Date.now() + limits.timeoutMs;
+  return (await inspectBootstrapArtifact(directory, limits)).sha256;
+}
+
+/** Retain every dependency and directory through later locked admission. The
+ * collection budget ends on success; caller cancellation still invalidates proof. */
+export async function inspectBootstrapArtifact(
+  directory: string,
+  limits: BootstrapArtifactDigestLimits = {},
+) {
+  const { signal, maxFiles = Infinity, maxBytes = Infinity, timeoutMs } = limits;
+  const deadline = timeoutMs === undefined ? Infinity : Date.now() + timeoutMs;
   let files = 0;
   let bytes = 0;
   const checkBudget = () => {
-    if (limits.signal?.aborted)
-      throw new BootstrapRequestConflict("Artifact verification cancelled");
+    if (signal?.aborted) throw new BootstrapRequestConflict("Artifact verification cancelled");
     if (Date.now() >= deadline)
       throw new BootstrapRequestConflict("Artifact verification deadline exceeded");
-    if (files > (limits.maxFiles ?? Infinity) || bytes > (limits.maxBytes ?? Infinity))
+    if (files > maxFiles || bytes > maxBytes)
       throw new BootstrapRequestConflict("Artifact verification limit exceeded");
   };
   checkBudget();
@@ -290,5 +299,16 @@ export async function digestBootstrapArtifact(
     requireUnchanged(before, await lstat(file, { bigint: true }));
   }
   checkBudget();
-  return hash.digest("hex");
+  const sha256 = hash.digest("hex");
+  return {
+    sha256,
+    assertCurrent(): void {
+      signal?.throwIfAborted();
+      if (realpathSync(directory) !== directory)
+        throw new BootstrapRequestConflict("Retained artifact requires its canonical directory");
+      for (const [file, before] of observed)
+        requireUnchanged(before, lstatSync(file, { bigint: true }));
+      signal?.throwIfAborted();
+    },
+  };
 }

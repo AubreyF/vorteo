@@ -1,10 +1,21 @@
-import { test, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod, symlink, realpath, rm, link } from "node:fs/promises";
+import { test, expect, afterEach, vi } from "vitest";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  chmod,
+  symlink,
+  realpath,
+  rm,
+  link,
+  rename,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   digestBootstrapArtifact,
+  inspectBootstrapArtifact,
   assertBootstrapPathsProtected,
   verifyBootstrapReleaseArtifacts,
   verifyBootstrapPreparedDependency,
@@ -190,4 +201,62 @@ test("bounded artifact verification refuses partial results on limits, deadline 
   expect(
     await digestBootstrapArtifact(release, { maxFiles: 10, maxBytes: 1000, timeoutMs: 10_000 }),
   ).toBe(expected);
+});
+
+test("retained artifact proof binds imported dependencies after successful collection", async () => {
+  const { release } = await fixture();
+  const inspected = await inspectBootstrapArtifact(release, {
+    maxFiles: 32,
+    maxBytes: 1024,
+    timeoutMs: 1000,
+  });
+  expect(inspected.sha256).toBe(await digestBootstrapArtifact(release));
+  expect(inspected.assertCurrent()).toBeUndefined();
+  await writeFile(path.join(release, "entry.js"), "export const changed = true;", { mode: 0o600 });
+  expect(() => inspected.assertCurrent()).toThrow("changed during verification");
+});
+
+test("retained artifact proof refuses a newly inserted runtime file", async () => {
+  const { release } = await fixture();
+  const inspected = await inspectBootstrapArtifact(release);
+  await writeFile(path.join(release, "late.js"), "export {};", { mode: 0o600 });
+  expect(() => inspected.assertCurrent()).toThrow("changed during verification");
+});
+
+test("successful artifact proof outlives its collection budget while preserving caller cancellation", async () => {
+  const { release } = await fixture();
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  try {
+    const cancellation = new AbortController();
+    const inspected = await inspectBootstrapArtifact(release, {
+      timeoutMs: 1000,
+      signal: cancellation.signal,
+    });
+    clock.mockReturnValue(now + 2000);
+    expect(inspected.assertCurrent()).toBeUndefined();
+    cancellation.abort(new Error("Caller canceled"));
+    expect(() => inspected.assertCurrent()).toThrow("Caller canceled");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("retained artifact proof refuses substituting a directory alias", async () => {
+  const { root, release } = await fixture();
+  const inspected = await inspectBootstrapArtifact(release);
+  const moved = path.join(root, "moved");
+  await rename(release, moved);
+  await symlink(moved, release);
+  expect(() => inspected.assertCurrent()).toThrow("canonical directory");
+});
+
+test("retained artifact proof keeps the original caller cancellation signal", async () => {
+  const { release } = await fixture();
+  const original = new AbortController();
+  const limits = { signal: original.signal };
+  const inspected = await inspectBootstrapArtifact(release, limits);
+  limits.signal = new AbortController().signal;
+  original.abort(new Error("Original caller canceled"));
+  expect(() => inspected.assertCurrent()).toThrow("Original caller canceled");
 });
