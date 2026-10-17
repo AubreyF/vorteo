@@ -839,7 +839,9 @@ process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("he
       env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
       stdio: ["pipe", "pipe", "ignore"],
       timeout: 120_000,
-      killSignal: "SIGTERM",
+      // This isolated reader holds no lifecycle lock or effect authority. Its
+      // timeout must terminate even when graceful signals cannot make progress.
+      killSignal: "SIGKILL",
     });
     child.stdin.on("error", () => {});
     child.stdout.on("data", (bytes: Buffer) => {

@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { hashSync } from "bcryptjs";
 import {
   CoordinatorBootstrapPlanSchema,
@@ -56,6 +57,82 @@ const runnerRelative =
   "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js";
 const workerRelative = "packages/server/dist/server/server/daemon-worker.js";
 const mainRelative = "packages/server/dist/server/server/execution-installation/main.js";
+
+test.runIf(process.platform === "darwin")(
+  "retained verification kills a SIGTERM-ignoring reader within its existing deadline",
+  async () => {
+    const f = await fixture();
+    const pidFile = path.join(f.root, "reader-pid");
+    const ignoredFile = path.join(f.root, "reader-ignored-term");
+    const emergencyFile = path.join(f.root, "reader-emergency-exit");
+    const reader = f.save(
+      path.join(f.root, "hanging-reader.mjs"),
+      `import { writeFileSync } from "node:fs";
+process.on("SIGTERM", () => writeFileSync(${JSON.stringify(ignoredFile)}, "ignored"));
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+process.kill(process.pid, "SIGTERM");
+process.stdin.resume();
+setInterval(() => {}, 1000);
+setTimeout(() => {
+  writeFileSync(${JSON.stringify(emergencyFile)}, "expired");
+  process.exit(17);
+}, 130000);
+`,
+      true,
+    );
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const executable = f.save(
+      path.join(f.root, "reader-node"),
+      `#!/bin/sh\nexec ${quote(realpathSync(process.execPath))} ${quote(reader.path)}\n`,
+      true,
+      0o700,
+    );
+    const before = readFileSync(path.join(f.state, "coordinator-bootstrap.json"));
+    const originalArguments = process.argv;
+    const started = performance.now();
+    const verification = (() => {
+      try {
+        process.argv = [
+          process.execPath,
+          fileURLToPath(new URL("./coordinator-bootstrap-runner.js", import.meta.url)),
+          "/fixture/setup.json",
+          "executor",
+        ];
+        return verifyRetainedRenewal({ ...f.original, node: executable });
+      } finally {
+        process.argv = originalArguments;
+      }
+    })().then(
+      () => "verified",
+      () => "refused",
+    );
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await vi.waitFor(() => expect(readFileSync(ignoredFile, "utf8")).toBe("ignored"), {
+        timeout: 5000,
+      });
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      expect(pid).toBeGreaterThan(0);
+      const outcome = await Promise.race([
+        verification,
+        new Promise<string>((resolve) => {
+          deadline = setTimeout(() => resolve("deadline exceeded"), 125000);
+        }),
+      ]);
+      expect(outcome).toBe("refused");
+      expect(performance.now() - started).toBeGreaterThanOrEqual(119000);
+      expect(performance.now() - started).toBeLessThan(125000);
+      expect(() => process.kill(pid, 0)).toThrow();
+      expect(() => readFileSync(emergencyFile)).toThrow();
+      expect(readFileSync(path.join(f.state, "coordinator-bootstrap.json"))).toEqual(before);
+    } finally {
+      clearTimeout(deadline);
+      // The fixture's own emergency exit also bounds cleanup if the regression returns.
+      await verification;
+    }
+  },
+  145000,
+);
 
 async function fixture() {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "bootstrap-renewal-")));

@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.628 - 2026-10-16
+
+### Maintenance
+
+- Make the existing two-minute retained-renewal verification timeout use SIGKILL for its isolated read-only child. A child that ignores SIGTERM must not leave the native installer or recovery runner waiting indefinitely. The child receives no execution lock or effect authority; verification, approval and replay checks remain unchanged.
+- Add a real subprocess regression whose reader proves it ignored SIGTERM. It must be refused within the existing deadline, leave no reader process, and preserve fixture journal bytes. A fixture-owned emergency exit bounds failed-test cleanup without changing the production timeout.
+- No installed service, route, credential or selection changes. README recovery availability remains pending tracked delivery and owner acceptance.
+
 ## 0.11.0-beta.3.vorteo.627 - 2026-10-16
 
 ### Maintenance
