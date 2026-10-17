@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.626 - 2026-10-16
+
+### Tests
+
+- Exercise a real subprocess dying after the rollback attempt and fixture selection are durably written. Reopening preserves the original approval, plan, generation and attempt marker without repeating rollback effects.
+- Verify that independently confirmed fallback readiness records rollback, while unverified readiness remains recovery-required. Seven focused crash and adjacent reconciliation cases pass. Journal storage and subprocess termination are real; native service commands and custody ports remain simulated, so full service and installed acceptance are still open.
+- No production behavior or README availability claim changes.
+
 ## 0.11.0-beta.3.vorteo.625 - 2026-10-16
 
 ### Documentation

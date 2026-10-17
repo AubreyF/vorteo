@@ -4936,6 +4936,100 @@ test.each(["rollback_pending", "recovery_required"] as const)(
   },
 );
 
+test.each(["verified fallback", "unverified fallback"])(
+  "a real rollback-process crash reopens the retained generation without replay: %s",
+  async (outcome) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const claimed = await f.service().claimDispatch(pickDecision(approved));
+    const selected = path.join(f.root, "selected-fixture-runtime");
+    const driver = path.join(f.root, "crash-during-rollback.mjs");
+    const childIdentity = path.join(f.root, "rollback-child.json");
+    const bindingFile = path.join(f.root, "fixture-binding.json");
+    writeFileSync(bindingFile, JSON.stringify(f.binding), { mode: 0o600 });
+    const source = `
+import {readFileSync,writeFileSync,openSync,fsyncSync,closeSync} from 'node:fs';
+import {FileBootstrapRequestJournal} from ${JSON.stringify(new URL("./coordinator-bootstrap-journal.ts", import.meta.url).href)};
+import {CoordinatorBootstrapRequests} from ${JSON.stringify(new URL("./coordinator-bootstrap.ts", import.meta.url).href)};
+import {recoverAbandonedBootstrap} from ${JSON.stringify(new URL("./coordinator-bootstrap-watchdog.ts", import.meta.url).href)};
+const root=process.argv[2];
+writeFileSync(${JSON.stringify(childIdentity)},JSON.stringify({pid:process.pid}),{mode:0o600});
+const binding=JSON.parse(readFileSync(${JSON.stringify(bindingFile)},'utf8'));
+const requests=new CoordinatorBootstrapRequests(new FileBootstrapRequestJournal(root),()=>binding,async()=>{});
+await recoverAbandonedBootstrap(requests,${JSON.stringify({ id: claimed.id, generation: claimed.execution!.generation })},{
+ withOwnership:async operation=>operation(),verifyExecutorExited:async()=>{},
+ resumePrevious:async()=>{throw Error('Unexpected resume')},
+ restorePrevious:async()=>{
+  writeFileSync(${JSON.stringify(selected)},'selected-compatible-fixture',{mode:0o600,flag:'wx'});
+  const fd=openSync(${JSON.stringify(selected)},'r');try{fsyncSync(fd)}finally{closeSync(fd)}
+  process.kill(process.pid,'SIGKILL');
+ }
+});
+`;
+    writeFileSync(driver, source, { mode: 0o600 });
+    await expect(
+      promisify(execFile)(
+        process.execPath,
+        ["--import", import.meta.resolve("tsx"), driver, f.root],
+        { timeout: 10_000, killSignal: "SIGKILL" },
+      ),
+    ).rejects.toMatchObject({ signal: "SIGKILL" });
+    const child = z
+      .object({ pid: z.number().int().positive() })
+      .parse(JSON.parse(readFileSync(childIdentity, "utf8")));
+    const verifyChildExited = async () => {
+      expect(() => process.kill(child.pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+    };
+    await verifyChildExited();
+    const reopened = new FileBootstrapRequestJournal(f.root);
+    const interrupted = reopened.read().find((request) => request.id === claimed.id)!;
+    expect(interrupted.execution).toMatchObject({
+      stage: "rollback_pending",
+      generation: claimed.execution!.generation,
+      rollbackAttemptedAt: expect.any(String),
+    });
+    expect(readFileSync(selected, "utf8")).toBe("selected-compatible-fixture");
+    const effects = vi.fn(async () => {
+      throw new Error("Interrupted rollback must not run twice");
+    });
+    const observe = vi.fn(async () => {
+      expect(readFileSync(selected, "utf8")).toBe("selected-compatible-fixture");
+      if (outcome === "unverified fallback") throw new Error("Fixture readiness is not proven");
+    });
+    const requests = new CoordinatorBootstrapRequests(
+      reopened,
+      () => f.binding,
+      async () => {},
+    );
+    const result = await recoverAbandonedBootstrap(
+      requests,
+      { id: claimed.id, generation: claimed.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: verifyChildExited,
+        verifyRollback: observe,
+        resumePrevious: effects,
+        restorePrevious: effects,
+      },
+    );
+    expect(result.execution).toMatchObject({
+      generation: claimed.execution!.generation,
+      rollbackAttemptedAt: interrupted.execution!.rollbackAttemptedAt,
+      stage: outcome === "verified fallback" ? "rolled_back" : "recovery_required",
+    });
+    expect(result.plan).toEqual(claimed.plan);
+    expect(result.decisionAt).toBe(claimed.decisionAt);
+    expect(observe).toHaveBeenCalledOnce();
+    expect(effects).not.toHaveBeenCalled();
+    expect(reopened.read().find((request) => request.id === claimed.id)).toEqual(result);
+  },
+  15_000,
+);
+
 test.each(["unhealthy", "changed ownership", "no attempt"])(
   "rollback reconciliation does not invent success: %s",
   async (failure) => {
