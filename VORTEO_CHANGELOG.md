@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.619 - 2026-10-16
+
+### Maintenance
+
+- Add independent coordinator rollback preparation using the selected recovery listener's native custody and the existing manual request, decision and execution path. The target comes only from the successful coordinator's explicitly reviewed compatible fallback. Preparation preserves configuration and history, refuses unresolved work, and does not consult basic health as permission to deny owner recovery.
+- Pin the independent executor separately from the rollback target through the existing startup-recovery descriptor. Preparation has a two-minute response deadline and a final expiry check before request persistence; a late preparation cannot create new approval authority. Prepared files are synchronized and retained after failure.
+- Nine selection regressions cover exact retained compatibility, open reviews, uncertain and rolled-back history, missing fallback, changed configuration, reused source, altered plan digest and another installation. Eight existing independent-runtime cases still pass. Native preparation and reopening, permanent HTTP controls, remote-browser acceptance and installed delivery remain unfinished. README and General availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.618 - 2026-10-16
 
 ### Maintenance

@@ -17,12 +17,107 @@ import { bootstrapRecoveryLauncher } from "./coordinator-bootstrap-boot-recovery
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { selectIndependentCoordinatorRollback } from "./coordinator-bootstrap-maintenance-recovery-rollback.js";
+import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
+
 import {
   observeBootstrapExecutorExit,
   observeBootstrapReadiness,
   verifyBootstrapExecutionRuntime,
   BootstrapRunnerSetupSchema,
 } from "./coordinator-bootstrap-runner.js";
+
+test.each([
+  "valid",
+  "open",
+  "uncertain",
+  "rolled-back",
+  "missing",
+  "changed-config",
+  "same-source",
+  "digest",
+  "foreign",
+])("independent rollback selects only exact retained compatibility: %s", (mode) => {
+  const installation = {
+    installationId: randomUUID(),
+    stateDirectory: "/fixture/state",
+    service: `gui/501/local.vorteo.${randomUUID()}.installation`,
+  };
+  const file = { path: "/fixture/config.json", sha256: "a".repeat(64) };
+  const release = (source: string) => ({
+    sourceCommit: source.repeat(40),
+    directory: `/fixture/${source}`,
+    artifactSha256: source.repeat(64),
+    node: { ...file, path: `/fixture/${source}/node` },
+    entrypoint: { ...file, path: `/fixture/${source}/main.js` },
+    configuration: file,
+    launcher: { ...file, path: `/fixture/${source}/launch.plist` },
+  });
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: installation.installationId,
+    service: installation.service,
+    expectedProcess: {
+      pid: 12,
+      bootId: randomUUID(),
+      startIdentity: "12:34",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: release("a"),
+    candidate: release("b"),
+    compatibleRecovery: release("c"),
+    automaticRecovery: "restore-compatible",
+    state: {
+      directory: installation.stateDirectory,
+      restartJournal: "/fixture/state/restart-jobs.json",
+      ownerSessions: "/fixture/state/owner-sessions.json",
+    },
+    hostRequestsAfter: null,
+  });
+  if (mode === "missing") {
+    delete plan.compatibleRecovery;
+    plan.automaticRecovery = "restore-previous";
+  }
+  if (!plan.compatibleRecovery && mode !== "missing") throw new Error("Fixture fallback missing");
+  if (mode === "changed-config" && plan.compatibleRecovery)
+    plan.compatibleRecovery.configuration = { ...file, sha256: "d".repeat(64) };
+  if (mode === "same-source" && plan.compatibleRecovery)
+    plan.compatibleRecovery.sourceCommit = plan.candidate.sourceCommit;
+  const request = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Reviewed fixture",
+    createdAt: new Date().toISOString(),
+    plan,
+    planSha256: coordinatorPlanDigest(plan),
+    status: "approved",
+    decisionAt: new Date().toISOString(),
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded",
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  if (mode === "uncertain") request.execution.stage = "recovery_required";
+  if (mode === "rolled-back") request.execution.stage = "rolled_back";
+  if (mode === "digest") request.planSha256 = "0".repeat(64);
+  if (mode === "foreign") installation.installationId = randomUUID();
+  const records: unknown[] = [request];
+  if (mode === "open")
+    records.push({ ...request, id: randomUUID(), status: "pending", execution: undefined });
+  const before = structuredClone(records);
+  const select = () => selectIndependentCoordinatorRollback({ records, installation });
+  if (mode === "valid")
+    expect(select()).toEqual({
+      previous: plan.candidate,
+      candidate: plan.compatibleRecovery,
+      state: plan.state,
+    });
+  else expect(select).toThrow();
+  expect(records).toEqual(before);
+});
 
 test
   .skipIf(process.platform !== "darwin")
