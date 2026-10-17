@@ -2,9 +2,14 @@ import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 import { digestBootstrapArtifact } from "../coordinator-bootstrap-artifact.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
 import {
+  CoordinatorBootstrapPlanSchema,
+  CoordinatorBootstrapRequestSchema,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import {
   InitialHostSupervisorMigrationPlanSchema,
   inspectInitialHostSupervisorMigrationPlan,
   inspectInitialHostMigrationEnrollment,
+  reserveInitialHostMigrationIntent,
 } from "./host-supervisor-migration.js";
 import type { LifecycleJob } from "../lifecycle-journal.js";
 import {
@@ -4374,6 +4379,185 @@ test("initial Host migration enrollment binds the whole plan and exact reservati
   });
   expect(inspectInitialHostMigrationEnrollment(f.input)).toEqual(result);
   expect(readFileSync(file)).toEqual(before);
+});
+
+function initialHostIntentFixture() {
+  const f = initialHostPlanFixture();
+  const planSha256 = inspectInitialHostSupervisorMigrationPlan(f.plan).planSha256;
+  const native = {
+    precondition: f.plan.precondition,
+    preconditionSha256: f.plan.preconditionSha256,
+    observedAt: new Date().toISOString(),
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const artifacts = { plan: f.plan, planSha256, assertCurrent: vi.fn(() => undefined) };
+  return {
+    ...f,
+    native,
+    artifacts,
+    intentInput: { ...f.input, enrollmentStateDirectory: f.directory, native, artifacts },
+  };
+}
+
+test("initial Host intent consumes one exact reservation under the real shared lock", () => {
+  const f = initialHostIntentFixture();
+  const journalBefore = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  expect(JSON.parse(readFileSync(retained.file, "utf8"))).toEqual(retained.intent);
+  expect(retained.intent).toMatchObject({
+    operation: "initial-host-supervisor-migration",
+    grantId: f.input.grantId,
+    grantRevision: f.input.grantRevision,
+    manifestSha256: f.approval.manifestSha256,
+    stepId: f.second,
+    generation: f.input.generation,
+    planSha256: f.artifacts.planSha256,
+    preconditionSha256: f.plan.preconditionSha256,
+    observedAt: f.native.observedAt,
+  });
+  expect(lstatSync(retained.file).mode & 0o777).toBe(0o600);
+  expect(f.native.assertCurrent).toHaveBeenCalled();
+  expect(f.artifacts.assertCurrent).toHaveBeenCalled();
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(
+    journalBefore,
+  );
+  expect(JSON.parse(readFileSync(retained.file, "utf8"))).toEqual(retained.intent);
+});
+
+test.each(["native", "artifact", "expired", "asynchronous"])(
+  "initial Host intent refuses changed %s proof before writing",
+  (changed) => {
+    const f = initialHostIntentFixture();
+    if (changed === "native") f.native.preconditionSha256 = "0".repeat(64);
+    if (changed === "artifact") f.artifacts.planSha256 = "0".repeat(64);
+    if (changed === "expired") f.native.observedAt = new Date(Date.now() - 30_001).toISOString();
+    if (changed === "asynchronous") Reflect.set(f.native, "assertCurrent", () => Promise.resolve());
+    expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+    expect(
+      existsSync(path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`)),
+    ).toBe(false);
+  },
+);
+
+test("initial Host intent refuses revoked authority inside the shared transaction", () => {
+  const f = initialHostIntentFixture();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.input.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow("authority changed");
+  expect(f.native.assertCurrent).not.toHaveBeenCalled();
+});
+
+test("initial Host intent retains uncertain directory synchronization without replay", () => {
+  const f = initialHostIntentFixture();
+  let syncs = 0;
+  const files = {
+    ...enrollmentWriteFiles,
+    sync(descriptor: number) {
+      if (++syncs === 2) throw new Error("injected intent directory sync failure");
+      enrollmentWriteFiles.sync(descriptor);
+    },
+  };
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput, files)).toThrow(
+    "directory sync failure",
+  );
+  const file = path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`);
+  const retained = readFileSync(file);
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+  expect(readFileSync(file)).toEqual(retained);
+});
+
+test("initial Host intent refuses a competing approved daemon under shared exclusion", () => {
+  const f = initialHostIntentFixture();
+  const competing = { ...restartAdmissionFixture().pending, status: "approved" };
+  const file = path.join(f.directory, "restart-jobs.json");
+  writeFileSync(file, JSON.stringify([competing]), { mode: 0o600 });
+  const before = readFileSync(file);
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow(
+    "unresolved installation work",
+  );
+  expect(readFileSync(file)).toEqual(before);
+  expect(f.native.assertCurrent).not.toHaveBeenCalled();
+  expect(
+    existsSync(path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`)),
+  ).toBe(false);
+});
+
+test("initial Host intent refuses an active coordinator execution without creating an intent", () => {
+  const f = initialHostIntentFixture();
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: f.plan.installationId,
+    service: `gui/${process.getuid!()}/local.vorteo.fixture.installation`,
+    expectedProcess: {
+      pid: f.plan.precondition.supervisor.pid,
+      bootId: f.plan.precondition.supervisor.bootId,
+      startIdentity: f.plan.precondition.supervisor.startIdentity,
+      argumentsSha256: f.plan.precondition.supervisor.argumentsSha256,
+    },
+    previous: f.plan.fallback,
+    candidate: f.plan.candidate,
+    state: {
+      directory: f.directory,
+      restartJournal: path.join(f.directory, "restart-jobs.json"),
+      ownerSessions: path.join(f.directory, "owner-sessions.json"),
+    },
+    hostRequestsAfter: null,
+  });
+  const now = new Date().toISOString();
+  const record = CoordinatorBootstrapRequestSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Fixture coordinator execution exclusion",
+    createdAt: now,
+    decisionAt: now,
+    plan,
+    planSha256: createHash("sha256").update(JSON.stringify(plan)).digest("hex"),
+    status: "approved",
+    execution: { generation: randomUUID(), stage: "claimed", updatedAt: now },
+  });
+  const file = path.join(f.directory, "coordinator-bootstrap.json");
+  writeFileSync(file, JSON.stringify({ version: 1, requests: [record] }), { mode: 0o600 });
+  const before = readFileSync(file);
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow(
+    "Coordinator execution conflicts",
+  );
+  expect(readFileSync(file)).toEqual(before);
+  expect(f.native.assertCurrent).not.toHaveBeenCalled();
+  expect(
+    existsSync(path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`)),
+  ).toBe(false);
+});
+
+test("initial Host intent refuses proof substitution during synchronous custody", () => {
+  const f = initialHostIntentFixture();
+  f.artifacts.assertCurrent.mockImplementation(() => {
+    f.native.preconditionSha256 = "0".repeat(64);
+  });
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow(
+    "different reviewed bytes",
+  );
+  expect(
+    existsSync(path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`)),
+  ).toBe(false);
+});
+
+test("initial Host intent refuses a preexisting symlink without touching its target", () => {
+  const f = initialHostIntentFixture();
+  const target = path.join(f.directory, "retained.json");
+  writeFileSync(target, "retained fixture evidence", { mode: 0o600 });
+  symlinkSync(
+    target,
+    path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`),
+  );
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+  expect(readFileSync(target, "utf8")).toBe("retained fixture evidence");
 });
 
 test.each([

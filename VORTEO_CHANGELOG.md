@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.669 - 2026-10-17
+
+### Maintenance
+
+- Persist an initial Host migration intent for the exact existing activation reservation under shared lifecycle exclusion. Bind current enrollment, reviewed plan, native precondition, artifact custody and fresh observation before creating a private exclusive file and synchronizing it and its directory.
+- Refuse conflicting lifecycle work, stale or substituted proofs, revoked authority, duplicate intent creation and symlink substitution. An uncertain synchronization retains the intent as a replay fence. This slice writes no service commands and does not establish migration execution, complete startup compatibility or final activation readiness.
+
 ## 0.11.0-beta.3.vorteo.668 - 2026-10-17
 
 ### Maintenance

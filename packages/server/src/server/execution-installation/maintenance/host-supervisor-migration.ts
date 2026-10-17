@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { constants, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -8,11 +9,22 @@ import type {
   InstallationActivation,
   EnrollmentStep,
 } from "@getpaseo/protocol/installation-enrollment";
-import { BootstrapRequestConflict } from "../coordinator-bootstrap.js";
+import {
+  BootstrapRequestConflict,
+  assertCoordinatorLifecycleIdle,
+  openBootstrapRequests,
+} from "../coordinator-bootstrap.js";
+import { FileBootstrapRequestJournal } from "../coordinator-bootstrap-journal.js";
 import { inspectBootstrapReleaseArtifacts } from "../coordinator-bootstrap-artifact.js";
-import { FileEnrollmentJournal, enrollmentManifestDigest } from "./authorization.js";
+import {
+  FileEnrollmentJournal,
+  enrollmentManifestDigest,
+  enrollmentWriteFiles,
+  type EnrollmentWriteFiles,
+} from "./authorization.js";
 import { enrollmentNativeIdentityDigest } from "./native-identity.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
+import type { inspectInitialHostSupervisorMigration } from "./native-daemon-inspection.js";
 import { inspectInitialHostModuleContract } from "./host-startup-contract.js";
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 
@@ -110,6 +122,125 @@ interface MigrationEnrollmentInput {
   grantRevision: string;
   stepId: string;
   generation: string;
+}
+
+const InitialHostMigrationIntentSchema = z.strictObject({
+  version: z.literal(1),
+  id: z.string().uuid(),
+  operation: z.literal("initial-host-supervisor-migration"),
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: digest,
+  stepId: z.string().uuid(),
+  generation: z.string().uuid(),
+  planSha256: digest,
+  identitySha256: digest,
+  preconditionSha256: digest,
+  observedAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+});
+
+interface InitialHostMigrationIntentInput extends Omit<MigrationEnrollmentInput, "journal"> {
+  /** Verified controller state, never a review-supplied path. */
+  enrollmentStateDirectory: string;
+  native: Awaited<ReturnType<typeof inspectInitialHostSupervisorMigration>>;
+  artifacts: Awaited<ReturnType<typeof inspectInitialHostMigrationArtifacts>>;
+}
+
+/** Consume the existing activation reservation exactly once. This writes only
+ * its addressed intent; native interruption and selection remain separate,
+ * unwired operations requiring their own current custody and grant checks. */
+export function reserveInitialHostMigrationIntent(
+  input: InitialHostMigrationIntentInput,
+  files: Pick<EnrollmentWriteFiles, "open" | "write" | "sync" | "close"> = enrollmentWriteFiles,
+) {
+  const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const directory = input.enrollmentStateDirectory;
+  const bootstrap = new FileBootstrapRequestJournal(directory);
+  const journal = new FileEnrollmentJournal(directory);
+  return bootstrap.withRecoveryTransaction((requests) => {
+    if (openBootstrapRequests(requests).some((request) => request.execution))
+      throw new BootstrapRequestConflict(
+        "Coordinator execution conflicts with initial Host migration",
+      );
+    assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
+    const binding = inspectInitialHostMigrationEnrollment({ ...input, journal, plan });
+    assertInitialHostIntentProofs(input, plan, planSha256);
+    requireMatch(
+      isDeepStrictEqual(
+        binding,
+        inspectInitialHostMigrationEnrollment({ ...input, journal, plan }),
+      ),
+      "Initial Host migration authority changed during custody checks",
+    );
+    const parent = lstatSync(directory);
+    requireMatch(
+      realpathSync(directory) === directory &&
+        parent.isDirectory() &&
+        parent.uid === process.getuid?.() &&
+        (parent.mode & 0o077) === 0,
+      "Initial Host intent requires its private controller state",
+    );
+    const intent = InitialHostMigrationIntentSchema.parse({
+      version: 1,
+      id: randomUUID(),
+      operation: "initial-host-supervisor-migration",
+      grantId: binding.grantId,
+      grantRevision: binding.grantRevision,
+      manifestSha256: binding.manifestSha256,
+      stepId: binding.stepId,
+      generation: binding.generation,
+      planSha256,
+      identitySha256: plan.identitySha256,
+      preconditionSha256: plan.preconditionSha256,
+      observedAt: input.native.observedAt,
+      createdAt: new Date().toISOString(),
+    });
+    const file = path.join(directory, `initial-host-${binding.stepId}-${binding.generation}.json`);
+    const descriptor = files.open(
+      file,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      files.write(descriptor, JSON.stringify(intent));
+      files.sync(descriptor);
+    } finally {
+      files.close(descriptor);
+    }
+    const parentDescriptor = files.open(directory, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      files.sync(parentDescriptor);
+    } finally {
+      files.close(parentDescriptor);
+    }
+    return { file, intent };
+  });
+}
+
+function assertInitialHostIntentProofs(
+  input: InitialHostMigrationIntentInput,
+  plan: InitialHostSupervisorMigrationPlan,
+  planSha256: string,
+) {
+  const assertBinding = () =>
+    requireMatch(
+      input.native.preconditionSha256 === plan.preconditionSha256 &&
+        hash(input.native.precondition) === plan.preconditionSha256 &&
+        input.artifacts.planSha256 === planSha256 &&
+        hash(input.artifacts.plan) === planSha256,
+      "Initial Host migration proofs name different reviewed bytes",
+    );
+  assertBinding();
+  if (input.native.assertCurrent() !== undefined || input.artifacts.assertCurrent() !== undefined)
+    throw new BootstrapRequestConflict("Initial Host custody checks must remain synchronous");
+  assertBinding();
+  const observed = Date.parse(input.native.observedAt);
+  const age = Date.now() - observed;
+  requireMatch(
+    Number.isFinite(age) && age >= 0 && age < 30_000,
+    "Initial Host native proof is no longer fresh",
+  );
 }
 
 /** Enrollment scope validation, not effect admission. The eventual intent writer
