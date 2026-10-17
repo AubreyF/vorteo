@@ -1,4 +1,5 @@
 import { inspectMaintenanceObservationRuntime } from "./coordinator-bootstrap-maintenance-observation-runtime.js";
+import { reconcileNativeInitialHostActivation } from "./maintenance/host-supervisor-activation.js";
 import { createNativeMaintenanceServiceExecutor } from "./coordinator-bootstrap-maintenance-service-producer.js";
 import { observeNativeMaintenanceServices } from "./coordinator-bootstrap-maintenance-health.js";
 import { observeNativeRecoveryAccess } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
@@ -35,6 +36,11 @@ const startupFence = loadCoordinatorStartupFence({
 initializePackagedClaudeCli(true);
 const executor = createInstallationRestartExecutor(config);
 if (process.platform === "darwin") {
+  executor.reconcileInitialHostActivation = () =>
+    reconcileNativeInitialHostActivation({
+      configuration: config,
+      configurationFile: realpathSync(configFile),
+    });
   executor.observeRecoveryAccess = (signal) =>
     observeNativeRecoveryAccess({
       installationId: config.public.installationId,

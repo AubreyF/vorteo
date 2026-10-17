@@ -1,5 +1,9 @@
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 import {
+  reconcileInitialHostActivation,
+  reconcileNativeInitialHostActivation,
+} from "./host-supervisor-activation.js";
+import {
   executeInitialHostMigrationTransition,
   observeInitialHostMigrationTransition,
   inspectInitialHostCandidatePublication,
@@ -4436,6 +4440,248 @@ function initialHostClaimFixture(preparePlan?: Parameters<typeof initialHostPlan
   };
   return { ...f, retained, executor, claimInput: { ...f.intentInput, executor } };
 }
+
+function initialHostActivationFixture() {
+  const f = initialHostIntentFixture();
+  f.journal.update((state) => {
+    if (state.status !== "enrolled") throw new Error("Fixture enrollment disappeared");
+    return {
+      ...state,
+      activation: {
+        ...state.activation,
+        steps: state.activation.steps.map((step) =>
+          step.id === f.second ? { id: step.id, status: "pending" as const } : step,
+        ),
+      },
+    };
+  });
+  const plans = path.join(f.directory, "initial-host-migrations", "plans");
+  mkdirSync(plans, { recursive: true, mode: 0o700 });
+  const planFile = path.join(plans, `${f.artifacts.planSha256}.json`);
+  writeFileSync(planFile, JSON.stringify(f.plan), { mode: 0o600 });
+  const input = {
+    installationRoot: f.directory,
+    stateDirectory: f.directory,
+    installationId: f.plan.installationId,
+  };
+  const prepared = {
+    native: f.native,
+    artifacts: f.artifacts,
+    assertCurrent: vi.fn(() => undefined),
+    launch: vi.fn(async () => undefined),
+  };
+  const ports = { prepare: vi.fn(async () => prepared), observe: vi.fn(async () => undefined) };
+  return { ...f, input, planFile, ports, prepared };
+}
+
+function hostActivationConfiguration(
+  f: ReturnType<typeof initialHostActivationFixture>,
+): InstallationConfig {
+  const identity = f.plan.precondition.identity;
+  if (identity.environment !== "host") throw new Error("Fixture Host identity missing");
+  retainEnrollmentNativeIdentity(f.directory, identity);
+  return {
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://installation.example",
+      environments: [
+        { kind: "host", serverId: "host", endpoint: "host.example", useTls: true },
+        { kind: "container", serverId: "dev", endpoint: "dev.example", useTls: true },
+      ],
+    },
+    stateDir: f.directory,
+    webDistDir: f.directory,
+    listenPort: 6770,
+    ownerPasswordHash: "$2-fixture",
+    hostAgentTokenHash: "0".repeat(64),
+    containerAgentTokenHash: "1".repeat(64),
+    host: {
+      endpoint: "localhost:6771",
+      password: "fixture",
+      launchdService: `${identity.serviceDomain}/${identity.serviceLabel}`,
+      startupValidation: {
+        node: f.plan.precondition.node.path,
+        entrypoint: f.plan.precondition.supervisorEntrypoint.path,
+        home: identity.stateDirectory,
+      },
+    },
+    container: { endpoint: "localhost:6772", password: "fixture" },
+  };
+}
+
+test("native Host activation refuses fresh effects without constructing inspection tools or reserving", async () => {
+  const f = initialHostActivationFixture();
+  const configuration = hostActivationConfiguration(f);
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  await expect(
+    reconcileNativeInitialHostActivation({
+      configuration,
+      configurationFile: f.plan.precondition.configuration.path,
+    }),
+  ).rejects.toThrow("production interruption and child-launch custody are unavailable");
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+});
+
+test("native Host activation leaves unclaimed work unresolved without constructing observer tools", async () => {
+  const f = initialHostActivationFixture();
+  const configuration = hostActivationConfiguration(f);
+  expect(await reconcileInitialHostActivation(f.input, f.ports)).toBe("unresolved");
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  expect(
+    await reconcileNativeInitialHostActivation({
+      configuration,
+      configurationFile: f.plan.precondition.configuration.path,
+    }),
+  ).toBe("unresolved");
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  expect(f.prepared.launch).toHaveBeenCalledTimes(1);
+});
+
+test("native Host activation rejects a mismatched configured home before observer construction", async () => {
+  const f = initialHostActivationFixture();
+  const configuration = hostActivationConfiguration(f);
+  configuration.host.startupValidation!.home = f.directory;
+  await expect(
+    reconcileNativeInitialHostActivation({
+      configuration,
+      configurationFile: f.plan.precondition.configuration.path,
+    }),
+  ).rejects.toThrow("identity differs from current configuration");
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+});
+
+test("Host activation parent reserves and consumes one intent, never relaunching an unclaimed generation", async () => {
+  const f = initialHostActivationFixture();
+  expect(await reconcileInitialHostActivation(f.input, f.ports)).toBe("unresolved");
+  const state = enrolled(f.journal.read());
+  const reserved = state.activation.steps[1];
+  expect(reserved.status).toBe("reserved");
+  expect(f.prepared.launch).toHaveBeenCalledTimes(1);
+  expect(f.ports.prepare).toHaveBeenCalledTimes(1);
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  expect(await reconcileInitialHostActivation(f.input, f.ports)).toBe("unresolved");
+  expect(f.prepared.launch).toHaveBeenCalledTimes(1);
+  expect(f.ports.prepare).toHaveBeenCalledTimes(1);
+  expect(f.ports.observe).not.toHaveBeenCalled();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+});
+
+test("Host activation parent observes a claimed generation after lost reply and revocation without effect preparation", async () => {
+  const f = initialHostActivationFixture();
+  f.prepared.launch.mockImplementation(async () => {
+    const state = enrolled(f.journal.read());
+    const reserved = state.activation.steps[1];
+    if (reserved.status !== "reserved") throw new Error("Fixture reservation missing");
+    claimInitialHostMigration({
+      ...f.intentInput,
+      generation: reserved.generation,
+      executor: {
+        process: {
+          ...f.plan.precondition.supervisor,
+          pid: process.pid,
+          parentPid: process.ppid,
+          executable: process.execPath,
+        },
+        assertCurrent() {},
+      },
+    });
+    throw new Error("injected lost launch reply");
+  });
+  await expect(reconcileInitialHostActivation(f.input, f.ports)).rejects.toThrow(
+    "lost launch reply",
+  );
+  const reserved = enrolled(f.journal.read()).activation.steps[1];
+  if (reserved.status !== "reserved") throw new Error("Fixture reservation missing");
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.intentInput.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.ports.observe.mockImplementation(async () => {
+    observeActivationStep(f.journal, {
+      stepId: f.second,
+      generation: reserved.generation,
+      outcome: "succeeded",
+      observationSha256: "b".repeat(64),
+    });
+  });
+  expect(await reconcileInitialHostActivation(f.input, f.ports)).toBe("verified");
+  expect(f.ports.observe).toHaveBeenCalledTimes(1);
+  expect(f.prepared.launch).toHaveBeenCalledTimes(1);
+  expect(f.ports.prepare).toHaveBeenCalledTimes(1);
+});
+
+test("Host activation parent rejects competing lifecycle work before reserving", async () => {
+  const f = initialHostActivationFixture();
+  const competing = { ...restartAdmissionFixture().pending, status: "approved" };
+  writeFileSync(path.join(f.directory, "restart-jobs.json"), JSON.stringify([competing]), {
+    mode: 0o600,
+  });
+  await expect(reconcileInitialHostActivation(f.input, f.ports)).rejects.toThrow(
+    "unresolved installation work",
+  );
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+  expect(f.prepared.launch).not.toHaveBeenCalled();
+});
+
+test("Host activation parent refuses missing prerequisites without stranding a reservation", async () => {
+  const f = initialHostActivationFixture();
+  f.ports.prepare.mockRejectedValue(new Error("Production interruption custody unavailable"));
+  await expect(reconcileInitialHostActivation(f.input, f.ports)).rejects.toThrow(
+    "interruption custody unavailable",
+  );
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+  expect(f.prepared.launch).not.toHaveBeenCalled();
+});
+
+test("Host activation parent rejects changed addressed plan before preparation", async () => {
+  const f = initialHostActivationFixture();
+  writeFileSync(f.planFile, JSON.stringify({ ...f.plan, installationId: randomUUID() }));
+  await expect(reconcileInitialHostActivation(f.input, f.ports)).rejects.toThrow();
+  expect(f.ports.prepare).not.toHaveBeenCalled();
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+});
+
+test("Host activation parent refuses changed enrollment interruption before reserving", async () => {
+  const f = initialHostActivationFixture();
+  f.journal.update((state) => {
+    if (state.status !== "enrolled") throw new Error("Fixture enrollment disappeared");
+    state.grant.manifest.interruption.finishTurnsSeconds++;
+    const digest = enrollmentManifestDigest(state.grant.manifest);
+    state.grant.approval.manifestSha256 = digest;
+    state.activation.manifestSha256 = digest;
+    return state;
+  });
+  const before = readFileSync(path.join(f.directory, "maintenance-enrollment.json"));
+  await expect(reconcileInitialHostActivation(f.input, f.ports)).rejects.toThrow(
+    "interruption differs from enrollment",
+  );
+  expect(f.ports.prepare).not.toHaveBeenCalled();
+  expect(f.prepared.launch).not.toHaveBeenCalled();
+  expect(readFileSync(path.join(f.directory, "maintenance-enrollment.json"))).toEqual(before);
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual({
+    id: f.second,
+    status: "pending",
+  });
+});
 
 test("initial Host child claim consumes its exact intent once without changing activation", () => {
   const f = initialHostClaimFixture();

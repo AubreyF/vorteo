@@ -40,6 +40,7 @@ import {
   InitialHostMigrationClaimSchema,
   InitialHostMigrationIntentSchema,
   inspectInitialHostPreparedArtifacts,
+  initialHostPublicationRecords,
   type InitialHostSupervisorMigrationPlan,
 } from "./host-supervisor-migration.js";
 import {
@@ -76,67 +77,29 @@ export function inspectInitialHostCandidatePublication(
   launcher: Buffer,
 ) {
   const { plan, claim, intent, planSha256 } = context;
-  requireMatch(
-    sha(plan) === planSha256 &&
-      intent.planSha256 === planSha256 &&
-      intent.identitySha256 === plan.identitySha256 &&
-      sha(plan.precondition) === intent.preconditionSha256 &&
-      claim.intentId === intent.id &&
-      claim.intentSha256 === sha(intent) &&
-      claim.planSha256 === planSha256 &&
-      claim.generation === intent.generation &&
-      claim.stepId === intent.stepId,
-    "Host publication differs from its exact claim",
-  );
+  requireMatch(sha(plan) === planSha256, "Host publication differs from its exact claim");
   requireMatch(
     createHash("sha256").update(launcher).digest("hex") === plan.candidate.launcher.sha256,
     "Host published launcher differs from candidate",
   );
-  const directory = path.dirname(context.file);
-  const publicationFile = path.join(directory, `initial-host-publication-${intent.id}.json`);
-  const claimSha256 = sha(claim);
-  const phase = {
-    version: 1,
-    intentId: intent.id,
-    claimSha256,
-    generation: claim.generation,
-    planSha256,
-    slot: "candidate",
-  };
-  const phaseBytes = Buffer.from(JSON.stringify(phase));
-  const launcherAttempt = {
-    version: 1,
-    reservationSha256: claimSha256,
-    files: [
-      {
-        path: plan.precondition.launcher.path,
-        previousSha256: plan.precondition.launcher.sha256,
-        sha256: plan.candidate.launcher.sha256,
-      },
-      {
-        path: publicationFile,
-        previousSha256: null,
-        sha256: createHash("sha256").update(phaseBytes).digest("hex"),
-      },
-    ],
-  };
-  const selectorAttempt = {
-    version: 1,
-    operation: "release-link-selection",
-    reservationSha256: claimSha256,
-    link: plan.precondition.identity.selectionPath!,
-    previous: plan.precondition.selectedRelease,
-    candidate: plan.candidate.directory,
-  };
+  const records = initialHostPublicationRecords({
+    plan,
+    intent,
+    claim,
+    enrollmentStateDirectory: path.dirname(context.file),
+  });
   const proofs = [
-    retainMaintenancePublishedFile(publicationFile, phaseBytes),
     retainMaintenancePublishedFile(
-      path.join(directory, `initial-host-launcher-attempt-${intent.id}.json`),
-      Buffer.from(JSON.stringify(launcherAttempt)),
+      records.phase.file,
+      Buffer.from(JSON.stringify(records.phase.record)),
     ),
     retainMaintenancePublishedFile(
-      path.join(directory, `initial-host-selector-attempt-${intent.id}.json`),
-      Buffer.from(JSON.stringify(selectorAttempt)),
+      records.launcherAttempt.file,
+      Buffer.from(JSON.stringify(records.launcherAttempt.record)),
+    ),
+    retainMaintenancePublishedFile(
+      records.selectorAttempt.file,
+      Buffer.from(JSON.stringify(records.selectorAttempt.record)),
     ),
     retainMaintenancePublishedFile(plan.precondition.launcher.path, launcher),
     retainMaintenancePublishedLink(

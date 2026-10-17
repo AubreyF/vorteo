@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.676 - 2026-10-17
+
+### Maintenance
+
+- Connect initial Host observation to the selected coordinator's existing drain. Retain drain ownership through slow callbacks, keep discovery behind activation, and observe claimed generations after revocation without constructing an effect executor. Missing claims remain unresolved; missing production interruption and child-launch custody leave pending work untouched.
+- Check the exact protected Host plan, interruption limits and lifecycle competitors before reservation. Share canonical publication records between the publisher, candidate observer and partial-publication classifier, preserving existing bytes and one-use attempt fences.
+- Add pure classification of addressed initial Host publication states, retaining captured control-file bytes and rejecting duplicate JSON keys, unrelated paths and substituted selector text. Classification grants no restoration authority. Production effects, fallback continuation and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.675 - 2026-10-17
 
 ### Maintenance

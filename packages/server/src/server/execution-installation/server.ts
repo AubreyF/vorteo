@@ -371,6 +371,7 @@ export function createInstallationServer(
     return true;
   };
   let coordinatorReconciliation: Promise<void> | null = null;
+  let drainInProgress = false;
   let serviceDiscovery: Promise<void> | null = null;
   let nextServiceDiscovery = 0;
   function discoverMaintenanceServices(): void {
@@ -406,8 +407,20 @@ export function createInstallationServer(
       });
   }
   const drainRestarts = async () => {
+    if (drainInProgress) return;
+    drainInProgress = true;
     try {
       if (startupReleased()) {
+        // Keep the actual callback owned until settlement. Another timer or
+        // caller must not bypass a slow activation into discovery or dispatch.
+        if (restartExecutor.reconcileInitialHostActivation) {
+          if (serviceDiscovery) return;
+          const progress = await restartExecutor.reconcileInitialHostActivation().catch(() => {
+            logger.warn("Initial Host activation remains unconfirmed");
+            return "unresolved";
+          });
+          if (progress !== "idle" && progress !== "verified") return;
+        }
         coordinatorRequests?.revokeAutomatic();
         discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
@@ -422,6 +435,8 @@ export function createInstallationServer(
       }
     } catch {
       logger.error("Installation restart journal or startup fence failed");
+    } finally {
+      drainInProgress = false;
     }
   };
   const sessions = new OwnerSessions(path.join(config.stateDir, "owner-sessions.json"));

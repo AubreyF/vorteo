@@ -309,6 +309,88 @@ interface InitialHostMigrationPublicationInput extends Omit<
   };
 }
 
+/** Canonical byte records shared by publication, readiness and partial-state
+ * recovery. This validates bindings only, without file reads or effect authority. */
+export function initialHostPublicationRecords(input: {
+  plan: unknown;
+  intent: unknown;
+  claim: unknown;
+  enrollmentStateDirectory: string;
+}) {
+  const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const intent = InitialHostMigrationIntentSchema.parse(input.intent);
+  const claim = InitialHostMigrationClaimSchema.parse(input.claim);
+  const directory = input.enrollmentStateDirectory;
+  requireMatch(
+    path.isAbsolute(directory) &&
+      path.normalize(directory) === directory &&
+      directory !== "/" &&
+      intent.planSha256 === planSha256 &&
+      intent.identitySha256 === plan.identitySha256 &&
+      intent.preconditionSha256 === plan.preconditionSha256 &&
+      claim.intentId === intent.id &&
+      claim.intentSha256 === hash(intent) &&
+      claim.planSha256 === planSha256 &&
+      claim.generation === intent.generation &&
+      claim.stepId === intent.stepId,
+    "Host publication differs from its exact claim",
+  );
+  const reservationSha256 = hash(claim);
+  const phase = {
+    file: path.join(directory, `initial-host-publication-${intent.id}.json`),
+    record: {
+      version: 1,
+      intentId: intent.id,
+      claimSha256: reservationSha256,
+      generation: claim.generation,
+      planSha256,
+      slot: "candidate",
+    },
+  };
+  const phaseSha256 = createHash("sha256").update(JSON.stringify(phase.record)).digest("hex");
+  return {
+    phase,
+    launcherAttempt: {
+      file: path.join(directory, `initial-host-launcher-attempt-${intent.id}.json`),
+      record: {
+        version: 1,
+        reservationSha256,
+        files: [
+          {
+            path: plan.precondition.launcher.path,
+            previousSha256: plan.precondition.launcher.sha256,
+            sha256: plan.candidate.launcher.sha256,
+          },
+          { path: phase.file, previousSha256: null, sha256: phaseSha256 },
+        ],
+      },
+    },
+    selectorAttempt: {
+      file: path.join(directory, `initial-host-selector-attempt-${intent.id}.json`),
+      record: {
+        version: 1,
+        operation: "release-link-selection",
+        reservationSha256,
+        link: plan.precondition.identity.selectionPath!,
+        previous: plan.precondition.selectedRelease,
+        candidate: plan.candidate.directory,
+      },
+    },
+    launcher: {
+      path: plan.precondition.launcher.path,
+      original: plan.precondition.launcher.sha256,
+      candidate: plan.candidate.launcher.sha256,
+      fallback: plan.fallback.launcher.sha256,
+    },
+    selector: {
+      path: plan.precondition.identity.selectionPath!,
+      original: plan.precondition.selectedRelease,
+      candidate: plan.candidate.directory,
+      fallback: plan.fallback.directory,
+    },
+  };
+}
+
 /** File phase of the claimed child, after independently proven native absence.
  * Both addressed attempts belong to the same claim. A partial result is for the
  * independent observer to reconcile; this function never resumes publication. */
@@ -382,20 +464,16 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
       "Initial Host artifact custody must be synchronous",
     );
     assertCurrent();
-    const receipt = {
-      version: 1,
-      intentId: intent.id,
-      claimSha256: hash(claim),
-      generation: claim.generation,
-      planSha256,
-      slot: "candidate",
-    };
-    const reservationSha256 = hash(claim);
-    const launcherAttemptFile = path.join(
-      directory,
-      `initial-host-launcher-attempt-${intent.id}.json`,
-    );
-    const publicationFile = path.join(directory, `initial-host-publication-${intent.id}.json`);
+    const records = initialHostPublicationRecords({
+      plan,
+      intent,
+      claim,
+      enrollmentStateDirectory: directory,
+    });
+    const receipt = records.phase.record;
+    const reservationSha256 = receipt.claimSha256;
+    const launcherAttemptFile = records.launcherAttempt.file;
+    const publicationFile = records.phase.file;
     const launcherAttempt = selectMaintenanceFiles({
       attemptFile: launcherAttemptFile,
       reservationSha256,
@@ -415,10 +493,7 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
       plan.precondition.launcher.path,
       launcher,
     );
-    const selectorAttemptFile = path.join(
-      directory,
-      `initial-host-selector-attempt-${intent.id}.json`,
-    );
+    const selectorAttemptFile = records.selectorAttempt.file;
     const selectorAttempt = selectMaintenanceReleaseLink({
       attemptFile: selectorAttemptFile,
       reservationSha256,
@@ -433,6 +508,11 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
     const assertLink = retainMaintenancePublishedLink(
       plan.precondition.identity.selectionPath!,
       plan.candidate.directory,
+    );
+    requireMatch(
+      isDeepStrictEqual(launcherAttempt, records.launcherAttempt.record) &&
+        isDeepStrictEqual(selectorAttempt, records.selectorAttempt.record),
+      "Host publication attempt differs from its canonical record",
     );
     const retainedArtifacts = [
       retainMaintenancePublishedFile(publicationFile, Buffer.from(JSON.stringify(receipt))),
@@ -679,8 +759,8 @@ export function reserveInitialHostMigrationIntent(
   });
 }
 
-function assertInitialHostIntentProofs(
-  input: InitialHostMigrationIntentInput,
+export function assertInitialHostIntentProofs(
+  input: Pick<InitialHostMigrationIntentInput, "native" | "artifacts">,
   plan: InitialHostSupervisorMigrationPlan,
   planSha256: string,
 ) {

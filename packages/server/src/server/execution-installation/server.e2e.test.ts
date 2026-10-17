@@ -526,6 +526,7 @@ async function fixture(
     | "verifyHelperRecovery"
     | "discoverMaintenanceServices"
     | "observeRecoveryAccess"
+    | "reconcileInitialHostActivation"
   >,
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,
@@ -3257,6 +3258,48 @@ function unusedMaintenanceExecutor(): MaintenanceServiceExecutor {
   }
   return { inspect: refuse, execute: refuse, observe: refuse };
 }
+
+test("Host activation retains the drain across a slow call and blocks discovery until resolved", async () => {
+  let resolve!: (result: "idle" | "unresolved") => void;
+  const held = new Promise<"idle" | "unresolved">((done) => {
+    resolve = done;
+  });
+  const reconcile = vi.fn(() => held);
+  const discover = vi.fn(async () => unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    reconcileInitialHostActivation: reconcile,
+    discoverMaintenanceServices: discover,
+  });
+  const first = f.drain();
+  await f.drain();
+  expect(reconcile).toHaveBeenCalledTimes(1);
+  expect(discover).not.toHaveBeenCalled();
+  resolve("unresolved");
+  await first;
+  expect(discover).not.toHaveBeenCalled();
+  reconcile.mockResolvedValue("idle");
+  await f.drain();
+  expect(reconcile).toHaveBeenCalledTimes(2);
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
+
+test("Host activation refusal prevents discovery and the next drain may reconcile", async () => {
+  const reconcile = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Retained child still running"))
+    .mockResolvedValue("verified");
+  const discover = vi.fn(async () => unusedMaintenanceExecutor());
+  const f = await fixture(undefined, undefined, undefined, false, false, undefined, undefined, {
+    reconcileInitialHostActivation: reconcile,
+    discoverMaintenanceServices: discover,
+  });
+  await f.drain();
+  expect(discover).not.toHaveBeenCalled();
+  await f.drain();
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual([]);
+});
 
 test("service discovery does not block reconciliation and accepts one verified construction", async () => {
   let resolve!: (native: MaintenanceServiceExecutor) => void;

@@ -93,6 +93,9 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  /** The selected coordinator's existing drain owns activation continuation.
+   * Unresolved work blocks ordinary discovery/dispatch; this adds no timer. */
+  reconcileInitialHostActivation?(): Promise<"idle" | "verified" | "unresolved">;
   /** Read only a single captured protected native cause while the lifecycle lock
    * is held. Absence supplies no root launch authority. */
   resolveWorkerLaunchCause?: (
