@@ -79,14 +79,45 @@ export async function runIndependentMaintenanceRecovery(setupFile: string) {
   return server;
 }
 
+/** One exact native child only. The ordinary listener never imports lifecycle
+ * history on startup. The child independently verifies reservation, runtime,
+ * process custody and lock-held admission before consuming an effect intent. */
+export async function runIndependentMaintenanceService(input: {
+  setupFile: string;
+  args: readonly string[];
+}) {
+  const uid = process.getuid?.();
+  if (uid === undefined)
+    throw new BootstrapRequestConflict("Independent execution requires the native Host account");
+  const setup = MaintenanceLauncherSetupSchema.parse(
+    readPrivateBootstrapConfiguration(input.setupFile, uid),
+  );
+  if (
+    setup.target !== "recovery-launcher" ||
+    setup.control?.recoveryAccess?.serviceExecutorVersion !== 1
+  )
+    throw new BootstrapRequestConflict(
+      "Selected recovery access does not provide lifecycle execution",
+    );
+  const { runNativeMaintenanceService } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  return runNativeMaintenanceService(input.setupFile, input.args);
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const setupFile = process.argv[2];
-  if (!setupFile || process.argv.length !== 3) {
-    process.stderr.write("Independent recovery requires one protected setup file.\n");
+  const service = process.argv[3] === "maintenance-service" && process.argv.length === 8;
+  if (!setupFile || (process.argv.length !== 3 && !service)) {
+    process.stderr.write(
+      "Independent recovery requires one protected setup or one exact service generation.\n",
+    );
     process.exitCode = 1;
   } else {
-    void runIndependentMaintenanceRecovery(setupFile).catch(() => {
-      process.stderr.write("Independent recovery access could not open its protected listener.\n");
+    const running = service
+      ? runIndependentMaintenanceService({ setupFile, args: process.argv.slice(4) })
+      : runIndependentMaintenanceRecovery(setupFile);
+    void running.catch(() => {
+      process.stderr.write("Independent recovery requires retained inspection.\n");
       process.exitCode = 1;
     });
   }

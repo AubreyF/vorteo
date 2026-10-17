@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.638 - 2026-10-16
+
+### Maintenance
+
+- Add an explicit reviewed recovery-page service-executor contract. A selected standalone page can supply native executor proof only when its pinned setup declares version one and the fully digested runtime metadata supports it. Older listener-only setups remain refused. Final custody includes the runtime metadata as well as native process, launcher, selector and pinned files.
+- Route the standalone entry point's exact service-generation arguments to the existing native child. Listener startup keeps its separate path without loading lifecycle history; execution still requires the child's exact retained reservation, runtime and process identity, fresh evidence and shared-lock effect admission. Page supervision does not retry service work.
+- Add protected-filesystem and HTTP checks for supported and unsupported contracts, default controller-role refusal, metadata mutation, missing execution custody and listener availability with broken journals. Native process ports are simulated. Producer role discovery and compiled complete recovery dispatch remain unfinished, recovery is unadvertised, and nothing is installed. README recovery delivery remains open.
+
 ## 0.11.0-beta.3.vorteo.637 - 2026-10-16
 
 ### Fixed

@@ -9,7 +9,10 @@ import { hashSync } from "bcryptjs";
 import { expect, test, vi } from "vitest";
 import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance-control.js";
 import { inspectRecoveryApplication } from "./coordinator-bootstrap-maintenance-recovery-diagnostics.js";
-import { runIndependentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-access.js";
+import {
+  runIndependentMaintenanceRecovery,
+  runIndependentMaintenanceService,
+} from "./coordinator-bootstrap-maintenance-recovery-access.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
 import {
@@ -1241,6 +1244,22 @@ test("independent recovery starts with broken files and refuses unverified dispa
     await writeFile(path.join(directory, name), broken, { mode: 0o600 });
   await writeFile(setupFile, JSON.stringify(setup), { mode: 0o600 });
   await writeFile(ownerFile, JSON.stringify(owner), { mode: 0o600 });
+  const args = [randomUUID(), randomUUID(), randomUUID(), "a".repeat(64)];
+  await expect(runIndependentMaintenanceService({ setupFile, args })).rejects.toThrow(
+    "does not provide lifecycle execution",
+  );
+  await writeFile(
+    setupFile,
+    JSON.stringify({
+      ...setup,
+      control: {
+        ...setup.control,
+        recoveryAccess: { ...setup.control.recoveryAccess, serviceExecutorVersion: 1 },
+      },
+    }),
+  );
+  // A declared entry cannot bypass missing retained startup or request custody.
+  await expect(runIndependentMaintenanceService({ setupFile, args })).rejects.toThrow();
   const server = await runIndependentMaintenanceRecovery(setupFile);
   const base = `http://127.0.0.1:${address.port}`;
   const get = () => callRecoveryFixture(base, "/", { headers: { Host: new URL(origin).host } });

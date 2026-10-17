@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   MaintenanceServiceJobSchema,
@@ -74,8 +75,13 @@ export async function inspectSelectedMaintenanceExecutor(input: SelectedMaintena
   const setup = MaintenanceLauncherSetupSchema.parse(
     JSON.parse((await readProtectedDocument(input.setupFile)).toString("utf8")),
   );
-  // Listener supervision is not a supported one-generation native executor.
-  if (setup.target === "recovery-launcher" && setup.control?.recoveryAccess)
+  // Older page setups provide listener supervision only. New execution support
+  // is explicit in the pinned setup and verified reviewed runtime metadata.
+  if (
+    setup.target === "recovery-launcher" &&
+    setup.control?.recoveryAccess &&
+    setup.control.recoveryAccess.serviceExecutorVersion !== 1
+  )
     throw new BootstrapRequestConflict(
       "Selected recovery access listener does not provide lifecycle execution",
     );
@@ -126,6 +132,9 @@ async function inspectSelectedMaintenanceRole(input: SelectedMaintenanceInspecti
     selected.setup.path,
     selected.node.path,
     selected.entrypoint.path,
+    ...(startup.setup.control?.recoveryAccess?.serviceExecutorVersion === 1
+      ? [path.join(selected.directory, "packages/server/package.json")]
+      : []),
   ]);
   const launcher = await readProtectedDocument(identity.launcherPath);
   const selection = await readProtectedDocument(identity.selectionPath);

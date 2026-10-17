@@ -2815,6 +2815,35 @@ test.each([
   ).rejects.toThrow();
 });
 
+test.each(["supported", "missing", "unsupported"] as const)(
+  "recovery access executor contract binds reviewed runtime support: %s",
+  async (mode) => {
+    const f = await independentAccessFixture();
+    const release = f.plan.candidate;
+    const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+    setup.control.recoveryAccess.serviceExecutorVersion = 1;
+    const setupBytes = JSON.stringify(setup);
+    writeFileSync(release.setup.path, setupBytes);
+    release.setup.sha256 = createHash("sha256").update(setupBytes).digest("hex");
+    const metadata = path.join(release.directory, "packages/server/package.json");
+    mkdirSync(path.dirname(metadata), { recursive: true, mode: 0o700 });
+    const contracts: Record<string, number> = {};
+    if (mode !== "missing") contracts.recoveryServiceExecutor = mode === "supported" ? 1 : 2;
+    writeFileSync(metadata, JSON.stringify({ vorteoRuntimeContracts: contracts }), { mode: 0o600 });
+    release.artifactSha256 = await digestBootstrapArtifact(release.directory);
+    if (mode !== "supported") {
+      await expect(verifyMaintenanceLauncherArtifacts(f)).rejects.toThrow();
+      return;
+    }
+    await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({ plan: f.plan });
+    expect(maintenanceUserLauncher(f.plan, "candidate").ProgramArguments).toEqual([
+      release.node.path,
+      release.entrypoint.path,
+      release.setup.path,
+    ]);
+  },
+);
+
 test("recovery access retains a separate shared lifecycle directory", async () => {
   const f = await independentAccessFixture("separate");
   expect(f.enrollmentStateDirectory).not.toBe(f.plan.identity.stateDirectory);
@@ -2858,6 +2887,24 @@ async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) 
       writeFileSync(release.setup.path, bytes);
       release.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
     }
+  }
+  if (mode === "service-executor") {
+    const release = f.plan.candidate;
+    const setup = JSON.parse(readFileSync(release.setup.path, "utf8"));
+    setup.control.recoveryAccess.serviceExecutorVersion = 1;
+    const bytes = JSON.stringify(setup);
+    writeFileSync(release.setup.path, bytes);
+    release.setup.sha256 = createHash("sha256").update(bytes).digest("hex");
+    const metadata = path.join(release.directory, "packages/server/package.json");
+    mkdirSync(path.dirname(metadata), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      metadata,
+      JSON.stringify({ vorteoRuntimeContracts: { recoveryServiceExecutor: 1 } }),
+      {
+        mode: 0o600,
+      },
+    );
+    release.artifactSha256 = await digestBootstrapArtifact(release.directory);
   }
   f.plan.previous = null;
   if (mode === "native-ports") prepareNativeRegistrationFixture(f);
@@ -3047,6 +3094,33 @@ async function recoveryRegistrationFixture(mode = "ready", listenPort?: number) 
   };
   return { ...f, input, ports, commands, enrollment, reserved, revoke, intent };
 }
+
+test("reviewed recovery page executor retains its selected native and runtime custody", async () => {
+  const f = await recoveryRegistrationFixture("service-executor");
+  await activateMaintenanceRecoveryAccess(f.input, f.ports);
+  const { inspectSelectedMaintenanceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
+  const input = {
+    setupFile: f.plan.candidate.setup.path,
+    account: f.account,
+    stateDirectory: f.enrollmentStateDirectory,
+    writableMountRoots: [],
+    ports: { reader: f.ports.reader, assertCurrent: () => undefined },
+  };
+  await expect(inspectSelectedMaintenanceExecutor(input)).rejects.toThrow("required enrolled role");
+  const executor = await inspectSelectedMaintenanceExecutor({
+    ...input,
+    expectedTarget: "recovery-launcher",
+  });
+  expect(executor.executor.target).toBe("recovery-launcher");
+  expect(executor.executor.entrypoint).toEqual(f.plan.candidate.entrypoint);
+  expect(executor.executor.native.process).toMatchObject({ pid: 43123, parentPid: 1 });
+  executor.assertCurrent();
+  expect(f.commands).toHaveLength(2);
+  writeFileSync(path.join(f.plan.candidate.directory, "packages/server/package.json"), "{}");
+  expect(executor.assertCurrent).toThrow();
+  expect(f.commands).toHaveLength(2);
+});
 
 function prepareNativeRegistrationFixture(f: Awaited<ReturnType<typeof recoveryRoutingFixture>>) {
   const state = f.plan.identity.stateDirectory;

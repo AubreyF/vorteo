@@ -22,6 +22,7 @@ import {
   assertBootstrapPathsProtected,
   digestBootstrapArtifact,
   readBootstrapPreparedFile,
+  readProtectedDocument,
   verifyBootstrapPreparedDependency,
 } from "./coordinator-bootstrap-artifact.js";
 import {
@@ -211,6 +212,24 @@ export async function verifyMaintenanceLauncherArtifacts(input: {
         throw new BootstrapRequestConflict(
           "Recovery access setup differs from the reviewed native identity",
         );
+      if (access.serviceExecutorVersion === 1) {
+        const metadata = JSON.parse(
+          (
+            await readProtectedDocument(
+              path.join(release.directory, "packages/server/package.json"),
+            )
+          ).toString("utf8"),
+        );
+        const supported = z
+          .object({
+            vorteoRuntimeContracts: z.object({ recoveryServiceExecutor: z.literal(1) }),
+          })
+          .safeParse(metadata);
+        if (!supported.success)
+          throw new BootstrapRequestConflict(
+            "Recovery page runtime lacks its reviewed service executor contract",
+          );
+      }
       const address = JSON.stringify([
         access.origin,
         access.listenPort,

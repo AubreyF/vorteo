@@ -15,6 +15,7 @@ export const MaintenanceLauncherSetupSchema = z.strictObject({
       recoveryAccess: z
         .strictObject({
           installationId: z.string().uuid(),
+          serviceExecutorVersion: z.literal(1).optional(),
           origin: z.url().refine((value) => {
             const url = new URL(value);
             return url.protocol === "https:" && url.origin === value;
