@@ -433,16 +433,33 @@ function assertNativeTarget(
 
 /** An observation deadline never retries an effect or establishes target failure.
  * A transport that ignores abort may finish later, but cannot resume execution. */
-export async function readBoundedCandidateObservation(
+export function readBoundedCandidateObservation(
   read: (signal: AbortSignal) => Promise<MaintenanceServiceNativeObservation>,
 ): Promise<MaintenanceServiceNativeObservation> {
-  const timeoutMs = 30_000;
+  return readBoundedMaintenanceInspection(read, {
+    timeoutMs: 30_000,
+    detail: "Candidate readiness observation timed out",
+  });
+}
+
+interface MaintenanceInspectionDeadline {
+  timeoutMs: number;
+  detail: string;
+}
+
+/** A collection deadline bounds the read, not the lifetime of a completed proof.
+ * Its custody assertion and admission freshness remain independent requirements. */
+export async function readBoundedMaintenanceInspection<T>(
+  read: (signal: AbortSignal) => Promise<T>,
+  options: MaintenanceInspectionDeadline,
+): Promise<T> {
+  const { timeoutMs, detail } = options;
   const deadlineAt = performance.now() + timeoutMs;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      const error = new BootstrapRequestConflict("Candidate readiness observation timed out");
+      const error = new BootstrapRequestConflict(detail);
       reject(error);
       controller.abort(error);
     }, timeoutMs);
@@ -453,8 +470,7 @@ export async function readBoundedCandidateObservation(
       deadline,
     ]);
     // Native synchronous checks can consume the budget before timers run.
-    if (performance.now() >= deadlineAt)
-      throw new BootstrapRequestConflict("Candidate readiness observation timed out");
+    if (performance.now() >= deadlineAt) throw new BootstrapRequestConflict(detail);
     return result;
   } catch (error) {
     controller.abort(error);

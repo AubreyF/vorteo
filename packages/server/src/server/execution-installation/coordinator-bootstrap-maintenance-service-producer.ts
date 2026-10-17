@@ -1,3 +1,4 @@
+import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
 import { closeSync, constants, openSync, writeSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -6,6 +7,7 @@ import { readEnrollmentNativeIdentity } from "./maintenance/native-registration.
 import {
   MaintenanceLauncherSelectionSchema,
   MaintenanceServiceSelectionSchema,
+  MaintenanceRecoverySelectionSchema,
 } from "./coordinator-bootstrap-maintenance-selection.js";
 import {
   inspectMaintenanceLauncherPlan,
@@ -37,7 +39,10 @@ import {
   createMaintenanceServiceInspectionPorts,
   inspectMaintenanceServiceReadiness,
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
-import { observeMaintenanceServiceReplacement } from "./coordinator-bootstrap-maintenance-service-native.js";
+import {
+  observeMaintenanceServiceReplacement,
+  readBoundedMaintenanceInspection,
+} from "./coordinator-bootstrap-maintenance-service-native.js";
 import { observeMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-native.js";
 import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
 
@@ -203,13 +208,17 @@ export async function createNativeMaintenanceServiceExecutor(
       requireSupportedEffect(request);
       const context = await load(request);
       const current = await inspectExecutor(context);
-      const target = await inspectMaintenanceTargetEvidence({
-        ...context,
-        request,
-        reader: context.ports.reader,
-        currentBoot: maintenanceRecoveryBootWitness(current),
-        signal: AbortSignal.timeout(10_000),
-      });
+      const target = await readBoundedMaintenanceInspection(
+        (signal) =>
+          inspectMaintenanceTargetEvidence({
+            ...context,
+            request,
+            reader: context.ports.reader,
+            currentBoot: maintenanceRecoveryBootWitness(current),
+            signal,
+          }),
+        { timeoutMs: 10_000, detail: "Native maintenance evidence inspection timed out" },
+      );
       requireCurrentServiceRequest(journal, request);
       return bindMaintenanceExecutorEvidence(target, current);
     },
@@ -475,23 +484,25 @@ export async function resolveNativeMaintenanceRoleSetup(input: {
   if (identity.selectionPath !== path.join(base, "selection.json"))
     throw new BootstrapRequestConflict("Maintenance role selector is outside canonical custody");
   const selection = z
-    .union([MaintenanceLauncherSelectionSchema, MaintenanceServiceSelectionSchema])
+    .union([
+      MaintenanceLauncherSelectionSchema,
+      MaintenanceServiceSelectionSchema,
+      MaintenanceRecoverySelectionSchema,
+    ])
     .parse(JSON.parse((await readProtectedDocument(identity.selectionPath)).toString("utf8")));
   const owner = userInfo();
   const account = { uid: owner.uid, home: owner.homedir };
-  const native = inspectMaintenanceLauncherPlan(
-    JSON.parse(
-      (
-        await readProtectedDocument(path.join(base, "plans", `${selection.planSha256}.json`))
-      ).toString("utf8"),
-    ),
-    account,
+  const value: unknown = JSON.parse(
+    (
+      await readProtectedDocument(path.join(base, "plans", `${selection.planSha256}.json`))
+    ).toString("utf8"),
   );
-  const selected = native.plan[selection.slot];
+  const native = inspectSelectedMaintenancePlan({ value, selection, account });
+  const { selected, identity: nativeIdentity } = native;
   if (
     !selected ||
     native.planSha256 !== selection.planSha256 ||
-    !isDeepStrictEqual(native.plan.identity, identity)
+    !isDeepStrictEqual(nativeIdentity, identity)
   )
     throw new BootstrapRequestConflict("Maintenance role selection differs from its retained plan");
   const startup = await readMaintenanceLauncherStartup({
@@ -501,6 +512,8 @@ export async function resolveNativeMaintenanceRoleSetup(input: {
   if (
     startup.setup.enrollmentStateDirectory !== input.stateDirectory ||
     startup.setup.target !== input.target ||
+    startup.planSha256 !== selection.planSha256 ||
+    !isDeepStrictEqual(startup.selection, selection) ||
     !isDeepStrictEqual(startup.selected, selected) ||
     !isDeepStrictEqual(state, journal.read())
   )
@@ -509,5 +522,32 @@ export async function resolveNativeMaintenanceRoleSetup(input: {
     installationId: input.installationId,
     stateDirectory: input.stateDirectory,
     executorSetupFile: selected.setup.path,
+  };
+}
+
+interface SelectedMaintenancePlanInput {
+  value: unknown;
+  selection:
+    | z.infer<typeof MaintenanceLauncherSelectionSchema>
+    | z.infer<typeof MaintenanceServiceSelectionSchema>
+    | z.infer<typeof MaintenanceRecoverySelectionSchema>;
+  account: { uid: number; home: string };
+}
+
+function inspectSelectedMaintenancePlan(input: SelectedMaintenancePlanInput) {
+  const { value, selection, account } = input;
+  if (selection.version === 3) {
+    const recovery = inspectMaintenanceRecoveryPlan(value, account);
+    if (recovery.slot !== selection.slot)
+      throw new BootstrapRequestConflict(
+        "Maintenance recovery selector differs from its reviewed slot",
+      );
+    return recovery;
+  }
+  const native = inspectMaintenanceLauncherPlan(value, account);
+  return {
+    planSha256: native.planSha256,
+    identity: native.plan.identity,
+    selected: native.plan[selection.slot],
   };
 }

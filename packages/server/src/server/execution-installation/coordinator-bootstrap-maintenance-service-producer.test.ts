@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   mkdtempSync,
   readFileSync,
@@ -14,6 +14,7 @@ import { launchRetainedMaintenanceService } from "./coordinator-bootstrap-mainte
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -451,4 +452,59 @@ test("explicit recovery producer refuses a listener-only selected page before na
     "Selected recovery page does not provide exact service execution",
   );
   expect(readFileSync(f.setupFile)).toEqual(before);
+});
+
+test("completed inspection keeps custody usable after its collection deadline", async () => {
+  const { readBoundedMaintenanceInspection } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let changed = false;
+  const proof = await readBoundedMaintenanceInspection(
+    async (signal) => ({
+      assertCurrent() {
+        signal.throwIfAborted();
+        if (changed) throw new Error("Fixture custody changed");
+      },
+    }),
+    { timeoutMs: 10_000, detail: "Fixture collection timed out" },
+  );
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(() => proof.assertCurrent()).not.toThrow();
+  changed = true;
+  expect(() => proof.assertCurrent()).toThrow("Fixture custody changed");
+});
+
+test("inspection timeout aborts an unfinished read and discards its late proof", async () => {
+  const { readBoundedMaintenanceInspection } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const delayed = Promise.withResolvers<AbortSignal>();
+  let observed: AbortSignal | undefined;
+  const operation = readBoundedMaintenanceInspection(
+    async (signal) => {
+      observed = signal;
+      return delayed.promise;
+    },
+    { timeoutMs: 10_000, detail: "Fixture collection timed out" },
+  );
+  const refused = expect(operation).rejects.toThrow("Fixture collection timed out");
+  await vi.advanceTimersByTimeAsync(10_000);
+  await refused;
+  expect(observed?.aborted).toBe(true);
+  delayed.resolve(observed!);
+  await expect(operation).rejects.toThrow("Fixture collection timed out");
+});
+
+test("inspection rejects a synchronous late result before timer delivery", async () => {
+  const { readBoundedMaintenanceInspection } =
+    await import("./coordinator-bootstrap-maintenance-service-native.js");
+  await expect(
+    readBoundedMaintenanceInspection(
+      async () => {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);
+        return "late";
+      },
+      { timeoutMs: 20, detail: "Fixture collection timed out" },
+    ),
+  ).rejects.toThrow("Fixture collection timed out");
 });

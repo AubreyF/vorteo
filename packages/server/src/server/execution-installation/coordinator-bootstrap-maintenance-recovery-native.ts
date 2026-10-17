@@ -18,7 +18,10 @@ import {
   verifyMaintenanceLauncherArtifacts,
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 import { selectMaintenanceFiles } from "./coordinator-bootstrap-maintenance-file-selection.js";
-import { readBoundedCandidateObservation } from "./coordinator-bootstrap-maintenance-service-native.js";
+import {
+  readBoundedCandidateObservation,
+  readBoundedMaintenanceInspection,
+} from "./coordinator-bootstrap-maintenance-service-native.js";
 import {
   verifyMaintenanceRecoveryReady,
   verifyMaintenanceRecoveryObservation,
@@ -73,11 +76,15 @@ export async function executeAbsentMaintenanceRecovery(
       throw new BootstrapRequestConflict("Recovery executor native custody changed");
   };
   const inspectAbsence = () =>
-    inspectAbsentMaintenanceRecovery({
-      ...input,
-      request: readJob(),
-      signal: AbortSignal.timeout(10_000),
-    });
+    readBoundedMaintenanceInspection(
+      (signal) =>
+        inspectAbsentMaintenanceRecovery({
+          ...input,
+          request: readJob(),
+          signal,
+        }),
+      { timeoutMs: 10_000, detail: "Recovery absence inspection timed out" },
+    );
   await requireExecutor();
   const before = await inspectAbsence();
   if (!isDeepStrictEqual(before.native, input.evidence.native))

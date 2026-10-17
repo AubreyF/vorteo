@@ -14,6 +14,7 @@ import {
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import {
   executeMaintenanceServiceReplacement,
+  readBoundedMaintenanceInspection,
   observeMaintenanceServiceReplacement,
 } from "./coordinator-bootstrap-maintenance-service-native.js";
 import path from "node:path";
@@ -331,9 +332,11 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     reader: context.reader,
     currentBoot,
     childCustody: context.childCustody,
-    signal: AbortSignal.timeout(10_000),
   };
-  const targetEvidence = await inspectMaintenanceTargetEvidence(nativeInput);
+  const targetEvidence = await readBoundedMaintenanceInspection(
+    (signal) => inspectMaintenanceTargetEvidence({ ...nativeInput, signal }),
+    { timeoutMs: 10_000, detail: "Native maintenance evidence inspection timed out" },
+  );
   const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
   process.stderr.write("Maintenance service native evidence verified.\n");
   const { evidenceSha256, assertCurrent, ...record } = evidence;

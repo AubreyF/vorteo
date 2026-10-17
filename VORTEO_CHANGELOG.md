@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.642 - 2026-10-16
+
+### Fixed
+
+- Stop internal collection timers after successful native maintenance inspection. Completed proofs retain their custody checks and existing admission freshness; failure, timeout and synchronous budget overruns still abort. Parent inspection, child inspection and recovery absence collection share this behavior without extending execution deadlines.
+- Resolve controllers selected by a completed recovery or rollback through their exact recovery wrapper digest and retained slot. Startup still verifies consumed intent, all ancestors and the ready resolution leaf, and discovery rejects a changed selection. Ordinary dispatch remains replacement-only by default.
+- Add successful-proof lifetime, hanging collection, custody change and monotonic-overrun regressions, plus resolved controller recovery/rollback discovery with missing and forged history refusal. Full compiled linked recovery, Dev registration and installed activation remain open. No installed service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.641 - 2026-10-16
 
 ### Maintenance

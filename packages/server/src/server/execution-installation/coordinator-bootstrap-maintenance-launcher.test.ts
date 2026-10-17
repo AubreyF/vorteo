@@ -22,7 +22,7 @@ import {
   realpathSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -56,21 +56,21 @@ afterEach(() => {
   vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-async function fixture(separateEnrollment = false, controller = false) {
+async function fixture(separateEnrollment = false, controller = false, nativeAccount = false) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-slots-")));
   roots.push(root);
   const state = path.join(root, "state");
   const enrollmentStateDirectory = separateEnrollment
     ? path.join(root, "coordinator-state")
     : state;
-  const home = path.join(root, "home");
+  const home = nativeAccount ? userInfo().homedir : path.join(root, "home");
   const target = controller ? "maintenance-controller" : "recovery-launcher";
   const base = path.join(root, "maintenance-services", target);
   for (const dir of [
     state,
     enrollmentStateDirectory,
     base,
-    path.join(home, "Library/LaunchAgents"),
+    ...(!nativeAccount ? [path.join(home, "Library/LaunchAgents")] : []),
   ])
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   const pin = (file: string, bytes: string) => {
@@ -644,6 +644,7 @@ test.each(["complete", "partial", "custody", "symlink", "hardlink", "missing"] a
 
 test.each([
   "valid",
+  "valid-controller",
   "request",
   "identity",
   "approved-revision",
@@ -682,7 +683,11 @@ test.each([
   "native-custody-changed",
   "native-observation-timeout",
 ] as const)("native service independently binds retained reservation: %s", async (mode) => {
-  const f = await fixture(false, mode.startsWith("native-"));
+  const f = await fixture(
+    false,
+    /^(?:native-|valid-controller$)/.test(mode),
+    mode === "valid-controller",
+  );
   const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
   const { inspectMaintenanceServiceExecution } =
     await import("./coordinator-bootstrap-maintenance-service-binding.js");
@@ -729,7 +734,7 @@ test.each([
         target,
         identitySha256: target === proposal.target ? native.identitySha256 : "a".repeat(64),
         operations:
-          mode === "valid" || mode.startsWith("recover-")
+          ["valid", "valid-controller"].includes(mode) || mode.startsWith("recover-")
             ? ["replacement" as const, "recovery" as const, "rollback" as const]
             : ["replacement" as const],
       }),
@@ -909,8 +914,12 @@ test.each([
       plan: f.plan,
       account: f.account,
     });
-  const nativeCase = mode.startsWith("native-") && mode !== "native-evidence";
-  if (mode !== "valid" && !mode.startsWith("recover-") && !nativeCase) {
+  const nativeCase = /^native-(?!evidence$)/.test(mode);
+  if (
+    !["valid", "valid-controller"].includes(mode) &&
+    !mode.startsWith("recover-") &&
+    !nativeCase
+  ) {
     expect(inspect).toThrow();
     return;
   }
@@ -1406,12 +1415,18 @@ test.each([
       recoveryOf: historyPlan.recoveryOf,
     },
   };
+  const recoveryExecutorTarget: "maintenance-controller" | "recovery-launcher" = (
+    {
+      "maintenance-controller": "recovery-launcher",
+      "recovery-launcher": "maintenance-controller",
+    } as const
+  )[job.target];
   const absentInput = {
     ...historyInput,
     request: absentRequest,
     writableMountRoots: [],
     currentBoot: {
-      target: "maintenance-controller" as const,
+      target: recoveryExecutorTarget,
       installationId: f.plan.identity.installationId,
       process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
       assertCurrent: () => undefined,
@@ -1469,7 +1484,7 @@ test.each([
   ).rejects.toThrow("differs from retained native plan");
   rmSync(f.plan.identity.selectionPath!);
   const bootWitness = {
-    target: "maintenance-controller" as const,
+    target: recoveryExecutorTarget,
     installationId: f.plan.identity.installationId,
     process: { ...claimed.effectIntent!.executor, bootId: randomUUID() },
     assertCurrent: vi.fn(() => undefined),
@@ -1568,6 +1583,106 @@ test.each([
   expect((await readMaintenanceLauncherStartup(recoveryStartup)).selected).toEqual(
     f.plan.candidate,
   );
+  if (mode === "valid-controller") {
+    const { resolveNativeMaintenanceRoleSetup } =
+      await import("./coordinator-bootstrap-maintenance-service-producer.js");
+    const discoveryInput = {
+      installationId: f.plan.identity.installationId,
+      stateDirectory: f.enrollmentStateDirectory,
+      target: job.target,
+    };
+    const discover = () => resolveNativeMaintenanceRoleSetup(discoveryInput);
+    await expect(discover()).resolves.toMatchObject({
+      executorSetupFile: f.plan.candidate.setup.path,
+    });
+    writeFileSync(historyFile, JSON.stringify([readyRecovery]), { mode: 0o600 });
+    await expect(discover()).rejects.toThrow("missing or ambiguous");
+    writeFileSync(
+      historyFile,
+      JSON.stringify([
+        {
+          ...resolvedOriginal,
+          resolvedBy: { ...resolvedOriginal.resolvedBy, generation: randomUUID() },
+        },
+        readyRecovery,
+      ]),
+      { mode: 0o600 },
+    );
+    await expect(discover()).rejects.toThrow("resolution differs");
+    const rollbackReadyRecord = MaintenanceServiceEvidenceRecordSchema.parse({
+      ...readyRecord,
+      planSha256: rollbackContext.planSha256,
+      sourceCommit: rollbackProposal.sourceCommit,
+      artifactSha256: rollbackProposal.artifactSha256,
+      native: {
+        ...readyRecord.native,
+        process: { ...readyRecord.native.process, executable: f.plan.previous!.node.path },
+        selection: {
+          ...readyRecord.native.selection,
+          sourceCommit: rollbackProposal.sourceCommit,
+          artifactSha256: rollbackProposal.artifactSha256,
+        },
+      },
+    });
+    const rollbackReadySha = createHash("sha256")
+      .update(JSON.stringify(rollbackReadyRecord))
+      .digest("hex");
+    const readyRollback = MaintenanceServiceJobSchema.parse({
+      ...rollbackClaimed,
+      status: "succeeded",
+      observation: {
+        ...readyRecovery.observation,
+        planSha256: rollbackContext.planSha256,
+        sourceCommit: rollbackProposal.sourceCommit,
+        artifactSha256: rollbackProposal.artifactSha256,
+        evidenceSha256: rollbackReadySha,
+      },
+      evidence: [
+        ...rollbackClaimed.evidence,
+        { sha256: rollbackReadySha, record: rollbackReadyRecord },
+      ],
+    });
+    writeFileSync(
+      path.join(historyPlans, `${rollbackContext.planSha256}.json`),
+      JSON.stringify(rollbackPlan),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      historyFile,
+      JSON.stringify([
+        {
+          ...resolvedOriginal,
+          resolvedBy: {
+            ...resolvedOriginal.resolvedBy,
+            planSha256: rollbackContext.planSha256,
+            observationSha256: rollbackReadySha,
+          },
+        },
+        readyRollback,
+      ]),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      f.plan.identity.selectionPath!,
+      JSON.stringify({
+        ...recoverySelection,
+        operation: "rollback",
+        intentId: rollbackClaimed.effectIntent!.id,
+        planSha256: rollbackContext.planSha256,
+        slot: "previous",
+      }),
+      { mode: 0o600 },
+    );
+    await expect(discover()).resolves.toMatchObject({
+      executorSetupFile: f.plan.previous!.setup.path,
+    });
+    writeFileSync(historyFile, JSON.stringify([resolvedOriginal, readyRecovery]), { mode: 0o600 });
+    writeFileSync(f.plan.identity.selectionPath!, JSON.stringify(recoverySelection), {
+      mode: 0o600,
+    });
+    return;
+  }
+
   writeFileSync(
     historyFile,
     JSON.stringify([
