@@ -53,11 +53,17 @@ const invocationDeadlineMs = 25_000;
 /** Construction is read-only. The selected, protected runtime must contain this
  * exact runner implementation. Enrollment policy is checked at effect claim,
  * not here, so revocation never removes retained observation support. */
-export async function createNativeMaintenanceServiceExecutor(input: {
+export interface NativeMaintenanceServiceExecutorInput {
   executorSetupFile: string;
   installationId: string;
   stateDirectory: string;
-}): Promise<MaintenanceServiceExecutor> {
+  executorTarget?: "maintenance-controller" | "recovery-launcher";
+}
+
+export async function createNativeMaintenanceServiceExecutor(
+  input: NativeMaintenanceServiceExecutorInput,
+): Promise<MaintenanceServiceExecutor> {
+  const executorTarget = input.executorTarget ?? "maintenance-controller";
   const owner = userInfo();
   const account = { uid: owner.uid, home: owner.homedir };
   // Construction verifies discovery, but every operation resolves again. A
@@ -66,11 +72,18 @@ export async function createNativeMaintenanceServiceExecutor(input: {
   const journal = new FileBootstrapRequestJournal(stateDirectory);
   const attempted = new Set<string>();
   const refresh = async () => {
-    const resolved = await resolveNativeMaintenanceExecutorSetup(input);
+    const resolved = await resolveNativeMaintenanceRoleSetup({ ...input, target: executorTarget });
     const startup = await readMaintenanceLauncherStartup({
       setupFile: resolved.executorSetupFile,
       account,
     });
+    if (
+      executorTarget === "recovery-launcher" &&
+      startup.setup.control?.recoveryAccess?.serviceExecutorVersion !== 1
+    )
+      throw new BootstrapRequestConflict(
+        "Selected recovery page does not provide exact service execution",
+      );
     const admission = BootstrapAdmissionSetupSchema.parse(
       JSON.parse(
         (await readBootstrapPreparedFile(startup.setup.nativeAdmission, [])).toString("utf8"),
@@ -85,7 +98,11 @@ export async function createNativeMaintenanceServiceExecutor(input: {
       ...admission,
       writableMountRoots,
     });
-    await verifySelectedServiceRunner(startup.selected.directory, writableMountRoots);
+    await verifySelectedServiceRunner({
+      directory: startup.selected.directory,
+      writableMountRoots,
+      recoveryAccess: executorTarget === "recovery-launcher",
+    });
     await verifyMaintenanceLauncherArtifacts({ plan: startup.plan, account, writableMountRoots });
     return {
       startup,
@@ -137,11 +154,13 @@ export async function createNativeMaintenanceServiceExecutor(input: {
     const current = await inspectSelectedMaintenanceExecutor({
       ...context,
       setupFile: context.resolved.executorSetupFile,
+      expectedTarget: executorTarget,
     });
-    await verifySelectedServiceRunner(
-      current.startup.selected.directory,
-      context.writableMountRoots,
-    );
+    await verifySelectedServiceRunner({
+      directory: current.startup.selected.directory,
+      writableMountRoots: context.writableMountRoots,
+      recoveryAccess: executorTarget === "recovery-launcher",
+    });
     current.assertCurrent();
     return current;
   };
@@ -164,8 +183,23 @@ export async function createNativeMaintenanceServiceExecutor(input: {
         }),
     });
   };
+  const requireSupportedEffect = (request: MaintenanceServiceJob) => {
+    if (
+      executorTarget === "recovery-launcher" &&
+      (request.operation === "replacement" ||
+        request.target !== "maintenance-controller" ||
+        !request.proposal.recoveryOf)
+    )
+      throw new BootstrapRequestConflict(
+        "Recovery page execution requires linked controller recovery or rollback",
+      );
+  };
   return {
+    ...(executorTarget === "recovery-launcher"
+      ? { operations: ["recovery", "rollback"] as const }
+      : {}),
     inspect: async (request) => {
+      requireSupportedEffect(request);
       const context = await load(request);
       const current = await inspectExecutor(context);
       const target = await inspectMaintenanceTargetEvidence({
@@ -180,6 +214,7 @@ export async function createNativeMaintenanceServiceExecutor(input: {
     },
     observe,
     execute: async (request, reservation) => {
+      requireSupportedEffect(request);
       const deadline = Date.now() + invocationDeadlineMs;
       // The existing queue durably reserves before calling execute and reopens
       // reservations as observation-only. This set also rejects concurrent calls
@@ -284,23 +319,29 @@ function requireCurrentServiceRequest(
   return parsed;
 }
 
-async function verifySelectedServiceRunner(directory: string, roots: readonly string[]) {
-  for (const name of [
+async function verifySelectedServiceRunner(input: {
+  directory: string;
+  writableMountRoots: readonly string[];
+  recoveryAccess: boolean;
+}) {
+  const files = [
     "coordinator-bootstrap-runner.js",
     "coordinator-bootstrap-maintenance-service-runner.js",
-  ]) {
+  ];
+  if (input.recoveryAccess) files.push("coordinator-bootstrap-maintenance-recovery-access.js");
+  for (const name of files) {
     const local = await readProtectedDocument(fileURLToPath(new URL(name, import.meta.url)));
     const sha256 = createHash("sha256").update(local).digest("hex");
     await readBootstrapPreparedFile(
       {
         path: path.join(
-          directory,
+          input.directory,
           "packages/server/dist/server/server/execution-installation",
           name,
         ),
         sha256,
       },
-      roots,
+      input.writableMountRoots,
     );
   }
 }

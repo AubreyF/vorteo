@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.639 - 2026-10-16
+
+### Maintenance
+
+- Let the existing native service producer resolve an explicitly configured recovery-launcher role. Its default remains controller-bound and replacement-only. A selected page must declare exact service execution, match protected enrollment and runtime custody, and contain the same compiled page and child runner before inspection or launch.
+- Restrict new effects through the recovery-page producer to exact linked controller recovery or rollback. Retained observation stays separate from new-effect eligibility and active grants. Parent and child continue binding the reserved executor, and the existing total invocation deadline, one launch and durable child intent remain unchanged.
+- Add a file-journal producer regression for listener-only refusal before native setup, and retain thirteen existing producer and subprocess checks. Full compiled page-producer dispatch, queue composition and final activation remain open; no installed service, capability or route changes. README recovery delivery remains pending.
+
 ## 0.11.0-beta.3.vorteo.638 - 2026-10-16
 
 ### Maintenance

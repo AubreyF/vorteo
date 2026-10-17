@@ -359,3 +359,19 @@ test("controller registration cannot substitute for a recovery launcher", async 
     resolveNativeMaintenanceRoleSetup({ ...f, target: "recovery-launcher" }),
   ).rejects.toThrow("descriptor differs");
 });
+
+test("explicit recovery producer refuses a listener-only selected page before native setup", async () => {
+  const { createNativeMaintenanceServiceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-service-producer.js");
+  const f = registeredFixture("recovery-launcher");
+  const before = readFileSync(f.setupFile);
+  const input = {
+    ...f,
+    executorSetupFile: f.setupFile,
+    executorTarget: "recovery-launcher" as const,
+  };
+  await expect(createNativeMaintenanceServiceExecutor(input)).rejects.toThrow(
+    "Selected recovery page does not provide exact service execution",
+  );
+  expect(readFileSync(f.setupFile)).toEqual(before);
+});
