@@ -266,6 +266,20 @@ export const CoordinatorBootstrapRequestViewSchema = CoordinatorBootstrapRequest
 });
 export type CoordinatorBootstrapRequestView = z.infer<typeof CoordinatorBootstrapRequestViewSchema>;
 
+// Independent recovery HTTP only. The browser never supplies a plan or runtime path.
+export const CoordinatorMaintenanceRollbackPrepareRequestSchema = z.strictObject({
+  type: z.literal("installation.maintenance.rollback.prepare.request"),
+  requestId: z.string().min(1).max(128),
+});
+export const CoordinatorMaintenanceRollbackPrepareResponseSchema = z.strictObject({
+  type: z.literal("installation.maintenance.rollback.prepare.response"),
+  payload: z.strictObject({
+    requestId: z.string(),
+    requests: z.array(CoordinatorBootstrapRequestViewSchema).nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const CoordinatorBootstrapPreparationSchema = z.strictObject({
   id: z.string().uuid(),
   reason: z.string().min(1).max(4000),

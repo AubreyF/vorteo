@@ -1492,10 +1492,18 @@ export function createDispatchingBootstrapReview(options: {
   verifySetup(): Promise<string[]>;
   automatic?: { configurationFile: string; uid: number };
   enrollment?: boolean;
+  dispatchWaitTimeoutMs?: number;
 }): BootstrapReviewService & {
   dispatchEnrolled(request: CoordinatorBootstrapRequest): Promise<CoordinatorBootstrapRequest>;
 } {
   const { setup, setupFile, requests, verifySetup, automatic: automaticPolicy } = options;
+  if (
+    options.dispatchWaitTimeoutMs !== undefined &&
+    (!Number.isSafeInteger(options.dispatchWaitTimeoutMs) ||
+      options.dispatchWaitTimeoutMs <= 0 ||
+      options.dispatchWaitTimeoutMs > 15 * 60_000)
+  )
+    throw new BootstrapRequestConflict("Invalid bootstrap dispatch observation deadline");
   const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "id" | "plan">) => {
     const candidate = request.plan.candidate;
     const roots = await verifySetup();
@@ -1541,7 +1549,12 @@ export function createDispatchingBootstrapReview(options: {
     );
     child.on("error", () => {});
     try {
-      await waitForBootstrapWatchdog(child, "executor");
+      await waitForBootstrapWatchdog(
+        child,
+        options.dispatchWaitTimeoutMs === undefined
+          ? "executor"
+          : { role: "executor", timeoutMs: options.dispatchWaitTimeoutMs },
+      );
     } catch {
       // An observation failure is not permission to signal or relaunch a child.
       throw new BootstrapRequestConflict(

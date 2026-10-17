@@ -7,9 +7,10 @@ import { z } from "zod";
 import {
   CoordinatorBootstrapPlanSchema,
   CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapDecisionSchema,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
-import { openBootstrapRequests } from "./coordinator-bootstrap.js";
+import { openBootstrapRequests, coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 import { terminalBootstrapRelease } from "./coordinator-bootstrap-renewal.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import {
@@ -38,6 +39,7 @@ import {
   createDispatchingBootstrapReview,
   writeRecoverySnapshot,
 } from "./coordinator-bootstrap-launch.js";
+import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
 
 interface RollbackInstallation {
   installationId: string;
@@ -78,6 +80,178 @@ interface IndependentRollbackInput {
   stateDirectory: string;
 }
 
+/** Reopening a pending review grants no launch authority. In particular an
+ * approved but unclaimed generation cannot enter the decision path again. */
+function requirePendingManualRollback(
+  records: z.infer<typeof CoordinatorBootstrapRequestSchema>[],
+  requestId: string,
+) {
+  const request = records.find((record) => record.id === requestId);
+  if (
+    !request ||
+    request.status !== "pending" ||
+    request.decisionAt ||
+    request.execution ||
+    request.automaticSubmission ||
+    request.automaticApproval ||
+    request.automaticDispatch ||
+    request.automaticCheck ||
+    request.enrollment ||
+    request.enrollmentDispatch ||
+    request.standingAuthority ||
+    request.standingDispatch ||
+    request.supervisionDispatch ||
+    coordinatorPlanDigest(request.plan) !== request.planSha256
+  )
+    throw new BootstrapRequestConflict("Exact undecided manual rollback review required");
+  return request;
+}
+
+export function inspectIndependentCoordinatorRollbackRequest(input: {
+  records: unknown;
+  requestId: string;
+  installation: RollbackInstallation;
+  runtime: Awaited<ReturnType<typeof inspectNativeRecoveryReviewParent>>["startup"]["selected"];
+  home: string;
+}) {
+  const records = z.array(CoordinatorBootstrapRequestSchema).parse(input.records);
+  const request = requirePendingManualRollback(records, input.requestId);
+  const selected = selectIndependentCoordinatorRollback({
+    records: records.filter((record) => record.id !== request.id),
+    installation: input.installation,
+  });
+  const recovery = request.plan.bootRecovery;
+  const directory = path.join(
+    input.installation.stateDirectory,
+    `coordinator-recovery-${request.id}`,
+  );
+  const runner = path.join(
+    input.runtime.directory,
+    "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+  );
+  const service = `${input.installation.service}-recovery-${request.id}`;
+  if (
+    !recovery ||
+    recovery.requestId !== request.id ||
+    recovery.service !== service ||
+    recovery.setup.path !== path.join(directory, "setup.json") ||
+    recovery.launcher.path !== path.join(directory, "boot-recovery.plist") ||
+    recovery.installedLauncher !==
+      path.join(
+        input.home,
+        "Library/LaunchAgents",
+        `${service.split("/").slice(2).join("/")}.plist`,
+      ) ||
+    !isDeepStrictEqual(recovery.node, input.runtime.node) ||
+    recovery.entrypoint.path !== runner ||
+    recovery.ownerLauncher.path !==
+      path.join(input.runtime.directory, "scripts/run-coordinator-owner.py")
+  )
+    throw new BootstrapRequestConflict(
+      "Rollback review differs from the selected independent runtime",
+    );
+  const expected = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: input.installation.installationId,
+    service: input.installation.service,
+    expectedProcess: request.plan.expectedProcess,
+    ...selected,
+    hostRequestsAfter: null,
+    automaticRecovery: "restore-previous",
+    bootRecovery: recovery,
+  });
+  if (!isDeepStrictEqual(request.plan, expected))
+    throw new BootstrapRequestConflict("Rollback review changes its exact retained scope");
+  return { request, recovery, selected, directory };
+}
+
+export function createIndependentCoordinatorRecoveryReviews(
+  input: IndependentRollbackInput,
+): BootstrapReviewService & {
+  prepareRollback(): Promise<void>;
+} {
+  return {
+    list: () => new FileBootstrapRequestJournal(input.stateDirectory).read(),
+    async prepare() {
+      throw new BootstrapRequestConflict("Recovery prepares only its retained compatible rollback");
+    },
+    async prepareRollback() {
+      await prepareIndependentCoordinatorRollback(input);
+    },
+    async decide(value, password) {
+      const decision = CoordinatorBootstrapDecisionSchema.parse(value);
+      const context = await readRollbackReviewContext(input);
+      if (decision.decision === "cancel") {
+        const requests = await createBootstrapReviewService(
+          context.parent.startup.setup.nativeAdmission.path,
+          context.host.serverId,
+        );
+        return requests.decide(decision, password);
+      }
+      const retained = inspectIndependentCoordinatorRollbackRequest({
+        records: context.journal.read(),
+        requestId: decision.id,
+        installation: context.installation,
+        runtime: context.parent.startup.selected,
+        home: input.account.home,
+      });
+      const setup = BootstrapRunnerSetupSchema.parse(
+        JSON.parse(
+          (
+            await readBootstrapPreparedFile(
+              retained.recovery.setup,
+              context.parent.writableMountRoots,
+            )
+          ).toString("utf8"),
+        ),
+      );
+      const admissionFile = path.join(retained.directory, "admission.json");
+      const admission = BootstrapAdmissionSetupSchema.parse(
+        JSON.parse((await readProtectedDocument(admissionFile)).toString("utf8")),
+      );
+      if (
+        setup.admissionSetupFile !== admissionFile ||
+        setup.daemonId !== context.host.serverId ||
+        setup.runtimeDirectory !== context.parent.startup.selected.directory ||
+        setup.runtimeSha256 !== context.parent.startup.selected.artifactSha256 ||
+        setup.renewal ||
+        setup.maintenance ||
+        setup.supervision ||
+        !isDeepStrictEqual(admission, {
+          ...context.admission,
+          configurationFile: retained.selected.previous.configuration.path,
+        })
+      )
+        throw new BootstrapRequestConflict(
+          "Retained rollback setup changed its installation binding",
+        );
+      const verifySetup = async () => {
+        const current = await inspectNativeRecoveryReviewParent(input);
+        if (
+          !isDeepStrictEqual(current.process, context.parent.process) ||
+          !isDeepStrictEqual(
+            maintenanceExecutorStartupBinding(current.startup),
+            maintenanceExecutorStartupBinding(context.parent.startup),
+          )
+        )
+          throw new BootstrapRequestConflict("Recovery review parent changed before decision");
+        current.assertCurrent();
+        return current.writableMountRoots;
+      };
+      const requests = await createBootstrapReviewService(admissionFile, context.host.serverId);
+      const review = createDispatchingBootstrapReview({
+        setup,
+        setupFile: retained.recovery.setup.path,
+        requests,
+        verifySetup,
+        dispatchWaitTimeoutMs: 25_000,
+      });
+      return review.decide(decision, password);
+    },
+  };
+}
+
 /** Called lazily after owner authentication by the independent page. This
  * prepares one pending manual review; only its matching owner decision dispatches. */
 export async function prepareIndependentCoordinatorRollback(input: IndependentRollbackInput) {
@@ -107,7 +281,7 @@ export async function prepareIndependentCoordinatorRollback(input: IndependentRo
   }
 }
 
-async function prepareRollback(input: IndependentRollbackInput, assertWithinDeadline: () => void) {
+async function readRollbackReviewContext(input: IndependentRollbackInput) {
   const parent = await inspectNativeRecoveryReviewParent(input);
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse(
@@ -136,6 +310,11 @@ async function prepareRollback(input: IndependentRollbackInput, assertWithinDead
     service: binding.binding.service,
   };
   const journal = new FileBootstrapRequestJournal(input.stateDirectory);
+  return { parent, admission, host, installation, journal };
+}
+
+async function prepareRollback(input: IndependentRollbackInput, assertWithinDeadline: () => void) {
+  const { parent, admission, host, installation, journal } = await readRollbackReviewContext(input);
   const selected = selectIndependentCoordinatorRollback({ records: journal.read(), installation });
   const reader = await createNativeBootstrapServiceReader({
     ...admission,
@@ -291,11 +470,5 @@ async function prepareRollback(input: IndependentRollbackInput, assertWithinDead
       "Owner-requested compatible coordinator rollback. Replaces the coordinator and briefly interrupts the main interface; Host and Dev agents and retained histories are preserved. Basic health does not establish interface usability.",
     plan,
   });
-  const review = createDispatchingBootstrapReview({
-    setup,
-    setupFile: setupFile.path,
-    requests: await createBootstrapReviewService(nativeAdmission.path, host.serverId),
-    verifySetup,
-  });
-  return { request, review };
+  return request;
 }

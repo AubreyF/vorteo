@@ -11,13 +11,19 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
-import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  CoordinatorBootstrapPlanSchema,
+  type CoordinatorBootstrapPlan,
+} from "@getpaseo/protocol/coordinator-bootstrap";
 import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import { bootstrapRecoveryLauncher } from "./coordinator-bootstrap-boot-recovery.js";
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { selectIndependentCoordinatorRollback } from "./coordinator-bootstrap-maintenance-recovery-rollback.js";
+import {
+  selectIndependentCoordinatorRollback,
+  inspectIndependentCoordinatorRollbackRequest,
+} from "./coordinator-bootstrap-maintenance-recovery-rollback.js";
 import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
 
 import {
@@ -26,6 +32,90 @@ import {
   verifyBootstrapExecutionRuntime,
   BootstrapRunnerSetupSchema,
 } from "./coordinator-bootstrap-runner.js";
+
+interface ReopeningFixture {
+  mode: string;
+  records: unknown[];
+  plan: CoordinatorBootstrapPlan;
+  installation: Parameters<typeof selectIndependentCoordinatorRollback>[0]["installation"];
+  file: CoordinatorBootstrapPlan["candidate"]["configuration"];
+  release(source: string): CoordinatorBootstrapPlan["candidate"];
+}
+function exerciseRollbackReopening({
+  mode,
+  records,
+  plan,
+  installation,
+  file,
+  release,
+}: ReopeningFixture) {
+  if (!plan.compatibleRecovery) throw new Error("Fixture fallback missing");
+  const runtime = { ...release("e"), setup: { ...file, path: "/fixture/e/setup.json" } };
+  const id = randomUUID();
+  const directory = path.join(installation.stateDirectory, `coordinator-recovery-${id}`);
+  const home = "/fixture/home";
+  const service = `${installation.service}-recovery-${id}`;
+  const { compatibleRecovery: _fallback, ...basePlan } = plan;
+  const rollbackPlan = CoordinatorBootstrapPlanSchema.parse({
+    ...basePlan,
+    previous: plan.candidate,
+    candidate: plan.compatibleRecovery,
+    automaticRecovery: "restore-previous",
+    bootRecovery: {
+      requestId: id,
+      service,
+      launcher: { ...file, path: path.join(directory, "boot-recovery.plist") },
+      installedLauncher: path.join(
+        home,
+        "Library/LaunchAgents",
+        `${service.split("/").slice(2).join("/")}.plist`,
+      ),
+      setup: { ...file, path: path.join(directory, "setup.json") },
+      node: runtime.node,
+      entrypoint: {
+        ...file,
+        path: "/fixture/e/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+      },
+      ownerLauncher: { ...file, path: "/fixture/e/scripts/run-coordinator-owner.py" },
+    },
+  });
+  if (mode === "reopen-plan") rollbackPlan.hostRequestsAfter = new Date().toISOString();
+  if (mode === "reopen-candidate") rollbackPlan.candidate = plan.previous;
+  const pending = {
+    id,
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Retained rollback",
+    createdAt: new Date().toISOString(),
+    plan: rollbackPlan,
+    planSha256: coordinatorPlanDigest(rollbackPlan),
+    status: mode === "reopen-approved" ? "approved" : "pending",
+    ...(mode === "reopen-privilege"
+      ? {
+          automaticSubmission: {
+            credentialBinding: "a".repeat(64),
+            policyActivatedAt: new Date().toISOString(),
+            submittedAt: new Date().toISOString(),
+          },
+        }
+      : {}),
+  };
+  records.push(pending);
+  if (mode === "reopen-runtime") runtime.directory = "/fixture/changed-executor";
+  if (mode === "reopen-other") records.push({ ...pending, id: randomUUID() });
+  const beforeReopen = structuredClone(records);
+  const reopen = () =>
+    inspectIndependentCoordinatorRollbackRequest({
+      records,
+      requestId: id,
+      installation,
+      runtime,
+      home,
+    });
+  if (mode === "reopen-valid") expect(reopen().request).toEqual(pending);
+  else expect(reopen).toThrow();
+  expect(records).toEqual(beforeReopen);
+}
 
 test.each([
   "valid",
@@ -37,6 +127,13 @@ test.each([
   "same-source",
   "digest",
   "foreign",
+  "reopen-valid",
+  "reopen-approved",
+  "reopen-privilege",
+  "reopen-runtime",
+  "reopen-plan",
+  "reopen-other",
+  "reopen-candidate",
 ])("independent rollback selects only exact retained compatibility: %s", (mode) => {
   const installation = {
     installationId: randomUUID(),
@@ -105,6 +202,10 @@ test.each([
   if (mode === "digest") request.planSha256 = "0".repeat(64);
   if (mode === "foreign") installation.installationId = randomUUID();
   const records: unknown[] = [request];
+  if (mode.startsWith("reopen-")) {
+    exerciseRollbackReopening({ mode, records, plan, installation, file, release });
+    return;
+  }
   if (mode === "open")
     records.push({ ...request, id: randomUUID(), status: "pending", execution: undefined });
   const before = structuredClone(records);

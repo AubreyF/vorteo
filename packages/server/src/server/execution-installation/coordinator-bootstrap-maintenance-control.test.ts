@@ -11,7 +11,10 @@ import { createMaintenanceControlApp } from "./coordinator-bootstrap-maintenance
 import { runIndependentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-access.js";
 import { createBootstrapOwnerReviewApp } from "./coordinator-bootstrap-owner-review.js";
 import { createIndependentBootstrapControlApp } from "./coordinator-bootstrap-preclaim-control.js";
-import { BootstrapAuthenticationRequired } from "./coordinator-bootstrap.js";
+import {
+  BootstrapAuthenticationRequired,
+  BootstrapRequestConflict,
+} from "./coordinator-bootstrap.js";
 
 test.each([
   { scope: "preclaim-recovery", claimed: false },
@@ -645,7 +648,108 @@ function callRecoveryFixture(
   });
 }
 
-test("independent recovery starts with broken enrollment and lifecycle files and cannot dispatch", async () => {
+test.each(["success", "failure", "busy"])(
+  "independent rollback preparation authenticates and excludes parallel validation: %s",
+  async (mode) => {
+    const directory = await realpath(await mkdtemp(path.join(tmpdir(), "rollback-http-")));
+    const origin = "https://recovery.example.test:9443";
+    const installationId = randomUUID();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let preparations = 0;
+    const app = createMaintenanceControlApp({
+      installationId,
+      recoveryOrigin: origin,
+      status() {
+        throw new Error("No fixture health authority");
+      },
+      async readOwnerConfiguration() {
+        return {
+          public: { installationId, origin: "https://app.example.test" },
+          stateDir: directory,
+          ownerPasswordHash: hashSync("fixture-owner", 4),
+        };
+      },
+      service: () => ({
+        list: () => [],
+        async prepare() {
+          throw new Error("No browser plan");
+        },
+        async decide() {
+          throw new Error("No effects");
+        },
+      }),
+      async provision() {
+        throw new Error("No provisioning");
+      },
+      async prepareRollback() {
+        preparations++;
+        entered.resolve();
+        if (mode === "busy") await release.promise;
+        if (mode === "failure")
+          throw new BootstrapRequestConflict(
+            "Existing coordinator review must be reconciled first",
+          );
+      },
+    });
+    const server = createServer(app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+    const base = `http://127.0.0.1:${address.port}`;
+    const post = (body: unknown, token = "fixture-owner", requestOrigin = origin) =>
+      callRecoveryFixture(
+        base,
+        "/api/installation/maintenance/owner",
+        {
+          method: "POST",
+          headers: {
+            Host: new URL(origin).host,
+            Origin: requestOrigin,
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        JSON.stringify(body),
+      );
+    const request = {
+      type: "installation.maintenance.rollback.prepare.request",
+      requestId: "fixture-rollback",
+    };
+    try {
+      expect((await post(request, "wrong")).status).toBe(401);
+      expect((await post(request, "fixture-owner", "https://app.example.test")).status).toBe(403);
+      expect((await post({ ...request, plan: { directory: "/unreviewed" } })).status).toBe(400);
+      expect(preparations).toBe(0);
+      const pending = post(request);
+      await entered.promise;
+      if (mode === "busy") {
+        expect((await post({ ...request, requestId: "competing" })).status).toBe(409);
+        expect(preparations).toBe(1);
+        release.resolve();
+      }
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        type: "installation.maintenance.rollback.prepare.response",
+        payload: {
+          requestId: request.requestId,
+          requests: mode === "failure" ? null : [],
+          error: mode === "failure" ? "Existing coordinator review must be reconciled first" : null,
+        },
+      });
+      expect(preparations).toBe(1);
+    } finally {
+      release.resolve();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("independent recovery starts with broken files and refuses unverified dispatch", async () => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), "recovery-startup-")));
   const installationId = randomUUID();
   const probe = createServer();
@@ -738,7 +842,7 @@ test("independent recovery starts with broken enrollment and lifecycle files and
     });
     const refused = await decision.json();
     expect(refused).toMatchObject({ payload: { requests: null } });
-    expect(refused.payload.error).toContain("inspection only");
+    expect(refused.payload.error).toContain("Bootstrap validation failed");
     expect(await readFile(path.join(directory, "maintenance-enrollment.json"), "utf8")).toBe(
       broken,
     );

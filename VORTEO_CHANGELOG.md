@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.620 - 2026-10-16
+
+### Maintenance
+
+- Connect standalone recovery controls to exact manual coordinator rollback preparation, approval and cancellation. The owner reviews the current, target and fallback sources plus the full pinned plan. Reopening reconstructs only an undecided manual review from retained history and protected setup; approved or uncertain work is never redispatched.
+- Keep recovery-page startup independent of enrollment and lifecycle parsing. Effectful modules load only behind owner authentication. The HTTP preparation request accepts no browser-selected plan or runtime, excludes concurrent preparation and preserves safe domain errors.
+- Show lost decision replies as unverified, prevent automatic resubmission, and clear private state and the password on Lock. The independent path uses a twenty-five-second dispatch observation deadline without killing or retrying a child; that deadline does not prove execution stopped.
+- Focused reopening and HTTP tests plus an isolated Chromium flow cover authentication, exact review, a recorded approval with a lost reply, reload without replay, cancellation and Lock. Native listener asset checks still pass. Native rollback preparation and effect acceptance, real private HTTPS routing, the remaining failure matrix and installed owner review remain open. README and General availability claims are unchanged.
+
 ## 0.11.0-beta.3.vorteo.619 - 2026-10-16
 
 ### Maintenance

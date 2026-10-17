@@ -10,6 +10,8 @@ import {
   CoordinatorMaintenanceStatusSchema,
   CoordinatorBootstrapListRequestSchema,
   CoordinatorBootstrapDecideRequestSchema,
+  CoordinatorMaintenanceRollbackPrepareRequestSchema,
+  CoordinatorMaintenanceRollbackPrepareResponseSchema,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { extractHttpBearerToken, isBearerTokenValidAsync } from "../auth.js";
 import { OwnerSessions } from "./owner-sessions.js";
@@ -18,6 +20,7 @@ import {
   maintenanceRecoveryScript,
 } from "./coordinator-bootstrap-maintenance-recovery-page.js";
 import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js";
+import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 
 const MessageSchema = z.discriminatedUnion("type", [
   CoordinatorBootstrapListRequestSchema,
@@ -42,6 +45,7 @@ interface MaintenanceControlInput {
   service(): BootstrapReviewService | undefined | Promise<BootstrapReviewService | undefined>;
   readOwnerConfiguration(): Promise<z.infer<typeof MaintenanceOwnerConfigurationSchema>>;
   provision(value: z.infer<typeof CoordinatorMaintenanceProvisionRequestSchema>): Promise<void>;
+  prepareRollback?(): Promise<void>;
 }
 
 /** Transport for a fixed independently admitted operation. HTTP callers cannot
@@ -162,88 +166,142 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
       }
     })();
   });
-  app.post(
-    "/api/installation/maintenance/owner",
-    express.json({ limit: "1mb" }),
-    (request, response, next) => {
-      void (async () => {
-        try {
-          if (request.body?.type === "installation.maintenance.observe.request") {
-            if (!(await observeEnrollment(input.enrollment, request.body))) {
-              response.status(400).json({ error: "Exact enrollment observation changed" });
-              return;
-            }
-            response.json({ observed: true });
-            return;
-          }
-          if (request.body?.type === "installation.maintenance.enroll.request") {
-            const parsed = CoordinatorMaintenanceEnrollmentRequestSchema.safeParse(request.body);
-            const enrollment = input.enrollment;
-            if (
-              !parsed.success ||
-              !enrollment ||
-              !sameEnrollmentDecision(parsed.data, enrollment.decision)
-            ) {
-              response.status(400).json({ error: "Exact enrollment review changed" });
-              return;
-            }
-            if (provisioning) {
-              response.status(409).json({ error: "Maintenance validation is already running" });
-              return;
-            }
-            provisioning = true;
-            try {
-              await enrollment.enroll(parsed.data);
-              response.json({ enrolled: true });
-            } finally {
-              provisioning = false;
-            }
-            return;
-          }
-          if (
-            input.enrollment &&
-            request.body?.type !== "installation.bootstrap.list_requests.request"
-          ) {
-            response.status(400).json({ error: "Use the exact installation enrollment review" });
-            return;
-          }
-          if (request.body?.type === "installation.maintenance.provision.request") {
-            const proposal = CoordinatorMaintenanceProvisionRequestSchema.safeParse(request.body);
-            if (
-              !proposal.success ||
-              proposal.data.admissionSha256 !== input.status().provisioning.admissionSha256
-            ) {
-              response.status(400).json({ error: "Maintenance proposal changed" });
-              return;
-            }
-            // A lost response must not start concurrent validation or preparation.
-            // Durable admission and request checks remain the controller's responsibility.
-            if (provisioning) {
-              response.status(409).json({ error: "Maintenance validation is already running" });
-              return;
-            }
-            provisioning = true;
-            try {
-              await input.provision(proposal.data);
-              response.json({ provisioned: true });
-            } finally {
-              provisioning = false;
-            }
-            return;
-          }
-          const parsed = MessageSchema.safeParse(request.body);
-          if (!parsed.success) {
-            response.status(400).json({ error: "Invalid maintenance review request" });
-            return;
-          }
-          const { handleBootstrapReview } = await import("./coordinator-bootstrap-session.js");
-          response.json(await handleBootstrapReview(parsed.data, await input.service()));
-        } catch (error) {
-          next(error);
+  app.use("/api/installation/maintenance/owner", express.json({ limit: "1mb" }));
+  app.post("/api/installation/maintenance/owner", (request, response, next) => {
+    if (request.body?.type !== "installation.maintenance.rollback.prepare.request") {
+      next();
+      return;
+    }
+    void (async () => {
+      try {
+        const parsed = CoordinatorMaintenanceRollbackPrepareRequestSchema.safeParse(request.body);
+        if (!parsed.success || !recoveryOrigin || !input.prepareRollback || input.enrollment) {
+          response.status(400).json({ error: "Independent rollback preparation is unavailable" });
+          return;
         }
-      })();
-    },
-  );
+        if (provisioning) {
+          response.status(409).json({ error: "Maintenance validation is already running" });
+          return;
+        }
+        provisioning = true;
+        try {
+          await input.prepareRollback();
+          const { handleBootstrapReview } = await import("./coordinator-bootstrap-session.js");
+          const retained = await handleBootstrapReview(
+            {
+              type: "installation.bootstrap.list_requests.request",
+              requestId: parsed.data.requestId,
+              compatibleRecovery: true,
+              bootRecovery: true,
+              factoryRuntimeAdoption: true,
+              sourceUpdateTooling: true,
+              previewMonitor: true,
+            },
+            await input.service(),
+          );
+          response.json(
+            CoordinatorMaintenanceRollbackPrepareResponseSchema.parse({
+              type: "installation.maintenance.rollback.prepare.response",
+              payload: retained.payload,
+            }),
+          );
+        } catch (error) {
+          const description =
+            error instanceof BootstrapRequestConflict
+              ? error.message
+              : "Rollback preparation could not be verified. Check retained reviews before trying again.";
+          response.json(
+            CoordinatorMaintenanceRollbackPrepareResponseSchema.parse({
+              type: "installation.maintenance.rollback.prepare.response",
+              payload: { requestId: parsed.data.requestId, requests: null, error: description },
+            }),
+          );
+        } finally {
+          provisioning = false;
+        }
+      } catch (error) {
+        next(error);
+      }
+    })();
+  });
+  app.post("/api/installation/maintenance/owner", (request, response, next) => {
+    void (async () => {
+      try {
+        if (request.body?.type === "installation.maintenance.observe.request") {
+          if (!(await observeEnrollment(input.enrollment, request.body))) {
+            response.status(400).json({ error: "Exact enrollment observation changed" });
+            return;
+          }
+          response.json({ observed: true });
+          return;
+        }
+        if (request.body?.type === "installation.maintenance.enroll.request") {
+          const parsed = CoordinatorMaintenanceEnrollmentRequestSchema.safeParse(request.body);
+          const enrollment = input.enrollment;
+          if (
+            !parsed.success ||
+            !enrollment ||
+            !sameEnrollmentDecision(parsed.data, enrollment.decision)
+          ) {
+            response.status(400).json({ error: "Exact enrollment review changed" });
+            return;
+          }
+          if (provisioning) {
+            response.status(409).json({ error: "Maintenance validation is already running" });
+            return;
+          }
+          provisioning = true;
+          try {
+            await enrollment.enroll(parsed.data);
+            response.json({ enrolled: true });
+          } finally {
+            provisioning = false;
+          }
+          return;
+        }
+        if (
+          input.enrollment &&
+          request.body?.type !== "installation.bootstrap.list_requests.request"
+        ) {
+          response.status(400).json({ error: "Use the exact installation enrollment review" });
+          return;
+        }
+        if (request.body?.type === "installation.maintenance.provision.request") {
+          const proposal = CoordinatorMaintenanceProvisionRequestSchema.safeParse(request.body);
+          if (
+            !proposal.success ||
+            proposal.data.admissionSha256 !== input.status().provisioning.admissionSha256
+          ) {
+            response.status(400).json({ error: "Maintenance proposal changed" });
+            return;
+          }
+          // A lost response must not start concurrent validation or preparation.
+          // Durable admission and request checks remain the controller's responsibility.
+          if (provisioning) {
+            response.status(409).json({ error: "Maintenance validation is already running" });
+            return;
+          }
+          provisioning = true;
+          try {
+            await input.provision(proposal.data);
+            response.json({ provisioned: true });
+          } finally {
+            provisioning = false;
+          }
+          return;
+        }
+        const parsed = MessageSchema.safeParse(request.body);
+        if (!parsed.success) {
+          response.status(400).json({ error: "Invalid maintenance review request" });
+          return;
+        }
+        const { handleBootstrapReview } = await import("./coordinator-bootstrap-session.js");
+        response.json(await handleBootstrapReview(parsed.data, await input.service()));
+      } catch (error) {
+        next(error);
+      }
+    })();
+  });
   const failure: ErrorRequestHandler = (_error, _request, response, _next) => {
     response
       .status(503)

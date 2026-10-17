@@ -5,12 +5,13 @@ import { isDeepStrictEqual } from "node:util";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 import { readPrivateBootstrapConfiguration } from "./coordinator-bootstrap-private-configuration.js";
 import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
+import { userInfo } from "node:os";
 import {
   createMaintenanceControlApp,
   MaintenanceOwnerConfigurationSchema,
 } from "./coordinator-bootstrap-maintenance-control.js";
 
-/** Read-only access starts without enrollment or lifecycle parsing. Registration
+/** Independent access starts without enrollment or lifecycle parsing. Registration
  * must protect this setup and its runtime; opening the listener grants no effects. */
 export async function runIndependentMaintenanceRecovery(setupFile: string) {
   const uid = process.getuid?.();
@@ -26,14 +27,27 @@ export async function runIndependentMaintenanceRecovery(setupFile: string) {
     );
   const refuseEffects = () => {
     throw new BootstrapRequestConflict(
-      "This recovery listener provides inspection only. Exact tracked recovery dispatch is not enabled.",
+      "Independent recovery does not expose enrollment provisioning or main application health through this endpoint.",
     );
+  };
+  const review = async () => {
+    const { createIndependentCoordinatorRecoveryReviews } =
+      await import("./coordinator-bootstrap-maintenance-recovery-rollback.js");
+    const account = userInfo();
+    return createIndependentCoordinatorRecoveryReviews({
+      setupFile,
+      account: { uid: account.uid, home: account.homedir },
+      stateDirectory: setup.enrollmentStateDirectory,
+    });
   };
   const app = createMaintenanceControlApp({
     installationId: access.installationId,
     recoveryOrigin: access.origin,
     status: refuseEffects,
     provision: refuseEffects,
+    async prepareRollback() {
+      await (await review()).prepareRollback();
+    },
     async readOwnerConfiguration() {
       if (!isDeepStrictEqual(readSetup(), setup))
         throw new BootstrapRequestConflict("Protected recovery setup changed");
@@ -46,14 +60,7 @@ export async function runIndependentMaintenanceRecovery(setupFile: string) {
         );
       return owner;
     },
-    service: async () => {
-      const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
-      return {
-        list: () => new FileBootstrapRequestJournal(setup.enrollmentStateDirectory).read(),
-        prepare: refuseEffects,
-        decide: refuseEffects,
-      };
-    },
+    service: review,
   });
   const server = createServer(app);
   const listening = once(server, "listening");
