@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.655 - 2026-10-17
+
+### Maintenance
+
+- Add an explicit construction opt-in for controller-driven recovery-launcher replacement, retaining exact reserved executor binding and replacement linkage checks. Production leaves it unset. Launcher recovery and rollback remain refused, and operation advertisement is unchanged.
+- Test disabled refusal and enabled controller inspection without native effects. This prepares compiled launcher replacement acceptance; it does not enable installed maintenance or establish final activation readiness.
+
 ## 0.11.0-beta.3.vorteo.654 - 2026-10-17
 
 ### Fixed

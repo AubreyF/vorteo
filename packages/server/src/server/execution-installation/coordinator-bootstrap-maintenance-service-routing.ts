@@ -15,6 +15,7 @@ interface RouterInput {
   installationId: string;
   stateDirectory: string;
   mode?: "replacement-only" | "linked-controller-recovery";
+  launcherReplacement?: "enabled";
 }
 interface Construction {
   role: Role;
@@ -107,7 +108,11 @@ export async function createNativeMaintenanceServiceRouter(
   }
 
   function effectRole(request: MaintenanceServiceJob): Role {
-    if (request.target !== "maintenance-controller")
+    const launcherReplacement =
+      input.launcherReplacement === "enabled" &&
+      request.target === "recovery-launcher" &&
+      request.operation === "replacement";
+    if (request.target !== "maintenance-controller" && !launcherReplacement)
       throw new BootstrapRequestConflict("Launcher maintenance readiness is not accepted");
     if (request.operation === "replacement") {
       if (request.proposal.recoveryOf)

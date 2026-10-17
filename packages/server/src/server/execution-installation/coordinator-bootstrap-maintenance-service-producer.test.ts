@@ -771,6 +771,37 @@ test("linked controller routing constructs the page first and refuses unsupporte
   expect(page.execute).not.toHaveBeenCalled();
 });
 
+test("explicit launcher replacement support uses the controller without enabling launcher recovery", async () => {
+  const f = routedJob();
+  const controller = routedProducer("controller");
+  const construct = vi.fn(async () => controller);
+  const launcher = MaintenanceServiceJobSchema.parse({
+    ...f.request,
+    target: "recovery-launcher",
+    proposal: { ...f.request.proposal, target: "recovery-launcher" },
+  });
+  const disabled = await createNativeMaintenanceServiceRouter(f, construct);
+  await expect(disabled.inspect(launcher)).rejects.toThrow("readiness is not accepted");
+  expect(controller.inspect).not.toHaveBeenCalled();
+  const enabled = await createNativeMaintenanceServiceRouter(
+    { ...f, launcherReplacement: "enabled" },
+    construct,
+  );
+  await expect(enabled.inspect(launcher)).rejects.toThrow("controller inspect");
+  expect(controller.inspect).toHaveBeenCalledExactlyOnceWith(launcher);
+  const recovery = routedJob("recovery").request;
+  await expect(
+    enabled.inspect({
+      ...recovery,
+      target: "recovery-launcher",
+      proposal: { ...recovery.proposal, target: "recovery-launcher" },
+    }),
+  ).rejects.toThrow("readiness is not accepted");
+  expect(controller.inspect).toHaveBeenCalledTimes(1);
+  expect(controller.execute).not.toHaveBeenCalled();
+  expect(enabled.operations).toEqual(["replacement"]);
+});
+
 test("reserved execution never constructs or substitutes another role", async () => {
   const f = routedJob("recovery"),
     page = routedProducer("page"),
