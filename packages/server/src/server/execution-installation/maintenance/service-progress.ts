@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import type { LifecycleJob } from "../lifecycle-journal.js";
-import { maintenanceRecoveryAncestors } from "./service-recovery.js";
+import {
+  maintenanceRecoveryAncestors,
+  assertUnclaimedMaintenanceServiceAbsent,
+} from "./service-recovery.js";
 import { isMaintenanceService } from "./service-admission.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -105,7 +108,7 @@ export function observeServiceJob(
   value: MaintenanceServiceNativeObservation,
   now: number,
 ) {
-  const { record, assertCurrent, ...observation } = value;
+  const { record, assertCurrent, unclaimedAbsent, ...observation } = value;
   const proof: MaintenanceServiceAdmissionEvidence = {
     expectedRevision: job.revision,
     record: MaintenanceServiceEvidenceRecordSchema.parse(record),
@@ -123,6 +126,11 @@ export function observeServiceJob(
     detail =
       "Previous reviewed runtime is ready. Candidate maintenance failed and was not reported as success.";
   }
+  if (unclaimedAbsent) {
+    status = "failed";
+    detail =
+      "No native effect was claimed. The service is absent; a new linked recovery is required.";
+  }
   let next = MaintenanceServiceJobSchema.parse({
     ...retain(job, proof),
     revision: randomUUID(),
@@ -130,6 +138,7 @@ export function observeServiceJob(
     detail,
     observation,
   });
+  if (unclaimedAbsent) assertUnclaimedMaintenanceServiceAbsent(next);
   if (status === "running") next = failedServiceCheck(next, now);
   return { job: next, proof };
 }

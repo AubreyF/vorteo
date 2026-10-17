@@ -1,11 +1,13 @@
 import type { LifecycleJob } from "../lifecycle-journal.js";
 import {
   approveServiceJob,
+  observeServiceJob,
   reserveServiceJob,
   retainServiceRecoveryObservation,
 } from "./service-progress.js";
 import {
   maintenanceRecoveryAncestors,
+  assertUnclaimedMaintenanceServiceAbsent,
   assertMaintenanceRecoveryExclusion,
 } from "./service-recovery.js";
 import type {
@@ -23,6 +25,7 @@ import {
 } from "./service-admission.js";
 import {
   MaintenanceServiceEvidenceRecordSchema,
+  MaintenanceServiceJobSchema,
   MaintenanceServiceExecutorEvidenceSchema,
 } from "@getpaseo/protocol/maintenance-service";
 import type {
@@ -3530,6 +3533,213 @@ test.each(["recovery", "rollback"] as const)(
     expect(() => requireServiceAdmissionEvidence(claimed, claimed.reservation!)).not.toThrow();
   },
 );
+
+function unclaimedAbsentFixture() {
+  const f = serviceRecoveryFixture();
+  const parent = MaintenanceServiceJobSchema.parse(f.consumed(f.pending(f.original)));
+  delete parent.effectIntent;
+  parent.status = "failed";
+  parent.reservation!.operation = parent.operation;
+  parent.reservation!.proposalSha256 = maintenanceServiceProposalDigest(parent.proposal);
+  const record = structuredClone(parent.evidence[0].record);
+  record.sourceCommit = null;
+  record.artifactSha256 = null;
+  record.native.process = null;
+  record.native.service.registered = false;
+  record.native.service.registrationSha256 = null;
+  record.native.selection.sourceCommit = null;
+  record.native.selection.artifactSha256 = null;
+  const sha256 = maintenanceServiceEvidenceDigest(record);
+  parent.evidence.push({ sha256, record });
+  parent.observation = {
+    ...parent.observation!,
+    evidenceSha256: sha256,
+    outcome: "unknown",
+    ready: false,
+    sourceCommit: null,
+    artifactSha256: null,
+  };
+  return { ...f, parent, record };
+}
+
+function unclaimedAbsenceObservation(
+  f: ReturnType<typeof serviceAdmissionFixture>,
+  running: MaintenanceServiceJob,
+): MaintenanceServiceNativeObservation {
+  const observed = f.observe(running, "unknown", false);
+  const record = observed.evidence.record;
+  record.sourceCommit = null;
+  record.artifactSha256 = null;
+  record.native.process = null;
+  record.native.service.registered = false;
+  record.native.service.registrationSha256 = null;
+  record.native.selection.sourceCommit = null;
+  record.native.selection.artifactSha256 = null;
+  const sha256 = maintenanceServiceEvidenceDigest(record);
+  return {
+    ...observed.job.observation!,
+    sourceCommit: null,
+    artifactSha256: null,
+    evidenceSha256: sha256,
+    record,
+    assertCurrent() {},
+    unclaimedAbsent: true,
+  };
+}
+
+test.each(["fence-first", "claim-first"] as const)(
+  "unclaimed native absence and late claim share one atomic decision: %s",
+  (ordering) => {
+    const f = serviceAdmissionFixture();
+    const running = f.reserve(f.approve());
+    const value = unclaimedAbsenceObservation(f, running);
+    const record = value.record;
+    const terminal = observeServiceJob(running, value, f.now());
+    expect(terminal.job.status).toBe("failed");
+    expect(terminal.job.observation).not.toHaveProperty("unclaimedAbsent");
+    if (ordering === "claim-first") {
+      const claimed = f.claim(running);
+      expect(() => f.adapter.journal.write([terminal.job], terminal.proof)).toThrow();
+      expect(f.adapter.journal.read()).toEqual([claimed]);
+    } else {
+      f.adapter.journal.write([terminal.job], terminal.proof);
+      expect(() => f.claim(running)).toThrow();
+      expect(f.adapter.journal.read()).toEqual([terminal.job]);
+      expect(assertUnclaimedMaintenanceServiceAbsent(terminal.job)).toEqual(record);
+    }
+  },
+);
+
+test("service queue reopens an unclaimed generation and fences it without another dispatch", async () => {
+  const f = serviceQueueFixture();
+  let executions = 0;
+  f.setNative({
+    execute: async () => {
+      executions++;
+      throw new Error("Child exited before claim");
+    },
+    observe: async (job) => unclaimedAbsenceObservation(f, job),
+  });
+  const queue = f.create();
+  await queue.drain();
+  f.advance(30_000);
+  await queue.drain();
+  const running = queue.listServices()[0];
+  expect(running.status).toBe("running");
+  expect(running.effectIntent).toBeUndefined();
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.advance(5000);
+  const reopened = f.create();
+  await reopened.drain();
+  const failed = reopened.listServices()[0];
+  expect(failed.status).toBe("failed");
+  expect(failed.reservation).toEqual(running.reservation);
+  expect(failed.effectIntent).toBeUndefined();
+  expect(() => f.claim(running)).toThrow();
+  const bytes = f.adapter.journal.read();
+  await reopened.drain();
+  expect(f.adapter.journal.read()).toEqual(bytes);
+  expect(executions).toBe(1);
+});
+
+test("ordinary unknown absence remains running without a native terminal discriminant", () => {
+  const f = serviceAdmissionFixture();
+  const running = f.reserve(f.approve());
+  const { unclaimedAbsent: _terminal, ...ordinary } = unclaimedAbsenceObservation(f, running);
+  const observed = observeServiceJob(running, ordinary, f.now());
+  expect(observed.job.status).toBe("running");
+  f.adapter.journal.write([observed.job], observed.proof);
+  expect(() => assertUnclaimedMaintenanceServiceAbsent(observed.job)).toThrow(
+    "terminal unclaimed absence",
+  );
+});
+
+test("unclaimed terminal fencing requires fresh proof and permits observation after revocation", () => {
+  const f = serviceAdmissionFixture();
+  const running = f.reserve(f.approve());
+  const stale = unclaimedAbsenceObservation(f, running);
+  f.advance(30_001);
+  const refused = observeServiceJob(running, stale, f.now());
+  expect(() => f.adapter.journal.write([refused.job], refused.proof)).toThrow("native evidence");
+  expect(f.adapter.journal.read()).toEqual([running]);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.state.grant.revision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const observed = observeServiceJob(running, unclaimedAbsenceObservation(f, running), f.now());
+  f.adapter.journal.write([observed.job], observed.proof);
+  expect(f.adapter.journal.read()[0].status).toBe("failed");
+  expect(f.adapter.serviceAuthority(running)).toBeNull();
+});
+
+test.each([
+  "running",
+  "consumed",
+  "ready",
+  "selected",
+  "process",
+  "registered",
+  "chronology",
+  "generation",
+  "revision",
+  "duplicate",
+  "grant",
+  "missing-executor",
+] as const)("unclaimed history refuses malformed native absence: %s", (mode) => {
+  const f = unclaimedAbsentFixture(),
+    parent = f.parent;
+  const record = parent.evidence.at(-1)!.record;
+  const observation = parent.observation!;
+  if (mode === "running") parent.status = "running";
+  if (mode === "consumed") parent.effectIntent = f.original.effectIntent;
+  if (mode === "ready") observation.ready = true;
+  if (mode === "selected") {
+    record.sourceCommit = parent.proposal.sourceCommit;
+    observation.sourceCommit = record.sourceCommit;
+  }
+  if (mode === "process") record.native.process = f.original.effectIntent!.executor;
+  if (mode === "registered") record.native.service.registered = true;
+  if (mode === "chronology") {
+    record.observedAt = new Date(Date.parse(parent.reservation!.reservedAt) - 1).toISOString();
+    observation.observedAt = record.observedAt;
+  }
+  if (mode === "generation") observation.generation = randomUUID();
+  if (mode === "revision") record.requestRevision = randomUUID();
+  if (mode === "grant") parent.reservation!.grantRevision = randomUUID();
+  if (mode === "missing-executor") {
+    const retained = parent.evidence.find(
+      (item) => item.sha256 === parent.reservation!.nativeEvidenceSha256,
+    )!;
+    delete retained.record.executor;
+    retained.sha256 = maintenanceServiceEvidenceDigest(retained.record);
+    parent.reservation!.nativeEvidenceSha256 = retained.sha256;
+  }
+  const sha256 = maintenanceServiceEvidenceDigest(record);
+  parent.evidence.at(-1)!.sha256 = sha256;
+  observation.evidenceSha256 = sha256;
+  if (mode === "duplicate") parent.evidence.push({ sha256, record });
+  expect(() => assertUnclaimedMaintenanceServiceAbsent(parent)).toThrow();
+  const leaf = f.pending(parent);
+  expect(() =>
+    maintenanceRecoveryAncestors({ jobs: [f.original, parent], job: leaf, retryLimit: 3 }),
+  ).toThrow();
+});
+
+test("recovery history accepts only an addressed terminal unclaimed absence", () => {
+  const f = unclaimedAbsentFixture();
+  expect(assertUnclaimedMaintenanceServiceAbsent(f.parent)).toEqual(f.record);
+  const leaf = f.pending(f.parent);
+  expect(
+    maintenanceRecoveryAncestors({ jobs: [f.original, f.parent], job: leaf, retryLimit: 3 }),
+  ).toEqual([f.parent, f.original]);
+});
 
 test("recovery history follows immediate generations while preserving original slot choice", () => {
   const f = serviceRecoveryFixture();

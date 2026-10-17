@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.648 - 2026-10-17
+
+### Fixed
+
+- Reconcile an unclaimed service recovery only after fresh native absence and verification of its reserved runner's claim-before-effects contract. Persist failed status and addressed absence atomically; a winning claim refuses that write, while a winning terminal write refuses a late claim.
+- Preserve consumed executor exit checks through mixed consumed and unclaimed recovery ancestry. New linked generations still require current authority and fresh native custody; ordinary unknown outcomes remain running and consumed legacy observation retains its requirements.
+- Keep native-only reconciliation markers out of stored observations. Verify protected executor setup, plan, runtime and claim dependencies, retain custody before authoritative reads, and clear successful collection deadlines.
+- Cover journal races, reopening after revocation, changed retained runner bytes and continued legacy observation. Compiled native acceptance of unclaimed fencing, full queue composition, Dev registration and installed activation remain open. Nothing is installed by this source change.
+
 ## 0.11.0-beta.3.vorteo.647 - 2026-10-16
 
 - Verify the enrolled coordinator's selected release, registered native lifetime and retained installer/transfer proofs before exempting it from recovery runtime absence checks. Keep the two-executor limit and refuse unrelated readers.

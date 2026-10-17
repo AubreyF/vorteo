@@ -1,3 +1,4 @@
+import { assertUnclaimedMaintenanceServiceAbsent } from "./maintenance/service-recovery.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   MaintenanceServiceJobSchema,
@@ -120,4 +121,21 @@ export function inspectRetainedMaintenanceRecoveryEffect(input: {
   requireServiceApproval(approval, reservation, job.proposal);
   const intent = requireRetainedServiceIntent(job, reservation, context);
   return { ...context, job, reservation, intent };
+}
+
+/** Fenced unclaimed history can be linked, but never dispatched again. */
+export function inspectRetainedUnclaimedMaintenanceRecovery(input: {
+  retained: unknown;
+  plan: unknown;
+  account: { uid: number; home: string };
+}) {
+  const job = MaintenanceServiceJobSchema.parse(input.retained);
+  assertUnclaimedMaintenanceServiceAbsent(job);
+  const reservation = job.reservation!;
+  const context = inspectMaintenanceRecoveryPlan(input.plan, input.account);
+  const operation = context.slot === "candidate" ? "recovery" : "rollback";
+  requireRecoveryPlanBinding(job, reservation, context, operation);
+  requireServiceApproval(job.approval!, reservation, job.proposal);
+  requireServiceAdmissionEvidence(job, reservation);
+  return { ...context, job, reservation, intent: null };
 }

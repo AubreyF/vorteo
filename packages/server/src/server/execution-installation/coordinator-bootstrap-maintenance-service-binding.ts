@@ -1,3 +1,4 @@
+import { assertUnclaimedMaintenanceServiceAbsent } from "./maintenance/service-recovery.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -170,6 +171,24 @@ export function requireServiceAdmissionEvidence(
         "Native service admission evidence differs from its retained proof",
       );
   }
+}
+
+/** Retained failed state is an atomic no-intent fence, not effect authority. */
+export function inspectRetainedUnclaimedMaintenanceService(input: {
+  retained: unknown;
+  plan: unknown;
+  account: { uid: number; home: string };
+}) {
+  const job = MaintenanceServiceJobSchema.parse(input.retained);
+  assertUnclaimedMaintenanceServiceAbsent(job);
+  const reservation = job.reservation!;
+  const native = inspectMaintenanceLauncherPlan(input.plan, input.account);
+  if (job.operation !== "replacement")
+    throw new BootstrapRequestConflict("Unclaimed original service requires replacement binding");
+  requireServicePlan(job, reservation, native);
+  requireServiceApproval(job.approval!, reservation, job.proposal);
+  requireServiceAdmissionEvidence(job, reservation);
+  return { ...native, job, reservation, intent: null };
 }
 
 export function requireRetainedServiceIntent(

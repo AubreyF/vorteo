@@ -1,3 +1,4 @@
+import { verifyUnclaimedMaintenanceExecutor } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
@@ -28,12 +29,14 @@ export async function inspectNativeMaintenanceRecoveryHistory(input: {
   const history = await readRetainedMaintenanceRecoveryHistory(input);
   const ancestors: Awaited<ReturnType<typeof verifyMaintenanceRecoveryPredecessor>>[] = [];
   for (const ancestor of history.ancestors) {
-    const assertExit = await verifyRecoveryExecutorExit({
-      reader: input.reader,
-      expected: ancestor.intent.executor,
-      installationId: ancestor.job.proposal.installationId,
-      currentBoot: input.currentBoot,
-    });
+    const assertExit = ancestor.intent
+      ? await verifyRecoveryExecutorExit({
+          reader: input.reader,
+          expected: ancestor.intent.executor,
+          installationId: ancestor.job.proposal.installationId,
+          currentBoot: input.currentBoot,
+        })
+      : () => undefined;
     ancestors.push({ ...ancestor, assertExit });
   }
   const assertCurrent = () => {
@@ -87,6 +90,10 @@ export async function readRetainedMaintenanceRecoveryHistory(input: {
       account: input.account,
       recoveryOf: link,
     });
+    if (!proof.intent) {
+      const contract = await verifyUnclaimedMaintenanceExecutor({ ...input, job: proof.job });
+      files.push(contract.assertCurrent);
+    }
     input.signal.throwIfAborted();
     ancestors.push(proof);
     const wrapper = MaintenanceRecoveryPlanSchema.safeParse(value);

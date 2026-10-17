@@ -147,6 +147,162 @@ async function fixture(separateEnrollment = false, controller = false, nativeAcc
     writableMountRoots: [],
   };
 }
+async function exerciseReservedRunnerContract(
+  f: Awaited<ReturnType<typeof fixture>>,
+  job: import("@getpaseo/protocol/maintenance-service").MaintenanceServiceJob,
+) {
+  const artifacts = await import("./coordinator-bootstrap-artifact.js");
+  const { verifyUnclaimedMaintenanceExecutor } =
+    await import("./coordinator-bootstrap-maintenance-runner-contract.js");
+  const slot = f.plan.candidate;
+  const pin = (file: string, bytes: string, fileMode = 0o600) => {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(file, bytes, { mode: fileMode });
+    return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  const state = f.enrollmentStateDirectory;
+  const containerId = "d".repeat(64);
+  const docker = pin(
+    path.join(state, "docker"),
+    `#!/usr/bin/env bash\nprintf '%s' '${JSON.stringify({ Id: containerId, State: { Running: true }, Mounts: [] })}'\n`,
+    0o700,
+  );
+  const admission = pin(
+    path.join(state, "admission.json"),
+    JSON.stringify({
+      configurationFile: path.join(state, "configuration.json"),
+      launcherFile: f.plan.identity.launcherPath,
+      docker: docker.path,
+      socket: path.join(state, "docker.sock"),
+      containerId,
+      helperPath: path.join(state, "helper.py"),
+      helperSha256: "e".repeat(64),
+    }),
+  );
+  const setup = JSON.parse(readFileSync(slot.setup.path, "utf8"));
+  setup.nativeAdmission = admission;
+  slot.setup = pin(slot.setup.path, JSON.stringify(setup));
+  const names = [
+    "coordinator-bootstrap-runner.js",
+    "coordinator-bootstrap-maintenance-service-runner.js",
+    "coordinator-bootstrap-maintenance-service-claim.js",
+    "coordinator-bootstrap-maintenance-service-binding.js",
+    "coordinator-bootstrap-maintenance-recovery-binding.js",
+    "coordinator-bootstrap-maintenance-service-native.js",
+    "coordinator-bootstrap-maintenance-recovery-native.js",
+    "coordinator-bootstrap-journal.js",
+    "maintenance/service-admission.js",
+    "lifecycle-journal.js",
+    "../private-files.js",
+  ];
+  const directory = path.join(
+    slot.directory,
+    "packages/server/dist/server/server/execution-installation",
+  );
+  for (const name of names) pin(path.join(directory, name), `known claim contract ${name}`);
+  slot.entrypoint = {
+    path: slot.entrypoint.path,
+    sha256: createHash("sha256").update(readFileSync(slot.entrypoint.path)).digest("hex"),
+  };
+  slot.artifactSha256 = await digestBootstrapArtifact(slot.directory);
+  const inspected = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const planFile = path.join(
+    f.plan.identity.installationRoot,
+    "maintenance-services",
+    f.plan.identity.target,
+    "plans",
+    `${inspected.planSha256}.json`,
+  );
+  pin(planFile, JSON.stringify(f.plan));
+  const reserved = job.evidence.find(
+    (item) => item.sha256 === job.reservation!.nativeEvidenceSha256,
+  )!;
+  const nativeProcess = {
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    bootId: reserved.record.native.bootId,
+    startIdentity: "1:0",
+    argumentsSha256: "a".repeat(64),
+    executable: slot.node.path,
+  };
+  reserved.record.executor = {
+    target: "maintenance-controller",
+    identitySha256: inspected.identitySha256,
+    planSha256: inspected.planSha256,
+    sourceCommit: slot.sourceCommit,
+    artifactSha256: slot.artifactSha256,
+    runtimeDirectory: slot.directory,
+    setup: slot.setup,
+    node: slot.node,
+    entrypoint: slot.entrypoint,
+    native: {
+      ...reserved.record.native,
+      process: nativeProcess,
+      service: {
+        ...reserved.record.native.service,
+        registered: true,
+        launcherSha256: "1".repeat(64),
+        registrationSha256: "2".repeat(64),
+      },
+      selection: {
+        ...reserved.record.native.selection,
+        receiptSha256: "3".repeat(64),
+        sourceCommit: slot.sourceCommit,
+        artifactSha256: slot.artifactSha256,
+      },
+    },
+  };
+  const address = () => {
+    reserved.sha256 = createHash("sha256").update(JSON.stringify(reserved.record)).digest("hex");
+    job.reservation!.nativeEvidenceSha256 = reserved.sha256;
+  };
+  address();
+  const originalRead = artifacts.readProtectedDocument;
+  const localFiles = new Map(names.map((name) => [new URL(name, import.meta.url).pathname, name]));
+  const current = vi.spyOn(artifacts, "readProtectedDocument").mockImplementation(async (file) => {
+    const name = localFiles.get(file);
+    return name ? Buffer.from(`known claim contract ${name}`) : originalRead(file);
+  });
+  const input = {
+    job,
+    stateDirectory: state,
+    account: f.account,
+    writableMountRoots: [],
+    signal: new AbortController().signal,
+  };
+  try {
+    const proof = await verifyUnclaimedMaintenanceExecutor(input);
+    proof.assertCurrent();
+    for (const name of [
+      "coordinator-bootstrap-maintenance-service-claim.js",
+      "lifecycle-journal.js",
+      "../private-files.js",
+    ]) {
+      const contract = path.join(directory, name);
+      writeFileSync(contract, "old incompatible runner");
+      expect(proof.assertCurrent).toThrow("custody changed");
+      // Readdressing an older retained artifact cannot borrow compatibility
+      // from a current executor or current compiled implementation.
+      slot.artifactSha256 = await digestBootstrapArtifact(slot.directory);
+      const older = inspectMaintenanceLauncherPlan(f.plan, f.account);
+      pin(path.join(path.dirname(planFile), `${older.planSha256}.json`), JSON.stringify(f.plan));
+      reserved.record.executor!.artifactSha256 = slot.artifactSha256;
+      reserved.record.executor!.planSha256 = older.planSha256;
+      address();
+      await expect(verifyUnclaimedMaintenanceExecutor(input)).rejects.toThrow("digest changed");
+      writeFileSync(contract, `known claim contract ${name}`);
+    }
+    delete reserved.record.executor;
+    address();
+    await expect(verifyUnclaimedMaintenanceExecutor(input)).rejects.toThrow(
+      "reserved executor proof",
+    );
+  } finally {
+    current.mockRestore();
+  }
+}
+
 test.each([
   "candidate",
   "previous",
@@ -661,6 +817,7 @@ test.each([
   "consumed",
   "recovery",
   "recover-absent",
+  "recover-observe-unclaimed",
   "recover-rollback",
   "recover-lost-start",
   "recover-observe-lost-start",
@@ -671,6 +828,7 @@ test.each([
   "recover-observe-late",
   "recover-wrong-observation",
   "recover-unready-execution",
+  "native-runner-contract",
   "native-success",
   "native-unclaimed",
   "native-unclaimed-race",
@@ -847,8 +1005,15 @@ test.each([
       artifactSha256: null,
     },
   });
+  if (mode === "native-runner-contract") {
+    await exerciseReservedRunnerContract(f, job);
+    return;
+  }
   reservation.nativeEvidenceSha256 = job.reservation!.nativeEvidenceSha256;
   const mutations: Record<string, () => void> = {
+    "not-running": () => {
+      job.status = "approved";
+    },
     request: () => {
       job.proposal.id = randomUUID();
     },
@@ -888,7 +1053,6 @@ test.each([
     reservation.reservedAt = new Date(Date.now() + 60_000).toISOString();
     job.reservation!.reservedAt = reservation.reservedAt;
   }
-  if (mode === "not-running") job.status = "approved";
   if (mode === "consumed")
     job.effectIntent = {
       id: randomUUID(),
@@ -1093,7 +1257,7 @@ test.each([
     },
     reader: { verifyProcessExited: vi.fn(async () => undefined) },
   };
-  expect((await verifyMaintenanceRecoveryPredecessor(recoveryInput)).intent.id).toBe(
+  expect((await verifyMaintenanceRecoveryPredecessor(recoveryInput)).intent!.id).toBe(
     claimed.effectIntent!.id,
   );
   expect(
@@ -1102,7 +1266,7 @@ test.each([
         ...recoveryInput,
         retained: { ...failed, status: "running" },
       })
-    ).intent.id,
+    ).intent!.id,
   ).toBe(claimed.effectIntent!.id);
   const { inspectMaintenanceRecoveryPlan } =
     await import("./coordinator-bootstrap-maintenance-recovery-plan.js");

@@ -1,4 +1,7 @@
-import { maintenanceRecoveryAncestors } from "./service-recovery.js";
+import {
+  maintenanceRecoveryAncestors,
+  assertUnclaimedMaintenanceServiceAbsent,
+} from "./service-recovery.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -470,6 +473,10 @@ function assertServiceObservation(job: MaintenanceServiceJob): void {
   )
     throw new BootstrapRequestConflict("Service observation differs from its native receipt");
   if (observation.outcome === "unknown") {
+    if (job.status === "failed") {
+      assertUnclaimedMaintenanceServiceAbsent(job);
+      return;
+    }
     if (observation.ready || job.status !== "running")
       throw new BootstrapRequestConflict("Unknown service readiness cannot complete maintenance");
     return;

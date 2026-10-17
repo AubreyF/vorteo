@@ -77,10 +77,14 @@ export async function exerciseAbsentRecovery(input: {
       : "maintenance-service-recovery",
   };
   const context = inspectMaintenanceRecoveryPlan(plan, f.account);
-  const previous = context.slot === "previous" ? f.plan.candidate : f.plan.previous!;
+  const desired =
+    context.slot === "previous"
+      ? { operation: "rollback", previous: f.plan.candidate }
+      : { operation: "recovery", previous: f.plan.previous! };
+  const previous = desired.previous;
   const proposal = {
     ...input.job.proposal,
-    operation: context.slot === "previous" ? "rollback" : "recovery",
+    operation: desired.operation,
     planSha256: context.planSha256,
     sourceCommit: context.selected.sourceCommit,
     artifactSha256: context.selected.artifactSha256,
@@ -209,6 +213,161 @@ export async function exerciseAbsentRecovery(input: {
     ...absenceInput,
     ports: { reader, assertCurrent: () => undefined },
   });
+  if (input.mode === "recover-observe-unclaimed") {
+    // This owning case simulates native/runtime contract ports. The separate
+    // runner-contract cases exercise protected retained bytes independently.
+    const contractModule = await import("./coordinator-bootstrap-maintenance-runner-contract.js");
+    const contract = vi
+      .spyOn(contractModule, "verifyUnclaimedMaintenanceExecutor")
+      .mockImplementation(async ({ signal }) => ({
+        assertCurrent() {
+          signal.throwIfAborted();
+        },
+      }));
+    const reserved = job.evidence.find(
+      (item) => item.sha256 === job.reservation!.nativeEvidenceSha256,
+    )!;
+    const selected = f.plan.candidate;
+    reserved.record.executor = {
+      target: f.plan.identity.target as "maintenance-controller" | "recovery-launcher",
+      identitySha256: context.identitySha256,
+      planSha256: context.planSha256,
+      sourceCommit: selected.sourceCommit,
+      artifactSha256: selected.artifactSha256,
+      runtimeDirectory: selected.directory,
+      setup: selected.setup,
+      node: selected.node,
+      entrypoint: selected.entrypoint,
+      native: {
+        ...reserved.record.native,
+        process: executor,
+        service: {
+          ...reserved.record.native.service,
+          registered: true,
+          launcherSha256: "1".repeat(64),
+          registrationSha256: "2".repeat(64),
+        },
+        selection: {
+          ...reserved.record.native.selection,
+          receiptSha256: "3".repeat(64),
+          sourceCommit: selected.sourceCommit,
+          artifactSha256: selected.artifactSha256,
+        },
+      },
+    };
+    reserved.sha256 = hash(JSON.stringify(reserved.record));
+    job.reservation!.nativeEvidenceSha256 = reserved.sha256;
+    job.approval!.nativeEvidenceSha256 = job.evidence[0]!.sha256;
+    journal.writeLifecycle([input.failed, job]);
+    try {
+      const before = readFileSync(path.join(f.enrollmentStateDirectory, "restart-jobs.json"));
+      let readinessCalls = 0;
+      const observed = await observeMaintenanceRecovery({
+        ...absenceInput,
+        requestId: job.id,
+        reservation: job.reservation!,
+        readObservation: async () => {
+          readinessCalls++;
+          throw new Error("No claimed readiness");
+        },
+        readUnclaimedEvidence: (signal: AbortSignal) =>
+          inspectMaintenanceTargetEvidence({
+            ...absenceInput,
+            signal,
+            ports: { reader, assertCurrent: () => undefined },
+          }),
+      });
+      expect(observed).toMatchObject({
+        unclaimedAbsent: true,
+        outcome: "unknown",
+        ready: false,
+        sourceCommit: null,
+        artifactSha256: null,
+        requestRevision: job.reservation!.requestRevision,
+      });
+      expect(observed.record).toMatchObject({
+        requestRevision: job.reservation!.requestRevision,
+        sourceCommit: null,
+        artifactSha256: null,
+        native: { process: null, service: { registered: false } },
+      });
+      expect(observed.evidenceSha256).toBe(hash(JSON.stringify(observed.record)));
+      observed.assertCurrent();
+      expect(readinessCalls).toBe(0);
+      expect(readFileSync(path.join(f.enrollmentStateDirectory, "restart-jobs.json"))).toEqual(
+        before,
+      );
+      const { observeServiceJob } = await import("./maintenance/service-progress.js");
+      const terminal = observeServiceJob(job, observed, Date.now()).job;
+      journal.writeLifecycle([input.failed, terminal]);
+      expect(observed.assertCurrent).toThrow();
+      const nextPlan = {
+        ...plan,
+        recoveryOf: {
+          requestId: terminal.id,
+          generation: terminal.reservation!.generation,
+          planSha256: terminal.proposal.planSha256,
+          observationSha256: terminal.observation!.evidenceSha256,
+        },
+      };
+      const { inspectNativeMaintenanceRecoveryHistory } =
+        await import("./coordinator-bootstrap-maintenance-recovery-history.js");
+      const exits: number[] = [];
+      const historyInput = {
+        stateDirectory: f.enrollmentStateDirectory,
+        plan: nextPlan,
+        account: f.account,
+        signal: new AbortController().signal,
+        reader: {
+          ...reader,
+          inspectProcess: async () => {
+            throw new Error("Old process absent");
+          },
+          verifyProcessExited: async (pid: number) => {
+            exits.push(pid);
+          },
+        },
+      };
+      const history = await inspectNativeMaintenanceRecoveryHistory(historyInput);
+      expect(history.ancestors.map((ancestor) => ancestor.job.id)).toEqual([
+        terminal.id,
+        input.failed.id,
+      ]);
+      expect(history.ancestors[0]!.intent).toBeNull();
+      const { verifyMaintenanceRecoveryPredecessor } =
+        await import("./coordinator-bootstrap-maintenance-recovery-proof.js");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const standalone = await verifyMaintenanceRecoveryPredecessor({
+        ...historyInput,
+        retained: terminal,
+        plan,
+        recoveryOf: nextPlan.recoveryOf,
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(11_000);
+      standalone.assertExit();
+      vi.useRealTimers();
+
+      expect(exits).toEqual([input.failed.effectIntent!.executor.pid]);
+      history.assertCurrent();
+      await expect(
+        inspectNativeMaintenanceRecoveryHistory({
+          ...historyInput,
+          reader: {
+            ...historyInput.reader,
+            inspectProcess: async () => input.failed.effectIntent!.executor,
+            verifyProcessExited: async () => {
+              throw new Error("Consumed ancestor executor still live");
+            },
+          },
+        }),
+      ).rejects.toThrow("Retained process lifetime");
+    } finally {
+      vi.useRealTimers();
+      contract.mockRestore();
+    }
+    return;
+  }
   const commands: string[][] = [];
   const executeInput = {
     ...input.claimInput,

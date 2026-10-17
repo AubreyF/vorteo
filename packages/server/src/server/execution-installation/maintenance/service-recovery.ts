@@ -53,15 +53,124 @@ function assertRecoveryEdge(child: MaintenanceServiceJob, parent: MaintenanceSer
     child.proposal.installationId !== parent.proposal.installationId ||
     child.proposal.identitySha256 !== parent.proposal.identitySha256 ||
     !reservation ||
-    !intent ||
     !observation ||
     observation.ready
   )
     throw new BootstrapRequestConflict(
       "Recovery link differs from its consumed uncertain predecessor",
     );
+  if (!intent) {
+    assertUnclaimedMaintenanceServiceAbsent(parent);
+    if (
+      link.requestId !== parent.id ||
+      link.generation !== reservation.generation ||
+      link.planSha256 !== reservation.planSha256 ||
+      link.observationSha256 !== observation.evidenceSha256
+    )
+      throw new BootstrapRequestConflict(
+        "Recovery link differs from its terminal unclaimed predecessor",
+      );
+    return;
+  }
   assertConsumedRecoveryGeneration(parent, child);
   assertRecoveryObservationRecord(parent, link.observationSha256);
+}
+
+/** The terminal no-intent state fences a late child at locked claim admission.
+ * Historical absence grants no new effect; successors inspect current custody. */
+export function assertUnclaimedMaintenanceServiceAbsent(job: MaintenanceServiceJob) {
+  const { reservation, approval, observation, proposal } = job;
+  if (job.status !== "failed" || job.effectIntent || !reservation || !approval || !observation)
+    throw new BootstrapRequestConflict("Service has no terminal unclaimed absence");
+  requireUnclaimedMaintenanceExecutor(job);
+  const record = assertRecoveryObservationRecord(job, observation.evidenceSha256);
+  if (
+    proposal.id !== job.id ||
+    proposal.target !== job.target ||
+    proposal.operation !== job.operation ||
+    reservation.requestId !== job.id
+  )
+    throw new BootstrapRequestConflict("Unclaimed request identity differs from its reservation");
+  assertUnclaimedReservationBindings(job);
+  assertUnclaimedObservation(job, record);
+  return record;
+}
+
+function assertUnclaimedReservationBindings(job: MaintenanceServiceJob) {
+  const reservation = job.reservation!,
+    approval = job.approval!,
+    proposal = job.proposal;
+  const proposalSha256 = createHash("sha256").update(JSON.stringify(proposal)).digest("hex");
+  if (
+    reservation.requestRevision !== approval.requestRevision ||
+    reservation.grantId !== approval.grantId ||
+    reservation.grantRevision !== approval.grantRevision ||
+    reservation.manifestSha256 !== approval.manifestSha256 ||
+    reservation.proposalSha256 !== proposalSha256 ||
+    approval.proposalSha256 !== proposalSha256 ||
+    reservation.target !== job.target ||
+    reservation.operation !== job.operation ||
+    reservation.planSha256 !== proposal.planSha256 ||
+    reservation.identitySha256 !== proposal.identitySha256 ||
+    reservation.sourceCommit !== proposal.sourceCommit ||
+    reservation.artifactSha256 !== proposal.artifactSha256 ||
+    !isDeepStrictEqual(reservation.previous, proposal.previous) ||
+    !isDeepStrictEqual(reservation.recoveryOf, proposal.recoveryOf)
+  )
+    throw new BootstrapRequestConflict(
+      "Unclaimed reservation differs from its approval and proposal",
+    );
+}
+
+function assertUnclaimedObservation(
+  job: MaintenanceServiceJob,
+  record: ReturnType<typeof assertRecoveryObservationRecord>,
+) {
+  const reservation = job.reservation!,
+    observation = job.observation!;
+  if (
+    observation.requestId !== job.id ||
+    observation.requestRevision !== reservation.requestRevision ||
+    observation.generation !== reservation.generation ||
+    observation.planSha256 !== reservation.planSha256 ||
+    observation.identitySha256 !== reservation.identitySha256 ||
+    observation.outcome !== "unknown" ||
+    observation.ready ||
+    observation.sourceCommit !== null ||
+    observation.artifactSha256 !== null ||
+    Date.parse(observation.observedAt) < Date.parse(reservation.reservedAt) ||
+    record.native.process !== null ||
+    record.native.service.registered ||
+    record.native.service.registrationSha256 !== null ||
+    record.native.selection.sourceCommit !== null ||
+    record.native.selection.artifactSha256 !== null
+  )
+    throw new BootstrapRequestConflict(
+      "Service unclaimed absence differs from its retained generation",
+    );
+}
+
+/** New no-intent fences require the executor addressed by the reservation.
+ * Consumed legacy observation deliberately does not use this requirement. */
+export function requireUnclaimedMaintenanceExecutor(job: MaintenanceServiceJob) {
+  const reservation = job.reservation;
+  const matches = job.evidence.filter((item) => item.sha256 === reservation?.nativeEvidenceSha256);
+  const record = matches[0]?.record;
+  if (
+    !reservation ||
+    matches.length !== 1 ||
+    !record?.executor ||
+    createHash("sha256").update(JSON.stringify(record)).digest("hex") !==
+      reservation.nativeEvidenceSha256 ||
+    record.executor.native.bootId !== record.native.bootId ||
+    record.requestId !== job.id ||
+    record.planSha256 !== reservation.planSha256 ||
+    record.identitySha256 !== reservation.identitySha256 ||
+    record.sourceCommit !== reservation.sourceCommit ||
+    record.artifactSha256 !== reservation.artifactSha256
+  )
+    throw new BootstrapRequestConflict("Unclaimed service lacks its reserved executor proof");
+  return record.executor;
 }
 
 function assertConsumedRecoveryGeneration(
@@ -92,10 +201,7 @@ function assertConsumedRecoveryGeneration(
       "Recovery link differs from its consumed uncertain predecessor",
     );
 }
-function assertRecoveryObservationRecord(
-  parent: MaintenanceServiceJob,
-  observationSha256: string,
-): void {
+function assertRecoveryObservationRecord(parent: MaintenanceServiceJob, observationSha256: string) {
   const reservation = parent.reservation!,
     observation = parent.observation!;
   const matches = parent.evidence.filter((item) => item.sha256 === observationSha256);
@@ -115,6 +221,7 @@ function assertRecoveryObservationRecord(
     throw new BootstrapRequestConflict(
       "Recovery predecessor lacks exact addressed native evidence",
     );
+  return record;
 }
 
 function assertOriginalSlots(job: MaintenanceServiceJob, original: MaintenanceServiceJob): void {

@@ -1,11 +1,22 @@
+import { readBoundedMaintenanceInspection } from "./coordinator-bootstrap-maintenance-service-native.js";
+import { verifyUnclaimedMaintenanceExecutor } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-bootstrap";
-import { MaintenanceServiceRecoveryLinkSchema } from "@getpaseo/protocol/maintenance-service";
+import {
+  MaintenanceServiceJobSchema,
+  MaintenanceServiceRecoveryLinkSchema,
+} from "@getpaseo/protocol/maintenance-service";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
-import { inspectRetainedMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-binding.js";
+import {
+  inspectRetainedMaintenanceServiceEffect,
+  inspectRetainedUnclaimedMaintenanceService,
+} from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { MaintenanceRecoveryPlanSchema } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
-import { inspectRetainedMaintenanceRecoveryEffect } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
+import {
+  inspectRetainedMaintenanceRecoveryEffect,
+  inspectRetainedUnclaimedMaintenanceRecovery,
+} from "./coordinator-bootstrap-maintenance-recovery-binding.js";
 import { verifyRetainedProcessExited } from "./coordinator-bootstrap-service.js";
 
 /** Evidence prerequisite only, never permission to dispatch or replay. The
@@ -19,12 +30,27 @@ export async function verifyMaintenanceRecoveryPredecessor(input: {
   currentBoot?: RecoveryBootWitness;
 }) {
   const context = inspectMaintenanceRecoveryPredecessor(input);
-  const assertExit = await verifyRecoveryExecutorExit({
-    reader: input.reader,
-    expected: context.intent.executor,
-    installationId: context.job.proposal.installationId,
-    currentBoot: input.currentBoot,
-  });
+  const contract = context.intent
+    ? undefined
+    : await readBoundedMaintenanceInspection(
+        (signal) =>
+          verifyUnclaimedMaintenanceExecutor({
+            ...input,
+            job: context.job,
+            stateDirectory: ("identity" in context ? context.identity : context.plan.identity)
+              .stateDirectory,
+            signal,
+          }),
+        { timeoutMs: 10_000, detail: "Unclaimed predecessor contract inspection timed out" },
+      );
+  const assertExit = context.intent
+    ? await verifyRecoveryExecutorExit({
+        reader: input.reader,
+        expected: context.intent.executor,
+        installationId: context.job.proposal.installationId,
+        currentBoot: input.currentBoot,
+      })
+    : () => contract!.assertCurrent();
   return { ...context, assertExit };
 }
 
@@ -36,9 +62,15 @@ export function inspectMaintenanceRecoveryPredecessor(input: {
   account: { uid: number; home: string };
   recoveryOf: unknown;
 }) {
-  const context = MaintenanceRecoveryPlanSchema.safeParse(input.plan).success
-    ? inspectRetainedMaintenanceRecoveryEffect(input)
-    : inspectRetainedMaintenanceServiceEffect(input);
+  const jobState = MaintenanceServiceJobSchema.parse(input.retained);
+  const recovery = MaintenanceRecoveryPlanSchema.safeParse(input.plan).success;
+  const inspectConsumed = recovery
+    ? inspectRetainedMaintenanceRecoveryEffect
+    : inspectRetainedMaintenanceServiceEffect;
+  const inspectUnclaimed = recovery
+    ? inspectRetainedUnclaimedMaintenanceRecovery
+    : inspectRetainedUnclaimedMaintenanceService;
+  const context = jobState.effectIntent ? inspectConsumed(input) : inspectUnclaimed(input);
   const link = MaintenanceServiceRecoveryLinkSchema.parse(input.recoveryOf);
   const { job, reservation, intent } = context;
   const observation = job.observation;
@@ -55,7 +87,8 @@ export function inspectMaintenanceRecoveryPredecessor(input: {
     observation.generation !== reservation.generation ||
     observation.planSha256 !== context.planSha256 ||
     observation.identitySha256 !== context.identitySha256 ||
-    Date.parse(observation.observedAt) < Date.parse(intent.consumedAt)
+    Date.parse(observation.observedAt) <
+      Date.parse(intent ? intent.consumedAt : reservation.reservedAt)
   ) {
     throw new BootstrapRequestConflict(
       "Recovery predecessor differs from retained failed observation",
@@ -66,9 +99,10 @@ export function inspectMaintenanceRecoveryPredecessor(input: {
 }
 
 function requireRecoveryRecord(
-  context:
-    | ReturnType<typeof inspectRetainedMaintenanceServiceEffect>
-    | ReturnType<typeof inspectRetainedMaintenanceRecoveryEffect>,
+  context: Pick<
+    ReturnType<typeof inspectRetainedMaintenanceServiceEffect>,
+    "job" | "reservation" | "planSha256" | "identitySha256"
+  >,
   observation: NonNullable<
     ReturnType<typeof inspectRetainedMaintenanceServiceEffect>["job"]["observation"]
   >,

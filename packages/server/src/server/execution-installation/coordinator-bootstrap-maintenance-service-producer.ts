@@ -1,3 +1,4 @@
+import { verifySelectedServiceRunner } from "./coordinator-bootstrap-maintenance-runner-contract.js";
 import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
 import { closeSync, constants, openSync, writeSync } from "node:fs";
 import path from "node:path";
@@ -14,8 +15,6 @@ import {
   verifyMaintenanceLauncherArtifacts,
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 import { userInfo } from "node:os";
-import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -173,21 +172,41 @@ export async function createNativeMaintenanceServiceExecutor(
   };
   const observe: MaintenanceServiceExecutor["observe"] = async (request, reservation) => {
     const context = await load(request, true);
-    const read =
-      request.operation === "replacement"
-        ? observeMaintenanceServiceReplacement
-        : observeMaintenanceRecovery;
-    return read({
+    const observationInput = {
       ...context,
       requestId: request.id,
       reservation,
       reader: context.ports.reader,
-      readObservation: (signal) =>
+      readObservation: (signal: AbortSignal) =>
         inspectMaintenanceServiceReadiness({
           ...context,
           requestId: request.id,
           signal,
         }),
+    };
+    if (request.operation === "replacement")
+      return observeMaintenanceServiceReplacement(observationInput);
+    return observeMaintenanceRecovery({
+      ...observationInput,
+      readUnclaimedEvidence: async (signal) => {
+        // This is absence observation, not a new-effect admission. Revocation
+        // preserves it; missing live boot custody remains uncertainty.
+        const fresh = await load(request);
+        const current = await inspectExecutor(fresh);
+        const coordinatorCustody = await inspectMaintenanceCoordinatorWitness({
+          ...fresh,
+          installationId: input.installationId,
+        });
+        signal.throwIfAborted();
+        return inspectMaintenanceTargetEvidence({
+          ...fresh,
+          request,
+          reader: fresh.ports.reader,
+          coordinatorCustody,
+          currentBoot: maintenanceRecoveryBootWitness(current),
+          signal,
+        });
+      },
     });
   };
   const requireSupportedEffect = (request: MaintenanceServiceJob) => {
@@ -342,33 +361,6 @@ function requireCurrentServiceRequest(
       "Native service request changed before observation or launch",
     );
   return parsed;
-}
-
-async function verifySelectedServiceRunner(input: {
-  directory: string;
-  writableMountRoots: readonly string[];
-  recoveryAccess: boolean;
-}) {
-  const files = [
-    "coordinator-bootstrap-runner.js",
-    "coordinator-bootstrap-maintenance-service-runner.js",
-  ];
-  if (input.recoveryAccess) files.push("coordinator-bootstrap-maintenance-recovery-access.js");
-  for (const name of files) {
-    const local = await readProtectedDocument(fileURLToPath(new URL(name, import.meta.url)));
-    const sha256 = createHash("sha256").update(local).digest("hex");
-    await readBootstrapPreparedFile(
-      {
-        path: path.join(
-          input.directory,
-          "packages/server/dist/server/server/execution-installation",
-          name,
-        ),
-        sha256,
-      },
-      input.writableMountRoots,
-    );
-  }
 }
 
 /** One launch, no retry or signal. A lost reply, nonzero exit or elapsed bound

@@ -14,6 +14,8 @@ export interface MaintenanceServiceNativeEvidence extends MaintenanceServiceEvid
 export interface MaintenanceServiceNativeObservation extends MaintenanceServiceObservation {
   /** Must hash to evidenceSha256. Unknown evidence never establishes readiness. */
   record: MaintenanceServiceEvidenceRecord;
+  /** Native-only terminal fence. Never serialized into a protocol observation. */
+  unclaimedAbsent?: true;
   assertCurrent(): void;
 }
 
