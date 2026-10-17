@@ -1,3 +1,4 @@
+import type { MaintenanceObservationRuntime } from "./coordinator-bootstrap-maintenance-observation-runtime.js";
 import { inspectMaintenanceServicePresence } from "./coordinator-bootstrap-maintenance-absence.js";
 import { observeConsumedMaintenanceServiceAbsence } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import { inspectRetainedMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-binding.js";
@@ -65,7 +66,8 @@ const invocationDeadlineMs = 25_000;
  * exact runner implementation. Enrollment policy is checked at effect claim,
  * not here, so revocation never removes retained observation support. */
 export interface NativeMaintenanceServiceExecutorInput {
-  executorSetupFile: string;
+  executorSetupFile?: string;
+  observationRuntime?: MaintenanceObservationRuntime;
   installationId: string;
   stateDirectory: string;
   executorTarget?: "maintenance-controller" | "recovery-launcher";
@@ -117,6 +119,9 @@ export async function createNativeMaintenanceServiceExecutor(
     await verifyMaintenanceLauncherArtifacts({ plan: startup.plan, account, writableMountRoots });
     return {
       startup,
+      installationRoot: startup.setup.installationRoot,
+      nativeAdmission: startup.setup.nativeAdmission,
+      assertCurrent: () => {},
       account,
       stateDirectory,
       writableMountRoots,
@@ -125,18 +130,17 @@ export async function createNativeMaintenanceServiceExecutor(
       admission,
     };
   };
-  const initial = await refresh();
+  const initial = input.observationRuntime ?? (await refresh());
   // Observation uses retained, protected inspection tools, not a live executor
   // admission. A stopped/replaced controller or revoked grant cannot erase an
   // already reserved generation's read-only recovery path.
   const observationRuntime = async () => {
-    await readBootstrapPreparedFile(
-      initial.startup.setup.nativeAdmission,
-      initial.writableMountRoots,
-    );
+    initial.assertCurrent();
+    await readBootstrapPreparedFile(initial.nativeAdmission, initial.writableMountRoots);
     const roots = await inspectBootstrapWritableMountRoots(initial.admission);
     if (!isDeepStrictEqual(roots, initial.writableMountRoots))
       throw new BootstrapRequestConflict("Observation tool custody changed");
+    initial.assertCurrent();
     return {
       ...initial,
       ports: await createMaintenanceServiceInspectionPorts({
@@ -145,12 +149,15 @@ export async function createNativeMaintenanceServiceExecutor(
       }),
     };
   };
-  const load = async (request: MaintenanceServiceJob, observation = false) => {
-    const { startup, ...runtime } = await (observation ? observationRuntime() : refresh());
+  const loadPlan = async <T extends MaintenanceObservationRuntime>(
+    request: MaintenanceServiceJob,
+    runtime: T,
+  ) => {
+    runtime.assertCurrent();
     const { writableMountRoots } = runtime;
     const retained = requireCurrentServiceRequest(journal, request);
     const planFile = path.join(
-      startup.setup.installationRoot,
+      runtime.installationRoot,
       "maintenance-services",
       retained.target,
       "plans",
@@ -159,8 +166,10 @@ export async function createNativeMaintenanceServiceExecutor(
     await assertBootstrapPathsProtected([planFile, stateDirectory], writableMountRoots);
     const plan: unknown = JSON.parse((await readProtectedDocument(planFile)).toString("utf8"));
     requireCurrentServiceRequest(journal, request);
+    runtime.assertCurrent();
     return { plan, ...runtime };
   };
+  const load = async (request: MaintenanceServiceJob) => loadPlan(request, await refresh());
   const inspectExecutor = async (context: Awaited<ReturnType<typeof load>>) => {
     const current = await inspectSelectedMaintenanceExecutor({
       ...context,
@@ -175,8 +184,8 @@ export async function createNativeMaintenanceServiceExecutor(
     current.assertCurrent();
     return current;
   };
-  const observe: MaintenanceServiceExecutor["observe"] = async (request, reservation) => {
-    const context = await load(request, true);
+  const observeNative: MaintenanceServiceExecutor["observe"] = async (request, reservation) => {
+    const context = await loadPlan(request, await observationRuntime());
     const observationInput = {
       ...context,
       requestId: request.id,
@@ -274,6 +283,17 @@ export async function createNativeMaintenanceServiceExecutor(
         });
       },
     });
+  };
+  const observe: MaintenanceServiceExecutor["observe"] = async (request, reservation) => {
+    const observation = await observeNative(request, reservation);
+    initial.assertCurrent();
+    return {
+      ...observation,
+      assertCurrent() {
+        initial.assertCurrent();
+        observation.assertCurrent();
+      },
+    };
   };
   const requireSupportedEffect = (request: MaintenanceServiceJob) => {
     if (

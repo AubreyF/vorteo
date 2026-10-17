@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.659 - 2026-10-17
+
+### Fixed
+
+- Construct retained maintenance observation from the protected installation configuration, enrolled coordinator identity and native admission anchor. A fresh consumer can obtain inspection tools without resolving an unresolved selected maintenance executor. Recollect mount evidence for every observation and retain anchor custody through the final locked write, including after revocation.
+- Keep observation tools separate from effect discovery and cached executors. Fresh inspection and execution retain canonical role resolution and reserved proof checks; construction and native read exclusion survive caller timeouts. Production remains replacement-only.
+- Disposable native evidence from the preceding source completed four single-execution queue requests through controller recovery, page replacement, linked page recovery and rollback using actual persisted absence receipts. Cold-process native acceptance and installed activation remain open; no README delivered-feature claim is added.
+
 ## 0.11.0-beta.3.vorteo.658 - 2026-10-17
 
 ### Maintenance

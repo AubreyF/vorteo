@@ -1,3 +1,5 @@
+import { inspectMaintenanceObservationRuntime } from "./coordinator-bootstrap-maintenance-observation-runtime.js";
+import { createNativeMaintenanceServiceExecutor } from "./coordinator-bootstrap-maintenance-service-producer.js";
 import { observeNativeMaintenanceServices } from "./coordinator-bootstrap-maintenance-health.js";
 import { observeNativeRecoveryAccess } from "./coordinator-bootstrap-maintenance-recovery-native-ports.js";
 import { createNativeMaintenanceServiceRouter } from "./coordinator-bootstrap-maintenance-service-routing.js";
@@ -45,12 +47,26 @@ if (process.platform === "darwin") {
       stateDirectory: config.stateDir,
       signal,
     });
-  executor.discoverMaintenanceServices = () =>
-    createNativeMaintenanceServiceRouter({
+  executor.discoverMaintenanceServices = async () => {
+    const observationRuntime = await inspectMaintenanceObservationRuntime({
+      configuration: config,
+      configurationFile: realpathSync(configFile),
+    });
+    return createNativeMaintenanceServiceRouter({
       installationId: config.public.installationId,
       stateDirectory: config.stateDir,
       mode: "replacement-only",
+      observeRetained: async (request, reservation, executorTarget) => {
+        const observer = await createNativeMaintenanceServiceExecutor({
+          installationId: config.public.installationId,
+          stateDirectory: config.stateDir,
+          executorTarget,
+          observationRuntime,
+        });
+        return observer.observe(request, reservation);
+      },
     });
+  };
 }
 if (config.nativeHelper) {
   if (process.platform !== "darwin")

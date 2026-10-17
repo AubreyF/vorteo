@@ -1080,3 +1080,100 @@ test("timed-out retained observation cannot leave an abandoned artifact reader",
   expect(construct).toHaveBeenCalledTimes(2);
   expect(page.observe).toHaveBeenCalledOnce();
 });
+
+test("cold retained observation never constructs or caches an effect executor", async () => {
+  const f = routedJob("recovery"),
+    request = f.reserve("recovery-launcher");
+  const observeRetained = vi.fn(async () => {
+    throw new Error("protected observation");
+  });
+  const construct = vi.fn(async () => {
+    throw new Error("unresolved selected executor");
+  });
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery", observeRetained },
+    construct,
+  );
+  expect(construct).not.toHaveBeenCalled();
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow(
+    "protected observation",
+  );
+  expect(observeRetained).toHaveBeenCalledExactlyOnceWith(
+    request,
+    request.reservation,
+    "recovery-launcher",
+  );
+  await expect(router.execute(request, request.reservation!)).rejects.toThrow("unavailable");
+  await expect(router.inspect(f.request)).rejects.toThrow("unresolved selected executor");
+  expect(construct).toHaveBeenCalledExactlyOnceWith("recovery-launcher");
+});
+
+test("cold observation refuses malformed present evidence and permits only consumed legacy fallback", async () => {
+  const f = routedJob("recovery"),
+    request = f.reserve("recovery-launcher");
+  const observeRetained = vi.fn(async () => {
+    throw new Error("protected observation");
+  });
+  const construct = vi.fn(async () => routedProducer("unused"));
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery", observeRetained },
+    construct,
+  );
+  const entry = request.evidence[0]!;
+  entry.record.planSha256 = "0".repeat(64);
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow("evidence changed");
+  expect(observeRetained).not.toHaveBeenCalled();
+  request.evidence = [];
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow(
+    "proof is unavailable",
+  );
+  request.effectIntent = {
+    id: randomUUID(),
+    requestRevision: request.reservation!.requestRevision,
+    generation: request.reservation!.generation,
+    nativeEvidenceSha256: entry.sha256,
+    executor: entry.record.executor!.native.process,
+    consumedAt: new Date().toISOString(),
+  };
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow(
+    "protected observation",
+  );
+  expect(observeRetained).toHaveBeenCalledExactlyOnceWith(
+    request,
+    request.reservation,
+    "recovery-launcher",
+  );
+  expect(construct).not.toHaveBeenCalled();
+});
+
+test("cold observation retains read ownership after timeout until its underlying reader settles", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const f = routedJob("recovery"),
+    request = f.reserve("recovery-launcher");
+  let fail: ((error: Error) => void) | undefined;
+  const observeRetained = vi.fn(
+    () =>
+      new Promise<never>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const construct = vi.fn(async () => routedProducer("effect"));
+  const router = await createNativeMaintenanceServiceRouter(
+    { ...f, mode: "linked-controller-recovery", observeRetained },
+    construct,
+  );
+  const pending = router.observe(request, request.reservation!).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(30_001);
+  expect(await pending).toBeInstanceOf(Error);
+  await expect(router.inspect(f.request)).rejects.toThrow("construction is unavailable");
+  await expect(router.execute(request, request.reservation!)).rejects.toThrow("unavailable");
+  await expect(router.observe(request, request.reservation!)).rejects.toThrow(
+    "reader or dispatch is still active",
+  );
+  expect(construct).not.toHaveBeenCalled();
+  fail!(new Error("late refusal"));
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(router.inspect(f.request)).rejects.toThrow("effect inspect");
+  expect(construct).toHaveBeenCalledOnce();
+  expect(observeRetained).toHaveBeenCalledOnce();
+});

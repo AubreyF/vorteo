@@ -4578,3 +4578,123 @@ async function exerciseLateStartupProofChanges(input: {
     }
   }
 }
+
+test.skipIf(process.platform !== "darwin")(
+  "cold observation tools retain the main anchor without selected maintenance discovery",
+  async () => {
+    const f = await recoveryRegistrationFixture("native-ports");
+    const { inspectMaintenanceObservationRuntime } =
+      await import("./coordinator-bootstrap-maintenance-observation-runtime.js");
+    const { createNativeMaintenanceServiceExecutor } =
+      await import("./coordinator-bootstrap-maintenance-service-producer.js");
+    const { enrollmentManifestDigest } = await import("./maintenance/authorization.js");
+    const identity = {
+      ...f.plan.identity,
+      target: "coordinator" as const,
+      stateDirectory: f.enrollmentStateDirectory,
+      selectionPath: null,
+    };
+    const identitySha256 = retainEnrollmentNativeIdentity(f.enrollmentStateDirectory, identity);
+    f.enrollment.update((state) => {
+      if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+      const manifest = structuredClone(state.grant.manifest);
+      manifest.targets.find((target) => target.target === "coordinator")!.identitySha256 =
+        identitySha256;
+      const manifestSha256 = enrollmentManifestDigest(manifest);
+      return {
+        ...state,
+        grant: { ...state.grant, manifest, approval: { ...state.grant.approval, manifestSha256 } },
+        activation: { ...state.activation, manifestSha256 },
+      };
+    });
+    const configuration: import("./config.js").InstallationConfig = {
+      public: {
+        installationId: identity.installationId,
+        environments: [
+          {
+            kind: "host",
+            serverId: "host-fixture",
+            label: "Host",
+            endpoint: "https://host.example.test",
+          },
+          {
+            kind: "container",
+            serverId: "dev-fixture",
+            label: "Dev",
+            endpoint: "https://dev.example.test",
+          },
+        ],
+      },
+      listenPort: 4444,
+      webDistDir: path.join(identity.installationRoot, "web"),
+      stateDir: f.enrollmentStateDirectory,
+      ownerPasswordHash: "$2fixture",
+      hostAgentTokenHash: "1".repeat(64),
+      containerAgentTokenHash: "2".repeat(64),
+      host: {
+        endpoint: "127.0.0.1:3333",
+        password: "fixture",
+        launchdService: `gui/${f.account.uid}/local.vorteo.fixture.host`,
+      },
+      container: { endpoint: "127.0.0.1:3334", password: "fixture-dev" },
+    };
+    writeFileSync(f.ownerConfigurationFile, JSON.stringify(configuration));
+    const nativeAdmission = JSON.parse(
+      readFileSync(f.plan.candidate.setup.path, "utf8"),
+    ).nativeAdmission;
+    const anchor = path.join(identity.installationRoot, "coordinator-bootstrap-runner.json");
+    writeFileSync(anchor, JSON.stringify({ admissionSetupFile: nativeAdmission.path }), {
+      mode: 0o600,
+    });
+    // No selected role exists. Observation construction must not inspect its runtime.
+    expect(fileExists(f.plan.identity.selectionPath!)).toBe(false);
+    const tools = await inspectMaintenanceObservationRuntime({
+      configuration,
+      configurationFile: f.ownerConfigurationFile,
+    });
+    const observer = await createNativeMaintenanceServiceExecutor({
+      installationId: identity.installationId,
+      stateDirectory: f.enrollmentStateDirectory,
+      observationRuntime: tools,
+    });
+    expect(observer).toHaveProperty("observe");
+    tools.assertCurrent();
+    const dockerFile = path.join(f.plan.identity.stateDirectory, "docker.json");
+    const dockerBytes = readFileSync(dockerFile);
+    const docker = JSON.parse(dockerBytes.toString("utf8"));
+    writeFileSync(
+      dockerFile,
+      JSON.stringify({
+        ...docker,
+        Mounts: [
+          { Type: "bind", Source: identity.installationRoot, Destination: "/fixture", RW: true },
+        ],
+      }),
+    );
+    await expect(observer.observe({} as never, {} as never)).rejects.toThrow(
+      "Observation tool custody changed",
+    );
+    writeFileSync(dockerFile, dockerBytes);
+    f.revoke();
+    const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+    new FileBootstrapRequestJournal(f.enrollmentStateDirectory).mutateLifecycle((jobs) => {
+      tools.assertCurrent();
+      return [...jobs];
+    }, undefined);
+    // The observation wrapper never becomes a verified effect executor.
+    await expect(observer.inspect({} as never)).rejects.toThrow();
+    const retained = readFileSync(f.ownerConfigurationFile);
+    writeFileSync(f.ownerConfigurationFile, JSON.stringify({ ...configuration, listenPort: 4445 }));
+    expect(() => tools.assertCurrent()).toThrow("custody changed");
+    writeFileSync(f.ownerConfigurationFile, retained);
+    const fresh = await inspectMaintenanceObservationRuntime({
+      configuration,
+      configurationFile: f.ownerConfigurationFile,
+    });
+    f.enrollment.update((state) => {
+      if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+      return { ...state, grant: { ...state.grant, id: randomUUID() } };
+    });
+    expect(() => fresh.assertCurrent()).toThrow("enrollment binding changed");
+  },
+);

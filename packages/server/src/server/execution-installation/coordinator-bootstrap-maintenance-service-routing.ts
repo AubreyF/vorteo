@@ -17,6 +17,12 @@ interface RouterInput {
   mode?: "replacement-only" | "linked-controller-recovery";
   launcherReplacement?: "enabled";
   launcherRecovery?: "enabled";
+  /** Protected read-only tools, separate from current effect discovery/cache. */
+  observeRetained?: (
+    request: MaintenanceServiceJob,
+    reservation: NonNullable<MaintenanceServiceJob["reservation"]>,
+    role: Role,
+  ) => ReturnType<MaintenanceServiceExecutor["observe"]>;
 }
 interface Construction {
   role: Role;
@@ -87,7 +93,7 @@ export async function createNativeMaintenanceServiceRouter(
   // The server owns initial discovery's deadline and keeps this promise in
   // flight until settlement. Returning a timeout here would permit another
   // router to start a duplicate constructor while the first still reads files.
-  await begin(primary).pending;
+  if (!input.observeRetained) await begin(primary).pending;
 
   function readNative<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T> {
     signal.throwIfAborted();
@@ -181,6 +187,10 @@ export async function createNativeMaintenanceServiceRouter(
           if (!isDeepStrictEqual(request.reservation, reservation))
             throw new BootstrapRequestConflict("Retained observation generation changed");
           const role = reservedRole(request, false);
+          if (input.observeRetained)
+            return readNative(signal, () =>
+              input.observeRetained!(request, reservation, role ?? primary),
+            );
           // Consumed legacy observation keeps its original proof requirements.
           // It may use cached tools, never construct a substitute or gain effects.
           const producer = role ? await acquire(role) : producers.get(primary);
