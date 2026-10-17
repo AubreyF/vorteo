@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.660 - 2026-10-17
+
+### Fixed
+
+- Match an initial supervisor maintenance request to its enrolled supervisor step while retaining the existing container-daemon queue target. Use the same effective target for enrollment identity, operation and exact reserved activation-step checks.
+- Extend the initial migration regression to cover supervisor admission and reject daemon-step or daemon-identity substitution. Native supervisor evidence and persistent Dev registration remain unavailable until independently verified; this correction does not enable either.
+- The preceding compiled package passed fresh-process queue observation of a revoked running rollback without effect construction or execution. Its disposable cleanup passed; installed coordinator restart, reboot, private HTTPS and remote owner acceptance remain open.
+
 ## 0.11.0-beta.3.vorteo.659 - 2026-10-17
 
 ### Fixed

@@ -73,7 +73,7 @@ export function evaluateStandingRestart(input: {
     return null;
   const manifestSha256 = enrollmentManifestDigest(grant.manifest);
   const planSha256 = standingRestartPlanDigest(job);
-  const activationStep = activationChildBinding(input.state, job, planSha256);
+  const activationStep = activationChildBinding(input.state, job, target, planSha256);
   if (activation.steps.some((step) => step.status !== "succeeded") && !activationStep) return null;
   return {
     ...(activationStep ? { activationStep } : {}),
@@ -128,11 +128,12 @@ function sourceApprovalAllowed(
 function activationChildBinding(
   state: Extract<InstallationEnrollmentState, { status: "enrolled" }>,
   job: RestartJob,
+  target: "host" | "container-daemon" | "supervisor",
   planSha256: string,
 ): Decision["activationStep"] | null {
   const candidates = state.grant.manifest.steps.filter(
     (step) =>
-      step.target === job.target &&
+      step.target === target &&
       step.operation === enrolledOperation(job) &&
       step.planSha256 === planSha256,
   );

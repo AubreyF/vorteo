@@ -1739,60 +1739,83 @@ test("standing admission accepts exact owner supersession and rejects altered ap
   );
 });
 
-test("initial migration authority binds the one reserved child and its dependencies", () => {
-  const f = fixture();
-  const job = restartAdmissionFixture().pending;
-  const planSha256 = standingRestartPlanDigest(job);
-  f.manifest.steps[1] = {
-    ...f.manifest.steps[1],
-    target: "container-daemon",
-    operation: "restart",
-    planSha256,
-  };
-  f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
-  let state = enrolled(f.enroll());
-  state = enrolled(
-    reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.first }),
-  );
-  const first = state.activation.steps[0];
-  if (first.status !== "reserved") throw new Error("Missing fixture reservation");
-  state = enrolled(
-    observeActivationStep(f.journal, {
-      stepId: f.first,
-      generation: first.generation,
-      outcome: "succeeded",
-      observationSha256: "8".repeat(64),
-    }),
-  );
-  state = enrolled(
-    reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.second }),
-  );
-  const input = {
-    state,
-    job,
-    installationId: f.manifest.installationId,
-    nativeIdentitySha256: "c".repeat(64),
-    repository: null,
-    credentialBindingSha256: "9".repeat(64),
-  };
-  const decision = evaluateStandingRestart(input);
-  expect(decision?.activationStep?.stepId).toBe(f.second);
-  expect(decision?.activationStep?.candidateArtifactSha256).toBe(
-    f.manifest.steps[1].candidate.artifactSha256,
-  );
-  expect(evaluateStandingRestart({ ...input, job: { ...job, id: randomUUID() } })).toBeNull();
-  expect(
-    evaluateStandingRestart({ ...input, job: { ...job, requireOwnerApproval: true } }),
-  ).toBeNull();
-  const stale = structuredClone(state);
-  const progress = stale.activation.steps[1];
-  if (progress.status !== "reserved") throw new Error("Missing child reservation");
-  progress.grantRevision = randomUUID();
-  expect(evaluateStandingRestart({ ...input, state: stale })).toBeNull();
-  const unmet = structuredClone(state);
-  unmet.activation.steps[0] = { id: f.first, status: "pending" };
-  expect(evaluateStandingRestart({ ...input, state: unmet })).toBeNull();
-});
+test.each(["container-daemon", "supervisor"] as const)(
+  "initial %s migration authority binds the one reserved child and its dependencies",
+  (target) => {
+    const f = fixture();
+    const job = {
+      ...restartAdmissionFixture().pending,
+      ...(target === "supervisor"
+        ? { supervisorPlanSha256: "6".repeat(64), requestedBy: "host-agent" as const }
+        : {}),
+    };
+    const nativeIdentitySha256 = target === "supervisor" ? "4".repeat(64) : "c".repeat(64);
+    if (target === "supervisor")
+      f.manifest.targets.push({
+        target,
+        identitySha256: nativeIdentitySha256,
+        operations: ["replacement"],
+      });
+    const planSha256 = standingRestartPlanDigest(job);
+    f.manifest.steps[1] = {
+      ...f.manifest.steps[1],
+      target,
+      operation: target === "supervisor" ? "replacement" : "restart",
+      planSha256,
+    };
+    f.approval.manifestSha256 = enrollmentManifestDigest(f.manifest);
+    let state = enrolled(f.enroll());
+    state = enrolled(
+      reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.first }),
+    );
+    const first = state.activation.steps[0];
+    if (first.status !== "reserved") throw new Error("Missing fixture reservation");
+    state = enrolled(
+      observeActivationStep(f.journal, {
+        stepId: f.first,
+        generation: first.generation,
+        outcome: "succeeded",
+        observationSha256: "8".repeat(64),
+      }),
+    );
+    state = enrolled(
+      reserveActivationStep(f.journal, { grantRevision: state.grant.revision, stepId: f.second }),
+    );
+    const input = {
+      state,
+      job,
+      installationId: f.manifest.installationId,
+      nativeIdentitySha256,
+      repository: null,
+      credentialBindingSha256: "9".repeat(64),
+    };
+    const decision = evaluateStandingRestart(input);
+    expect(decision?.activationStep?.stepId).toBe(f.second);
+    expect(decision?.activationStep?.candidateArtifactSha256).toBe(
+      f.manifest.steps[1].candidate.artifactSha256,
+    );
+    expect(evaluateStandingRestart({ ...input, job: { ...job, id: randomUUID() } })).toBeNull();
+    expect(
+      evaluateStandingRestart({ ...input, job: { ...job, requireOwnerApproval: true } }),
+    ).toBeNull();
+    if (target === "supervisor") {
+      const daemonStep = structuredClone(state);
+      daemonStep.grant.manifest.steps[1].target = "container-daemon";
+      expect(evaluateStandingRestart({ ...input, state: daemonStep })).toBeNull();
+      expect(
+        evaluateStandingRestart({ ...input, nativeIdentitySha256: "c".repeat(64) }),
+      ).toBeNull();
+    }
+    const stale = structuredClone(state);
+    const progress = stale.activation.steps[1];
+    if (progress.status !== "reserved") throw new Error("Missing child reservation");
+    progress.grantRevision = randomUUID();
+    expect(evaluateStandingRestart({ ...input, state: stale })).toBeNull();
+    const unmet = structuredClone(state);
+    unmet.activation.steps[0] = { id: f.first, status: "pending" };
+    expect(evaluateStandingRestart({ ...input, state: unmet })).toBeNull();
+  },
+);
 
 test("identity publication failures and retained temporary aliases reconcile without replacement", () => {
   const f = fixture();
