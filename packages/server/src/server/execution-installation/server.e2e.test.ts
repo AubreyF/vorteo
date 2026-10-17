@@ -1,3 +1,6 @@
+import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
+import type { WorkerLaunchLookup } from "./maintenance/worker-launch-lookup.js";
+import { InstallationRestarts } from "./restarts.js";
 import {
   FileEnrollmentJournal,
   enrollInstallation,
@@ -3462,5 +3465,187 @@ test("native dashboard readiness is owner-only and uses authority read after ins
     readiness: "unknown",
     selectedSource: null,
   });
+  expect(f.calls).toEqual([]);
+});
+
+async function workerLaunchLookupHttpFixture() {
+  let lookup: WorkerLaunchLookup | undefined;
+  let activationChecks = 0;
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    {
+      generation: randomUUID(),
+      released() {
+        activationChecks += 1;
+        throw new Error("Read-only lookup reached activation");
+      },
+    },
+    undefined,
+    (config) => {
+      config.containerSourceUpdates = {
+        sourceRepository: config.stateDir,
+        toolingDirectory: config.stateDir,
+        integrationRef: "refs/heads/main",
+        receiptFile: path.join(config.stateDir, "unused-source"),
+        docker: "/unused/docker",
+        containerId: "d".repeat(64),
+        user: "unit",
+        node: "/unused/node",
+        home: "/unit/state",
+        releaseRoot: "/unit/releases",
+        currentReleaseLink: "/unit/current",
+      };
+      const targetIdentitySha256 = retainEnrollmentNativeIdentity(config.stateDir, {
+        version: 1,
+        installationId: config.public.installationId,
+        custodyOwnerUid: process.getuid!(),
+        installationRoot: config.stateDir,
+        stateDirectory: config.stateDir,
+        environment: "container",
+        target: "container-daemon",
+        containerId: "d".repeat(64),
+        containerUid: 1000,
+        containerGid: 1000,
+        containerHome: "/home/unit",
+        containerStateDirectory: "/unit/state",
+        launcherPath: "/opt/unit/start",
+        selectionPath: "/unit/current",
+      });
+      const supervisor = {
+        pid: 123,
+        parentPid: 1,
+        uid: 1000,
+        bootId: randomUUID(),
+        startTicks: "12345",
+      };
+      const hints = {
+        profileSha256: "a".repeat(64),
+        supervisorPid: 123,
+        cause: { kind: "startup" as const, registrationGeneration: randomUUID() },
+      };
+      lookup = {
+        installationId: config.public.installationId,
+        serverId: "guest-id",
+        targetIdentitySha256,
+        supervisor,
+        hints,
+      };
+      const id = randomUUID();
+      const job = RestartJobSchema.parse({
+        id,
+        revision: randomUUID(),
+        target: "container-daemon",
+        requestedBy: "host-agent",
+        reason: "maintenance parent",
+        status: "running",
+        createdAt: "2026-10-17T00:00:00.000Z",
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        detail: "Private Host executor diagnostics",
+        workerLaunch: {
+          phase: "uncertain",
+          reservedAt: "2026-10-17T00:00:00.000Z",
+          consumedAt: "2026-10-17T00:00:01.000Z",
+          binding: {
+            requestId: id,
+            approvalRevision: randomUUID(),
+            generation: randomUUID(),
+            grantId: randomUUID(),
+            grantRevision: randomUUID(),
+            manifestSha256: "a".repeat(64),
+            profileSha256: hints.profileSha256,
+            targetIdentitySha256,
+            sourceCommit: "a".repeat(40),
+            artifactSha256: "a".repeat(64),
+            publicationSha256: "a".repeat(64),
+            cause: { ...hints.cause, registrationSha256: "a".repeat(64) },
+            supervisor,
+          },
+        },
+      });
+      new FileBootstrapRequestJournal(config.stateDir).writeLifecycle([job]);
+    },
+  );
+  if (!lookup) throw new Error("Missing HTTP lookup fixture");
+  const route = (value: WorkerLaunchLookup) =>
+    `/api/installation/worker-launch-lookup?workerLaunch=1&lookup=${encodeURIComponent(JSON.stringify(value))}`;
+  return {
+    ...f,
+    lookup,
+    route,
+    activationChecks: () => activationChecks,
+    bytes: () => readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"),
+  };
+}
+
+test("worker launch lookup HTTP is read-only while startup is fenced and omits Host parent diagnostics", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const before = f.bytes();
+  const request = vi.spyOn(InstallationRestarts.prototype, "request");
+  const activate = vi.spyOn(InstallationRestarts.prototype, "activate");
+  const dispatch = vi.spyOn(InstallationRestarts.prototype, "drain");
+  const mutate = vi.spyOn(FileBootstrapRequestJournal.prototype, "mutateLifecycle");
+  try {
+    const response = await f.request(f.route(f.lookup), "guest-agent-test-token");
+    expect(response.status).toBe(200);
+    const value = await response.json();
+    expect(Object.keys(value)).toEqual(["id", "revision", "status", "detail", "workerLaunch"]);
+    expect(value.workerLaunch.binding.supervisor).toEqual(f.lookup.supervisor);
+    expect(JSON.stringify(value)).not.toContain("Private Host executor diagnostics");
+    expect(f.bytes()).toBe(before);
+    expect(f.activationChecks()).toBe(0);
+    expect(f.calls).toEqual([]);
+    expect(request).not.toHaveBeenCalled();
+    expect(activate).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    activate.mockRestore();
+    dispatch.mockRestore();
+    mutate.mockRestore();
+  }
+});
+
+test("worker launch lookup HTTP authenticates configured Dev requester before malformed query or protected reads", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const read = vi.spyOn(FileBootstrapRequestJournal.prototype, "withRecoveryTransaction");
+  try {
+    const malformed = "/api/installation/worker-launch-lookup?workerLaunch=1&lookup=%7B";
+    expect((await f.request(malformed)).status).toBe(401);
+    expect((await f.request(malformed, "host-agent-test-token")).status).toBe(403);
+    expect(read).not.toHaveBeenCalled();
+    expect(f.activationChecks()).toBe(0);
+    expect((await f.request(malformed, "guest-agent-test-token")).status).toBe(400);
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("worker launch lookup HTTP rejects duplicate selectors and refuses another supervisor lifetime or configured server", async () => {
+  const f = await workerLaunchLookupHttpFixture();
+  const before = f.bytes();
+  expect(
+    (await f.request(`${f.route(f.lookup)}&workerLaunch=1`, "guest-agent-test-token")).status,
+  ).toBe(400);
+  expect(
+    (
+      await f.request(
+        f.route({ ...f.lookup, supervisor: { ...f.lookup.supervisor, startTicks: "99999" } }),
+        "guest-agent-test-token",
+      )
+    ).status,
+  ).toBe(404);
+  expect(
+    (await f.request(f.route({ ...f.lookup, serverId: "host-id" }), "guest-agent-test-token"))
+      .status,
+  ).toBe(403);
+  expect(f.bytes()).toBe(before);
+  expect(f.activationChecks()).toBe(0);
   expect(f.calls).toEqual([]);
 });

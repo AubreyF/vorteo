@@ -405,9 +405,7 @@ export async function executeInitialHostMigrationTransition(
   } else {
     assertHostAbsence(context, retirement.absence);
   }
-  await verifyRetainedProcessExited(ports.reader, context.plan.precondition.supervisor);
-  await verifyRetainedProcessExited(ports.reader, context.plan.precondition.worker);
-  await ports.reader.verifyServiceAbsent(service);
+  await waitForHostRetirement(ports.reader, context, service);
   assertInterrupted();
   assertActive();
   const absence = await ports.collectAbsence(context);
@@ -450,6 +448,46 @@ export async function executeInitialHostMigrationTransition(
     );
     published.assertSelection();
   });
+}
+
+/** Bootout can return while its process is exiting. Reconcile the one consumed
+ * effect with bounded native reads; this never extends signal authority. */
+async function waitForHostRetirement(
+  reader: HostTransitionPorts["reader"],
+  context: HostExecutionContext,
+  service: string,
+) {
+  await readBoundedMaintenanceInspection(
+    async (signal) => {
+      for (;;) {
+        signal.throwIfAborted();
+        try {
+          await verifyRetainedProcessExited(reader, context.plan.precondition.supervisor);
+          signal.throwIfAborted();
+          await verifyRetainedProcessExited(reader, context.plan.precondition.worker);
+          signal.throwIfAborted();
+          await reader.verifyServiceAbsent(service);
+          signal.throwIfAborted();
+          return;
+        } catch {
+          signal.throwIfAborted();
+          await new Promise<void>((resolve, reject) => {
+            function finished() {
+              signal.removeEventListener("abort", aborted);
+              resolve();
+            }
+            function aborted() {
+              clearTimeout(timer);
+              reject(signal.reason);
+            }
+            const timer = setTimeout(finished, 100);
+            signal.addEventListener("abort", aborted, { once: true });
+          });
+        }
+      }
+    },
+    { timeoutMs: 30_000, detail: "Host retirement remains unverified after bootout" },
+  );
 }
 
 function assertHostAbsence(context: HostExecutionContext, absence: AbsenceProof) {

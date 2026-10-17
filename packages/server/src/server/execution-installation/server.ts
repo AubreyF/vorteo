@@ -1,3 +1,8 @@
+import {
+  lookupWorkerLaunch,
+  parseWorkerLaunchLookupQuery,
+  WorkerLaunchLookupError,
+} from "./maintenance/worker-launch-lookup.js";
 import { DaemonAutomation } from "./daemon-automation.js";
 import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
@@ -470,6 +475,28 @@ export function createInstallationServer(
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Cache-Control", "no-store");
     next();
+  });
+  // Resolve retained child state before startup activation can rewrite the queue.
+  app.get("/api/installation/worker-launch-lookup", authenticateUpdate, (req, res, next) => {
+    if (res.locals.updateRequester !== "container-agent") {
+      res.sendStatus(403);
+      return;
+    }
+    try {
+      const lookup = parseWorkerLaunchLookupQuery(req.query, req.originalUrl);
+      const receipt = lookupWorkerLaunch(config, lookup);
+      if (!receipt) {
+        res.sendStatus(404);
+        return;
+      }
+      res.json(receipt);
+    } catch (error) {
+      if (error instanceof WorkerLaunchLookupError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
   });
   app.use((req, res, next) => {
     try {

@@ -4704,6 +4704,64 @@ test("initial Host transition records one claimed stop/publication/start and exa
   expect(f.commands).toHaveLength(2);
 });
 
+test("initial Host retirement retries native uncertainty after one bootout", async () => {
+  const f = initialHostTransitionFixture();
+  const verify = vi.fn(async () => undefined);
+  verify.mockRejectedValueOnce(new Error("Process is still exiting"));
+  f.ports.reader.verifyProcessExited = verify;
+  const result = await executeInitialHostMigrationTransition(f.claimInput, f.ports);
+  expect(result.record.worker.pid).toBe(902);
+  expect(verify.mock.calls.length).toBeGreaterThan(2);
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout", "bootstrap"]);
+});
+
+test("initial Host unresolved retirement stops at its budget without publication or replay", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.reader.verifyProcessExited = vi.fn(async () => {
+    throw new Error("Exit remains uncertain");
+  });
+  const launcher = readFileSync(f.plan.precondition.launcher.path);
+  vi.useFakeTimers();
+  try {
+    const result = executeInitialHostMigrationTransition(f.claimInput, f.ports);
+    const refused = expect(result).rejects.toThrow("Host retirement remains unverified");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await refused;
+    expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
+    expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(launcher);
+    expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+      f.plan.precondition.selectedRelease,
+    );
+    expect(
+      existsSync(
+        path.join(f.directory, `initial-host-claim-${f.input.stepId}-${f.input.generation}.json`),
+      ),
+    ).toBe(true);
+    expect(f.ports.readCandidate).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("initial Host revocation during retirement prevents publication and bootstrap", async () => {
+  const f = initialHostTransitionFixture();
+  f.ports.reader.verifyServiceAbsent = vi.fn(async () => {
+    changeStandingGrant(f.journal, {
+      expectedRevision: f.input.grantRevision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+  });
+  const launcher = readFileSync(f.plan.precondition.launcher.path);
+  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+    "Initial Host migration enrollment authority changed",
+  );
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
+  expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(launcher);
+  expect(f.ports.readCandidate).not.toHaveBeenCalled();
+});
+
 test("initial Host transition refuses changed registration before bootout", async () => {
   const f = initialHostTransitionFixture();
   f.ports.collectRetirement = async () => ({

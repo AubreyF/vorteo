@@ -252,6 +252,7 @@ function provisioningPlan(input: ProvisionerInput) {
     program: "paseo",
     supervisorSocket: "/run/personal-tailscale/supervisor.sock",
     nativeReceiptFile: destination + "/provisioning-result.json",
+    hostAttemptFile: input.hostReceiptFile + ".registration-attempt-" + input.generation + ".json",
   };
 }
 
@@ -375,9 +376,38 @@ const job=matches[0],decision=job.standingDecision,step=decision?.activationStep
 check(job.status==='running'&&job.target==='container-daemon'&&job.supervisorPlanSha256===configured.sha256&&job.approvedAt&&step&&decision.requestRevision===job.revision,'Registration requires the combined activation child');
 for(const key of ['grantId','grantRevision','manifestSha256'])check(decision[key]===activation[key],'Combined activation changed');
 check(step.stepId===activation.stepId&&step.generation===activation.generation&&step.candidateArtifactSha256===plan.linuxArtifact.artifactSha256,'Combined activation generation or Linux artifact changed');
+let originalScriptSha256=configured.sha256;
+if(operation==='rollback'){
+ const originals=jobs.filter(item=>item.id===plan.jobId);check(originals.length===1,'Original registration job absent');
+ const original=originals[0],prior=original.standingDecision,priorStep=prior?.activationStep;
+ check(original.status==='failed'&&original.target==='container-daemon'&&original.approvedAt&&priorStep&&prior.requestRevision===original.revision,'Original registration attempt is not durably failed');
+ for(const key of ['grantId','grantRevision','manifestSha256'])check(prior[key]===plan.activation[key],'Original registration admission differs');
+ check(priorStep.stepId===plan.activation.stepId&&priorStep.generation===plan.activation.generation&&priorStep.candidateArtifactSha256===plan.linuxArtifact.artifactSha256,'Original registration generation differs');
+ originalScriptSha256=original.supervisorPlanSha256;check(/^[a-f0-9]{64}$/.test(originalScriptSha256),'Original registration script binding absent');
+}
 check(config.public.installationId===plan.installationId&&config.containerSourceUpdates.containerId===plan.docker.containerId,'Installation or container changed');
 const settings=config.containerSourceUpdates;
 check(settings.docker===plan.docker.path&&settings.user===plan.account.user&&settings.node===plan.node.path&&settings.home===plan.account.stateDirectory&&settings.releaseRoot===plan.releaseRoot&&settings.currentReleaseLink===plan.selectionPath,'Configured Dev startup settings differ');
+// The maintenance reference changes when selecting the separately reviewed
+// rollback script. Every other configuration field must retain its snapshot.
+const publicationConfig={...config,container:{...config.container}};
+delete publicationConfig.container.supervisorMaintenance;
+check(!config.container.persistentRegistration,'Published registration requires separate recovery');
+try{fs.lstatSync(plan.hostReceiptFile);throw Error('Registration receipt already published');}
+catch(error){if(error.code!=='ENOENT')throw error;}
+const publicationSnapshot={planSha256,jobId:plan.jobId,scriptSha256:originalScriptSha256,configurationSha256:hash(JSON.stringify(publicationConfig)),receiptAbsent:true};
+if(operation==='replace'){
+ const parent=path.dirname(plan.hostAttemptFile);
+ for(let current=parent;;current=path.dirname(current)){
+  const s=fs.lstatSync(current);check(fs.realpathSync(current)===current&&s.isDirectory()&&(s.uid===process.getuid()||s.uid===0)&&(s.mode&0o022)===0,'Host attempt parent custody differs');
+  if(path.dirname(current)===current)break;
+ }
+ const fd=fs.openSync(plan.hostAttemptFile,'wx',0o600);
+ try{fs.writeFileSync(fd,JSON.stringify(publicationSnapshot));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+ const directory=fs.openSync(parent,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}
+}else{
+ check(JSON.stringify(JSON.parse(protectedFile(plan.hostAttemptFile)))===JSON.stringify(publicationSnapshot),'Rollback publication snapshot differs');
+}
 const prefix=['--host','unix://'+plan.docker.socket];
 const docker=args=>execFileSync(plan.docker.path,[...prefix,...args],{timeout:10000,maxBuffer:1024*1024,encoding:'utf8'});
 const container=JSON.parse(docker(['container','inspect','--format','{"id":{{json .Id}},"running":{{json .State.Running}},"path":{{json .Path}},"args":{{json .Args}},"entrypoint":{{json .Config.Entrypoint}},"cmd":{{json .Config.Cmd}},"mounts":{{json .Mounts}}}',plan.docker.containerId]));
@@ -388,7 +418,7 @@ const writableMounts=container.mounts.filter(m=>m.RW).map(m=>m.Destination);
 // This is the declared privileged capability of this admitted queue operation.
 // It is never an implicit retry of an unprivileged observation.
 const result=JSON.parse(execFileSync(plan.docker.path,[...prefix,'exec','-i','--user','0:0',plan.docker.containerId,'/usr/bin/python3','-I','-c',${JSON.stringify(DEV_REGISTRATION_PROVISIONING_SCRIPT)}],{
- input:JSON.stringify({plan,planSha256,operation,writableMounts,jobId,scriptSha256:configured.sha256}),encoding:'utf8',timeout:240000,maxBuffer:1024*1024,
+ input:JSON.stringify({plan,planSha256,operation,writableMounts,jobId,scriptSha256:configured.sha256,originalScriptSha256}),encoding:'utf8',timeout:240000,maxBuffer:1024*1024,
 }));
 check(result.planSha256===planSha256&&result.operation===operation&&result.jobId===jobId&&result.phase==='started-unverified','Native registration outcome remains unresolved');
 // Authenticated daemon readiness and retained receipt/config publication belong
@@ -458,11 +488,13 @@ def create(file,data,mode=0o644):
         with os.fdopen(fd,'wb',closefd=False) as stream: stream.write(data);stream.flush();os.fsync(fd)
     finally: os.close(fd)
     sync_dir(os.path.dirname(file))
-def atomic(file,expected,data):
-    protected(os.path.dirname(file),True);check(digest(read(file))==expected,'Registration pointer changed')
+def atomic(file,expected,data,retained_identity=None):
+    protected(file);check(digest(read(file))==expected,'Registration pointer changed')
+    before=identity(os.lstat(file))
+    if retained_identity is not None: check(list(before)==retained_identity,'Retained registration pointer identity changed')
     temporary=os.path.join(os.path.dirname(file),'.vorteo-registration-'+p['generation'])
     create(temporary,data)
-    check(digest(read(file))==expected,'Registration pointer changed before commit')
+    check(digest(read(file))==expected and identity(os.lstat(file))==before,'Registration pointer changed before commit')
     os.replace(temporary,file);sync_dir(os.path.dirname(file));check(read(file)==data,'Registration selection uncertain')
 def manifest(root):
     output=[];observed={};total=0
@@ -490,6 +522,43 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);self.sock.settimeout(65);self.sock.connect(p['supervisorSocket'])
 class UnixTransport(xmlrpc.client.Transport):
     def make_connection(self,host): return UnixConnection(host,timeout=65)
+def protected_record(file):
+    protected(file);return json.loads(read(file,65536))
+def service_snapshot(service):
+    check(service['name']=='paseo' and service['group']=='paseo','Supervisord program differs')
+    return {key:service[key] for key in ('name','group','pid','state','start','stop','exitstatus','spawnerr')}
+def assert_rollback_records(attempt,selection,outcome):
+    check(selection['scriptSha256']==request['originalScriptSha256'],'Rollback original script differs')
+    check(attempt==dict(planSha256=request['planSha256'],jobId=p['jobId'],phase='prepared',scriptSha256=selection['scriptSha256']),'Rollback attempt differs')
+    expected_selection=dict(planSha256=request['planSha256'],jobId=p['jobId'],parent=p['parent'],pointerSha256=digest(p['pointerContent'].encode()),pointerIdentity=selection['pointerIdentity'],scriptSha256=selection['scriptSha256'])
+    check(selection==expected_selection,'Rollback selection record differs')
+    check(outcome['phase'] in ('start-failed','started-unverified'),'Rollback outcome is not retained')
+    expected_outcome=dict(planSha256=request['planSha256'],operation='replace',phase=outcome['phase'],jobId=p['jobId'],scriptSha256=selection['scriptSha256'])
+    check(outcome==expected_outcome,'Rollback start outcome differs')
+def assert_stopped_rollback(service,attempt,selection,outcome):
+    check(type(service['pid']) is int and service['pid']==0 and type(service['state']) is int and service['state'] in (0,100,200),'Rollback service is not explicitly stopped')
+    assert_rollback_records(attempt,selection,outcome)
+def assert_native_absence():
+    # A PID-zero RPC reply is not native absence. Read every visible process;
+    # only ENOENT races are absence, never permission or transport failures.
+    for name in os.listdir('/proc'):
+        if not name.isdigit(): continue
+        try:
+            with open('/proc/'+name+'/stat') as stream: raw=stream.read()
+            fields=raw[raw.rfind(')')+2:].strip().split()
+            with open('/proc/'+name+'/status') as stream: status=stream.read().splitlines()
+        except FileNotFoundError: continue
+        uid=next(line for line in status if line.startswith('Uid:')).split()[1:]
+        check(not (int(fields[1])==p['parent']['pid'] and str(p['account']['uid']) in uid),'A Dev service child remains present')
+        check(not (int(name)==p['supervisor']['pid'] and fields[19]==p['supervisor']['startIdentity']),'Original supervisor lifetime remains present')
+        try: executable=os.readlink('/proc/'+name+'/exe')
+        except FileNotFoundError: continue
+        check(executable not in (p['protectedNode'],p['protectedNode']+' (deleted)'),'A protected candidate process remains present')
+def stopped_outcome():
+    success=p['nativeReceiptFile'];failure=p['destination']+'/start-failure.json'
+    present=[file for file in (success,failure) if os.path.lexists(file)]
+    check(len(present)==1,'Rollback requires one retained start outcome')
+    return protected_record(present[0])
 check(digest(json.dumps(p,separators=(',',':'),ensure_ascii=False).encode())==request['planSha256'],'Reviewed native plan digest differs')
 check(os.getuid()==0 and sys.platform=='linux','Declared privileged Linux capability unavailable')
 check(p['requiredCapability']=='reviewed-dev-root-registration-and-parent-observation-v1','Privileged capability differs')
@@ -516,7 +585,7 @@ if operation=='replace':
     if not os.path.lexists(base): os.mkdir(base,0o755);sync_dir(os.path.dirname(base))
     protected(base,True)
     os.mkdir(p['destination'],0o755);sync_dir(os.path.dirname(p['destination']))
-    create(p['destination']+'/attempt.json',json.dumps(dict(planSha256=request['planSha256'],jobId=p['jobId'],phase='prepared'),separators=(',',':')).encode(),0o600)
+    create(p['destination']+'/attempt.json',json.dumps(dict(planSha256=request['planSha256'],jobId=p['jobId'],phase='prepared',scriptSha256=request['scriptSha256']),separators=(',',':')).encode(),0o600)
     for item in p['files']:
         import base64
         data=base64.b64decode(item['contentBase64'],validate=True);check(digest(data)==item['sha256'],'Prepared Factory bytes differ');create(item['path'],data,item['mode'])
@@ -535,23 +604,43 @@ else:
     check(operation=='rollback','Unsupported native registration operation')
     pin(p['factoryEntry']);pin(p['factoryLauncher']);pin(p['node'])
     protected(p['destination'],True)
-    retained=json.loads(read(p['destination']+'/attempt.json',65536));check(retained['planSha256']==request['planSha256'],'Rollback attempt differs')
+    retained=protected_record(p['destination']+'/attempt.json')
+    selection=protected_record(p['destination']+'/selection.json')
+    assert_rollback_records(retained,selection,stopped_outcome())
+    protected(p['originalPointer']['path'])
+    check(digest(read(p['originalPointer']['path']))==digest(p['pointerContent'].encode()) and list(identity(os.lstat(p['originalPointer']['path'])))==selection['pointerIdentity'],'Rollback selected pointer differs')
     create(p['destination']+'/rollback-attempt.json',json.dumps(dict(jobId=request['jobId'],planSha256=request['planSha256'])).encode(),0o600)
     expected=digest(p['pointerContent'].encode());pointer=original
 check(process(p['parent']['pid'])==p['parent'],'Native parent changed before service effect')
 server=xmlrpc.client.ServerProxy('http://localhost/RPC2',transport=UnixTransport(),allow_none=True)
-service=server.supervisor.getProcessInfo('paseo');stopped=process(service['pid'])
-check(stopped['parentPid']==p['parent']['pid'] and stopped['uid']==p['account']['uid'],'Supervisord program custody differs')
-if operation=='replace': check(stopped==p['supervisor'],'Registered supervisor changed before stop')
-else: check(stopped['executable']==p['protectedNode'],'Rollback supervisor differs from protected candidate')
-server.supervisor.stopProcess('paseo',True)
-try:
-    current=process(stopped['pid'])
-    check(current['startIdentity']!=stopped['startIdentity'] or current['bootId']!=stopped['bootId'],'Previous supervisor remains present')
-except FileNotFoundError: pass
+service=server.supervisor.getProcessInfo('paseo');observed_service=service_snapshot(service)
+absent=operation=='rollback' and service['pid']==0
+if absent:
+    outcome=stopped_outcome();assert_stopped_rollback(service,retained,selection,outcome);assert_native_absence()
+else:
+    stopped=process(service['pid'])
+    check(stopped['parentPid']==p['parent']['pid'] and stopped['uid']==p['account']['uid'] and stopped['gid']==p['account']['gid'],'Supervisord program custody differs')
+    if operation=='replace': check(stopped==p['supervisor'],'Registered supervisor changed before stop')
+    else: check(stopped['executable']==p['protectedNode'],'Rollback supervisor differs from protected candidate')
+    server.supervisor.stopProcess('paseo',True)
+    try:
+        current=process(stopped['pid'])
+        check(current['startIdentity']!=stopped['startIdentity'] or current['bootId']!=stopped['bootId'],'Previous supervisor remains present')
+    except FileNotFoundError: pass
 check(process(p['parent']['pid'])==p['parent'],'Native parent changed before pointer selection')
-atomic(p['originalPointer']['path'],expected,pointer)
-server.supervisor.startProcess('paseo',True)
+if absent:
+    check(service_snapshot(server.supervisor.getProcessInfo('paseo'))==observed_service,'Stopped service changed before rollback')
+    assert_stopped_rollback(service,protected_record(p['destination']+'/attempt.json'),protected_record(p['destination']+'/selection.json'),stopped_outcome());assert_native_absence()
+atomic(p['originalPointer']['path'],expected,pointer,selection['pointerIdentity'] if operation=='rollback' else None)
+if operation=='replace':
+    selection=dict(planSha256=request['planSha256'],jobId=p['jobId'],parent=p['parent'],pointerSha256=digest(pointer),pointerIdentity=list(identity(os.lstat(p['originalPointer']['path']))),scriptSha256=request['scriptSha256'])
+    create(p['destination']+'/selection.json',json.dumps(selection,separators=(',',':')).encode(),0o600)
+try: server.supervisor.startProcess('paseo',True)
+except Exception:
+    if operation=='replace':
+        failure=dict(planSha256=request['planSha256'],operation=operation,phase='start-failed',jobId=request['jobId'],scriptSha256=request['scriptSha256'])
+        create(p['destination']+'/start-failure.json',json.dumps(failure,separators=(',',':')).encode(),0o600)
+    raise
 check(read(p['originalPointer']['path'])==pointer,'Registration selection changed after startup')
 result=dict(planSha256=request['planSha256'],operation=operation,phase='started-unverified',jobId=request['jobId'],scriptSha256=request['scriptSha256'])
 create(p['nativeReceiptFile'] if operation=='replace' else p['destination']+'/rollback-result.json',json.dumps(result,separators=(',',':')).encode(),0o600)

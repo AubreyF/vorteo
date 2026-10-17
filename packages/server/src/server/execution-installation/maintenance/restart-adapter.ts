@@ -162,7 +162,7 @@ function activationChild(job: RestartJob): LifecycleActivationChild {
     requestId: job.id,
     requestRevision: job.revision,
     planSha256: decision.planSha256,
-    target: job.target,
+    target: job.supervisorPlanSha256 ? "supervisor" : job.target,
   };
 }
 

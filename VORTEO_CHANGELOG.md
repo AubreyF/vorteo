@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.675 - 2026-10-17
+
+### Maintenance
+
+- Bound initial Host retirement verification to one thirty-second read-only collection after a consumed bootout. Require both exact process lifetimes to exit and the service to be absent before publication; timeout retains uncertainty and revocation blocks the next effect. A failed disposable native attempt is preserved separately from passing source checks.
+- Admit exact reserved supervisor replacements through the existing activation-child validator and shared lifecycle journal, preserving daemon source-update behavior. Bind the reviewed supervisor script, immutable request plan, enrolled candidate and standing decision through queue progress.
+- Integrate the disabled supervisor worker-launch adapter and authenticated read-only cause lookup. Retain one request across lost replies, distinguish transport and worker identity, require native settlement before a successor, and preserve borrowed lifetime descriptors. Lookup cannot submit or dispatch and remains available for retained observation while startup is fenced. Production launch, native attachment, root custody and descriptor transfer remain unavailable.
+- Prepare Dev rollback for a newly recorded registration attempt whose candidate service is stopped. Require exact original-job and publication records, repeated native absence checks and pointer identity before restoring the declared original pointer. Existing attempts without these records refuse; production effect admission, late claim binding, descendant settlement and restored readiness remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.674 - 2026-10-17
 
 ### Maintenance

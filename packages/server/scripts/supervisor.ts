@@ -1,3 +1,8 @@
+import {
+  createSupervisorWorkerLaunch,
+  type SupervisorWorkerLaunchOptions,
+  type SupervisorWorkerLaunchState,
+} from "./supervisor-worker-launch.js";
 import { fork, spawn, type ChildProcess, type StdioOptions } from "child_process";
 import { fstatSync } from "node:fs";
 import path from "node:path";
@@ -62,6 +67,8 @@ interface SupervisorOptions {
    * Native worker custody and settlement remain separate requirements.
    */
   controllerLifetimeFd?: number;
+  /** Injection only. The installed entrypoint never supplies this option. */
+  workerLaunch?: SupervisorWorkerLaunchOptions;
   resolveWorkerSpawnSpec?: (workerEntry: string) => {
     command: string;
     args: string[];
@@ -76,6 +83,8 @@ interface SupervisorOptions {
 
 export interface SupervisorController {
   requestShutdown(reason: string): void;
+  reopenWorkerLaunch?(): Promise<void>;
+  workerLaunchState?(): SupervisorWorkerLaunchState;
 }
 
 export function parseControllerLifetimeFd(value: string | undefined): number | undefined {
@@ -228,6 +237,7 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   const controllerLifetimeFd = parseControllerLifetimeFd(
     options.controllerLifetimeFd === undefined ? undefined : String(options.controllerLifetimeFd),
   );
+  if (options.workerLaunch) return runInjectedWorkerSupervisor(options, controllerLifetimeFd);
   const restartOnCrash = options.restartOnCrash ?? false;
   const workerArgs = options.workerArgs ?? process.argv.slice(2);
   const workerEnv = options.workerEnv ?? process.env;
@@ -649,4 +659,58 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController 
   spawnWorker();
 
   return { requestShutdown };
+}
+
+function runInjectedWorkerSupervisor(
+  options: SupervisorOptions,
+  controllerLifetimeFd: number | undefined,
+): SupervisorController {
+  const launch = options.workerLaunch;
+  if (!launch || launch.supervisor.pid !== process.pid)
+    throw new Error("Injected custody must bind the actual NodeSupervisor PID");
+  const durableLog = createDurableLog(options.logFile, (message) =>
+    process.stderr.write(`[${options.name}] ${message}\n`),
+  );
+  const report = (message: string): void => {
+    process.stderr.write(`[${options.name}] ${message}\n`);
+    durableLog.write(
+      `${JSON.stringify({ time: new Date().toISOString(), pid: process.pid, name: options.name, msg: message })}\n`,
+    );
+  };
+  let heartbeat: NodeJS.Timeout | null = null;
+  const onInterrupt = (): void => adapter.shutdown("supervisor_received_SIGINT");
+  const onTerminate = (): void => adapter.shutdown("supervisor_received_SIGTERM");
+  const adapter = createSupervisorWorkerLaunch(launch, {
+    controllerLifetimeFd,
+    restartOnCrash: options.restartOnCrash ?? false,
+    onReady: (message) => options.onWorkerReady?.(message),
+    onWorkerExit: () => options.onWorkerExit?.(),
+    report,
+    onExit: async (code) => {
+      if (heartbeat) clearInterval(heartbeat);
+      process.removeListener("SIGINT", onInterrupt);
+      process.removeListener("SIGTERM", onTerminate);
+      try {
+        await options.onSupervisorExit?.();
+      } finally {
+        await durableLog.close();
+      }
+      process.exit(code);
+    },
+  });
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  process.stdout.write(`[${options.name}] ${options.startupMessage}\n`);
+  // Reuse the supervisor heartbeat cadence for read-only reconciliation. Only
+  // exact native settlement can cause a fresh request through the lifecycle owner.
+  heartbeat = setInterval(() => {
+    adapter.heartbeat();
+    void adapter.reopen().catch((error) => report(String(error)));
+  }, WORKER_HEARTBEAT_INTERVAL_MS);
+  void adapter.reopen().catch((error) => report(String(error)));
+  return {
+    requestShutdown: adapter.shutdown,
+    reopenWorkerLaunch: adapter.reopen,
+    workerLaunchState: adapter.snapshot,
+  };
 }

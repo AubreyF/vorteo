@@ -14,14 +14,38 @@ import {
 } from "./maintenance/authorization.js";
 import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
 import type { LifecycleActivationChild } from "./coordinator-bootstrap-maintenance-child.js";
+import { standingRestartPlanDigest } from "./maintenance/restart-admission.js";
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(target: "host" | "container-daemon" = "host") {
+function fixture(target: "host" | "container-daemon" | "supervisor" = "host") {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "activation-child-")));
   roots.push(root);
   const stepId = randomUUID();
+  const supervisor = target === "supervisor";
+  const operation = supervisor ? "replacement" : "source-update";
+  const job = RestartJobSchema.parse({
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: supervisor ? "container-daemon" : target,
+    reason: "Initial migration fixture",
+    requestedBy: "host-agent",
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date().toISOString(),
+    status: "approved",
+    detail: "fixture",
+    ...(supervisor
+      ? { supervisorPlanSha256: "9".repeat(64) }
+      : {
+          update: {
+            sourceCommit: "a".repeat(40),
+            baseCommit: "b".repeat(40),
+            sha256: "f".repeat(64),
+            bytes: 123,
+          },
+        }),
+  });
   const manifest: InstallationEnrollmentManifest = {
     version: 1,
     operation: "installation-enrollment",
@@ -35,7 +59,7 @@ function fixture(target: "host" | "container-daemon" = "host") {
     rollback: "previous-compatible-runtime",
     recovery: "after-login",
     targets: [
-      { target, identitySha256: "a".repeat(64), operations: ["source-update"] },
+      { target, identitySha256: "a".repeat(64), operations: [operation] },
       {
         target: "maintenance-controller",
         identitySha256: "b".repeat(64),
@@ -47,8 +71,8 @@ function fixture(target: "host" | "container-daemon" = "host") {
       {
         id: stepId,
         target,
-        operation: "source-update",
-        planSha256: "d".repeat(64),
+        operation,
+        planSha256: supervisor ? standingRestartPlanDigest(job) : "d".repeat(64),
         candidate: { sourceCommit: "a".repeat(40), artifactSha256: "e".repeat(64) },
         previous: { sourceCommit: "b".repeat(40), artifactSha256: "f".repeat(64) },
         dependsOn: [],
@@ -73,23 +97,6 @@ function fixture(target: "host" | "container-daemon" = "host") {
   });
   if (reserved.status !== "enrolled" || reserved.activation.steps[0].status !== "reserved")
     throw Error("fixture");
-  const job = RestartJobSchema.parse({
-    id: randomUUID(),
-    revision: randomUUID(),
-    target,
-    reason: "Initial migration fixture",
-    requestedBy: "host-agent",
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date().toISOString(),
-    status: "approved",
-    detail: "fixture",
-    update: {
-      sourceCommit: "a".repeat(40),
-      baseCommit: "b".repeat(40),
-      sha256: "f".repeat(64),
-      bytes: 123,
-    },
-  });
   const proof: LifecycleActivationChild = {
     grantId: enrolled.grant.id,
     grantRevision: enrolled.grant.revision,
@@ -101,6 +108,22 @@ function fixture(target: "host" | "container-daemon" = "host") {
     planSha256: manifest.steps[0].planSha256,
     target,
   };
+  if (supervisor)
+    job.standingDecision = {
+      activationStep: {
+        stepId,
+        generation: proof.generation,
+        candidateArtifactSha256: manifest.steps[0].candidate.artifactSha256,
+      },
+      grantId: proof.grantId,
+      grantRevision: proof.grantRevision,
+      manifestSha256: proof.manifestSha256,
+      planSha256: proof.planSha256,
+      targetIdentitySha256: manifest.targets[0].identitySha256,
+      authoritySha256: "8".repeat(64),
+      policyActivatedAt: enrolled.grant.approval.approvedAt,
+      requestRevision: job.revision,
+    };
   return { root, enrollment, job, proof, journal: new FileBootstrapRequestJournal(root) };
 }
 test.each(["host", "container-daemon"] as const)(
@@ -163,6 +186,89 @@ test.each([
           return undefined;
         };
   expect(() => f.journal.writeLifecycle(jobs, admission, proof)).toThrow();
+  expect(f.journal.readLifecycle()).toEqual([]);
+});
+
+test("supervisor replacement retains its own child binding through real journal progress", () => {
+  const f = fixture("supervisor");
+  const admission = vi.fn(() => undefined);
+  expect(() => f.journal.writeLifecycle([f.job], admission)).toThrow(
+    "activation must be reconciled",
+  );
+  f.journal.writeLifecycle([f.job], admission, f.proof);
+  const running = {
+    ...f.job,
+    revision: randomUUID(),
+    status: "running" as const,
+    detail: "Current execution progress",
+  };
+  running.standingDecision = { ...running.standingDecision!, requestRevision: running.revision };
+  f.journal.writeLifecycle([running], admission, {
+    ...f.proof,
+    requestRevision: running.revision,
+  });
+  expect(new FileBootstrapRequestJournal(f.root).readLifecycle()).toEqual([running]);
+  expect(admission).toHaveBeenCalledTimes(3);
+  const other = { ...running, id: randomUUID() };
+  expect(() =>
+    f.journal.writeLifecycle([other], admission, {
+      ...f.proof,
+      requestId: other.id,
+      requestRevision: other.revision,
+    }),
+  ).toThrow();
+  expect(f.journal.readLifecycle()).toEqual([running]);
+});
+
+test.each([
+  "script",
+  "request-plan",
+  "daemon-target",
+  "fake-source-update",
+  "decision",
+  "decision-revision",
+  "decision-generation",
+  "decision-artifact",
+  "decision-identity",
+  "disabled-supervisor",
+  "missing-custody",
+  "extra-request",
+] as const)("supervisor activation child refuses %s", (mode) => {
+  const f = fixture("supervisor");
+  const job = structuredClone(f.job);
+  const jobs = [job];
+  if (mode === "script") job.supervisorPlanSha256 = "7".repeat(64);
+  if (mode === "request-plan") job.reason = "Different reviewed operation";
+  if (mode === "daemon-target") job.target = "host";
+  if (mode === "fake-source-update")
+    job.update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "f".repeat(64),
+      bytes: 123,
+    };
+  if (mode === "decision") delete job.standingDecision;
+  if (mode === "decision-revision") job.standingDecision!.requestRevision = randomUUID();
+  if (mode === "decision-generation")
+    job.standingDecision!.activationStep!.generation = randomUUID();
+  if (mode === "decision-artifact")
+    job.standingDecision!.activationStep!.candidateArtifactSha256 = "0".repeat(64);
+  if (mode === "decision-identity") job.standingDecision!.targetIdentitySha256 = "0".repeat(64);
+  if (mode === "disabled-supervisor")
+    changeStandingGrant(f.enrollment, {
+      expectedRevision: f.proof.grantRevision,
+      paused: false,
+      disabledTargets: ["supervisor"],
+      revoke: false,
+    });
+  if (mode === "extra-request") jobs.push({ ...job, id: randomUUID() });
+  expect(() =>
+    f.journal.writeLifecycle(
+      jobs,
+      mode === "missing-custody" ? undefined : () => undefined,
+      f.proof,
+    ),
+  ).toThrow();
   expect(f.journal.readLifecycle()).toEqual([]);
 });
 test("revocation blocks new child effects but preserves terminal bookkeeping", () => {
