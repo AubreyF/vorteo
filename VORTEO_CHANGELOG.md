@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.644 - 2026-10-16
+
+### Maintenance
+
+- Load the daemon client only when native renewal actually needs a Host process lookup. Persistent controller imports no longer pull the client and its large generated WebSocket validator through renewal. Connection authentication, status lookup and close behavior are unchanged.
+- Preserve native startup failure evidence separately: controller selection and launch succeeded in disposable recovery, but readiness was not established. Cold import tracing proves the eager dependency, not the cause of the native readiness failure. Full native recovery and installed activation remain open; no service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.643 - 2026-10-16
 
 ### Fixed

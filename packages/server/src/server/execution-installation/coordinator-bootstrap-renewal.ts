@@ -46,7 +46,6 @@ import {
 } from "./coordinator-bootstrap-process.js";
 import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { parseLifecycleJournal } from "./lifecycle-journal.js";
-import { connectInstallationDaemon } from "./daemon.js";
 import type { BootstrapRunnerSetupSchema } from "./coordinator-bootstrap-runner.js";
 
 const FileSchema = z.strictObject({
@@ -263,6 +262,7 @@ async function nativePorts(
   return {
     reader: await createNativeBootstrapServiceReader({ ...admission, writableMountRoots: roots }),
     async hostPid(config) {
+      const { connectInstallationDaemon } = await import("./daemon.js");
       const client = await connectInstallationDaemon(config, "host");
       try {
         return (await client.getDaemonStatus({ timeout: 30_000 })).pid;
