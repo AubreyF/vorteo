@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.636 - 2026-10-16
+
+### Maintenance
+
+- Add a distinct owner-authenticated HTTP operation that saves only the exact enrollment consent. Unsupported controls refuse the operation instead of treating it as immediate enrollment. Retained review identifiers and manifest digest remain required; foreign origins, invalid owner authentication and changed decisions are refused.
+- Serialize consent storage with the existing enrollment and provisioning control. The one-operation controller rereads its protected exact review before recording consent and returns an explicit acknowledgment that activation has not started. Existing enrollment response bytes and effectful enrollment behavior remain unchanged.
+- Add real HTTP authentication, duplicate-submit, cross-operation exclusion, unsupported-control and private-error checks. These tests do not establish the complete native save-consent composition, readiness-gated continuation, a frozen final manifest or a usable owner approval page. Nothing is installed; README recovery availability remains pending delivery.
+
 ## 0.11.0-beta.3.vorteo.635 - 2026-10-16
 
 ### Maintenance

@@ -20,6 +20,12 @@ export const CoordinatorMaintenanceEnrollmentRequestSchema = z.strictObject({
   manifestSha256: DigestSchema,
   ownerPassword: z.string().min(1).max(4096).optional(),
 });
+// Separate HTTP operation: old controls must refuse consent-only requests,
+// never interpret them as the existing effectful enrollment action.
+export const CoordinatorMaintenanceSaveConsentRequestSchema =
+  CoordinatorMaintenanceEnrollmentRequestSchema.extend({
+    type: z.literal("installation.maintenance.enrollment.save_consent.request"),
+  });
 export const CoordinatorMaintenanceObserveRequestSchema = z.strictObject({
   type: z.literal("installation.maintenance.observe.request"),
   id: z.string().uuid(),

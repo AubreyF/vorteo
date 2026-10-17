@@ -33,6 +33,7 @@ import type { BootstrapReviewService } from "./coordinator-bootstrap-session.js"
 import {
   provisionCoordinatorMaintenance,
   enrollAndProvisionCoordinatorMaintenance,
+  recordCoordinatorMaintenanceEnrollment,
 } from "./coordinator-bootstrap-maintenance-provisioning.js";
 import {
   FileEnrollmentJournal,
@@ -301,6 +302,26 @@ async function startMaintenanceControl(
                 verify: (request) => verifyEnrolledCoordinatorCandidate(setup, request),
               });
             },
+            ...(!persistent
+              ? {
+                  saveConsent: async (decision) => {
+                    const current = await readMaintenanceEnrollmentReview(
+                      directory,
+                      input.enrollmentSha256!,
+                      digest,
+                      context.receipt.installationId,
+                    );
+                    if (!isDeepStrictEqual(current, enrollment))
+                      throw new BootstrapRequestConflict("Enrollment review changed");
+                    await recordCoordinatorMaintenanceEnrollment({
+                      ...prepared,
+                      review: enrollment,
+                      decision,
+                      ownerPassword: decision.ownerPassword,
+                    });
+                  },
+                }
+              : {}),
             enroll: async (decision) => {
               if (persistent)
                 throw new BootstrapRequestConflict("Installation enrollment is already retained");

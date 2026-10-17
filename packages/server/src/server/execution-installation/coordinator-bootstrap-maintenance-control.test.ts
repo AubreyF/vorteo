@@ -634,6 +634,133 @@ test.each(["success", "lost-response", "changed-review"])(
   },
 );
 
+test.each([true, false])(
+  "consent-only transport never invokes activation: supported=%s",
+  async (supported) => {
+    const directory = await realpath(
+      await mkdtemp(path.join(tmpdir(), "maintenance-consent-http-")),
+    );
+    const installationId = randomUUID();
+    const decision = { id: randomUUID(), revision: randomUUID(), manifestSha256: "a".repeat(64) };
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let saved = 0;
+    let effects = 0;
+    let refuse = false;
+    const app = createMaintenanceControlApp({
+      installationId,
+      enrollment: {
+        decision,
+        enroll: async () => {
+          effects++;
+        },
+        ...(supported
+          ? {
+              saveConsent: async (value: typeof decision) => {
+                expect(value).toMatchObject(decision);
+                saved++;
+                entered.resolve();
+                await release.promise;
+                if (refuse) throw new Error("private consent fixture failure");
+              },
+            }
+          : {}),
+      },
+      status: () => ({
+        version: 1,
+        installationId,
+        available: false,
+        phase: "unprovisioned",
+        requests: 0,
+        provisioning: {
+          admissionSha256: "b".repeat(64),
+          requestId: randomUUID(),
+          sourceCommit: "c".repeat(40),
+          artifactSha256: "d".repeat(64),
+        },
+      }),
+      service: () => undefined,
+      readOwnerConfiguration: async () => ({
+        public: { origin: "https://fixture.example.test", installationId },
+        ownerPasswordHash: hashSync("fixture-owner", 4),
+        stateDir: directory,
+      }),
+      provision: async () => {
+        effects++;
+      },
+    });
+    const server = createServer(app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Fixture listener missing");
+    const endpoint = `http://127.0.0.1:${address.port}/api/installation/maintenance/owner`;
+    const body = { type: "installation.maintenance.enrollment.save_consent.request", ...decision };
+    const post = (
+      value: unknown,
+      token = "fixture-owner",
+      origin = "https://fixture.example.test",
+    ) =>
+      fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: origin,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(value),
+      });
+    try {
+      expect((await post(body, "")).status).toBe(401);
+      expect((await post(body, "incorrect")).status).toBe(401);
+      expect((await post(body, "fixture-owner", "https://foreign.example.test")).status).toBe(403);
+      expect((await post({ ...body, revision: randomUUID() })).status).toBe(400);
+      expect((await post({ ...body, manifestSha256: "0".repeat(64) })).status).toBe(400);
+      expect((await post({ ...body, manifest: {} })).status).toBe(400);
+      expect(saved).toBe(0);
+      if (!supported) {
+        expect((await post(body)).status).toBe(400);
+        expect(effects).toBe(0);
+        return;
+      }
+      const pending = post(body);
+      await Promise.race([
+        entered.promise,
+        pending.then((response) => {
+          throw new Error(`Consent rejected before storage (${response.status})`);
+        }),
+      ]);
+      try {
+        expect((await post(body)).status).toBe(409);
+        expect(
+          (await post({ ...body, type: "installation.maintenance.enroll.request" })).status,
+        ).toBe(409);
+        expect(effects).toBe(0);
+      } finally {
+        release.resolve();
+      }
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        consentSaved: true,
+        activationStarted: false,
+        manifestSha256: decision.manifestSha256,
+      });
+      expect(saved).toBe(1);
+      refuse = true;
+      const failed = await post(body);
+      expect(failed.status).toBe(503);
+      expect(await failed.text()).not.toContain("private consent fixture failure");
+      expect(effects).toBe(0);
+    } finally {
+      release.resolve();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 test.each(["legacy", "enrollment"] as const)(
   "maintenance transport authenticates every owner operation: %s",
   async (mode) => {

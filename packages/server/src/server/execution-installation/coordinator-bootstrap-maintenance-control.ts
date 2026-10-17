@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   CoordinatorMaintenanceProvisionRequestSchema,
   CoordinatorMaintenanceEnrollmentRequestSchema,
+  CoordinatorMaintenanceSaveConsentRequestSchema,
   CoordinatorMaintenanceObserveRequestSchema,
   CoordinatorMaintenanceStatusSchema,
   CoordinatorBootstrapListRequestSchema,
@@ -41,6 +42,9 @@ interface MaintenanceControlInput {
     decision: { id: string; revision: string; manifestSha256: string };
     review?: { id: string; revision: string; manifest: InstallationEnrollmentManifest };
     observe?(): Promise<void>;
+    saveConsent?(
+      value: z.infer<typeof CoordinatorMaintenanceSaveConsentRequestSchema>,
+    ): Promise<void>;
     enroll(value: z.infer<typeof CoordinatorMaintenanceEnrollmentRequestSchema>): Promise<void>;
   };
   status(): z.infer<typeof CoordinatorMaintenanceStatusSchema>;
@@ -176,6 +180,43 @@ export function createMaintenanceControlApp(input: MaintenanceControlInput) {
     })();
   });
   app.use("/api/installation/maintenance/owner", express.json({ limit: "1mb" }));
+  app.post("/api/installation/maintenance/owner", (request, response, next) => {
+    if (request.body?.type !== "installation.maintenance.enrollment.save_consent.request") {
+      next();
+      return;
+    }
+    const parsed = CoordinatorMaintenanceSaveConsentRequestSchema.safeParse(request.body);
+    const enrollment = input.enrollment;
+    const saveConsent = enrollment?.saveConsent;
+    if (
+      !parsed.success ||
+      !enrollment ||
+      !saveConsent ||
+      !sameEnrollmentDecision(parsed.data, enrollment.decision)
+    ) {
+      response.status(400).json({ error: "Exact consent-only enrollment review is unavailable" });
+      return;
+    }
+    if (provisioning) {
+      response.status(409).json({ error: "Maintenance validation is already running" });
+      return;
+    }
+    provisioning = true;
+    void (async () => {
+      try {
+        await saveConsent(parsed.data);
+        response.json({
+          consentSaved: true,
+          activationStarted: false,
+          manifestSha256: parsed.data.manifestSha256,
+        });
+      } catch (error) {
+        next(error);
+      } finally {
+        provisioning = false;
+      }
+    })();
+  });
   app.post("/api/installation/maintenance/owner", (request, response, next) => {
     if (request.body?.type !== "installation.maintenance.application_diagnostics.request") {
       next();
