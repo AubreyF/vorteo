@@ -290,11 +290,14 @@ test("startup preflight accepts disabled providers without creating runtime stat
 });
 
 test("a managed supervisor selects the approved release on restart without replacing itself", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "paseo-managed-supervisor-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-managed-supervisor-")));
   const releases = path.join(root, "releases");
   const home = path.join(root, "home");
   const link = path.join(releases, "current");
   const report = path.join(root, "workers.jsonl");
+  const supervisorEntry = fileURLToPath(
+    new URL("../dist/scripts/supervisor-entrypoint.js", import.meta.url),
+  );
   await mkdir(home);
   const first = path.join(releases, "first");
   const second = path.join(releases, "second");
@@ -312,7 +315,8 @@ test("a managed supervisor selects the approved release on restart without repla
       entry,
       `
       const fs = require("fs");
-      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)}, managed: process.env.PASEO_MANAGED_WORKER }) + "\\n");
+      const parentCommand = process.platform === "win32" ? null : require("node:child_process").execFileSync("/bin/ps", ["-ww", "-p", String(process.ppid), "-o", "command="], { encoding: "utf8" }).trim();
+      fs.appendFileSync(${JSON.stringify(report)}, JSON.stringify({ pid: process.pid, parent: process.ppid, release: ${JSON.stringify(release)}, managed: process.env.PASEO_MANAGED_WORKER, parentCommand }) + "\\n");
       process.on("message", message => { if (message.type === "paseo:graceful-shutdown") process.exit(0); });
       process.send({ type: "paseo:ready", listen: "test-endpoint", serverId: "srv_managed_test" });
       const timer = setInterval(() => {
@@ -327,19 +331,15 @@ test("a managed supervisor selects the approved release on restart without repla
   const cleanEnv = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_")),
   );
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", fileURLToPath(new URL("./supervisor-entrypoint.ts", import.meta.url))],
-    {
-      env: {
-        ...cleanEnv,
-        PASEO_HOME: home,
-        PASEO_MANAGED_RELEASE_LINK: link,
-        PASEO_MANAGED_RELEASE_ROOT: releases,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  const child = spawn(process.execPath, [supervisorEntry], {
+    env: {
+      ...cleanEnv,
+      PASEO_HOME: home,
+      PASEO_MANAGED_RELEASE_LINK: link,
+      PASEO_MANAGED_RELEASE_ROOT: releases,
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let output = "";
   child.stderr.on("data", (chunk) => {
     output += chunk;
@@ -363,45 +363,52 @@ test("a managed supervisor selects the approved release on restart without repla
     expect(workers.map((worker) => worker.release)).toEqual([first, second]);
     expect(workers.map((worker) => worker.managed)).toEqual(["1", "1"]);
     expect(workers.map((worker) => worker.parent)).toEqual([child.pid, child.pid]);
+    if (process.platform !== "win32") {
+      for (const worker of workers) expect(worker.parentCommand).toContain(supervisorEntry);
+    }
     expect(workers[0].pid).not.toBe(workers[1].pid);
-    const helper = await readFile(
-      new URL("../../../scripts/installation-container-runtime.mjs", import.meta.url),
-      "utf8",
-    );
-    const settings = {
-      releaseRoot: releases,
-      currentReleaseLink: link,
-      home,
-      node: process.execPath,
-    };
-    const run = promisify(execFile);
-    const verification = await run(process.execPath, [
-      "--input-type=module",
-      "--eval",
-      helper,
-      JSON.stringify({
-        action: "verify",
-        settings,
-        release: second,
-        pid: workers[1].pid,
-        update: { sourceCommit: "b".repeat(40) },
-      }),
-    ]);
-    expect(JSON.parse(verification.stdout).sourceCommit).toBe("b".repeat(40));
-    await expect(
-      run(process.execPath, [
+    // The Dev installer collector uses Linux /proc. Selection, replacement and
+    // native parent arguments above are verified on macOS too.
+    if (process.platform === "linux") {
+      const helper = await readFile(
+        new URL("../../../scripts/installation-container-runtime.mjs", import.meta.url),
+        "utf8",
+      );
+      const settings = {
+        releaseRoot: releases,
+        currentReleaseLink: link,
+        home,
+        node: process.execPath,
+      };
+      const run = promisify(execFile);
+      const verification = await run(process.execPath, [
         "--input-type=module",
         "--eval",
         helper,
         JSON.stringify({
           action: "verify",
           settings,
-          release: first,
+          release: second,
           pid: workers[1].pid,
-          update: { sourceCommit: "a".repeat(40) },
+          update: { sourceCommit: "b".repeat(40) },
         }),
-      ]),
-    ).rejects.toThrow("approved release");
+      ]);
+      expect(JSON.parse(verification.stdout).sourceCommit).toBe("b".repeat(40));
+      await expect(
+        run(process.execPath, [
+          "--input-type=module",
+          "--eval",
+          helper,
+          JSON.stringify({
+            action: "verify",
+            settings,
+            release: first,
+            pid: workers[1].pid,
+            update: { sourceCommit: "a".repeat(40) },
+          }),
+        ]),
+      ).rejects.toThrow("approved release");
+    }
   } finally {
     const closed = new Promise((resolve) => child.once("close", resolve));
     child.kill("SIGTERM");
@@ -459,4 +466,64 @@ test.runIf(process.platform === "linux")(
     }
   },
   45000,
+);
+
+test.each(["VORTEO_INSTALLATION_CLIENT_CONFIG", "VORTEO_COORDINATOR_BOOTSTRAP_SETUP", null])(
+  "supervisor native arguments follow the existing installation profile %s",
+  async (marker) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-supervisor-identity-")));
+    const report = path.join(root, "worker.json");
+    const preload = path.join(root, "worker-fixture.mjs");
+    const entry = fileURLToPath(
+      new URL("../dist/scripts/supervisor-entrypoint.js", import.meta.url),
+    );
+    await writeFile(
+      preload,
+      `
+      import fs from 'node:fs';
+      import {execFileSync} from 'node:child_process';
+      if (/daemon-worker\\.js$/.test(process.argv[1] ?? '')) {
+        const command = process.platform === 'win32' ? null : execFileSync('/bin/ps', ['-ww','-p',String(process.ppid),'-o','command='], {encoding:'utf8'}).trim();
+        fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({pid:process.pid,parent:process.ppid,command}));
+        process.on('message', message => { if (message.type === 'paseo:graceful-shutdown') process.exit(0); });
+        process.send({type:'paseo:ready',listen:'fixture-only',serverId:'fixture-only'});
+        setInterval(() => {}, 1000);
+        // Do not import the real daemon or execute providers in this fixture.
+        await new Promise(() => {});
+      }
+    `,
+    );
+    const child = spawn(process.execPath, [entry], {
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: process.env.TMPDIR,
+        HOME: root,
+        USERPROFILE: root,
+        PASEO_HOME: root,
+        NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
+        ...(marker ? { [marker]: path.join(root, "fixture-registration.json") } : {}),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const closed = new Promise((resolve, reject) => {
+      child.once("close", resolve);
+      child.once("error", reject);
+    });
+    try {
+      await expect
+        .poll(() => readFile(report, "utf8").catch(() => null), { timeout: 15000 })
+        .not.toBeNull();
+      const observed = JSON.parse(await readFile(report, "utf8"));
+      expect(observed.parent).toBe(child.pid);
+      if (process.platform !== "win32") {
+        if (marker) expect(observed.command).toContain(entry);
+        else expect(observed.command).toBe("Paseo Supervisor");
+      }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      await closed;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  20000,
 );

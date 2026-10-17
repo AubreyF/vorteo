@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.661 - 2026-10-17
+
+### Fixed
+
+- Preserve native launch arguments for managed supervisors and the existing installation-client and bootstrap profiles. Changing a process title erases the executable and entrypoint evidence used by maintenance inspection. Unmanaged supervisors retain their existing display title, and these markers grant no authority.
+- Exercise the compiled supervisor through worker replacement and three installation profiles, checking the actual OS parent command and stable supervisor PID. Canonicalize the temporary selector root and keep the Linux-only installer collector on Linux while retaining native argument checks on macOS.
+- Preserve the original title failures and fixture failures as evidence. Source and disposable process validation do not establish installed Host or Dev registration, provisioning, or final activation readiness.
+
 ## 0.11.0-beta.3.vorteo.660 - 2026-10-17
 
 ### Fixed
