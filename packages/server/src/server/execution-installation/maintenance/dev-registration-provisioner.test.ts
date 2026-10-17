@@ -8,6 +8,7 @@ import {
   DEV_REGISTRATION_GATE_PREFIX,
   devRegistrationLinuxArtifactDigest,
   prepareDevRegistrationProvisioner,
+  verifyRetainedDevRegistrationProvisioner,
 } from "./dev-registration-provisioner.js";
 
 // Startup-source fixtures preserve the inspected control flow with isolated
@@ -76,7 +77,13 @@ function fixture() {
     },
     configurationFile: "/host/coordinator.json",
     hostReceiptFile: "/host/dev-registration.json",
-    docker: { path: "/host/docker", socket: "/host/docker.sock", containerId: "5".repeat(64) },
+    docker: {
+      path: "/host/docker",
+      socket: "/host/docker.sock",
+      containerId: "5".repeat(64),
+      sha256: hash("reviewed Docker fixture"),
+      size: 23,
+    },
     startup: {
       path: "/usr/bin/tini",
       args: ["--", "/bin/bash", "/opt/personal-tailscale/entrypoint"],
@@ -673,3 +680,129 @@ print(json.dumps(record))
     } else expect(result.phase).toBe("prepared");
   });
 }
+
+// Reconstruct the recorded v682 shape from inert fixture inputs only. The
+// provisioner suite pins the entire historical postimage to its captured hash.
+function v682Postimage(prepared: ReturnType<typeof prepareDevRegistrationProvisioner>) {
+  const plan = structuredClone(prepared.plan);
+  delete plan.docker.sha256;
+  delete plan.docker.size;
+  const planSha256 = hash(JSON.stringify(plan));
+  function script(bytes: string, operation: "replace" | "rollback") {
+    return bytes
+      .replace(
+        /^const reviewed=.*;$/m,
+        () => "const reviewed=" + JSON.stringify({ plan, planSha256, operation }) + ";",
+      )
+      .replace(/function verifyDocker\(\)\{\n[\s\S]*?\n\}\n/, "")
+      .replace(
+        "const docker=args=>{verifyDocker();return execFileSync(",
+        "const docker=args=>execFileSync(",
+      )
+      .replace("encoding:'utf8'});};", "encoding:'utf8'});")
+      .replace("verifyDocker();\nconst result=", "const result=");
+  }
+  const replacement = script(prepared.script, "replace"),
+    rollback = script(prepared.rollback.script, "rollback");
+  return {
+    plan,
+    planSha256,
+    script: replacement,
+    sha256: hash(replacement),
+    rollback: { script: rollback, sha256: hash(rollback) },
+  };
+}
+
+test("Docker pin compatibility preserves the exact captured v682 full postimage", () => {
+  const historical = v682Postimage(prepareDevRegistrationProvisioner(fixture()));
+  expect(hash(JSON.stringify(historical))).toBe(
+    "d94c6bffaf6513d36c37d6a405a94ef4d8e6a966689c92e8c49ad6ac0591fb1d",
+  );
+  const before = JSON.stringify(historical);
+  expect(verifyRetainedDevRegistrationProvisioner(historical)).toBeUndefined();
+  expect(JSON.stringify(historical)).toBe(before);
+  expect(() =>
+    prepareDevRegistrationProvisioner(
+      DevRegistrationProvisionerInputSchema.strip().parse(historical.plan),
+    ),
+  ).toThrow();
+  expect(() =>
+    prepareDevRegistrationProvisioner(verifyRetainedDevRegistrationProvisioner(historical)),
+  ).toThrow();
+});
+
+test.each(["plan", "replace", "rollback", "planHash", "replaceHash", "rollbackHash", "extra"])(
+  "Docker pin historical verification refuses changed full postimage %s",
+  (part) => {
+    const historical = v682Postimage(prepareDevRegistrationProvisioner(fixture()));
+    switch (part) {
+      case "plan":
+        historical.plan.startup.args.push("changed");
+        break;
+      case "replace":
+        historical.script += "\n";
+        historical.sha256 = hash(historical.script);
+        break;
+      case "rollback":
+        historical.rollback.script += "\n";
+        historical.rollback.sha256 = hash(historical.rollback.script);
+        break;
+      case "planHash":
+        historical.planSha256 = "0".repeat(64);
+        break;
+      case "replaceHash":
+        historical.sha256 = "0".repeat(64);
+        break;
+      case "rollbackHash":
+        historical.rollback.sha256 = "0".repeat(64);
+        break;
+      case "extra":
+        Object.assign(historical, { extra: "not retained" });
+        break;
+    }
+    expect(() => verifyRetainedDevRegistrationProvisioner(historical)).toThrow();
+  },
+);
+
+test.each([
+  { sha256: undefined, size: undefined },
+  { sha256: undefined, size: 23 },
+  { sha256: "a".repeat(64), size: undefined },
+  { sha256: "not-sha256", size: 23 },
+  { sha256: "a".repeat(64), size: 0 },
+  { sha256: "a".repeat(64), size: 256 * 1024 * 1024 + 1 },
+])("Docker pin new preparation refuses missing or invalid reviewed commitment %j", (pin) => {
+  const input = fixture();
+  expect(() =>
+    prepareDevRegistrationProvisioner({ ...input, docker: { ...input.docker, ...pin } }),
+  ).toThrow();
+});
+
+test("Docker pin historical parser accepts both absent without adding defaults, rejects partial", () => {
+  const input = fixture();
+  delete input.docker.sha256;
+  delete input.docker.size;
+  expect(DevRegistrationProvisionerInputSchema.parse(input).docker).toEqual(input.docker);
+  expect(() =>
+    DevRegistrationProvisionerInputSchema.parse({
+      ...input,
+      docker: { ...input.docker, size: 23 },
+    }),
+  ).toThrow();
+});
+
+test.each(["sha256", "size"])(
+  "Docker pin %s changes static plan and both scripts before enrollment",
+  (field) => {
+    const input = fixture(),
+      original = prepareDevRegistrationProvisioner(input);
+    const changed = { ...input.docker, [field]: field === "size" ? 24 : "e".repeat(64) };
+    const next = prepareDevRegistrationProvisioner({ ...input, docker: changed });
+    expect(next.planSha256).not.toBe(original.planSha256);
+    expect(next.sha256).not.toBe(original.sha256);
+    expect(next.rollback.sha256).not.toBe(original.rollback.sha256);
+    expect(verifyRetainedDevRegistrationProvisioner(next)).toBeUndefined();
+    expect(next.plan.docker).toEqual(changed);
+    expect(next.plan).not.toHaveProperty("manifestSha256");
+  },
+);

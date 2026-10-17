@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
 import { constants, openSync, closeSync, fsyncSync, existsSync } from "node:fs";
 import path from "node:path";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { InstallationConfigSchema } from "../config.js";
 import { BootstrapAdmissionSetupSchema } from "../coordinator-bootstrap-host.js";
@@ -33,6 +32,11 @@ import {
 } from "./authorization.js";
 import {
   claimInitialHostMigration,
+  withInitialHostClaimedExecution,
+  assertInitialHostClaimedExecution,
+  withInitialHostCommandAdmission,
+  type InitialHostCommandContext,
+  type InitialHostClaimedHandle,
   inspectInitialHostMigrationEnrollment,
   inspectInitialHostSupervisorMigrationPlan,
   publishInitialHostMigrationSelection,
@@ -49,9 +53,18 @@ import {
   type EnrollmentDaemonObservation,
 } from "./native-daemon-inspection.js";
 
+import { retainCustodyBinding, retainCustodyProof } from "../retained-custody-binding.js";
+import {
+  attemptInitialHostCommand,
+  initialHostCommandPaths,
+  initialHostCommandFenceRecord,
+  InitialHostCommandQueueAttemptSchema,
+  type InitialHostCommandOwner,
+} from "./host-supervisor-initial-command-admission.js";
+
 type ExecutionInput = Parameters<typeof claimInitialHostMigration>[0];
 type AbsenceProof = Parameters<typeof publishInitialHostMigrationSelection>[0]["absence"];
-type Claimed = ReturnType<typeof claimInitialHostMigration>;
+type Claimed = Omit<ReturnType<typeof claimInitialHostMigration>, "claimedHandle">;
 interface HostExecutionContext extends Claimed {
   plan: InitialHostSupervisorMigrationPlan;
   planSha256: string;
@@ -109,6 +122,51 @@ export function inspectInitialHostCandidatePublication(
   ];
   return () => {
     for (const proof of proofs) proof();
+  };
+}
+
+/** Modern attempts require their separately admitted bootstrap dispatch record.
+ * Legacy claims remain observation-only under their historical format. These
+ * files prove an attempt, not delivery, target readiness or workload settlement. */
+function retainInitialHostBootstrapAttempt(directory: string, context: HostExecutionContext) {
+  if (!context.intent.nativeLaunch) return () => undefined;
+  const bound = retainCustodyBinding(context, requireMatch);
+  const current: InitialHostCommandContext = {
+    ...context,
+    enrollmentStateDirectory: directory,
+    executor: context.claim.executor,
+    actor: "child",
+  };
+  const paths = initialHostCommandPaths(current, "bootstrap");
+  const files = retainServiceFiles([paths.fenceFile, paths.queueFile]);
+  const fenceRecord = initialHostCommandFenceRecord({ context: current, operation: "bootstrap" });
+  const fenceBytes = Buffer.from(JSON.stringify(fenceRecord));
+  const fence = retainMaintenancePublishedFile(paths.fenceFile, fenceBytes);
+  const queue = InitialHostCommandQueueAttemptSchema.parse(
+    readPrivateBootstrapConfiguration(paths.queueFile, context.claim.executor.uid),
+  );
+  const {
+    operation: _queueOperation,
+    fenceSha256,
+    commandSha256: _command,
+    channelSha256: _channel,
+    ...queuedBinding
+  } = queue;
+  const { operation: _fenceOperation, ...expectedBinding } = fenceRecord;
+  requireMatch(
+    isDeepStrictEqual(queuedBinding, expectedBinding) &&
+      fenceSha256 === createHash("sha256").update(fenceBytes).digest("hex"),
+    "Initial Host bootstrap queue differs from its exact claim and fence",
+  );
+  const queued = retainMaintenancePublishedFile(
+    paths.queueFile,
+    Buffer.from(JSON.stringify(queue)),
+  );
+  return () => {
+    bound.check();
+    files();
+    fence();
+    queued();
   };
 }
 
@@ -273,6 +331,10 @@ export async function observeInitialHostMigrationTransition(
   const { claim } = context;
   await verifyRetainedProcessExited(ports.reader, claim.executor);
   retained();
+  const bootstrapAttempt = retainInitialHostBootstrapAttempt(
+    input.enrollmentStateDirectory,
+    context,
+  );
   const collected = await readBoundedMaintenanceInspection(
     (signal) => ports.collectCandidate(context, signal),
     { timeoutMs: 30_000, detail: "Host retained candidate observation timed out" },
@@ -283,6 +345,7 @@ export async function observeInitialHostMigrationTransition(
       "Host retained selection custody must be synchronous",
     );
     retained();
+    bootstrapAttempt();
   });
 }
 interface InterruptedHostCustody {
@@ -300,7 +363,21 @@ interface HostTransitionPorts {
   >;
   /** Established by the tracked child, never an HTTP callback or idle inventory.
    * The proof must retain closed provider custody after native target retirement. */
-  interrupt(context: HostExecutionContext): Promise<InterruptedHostCustody>;
+  collectInterruption(context: HostExecutionContext): Promise<InterruptedHostCustody>;
+  /** Required actual native owner of the fixed command and retained channel.
+   * These data/selectors never constitute native proof by themselves. */
+  commandOwner(
+    operation: "interruption" | "retirement" | "bootstrap",
+    context: HostExecutionContext,
+    fence: { file: string; bytes: Uint8Array },
+  ): InitialHostCommandOwner;
+  /** Completion only, outside admission. The native owner must retain its
+   * operation's absolute cutoff and pending I/O ownership; this does not start
+   * another grace interval or establish closure/absence. */
+  observeCompletion(
+    operation: "interruption" | "retirement" | "bootstrap",
+    context: HostExecutionContext,
+  ): Promise<void>;
   /** Fresh exact registration/process custody after interruption. An already
    * retired target requires independently verified absence, not a failed read. */
   collectRetirement(
@@ -311,17 +388,7 @@ interface HostTransitionPorts {
   >;
   collectAbsence(context: HostExecutionContext): Promise<AbsenceProof>;
   readCandidate(signal: AbortSignal): Promise<EnrollmentDaemonObservation>;
-  command?: { run(args: readonly string[]): Promise<void> };
 }
-const nativeCommand = {
-  async run(args: readonly string[]) {
-    await promisify(execFile)("/bin/launchctl", [...args], {
-      env: { PATH: "/usr/bin:/bin" },
-      timeout: 10_000,
-      maxBuffer: 8192,
-    });
-  },
-};
 const sha = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function requireMatch(value: unknown, detail: string): asserts value {
   if (!value) throw new BootstrapRequestConflict(detail);
@@ -333,20 +400,153 @@ function nativeUid() {
   return uid;
 }
 
+function retainHostProof<T extends { assertCurrent(): void }>(source: T) {
+  const proof = retainCustodyProof(source, requireMatch);
+  return { ...proof.data, assertCurrent: proof.assertCurrent };
+}
+
 /** Exactly one claimed child owns the service effects. An error, including a
  * lost bootstrap reply, leaves the claim and file attempts for independent
  * observation. This path never retries native commands or guesses rollback. */
 export async function executeInitialHostMigrationTransition(
   input: ExecutionInput,
   ports: HostTransitionPorts,
+  claimedHandle: InitialHostClaimedHandle,
 ) {
+  return withInitialHostClaimedExecution(claimedHandle, () =>
+    executeClaimedInitialHostMigration(input, ports, claimedHandle),
+  );
+}
+
+async function executeClaimedInitialHostMigration(
+  input: ExecutionInput,
+  ports: HostTransitionPorts,
+  claimedHandle: InitialHostClaimedHandle,
+) {
+  const retainedPorts = retainCustodyBinding(ports, requireMatch);
+  const supplied = ports;
+  ports = retainedPorts.snapshot;
   const writableMountRoots = [...ports.writableMountRoots];
-  const inspected = inspectInitialHostSupervisorMigrationPlan(input.plan);
-  const context: HostExecutionContext = { ...inspected, ...claimInitialHostMigration(input) };
+  const { context } = readInitialHostRetainedClaim(input);
+  const identity = context.plan.precondition.identity;
+  requireMatch(identity.environment === "host", "Host transition requires native registration");
+  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+  const actor = { kind: "child" as const, claimedHandle };
+  const commandContext: InitialHostCommandContext = {
+    ...context,
+    enrollmentStateDirectory: input.enrollmentStateDirectory,
+    executor: context.claim.executor,
+    actor: "child",
+  };
+  const fences: Array<() => void> = [];
   const retained = retainHostClaim(input.enrollmentStateDirectory, context);
-  const assertActive = () => assertActiveHostClaim(input, context, retained);
+  const assertActive = () => {
+    retainedPorts.check();
+    assertInitialHostClaimedExecution(claimedHandle, input);
+    assertActiveHostClaim(input, context, retained);
+    for (const fence of fences) fence();
+    retainedPorts.check();
+  };
+  let stage: () => void = () => undefined;
+  let closure: () => void = () => undefined;
+  let immutableSelection: () => void = () => undefined;
+  const attempt = async (operation: "interruption" | "retirement" | "bootstrap") => {
+    const paths = initialHostCommandPaths(commandContext, operation);
+    const record = initialHostCommandFenceRecord({ context: commandContext, operation });
+    const bytes = Buffer.from(JSON.stringify(record));
+    withInitialHostCommandAdmission(
+      actor,
+      () => {
+        retainedPorts.check();
+        assertInitialHostClaimedExecution(claimedHandle, input);
+        retained();
+        for (const fence of fences) fence();
+        closure();
+        immutableSelection();
+        stage();
+        retainedPorts.check();
+      },
+      (_current, reassert) => {
+        reassert();
+        writeInitialHostArtifact(input.enrollmentStateDirectory, paths.fenceFile, record);
+        fences.push(retainMaintenancePublishedFile(paths.fenceFile, bytes));
+        reassert();
+      },
+    );
+    assertActive();
+    stage();
+    const owner = ports.commandOwner.call(supplied, operation, context, {
+      file: paths.fenceFile,
+      bytes,
+    });
+    retainedPorts.check();
+    const fixed = retainCustodyBinding(owner.command, requireMatch);
+    requireMatch(
+      owner.operation === operation &&
+        isDeepStrictEqual(owner.executor, context.claim.executor) &&
+        Reflect.get(fixed.snapshot, "operation") === operation &&
+        Reflect.get(fixed.snapshot, "service") === service &&
+        (operation !== "interruption" ||
+          isDeepStrictEqual(
+            Reflect.get(fixed.snapshot, "interruption"),
+            context.plan.interruption,
+          )),
+      "Initial Host actual command differs from reviewed operation/service/limits",
+    );
+    const original = { ...owner };
+    const originalAssert = owner.assertCurrent;
+    const originalEnqueue = owner.enqueue;
+    const commandProof = () => {
+      retainedPorts.check();
+      assertInitialHostClaimedExecution(claimedHandle, input);
+      retained();
+      closure();
+      immutableSelection();
+      stage();
+      fixed.check();
+      requireMatch(
+        owner.operation === original.operation &&
+          owner.executor === original.executor &&
+          owner.command === original.command &&
+          owner.channel === original.channel &&
+          owner.channelIdentity === original.channelIdentity &&
+          owner.scope === original.scope &&
+          owner.fence === original.fence &&
+          owner.assertCurrent === originalAssert &&
+          owner.enqueue === originalEnqueue,
+        "Initial Host native command owner changed",
+      );
+    };
+    // Compose phase custody before the helper's LAST policy read. No lock or
+    // deferred command is acquired by this callback itself.
+    const admittedOwner = {
+      ...owner,
+      assertCurrent(current: InitialHostCommandContext) {
+        commandProof();
+        requireMatch(
+          originalAssert.call(owner, current) === undefined,
+          "Initial Host command custody must be synchronous",
+        );
+        commandProof();
+      },
+      enqueue() {
+        // The command may invalidate its old target before returning. Admission
+        // still rechecks immutable custody and established closure afterward.
+        stage = () => undefined;
+        return Reflect.apply(originalEnqueue, owner, []);
+      },
+    };
+    attemptInitialHostCommand(actor, admittedOwner);
+    await ports.observeCompletion.call(supplied, operation, context);
+    retainedPorts.check();
+    assertActive();
+    closure();
+    immutableSelection();
+    stage();
+  };
   assertActive();
-  const interrupted = await ports.interrupt(context);
+  await attempt("interruption");
+  const interrupted = retainHostProof(await ports.collectInterruption.call(supplied, context));
   const assertInterrupted = () => {
     requireMatch(
       interrupted.assertCurrent() === undefined &&
@@ -357,31 +557,52 @@ export async function executeInitialHostMigrationTransition(
     );
   };
   assertInterrupted();
+  closure = assertInterrupted;
   assertActive();
-  const identity = context.plan.precondition.identity;
-  requireMatch(identity.environment === "host", "Host transition requires native registration");
-  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
-  const command = ports.command ?? nativeCommand;
-  const retirement = await ports.collectRetirement(context);
+  const collectedRetirement = await ports.collectRetirement.call(supplied, context);
+  const retainedRetirement = retainCustodyBinding(collectedRetirement, requireMatch);
+  const retirement = retainedRetirement.snapshot;
   assertInterrupted();
   assertActive();
-  if (retirement.status === "present") {
+  retainedRetirement.check();
+  if (retirement.status === "present" && collectedRetirement.status === "present") {
+    const native = retainHostProof(collectedRetirement.native);
     requireMatch(
-      retirement.native.assertCurrent() === undefined &&
-        retirement.native.preconditionSha256 === context.plan.preconditionSha256 &&
-        isDeepStrictEqual(retirement.native.precondition, context.plan.precondition) &&
-        Date.now() - Date.parse(retirement.native.observedAt) >= 0 &&
-        Date.now() - Date.parse(retirement.native.observedAt) < 30_000,
+      native.assertCurrent() === undefined &&
+        native.preconditionSha256 === context.plan.preconditionSha256 &&
+        isDeepStrictEqual(native.precondition, context.plan.precondition) &&
+        Date.now() - Date.parse(native.observedAt) >= 0 &&
+        Date.now() - Date.parse(native.observedAt) < 30_000,
       "Host registration changed before retirement",
     );
-    await command.run(["bootout", service]);
+    stage = () => {
+      retainedRetirement.check();
+      assertInterrupted();
+      requireMatch(
+        native.assertCurrent() === undefined &&
+          native.preconditionSha256 === context.plan.preconditionSha256 &&
+          isDeepStrictEqual(native.precondition, context.plan.precondition) &&
+          Date.now() - Date.parse(native.observedAt) >= 0 &&
+          Date.now() - Date.parse(native.observedAt) < 30_000,
+        "Host registration changed before retirement",
+      );
+    };
+    retainedRetirement.check();
+    await attempt("retirement");
+    stage = assertInterrupted;
   } else {
-    assertHostAbsence(context, retirement.absence);
+    requireMatch(
+      collectedRetirement.status === "absent",
+      "Host retirement proof changed its status",
+    );
+    const absence = retainHostProof(collectedRetirement.absence);
+    assertHostAbsence(context, absence);
+    retainedRetirement.check();
   }
   await waitForHostRetirement(ports.reader, context, service);
   assertInterrupted();
   assertActive();
-  const absence = await ports.collectAbsence(context);
+  const absence = retainHostProof(await ports.collectAbsence.call(supplied, context));
   assertInterrupted();
   assertActive();
   const launcher = await readBoundedMaintenanceInspection(
@@ -390,27 +611,36 @@ export async function executeInitialHostMigrationTransition(
     },
     { timeoutMs: 10_000, detail: "Host launcher collection timed out" },
   );
-  const published = publishInitialHostMigrationSelection({
-    ...input,
-    candidateLauncher: launcher,
-    absence: {
-      ...absence,
-      assertCurrent: () => {
-        assertInterrupted();
-        requireMatch(
-          absence.assertCurrent() === undefined,
-          "Host absence custody must be synchronous",
-        );
-        assertInterrupted();
+  const published = publishInitialHostMigrationSelection(
+    {
+      ...input,
+      candidateLauncher: launcher,
+      absence: {
+        ...absence,
+        assertCurrent: () => {
+          assertInterrupted();
+          requireMatch(
+            absence.assertCurrent() === undefined,
+            "Host absence custody must be synchronous",
+          );
+          assertInterrupted();
+        },
       },
     },
-  });
+    claimedHandle,
+  );
   await ports.reader.verifyServiceAbsent(service);
   assertInterrupted();
   assertActive();
   published.assertSelection();
   assertHostAbsence(context, absence);
-  await command.run(["bootstrap", identity.serviceDomain, identity.launcherPath]);
+  immutableSelection = published.assertSelection;
+  stage = () => assertHostAbsence(context, absence);
+  await attempt("bootstrap");
+  const bootstrapAttempt = retainInitialHostBootstrapAttempt(
+    input.enrollmentStateDirectory,
+    context,
+  );
   const observation = await readHostCandidate(ports.readCandidate);
   return recordHostCandidate(input.enrollmentStateDirectory, context, observation, () => {
     retained();
@@ -419,7 +649,9 @@ export async function executeInitialHostMigrationTransition(
         isDeepStrictEqual(input.executor.process, context.claim.executor),
       "Host child custody changed",
     );
+    assertInterrupted();
     published.assertSelection();
+    bootstrapAttempt();
   });
 }
 
@@ -601,6 +833,7 @@ function recordHostCandidate(
   observed: EnrollmentDaemonObservation,
   assertSelection: () => void,
 ) {
+  observed = retainHostProof(observed);
   requireHostCandidate(context, observed);
   const snapshot = () =>
     structuredClone({

@@ -3,6 +3,8 @@ import {
   InitialHostMigrationIntentSchema,
   InitialHostMigrationClaimSchema,
   initialHostPublicationRecords,
+  inspectInitialHostNativeLaunchBinding,
+  type InitialHostNativeLaunchBinding,
   type InitialHostSupervisorMigrationPlan,
 } from "./host-supervisor-contract.js";
 export {
@@ -19,7 +21,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  BootstrapAuditedProcessSchema,
+  BootstrapProcessIdentitySchema,
+} from "@getpaseo/protocol/coordinator-bootstrap";
 import type {
   InstallationActivation,
   EnrollmentStep,
@@ -47,12 +52,14 @@ import {
 import {
   FileEnrollmentJournal,
   enrollmentManifestDigest,
+  unresolvedHostContinuations,
   enrollmentWriteFiles,
   type EnrollmentWriteFiles,
 } from "./authorization.js";
 import type { inspectInitialHostSupervisorMigration } from "./native-daemon-inspection.js";
 import { inspectInitialHostModuleContract } from "./host-startup-contract.js";
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
+import { retainCustodyBinding } from "../retained-custody-binding.js";
 
 function hash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -179,6 +186,8 @@ interface InitialHostMigrationIntentInput extends Omit<MigrationEnrollmentInput,
   enrollmentStateDirectory: string;
   native: Awaited<ReturnType<typeof inspectInitialHostSupervisorMigration>>;
   artifacts: Awaited<ReturnType<typeof inspectInitialHostMigrationArtifacts>>;
+  /** Omitted only for historical metadata. Such an intent cannot elect a child. */
+  nativeLaunch?: { binding: InitialHostNativeLaunchBinding; assertCurrent(): void };
 }
 
 interface InitialHostMigrationPublicationInput extends Omit<
@@ -201,7 +210,22 @@ interface InitialHostMigrationPublicationInput extends Omit<
 /** File phase of the claimed child, after independently proven native absence.
  * Both addressed attempts belong to the same claim. A partial result is for the
  * independent observer to reconcile; this function never resumes publication. */
-export function publishInitialHostMigrationSelection(input: InitialHostMigrationPublicationInput) {
+export function publishInitialHostMigrationSelection(
+  input: InitialHostMigrationPublicationInput,
+  claimedHandle: InitialHostClaimedHandle,
+) {
+  assertInitialHostClaimedExecution(claimedHandle, input);
+  const original = { artifacts: input.artifacts, executor: input.executor, absence: input.absence };
+  const proofs = retainCustodyBinding(original, requireMatch);
+  const checkProofs = () => {
+    requireMatch(
+      input.artifacts === original.artifacts &&
+        input.executor === original.executor &&
+        input.absence === original.absence,
+      "Initial Host publication proof references changed",
+    );
+    proofs.check();
+  };
   const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
   const launcher = Buffer.from(input.candidateLauncher);
   requireMatch(
@@ -213,6 +237,7 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
   const bootstrap = new FileBootstrapRequestJournal(directory);
   const journal = new FileEnrollmentJournal(directory);
   return bootstrap.withRecoveryTransaction((requests) => {
+    assertInitialHostClaimedExecution(claimedHandle, input);
     if (openBootstrapRequests(requests).some((request) => request.execution))
       throw new BootstrapRequestConflict("Coordinator execution conflicts with Host publication");
     assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
@@ -243,6 +268,7 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
     );
     requireInitialHostClaimBinding(binding, intent, claim, executor);
     const assertCurrent = () => {
+      checkProofs();
       assertFiles();
       requireMatch(
         input.executor.assertCurrent() === undefined && input.absence.assertCurrent() === undefined,
@@ -252,6 +278,8 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
         input.artifacts.assertPreparedCurrent() === undefined,
         "Initial Host prepared custody must be synchronous",
       );
+      checkProofs();
+      assertInitialHostClaimedExecution(claimedHandle, input);
       requireMatch(
         input.artifacts.planSha256 === planSha256 &&
           hash(input.artifacts.plan) === planSha256 &&
@@ -270,6 +298,8 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
       input.artifacts.assertCurrent() === undefined,
       "Initial Host artifact custody must be synchronous",
     );
+    checkProofs();
+    assertInitialHostClaimedExecution(claimedHandle, input);
     assertCurrent();
     const records = initialHostPublicationRecords({
       plan,
@@ -333,10 +363,12 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
       ),
     ];
     const assertSelection = () => {
+      checkProofs();
       requireMatch(
         input.artifacts.assertPreparedCurrent() === undefined,
         "Initial Host prepared custody must be synchronous",
       );
+      checkProofs();
       requireMatch(
         input.artifacts.planSha256 === planSha256 && hash(input.artifacts.plan) === planSha256,
         "Initial Host prepared plan changed",
@@ -352,7 +384,7 @@ export function publishInitialHostMigrationSelection(input: InitialHostMigration
   });
 }
 
-function requireInitialHostClaimBinding(
+function requireInitialHostClaimRecordBinding(
   binding: ReturnType<typeof inspectInitialHostMigrationEnrollment>,
   intent: z.infer<typeof InitialHostMigrationIntentSchema>,
   claim: z.infer<typeof InitialHostMigrationClaimSchema>,
@@ -371,10 +403,21 @@ function requireInitialHostClaimBinding(
       claim.stepId === intent.stepId &&
       claim.generation === intent.generation &&
       claim.planSha256 === intent.planSha256 &&
-      executor.pid === process.pid &&
-      executor.uid === process.getuid?.() &&
       isDeepStrictEqual(claim.executor, executor),
     "Initial Host publication differs from its exact native claim",
+  );
+}
+
+function requireInitialHostClaimBinding(
+  binding: ReturnType<typeof inspectInitialHostMigrationEnrollment>,
+  intent: z.infer<typeof InitialHostMigrationIntentSchema>,
+  claim: z.infer<typeof InitialHostMigrationClaimSchema>,
+  executor: z.infer<typeof BootstrapProcessIdentitySchema>,
+) {
+  requireInitialHostClaimRecordBinding(binding, intent, claim, executor);
+  requireMatch(
+    executor.pid === process.pid && executor.uid === process.getuid?.(),
+    "Initial Host publication requires its exact native self",
   );
 }
 
@@ -383,10 +426,26 @@ function requireInitialHostClaimBinding(
  * still requires its own retained custody before any service command. */
 export function claimInitialHostMigration(
   input: InitialHostMigrationIntentInput & {
-    executor: { process: unknown; assertCurrent(): void };
+    executor: { process: unknown; audited: unknown; assertCurrent(): void };
   },
   files: Pick<EnrollmentWriteFiles, "open" | "write" | "sync" | "close"> = enrollmentWriteFiles,
 ) {
+  const captured = retainCustodyBinding(
+    {
+      enrollmentStateDirectory: input.enrollmentStateDirectory,
+      plan: input.plan,
+      grantId: input.grantId,
+      grantRevision: input.grantRevision,
+      stepId: input.stepId,
+      generation: input.generation,
+      native: input.native,
+      artifacts: input.artifacts,
+      executor: input.executor,
+    },
+    requireMatch,
+  );
+  input = captured.snapshot;
+  const audited = BootstrapAuditedProcessSchema.parse(input.executor.audited);
   const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
   const executor = BootstrapProcessIdentitySchema.parse(input.executor.process);
   requireMatch(
@@ -400,7 +459,7 @@ export function claimInitialHostMigration(
   const directory = input.enrollmentStateDirectory;
   const bootstrap = new FileBootstrapRequestJournal(directory);
   const journal = new FileEnrollmentJournal(directory);
-  return bootstrap.withRecoveryTransaction((requests) => {
+  const retained = bootstrap.withRecoveryTransaction((requests) => {
     if (openBootstrapRequests(requests).some((request) => request.execution))
       throw new BootstrapRequestConflict("Coordinator execution conflicts with initial Host claim");
     assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
@@ -424,12 +483,32 @@ export function claimInitialHostMigration(
         intent.preconditionSha256 === plan.preconditionSha256,
       "Initial Host claim differs from its retained intent",
     );
+    requireMatch(intent.nativeLaunch, "Historical initial Host intents are observation-only");
+    const launch = inspectInitialHostNativeLaunchBinding(intent.nativeLaunch, {
+      enrollmentStateDirectory: directory,
+      stepId: binding.stepId,
+      generation: binding.generation,
+    });
+    const controller = launch.coordinator.identity;
+    requireMatch(
+      isDeepStrictEqual(audited.identity, executor) &&
+        executor.parentPid === process.ppid &&
+        executor.parentPid === controller.pid &&
+        executor.executable === launch.runtime.node.path &&
+        executor.executable === process.execPath &&
+        executor.argumentsSha256 === launch.argumentsSha256 &&
+        executor.bootId === controller.bootId &&
+        executor.uid === controller.uid &&
+        executor.pid !== controller.pid,
+      "Initial Host claim differs from its actual born child arrangement",
+    );
     requireMatch(
       input.executor.assertCurrent() === undefined,
       "Initial Host child custody must be synchronous",
     );
     assertInitialHostIntentProofs(input, plan, planSha256);
     retainIntent();
+    captured.check();
     requireMatch(
       isDeepStrictEqual(
         binding,
@@ -447,6 +526,7 @@ export function claimInitialHostMigration(
       generation: binding.generation,
       planSha256,
       executor,
+      executorAuditToken: audited.auditToken,
       consumedAt: new Date().toISOString(),
     });
     const file = path.join(
@@ -456,6 +536,17 @@ export function claimInitialHostMigration(
     writeInitialHostArtifact(directory, file, claim, files);
     return { file, claim, intentFile, intent };
   });
+  const filesCurrent = retainServiceFiles([retained.file, retained.intentFile]);
+  filesCurrent();
+  const claimedHandle: InitialHostClaimedHandle = { [claimedBrand]: true };
+  claimedOwners.set(claimedHandle, {
+    input,
+    retained: structuredClone(retained),
+    assertBinding: captured.check,
+    assertFiles: filesCurrent,
+    state: "claimed",
+  });
+  return { ...retained, claimedHandle };
 }
 
 export function writeInitialHostArtifact(
@@ -495,6 +586,368 @@ export function writeInitialHostArtifact(
   }
 }
 
+const claimedBrand: unique symbol = Symbol("initial-host-claimed");
+export interface InitialHostClaimedHandle {
+  readonly [claimedBrand]: true;
+}
+interface InitialHostClaimedOwner {
+  input: InitialHostMigrationIntentInput & {
+    executor: { process: unknown; audited: unknown; assertCurrent(): void };
+  };
+  retained: {
+    file: string;
+    intentFile: string;
+    intent: z.infer<typeof InitialHostMigrationIntentSchema>;
+    claim: z.infer<typeof InitialHostMigrationClaimSchema>;
+  };
+  assertBinding(): void;
+  assertFiles(): void;
+  state: "claimed" | "active" | "finished";
+}
+const claimedOwners = new WeakMap<InitialHostClaimedHandle, InitialHostClaimedOwner>();
+
+/** One local span after the fixed child has consumed its gate. Read-back claim
+ * metadata cannot recreate membership. Errors and completion finalize it. */
+export function withInitialHostClaimedExecution<T>(
+  handle: InitialHostClaimedHandle,
+  action: () => T,
+): T {
+  const owner = claimedOwners.get(handle);
+  requireMatch(owner?.state === "claimed", "Initial Host claimed execution is unavailable");
+  owner.state = "active";
+  try {
+    assertInitialHostClaimedExecution(handle, owner.input);
+    const result = action();
+    if (result instanceof Promise) {
+      // Return the original result while attaching finalization before callers
+      // can resume. The rejection handler prevents an unhandled derived promise.
+      void result.then(
+        () => {
+          owner.state = "finished";
+          return undefined;
+        },
+        () => {
+          owner.state = "finished";
+          return undefined;
+        },
+      );
+      return result;
+    }
+    owner.state = "finished";
+    return result;
+  } catch (error) {
+    owner.state = "finished";
+    throw error;
+  }
+}
+
+/** Local flow custody only. Current grant and cross-ledger exclusion still
+ * belong to the locked admission immediately surrounding each effect. */
+export function assertInitialHostClaimedExecution(
+  handle: InitialHostClaimedHandle,
+  input: Pick<
+    InitialHostMigrationPublicationInput,
+    "enrollmentStateDirectory" | "plan" | "stepId" | "generation" | "executor"
+  >,
+) {
+  const owner = claimedOwners.get(handle);
+  requireMatch(
+    owner?.state === "active",
+    "Initial Host effects require the original active claimed span",
+  );
+  owner.assertBinding();
+  owner.assertFiles();
+  const inspected = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  requireMatch(
+    input.enrollmentStateDirectory === owner.input.enrollmentStateDirectory &&
+      input.stepId === owner.retained.claim.stepId &&
+      input.generation === owner.retained.claim.generation &&
+      inspected.planSha256 === owner.retained.claim.planSha256 &&
+      isDeepStrictEqual(input.executor.process, owner.retained.claim.executor) &&
+      isDeepStrictEqual(
+        readPrivateBootstrapConfiguration(owner.retained.file, owner.retained.claim.executor.uid),
+        owner.retained.claim,
+      ) &&
+      isDeepStrictEqual(
+        readPrivateBootstrapConfiguration(
+          owner.retained.intentFile,
+          owner.retained.claim.executor.uid,
+        ),
+        owner.retained.intent,
+      ),
+    "Initial Host claimed span binding changed",
+  );
+  owner.assertFiles();
+}
+
+const constructorBrand: unique symbol = Symbol("initial-host-constructor");
+export interface InitialHostConstructorHandle {
+  readonly [constructorBrand]: true;
+}
+interface InitialHostConstructorOwner {
+  input: InitialHostMigrationIntentInput;
+  retained: {
+    file: string;
+    intent: z.infer<typeof InitialHostMigrationIntentSchema>;
+  };
+  assertBinding(): void;
+  assertIntentFiles(): void;
+  channel: object | null;
+  state: "elected" | "spawn-attempted";
+}
+const constructorOwners = new WeakMap<InitialHostConstructorHandle, InitialHostConstructorOwner>();
+
+function verifyInitialHostLaunchProof(input: InitialHostMigrationIntentInput) {
+  const proof = input.nativeLaunch;
+  if (!proof) return null;
+  const binding = inspectInitialHostNativeLaunchBinding(proof.binding, {
+    enrollmentStateDirectory: input.enrollmentStateDirectory,
+    stepId: input.stepId,
+    generation: input.generation,
+  });
+  const controller = binding.coordinator.identity;
+  requireMatch(
+    controller.pid === process.pid &&
+      controller.parentPid === process.ppid &&
+      controller.uid === process.getuid?.() &&
+      controller.executable === process.execPath,
+    "Initial Host launch requires its actual approved controller",
+  );
+  requireMatch(
+    proof.assertCurrent() === undefined,
+    "Initial Host launch custody must be synchronous",
+  );
+  requireMatch(isDeepStrictEqual(proof.binding, binding), "Initial Host launch binding changed");
+  return binding;
+}
+
+/** Burns the original constructor before admission. Only a fixed synchronous
+ * spawn belongs in this action; a saved intent cannot recreate this handle.
+ * Refusal, throw, thenable or outer synchronization failure remains observe-only. */
+export function attemptInitialHostConstruction(
+  handle: InitialHostConstructorHandle,
+  construction: {
+    channel: object;
+    spawn(intent: z.infer<typeof InitialHostMigrationIntentSchema>): void;
+  },
+) {
+  const owner = constructorOwners.get(handle);
+  requireMatch(
+    owner?.state === "elected",
+    "Initial Host constructor was already attempted or is unknown",
+  );
+  owner.state = "spawn-attempted";
+  const channel = construction.channel;
+  const spawn = construction.spawn;
+  requireMatch(
+    channel !== null && typeof channel === "object" && typeof spawn === "function",
+    "Initial Host construction requires its original channel arrangement",
+  );
+  owner.channel = channel;
+  const { input, retained } = owner;
+  const files = owner.assertIntentFiles;
+  const bootstrap = new FileBootstrapRequestJournal(input.enrollmentStateDirectory);
+  const journal = new FileEnrollmentJournal(input.enrollmentStateDirectory);
+  bootstrap.withRecoveryTransaction((requests) => {
+    requireMatch(
+      !openBootstrapRequests(requests).some((request) => request.execution),
+      "Coordinator execution conflicts with initial Host construction",
+    );
+    assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
+    const before = inspectInitialHostMigrationEnrollment({ ...input, journal });
+    const inspected = inspectInitialHostSupervisorMigrationPlan(input.plan);
+    assertInitialHostIntentProofs(input, inspected.plan, inspected.planSha256);
+    verifyInitialHostLaunchProof(input);
+    owner.assertBinding();
+    files();
+    requireMatch(
+      isDeepStrictEqual(
+        retained.intent,
+        readPrivateBootstrapConfiguration(retained.file, process.getuid!()),
+      ),
+      "Initial Host constructor intent changed",
+    );
+    requireMatch(
+      isDeepStrictEqual(before, inspectInitialHostMigrationEnrollment({ ...input, journal })),
+      "Initial Host constructor authority changed",
+    );
+    // Only callback-free retained file assertions follow the final policy read.
+    files();
+    requireMatch(
+      construction.channel === channel &&
+        construction.spawn === spawn &&
+        Reflect.apply(spawn, construction, [structuredClone(retained.intent)]) === undefined,
+      "Initial Host constructor must be a synchronous spawn attempt",
+    );
+  });
+}
+
+export interface InitialHostBornChildProof {
+  file: string;
+  claim: z.infer<typeof InitialHostMigrationClaimSchema>;
+  audited: z.infer<typeof BootstrapAuditedProcessSchema>;
+  assertCurrent(): void;
+}
+export type InitialHostCommandActor =
+  | {
+      kind: "release";
+      constructorHandle: InitialHostConstructorHandle;
+      channel: object;
+      child: InitialHostBornChildProof;
+    }
+  | { kind: "child"; claimedHandle: InitialHostClaimedHandle };
+export interface InitialHostCommandContext {
+  enrollmentStateDirectory: string;
+  plan: InitialHostSupervisorMigrationPlan;
+  planSha256: string;
+  intent: z.infer<typeof InitialHostMigrationIntentSchema>;
+  claim: z.infer<typeof InitialHostMigrationClaimSchema>;
+  executor: z.infer<typeof BootstrapProcessIdentitySchema>;
+  actor: InitialHostCommandActor["kind"];
+}
+
+/** Fixed synchronous queue attempts only. This does not authorize a later
+ * asynchronous dispatch. Reassertion expires when this locked action returns;
+ * post-action synchronization failure never permits replay. Native command and
+ * channel ownership must come from the independently verified original owner. */
+export function withInitialHostCommandAdmission(
+  actor: InitialHostCommandActor,
+  assertCommand: (context: InitialHostCommandContext) => void,
+  action: (context: InitialHostCommandContext, reassert: () => void) => void,
+) {
+  const constructor =
+    actor.kind === "release" ? constructorOwners.get(actor.constructorHandle) : null;
+  const claimed = actor.kind === "child" ? claimedOwners.get(actor.claimedHandle) : null;
+  requireMatch(constructor || claimed, "Initial Host command has no original local owner");
+  const owner = constructor ?? claimed!;
+  const input = owner.input;
+  const plan = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const intent = structuredClone(owner.retained.intent);
+  const releaseProof =
+    actor.kind === "release" ? retainCustodyBinding(actor.child, requireMatch) : null;
+  const claim =
+    actor.kind === "release"
+      ? InitialHostMigrationClaimSchema.parse(releaseProof!.snapshot.claim)
+      : structuredClone(claimed!.retained.claim);
+  const executor =
+    actor.kind === "release" ? intent.nativeLaunch!.coordinator.identity : claim.executor;
+  const context: InitialHostCommandContext = {
+    enrollmentStateDirectory: input.enrollmentStateDirectory,
+    ...plan,
+    intent,
+    claim,
+    executor,
+    actor: actor.kind,
+  };
+  const baseline = retainCustodyBinding(context, requireMatch);
+  const capturedActor = actor;
+  const actorKind = actor.kind;
+  const handle = actor.kind === "release" ? actor.constructorHandle : actor.claimedHandle;
+  const channel = actor.kind === "release" ? actor.channel : null;
+  const childProof = actor.kind === "release" ? actor.child : null;
+  const childCallback = childProof?.assertCurrent;
+  const claimFile = path.join(
+    input.enrollmentStateDirectory,
+    `initial-host-claim-${intent.stepId}-${intent.generation}.json`,
+  );
+  const intentFile = path.join(
+    input.enrollmentStateDirectory,
+    `initial-host-${intent.stepId}-${intent.generation}.json`,
+  );
+  const files = retainServiceFiles([intentFile, claimFile]);
+  const bootstrap = new FileBootstrapRequestJournal(input.enrollmentStateDirectory);
+  const journal = new FileEnrollmentJournal(input.enrollmentStateDirectory);
+  let active = false;
+  const checkLocal = () => {
+    baseline.check();
+    owner.assertBinding();
+    requireMatch(
+      capturedActor.kind === actorKind &&
+        (capturedActor.kind === "release"
+          ? capturedActor.constructorHandle
+          : capturedActor.claimedHandle) === handle,
+      "Initial Host command local actor changed",
+    );
+    if (actor.kind === "release") {
+      requireMatch(
+        constructor!.state === "spawn-attempted" &&
+          constructor!.channel === channel &&
+          actor.channel === channel &&
+          actor.child === childProof &&
+          childProof!.assertCurrent === childCallback,
+        "Initial Host release requires its original attempted constructor and channel",
+      );
+      releaseProof!.check();
+    } else assertInitialHostClaimedExecution(actor.claimedHandle, claimed!.input);
+    files();
+    requireMatch(
+      isDeepStrictEqual(readPrivateBootstrapConfiguration(intentFile, executor.uid), intent) &&
+        isDeepStrictEqual(readPrivateBootstrapConfiguration(claimFile, executor.uid), claim),
+      "Initial Host command protected claim changed",
+    );
+  };
+  const reassert = () => {
+    requireMatch(active, "Initial Host command admission expired");
+    checkLocal();
+    if (actor.kind === "release") {
+      verifyInitialHostLaunchProof(input);
+      requireMatch(
+        childProof!.file === claimFile && childCallback!.call(childProof) === undefined,
+        "Initial Host release child custody must be synchronous",
+      );
+      releaseProof!.check();
+      const audited = BootstrapAuditedProcessSchema.parse(releaseProof!.snapshot.audited);
+      const launch = intent.nativeLaunch!;
+      requireMatch(
+        isDeepStrictEqual(audited.identity, claim.executor) &&
+          isDeepStrictEqual(audited.auditToken, claim.executorAuditToken) &&
+          claim.executor.parentPid === executor.pid &&
+          claim.executor.bootId === executor.bootId &&
+          claim.executor.uid === executor.uid &&
+          claim.executor.executable === launch.runtime.node.path &&
+          claim.executor.argumentsSha256 === launch.argumentsSha256,
+        "Initial Host release differs from its independently audited born child",
+      );
+    } else {
+      const original = claimed!.input;
+      requireMatch(
+        original.executor.assertCurrent() === undefined &&
+          original.artifacts.assertPreparedCurrent() === undefined,
+        "Initial Host command child custody must be synchronous",
+      );
+    }
+    requireMatch(
+      assertCommand(context) === undefined,
+      "Initial Host command custody must be synchronous",
+    );
+    checkLocal();
+    requireMatch(
+      !openBootstrapRequests(bootstrap.read()).some((request) => request.execution),
+      "Coordinator execution conflicts with initial Host command",
+    );
+    assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
+    const binding = inspectInitialHostMigrationEnrollment({ ...input, journal });
+    requireInitialHostClaimRecordBinding(binding, intent, claim, claim.executor);
+    // Final policy read follows ALL supplied callbacks. File/data checks only
+    // may run between this return and the fixed native owner's enqueue.
+    baseline.check();
+    files();
+  };
+  bootstrap.withRecoveryTransaction(() => {
+    active = true;
+    try {
+      reassert();
+      requireMatch(
+        action(context, reassert) === undefined,
+        "Initial Host command action must be synchronous",
+      );
+      reassert();
+    } finally {
+      active = false;
+    }
+  });
+}
+
 /** Consume the existing activation reservation exactly once. This writes only
  * its addressed intent; native interruption and selection remain separate,
  * unwired operations requiring their own current custody and grant checks. */
@@ -502,11 +955,26 @@ export function reserveInitialHostMigrationIntent(
   input: InitialHostMigrationIntentInput,
   files: Pick<EnrollmentWriteFiles, "open" | "write" | "sync" | "close"> = enrollmentWriteFiles,
 ) {
+  const retainedInput = retainCustodyBinding(
+    {
+      enrollmentStateDirectory: input.enrollmentStateDirectory,
+      plan: input.plan,
+      grantId: input.grantId,
+      grantRevision: input.grantRevision,
+      stepId: input.stepId,
+      generation: input.generation,
+      native: input.native,
+      artifacts: input.artifacts,
+      ...(input.nativeLaunch ? { nativeLaunch: input.nativeLaunch } : {}),
+    },
+    requireMatch,
+  );
+  input = retainedInput.snapshot;
   const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
   const directory = input.enrollmentStateDirectory;
   const bootstrap = new FileBootstrapRequestJournal(directory);
   const journal = new FileEnrollmentJournal(directory);
-  return bootstrap.withRecoveryTransaction((requests) => {
+  const retained = bootstrap.withRecoveryTransaction((requests) => {
     if (openBootstrapRequests(requests).some((request) => request.execution))
       throw new BootstrapRequestConflict(
         "Coordinator execution conflicts with initial Host migration",
@@ -514,6 +982,8 @@ export function reserveInitialHostMigrationIntent(
     assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
     const binding = inspectInitialHostMigrationEnrollment({ ...input, journal, plan });
     assertInitialHostIntentProofs(input, plan, planSha256);
+    const nativeLaunch = verifyInitialHostLaunchProof(input);
+    retainedInput.check();
     requireMatch(
       isDeepStrictEqual(
         binding,
@@ -543,6 +1013,7 @@ export function reserveInitialHostMigrationIntent(
       preconditionSha256: plan.preconditionSha256,
       observedAt: input.native.observedAt,
       createdAt: new Date().toISOString(),
+      ...(nativeLaunch ? { nativeLaunch } : {}),
     });
     const file = path.join(directory, `initial-host-${binding.stepId}-${binding.generation}.json`);
     const descriptor = files.open(
@@ -564,6 +1035,28 @@ export function reserveInitialHostMigrationIntent(
     }
     return { file, intent };
   });
+  // Neither an exclusive file nor a callback result is an election until the
+  // enclosing transaction has returned, including its lock cleanup.
+  if (!retained.intent.nativeLaunch) return { ...retained, constructorHandle: null };
+  const assertIntentFiles = retainServiceFiles([retained.file]);
+  requireMatch(
+    isDeepStrictEqual(
+      retained.intent,
+      readPrivateBootstrapConfiguration(retained.file, process.getuid!()),
+    ),
+    "Initial Host elected intent changed after synchronization",
+  );
+  assertIntentFiles();
+  const constructorHandle: InitialHostConstructorHandle = { [constructorBrand]: true };
+  constructorOwners.set(constructorHandle, {
+    input,
+    retained: structuredClone(retained),
+    assertBinding: retainedInput.check,
+    assertIntentFiles,
+    channel: null,
+    state: "elected",
+  });
+  return { ...retained, constructorHandle };
 }
 
 export function assertInitialHostIntentProofs(
@@ -597,6 +1090,10 @@ export function assertInitialHostIntentProofs(
 export function inspectInitialHostMigrationEnrollment(input: MigrationEnrollmentInput) {
   const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
   const { state, manifestSha256 } = requireMigrationGrant(input, plan);
+  requireMatch(
+    unresolvedHostContinuations(state).length === 0,
+    "Host continuation conflicts with initial Host migration",
+  );
   const { grant, activation } = state;
   const manifest = grant.manifest;
   const step = manifest.steps.find((item) => item.id === input.stepId);

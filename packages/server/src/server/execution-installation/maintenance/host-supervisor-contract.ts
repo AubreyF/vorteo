@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   BootstrapProcessIdentitySchema,
+  BootstrapAuditedProcessSchema,
   CoordinatorBootstrapPlanSchema,
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { DaemonMaintenanceProcessSchema as RuntimeProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
@@ -151,6 +152,109 @@ export function inspectInitialHostSupervisorMigrationPlan(value: unknown) {
   return { plan, planSha256: hash(plan) };
 }
 
+const launchAddressSchema = z.strictObject({
+  enrollmentStateDirectory: z.string().startsWith("/").max(4096),
+  stepId: z.uuid(),
+  generation: z.uuid(),
+});
+
+export const InitialHostPreparedLaunchDataSchema = z.strictObject({
+  version: z.literal(1),
+  approval: z.strictObject({
+    requestId: z.uuid(),
+    revision: z.uuid(),
+    planSha256: digest,
+    executionGeneration: z.uuid(),
+  }),
+  coordinator: BootstrapAuditedProcessSchema,
+  runtime: CoordinatorBootstrapPlanSchema.shape.candidate,
+  childEntrypoint: MigrationFileSchema,
+});
+export type InitialHostPreparedLaunchData = z.infer<typeof InitialHostPreparedLaunchDataSchema>;
+
+/** Late intent metadata only. Parsing establishes no native custody or approval. */
+export const InitialHostNativeLaunchBindingSchema = InitialHostPreparedLaunchDataSchema.extend({
+  address: launchAddressSchema,
+  argv: z.tuple([
+    z.string().startsWith("/"),
+    z.string().startsWith("/"),
+    z.literal("--initial-host-child"),
+    z.string().startsWith("/"),
+    z.uuid(),
+    z.uuid(),
+  ]),
+  argumentsSha256: digest,
+  cwd: z.string().startsWith("/"),
+  env: z.strictObject({ PATH: z.literal("/usr/bin:/bin") }),
+  stdio: z.tuple([z.literal("ignore"), z.literal("pipe"), z.literal("pipe"), z.literal("pipe")]),
+  gate: z.strictObject({ fd: z.literal(3), protocol: z.literal("byte-1-then-eof-v1") }),
+  notice: z.strictObject({
+    fd: z.literal(1),
+    protocol: z.literal("uint32be-json-v1"),
+    maxBytes: z.literal(4096),
+  }),
+});
+export type InitialHostNativeLaunchBinding = z.infer<typeof InitialHostNativeLaunchBindingSchema>;
+
+/** Build detached fixed selectors only after the actual reservation exists.
+ * This invokes no callback, reads no file and creates no launch authority. */
+export function initialHostNativeLaunchBinding(input: {
+  prepared: unknown;
+  address: unknown;
+}): InitialHostNativeLaunchBinding {
+  const prepared = InitialHostPreparedLaunchDataSchema.parse(input.prepared);
+  const address = launchAddressSchema.parse(input.address);
+  const directory = prepared.runtime.directory;
+  requireMatch(
+    directory !== "/" &&
+      path.normalize(directory) === directory &&
+      path.normalize(address.enrollmentStateDirectory) === address.enrollmentStateDirectory &&
+      address.enrollmentStateDirectory !== "/" &&
+      prepared.childEntrypoint.path ===
+        path.join(
+          directory,
+          "packages/server/dist/server/server/execution-installation/maintenance/host-supervisor-native-child.js",
+        ) &&
+      prepared.coordinator.identity.executable === prepared.runtime.node.path,
+    "Initial Host launch changed its fixed runtime or address",
+  );
+  const argv = [
+    prepared.runtime.node.path,
+    prepared.childEntrypoint.path,
+    "--initial-host-child",
+    address.enrollmentStateDirectory,
+    address.stepId,
+    address.generation,
+  ];
+  return InitialHostNativeLaunchBindingSchema.parse({
+    ...prepared,
+    address,
+    argv,
+    argumentsSha256: hash(argv),
+    cwd: directory,
+    env: { PATH: "/usr/bin:/bin" },
+    stdio: ["ignore", "pipe", "pipe", "pipe"],
+    gate: { fd: 3, protocol: "byte-1-then-eof-v1" },
+    notice: { fd: 1, protocol: "uint32be-json-v1", maxBytes: 4096 },
+  });
+}
+
+/** Validate every derived selector against this exact generation. The caller
+ * must separately establish the approved runtime and actual native identities. */
+export function inspectInitialHostNativeLaunchBinding(value: unknown, address: unknown) {
+  const binding = InitialHostNativeLaunchBindingSchema.parse(value);
+  const { version, approval, coordinator, runtime, childEntrypoint } = binding;
+  const canonical = initialHostNativeLaunchBinding({
+    prepared: { version, approval, coordinator, runtime, childEntrypoint },
+    address,
+  });
+  requireMatch(
+    isDeepStrictEqual(binding, canonical),
+    "Initial Host launch selectors differ from the reserved generation",
+  );
+  return canonical;
+}
+
 export const InitialHostMigrationIntentSchema = z.strictObject({
   version: z.literal(1),
   id: z.string().uuid(),
@@ -165,6 +269,7 @@ export const InitialHostMigrationIntentSchema = z.strictObject({
   preconditionSha256: digest,
   observedAt: z.iso.datetime(),
   createdAt: z.iso.datetime(),
+  nativeLaunch: InitialHostNativeLaunchBindingSchema.optional(),
 });
 
 export const InitialHostMigrationClaimSchema = z.strictObject({
@@ -176,6 +281,7 @@ export const InitialHostMigrationClaimSchema = z.strictObject({
   generation: z.uuid(),
   planSha256: digest,
   executor: BootstrapProcessIdentitySchema,
+  executorAuditToken: BootstrapAuditedProcessSchema.shape.auditToken.optional(),
   consumedAt: z.iso.datetime(),
 });
 

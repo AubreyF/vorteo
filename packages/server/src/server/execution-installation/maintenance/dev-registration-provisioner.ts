@@ -1,5 +1,6 @@
 import { DEV_REGISTRATION_NATIVE_PRIMITIVES } from "./dev-registration-native-primitives.js";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import { z } from "zod";
 import { DevStartupSchema } from "./dev-registration.js";
@@ -80,11 +81,23 @@ export const DevRegistrationProvisionerInputSchema = z.strictObject({
   hostReceiptFile: absolute,
   /** Existing read-only audited bootstrap inspector; no native resolver is supplied. */
   hostInspector: sourceFile.refine((file) => file.size <= 1024 * 1024),
-  docker: z.strictObject({
-    path: absolute,
-    socket: absolute,
-    containerId: z.string().regex(/^[a-f0-9]{64}$/),
-  }),
+  docker: z
+    .strictObject({
+      path: absolute,
+      socket: absolute,
+      containerId: z.string().regex(/^[a-f0-9]{64}$/),
+      sha256: digest.optional(),
+      size: z
+        .number()
+        .int()
+        .positive()
+        .max(256 * 1024 * 1024)
+        .optional(),
+    })
+    .refine(
+      (docker) => (docker.sha256 === undefined) === (docker.size === undefined),
+      "Docker digest and size must both be present or absent",
+    ),
   startup: DevStartupSchema,
   account: z.strictObject({
     user: z.string().regex(/^[a-z_][a-z0-9_-]*$/),
@@ -262,6 +275,35 @@ export function prepareDevRegistrationProvisioner(
   value: unknown,
 ): PreparedDevRegistrationProvisioner {
   const input = DevRegistrationProvisionerInputSchema.parse(value);
+  assertDevRegistrationDockerPin(input.docker);
+  return prepareRetainedProvisioner(input);
+}
+
+/** Historical parsing never approves or supplies missing executable pins. */
+export function assertDevRegistrationDockerPin(docker: ProvisionerInput["docker"]): void {
+  sourceFile
+    .extend({
+      size: z
+        .number()
+        .int()
+        .positive()
+        .max(256 * 1024 * 1024),
+    })
+    .parse({ path: docker.path, sha256: docker.sha256, size: docker.size });
+}
+
+/** Verification only: no regenerated script is returned as fresh authority.
+ * Pinless v682 attempts keep their exact plan, scripts and uncertainty fence. */
+export function verifyRetainedDevRegistrationProvisioner(
+  value: PreparedDevRegistrationProvisioner,
+): void {
+  const retained = structuredClone(value);
+  const input = DevRegistrationProvisionerInputSchema.strip().parse(retained.plan);
+  if (!isDeepStrictEqual(prepareRetainedProvisioner(input), retained))
+    throw new Error("Registration artifact differs from the exact fixed preparer");
+}
+
+function prepareRetainedProvisioner(input: ProvisionerInput): PreparedDevRegistrationProvisioner {
   if (
     input.originalLinuxArtifact.arch !== input.node.arch ||
     input.factoryRuntime.path !== input.originalFactoryRuntime ||
@@ -337,11 +379,40 @@ try {
 } finally { fs.closeSync(3); }
 `;
 
-function hostScript(input: {
+interface HostScriptInput {
   plan: ReturnType<typeof provisioningPlan>;
   planSha256: string;
   operation: "replace" | "rollback";
-}): string {
+}
+function hostScript(input: HostScriptInput): string {
+  const historical = historicalHostScriptV682(input);
+  if (input.plan.docker.sha256 === undefined) return historical;
+  // Retain the old generator verbatim for historical verification. New bytes
+  // commit the reviewed pin before enrollment and verify it before each command.
+  const pinned = replaceExactly(
+    historical,
+    "const prefix=['--host','unix://'+plan.docker.socket];",
+    `function verifyDocker(){
+ const bytes=protectedFile(plan.docker.path,256*1024*1024);
+ check(bytes.length===plan.docker.size&&hash(bytes)===plan.docker.sha256,'Reviewed Docker executable differs');
+}
+const prefix=['--host','unix://'+plan.docker.socket];`,
+  );
+  const checked = replaceExactly(
+    pinned,
+    "const docker=args=>execFileSync(plan.docker.path,[...prefix,...args],{timeout:10000,maxBuffer:1024*1024,encoding:'utf8'});",
+    "const docker=args=>{verifyDocker();return execFileSync(plan.docker.path,[...prefix,...args],{timeout:10000,maxBuffer:1024*1024,encoding:'utf8'});};",
+  );
+  return replaceExactly(
+    checked,
+    "const result=JSON.parse(execFileSync(plan.docker.path,",
+    "verifyDocker();\nconst result=JSON.parse(execFileSync(plan.docker.path,",
+  );
+}
+
+// This v682 template also defines historical rollback bytes. Do not add new
+// policy here: changes belong only to the pinned generator above.
+function historicalHostScriptV682(input: HostScriptInput): string {
   return `${DEV_REGISTRATION_GATE_PREFIX}import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 import {createHash} from 'node:crypto';

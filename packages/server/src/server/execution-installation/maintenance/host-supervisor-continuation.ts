@@ -1,3 +1,4 @@
+import { retainCustodyBinding, retainCustodyProof } from "../retained-custody-binding.js";
 import { createHash } from "node:crypto";
 import {
   constants,
@@ -115,60 +116,12 @@ function synchronous(action: () => void) {
   requireProof(action() === undefined, "proof must be synchronous");
 }
 
-/** Detached data and original function references are captured ONCE. JSON hashes
- * cannot retain callback identity, and recapturing would accept later mutation. */
-function copyBinding<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  if (Buffer.isBuffer(value)) return Buffer.from(value) as T;
-  if (value instanceof Uint8Array) return new Uint8Array(value) as T;
-  requireProof(
-    Array.isArray(value) ||
-      Object.getPrototypeOf(value) === Object.prototype ||
-      Object.getPrototypeOf(value) === null,
-    "custody binding must contain plain data",
-  );
-  const result = (Array.isArray(value) ? [] : {}) as Record<PropertyKey, unknown>;
-  for (const key of Reflect.ownKeys(value)) {
-    if (Array.isArray(value) && key === "length") continue;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-    requireProof("value" in descriptor && descriptor.enumerable, "custody binding has an accessor");
-    Object.defineProperty(result, key, {
-      value: copyBinding(descriptor.value),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
-  return result as T;
-}
+/** Detached data and original callbacks share the initial-launch custody checks. */
 export function retainBinding<T>(source: T) {
-  // Keep the comparison baseline private. Callback receivers and consumers get
-  // a second copy, so they cannot rewrite the baseline through `this`.
-  const captured = copyBinding(source);
-  const snapshot = copyBinding(captured);
-  return {
-    snapshot,
-    check: () =>
-      requireProof(
-        isDeepStrictEqual(copyBinding(source), captured) &&
-          isDeepStrictEqual(copyBinding(snapshot), captured),
-        "retained binding changed",
-      ),
-  };
+  return retainCustodyBinding(source, requireProof);
 }
 export function retainProof<T extends { assertCurrent(): void }>(source: T) {
-  const binding = retainBinding(source);
-  const callback = source.assertCurrent;
-  requireProof(typeof callback === "function", "custody callback is absent");
-  return {
-    data: binding.snapshot,
-    check: binding.check,
-    assertCurrent() {
-      binding.check();
-      synchronous(() => callback.call(source));
-      binding.check();
-    },
-  };
+  return retainCustodyProof(source, requireProof);
 }
 
 export function boundedRead<T>(read: (signal: AbortSignal) => Promise<T>, detail: string) {

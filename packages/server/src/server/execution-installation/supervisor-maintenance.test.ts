@@ -463,3 +463,33 @@ test("gated supervisor pending stream write returns only a local queue attempt",
   });
   expect(() => f.arrangement.invoke(f.consumed(proof), proof)).toThrow("already attempted");
 });
+
+test("gated supervisor extraction preserves preflight refusal before any process attempt", async () => {
+  const f = gatedFixture();
+  f.preflight.assertCurrent = () => {
+    throw Error("Admission unavailable");
+  };
+  await expect(f.arrangement.launch(f.reservation, f.preflight)).rejects.toThrow(
+    "Admission unavailable",
+  );
+  expect(f.spawnChild).not.toHaveBeenCalled();
+  expect(f.writes).toEqual([]);
+  expect(f.arrangement.snapshot()).toMatchObject({
+    launchAttempted: true,
+    spawnObserved: false,
+    pid: null,
+    errors: ["launch"],
+  });
+});
+
+test("gated supervisor extraction cannot release with a reconstructed child proof", async () => {
+  const f = gatedFixture();
+  const original = await f.arrangement.launch(f.reservation, f.preflight);
+  const copied = { claim: structuredClone(original.claim), assertCurrent: original.assertCurrent };
+  expect(() => f.arrangement.invoke(f.consumed(original), copied)).toThrow(
+    "retained consumed child",
+  );
+  expect(f.writes).toEqual([]);
+  expect(f.arrangement.snapshot().releaseAttempted).toBe(true);
+  expect(() => f.arrangement.invoke(f.consumed(original), original)).toThrow("already attempted");
+});

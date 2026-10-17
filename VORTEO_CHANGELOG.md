@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.683 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host launch arrangements to the approved coordinator runtime and actual reserved generation. Mint local constructor and child handles only after exclusive intent or claim synchronization; burn construction before spawn and require the original active child span for effects. Historical records remain observation-only.
+- Replace initial Host asynchronous command dispatch with separate durable interruption, retirement and bootstrap queue attempts under fresh locked admission. Keep original-incumbent scope distinct from the sealed fallback, retain native owner and proof callbacks, and require exact bootstrap evidence before modern candidate observation. Queueing proves neither delivery nor workload closure; production native owners remain unavailable.
+- Share retained child, descriptor-gate and bounded-output mechanics with the Dev launcher while preserving its registration authority checks. Add a fixed read-only Host invoker for protected Dev root-exit observation, with approved runtime membership, exact Host-child exit, endpoint and container custody, bounded reads and retained local I/O ownership. It supplies no workload settlement or readiness proof.
+- Require reviewed Docker executable bytes and size for new Dev registration preparation and fresh replacement or rollback. Preserve exact historical scripts for verification and route retained effects to observation without repinning. Native transport, final root admission, workload settlement and installed activation remain unfinished; no capability is enabled.
+
 ## 0.11.0-beta.3.vorteo.682 - 2026-10-17
 
 ### Maintenance

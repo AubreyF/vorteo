@@ -83,7 +83,13 @@ function staticInput() {
     },
     configurationFile: "/host/coordinator.json",
     hostReceiptFile: "/host/dev-registration.json",
-    docker: { path: "/host/docker", socket: "/host/docker.sock", containerId: "5".repeat(64) },
+    docker: {
+      path: "/host/docker",
+      socket: "/host/docker.sock",
+      containerId: "5".repeat(64),
+      sha256: hash("reviewed fixture docker"),
+      size: Buffer.byteLength("reviewed fixture docker"),
+    },
     startup: {
       path: "/usr/bin/tini",
       args: ["--", "/bin/bash", "/opt/personal-tailscale/entrypoint"],

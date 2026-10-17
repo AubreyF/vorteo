@@ -1,8 +1,7 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { createRetainedNativeChild, type NativeGatedChildSpawn } from "./native-gated-child.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { Writable } from "node:stream";
 import {
   SupervisorEffectSchema,
   SupervisorEffectExecutorSchema,
@@ -38,9 +37,7 @@ export interface GatedSupervisorMaintenanceInput {
   attestChild(pid: number): Promise<GatedSupervisorChildAttestation>;
   now(): string;
 }
-export interface GatedSupervisorSpawn {
-  (file: string, argv: string[], options: SpawnOptions): ChildProcess;
-}
+export type GatedSupervisorSpawn = NativeGatedChildSpawn;
 
 function gatedRequire(ok: boolean, message: string): asserts ok {
   if (!ok) throw new BootstrapRequestConflict(message);
@@ -102,36 +99,20 @@ function verifyGatedSupervisorChild({
  * root dispatch, retry or legacy-runner fallback is provided here. */
 export function createGatedSupervisorMaintenance(
   input: GatedSupervisorMaintenanceInput,
-  spawnChild: GatedSupervisorSpawn = spawn,
+  spawnChild?: GatedSupervisorSpawn,
 ) {
   const plan = structuredClone(input.plan),
     job = structuredClone(input.job);
   const host = structuredClone(hostProofData(input.host));
   const hostAssert = input.host.assertCurrent;
   let launchAttempted = false,
-    releaseAttempted = false,
-    spawnObserved = false;
-  let childExited = false,
-    childClosed = false,
-    queueCallback = false,
-    gateClosed = false,
-    gateFinished = false;
-  let childProcess: ChildProcess | null = null,
-    gateWriter: Writable | null = null;
+    releaseAttempted = false;
+  let child: ReturnType<typeof createRetainedNativeChild> | null = null;
   let retainedProof: DevRegistrationExecutionChildProof | null = null;
   let retainedReservation: SupervisorEffect | null = null;
   let retainedChild: SupervisorEffectChild | null = null;
   let retainedCheck: (() => void) | null = null;
   const errors = new Set<string>();
-  const output = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-  const truncated = { stdout: false, stderr: false };
-  function retainOutput(kind: "stdout" | "stderr", bytes: Buffer | string) {
-    const data = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-    const available = 8192 - output[kind].length;
-    if (data.length > available) truncated[kind] = true;
-    if (available > 0) output[kind] = Buffer.concat([output[kind], data.subarray(0, available)]);
-    // Keep the data listener installed after the retained prefix is full.
-  }
   function assertStatic() {
     gatedRequire(
       isDeepStrictEqual(input.plan, plan) &&
@@ -143,19 +124,10 @@ export function createGatedSupervisorMaintenance(
   }
   function assertLocalChild() {
     gatedRequire(
-      childProcess !== null &&
-        childProcess.pid !== undefined &&
-        spawnObserved &&
-        !childExited &&
-        !childClosed &&
-        !gateClosed &&
-        !gateFinished &&
-        errors.size === 0 &&
-        gateWriter !== null &&
-        !gateWriter.destroyed &&
-        !gateWriter.writableEnded,
+      child !== null && errors.size === 0,
       "Retained gated supervisor child is unavailable",
     );
+    child.assertLocalCurrent();
   }
   return {
     async launch(
@@ -211,57 +183,23 @@ export function createGatedSupervisorMaintenance(
           "Gated supervisor requires the exact whole gated script",
         );
         const argv = ["--input-type=module", "--eval", script.toString("utf8")];
-        childProcess = spawnChild(plan.node, argv, {
-          stdio: ["ignore", "pipe", "pipe", "pipe"],
-          env: {
-            PATH: "/usr/bin:/bin",
-            VORTEO_RESTART_JOB_ID: job.id,
-            VORTEO_RESTART_FORCE: job.whenIdle ? "0" : "1",
+        child = createRetainedNativeChild(
+          {
+            file: plan.node,
+            argv,
+            env: {
+              PATH: "/usr/bin:/bin",
+              VORTEO_RESTART_JOB_ID: job.id,
+              VORTEO_RESTART_FORCE: job.whenIdle ? "0" : "1",
+            },
           },
-        });
-        const actualChild = childProcess;
-        const spawned = new Promise<void>((resolve, reject) => {
-          actualChild.once("spawn", () => {
-            spawnObserved = true;
-            resolve();
-          });
-          actualChild.on("error", () => {
-            errors.add("child");
-            reject(new BootstrapRequestConflict("Gated supervisor spawn is unconfirmed"));
-          });
-          actualChild.on("exit", () => {
-            childExited = true;
-            reject(new BootstrapRequestConflict("Gated supervisor exited before attestation"));
-          });
-          actualChild.on("close", () => {
-            childClosed = true;
-            reject(new BootstrapRequestConflict("Gated supervisor closed before attestation"));
-          });
-        });
-        for (const kind of ["stdout", "stderr"] as const) {
-          actualChild[kind]?.on("data", (bytes: Buffer | string) => retainOutput(kind, bytes));
-          actualChild[kind]?.on("error", () => {
-            errors.add(kind);
-          });
-        }
-        const writer = actualChild.stdio[3];
-        if (writer instanceof Writable) {
-          gateWriter = writer;
-          writer.on("close", () => {
-            gateClosed = true;
-          });
-          writer.on("finish", () => {
-            gateFinished = true;
-          });
-          writer.on("error", () => {
-            errors.add("gate");
-          });
-        }
-        await spawned;
+          spawnChild,
+        );
+        const actualChild = child;
+        actualChild.attemptSpawn();
+        const { pid: actualPid } = await actualChild.waitForSpawn();
         assertInputs();
         assertLocalChild();
-        const actualPid = actualChild.pid;
-        gatedRequire(actualPid !== undefined, "Gated supervisor has no actual child PID");
         const attestation = await input.attestChild(actualPid);
         const executor = SupervisorEffectExecutorSchema.parse(attestation.executor);
         const attestationAssert = attestation.assertCurrent;
@@ -299,7 +237,7 @@ export function createGatedSupervisorMaintenance(
             assertCustody();
             assertLocalChild();
             gatedRequire(
-              actualChild.pid === executor.pid && childProcess === actualChild,
+              actualChild.snapshot().pid === executor.pid && child === actualChild,
               "Gated supervisor retained handle changed",
             );
           },
@@ -339,35 +277,39 @@ export function createGatedSupervisorMaintenance(
         isDeepStrictEqual(effect, savedEffect) && isDeepStrictEqual(proof.claim, savedEffect.child),
         "Gated supervisor consumed authority changed before queueing",
       );
-      const writer = gateWriter;
-      gatedRequire(writer !== null, "Gated supervisor writer is absent");
-      try {
-        writer.end(Buffer.from([1]), (error?: Error | null) => {
-          queueCallback = true;
-          if (error) errors.add("queue");
-        });
-      } catch (error) {
-        errors.add("queue");
-        throw error;
-      }
+      gatedRequire(child !== null, "Gated supervisor writer is absent");
+      child.queueRelease();
     },
     /** Local evidence only. Never synthesizes native exit or workload settlement. */
     snapshot() {
+      const local = child?.snapshot() ?? {
+        spawnObserved: false,
+        childExited: false,
+        childClosed: false,
+        queueCallback: false,
+        gateClosed: false,
+        gateFinished: false,
+        pid: null,
+        errors: [],
+        stdout: "",
+        stderr: "",
+        truncated: { stdout: false, stderr: false },
+      };
       return {
         launchAttempted,
         releaseAttempted,
-        spawnObserved,
-        childExited,
-        childClosed,
-        queueCallback,
-        gateClosed,
-        gateFinished,
-        pid: childProcess?.pid ?? null,
+        spawnObserved: local.spawnObserved,
+        childExited: local.childExited,
+        childClosed: local.childClosed,
+        queueCallback: local.queueCallback,
+        gateClosed: local.gateClosed,
+        gateFinished: local.gateFinished,
+        pid: local.pid,
         child: retainedChild ? structuredClone(retainedChild) : null,
-        errors: [...errors],
-        stdout: output.stdout.toString("utf8"),
-        stderr: output.stderr.toString("utf8"),
-        truncated: { ...truncated },
+        errors: [...local.errors, ...errors],
+        stdout: local.stdout,
+        stderr: local.stderr,
+        truncated: local.truncated,
         delivery: "unknown" as const,
       };
     },

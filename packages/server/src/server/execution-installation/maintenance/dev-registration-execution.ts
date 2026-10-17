@@ -42,8 +42,8 @@ import {
   publishDevRegistration,
 } from "./dev-registration.js";
 import {
-  prepareDevRegistrationProvisioner,
-  DevRegistrationProvisionerInputSchema,
+  verifyRetainedDevRegistrationProvisioner,
+  assertDevRegistrationDockerPin,
   type PreparedDevRegistrationProvisioner,
 } from "./dev-registration-provisioner.js";
 import { DaemonMaintenanceProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
@@ -301,11 +301,7 @@ function captureCandidate(value: DevRegistrationExecutionCandidate) {
   candidate.publication.configurationBytes = Buffer.from(value.publication.configurationBytes);
   const { provisioner, publication } = candidate;
   const plan = provisioner.plan;
-  const staticInput = DevRegistrationProvisionerInputSchema.strip().parse(plan);
-  requireMatch(
-    isDeepStrictEqual(prepareDevRegistrationProvisioner(staticInput), provisioner),
-    "Registration artifact differs from the exact fixed preparer",
-  );
+  verifyRetainedDevRegistrationProvisioner(provisioner);
   publication.config = InstallationConfigSchema.parse(publication.config);
   publication.receipt = DevRegistrationReceiptSchema.parse(publication.receipt);
   requireMatch(
@@ -763,6 +759,9 @@ export async function executeDevRegistration(
     journal = new FileBootstrapRequestJournal(input.directory);
   const initial = request(journal.readLifecycle(), input.requestId);
   if (initial.supervisorEffect) return observeDevRegistrationExecution({ ...input, candidate });
+  // Every retained effect, including unresolved reservations, is observation-only.
+  // A historical verifier cannot make a pinless replacement or rollback fresh.
+  assertDevRegistrationDockerPin(candidate.provisioner.plan.docker);
   const proof = await input.ports.preflight(structuredClone(initial), structuredClone(candidate));
   const reserved: SupervisorEffect = {
     binding: makeBinding(

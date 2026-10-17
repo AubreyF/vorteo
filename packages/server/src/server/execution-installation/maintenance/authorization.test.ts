@@ -1,4 +1,8 @@
 import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
+import {
+  initialHostNativeLaunchBinding,
+  inspectInitialHostNativeLaunchBinding,
+} from "./host-supervisor-contract.js";
 import { attemptHostContinuationCommand } from "./host-supervisor-command-admission.js";
 import {
   assertMaintenanceEnrollmentClaim,
@@ -13,6 +17,7 @@ import {
 import {
   executeInitialHostMigrationTransition,
   observeInitialHostMigrationTransition,
+  readInitialHostRetainedClaim,
   inspectInitialHostCandidatePublication,
 } from "./host-supervisor-execution.js";
 import { digestBootstrapArtifact } from "../coordinator-bootstrap-artifact.js";
@@ -29,10 +34,18 @@ import {
   inspectInitialHostSupervisorMigrationPlan,
   inspectInitialHostMigrationEnrollment,
   reserveInitialHostMigrationIntent,
+  attemptInitialHostConstruction,
+  withInitialHostClaimedExecution,
+  withInitialHostCommandAdmission,
   claimInitialHostMigration,
   publishInitialHostMigrationSelection,
   verifyInitialHostMigrationLaunchers,
 } from "./host-supervisor-migration.js";
+import {
+  initialHostCommandScope,
+  initialHostCommandPaths,
+} from "./host-supervisor-initial-command-admission.js";
+
 import type { LifecycleJob } from "../lifecycle-journal.js";
 import {
   approveServiceJob,
@@ -5264,19 +5277,54 @@ function initialHostIntentFixture(preparePlan?: Parameters<typeof initialHostPla
   };
 }
 
-function initialHostClaimFixture(preparePlan?: Parameters<typeof initialHostPlanFixture>[0]) {
-  const f = initialHostIntentFixture(preparePlan);
-  const retained = reserveInitialHostMigrationIntent(f.intentInput);
-  const executor = {
-    process: {
-      ...f.plan.precondition.supervisor,
-      pid: process.pid,
-      parentPid: process.ppid,
-      executable: process.execPath,
-      startIdentity: "200:1",
+function seedInitialHostChildArrangement(
+  retained: ReturnType<typeof reserveInitialHostMigrationIntent>,
+  input: ReturnType<typeof initialHostIntentFixture>["intentInput"],
+) {
+  const prepared = initialHostLaunchDataFixture().prepared;
+  prepared.coordinator.identity = {
+    ...prepared.coordinator.identity,
+    pid: process.ppid,
+    parentPid: 1,
+    uid: process.getuid!(),
+    bootId: input.plan.precondition.supervisor.bootId,
+    executable: process.execPath,
+  };
+  prepared.runtime.node.path = process.execPath;
+  // This is a synthetic born-child fixture. It seeds the protected parent
+  // intent rather than pretending this test process spawned itself.
+  const binding = initialHostNativeLaunchBinding({
+    prepared,
+    address: {
+      enrollmentStateDirectory: input.enrollmentStateDirectory,
+      stepId: input.stepId,
+      generation: input.generation,
+    },
+  });
+  retained.intent.nativeLaunch = binding;
+  writeFileSync(retained.file, JSON.stringify(retained.intent));
+  const identity = {
+    ...input.plan.precondition.supervisor,
+    pid: process.pid,
+    parentPid: process.ppid,
+    executable: process.execPath,
+    startIdentity: "200:1",
+    argumentsSha256: binding.argumentsSha256,
+  };
+  return {
+    process: identity,
+    audited: {
+      identity: structuredClone(identity),
+      auditToken: [0, identity.uid, 0, identity.uid, 0, process.pid, 1, 1],
     },
     assertCurrent: vi.fn(() => undefined),
   };
+}
+
+function initialHostClaimFixture(preparePlan?: Parameters<typeof initialHostPlanFixture>[0]) {
+  const f = initialHostIntentFixture(preparePlan);
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  const executor = seedInitialHostChildArrangement(retained, f.intentInput);
   return { ...f, retained, executor, claimInput: { ...f.intentInput, executor } };
 }
 
@@ -5303,10 +5351,21 @@ function initialHostActivationFixture() {
     stateDirectory: f.directory,
     installationId: f.plan.installationId,
   };
+  const launchData = initialHostLaunchDataFixture().prepared;
+  launchData.runtime.node.path = process.execPath;
+  launchData.coordinator.identity = {
+    ...launchData.coordinator.identity,
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    executable: process.execPath,
+    bootId: f.plan.precondition.supervisor.bootId,
+  };
   const prepared = {
     native: f.native,
     artifacts: f.artifacts,
     assertCurrent: vi.fn(() => undefined),
+    nativeLaunch: { prepared: launchData, assertCurrent: vi.fn(() => undefined) },
     launch: vi.fn(async () => undefined),
   };
   const ports = { prepare: vi.fn(async () => prepared), observe: vi.fn(async () => undefined) };
@@ -5422,15 +5481,27 @@ test("Host activation parent observes a claimed generation after lost reply and 
     claimInitialHostMigration({
       ...f.intentInput,
       generation: reserved.generation,
-      executor: {
-        process: {
-          ...f.plan.precondition.supervisor,
-          pid: process.pid,
-          parentPid: process.ppid,
-          executable: process.execPath,
+      executor: seedInitialHostChildArrangement(
+        {
+          file: path.join(
+            f.directory,
+            `initial-host-${f.intentInput.stepId}-${reserved.generation}.json`,
+          ),
+          intent: InitialHostMigrationIntentSchema.parse(
+            JSON.parse(
+              readFileSync(
+                path.join(
+                  f.directory,
+                  `initial-host-${f.intentInput.stepId}-${reserved.generation}.json`,
+                ),
+                "utf8",
+              ),
+            ),
+          ),
+          constructorHandle: null,
         },
-        assertCurrent() {},
-      },
+        { ...f.intentInput, generation: reserved.generation },
+      ),
     });
     throw new Error("injected lost launch reply");
   });
@@ -6074,9 +6145,29 @@ function initialHostPublicationFixture() {
   };
 }
 
+function publishInitialHostFixture(
+  f: ReturnType<typeof initialHostPublicationFixture>,
+  input = f.publication,
+) {
+  return withInitialHostClaimedExecution(f.claim.claimedHandle, () =>
+    publishInitialHostMigrationSelection(input, f.claim.claimedHandle),
+  );
+}
+
+async function runInitialHostFixture(f: ReturnType<typeof initialHostTransitionFixture>) {
+  const claimed = claimInitialHostMigration(f.claimInput);
+  return executeInitialHostMigrationTransition(f.claimInput, f.ports, claimed.claimedHandle);
+}
+
 function initialHostTransitionFixture() {
   const f = initialHostPreparedClaimFixture();
   const commands: string[][] = [];
+  const queued: string[] = [];
+  const command: { run(args: readonly string[]): Promise<void> } = {
+    run: vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+    }),
+  };
   const absence = {
     identitySha256: f.plan.identitySha256,
     preconditionSha256: f.plan.preconditionSha256,
@@ -6093,18 +6184,52 @@ function initialHostTransitionFixture() {
       }),
       verifyServiceAbsent: vi.fn(async () => undefined),
     },
-    interrupt: vi.fn(async (context) => ({
+    collectInterruption: vi.fn(async (context) => ({
       claimSha256: createHash("sha256").update(JSON.stringify(context.claim)).digest("hex"),
       planSha256: f.artifacts.planSha256,
       interruption: f.plan.interruption,
       assertCurrent: vi.fn(() => undefined),
     })),
-    collectRetirement: vi.fn(async () => ({ status: "present", native: f.native })),
+    collectRetirement: vi.fn(async () => ({
+      status: "present",
+      native: { ...f.native, observedAt: new Date().toISOString() },
+    })),
     collectAbsence: vi.fn(async () => absence),
-    command: {
-      run: vi.fn(async (args) => {
-        commands.push([...args]);
-      }),
+    commandOwner(operation, context, fence) {
+      const identity = f.plan.precondition.identity;
+      const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+      return {
+        operation,
+        executor: context.claim.executor,
+        command: {
+          operation,
+          service,
+          ...(operation === "interruption" ? { interruption: f.plan.interruption } : {}),
+        },
+        channel: { operation },
+        channelIdentity: { inert: true, operation },
+        scope: initialHostCommandScope(
+          {
+            ...context,
+            enrollmentStateDirectory: f.directory,
+            executor: context.claim.executor,
+            actor: "child",
+          },
+          operation,
+        ),
+        fence,
+        assertCurrent() {},
+        enqueue() {
+          queued.push(operation);
+        },
+      };
+    },
+    async observeCompletion(operation) {
+      const identity = f.plan.precondition.identity;
+      if (operation === "retirement")
+        await command.run(["bootout", `${identity.serviceDomain}/${identity.serviceLabel}`]);
+      if (operation === "bootstrap")
+        await command.run(["bootstrap", identity.serviceDomain, identity.launcherPath]);
     },
     readCandidate: vi.fn(async () => {
       const now = Date.now();
@@ -6124,7 +6249,7 @@ function initialHostTransitionFixture() {
       };
     }),
   };
-  return { ...f, ports, absence, commands };
+  return { ...f, ports, absence, commands, command, queued };
 }
 
 function hostTransitionObserver(f: ReturnType<typeof initialHostTransitionFixture>) {
@@ -6153,13 +6278,11 @@ function hostTransitionObserver(f: ReturnType<typeof initialHostTransitionFixtur
 
 test("initial Host observation settles lost bootstrap reply after revocation without another effect", async () => {
   const f = initialHostTransitionFixture();
-  f.ports.command!.run = async (args) => {
+  f.command.run = async (args) => {
     f.commands.push([...args]);
     if (args[0] === "bootstrap") throw new Error("Lost bootstrap reply");
   };
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
-    /Lost bootstrap reply/,
-  );
+  await expect(runInitialHostFixture(f)).rejects.toThrow(/Lost bootstrap reply/);
   changeStandingGrant(f.journal, {
     expectedRevision: f.input.grantRevision,
     paused: false,
@@ -6182,12 +6305,10 @@ test("initial Host observation settles lost bootstrap reply after revocation wit
 
 test("initial Host observation refuses live executor before collecting candidate files", async () => {
   const f = initialHostTransitionFixture();
-  f.ports.command!.run = async (args) => {
+  f.command.run = async (args) => {
     if (args[0] === "bootstrap") throw new Error("Uncertain bootstrap");
   };
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
-    /Uncertain bootstrap/,
-  );
+  await expect(runInitialHostFixture(f)).rejects.toThrow(/Uncertain bootstrap/);
   const observer = hostTransitionObserver(f);
   observer.ports.reader.verifyProcessExited = async () => {
     throw new Error("Still live");
@@ -6201,12 +6322,10 @@ test("initial Host observation refuses live executor before collecting candidate
 
 test("initial Host observation refuses a collector substituting the retained plan", async () => {
   const f = initialHostTransitionFixture();
-  f.ports.command!.run = async (args) => {
+  f.command.run = async (args) => {
     if (args[0] === "bootstrap") throw new Error("Uncertain bootstrap");
   };
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
-    /Uncertain bootstrap/,
-  );
+  await expect(runInitialHostFixture(f)).rejects.toThrow(/Uncertain bootstrap/);
   const observer = hostTransitionObserver(f);
   const collect = observer.ports.collectCandidate;
   observer.ports.collectCandidate = vi.fn(async (context: unknown, signal: AbortSignal) => {
@@ -6224,11 +6343,11 @@ test("initial Host observation refuses a collector substituting the retained pla
 
 test("initial Host transition records one claimed stop/publication/start and exact candidate", async () => {
   const f = initialHostTransitionFixture();
-  const result = await executeInitialHostMigrationTransition(f.claimInput, f.ports);
+  const result = await runInitialHostFixture(f);
   expect(f.commands.map((args) => args[0])).toEqual(["bootout", "bootstrap"]);
   expect(result.record.worker.pid).toBe(902);
   expect(enrolled(f.journal.readPolicySnapshot()).activation.steps[1].status).toBe("succeeded");
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow();
+  await expect(runInitialHostFixture(f)).rejects.toThrow();
   expect(f.commands).toHaveLength(2);
 });
 
@@ -6237,7 +6356,7 @@ test("initial Host retirement retries native uncertainty after one bootout", asy
   const verify = vi.fn(async () => undefined);
   verify.mockRejectedValueOnce(new Error("Process is still exiting"));
   f.ports.reader.verifyProcessExited = verify;
-  const result = await executeInitialHostMigrationTransition(f.claimInput, f.ports);
+  const result = await runInitialHostFixture(f);
   expect(result.record.worker.pid).toBe(902);
   expect(verify.mock.calls.length).toBeGreaterThan(2);
   expect(f.commands.map((args) => args[0])).toEqual(["bootout", "bootstrap"]);
@@ -6251,7 +6370,7 @@ test("initial Host unresolved retirement stops at its budget without publication
   const launcher = readFileSync(f.plan.precondition.launcher.path);
   vi.useFakeTimers();
   try {
-    const result = executeInitialHostMigrationTransition(f.claimInput, f.ports);
+    const result = runInitialHostFixture(f);
     const refused = expect(result).rejects.toThrow("Host retirement remains unverified");
     await vi.advanceTimersByTimeAsync(30_000);
     await refused;
@@ -6282,7 +6401,7 @@ test("initial Host revocation during retirement prevents publication and bootstr
     });
   });
   const launcher = readFileSync(f.plan.precondition.launcher.path);
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
+  await expect(runInitialHostFixture(f)).rejects.toThrow(
     "Initial Host migration enrollment authority changed",
   );
   expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
@@ -6305,9 +6424,7 @@ test("initial Host transition refuses changed registration before bootout", asyn
       },
     },
   });
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
-    /registration changed/,
-  );
+  await expect(runInitialHostFixture(f)).rejects.toThrow(/registration changed/);
   expect(f.commands).toEqual([]);
 });
 
@@ -6320,9 +6437,7 @@ test("initial Host transition refuses target reappearance after final awaited ab
   f.absence.assertCurrent.mockImplementation(() => {
     if (checks >= 2) throw new Error("Target reappeared");
   });
-  await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow(
-    /Target reappeared/,
-  );
+  await expect(runInitialHostFixture(f)).rejects.toThrow(/Target reappeared/);
   expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
 });
 
@@ -6345,7 +6460,7 @@ test.each(["worker", "selector"])(
       };
       return observed;
     };
-    await expect(executeInitialHostMigrationTransition(f.claimInput, f.ports)).rejects.toThrow();
+    await expect(runInitialHostFixture(f)).rejects.toThrow();
     expect(
       existsSync(path.join(f.directory, `initial-host-result-${f.retained.intent.id}.json`)),
     ).toBe(false);
@@ -6355,7 +6470,7 @@ test.each(["worker", "selector"])(
 
 test("initial Host publication joins one claim to both exact file publications", () => {
   const f = initialHostPublicationFixture();
-  const result = publishInitialHostMigrationSelection(f.publication);
+  const result = publishInitialHostFixture(f);
   expect(result).toMatchObject({
     intentId: f.retained.intent.id,
     generation: f.input.generation,
@@ -6370,7 +6485,7 @@ test("initial Host publication joins one claim to both exact file publications",
     `initial-host-publication-${f.retained.intent.id}.json`,
   );
   const before = readFileSync(publication);
-  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(() => publishInitialHostFixture(f)).toThrow();
   expect(readFileSync(publication)).toEqual(before);
   expect(f.absence.assertCurrent).toHaveBeenCalled();
   expect(() => result.assertSelection()).not.toThrow();
@@ -6380,7 +6495,7 @@ test.each(["phase", "launcher attempt", "selector attempt", "launcher", "selecto
   "initial Host candidate publication observation retains exact %s",
   (changed) => {
     const f = initialHostPublicationFixture();
-    publishInitialHostMigrationSelection(f.publication);
+    publishInitialHostFixture(f);
     const context = { ...inspectInitialHostSupervisorMigrationPlan(f.plan), ...f.claim };
     const assertCurrent = inspectInitialHostCandidatePublication(context, f.candidateLauncher);
     expect(() => assertCurrent()).not.toThrow();
@@ -6402,7 +6517,7 @@ test.each(["phase", "launcher attempt", "selector attempt", "launcher", "selecto
 
 test("initial Host candidate publication observation refuses another claim", () => {
   const f = initialHostPublicationFixture();
-  publishInitialHostMigrationSelection(f.publication);
+  publishInitialHostFixture(f);
   const context = { ...inspectInitialHostSupervisorMigrationPlan(f.plan), ...f.claim };
   context.claim.executor = { ...context.claim.executor, startIdentity: "300:1" };
   expect(() => inspectInitialHostCandidatePublication(context, f.candidateLauncher)).toThrow();
@@ -6412,7 +6527,7 @@ test.each(["launcher", "selector"])(
   "initial Host retained publication proof refuses later %s substitution",
   (changed) => {
     const f = initialHostPublicationFixture();
-    const result = publishInitialHostMigrationSelection(f.publication);
+    const result = publishInitialHostFixture(f);
     if (changed === "launcher") {
       writeFileSync(f.plan.precondition.launcher.path, "substituted launcher");
     } else {
@@ -6442,7 +6557,7 @@ test.each(["absence", "stale", "launcher", "claim", "grant"])(
         disabledTargets: [],
         revoke: true,
       });
-    expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+    expect(() => publishInitialHostFixture(f)).toThrow();
     expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
     expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
       f.plan.precondition.selectedRelease,
@@ -6457,12 +6572,12 @@ test("initial Host partial publication preserves its fence without replaying the
     `initial-host-selector-attempt-${f.retained.intent.id}.json`,
   );
   writeFileSync(selector, "retained uncertain selector attempt", { mode: 0o600 });
-  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(() => publishInitialHostFixture(f)).toThrow();
   expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.candidateLauncher);
   expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
     f.plan.precondition.selectedRelease,
   );
-  expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+  expect(() => publishInitialHostFixture(f)).toThrow();
   expect(readFileSync(selector, "utf8")).toBe("retained uncertain selector attempt");
 });
 
@@ -6479,7 +6594,7 @@ test.each(["initial", "prepared"])(
         if (stage === "prepared") return Promise.resolve();
       },
     };
-    expect(() => publishInitialHostMigrationSelection({ ...f.publication, artifacts })).toThrow(
+    expect(() => publishInitialHostFixture(f, { ...f.publication, artifacts })).toThrow(
       "synchronous",
     );
     expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
@@ -6509,7 +6624,7 @@ test.each(["selector", "phase", "launcher attempt", "selector attempt"])(
         "foreign callback bytes",
       );
     });
-    expect(() => publishInitialHostMigrationSelection(f.publication)).toThrow();
+    expect(() => publishInitialHostFixture(f)).toThrow();
   },
 );
 
@@ -6655,7 +6770,7 @@ test("initial Host intent refuses proof substitution during synchronous custody"
     f.native.preconditionSha256 = "0".repeat(64);
   });
   expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow(
-    "different reviewed bytes",
+    "retained binding changed",
   );
   expect(
     existsSync(path.join(f.directory, `initial-host-${f.second}-${f.input.generation}.json`)),
@@ -8647,5 +8762,626 @@ test.each(["fence-bytes", "queue-bytes", "fence-lifetime", "queue-lifetime"] as 
       status: "unresolved",
     });
     expect(f.lineage().candidate!.observation).toBeUndefined();
+  },
+);
+
+function initialHostLaunchDataFixture() {
+  const directory = "/prepared/coordinator";
+  const file = (filePath: string) => ({ path: filePath, sha256: "a".repeat(64) });
+  const prepared = {
+    version: 1,
+    approval: {
+      requestId: randomUUID(),
+      revision: randomUUID(),
+      planSha256: "b".repeat(64),
+      executionGeneration: randomUUID(),
+    },
+    coordinator: {
+      identity: {
+        pid: 901,
+        parentPid: 1,
+        uid: 501,
+        bootId: randomUUID(),
+        startIdentity: "100:1",
+        argumentsSha256: "c".repeat(64),
+        executable: "/native/node",
+      },
+      auditToken: [0, 501, 0, 501, 0, 901, 1, 1],
+    },
+    runtime: {
+      sourceCommit: "d".repeat(40),
+      directory,
+      artifactSha256: "e".repeat(64),
+      node: file("/native/node"),
+      entrypoint: file(`${directory}/coordinator.js`),
+      configuration: file("/protected/installation.json"),
+      launcher: file("/protected/coordinator.plist"),
+    },
+    childEntrypoint: file(
+      `${directory}/packages/server/dist/server/server/execution-installation/maintenance/host-supervisor-native-child.js`,
+    ),
+  };
+  const address = {
+    enrollmentStateDirectory: "/protected/state",
+    stepId: randomUUID(),
+    generation: randomUUID(),
+  };
+  return { prepared, address };
+}
+
+test("Initial Host launch binding detaches preparation and uses the actual late generation", () => {
+  const f = initialHostLaunchDataFixture();
+  const expected = structuredClone(f);
+  const binding = initialHostNativeLaunchBinding(f);
+  expect(inspectInitialHostNativeLaunchBinding(binding, f.address)).toEqual(binding);
+  expect(binding.argv.slice(3)).toEqual([
+    f.address.enrollmentStateDirectory,
+    f.address.stepId,
+    f.address.generation,
+  ]);
+  f.prepared.runtime.node.sha256 = "f".repeat(64);
+  f.address.generation = randomUUID();
+  expect(binding.runtime.node).toEqual(expected.prepared.runtime.node);
+  expect(binding.address).toEqual(expected.address);
+});
+
+test.each([
+  "namespace",
+  "step",
+  "generation",
+  "node-argv",
+  "entry-argv",
+  "marker",
+  "address-argv",
+  "argv-hash",
+  "cwd",
+  "environment",
+  "stdio",
+  "gate",
+  "notice",
+] as const)("Initial Host launch binding refuses changed %s selectors", (changed) => {
+  const f = initialHostLaunchDataFixture();
+  const binding = initialHostNativeLaunchBinding(f);
+  if (changed === "namespace") binding.address.enrollmentStateDirectory += "-other";
+  else if (changed === "step") binding.address.stepId = randomUUID();
+  else if (changed === "generation") binding.address.generation = randomUUID();
+  else if (changed === "node-argv") binding.argv[0] += "-other";
+  else if (changed === "entry-argv") binding.argv[1] += "-other";
+  else if (changed === "marker") Reflect.set(binding.argv, 2, "--different-role");
+  else if (changed === "address-argv") binding.argv[3] += "-other";
+  else if (changed === "argv-hash") binding.argumentsSha256 = "f".repeat(64);
+  else if (changed === "cwd") binding.cwd += "-other";
+  else if (changed === "environment") Reflect.set(binding.env, "NODE_OPTIONS", "--require bad");
+  else if (changed === "stdio") Reflect.set(binding.stdio, 3, "inherit");
+  else if (changed === "gate") Reflect.set(binding.gate, "fd", 4);
+  else Reflect.set(binding.notice, "maxBytes", 8192);
+  expect(() => inspectInitialHostNativeLaunchBinding(binding, f.address)).toThrow();
+});
+
+test("Initial Host launch binding rejects aliased namespaces and arbitrary child modules", () => {
+  const f = initialHostLaunchDataFixture();
+  expect(() =>
+    initialHostNativeLaunchBinding({
+      ...f,
+      address: { ...f.address, enrollmentStateDirectory: "/protected/../state" },
+    }),
+  ).toThrow();
+  f.prepared.childEntrypoint.path = "/prepared/coordinator/arbitrary.js";
+  expect(() => initialHostNativeLaunchBinding(f)).toThrow();
+});
+
+function initialHostConstructorFixture() {
+  const f = initialHostIntentFixture();
+  const prepared = initialHostLaunchDataFixture().prepared;
+  prepared.coordinator.identity = {
+    ...prepared.coordinator.identity,
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    bootId: f.plan.precondition.supervisor.bootId,
+    executable: process.execPath,
+  };
+  prepared.runtime.node.path = process.execPath;
+  const proof = {
+    binding: initialHostNativeLaunchBinding({
+      prepared,
+      address: {
+        enrollmentStateDirectory: f.directory,
+        stepId: f.input.stepId,
+        generation: f.input.generation,
+      },
+    }),
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const intentInput = { ...f.intentInput, nativeLaunch: proof };
+  return { ...f, proof, intentInput };
+}
+
+function constructorOf(retained: ReturnType<typeof reserveInitialHostMigrationIntent>) {
+  if (!retained.constructorHandle) throw new Error("Fixture constructor missing");
+  return retained.constructorHandle;
+}
+
+test("Initial Host constructor exists only after a pinned exclusive intent and burns before spawn", () => {
+  const f = initialHostConstructorFixture();
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  const spawn = vi.fn(() => undefined);
+  attemptInitialHostConstruction(constructorOf(retained), { channel: {}, spawn });
+  expect(spawn).toHaveBeenCalledExactlyOnceWith(retained.intent);
+  expect(() =>
+    attemptInitialHostConstruction(constructorOf(retained), { channel: {}, spawn }),
+  ).toThrow("already attempted");
+  expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+  expect(spawn).toHaveBeenCalledTimes(1);
+});
+
+test("Initial Host historical intent cannot elect a constructor", () => {
+  const f = initialHostIntentFixture();
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  expect(retained.constructorHandle).toBeNull();
+  expect(retained.intent.nativeLaunch).toBeUndefined();
+});
+
+test.each(["throw", "thenable", "revoked", "intent", "native"] as const)(
+  "Initial Host constructor permanently fences %s without a second spawn",
+  (changed) => {
+    const f = initialHostConstructorFixture();
+    const retained = reserveInitialHostMigrationIntent(f.intentInput);
+    const handle = constructorOf(retained);
+    const spawn = vi.fn(() => {
+      if (changed === "throw") throw new Error("Spawn failed synchronously");
+      if (changed === "thenable") return Promise.resolve();
+    });
+    if (changed === "revoked")
+      changeStandingGrant(f.journal, {
+        expectedRevision: f.input.grantRevision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    if (changed === "intent") writeFileSync(retained.file, "changed");
+    if (changed === "native")
+      f.proof.assertCurrent.mockImplementation(() => {
+        throw new Error("Native custody changed");
+      });
+    expect(() => attemptInitialHostConstruction(handle, { channel: {}, spawn })).toThrow();
+    const calls = spawn.mock.calls.length;
+    expect(() => attemptInitialHostConstruction(handle, { channel: {}, spawn })).toThrow(
+      "already attempted",
+    );
+    expect(spawn).toHaveBeenCalledTimes(calls);
+    expect(calls).toBe(changed === "throw" || changed === "thenable" ? 1 : 0);
+  },
+);
+
+test("Initial Host constructor final native callback revocation prevents spawn", () => {
+  const f = initialHostConstructorFixture();
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  f.proof.assertCurrent.mockImplementation(() => {
+    const file = path.join(f.directory, "maintenance-enrollment.json");
+    const state = JSON.parse(readFileSync(file, "utf8"));
+    state.grant.revokedAt = new Date().toISOString();
+    state.grant.revision = randomUUID();
+    writeFileSync(file, JSON.stringify(state));
+  });
+  const spawn = vi.fn(() => undefined);
+  expect(() =>
+    attemptInitialHostConstruction(constructorOf(retained), { channel: {}, spawn }),
+  ).toThrow();
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test.each(["callback", "binding"] as const)(
+  "Initial Host intent rejects native launch %s substitution",
+  (changed) => {
+    const f = initialHostConstructorFixture();
+    f.proof.assertCurrent.mockImplementation(() => {
+      if (changed === "callback") f.proof.assertCurrent = vi.fn(() => undefined);
+      else f.proof.binding.argumentsSha256 = "f".repeat(64);
+    });
+    expect(() => reserveInitialHostMigrationIntent(f.intentInput)).toThrow();
+    expect(
+      existsSync(
+        path.join(f.directory, `initial-host-${f.input.stepId}-${f.input.generation}.json`),
+      ),
+    ).toBe(false);
+  },
+);
+
+test("Initial Host historical child cannot claim effect authority", () => {
+  const f = initialHostClaimFixture();
+  delete f.retained.intent.nativeLaunch;
+  writeFileSync(f.retained.file, JSON.stringify(f.retained.intent));
+  expect(() => claimInitialHostMigration(f.claimInput)).toThrow("observation-only");
+  expect(
+    existsSync(
+      path.join(f.directory, `initial-host-claim-${f.input.stepId}-${f.input.generation}.json`),
+    ),
+  ).toBe(false);
+});
+
+test.each(["argv", "parent", "audit", "callback"] as const)(
+  "Initial Host child claim refuses audited %s substitution",
+  (changed) => {
+    const f = initialHostClaimFixture();
+    if (changed === "argv") f.executor.process.argumentsSha256 = "f".repeat(64);
+    if (changed === "parent") f.executor.process.parentPid++;
+    if (changed === "audit") f.executor.audited.identity.startIdentity = "999:1";
+    if (changed === "callback")
+      f.executor.assertCurrent.mockImplementation(() => {
+        f.executor.assertCurrent = vi.fn(() => undefined);
+      });
+    expect(() => claimInitialHostMigration(f.claimInput)).toThrow();
+    expect(
+      existsSync(
+        path.join(f.directory, `initial-host-claim-${f.input.stepId}-${f.input.generation}.json`),
+      ),
+    ).toBe(false);
+  },
+);
+
+test("Initial Host publication needs its original active claimed span", () => {
+  const f = initialHostPublicationFixture();
+  expect(() => publishInitialHostMigrationSelection(f.publication, f.claim.claimedHandle)).toThrow(
+    "active claimed span",
+  );
+  expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
+  const emptyAction = () => undefined;
+  withInitialHostClaimedExecution(f.claim.claimedHandle, () => {
+    expect(() => withInitialHostClaimedExecution(f.claim.claimedHandle, emptyAction)).toThrow(
+      "unavailable",
+    );
+    expect(publishInitialHostMigrationSelection(f.publication, f.claim.claimedHandle).slot).toBe(
+      "candidate",
+    );
+  });
+  expect(() => withInitialHostClaimedExecution(f.claim.claimedHandle, () => undefined)).toThrow(
+    "unavailable",
+  );
+});
+
+test("Initial Host claimed span stays active through its asynchronous body and finalizes errors", async () => {
+  const f = initialHostPublicationFixture();
+  const failure = new Error("After gate release");
+  await expect(
+    withInitialHostClaimedExecution(f.claim.claimedHandle, async () => {
+      await Promise.resolve();
+      expect(publishInitialHostMigrationSelection(f.publication, f.claim.claimedHandle).slot).toBe(
+        "candidate",
+      );
+      throw failure;
+    }),
+  ).rejects.toBe(failure);
+  expect(() => withInitialHostClaimedExecution(f.claim.claimedHandle, () => undefined)).toThrow(
+    "unavailable",
+  );
+});
+
+test("Initial Host claimed span does not trust exposed returned claim metadata", () => {
+  const f = initialHostPublicationFixture();
+  f.claim.claim.executor.startIdentity = "999:1";
+  f.publication.executor.process.startIdentity = "999:1";
+  expect(() => publishInitialHostFixture(f)).toThrow("binding changed");
+  expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
+});
+
+function initialHostReleaseFixture() {
+  const f = initialHostConstructorFixture();
+  const retained = reserveInitialHostMigrationIntent(f.intentInput);
+  const handle = constructorOf(retained);
+  const channel = {};
+  attemptInitialHostConstruction(handle, { channel, spawn() {} });
+  const identity = {
+    ...f.proof.binding.coordinator.identity,
+    pid: process.pid + 100000,
+    parentPid: process.pid,
+    startIdentity: "999:1",
+    argumentsSha256: f.proof.binding.argumentsSha256,
+  };
+  const audited = {
+    identity,
+    auditToken: [0, identity.uid, 0, identity.uid, 0, identity.pid, 1, 1],
+  };
+  const claim = InitialHostMigrationClaimSchema.parse({
+    version: 1,
+    operation: "initial-host-supervisor-migration",
+    intentId: retained.intent.id,
+    intentSha256: createHash("sha256").update(JSON.stringify(retained.intent)).digest("hex"),
+    stepId: retained.intent.stepId,
+    generation: retained.intent.generation,
+    planSha256: retained.intent.planSha256,
+    executor: identity,
+    executorAuditToken: audited.auditToken,
+    consumedAt: new Date().toISOString(),
+  });
+  const file = path.join(
+    f.directory,
+    `initial-host-claim-${claim.stepId}-${claim.generation}.json`,
+  );
+  // The unit fixture supplies a synthetic native child witness and its exact
+  // protected artifact. No process is spawned or inferred from these bytes.
+  writeFileSync(file, JSON.stringify(claim), { mode: 0o600 });
+  const child = { file, claim, audited, assertCurrent: vi.fn(() => undefined) };
+  const actor = { kind: "release" as const, constructorHandle: handle, channel, child };
+  return { ...f, retained, actor, child };
+}
+
+test("Initial Host release admission requires its original attempted constructor channel", () => {
+  const f = initialHostReleaseFixture();
+  const file = path.join(f.directory, "maintenance-enrollment.json");
+  const before = readFileSync(file);
+  const check = vi.fn(() => undefined),
+    action = vi.fn(() => undefined);
+  withInitialHostCommandAdmission(f.actor, check, action);
+  expect(action).toHaveBeenCalledTimes(1);
+  expect(f.child.assertCurrent).toHaveBeenCalled();
+  expect(readFileSync(file)).toEqual(before);
+  expect(() => withInitialHostCommandAdmission({ ...f.actor, channel: {} }, check, action)).toThrow(
+    "original attempted constructor",
+  );
+  expect(action).toHaveBeenCalledTimes(1);
+});
+
+test.each(["parent", "birth", "audit", "claim file", "callback"] as const)(
+  "Initial Host release admission refuses child %s substitution",
+  (changed) => {
+    const f = initialHostReleaseFixture();
+    if (changed === "parent") f.child.audited.identity.parentPid++;
+    if (changed === "birth") f.child.audited.identity.startIdentity = "1000:1";
+    if (changed === "audit") f.child.audited.auditToken[0]++;
+    if (changed === "claim file") writeFileSync(f.child.file, "changed");
+    if (changed === "callback")
+      f.child.assertCurrent.mockImplementation(() => {
+        f.child.assertCurrent = vi.fn(() => undefined);
+      });
+    const action = vi.fn(() => undefined);
+    expect(() => withInitialHostCommandAdmission(f.actor, () => undefined, action)).toThrow();
+    expect(action).not.toHaveBeenCalled();
+  },
+);
+
+test("Initial Host release admission rereads grant after command custody and expires reassertion", () => {
+  const f = initialHostReleaseFixture();
+  let recheck = () => undefined;
+  withInitialHostCommandAdmission(
+    f.actor,
+    () => undefined,
+    (_context, reassert) => {
+      recheck = reassert;
+    },
+  );
+  expect(() => recheck()).toThrow("expired");
+  const action = vi.fn(() => undefined);
+  const file = path.join(f.directory, "maintenance-enrollment.json");
+  expect(() =>
+    withInitialHostCommandAdmission(
+      f.actor,
+      () => {
+        const state = JSON.parse(readFileSync(file, "utf8"));
+        state.grant.revokedAt = new Date().toISOString();
+        state.grant.revision = randomUUID();
+        writeFileSync(file, JSON.stringify(state));
+      },
+      action,
+    ),
+  ).toThrow();
+  expect(action).not.toHaveBeenCalled();
+});
+
+test("Initial Host child command admission requires the original active span", () => {
+  const f = initialHostPublicationFixture();
+  const actor = { kind: "child" as const, claimedHandle: f.claim.claimedHandle };
+  const action = vi.fn(() => undefined);
+  expect(() => withInitialHostCommandAdmission(actor, () => undefined, action)).toThrow();
+  withInitialHostClaimedExecution(actor.claimedHandle, () => {
+    withInitialHostCommandAdmission(actor, () => undefined, action);
+  });
+  expect(action).toHaveBeenCalledTimes(1);
+  expect(() => withInitialHostCommandAdmission(actor, () => undefined, action)).toThrow();
+  expect(action).toHaveBeenCalledTimes(1);
+});
+
+test("Initial Host command admission rejects callback mutation of its detached context", () => {
+  const f = initialHostReleaseFixture();
+  const action = vi.fn(() => undefined);
+  expect(() =>
+    withInitialHostCommandAdmission(
+      f.actor,
+      (context) => {
+        context.intent.nativeLaunch!.gate.fd = 3;
+        context.executor.startIdentity = "1000:1";
+      },
+      action,
+    ),
+  ).toThrow("retained binding changed");
+  expect(action).not.toHaveBeenCalled();
+});
+
+test("Initial Host queued commands retain separate fences and original-incumbent scope", async () => {
+  const f = initialHostTransitionFixture();
+  const result = await runInitialHostFixture(f);
+  expect(f.queued).toEqual(["interruption", "retirement", "bootstrap"]);
+  const context = {
+    ...readInitialHostRetainedClaim({
+      enrollmentStateDirectory: f.directory,
+      plan: f.plan,
+      stepId: f.input.stepId,
+      generation: f.input.generation,
+    }).context,
+    enrollmentStateDirectory: f.directory,
+    executor: f.executor.process,
+    actor: "child" as const,
+  };
+  for (const operation of ["interruption", "retirement", "bootstrap"] as const) {
+    const paths = initialHostCommandPaths(context, operation);
+    const fence = JSON.parse(readFileSync(paths.fenceFile, "utf8"));
+    const queue = JSON.parse(readFileSync(paths.queueFile, "utf8"));
+    expect(queue.command).toBe(operation);
+    expect(queue.claimSha256).toBe(fence.claimSha256);
+    expect(queue.fenceSha256).toBe(
+      createHash("sha256").update(readFileSync(paths.fenceFile)).digest("hex"),
+    );
+    expect(queue.scope).toEqual(initialHostCommandScope(context, operation));
+  }
+  expect(result.record.generation).toBe(f.input.generation);
+});
+
+test("Initial Host queue refuses revoked bootstrap while retaining its attempted generation", async () => {
+  const f = initialHostTransitionFixture();
+  const nativeOwner = f.ports.commandOwner;
+  f.ports.commandOwner = (operation, context, fence) => {
+    const owner = nativeOwner(operation, context, fence);
+    if (operation === "bootstrap")
+      owner.assertCurrent = () => {
+        const file = path.join(f.directory, "maintenance-enrollment.json");
+        const state = JSON.parse(readFileSync(file, "utf8"));
+        state.grant.revokedAt = new Date().toISOString();
+        state.grant.revision = randomUUID();
+        writeFileSync(file, JSON.stringify(state));
+      };
+    return owner;
+  };
+  await expect(runInitialHostFixture(f)).rejects.toThrow();
+  expect(f.queued).toEqual(["interruption", "retirement"]);
+  expect(f.commands.map((args) => args[0])).toEqual(["bootout"]);
+  expect(
+    existsSync(
+      path.join(f.directory, `initial-host-bootstrap-attempt-${f.retained.intent.id}.json`),
+    ),
+  ).toBe(true);
+  await expect(runInitialHostFixture(f)).rejects.toThrow();
+  expect(f.queued).toEqual(["interruption", "retirement"]);
+});
+
+test("Initial Host command owner cannot replace enqueue during native custody", async () => {
+  const f = initialHostTransitionFixture();
+  const nativeOwner = f.ports.commandOwner;
+  let foreignEnqueues = 0;
+  f.ports.commandOwner = (operation, context, fence) => {
+    const owner = nativeOwner(operation, context, fence);
+    owner.assertCurrent = () => {
+      owner.enqueue = () => {
+        foreignEnqueues++;
+      };
+    };
+    return owner;
+  };
+  await expect(runInitialHostFixture(f)).rejects.toThrow("owner changed");
+  expect(f.queued).toEqual([]);
+  expect(foreignEnqueues).toBe(0);
+  expect(f.commands).toEqual([]);
+});
+
+test("Initial Host completion does not demand the intentionally retired predecessor stay alive", async () => {
+  const f = initialHostTransitionFixture();
+  let stopped = false,
+    started = false;
+  f.ports.collectRetirement = async () => ({
+    status: "present",
+    native: {
+      ...f.native,
+      observedAt: new Date().toISOString(),
+      assertCurrent() {
+        if (stopped) throw new Error("Retired predecessor");
+      },
+    },
+  });
+  f.absence.assertCurrent.mockImplementation(() => {
+    if (started) throw new Error("Candidate is now present");
+  });
+  f.command.run = async (args) => {
+    f.commands.push([...args]);
+    if (args[0] === "bootout") stopped = true;
+    if (args[0] === "bootstrap") started = true;
+  };
+  expect((await runInitialHostFixture(f)).record.generation).toBe(f.input.generation);
+  expect(stopped).toBe(true);
+  expect(started).toBe(true);
+});
+
+test.each(["fence", "queue"] as const)(
+  "Initial Host observer refuses missing bootstrap %s before collecting targets",
+  async (changed) => {
+    const f = initialHostTransitionFixture();
+    await runInitialHostFixture(f);
+    const file = path.join(
+      f.directory,
+      `initial-host-bootstrap-${changed === "fence" ? "attempt" : "queue-attempt"}-${f.retained.intent.id}.json`,
+    );
+    unlinkSync(file);
+    const observer = hostTransitionObserver(f);
+    await expect(
+      observeInitialHostMigrationTransition(observer.input, observer.ports),
+    ).rejects.toThrow();
+    expect(observer.ports.collectCandidate).not.toHaveBeenCalled();
+  },
+);
+
+test("Initial Host observer final callback cannot replace bootstrap evidence", async () => {
+  const f = initialHostTransitionFixture();
+  await runInitialHostFixture(f);
+  const observer = hostTransitionObserver(f);
+  const collect = observer.ports.collectCandidate;
+  observer.ports.collectCandidate = async (context, signal) => {
+    const result = await collect(context, signal);
+    result.observation.assertCurrent = () => {
+      writeFileSync(
+        path.join(f.directory, `initial-host-bootstrap-queue-attempt-${f.retained.intent.id}.json`),
+        "foreign queue",
+      );
+    };
+    return result;
+  };
+  await expect(
+    observeInitialHostMigrationTransition(observer.input, observer.ports),
+  ).rejects.toThrow();
+});
+
+test.each(["callback", "reference"] as const)(
+  "Initial Host publication refuses absence %s substitution",
+  (changed) => {
+    const f = initialHostPublicationFixture();
+    f.absence.assertCurrent.mockImplementation(() => {
+      if (changed === "callback") f.absence.assertCurrent = vi.fn(() => undefined);
+      else f.publication.absence = { ...f.absence, assertCurrent: vi.fn(() => undefined) };
+    });
+    expect(() => publishInitialHostFixture(f)).toThrow();
+    expect(readFileSync(f.plan.precondition.launcher.path)).toEqual(f.originalLauncher);
+  },
+);
+
+test.each(["retirement", "bootstrap"] as const)(
+  "Initial Host %s may invalidate pre-effect custody inside enqueue",
+  async (changed) => {
+    const f = initialHostTransitionFixture();
+    let retired = false,
+      started = false;
+    f.ports.collectRetirement = async () => ({
+      status: "present",
+      native: {
+        ...f.native,
+        observedAt: new Date().toISOString(),
+        assertCurrent() {
+          if (retired) throw new Error("Old predecessor is gone");
+        },
+      },
+    });
+    f.absence.assertCurrent.mockImplementation(() => {
+      if (started) throw new Error("Candidate now exists");
+    });
+    const nativeOwner = f.ports.commandOwner;
+    f.ports.commandOwner = (operation, context, fence) => {
+      const owner = nativeOwner(operation, context, fence);
+      const enqueue = owner.enqueue;
+      owner.enqueue = () => {
+        if (operation === changed && changed === "retirement") retired = true;
+        if (operation === changed && changed === "bootstrap") started = true;
+        enqueue.call(owner);
+      };
+      return owner;
+    };
+    expect((await runInitialHostFixture(f)).record.generation).toBe(f.input.generation);
+    expect(f.queued).toEqual(["interruption", "retirement", "bootstrap"]);
+    expect(changed === "retirement" ? retired : started).toBe(true);
   },
 );

@@ -34,6 +34,14 @@ import {
   assertInitialHostIntentProofs,
 } from "./host-supervisor-migration.js";
 
+import {
+  initialHostNativeLaunchBinding,
+  InitialHostPreparedLaunchDataSchema,
+  type InitialHostPreparedLaunchData,
+} from "./host-supervisor-contract.js";
+import { retainCustodyBinding } from "../retained-custody-binding.js";
+import type { InitialHostConstructorHandle } from "./host-supervisor-migration.js";
+
 type IntentInput = Parameters<typeof reserveInitialHostMigrationIntent>[0];
 interface HostActivationInvocation {
   enrollmentStateDirectory: string;
@@ -56,7 +64,11 @@ export interface InitialHostActivationPorts {
     native: IntentInput["native"];
     artifacts: IntentInput["artifacts"];
     assertCurrent(): void;
-    launch(input: HostActivationInvocation): Promise<unknown>;
+    nativeLaunch: { prepared: InitialHostPreparedLaunchData; assertCurrent(): void };
+    launch(
+      input: HostActivationInvocation,
+      constructorHandle: InitialHostConstructorHandle,
+    ): Promise<unknown>;
   }>;
   /** No constructor, launch or fresh effect proof is reachable from this port.
    * The observer verifies exact executor exit before target artifact reads. */
@@ -273,6 +285,17 @@ export async function reconcileInitialHostActivation(
     return verified(journal, step.id, progress.generation);
   }
   const prepared = await ports.prepare(inspected.plan);
+  const retainedPreparation = retainCustodyBinding(prepared, requireMatch);
+  const captured = retainedPreparation.snapshot;
+  const launchData = InitialHostPreparedLaunchDataSchema.parse(captured.nativeLaunch.prepared);
+  const assertLaunch = () => {
+    retainedPreparation.check();
+    requireMatch(
+      captured.nativeLaunch.assertCurrent.call(prepared.nativeLaunch) === undefined,
+      "Initial Host launch prerequisite custody must be synchronous",
+    );
+    retainedPreparation.check();
+  };
   assertRetained();
   const bootstrap = new FileBootstrapRequestJournal(input.stateDirectory);
   const reserved = reserveActivationStep(journal, {
@@ -286,10 +309,11 @@ export async function reconcileInitialHostActivation(
       );
       assertCoordinatorLifecycleIdle(bootstrap.readLifecycle());
       requireMatch(
-        prepared.assertCurrent() === undefined,
+        captured.assertCurrent.call(prepared) === undefined,
         "Host activation prerequisite custody must be synchronous",
       );
-      assertInitialHostIntentProofs(prepared, inspected.plan, inspected.planSha256);
+      assertInitialHostIntentProofs(captured, inspected.plan, inspected.planSha256);
+      assertLaunch();
       assertRetained();
       requireMatch(
         openBootstrapRequests(bootstrap.read()).length === 0,
@@ -309,12 +333,25 @@ export async function reconcileInitialHostActivation(
     stepId: step.id,
     generation: selected.generation,
   };
-  reserveInitialHostMigrationIntent({
+  const retained = reserveInitialHostMigrationIntent({
     ...invocation,
-    native: prepared.native,
-    artifacts: prepared.artifacts,
+    native: captured.native,
+    artifacts: captured.artifacts,
+    nativeLaunch: {
+      binding: initialHostNativeLaunchBinding({
+        prepared: launchData,
+        address: {
+          enrollmentStateDirectory: invocation.enrollmentStateDirectory,
+          stepId: invocation.stepId,
+          generation: invocation.generation,
+        },
+      }),
+      assertCurrent: assertLaunch,
+    },
   });
-  await prepared.launch(invocation);
+  requireMatch(retained.constructorHandle, "Initial Host native launch has no local constructor");
+  retainedPreparation.check();
+  await captured.launch.call(prepared, invocation, retained.constructorHandle);
   assertRetained();
   return verified(journal, step.id, selected.generation);
 }
