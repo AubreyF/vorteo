@@ -107,6 +107,7 @@ export async function executeAbsentMaintenanceRecovery(
   // The shared admission callback rechecks grant and exclusion while this exact
   // generation consumes its single durable intent. No native work holds the lock.
   const claimed = claimMaintenanceServiceEffect(input);
+  process.stderr.write("Maintenance recovery intent consumed.\n");
   const requireClaim = () => {
     if (
       !isDeepStrictEqual(
@@ -151,7 +152,9 @@ export async function executeAbsentMaintenanceRecovery(
       assertCurrent: requireClaim,
     });
   });
+  process.stderr.write("Maintenance recovery selection published.\n");
   await requireExecutor();
+  process.stderr.write("Maintenance recovery selected executor reverified.\n");
   const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
   (input.assertAbsent ?? assertMaintenanceServiceAbsent)(service);
   (input.assertRuntimeAbsent ?? assertMaintenanceRuntimeProcessesAbsent)({
@@ -167,8 +170,11 @@ export async function executeAbsentMaintenanceRecovery(
     coordinator: input.coordinatorCustody,
   });
   requireClaim();
+  process.stderr.write("Maintenance recovery native bootstrap started.\n");
   await command.run(["bootstrap", identity.serviceDomain, identity.launcherPath]);
+  process.stderr.write("Maintenance recovery native bootstrap returned.\n");
   const result = await readBoundedCandidateObservation(input.readCandidateObservation);
+  process.stderr.write("Maintenance recovery candidate observation collected.\n");
   await requireExecutor();
   if (result.record.native.bootId !== input.childCustody.process.bootId)
     throw new BootstrapRequestConflict("Recovery candidate belongs to another native boot");

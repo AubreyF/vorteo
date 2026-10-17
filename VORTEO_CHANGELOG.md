@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.653 - 2026-10-17
+
+### Maintenance
+
+- Record fixed private recovery phases around consumed intent, slot publication, executor verification, native bootstrap and candidate observation. These diagnostics locate uncertain native waits without changing admission, deadlines, replay fencing or outcomes.
+- The preceding compiled queue fixture consumed intent and preserved one generation through revocation and five observations, but did not establish readiness. Its native timeout and complete fixture cleanup remain retained evidence. Full queue and installed acceptance remain open.
+
 ## 0.11.0-beta.3.vorteo.652 - 2026-10-17
 
 ### Fixed
