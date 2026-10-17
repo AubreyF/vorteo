@@ -4574,6 +4574,31 @@ test("startup recovery binds its request and all startup settings to the reviewe
   await expect(f.prepare()).rejects.toThrow("exact maintenance request");
 });
 
+test("startup recovery preserves retained scheduling and verifies reviewed responsive scheduling", () => {
+  const f = bootRecoveryFixture();
+  const retained = bootstrapRecoveryLauncher(f.plan);
+  expect(retained.ProcessType).toBe("Background");
+  expect(bootstrapRecoveryLauncher(f.plan, { processType: "Background" })).toEqual(retained);
+  const responsive = bootstrapRecoveryLauncher(f.plan, { processType: "Interactive" });
+  expect(responsive).toEqual({ ...retained, ProcessType: "Interactive" });
+  expect(() =>
+    verifyBootstrapRecoveryLauncher({
+      plan: f.plan,
+      hostUid: 501,
+      hostHome: "/Users/fixture",
+      launcher: responsive,
+    }),
+  ).not.toThrow();
+  expect(() =>
+    verifyBootstrapRecoveryLauncher({
+      plan: f.plan,
+      hostUid: 501,
+      hostHome: "/Users/fixture",
+      launcher: { ...responsive, KeepAlive: true },
+    }),
+  ).toThrow("startup settings");
+});
+
 test("startup recovery refuses unrelated executables and startup destinations", () => {
   const f = bootRecoveryFixture();
   const original = f.plan.bootRecovery!;

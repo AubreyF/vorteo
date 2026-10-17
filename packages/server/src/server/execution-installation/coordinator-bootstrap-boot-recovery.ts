@@ -20,7 +20,10 @@ import { readBootstrapLauncher } from "./coordinator-bootstrap-service.js";
 
 /** A login service survives logout and reboot as retained configuration. It
  * runs after the Host account logs in; it cannot promise pre-login recovery. */
-export function bootstrapRecoveryLauncher(plan: CoordinatorBootstrapPlan) {
+export function bootstrapRecoveryLauncher(
+  plan: CoordinatorBootstrapPlan,
+  options: { processType: "Background" | "Interactive" } = { processType: "Background" },
+) {
   const recovery = plan.bootRecovery;
   if (!recovery) throw new BootstrapRequestConflict("Boot recovery is not in the approved plan");
   return {
@@ -41,7 +44,7 @@ export function bootstrapRecoveryLauncher(plan: CoordinatorBootstrapPlan) {
     // The recovery runner owns a persistent retry budget. launchd must never
     // turn a failed or completed operation into an unlimited execution loop.
     KeepAlive: false,
-    ProcessType: "Background",
+    ProcessType: options.processType,
     Umask: 0o077,
     StandardErrorPath: path.join(
       plan.state.directory,
@@ -87,7 +90,12 @@ export function verifyBootstrapRecoveryLauncher(input: {
     recovery.ownerLauncher.path !== path.join(directory, "scripts/run-coordinator-owner.py")
   )
     throw new BootstrapRequestConflict("Boot recovery must use the approved candidate runner");
-  if (!isDeepStrictEqual(input.launcher, bootstrapRecoveryLauncher(plan)))
+  // Scheduling is pinned by the reviewed launcher digest. Preserve old bytes
+  // while allowing new recovery runners to avoid macOS background I/O throttling.
+  const { ProcessType: processType } = z
+    .object({ ProcessType: z.enum(["Background", "Interactive"]) })
+    .parse(input.launcher);
+  if (!isDeepStrictEqual(input.launcher, bootstrapRecoveryLauncher(plan, { processType })))
     throw new BootstrapRequestConflict(
       "Boot recovery launcher changes unapproved startup settings",
     );

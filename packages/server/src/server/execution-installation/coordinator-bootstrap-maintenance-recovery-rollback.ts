@@ -403,7 +403,7 @@ async function prepareRollback(input: IndependentRollbackInput, assertWithinDead
   };
   // plutil converts inert configuration only. No service is registered here.
   const plist = spawnSync("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", "--", "-"], {
-    input: JSON.stringify(bootstrapRecoveryLauncher(plan)),
+    input: JSON.stringify(bootstrapRecoveryLauncher(plan, { processType: "Interactive" })),
     timeout: 2000,
     maxBuffer: 1024 * 1024,
   });

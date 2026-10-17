@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.627 - 2026-10-16
+
+### Maintenance
+
+- Prepare newly reviewed independent rollback startup runners with responsive macOS scheduling. The policy remains pinned by the reviewed launcher digest; retained launchers keep their exact Background bytes. Artifact limits, exclusive ownership and replay fences are unchanged.
+- A real disposable executor crash after selection recovered through its existing watchdog in about ten seconds. A second native case killed that watchdog after fallback bootstrap and exposed startup artifact verification failure under Background scheduling. The same read-only artifact check passed in a foreground process. The scheduling correction still requires compiled native acceptance; nothing is installed by this commit.
+- Focused launcher checks cover retained bytes, the new reviewed policy and refusal of changed startup settings. The primary README recovery feature remains pending installed delivery and remote owner acceptance.
+
 ## 0.11.0-beta.3.vorteo.626 - 2026-10-16
 
 ### Tests
