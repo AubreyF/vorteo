@@ -1,6 +1,7 @@
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import type { WorkerLaunchLookup } from "./maintenance/worker-launch-lookup.js";
 import { InstallationRestarts } from "./restarts.js";
+import { standingRestartPlanDigest } from "./maintenance/restart-admission.js";
 import {
   FileEnrollmentJournal,
   enrollInstallation,
@@ -68,6 +69,121 @@ import {
 } from "@getpaseo/protocol/execution-installation";
 
 const cleanups: Array<() => Promise<void>> = [];
+// Validate the allocated source-only optional field without rebuilding shared declarations.
+vi.mock(
+  "@getpaseo/protocol/execution-installation",
+  () => import("../../../../protocol/src/execution-installation.js"),
+);
+
+test("supervisor effect remains private in legacy restart replies", async () => {
+  const id = randomUUID(),
+    revision = randomUUID(),
+    now = "2026-10-17T00:00:00.000Z",
+    sha = "a".repeat(64);
+  const native = {
+    pid: 123,
+    parentPid: 1,
+    uid: 501,
+    bootId: randomUUID(),
+    startIdentity: "1:1",
+    argumentsSha256: sha,
+    auditToken: [0, 1, 2, 3, 4, 5, 6, 7],
+    executable: { path: "/fixture/node", sha256: sha },
+    entrypoint: { path: "/fixture/entry", sha256: sha },
+    artifactSha256: sha,
+  };
+  const job = RestartJobSchema.parse({
+    id,
+    revision,
+    requestedBy: "host-agent",
+    target: "container-daemon",
+    reason: "Private projection fixture",
+    createdAt: now,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "failed",
+    detail: "Observation only",
+    approvedAt: now,
+    supervisorPlanSha256: sha,
+    supervisorEffect: {
+      phase: "reserved",
+      reservedAt: now,
+      binding: {
+        requestId: id,
+        requestRevision: revision,
+        approvedAt: now,
+        decisionSha256: sha,
+        requestPlanSha256: sha,
+        supervisorPlanSha256: sha,
+        registrationPlanSha256: sha,
+        operation: "replace",
+        preparationNonce: randomUUID(),
+        original: null,
+        generation: randomUUID(),
+        candidateSha256: sha,
+        grantId: randomUUID(),
+        grantRevision: randomUUID(),
+        manifestSha256: sha,
+        stepId: randomUUID(),
+        activationGeneration: randomUUID(),
+        sourceCommit: "b".repeat(40),
+        artifactSha256: sha,
+        nativeIdentitySha256: sha,
+        preconditionSha256: sha,
+        settlementSha256: sha,
+        controller: native,
+      },
+    },
+  });
+  if (job.supervisorEffect?.phase !== "reserved") throw new Error("Fixture reservation missing");
+  const binding = job.supervisorEffect.binding;
+  const requestPlanSha256 = standingRestartPlanDigest(job);
+  job.standingDecision = {
+    grantId: binding.grantId,
+    grantRevision: binding.grantRevision,
+    manifestSha256: binding.manifestSha256,
+    planSha256: requestPlanSha256,
+    targetIdentitySha256: binding.nativeIdentitySha256,
+    authoritySha256: sha,
+    policyActivatedAt: now,
+    requestRevision: revision,
+  };
+  binding.requestPlanSha256 = requestPlanSha256;
+  binding.decisionSha256 = createHash("sha256")
+    .update(JSON.stringify(job.standingDecision))
+    .digest("hex");
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) => {
+      writeFileSync(path.join(config.stateDir, "restart-jobs.json"), JSON.stringify([job]), {
+        mode: 0o600,
+      });
+    },
+  );
+  const legacy = await (
+    await f.request("/api/installation/restart-requests/" + id, "host-agent-test-token")
+  ).json();
+  expect(legacy).not.toHaveProperty("supervisorEffect");
+  expect(RestartJobSchema.omit({ supervisorEffect: true }).parse(legacy).id).toBe(id);
+  const owner = await (
+    await f.request(
+      "/api/installation/owner/restarts/query?supervisorMaintenance=1",
+      "owner-test-password",
+      {},
+    )
+  ).json();
+  expect(owner[0]).not.toHaveProperty("supervisorEffect");
+  expect(
+    JSON.parse(readFileSync(path.join(f.root, "restart-jobs.json"), "utf8"))[0].supervisorEffect,
+  ).toEqual(job.supervisorEffect);
+  expect(f.calls).toEqual([]);
+});
 
 test("recovery bookmark discovery is owner-only, read-only and installation-bound", async () => {
   let installationId = "";

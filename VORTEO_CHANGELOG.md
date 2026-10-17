@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.677 - 2026-10-17
+
+### Maintenance
+
+- Separate fixed Dev registration artifacts from later enrollment authority, removing the script/manifest digest cycle. Reserve the controller before one gated launch and consume the exact child claim before release; observing a child after a lost acknowledgment cannot create consumption authority.
+- Guard both lifecycle snapshots in ordinary restart writers and maintenance-service claims. Unsettled registration retains exclusion even on failed or succeeded parents; only independently verified terminal settlement releases the fence. Keep the private effect record out of legacy and owner restart replies.
+- Retain immutable observation, readiness and child-claim data across synchronous custody callbacks before persistence, publication and gate release. The execution path still requires trusted injected ports; native child launch, final root admission, workload settlement and installed registration remain unavailable.
+
 ## 0.11.0-beta.3.vorteo.676 - 2026-10-17
 
 ### Maintenance

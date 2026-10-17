@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { assertDevRegistrationEffectAdmission } from "./maintenance/dev-registration-execution.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   MaintenanceServiceJobSchema,
@@ -128,7 +129,10 @@ export function claimMaintenanceServiceEffect(input: {
       const next = claimed;
       return jobs.map((item) => (item.id === next.id ? next : item));
     },
-    (previous, next) => admission(previous, next),
+    (previous, next) => {
+      assertDevRegistrationEffectAdmission({ previous, next });
+      return admission(previous, next);
+    },
   );
   if (!claimed) throw new BootstrapRequestConflict("Maintenance effect was not retained");
   return claimed;

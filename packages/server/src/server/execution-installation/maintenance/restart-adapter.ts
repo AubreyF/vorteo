@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { assertDevRegistrationEffectAdmission } from "./dev-registration-execution.js";
 import { enrollmentManifestDigest } from "./authorization.js";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
 import type { InstallationEnrollmentState } from "@getpaseo/protocol/installation-enrollment";
@@ -60,6 +61,7 @@ export function createStandingRestartAdapter(input: {
   const journal: RestartJournal = {
     mutate: (update, evidence) =>
       lifecycle.mutateLifecycle(update, (previous, next) => {
+        assertDevRegistrationEffectAdmission({ previous, next });
         const state = enrollment.readUnderLifecycleLock();
         assertStandingRestartAdmission({
           ...input.ports,
@@ -94,6 +96,7 @@ export function createStandingRestartAdapter(input: {
       lifecycle.writeLifecycle(
         jobs,
         (previous, next) => {
+          assertDevRegistrationEffectAdmission({ previous, next });
           const state = enrollment.readUnderLifecycleLock();
           assertStandingRestartAdmission({
             ...input.ports,

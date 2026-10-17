@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
 import { z } from "zod";
-import { parseLifecycleJournal } from "./lifecycle-journal.js";
+import { parseLifecycleJournal, isSupervisorEffectSettled } from "./lifecycle-journal.js";
 import {
   CoordinatorBootstrapPlanSchema,
   CoordinatorBootstrapPreparationSchema,
@@ -122,7 +122,8 @@ export function coordinatorLifecycleWork(journal: unknown) {
       const active = job.status === "approved" || job.status === "running";
       const held = job.finishCurrentTurns === true && job.holdReleased !== true;
       const preparing = job.sourceBatch?.status === "preparing";
-      return active || held || preparing;
+      const registration = job.supervisorEffect && !isSupervisorEffectSettled(job.supervisorEffect);
+      return active || held || preparing || registration;
     }
     return false;
   });

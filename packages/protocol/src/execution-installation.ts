@@ -298,7 +298,97 @@ export const StandingRestartHoldSchema = z.strictObject({
   releaseRequestedAt: z.string().datetime().optional(),
 });
 
+const supervisorEffectDigest = z.string().regex(/^[a-f0-9]{64}$/);
+export const SupervisorEffectExecutorSchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().nonnegative(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().min(1).max(100),
+  startIdentity: z.string().min(1).max(200),
+  argumentsSha256: supervisorEffectDigest,
+  auditToken: z.array(z.number().int().min(0).max(0xffffffff)).length(8),
+  executable: z.strictObject({ path: z.string().startsWith("/"), sha256: supervisorEffectDigest }),
+  entrypoint: z.strictObject({ path: z.string().startsWith("/"), sha256: supervisorEffectDigest }),
+  artifactSha256: supervisorEffectDigest,
+});
+export const SupervisorEffectBindingSchema = z.strictObject({
+  requestId: z.uuid(),
+  requestRevision: z.uuid(),
+  approvedAt: z.string().datetime(),
+  decisionSha256: supervisorEffectDigest,
+  requestPlanSha256: supervisorEffectDigest,
+  supervisorPlanSha256: supervisorEffectDigest,
+  registrationPlanSha256: supervisorEffectDigest,
+  operation: z.enum(["replace", "rollback"]),
+  preparationNonce: z.uuid(),
+  original: z.strictObject({ requestId: z.uuid(), claimSha256: supervisorEffectDigest }).nullable(),
+  generation: z.uuid(),
+  candidateSha256: supervisorEffectDigest,
+  grantId: z.uuid(),
+  grantRevision: z.uuid(),
+  manifestSha256: supervisorEffectDigest,
+  stepId: z.uuid(),
+  activationGeneration: z.uuid(),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  artifactSha256: supervisorEffectDigest,
+  nativeIdentitySha256: supervisorEffectDigest,
+  preconditionSha256: supervisorEffectDigest,
+  settlementSha256: supervisorEffectDigest,
+  controller: SupervisorEffectExecutorSchema,
+});
+export const SupervisorEffectObservationSchema = z.strictObject({
+  observedAt: z.string().datetime(),
+  evidenceSha256: supervisorEffectDigest,
+  outcome: z.enum(["unresolved", "stopped", "candidate-ready-unpublished", "published"]),
+  /** Both the exact executor and the affected workload must be independently settled. */
+  settled: z.boolean(),
+  publication: z
+    .strictObject({
+      receiptSha256: supervisorEffectDigest,
+      configurationSha256: supervisorEffectDigest,
+    })
+    .nullable(),
+});
+const supervisorEffectRecord = {
+  binding: SupervisorEffectBindingSchema,
+  reservedAt: z.string().datetime(),
+};
+export const SupervisorEffectChildSchema = z.strictObject({
+  reservationSha256: supervisorEffectDigest,
+  executor: SupervisorEffectExecutorSchema,
+  acknowledgedAt: z.string().datetime(),
+});
+export const SupervisorEffectSchema = z.discriminatedUnion("phase", [
+  z.strictObject({ ...supervisorEffectRecord, phase: z.literal("reserved") }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("consumed"),
+    consumedAt: z.string().datetime(),
+    child: SupervisorEffectChildSchema,
+  }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("uncertain"),
+    consumedAt: z.string().datetime().nullable(),
+    child: SupervisorEffectChildSchema.nullable(),
+  }),
+  z.strictObject({
+    ...supervisorEffectRecord,
+    phase: z.literal("observed"),
+    consumedAt: z.string().datetime().nullable(),
+    child: SupervisorEffectChildSchema.nullable(),
+    observation: SupervisorEffectObservationSchema,
+  }),
+]);
+export type SupervisorEffect = z.infer<typeof SupervisorEffectSchema>;
+export type SupervisorEffectBinding = z.infer<typeof SupervisorEffectBindingSchema>;
+export type SupervisorEffectExecutor = z.infer<typeof SupervisorEffectExecutorSchema>;
+export type SupervisorEffectChild = z.infer<typeof SupervisorEffectChildSchema>;
+export type SupervisorEffectObservation = z.infer<typeof SupervisorEffectObservationSchema>;
+
 export const RestartJobSchema = RestartRequestSchema.extend({
+  // Protected ledger metadata only; legacy restart replies omit this one-use claim.
+  supervisorEffect: SupervisorEffectSchema.optional(),
   workerLaunch: WorkerLaunchSchema.optional(),
   standingDecision: StandingRestartDecisionSchema.optional(),
   standingHold: StandingRestartHoldSchema.optional(),

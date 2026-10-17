@@ -165,6 +165,7 @@ function restartReply(
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
   const {
+    supervisorEffect: _supervisorEffect,
     workerLaunch: _workerLaunch,
     workerLaunchRequest: _workerLaunchRequest,
     standingDecision: _standingDecision,

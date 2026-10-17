@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { runInNewContext } from "node:vm";
-import pathApi from "node:path";
 import { expect, test } from "vitest";
 import {
   DevRegistrationProvisionerInputSchema,
@@ -24,13 +22,6 @@ function fixture() {
     sha256: hash(content),
     size: Buffer.byteLength(content),
   });
-  const activation = {
-    grantId: "ffec4938-d585-4683-bd92-c8b171a62c79",
-    grantRevision: "8cb37ce3-b6fb-47cc-a4ba-280ca0bf6205",
-    manifestSha256: "1".repeat(64),
-    stepId: "37464435-84c6-49b5-b304-de6d1be49450",
-    generation: "ef8cfbe3-2c77-4c6d-a24c-a3d5b3d6d874",
-  };
   const linuxArtifact = {
     algorithm: "vorteo-container-artifact-v1",
     platform: "linux",
@@ -75,10 +66,12 @@ function fixture() {
   };
   return DevRegistrationProvisionerInputSchema.parse({
     installationId: "a3ed817e-d9f4-40c4-8409-5948c4d6b35c",
-    generation: "2fd5c9ab-e74a-4cd1-98fe-47715955740a",
-    jobId: "726d3128-c864-4cce-a975-59d0d336c962",
-    activation,
-    rollback: { ...activation, jobId: "47b74dfc-5c91-4b7c-bd7b-ebfbe1757848" },
+    preparationNonce: "2fd5c9ab-e74a-4cd1-98fe-47715955740a",
+    hostInspector: {
+      path: "/host/audited-inspector.py",
+      sha256: hash("fixture read-only inspector"),
+      size: Buffer.byteLength("fixture read-only inspector"),
+    },
     configurationFile: "/host/coordinator.json",
     hostReceiptFile: "/host/dev-registration.json",
     docker: { path: "/host/docker", socket: "/host/docker.sock", containerId: "5".repeat(64) },
@@ -144,7 +137,9 @@ test("prepares exact copied Factory startup files and an independently bound rol
   expect(prepared.sha256).toBe(hash(prepared.script));
   expect(prepared.rollback.sha256).toBe(hash(prepared.rollback.script));
   expect(prepared.planSha256).toBe(hash(JSON.stringify(prepared.plan)));
-  expect(prepared.plan.destination).toBe("/opt/vorteo-persistent-registration/" + input.generation);
+  expect(prepared.plan.destination).toBe(
+    "/opt/vorteo-persistent-registration/" + input.preparationNonce,
+  );
   expect(prepared.plan.files.map((file) => file.path)).toEqual([
     prepared.plan.destination + "/factory-main-entry.mjs",
     prepared.plan.destination + "/factory-launch.py",
@@ -260,9 +255,9 @@ test("rejects source substitution, incompatible Factory source and an unbound ro
   expect(() =>
     prepareDevRegistrationProvisioner({
       ...input,
-      rollback: { ...input.rollback, jobId: input.jobId },
+      activation: { manifestSha256: "0".repeat(64) },
     }),
-  ).toThrow("own exact tracked job");
+  ).toThrow();
 });
 
 test("rejects redirected Factory runtime and wrong native parent", () => {
@@ -310,7 +305,7 @@ function rollbackPredicate(
       String.raw`
 import ast,sys,json,hashlib,io,types
 data=json.load(sys.stdin)
-names={'service_snapshot','assert_rollback_records','assert_stopped_rollback','assert_native_absence','atomic'}
+names={'service_snapshot','assert_rollback_records','assert_stopped_rollback','assert_native_absence','atomic','assert_original_root_exited'}
 tree=ast.parse(data['source'])
 module=ast.Module(body=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names],type_ignores=[])
 def check(ok,reason):
@@ -319,9 +314,11 @@ def missing(path): raise FileNotFoundError(path)
 def denied(path): raise PermissionError(path)
 observation=data.get('observation','empty')
 fields=['S','7']+['0']*17+['132361430']
+if data['action']=='original-root': fields[19]=data['attempt']['rootExecutor']['startIdentity'] if observation in ('same-root','zombie-root') else 'reused'
+if observation=='zombie-root': fields[0]='Z'
 if observation in ('candidate','original','reused','exe-denied'): fields[1]='1'
 if observation in ('candidate','reused','exe-denied'): fields[19]='999'
-files={'/proc/101/stat':'101 (fixture) '+' '.join(fields),'/proc/101/status':'Uid:\t1000\t1000\t1000\t1000\n'}
+files={'/proc/101/stat':'101 (fixture) '+' '.join(fields),'/proc/101/status':'Uid:\t1000\t1000\t1000\t1000\n','/proc/999/stat':'999 (root fixture) '+' '.join(fields),'/proc/sys/kernel/random/boot_id':'fixture-boot'}
 def fake_open(path):
     if observation=='denied': return denied(path)
     if observation=='gone': return missing(path)
@@ -330,10 +327,11 @@ def fake_readlink(path):
     if observation=='exe-denied': return denied(path)
     if observation=='candidate': return data['plan']['protectedNode']
     return missing(path)
-namespace=dict(check=check,p=data['plan'],request={'planSha256':data['planSha256'],'originalScriptSha256':data['originalScriptSha256']},digest=lambda b:hashlib.sha256(b).hexdigest(),os=types.SimpleNamespace(listdir=lambda path:[] if observation=='empty' else ['101'],readlink=fake_readlink),open=fake_open)
+namespace=dict(check=check,p=data['plan'],request={'planSha256':data['planSha256'],'originalClaimSha256':data['originalClaimSha256']},original_binding={'requestId':data['originalJobId'],'supervisorPlanSha256':data['originalScriptSha256']},digest=lambda b:hashlib.sha256(b).hexdigest(),os=types.SimpleNamespace(listdir=lambda path:[] if observation=='empty' else ['101'],readlink=fake_readlink),open=fake_open)
 exec(compile(module,'isolated-rollback-predicates','exec'),namespace)
 try:
-    if data['action']=='atomic':
+    if data['action']=='original-root': namespace['assert_original_root_exited'](data['attempt'])
+    elif data['action']=='atomic':
         contents={'pointer':b'candidate'};metadata={'pointer':(1,2,3)};effects=[]
         if observation=='changed-bytes': contents['pointer']=b'unrelated'
         if observation=='changed-inode': metadata['pointer']=(9,9,9)
@@ -359,7 +357,7 @@ try:
         def record(file):
             if file.endswith('/attempt.json'): return data['attempt']
             return data['selection']
-        namespace.update(operation='rollback',server=types.SimpleNamespace(supervisor=Supervisor()),retained=data['attempt'],selection=data['selection'],stopped_outcome=lambda:data['outcome'],process=process,protected_record=record,assert_native_absence=absence)
+        namespace.update(assert_original_root_exited=lambda attempt:None,operation='rollback',server=types.SimpleNamespace(supervisor=Supervisor()),retained=data['attempt'],selection=data['selection'],stopped_outcome=lambda:data['outcome'],process=process,protected_record=record,assert_native_absence=absence)
         nodes=[];active=False
         for node in tree.body:
             if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='service' for target in node.targets): active=True
@@ -385,11 +383,25 @@ except Exception as error: print(type(error).__name__+': '+str(error))
 function stoppedRollbackFixture() {
   const prepared = prepareDevRegistrationProvisioner(fixture());
   const scriptSha256 = prepared.sha256;
+  const originalJobId = "726d3128-c864-4cce-a975-59d0d336c962",
+    originalClaimSha256 = "a".repeat(64);
+  const rootExecutor = {
+    pid: 999,
+    parentPid: 1,
+    uid: 0,
+    gid: 0,
+    bootId: "fixture-boot",
+    startIdentity: "999",
+    executable: prepared.plan.systemPython.path,
+    argumentsSha256: "b".repeat(64),
+  };
   return {
     action: "stopped",
     plan: prepared.plan,
     planSha256: prepared.planSha256,
     originalScriptSha256: scriptSha256,
+    originalJobId,
+    originalClaimSha256,
     service: {
       name: "paseo",
       group: "paseo",
@@ -402,13 +414,16 @@ function stoppedRollbackFixture() {
     },
     attempt: {
       planSha256: prepared.planSha256,
-      jobId: prepared.plan.jobId,
+      jobId: originalJobId,
       phase: "prepared",
+      rootExecutor,
+      claimSha256: originalClaimSha256,
       scriptSha256,
     },
     selection: {
       planSha256: prepared.planSha256,
-      jobId: prepared.plan.jobId,
+      jobId: originalJobId,
+      claimSha256: originalClaimSha256,
       parent: prepared.plan.parent,
       pointerSha256: hash(prepared.plan.pointerContent),
       pointerIdentity: [1, 2, 3],
@@ -418,7 +433,9 @@ function stoppedRollbackFixture() {
       planSha256: prepared.planSha256,
       operation: "replace",
       phase: "start-failed",
-      jobId: prepared.plan.jobId,
+      rootExecutor,
+      claimSha256: originalClaimSha256,
+      jobId: originalJobId,
       scriptSha256,
     },
   };
@@ -447,7 +464,7 @@ test.each(["pid", "state", "service", "attempt", "selection", "parent", "outcome
         value.service.name = "unrelated";
         break;
       case "attempt":
-        value.attempt.jobId = value.plan.rollback.jobId;
+        value.attempt.jobId = "47b74dfc-5c91-4b7c-bd7b-ebfbe1757848";
         break;
       case "selection":
         value.selection.pointerSha256 = "0".repeat(64);
@@ -507,134 +524,30 @@ test.each([
   },
 );
 
-function hostRollbackBoundary(
-  change:
-    | "none"
-    | "config"
-    | "receipt"
-    | "registration"
-    | "snapshot"
-    | "original-running"
-    | "original-generation",
-) {
-  const prepared = prepareDevRegistrationProvisioner(fixture());
-  const plan = prepared.plan;
-  const script = Buffer.from("protected rollback script");
-  const container: {
-    supervisorMaintenance: { script: string; sha256: string };
-    persistentRegistration?: { receiptFile: string };
-  } = { supervisorMaintenance: { script: "/host/script", sha256: hash(script.toString()) } };
-  const config = {
-    stateDir: "/host/state",
-    public: { installationId: plan.installationId },
-    container,
-    containerSourceUpdates: {
-      containerId: plan.docker.containerId,
-      docker: plan.docker.path,
-      user: plan.account.user,
-      node: plan.node.path,
-      home: plan.account.stateDirectory,
-      releaseRoot: plan.releaseRoot,
-      currentReleaseLink: plan.selectionPath,
-    },
-    unrelated: "original",
-  };
-  const publicationConfig = { ...config, container: {} };
-  const snapshot = {
-    planSha256: prepared.planSha256,
-    jobId: plan.jobId,
-    scriptSha256: prepared.sha256,
-    configurationSha256: hash(JSON.stringify(publicationConfig)),
-    receiptAbsent: true,
-  };
-  if (change === "config") config.unrelated = "changed";
-  if (change === "registration")
-    config.container.persistentRegistration = { receiptFile: "/host/other" };
-  if (change === "snapshot") snapshot.jobId = plan.rollback.jobId;
-  const job = {
-    id: plan.rollback.jobId,
-    status: "running",
-    target: "container-daemon",
-    supervisorPlanSha256: config.container.supervisorMaintenance.sha256,
-    approvedAt: "reviewed",
-    revision: "revision",
-    standingDecision: {
-      ...plan.rollback,
-      requestRevision: "revision",
-      activationStep: {
-        ...plan.rollback,
-        candidateArtifactSha256: plan.linuxArtifact.artifactSha256,
-      },
-    },
-  };
-  const original = {
-    ...job,
-    id: plan.jobId,
-    status: "failed",
-    supervisorPlanSha256: prepared.sha256,
-    standingDecision: {
-      ...job.standingDecision,
-      ...plan.activation,
-      activationStep: {
-        ...plan.activation,
-        candidateArtifactSha256: plan.linuxArtifact.artifactSha256,
-      },
-    },
-  };
-  if (change === "original-running") original.status = "running";
-  if (change === "original-generation")
-    original.standingDecision.activationStep.generation = plan.generation;
-  const files = new Map([
-    [plan.configurationFile, Buffer.from(JSON.stringify(config))],
-    ["/host/script", script],
-    ["/host/state/restart-jobs.json", Buffer.from(JSON.stringify([job, original]))],
-    [plan.hostAttemptFile, Buffer.from(JSON.stringify(snapshot))],
-  ]);
-  const fs = {
-    realpathSync: (file: string) => file,
-    lstatSync: (file: string) => {
-      if (file === plan.hostReceiptFile && change !== "receipt")
-        throw Object.assign(new Error("absent"), { code: "ENOENT" });
-      return {
-        uid: 501,
-        mode: 0o700,
-        nlink: 1,
-        size: 100,
-        isSymbolicLink: () => false,
-        isFile: () => true,
-      };
-    },
-    readFileSync: (file: string) => files.get(file),
-  };
-  const source = prepared.rollback.script.replace(/^import .*;\n/gm, "");
-  return () =>
-    runInNewContext(source, {
-      fs,
-      path: pathApi,
-      createHash,
-      process: { getuid: () => 501, env: { VORTEO_RESTART_JOB_ID: plan.rollback.jobId } },
-      execFileSync: () => {
-        throw Error("Docker boundary reached");
-      },
-      console,
-    });
-}
-
-test("rollback permits the exact pre-publication snapshot with separately pinned maintenance reference", () => {
-  expect(hostRollbackBoundary("none")).toThrow("Docker boundary reached");
+test("static preparation rejects future authority and leaves scripts independent of enrollment", () => {
+  const input = fixture(),
+    prepared = prepareDevRegistrationProvisioner(input);
+  expect(prepared.plan).not.toHaveProperty("jobId");
+  expect(prepared.plan).not.toHaveProperty("activation");
+  expect(prepared.plan).not.toHaveProperty("rollback");
+  expect(prepared.plan).not.toHaveProperty("generation");
+  expect(() =>
+    prepareDevRegistrationProvisioner({ ...input, jobId: "726d3128-c864-4cce-a975-59d0d336c962" }),
+  ).toThrow();
+  expect(prepareDevRegistrationProvisioner(input)).toEqual(prepared);
 });
-test.each(["config", "receipt", "registration", "snapshot"] as const)(
-  "rollback refuses changed publication %s before Docker",
-  (change) => {
-    expect(hostRollbackBoundary(change)).toThrow(
-      /publication snapshot differs|already published|separate recovery/,
-    );
-  },
-);
 
-test.each(["original-running", "original-generation"] as const)(
-  "rollback refuses %s originating job before Docker",
-  (change) => {
-    expect(hostRollbackBoundary(change)).toThrow(/not durably failed|generation differs/);
+test.each([
+  ["gone", "accepted"],
+  ["reused-root", "accepted"],
+  ["same-root", "RuntimeError: Original root executor remains present"],
+  ["zombie-root", "RuntimeError: Original root executor remains present"],
+  ["denied", "PermissionError: /proc/999/stat"],
+])(
+  "rollback root settlement observes %s without using the Host parent as proof",
+  (observation, expected) => {
+    expect(
+      rollbackPredicate({ ...stoppedRollbackFixture(), action: "original-root", observation }),
+    ).toBe(expected);
   },
 );
