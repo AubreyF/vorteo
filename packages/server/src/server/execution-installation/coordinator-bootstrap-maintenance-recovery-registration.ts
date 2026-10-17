@@ -158,7 +158,7 @@ export async function activateMaintenanceRecoveryAccess(
     });
     if (!isDeepStrictEqual(prepared, rechecked))
       throw new BootstrapRequestConflict("Recovery route changed before activation");
-    const native = await inspectRegisteredListener(input, ports, retained);
+    const native = await waitForRegisteredListener(input, ports, retained, checkDeadline);
     checkDeadline();
     withReservedMaintenanceLauncherEffect(
       {
@@ -340,4 +340,26 @@ async function inspectRegisteredListener(
   };
   assertCurrent();
   return { context, process, assertCurrent };
+}
+
+/** launchd registration can return before exec and the loopback listener settle.
+ * Repeat observation within the existing activation budget, never the command.
+ * Final routing admission still rechecks the grant and exact native custody. */
+async function waitForRegisteredListener(
+  input: RecoveryRegistrationInput,
+  ports: RecoveryRegistrationPorts,
+  retained: Intent,
+  checkDeadline: () => void,
+) {
+  for (;;) {
+    checkDeadline();
+    try {
+      const native = await inspectRegisteredListener(input, ports, retained);
+      checkDeadline();
+      return native;
+    } catch {
+      checkDeadline();
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+  }
 }

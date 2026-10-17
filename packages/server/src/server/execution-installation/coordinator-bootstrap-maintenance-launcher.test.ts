@@ -3024,6 +3024,79 @@ test("initial recovery registration consumes one existing activation intent and 
   expect(readFileSync(retained.file)).toEqual(before);
 });
 
+test("initial recovery registration observes exec and listener startup without repeating effects", async () => {
+  const f = await recoveryRegistrationFixture();
+  const inspect = f.ports.reader.inspectProcess;
+  const inspectListener = f.ports.inspectListener;
+  let processChecks = 0;
+  let listenerChecks = 0;
+  f.ports.reader.inspectProcess = async (pid) => {
+    processChecks++;
+    if (processChecks === 1) throw new Error("Fixture exec identity is not stable yet");
+    return inspect(pid);
+  };
+  f.ports.inspectListener = async (input) => {
+    listenerChecks++;
+    if (listenerChecks === 1) throw new Error("Fixture loopback socket is not ready yet");
+    return inspectListener(input);
+  };
+  const result = await activateMaintenanceRecoveryAccess(f.input, f.ports);
+  expect(result.listenerAndRouteVerified).toBe(true);
+  expect(processChecks).toBe(7);
+  expect(listenerChecks).toBe(3);
+  expect(f.commands.map((command) => command[0])).toEqual([
+    "/bin/launchctl",
+    f.plan.recoveryRoute!.tailscale.path,
+  ]);
+  expect(f.enrollment.read()).toEqual(f.reserved);
+});
+
+test("initial recovery startup timeout retains its intent without a route or repeated start", async () => {
+  const f = await recoveryRegistrationFixture();
+  let started: () => void = () => undefined;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  f.ports.reader.inspectProcess = async () => {
+    started();
+    throw new Error("Fixture process never establishes native custody");
+  };
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const outcome = expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow(
+    "deadline elapsed",
+  );
+  await waiting;
+  const retained = f.intent();
+  const before = readFileSync(retained.file);
+  await vi.advanceTimersByTimeAsync(60_001);
+  await outcome;
+  expect(f.commands.map((command) => command[0])).toEqual(["/bin/launchctl"]);
+  expect(readFileSync(retained.file)).toEqual(before);
+  expect(f.enrollment.read()).toEqual(f.reserved);
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands.map((command) => command[0])).toEqual(["/bin/launchctl"]);
+});
+
+test("initial recovery startup wait does not authorize routing after revocation", async () => {
+  const f = await recoveryRegistrationFixture();
+  const inspect = f.ports.reader.inspectProcess;
+  let first = true;
+  f.ports.reader.inspectProcess = async (pid) => {
+    if (first) {
+      first = false;
+      f.revoke();
+      throw new Error("Fixture exec was incomplete when the owner revoked authority");
+    }
+    return inspect(pid);
+  };
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(f.commands.map((command) => command[0])).toEqual(["/bin/launchctl"]);
+  const before = readFileSync(f.intent().file);
+  await expect(activateMaintenanceRecoveryAccess(f.input, f.ports)).rejects.toThrow();
+  expect(readFileSync(f.intent().file)).toEqual(before);
+  expect(f.commands.map((command) => command[0])).toEqual(["/bin/launchctl"]);
+});
+
 test("selected recovery listener supplies review custody without executor authority", async () => {
   const f = await recoveryRegistrationFixture();
   const result = await reconcileRecoveryAccessActivation(f.input, f.ports);

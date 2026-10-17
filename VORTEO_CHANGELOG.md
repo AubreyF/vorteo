@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.621 - 2026-10-16
+
+### Fixed
+
+- Wait for independently verified recovery-listener startup after native service registration, within the existing sixty-second activation budget. Repeat only observation while the executable, arguments or loopback socket settle; never repeat registration or selection effects.
+- Keep exact grant and native custody checks before private routing. Startup timeout retains the same intent without configuring a route, and revocation during the wait refuses the next effect. Focused regressions cover temporary process/socket refusal, expiration, replay refusal and revocation.
+- This corrects a startup race found in disposable native acceptance. Permanent page rollback, actual private HTTPS installation, remote owner testing and the broader failure matrix remain unfinished. No installed service or README availability claim changes.
+
 ## 0.11.0-beta.3.vorteo.620 - 2026-10-16
 
 ### Maintenance
