@@ -1,3 +1,4 @@
+import { retainFixtureServiceAdmission } from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
 import { hashSync } from "bcryptjs";
 import {
   reconcileRecoveryAccessActivation,
@@ -823,6 +824,25 @@ test.each([
       dispatchAfter: new Date(Date.now() - 60_000).toISOString(),
     },
   });
+  retainFixtureServiceAdmission(job, {
+    bootId: randomUUID(),
+    process: null,
+    service: {
+      domain: `gui/${process.getuid!()}`,
+      label: "local.vorteo.fixture.installation",
+      registered: false,
+      launcherPath: f.plan.identity.launcherPath,
+      launcherSha256: null,
+      registrationSha256: null,
+    },
+    selection: {
+      path: f.plan.identity.selectionPath!,
+      receiptSha256: null,
+      sourceCommit: null,
+      artifactSha256: null,
+    },
+  });
+  reservation.nativeEvidenceSha256 = job.reservation!.nativeEvidenceSha256;
   const mutations: Record<string, () => void> = {
     request: () => {
       job.proposal.id = randomUUID();
@@ -925,7 +945,7 @@ test.each([
     await import("@getpaseo/protocol/maintenance-service");
   const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
   journal.writeLifecycle([job]);
-  const bootId = randomUUID();
+  const bootId = job.evidence[0]!.record.native.bootId;
   const executor = {
     pid: process.pid,
     parentPid: process.ppid,
@@ -1174,6 +1194,8 @@ test.each([
     },
     reservation: recoveryReservation,
   });
+  retainFixtureServiceAdmission(recoveryJob, record.native);
+  recoveryReservation.nativeEvidenceSha256 = recoveryJob.reservation!.nativeEvidenceSha256;
   if (mode.startsWith("recover-")) {
     const { exerciseAbsentRecovery } =
       await import("./coordinator-bootstrap-maintenance-recovery-native.fixture.js");
@@ -1256,6 +1278,7 @@ test.each([
       previous: rollbackProposal.previous,
     },
   });
+  retainFixtureServiceAdmission(rollbackJob, record.native);
   journal.writeLifecycle([failed, rollbackJob]);
   const rollbackRecord = {
     ...recoveryEvidenceRecord,
@@ -2127,7 +2150,6 @@ async function exerciseNativeReplacement(
   reservedProof.record.executor = selectedExecutor.executor;
   reservedProof.sha256 = digest(JSON.stringify(reservedProof.record));
   reservationJob.reservation.nativeEvidenceSha256 = reservedProof.sha256;
-  reservationJob.approval!.nativeEvidenceSha256 = reservedProof.sha256;
   claim.reservation.nativeEvidenceSha256 = reservedProof.sha256;
   journal.writeLifecycle([reservationJob]);
   requireReservedMaintenanceExecutor(reservationJob, selectedExecutor.executor);
@@ -2197,7 +2219,7 @@ async function exerciseNativeReplacement(
       revoke: true,
     });
     const before = journal.readLifecycle();
-    await expect(run()).rejects.toThrow();
+    await expect(run()).rejects.toThrow("Standing maintenance authority is paused or revoked");
     expect(journal.readLifecycle()).toEqual(before);
     expect(commands).toHaveLength(0);
     return;

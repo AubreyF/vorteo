@@ -9,6 +9,7 @@ import {
   MaintenanceServiceJobSchema,
   MaintenanceServiceEvidenceRecordSchema,
   type MaintenanceServiceJob,
+  type MaintenanceServiceEvidenceRecord,
 } from "@getpaseo/protocol/maintenance-service";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { claimMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-claim.js";
@@ -26,6 +27,33 @@ import {
 } from "./coordinator-bootstrap-maintenance-launcher.js";
 
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+
+/** Seed historical inspection receipts separately from a later effect claim. */
+export function retainFixtureServiceAdmission(
+  job: MaintenanceServiceJob,
+  native: MaintenanceServiceEvidenceRecord["native"],
+): void {
+  const approval = job.approval!,
+    reservation = job.reservation!;
+  function proof(requestRevision: string, observedAt: string) {
+    const record = MaintenanceServiceEvidenceRecordSchema.parse({
+      requestId: job.id,
+      requestRevision,
+      observedAt,
+      planSha256: job.proposal.planSha256,
+      identitySha256: job.proposal.identitySha256,
+      sourceCommit: job.proposal.sourceCommit,
+      artifactSha256: job.proposal.artifactSha256,
+      native: structuredClone(native),
+    });
+    return { sha256: hash(JSON.stringify(record)), record };
+  }
+  const reviewed = proof(approval.reviewedRevision, approval.approvedAt);
+  const reserved = proof(randomUUID(), reservation.reservedAt);
+  approval.nativeEvidenceSha256 = reviewed.sha256;
+  reservation.nativeEvidenceSha256 = reserved.sha256;
+  job.evidence = [reviewed, reserved];
+}
 
 /** Disposable filesystem and native-port fixture. No installed service command. */
 export async function exerciseAbsentRecovery(input: {
@@ -74,6 +102,7 @@ export async function exerciseAbsentRecovery(input: {
       proposalSha256,
     },
   });
+  retainFixtureServiceAdmission(job, input.job.evidence[0]!.record.native);
   const identity = context.identity;
   if (identity.environment !== "host" || !identity.selectionPath)
     throw new Error("Fixture requires Host identity");

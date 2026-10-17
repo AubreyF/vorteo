@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.640 - 2026-10-16
+
+### Fixed
+
+- Accept separately addressed native approval and reservation evidence. Each queue transition inspects a different current revision, so requiring identical evidence digests rejected valid replacement, recovery and rollback reservations.
+- Validate both retained dispatch proofs independently for unique address, digest, request, plan, identity and reviewed candidate. Approval proof remains bound to its reviewed revision; reservation proof can follow later bookkeeping. Preserve grant, manifest, proposal, approved revision, cancellation interval and reserved executor checks. Legacy consumed observation gains no new dispatch requirement.
+- Reproduce the refusal with real queue transitions and a file journal, then cover separate recovery and rollback proofs, missing or altered evidence, duplicate receipts, changed executor refusal and legacy observation. Native-port fixtures now retain distinct inspection records instead of fabricating one shared digest. Full compiled recovery dispatch and installed activation remain open; no service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.639 - 2026-10-16
 
 ### Maintenance

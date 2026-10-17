@@ -7,6 +7,7 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
 import {
   requireServiceApproval,
+  requireServiceAdmissionEvidence,
   requireRetainedServiceIntent,
 } from "./coordinator-bootstrap-maintenance-service-binding.js";
 
@@ -35,6 +36,7 @@ export function inspectMaintenanceRecoveryExecution(input: {
   }
   requireRecoveryPlanBinding(job, reservation, context, operation);
   requireServiceApproval(job.approval, reservation, job.proposal);
+  requireServiceAdmissionEvidence(job, reservation);
   return { ...context, job, reservation };
 }
 

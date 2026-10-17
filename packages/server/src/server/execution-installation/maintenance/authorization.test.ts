@@ -2605,6 +2605,76 @@ function serviceAdmissionFixture() {
   };
 }
 
+test("native approval accepts separately retained queue inspection and reservation evidence", async () => {
+  const f = serviceAdmissionFixture();
+  const { requireServiceApproval, requireServiceAdmissionEvidence } =
+    await import("../coordinator-bootstrap-maintenance-service-binding.js");
+  const approvalProof = f.proof(f.pending);
+  const approved = approveServiceJob(
+    f.pending,
+    f.adapter.serviceAuthority(f.pending)!,
+    approvalProof,
+    f.now(),
+  );
+  f.adapter.journal.mutate!(
+    (jobs) => jobs.map((job) => (job.id === approved.id ? approved : job)),
+    approvalProof,
+  );
+  f.advance(30_000);
+  const reconciled = { ...approved, revision: randomUUID(), detail: "Inspection retried" };
+  f.adapter.journal.write([reconciled]);
+  const reservationProof = f.proof(reconciled);
+  const running = reserveServiceJob(reconciled, reservationProof, f.now());
+  f.adapter.journal.mutate!(
+    (jobs) => jobs.map((job) => (job.id === running.id ? running : job)),
+    reservationProof,
+  );
+  expect(f.adapter.journal.read().find((job) => job.id === running.id)).toEqual(running);
+  expect(running.approval!.nativeEvidenceSha256).not.toBe(
+    running.reservation!.nativeEvidenceSha256,
+  );
+  expect(() =>
+    requireServiceApproval(running.approval!, running.reservation!, running.proposal),
+  ).not.toThrow();
+  expect(() => requireServiceAdmissionEvidence(running, running.reservation!)).not.toThrow();
+  for (const reference of [
+    running.approval!.nativeEvidenceSha256,
+    running.reservation!.nativeEvidenceSha256,
+  ]) {
+    const missing = {
+      ...running,
+      evidence: running.evidence.filter((item) => item.sha256 !== reference),
+    };
+    expect(() => requireServiceAdmissionEvidence(missing, running.reservation!)).toThrow(
+      "admission evidence",
+    );
+    const tampered = structuredClone(running);
+    tampered.evidence.find((item) => item.sha256 === reference)!.record.sourceCommit = "0".repeat(
+      40,
+    );
+    expect(() => requireServiceAdmissionEvidence(tampered, running.reservation!)).toThrow(
+      "admission evidence",
+    );
+    const substituted = structuredClone(running);
+    const receipt = substituted.evidence.find((item) => item.sha256 === reference)!;
+    receipt.record.identitySha256 = "0".repeat(64);
+    receipt.sha256 = maintenanceServiceEvidenceDigest(receipt.record);
+    if (reference === substituted.approval!.nativeEvidenceSha256)
+      substituted.approval!.nativeEvidenceSha256 = receipt.sha256;
+    else substituted.reservation!.nativeEvidenceSha256 = receipt.sha256;
+    expect(() => requireServiceAdmissionEvidence(substituted, substituted.reservation!)).toThrow(
+      "admission evidence",
+    );
+    const duplicate = {
+      ...running,
+      evidence: [...running.evidence, running.evidence.find((item) => item.sha256 === reference)!],
+    };
+    expect(() => requireServiceAdmissionEvidence(duplicate, running.reservation!)).toThrow(
+      "admission evidence",
+    );
+  }
+});
+
 test("service authority projects base policy fields and retains the full reviewed proposal", () => {
   const f = serviceAdmissionFixture();
   const approved = f.approve(),
@@ -3379,6 +3449,23 @@ function serviceRecoveryFixture() {
   }
   return { ...f, original, pending, consumed, prepare };
 }
+
+test.each(["recovery", "rollback"] as const)(
+  "native %s binds distinct queue approval and reservation proofs",
+  async (operation) => {
+    const f = serviceRecoveryFixture();
+    const claimed = f.prepare(undefined, operation);
+    const { requireServiceApproval, requireServiceAdmissionEvidence } =
+      await import("../coordinator-bootstrap-maintenance-service-binding.js");
+    expect(claimed.approval!.nativeEvidenceSha256).not.toBe(
+      claimed.reservation!.nativeEvidenceSha256,
+    );
+    expect(() =>
+      requireServiceApproval(claimed.approval!, claimed.reservation!, claimed.proposal),
+    ).not.toThrow();
+    expect(() => requireServiceAdmissionEvidence(claimed, claimed.reservation!)).not.toThrow();
+  },
+);
 
 test("recovery history follows immediate generations while preserving original slot choice", () => {
   const f = serviceRecoveryFixture();

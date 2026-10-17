@@ -42,6 +42,7 @@ export function inspectMaintenanceServiceExecution(input: {
     );
   requireServicePlan(job, reservation, native);
   requireServiceApproval(approval, reservation, proposal);
+  requireServiceAdmissionEvidence(job, reservation);
   return { ...native, job, reservation };
 }
 
@@ -128,7 +129,6 @@ export function requireServiceApproval(
     approval.grantId !== reservation.grantId ||
     approval.grantRevision !== reservation.grantRevision ||
     approval.manifestSha256 !== reservation.manifestSha256 ||
-    approval.nativeEvidenceSha256 !== reservation.nativeEvidenceSha256 ||
     approval.proposalSha256 !== proposalSha256 ||
     reservation.proposalSha256 !== proposalSha256
   )
@@ -141,6 +141,35 @@ export function requireServiceApproval(
     throw new BootstrapRequestConflict(
       "Native service reservation bypasses its cancellation interval",
     );
+}
+
+/** Approval and reservation inspect different journal revisions. Validate their
+ * addressed proofs independently; their digests are not interchangeable. This
+ * is dispatch validation, not a new requirement on legacy observation. */
+export function requireServiceAdmissionEvidence(
+  job: MaintenanceServiceJob,
+  reservation: MaintenanceServiceReservation,
+): void {
+  const approval = job.approval!;
+  for (const sha256 of [approval.nativeEvidenceSha256, reservation.nativeEvidenceSha256]) {
+    const matches = job.evidence.filter((item) => item.sha256 === sha256);
+    const record = matches[0]?.record;
+    if (
+      matches.length !== 1 ||
+      !record ||
+      createHash("sha256").update(JSON.stringify(record)).digest("hex") !== sha256 ||
+      record.requestId !== job.id ||
+      record.planSha256 !== reservation.planSha256 ||
+      record.identitySha256 !== reservation.identitySha256 ||
+      record.sourceCommit !== reservation.sourceCommit ||
+      record.artifactSha256 !== reservation.artifactSha256 ||
+      (sha256 === approval.nativeEvidenceSha256 &&
+        record.requestRevision !== approval.reviewedRevision)
+    )
+      throw new BootstrapRequestConflict(
+        "Native service admission evidence differs from its retained proof",
+      );
+  }
 }
 
 export function requireRetainedServiceIntent(
