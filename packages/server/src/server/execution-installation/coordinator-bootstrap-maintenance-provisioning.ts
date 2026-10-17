@@ -60,15 +60,22 @@ async function authenticateMaintenanceOwner(
     throw new BootstrapAuthenticationRequired("Installation owner authentication required");
 }
 
-/** Called with a protected, fixed review by the independent controller. The
- * browser supplies only its exact decision reference and transient owner proof.
- * Durable consent is recorded before provisioning and survives a lost reply. */
-export async function enrollAndProvisionCoordinatorMaintenance(
-  input: MaintenanceProvisioningInput & {
-    review: { id: string; revision: string; manifest: InstallationEnrollmentManifest };
-    decision: { id: string; revision: string; manifestSha256: string };
-    ownerPassword?: string;
-  },
+interface CoordinatorEnrollmentInput extends MaintenanceProvisioningInput {
+  review: { id: string; revision: string; manifest: InstallationEnrollmentManifest };
+  decision: { id: string; revision: string; manifestSha256: string };
+  ownerPassword?: string;
+}
+
+interface MaintenanceConsentPorts {
+  verifyProposal: typeof verifyNativeMaintenanceProposal;
+}
+
+/** Record only the exact authenticated consent. No admission artifact, lifecycle
+ * request or native effect is prepared here. New consent has pending activation;
+ * reopening preserves existing progress and revocation. */
+export async function recordCoordinatorMaintenanceEnrollment(
+  input: CoordinatorEnrollmentInput,
+  ports: MaintenanceConsentPorts = { verifyProposal: verifyNativeMaintenanceProposal },
 ) {
   const manifest = validateEnrollmentManifest(input.review.manifest);
   const digest = enrollmentManifestDigest(manifest);
@@ -80,7 +87,7 @@ export async function enrollAndProvisionCoordinatorMaintenance(
     manifest.provisioning?.admissionSha256 !== input.admissionSha256
   )
     throw new BootstrapRequestConflict("Exact enrollment review changed");
-  const first = await verifyNativeMaintenanceProposal(input);
+  const first = await ports.verifyProposal(input);
   if (
     manifest.targets.find((target) => target.target === "coordinator")?.identitySha256 !==
     first.coordinatorIdentitySha256
@@ -97,7 +104,7 @@ export async function enrollAndProvisionCoordinatorMaintenance(
     if (!input.ownerPassword)
       throw new BootstrapAuthenticationRequired("Installation owner authentication required");
     await authenticateMaintenanceOwner(first, input.ownerPassword);
-    const final = await verifyNativeMaintenanceProposal(input);
+    const final = await ports.verifyProposal(input);
     if (!isDeepStrictEqual(first, final))
       throw new BootstrapRequestConflict("Enrollment context changed during authentication");
     await readBootstrapPreparedFile(final.host.renewal!.configuration, final.writableMountRoots);
@@ -120,6 +127,13 @@ export async function enrollAndProvisionCoordinatorMaintenance(
     !isDeepStrictEqual(state.grant.manifest, manifest)
   )
     throw new BootstrapRequestConflict("Retained enrollment differs from this decision");
+  return state;
+}
+
+/** The existing enrollment action retains its provision-immediately behavior.
+ * A consent-only route must explicitly call the separate persistence operation. */
+export async function enrollAndProvisionCoordinatorMaintenance(input: CoordinatorEnrollmentInput) {
+  const state = await recordCoordinatorMaintenanceEnrollment(input);
   return provisionEnrolledCoordinatorMaintenance({
     ...input,
     grantId: state.grant.id,

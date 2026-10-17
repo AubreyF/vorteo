@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.635 - 2026-10-16
+
+### Maintenance
+
+- Separate exact owner-authenticated enrollment persistence from provisioning. The consent operation verifies the pinned review, native context and owner configuration, then records the unchanged manifest with pending initial steps. It does not prepare admission files, lifecycle requests or service effects. Reopening preserves the original consent, progress and revocation.
+- Keep the existing combined enrollment action effectful: it calls the consent operation and then its existing grant-checked provisioning path. No current button becomes a save-only action implicitly.
+- Add consent-only real file-journal and bcrypt checks for invalid authentication, context changes, changed manifests, lost responses and retained revocation. Native proposal observation is an explicit fixture port. These checks do not establish a remote save-consent control, readiness-gated continuation, a complete final manifest or installed activation. README recovery availability remains pending tracked delivery.
+
 ## 0.11.0-beta.3.vorteo.634 - 2026-10-16
 
 ### Maintenance

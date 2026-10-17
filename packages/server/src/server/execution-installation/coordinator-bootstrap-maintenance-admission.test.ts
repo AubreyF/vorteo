@@ -978,6 +978,95 @@ test.each([
   expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
 });
 
+test.each([
+  "save",
+  "wrong-password",
+  "changed-after-auth",
+  "changed-manifest",
+  "revoked-repeat",
+] as const)(
+  "consent-only enrollment writes no provisioning or lifecycle effects: %s",
+  async (mode) => {
+    const {
+      input,
+      context,
+      digest,
+      directory,
+      journal,
+      manifest,
+      enrollmentManifestDigest,
+      changeStandingGrant,
+    } = await enrollmentFixture();
+    const { recordCoordinatorMaintenanceEnrollment } =
+      await import("./coordinator-bootstrap-maintenance-provisioning.js");
+    const review = { id: randomUUID(), revision: manifest.revision, manifest };
+    const decision = {
+      id: review.id,
+      revision: review.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+    };
+    let inspections = 0;
+    const ports = {
+      async verifyProposal() {
+        inspections++;
+        return mode === "changed-after-auth" && inspections === 2
+          ? { ...context, writableMountRoots: ["/changed"] }
+          : context;
+      },
+    };
+    const prepared = { ...input, admissionSha256: digest, review, decision };
+    const operation = recordCoordinatorMaintenanceEnrollment(
+      { ...prepared, ownerPassword: mode === "wrong-password" ? "incorrect" : "fixture-owner" },
+      ports,
+    );
+    if (mode === "wrong-password" || mode === "changed-after-auth") {
+      await expect(operation).rejects.toThrow();
+      expect(journal.read().status).toBe("absent");
+      expect(await readdir(directory)).toEqual([]);
+      return;
+    }
+    const state = await operation;
+    expect(state.status).toBe("enrolled");
+    expect(state.activation.steps.every((step) => step.status === "pending")).toBe(true);
+    expect(await readdir(directory)).toEqual([]);
+    expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
+    if (mode === "changed-manifest") {
+      const changed = { ...manifest, revision: randomUUID() };
+      const changedReview = { ...review, revision: changed.revision, manifest: changed };
+      await expect(
+        recordCoordinatorMaintenanceEnrollment(
+          {
+            ...prepared,
+            review: changedReview,
+            decision: {
+              ...decision,
+              revision: changed.revision,
+              manifestSha256: enrollmentManifestDigest(changed),
+            },
+          },
+          ports,
+        ),
+      ).rejects.toThrow("Retained enrollment differs");
+      expect(journal.read()).toEqual(state);
+      return;
+    }
+    if (mode === "revoked-repeat") {
+      changeStandingGrant(journal, {
+        expectedRevision: state.grant.revision,
+        paused: false,
+        disabledTargets: [],
+        revoke: true,
+      });
+    }
+    const retained = journal.read();
+    // Losing the response does not replace consent or repeat authentication.
+    expect(await recordCoordinatorMaintenanceEnrollment(prepared, ports)).toEqual(retained);
+    expect(journal.read()).toEqual(retained);
+    expect(await readdir(directory)).toEqual([]);
+    expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
+  },
+);
+
 test("interrupted provisioning resumes the retained enrollment without another approval", async () => {
   const { input, context, digest, directory, journal, manifest, enrollmentManifestDigest } =
     await enrollmentFixture();
