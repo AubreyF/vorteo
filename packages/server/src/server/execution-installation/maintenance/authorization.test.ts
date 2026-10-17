@@ -3107,6 +3107,70 @@ test("service queue ignores late execute replies after timeout and observes the 
     vi.useRealTimers();
   }
 });
+test("service queue keeps observing a timed-out generation after saturated checks and reopening", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = serviceQueueFixture(),
+      queue = f.create();
+    const readyObservation = f.setNative({}).observe;
+    let executions = 0,
+      observations = 0,
+      ready = false;
+    f.setNative({
+      execute: async (job) => {
+        executions++;
+        f.claim(job);
+        return new Promise(() => {});
+      },
+      observe: async (job, reservation) => {
+        observations++;
+        if (!ready) throw new Error("Retained executor has not finished");
+        return readyObservation(job, reservation);
+      },
+    });
+    await queue.drain();
+    f.advance(30_000);
+    const execution = queue.drain();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await execution;
+    const running = queue.listServices()[0];
+    expect(running.status).toBe("running");
+    for (const delay of [5000, 15_000, 45_000]) {
+      f.advance(delay);
+      await queue.drain();
+    }
+    expect(observations).toBe(3);
+    expect(queue.listServices()[0].reconciliation?.attempts).toBe(3);
+    changeStandingGrant(f.journal, {
+      expectedRevision: f.state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+    const reopened = f.create();
+    f.advance(44_999);
+    await reopened.drain();
+    expect(observations).toBe(3);
+    f.advance(1);
+    await reopened.drain();
+    expect(observations).toBe(4);
+    expect(reopened.listServices()[0].reconciliation?.attempts).toBe(3);
+    await reopened.drain();
+    expect(observations).toBe(4);
+    ready = true;
+    f.advance(45_000);
+    await reopened.drain();
+    const terminal = reopened.listServices()[0];
+    expect(terminal.status).toBe("succeeded");
+    expect(terminal.reservation).toEqual(running.reservation);
+    expect(terminal.effectIntent).toEqual(running.effectIntent);
+    expect(executions).toBe(1);
+    expect(observations).toBe(5);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("service queue bounds a hung observation without replaying native execution", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {

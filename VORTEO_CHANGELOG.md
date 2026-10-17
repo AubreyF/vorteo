@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.645 - 2026-10-16
+
+### Fixed
+
+- Continue read-only reconciliation for a running native service reservation after its three-check counter saturates. Each callback keeps its deadline and retained generation; subsequent checks honor the persisted forty-five-second backoff without executing again. Pending and approved inspection retain the three-check limit.
+- Show sustained uncertainty as continuing status checks, preserving approval, reservation and intent. A whole-queue regression times out execution, refuses repeated observations, reopens after grant revocation, respects backoff and settles the same generation when readiness appears. One execution is retained throughout; no installed service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.644 - 2026-10-16
 
 ### Maintenance

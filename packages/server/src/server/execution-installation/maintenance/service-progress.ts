@@ -135,18 +135,27 @@ export function observeServiceJob(
 }
 export function serviceCheckDue(job: MaintenanceServiceJob, now: number): boolean {
   if (!job.reconciliation) return true;
-  return job.reconciliation.attempts < 3 && now >= Date.parse(job.reconciliation.nextCheckAt);
+  const retainedObservation = job.status === "running" && job.reservation !== undefined;
+  return (
+    (retainedObservation || job.reconciliation.attempts < 3) &&
+    now >= Date.parse(job.reconciliation.nextCheckAt)
+  );
 }
 export function failedServiceCheck(job: MaintenanceServiceJob, now: number): MaintenanceServiceJob {
   const attempts = Math.min(3, (job.reconciliation?.attempts ?? 0) + 1);
   const delays = [5000, 15_000, 45_000];
+  let detail =
+    "Native maintenance is unverified. Waiting before the next bounded check; no uncertain effect will be repeated.";
+  if (attempts === 3)
+    detail =
+      "Native maintenance could not be verified after three checks. Recovery is required; no uncertain effect will be repeated.";
+  if (job.status === "running" && job.reservation)
+    detail =
+      "Maintenance remains unverified. Status checks will continue; the operation will not be repeated.";
   return MaintenanceServiceJobSchema.parse({
     ...job,
     revision: randomUUID(),
-    detail:
-      attempts === 3
-        ? "Native maintenance could not be verified after three checks. Recovery is required; no uncertain effect will be repeated."
-        : "Native maintenance is unverified. Waiting before the next bounded check; no uncertain effect will be repeated.",
+    detail,
     reconciliation: { attempts, nextCheckAt: new Date(now + delays[attempts - 1]).toISOString() },
   });
 }
