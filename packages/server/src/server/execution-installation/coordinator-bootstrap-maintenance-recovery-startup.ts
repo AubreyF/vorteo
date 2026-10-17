@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { inspectMaintenanceRecoverySelection } from "./coordinator-bootstrap-maintenance-selection.js";
 import { readRetainedMaintenanceRecoveryHistory } from "./coordinator-bootstrap-maintenance-recovery-history.js";
+import { readBoundedMaintenanceInspection } from "./coordinator-bootstrap-maintenance-service-native.js";
 
 /** Startup may observe a resolved chain, but may not reuse that chain for a
  * fresh claim. A resolution must name this exact independently ready leaf. */
@@ -15,10 +16,11 @@ export async function readMaintenanceRecoverySelection(input: {
   stateDirectory: string;
 }) {
   const context = inspectMaintenanceRecoverySelection(input);
-  const history = await readRetainedMaintenanceRecoveryHistory({
-    ...input,
-    signal: AbortSignal.timeout(10_000),
-  });
+  const history = await readBoundedMaintenanceInspection(
+    (signal) =>
+      readRetainedMaintenanceRecoveryHistory({ ...input, currentRequest: context.job, signal }),
+    { timeoutMs: 10_000, detail: "Recovery startup history inspection timed out" },
+  );
   const { job, reservation } = context;
   const resolved = history.ancestors.filter((ancestor) => ancestor.job.resolvedBy);
   if (resolved.length || job.status === "succeeded") {
@@ -38,7 +40,7 @@ export async function readMaintenanceRecoverySelection(input: {
       );
   }
   history.assertCurrent();
-  return context;
+  return { context, assertCurrent: history.assertCurrent };
 }
 
 function requireReadyRecoveryLeaf(context: ReturnType<typeof inspectMaintenanceRecoverySelection>) {

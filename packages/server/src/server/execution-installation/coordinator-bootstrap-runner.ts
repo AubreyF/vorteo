@@ -939,8 +939,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   } else if (setup && role === "maintenance-launcher" && process.argv.length === 4) {
     void import("./coordinator-bootstrap-maintenance-controller.js")
       .then(({ runPersistentMaintenanceController }) => runPersistentMaintenanceController(setup))
-      .catch(() => {
-        process.stderr.write("Selected maintenance controller could not establish readiness.\n");
+      .catch((error: unknown) => {
+        const failure =
+          error instanceof BootstrapRequestConflict ? error.message : "Unverified startup error";
+        process.stderr.write(
+          `Selected maintenance controller could not establish readiness: ${failure}\n`,
+        );
         process.exitCode = 1;
       });
   } else if (setup && identifier && role === "maintenance-control") {

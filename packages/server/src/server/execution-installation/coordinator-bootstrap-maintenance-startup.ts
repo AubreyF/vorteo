@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { maintenanceServiceCustodyBinding } from "./coordinator-bootstrap-maintenance-service-binding.js";
+import { retainServiceFiles } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { z } from "zod";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
@@ -33,19 +35,45 @@ import {
   MaintenanceRecoverySelectionSchema,
   inspectMaintenanceServiceSelection,
   inspectMaintenanceLauncherSelection,
+  inspectMaintenanceRecoverySelection,
 } from "./coordinator-bootstrap-maintenance-selection.js";
 
 import { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 export { MaintenanceLauncherSetupSchema } from "./coordinator-bootstrap-maintenance-setup.js";
 
-/** Protected startup loading is observation-only. Native process and artifact
- * verification follow this binding; callers must not dispatch from it alone. */
-export async function readMaintenanceLauncherStartup(input: {
+interface StartupInput {
   setupFile: string;
   account: { uid: number; home: string };
-}) {
+}
+interface StartupReadPorts {
+  readDocument: typeof readProtectedDocument;
+}
+const startupReadPorts: StartupReadPorts = { readDocument: readProtectedDocument };
+type SelectionContext =
+  | ReturnType<typeof inspectMaintenanceLauncherSelection>
+  | ReturnType<typeof inspectMaintenanceServiceSelection>
+  | ReturnType<typeof inspectMaintenanceRecoverySelection>;
+
+function startupCustodyBinding(context: SelectionContext) {
+  if ("job" in context) return { ...context, job: maintenanceServiceCustodyBinding(context.job) };
+  return context;
+}
+
+/** Protected startup loading is observation-only. Native process and artifact
+ * verification follow this binding; callers must not dispatch from it alone. */
+export async function readMaintenanceLauncherStartup(
+  input: StartupInput,
+  ports = startupReadPorts,
+) {
+  return (await readMaintenanceStartupProof(input, ports)).context;
+}
+
+/** Retained selection custody only. Native lifetime and dispatch authority
+ * require their independent checks. */
+export async function readMaintenanceStartupProof(input: StartupInput, ports = startupReadPorts) {
+  const assertFiles = [retainServiceFiles([input.setupFile])];
   const read = async (file: string) =>
-    JSON.parse((await readProtectedDocument(file)).toString("utf8"));
+    JSON.parse((await ports.readDocument(file)).toString("utf8"));
   const setup = MaintenanceLauncherSetupSchema.parse(await read(input.setupFile));
   const identity = readEnrollmentNativeIdentity(
     setup.enrollmentStateDirectory,
@@ -59,6 +87,7 @@ export async function readMaintenanceLauncherStartup(input: {
     !identity.selectionPath
   )
     throw new BootstrapRequestConflict("Launcher setup differs from enrolled native identity");
+  assertFiles.push(retainServiceFiles([identity.selectionPath]));
   const selection = z
     .union([
       MaintenanceLauncherSelectionSchema,
@@ -70,6 +99,7 @@ export async function readMaintenanceLauncherStartup(input: {
   if (identity.selectionPath !== path.join(base, "selection.json"))
     throw new BootstrapRequestConflict("Launcher selection path differs from enrolled custody");
   const planFile = path.join(base, "plans", `${selection.planSha256}.json`);
+  assertFiles.push(retainServiceFiles([planFile]));
   const intentFile =
     selection.version === 1
       ? path.join(
@@ -78,7 +108,7 @@ export async function readMaintenanceLauncherStartup(input: {
         )
       : path.join(setup.enrollmentStateDirectory, "restart-jobs.json");
   const journal = new FileEnrollmentJournal(setup.enrollmentStateDirectory);
-  const enrollment = journal.read();
+  const enrollment = journal.readPolicySnapshot();
   const plan = await read(planFile);
   const readRetained = () => {
     if (selection.version === 1) return undefined;
@@ -90,15 +120,20 @@ export async function readMaintenanceLauncherStartup(input: {
     return matches[0];
   };
   const retained = readRetained();
+  let assertHistoryCurrent: () => void = () => undefined;
   const readContext = async () => {
     const common = { plan, account: input.account, enrollment, retained, selection };
-    if (selection.version === 1)
+    if (selection.version === 1) {
+      assertFiles.push(retainServiceFiles([intentFile]));
       return inspectMaintenanceLauncherSelection({ ...common, intent: await read(intentFile) });
+    }
     if (selection.version === 2) return inspectMaintenanceServiceSelection(common);
-    return readMaintenanceRecoverySelection({
+    const proof = await readMaintenanceRecoverySelection({
       ...common,
       stateDirectory: setup.enrollmentStateDirectory,
     });
+    assertHistoryCurrent = proof.assertCurrent;
+    return proof.context;
   };
   const context = await readContext();
   if (
@@ -107,15 +142,41 @@ export async function readMaintenanceLauncherStartup(input: {
     input.setupFile !== context.selected.setup.path
   )
     throw new BootstrapRequestConflict("Launcher startup is not the selected reviewed slot");
-  // Selection and grant may change during disk reads. Never return a mixed
-  // observation; the native verifier must re-read this binding before effects.
-  if (
-    !isDeepStrictEqual(selection, await read(identity.selectionPath)) ||
-    !isDeepStrictEqual(enrollment, journal.read()) ||
-    !isDeepStrictEqual(retained, readRetained())
-  )
+  if (!isDeepStrictEqual(selection, await read(identity.selectionPath)))
     throw new BootstrapRequestConflict("Launcher selection changed during startup");
-  return { ...context, setup, planFile, intentFile };
+  // Revalidate retained selection against fresh enrollment synchronously.
+  // Revocation can preserve observation, but never creates effect authority.
+  const freshContext = (): SelectionContext => {
+    const current = {
+      plan,
+      account: input.account,
+      enrollment: journal.readPolicySnapshot(),
+      retained: readRetained(),
+      selection,
+    };
+    if (selection.version === 1)
+      return inspectMaintenanceLauncherSelection({ ...current, intent: context.intent });
+    if (selection.version === 2) return inspectMaintenanceServiceSelection(current);
+    return inspectMaintenanceRecoverySelection(current);
+  };
+  const latest = freshContext();
+  if (!isDeepStrictEqual(startupCustodyBinding(context), startupCustodyBinding(latest)))
+    throw new BootstrapRequestConflict("Launcher selection changed during startup");
+  const assertCurrent = () => {
+    for (const assertFile of assertFiles) assertFile();
+    assertHistoryCurrent();
+    if (!isDeepStrictEqual(startupCustodyBinding(latest), startupCustodyBinding(freshContext())))
+      throw new BootstrapRequestConflict("Launcher selection changed after startup verification");
+    if (
+      !isDeepStrictEqual(
+        identity,
+        readEnrollmentNativeIdentity(setup.enrollmentStateDirectory, setup.identitySha256),
+      )
+    )
+      throw new BootstrapRequestConflict("Launcher enrolled identity changed during startup");
+  };
+  assertCurrent();
+  return { context: { ...latest, setup, planFile, intentFile }, assertCurrent };
 }
 
 /** Called by the selected immutable runner. It has no service mutation ports.
@@ -125,7 +186,8 @@ export async function verifyNativeMaintenanceLauncherStartup(input: {
   setupFile: string;
   account: { uid: number; home: string };
 }) {
-  const context = await readMaintenanceLauncherStartup(input);
+  const proof = await readMaintenanceStartupProof(input);
+  const context = proof.context;
   const admission = BootstrapAdmissionSetupSchema.parse(
     JSON.parse(
       (await readBootstrapPreparedFile(context.setup.nativeAdmission, [])).toString("utf8"),
@@ -183,11 +245,14 @@ export async function verifyNativeMaintenanceLauncherStartup(input: {
     throw new BootstrapRequestConflict(
       "Maintenance registered launcher differs from selected slot",
     );
+  const current = await readMaintenanceStartupProof(input);
   if (
-    !isDeepStrictEqual(context, await readMaintenanceLauncherStartup(input)) ||
+    !isDeepStrictEqual(startupCustodyBinding(context), startupCustodyBinding(current.context)) ||
     !isDeepStrictEqual(observed, await reader.inspectProcess(process.pid)) ||
     !isDeepStrictEqual(roots, await inspectBootstrapWritableMountRoots(admission))
   )
     throw new BootstrapRequestConflict("Maintenance startup changed during native verification");
+  proof.assertCurrent();
+  current.assertCurrent();
   return { ...context, process: observed };
 }

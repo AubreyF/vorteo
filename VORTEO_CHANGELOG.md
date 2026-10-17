@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.652 - 2026-10-17
+
+### Fixed
+
+- Preserve selected maintenance startup across queue check bookkeeping without ignoring authority, evidence, intent, status or resolution. Recovery startup retains its exact ancestor proof through final native verification; successful collection clears its deadline.
+- Revalidate fresh enrollment and retained selection synchronously after asynchronous reads and again in final custody. Existing retained-selection validators permit revocation for observation while refusing changed grant identity or manifest. Effect admission remains separate and lock-held.
+- Retain setup, selection, plan and initial intent custody before reading. Keep the public startup result data-only, and assert both internal proofs after the last native await. Add real-file interleavings for bookkeeping, revocation, selection, intent, manifest and ancestor changes.
+- Report controlled controller startup refusals in its private diagnostic while keeping unknown errors generic. The prior full-queue native attempt consumed intent but did not establish candidate readiness; exact scoped cleanup and final native inventory passed. Nothing is installed, and full queue acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.651 - 2026-10-17
 
 ### Fixed

@@ -1741,6 +1741,7 @@ test.each([
   const startedRecovery = await readMaintenanceLauncherStartup(recoveryStartup);
   expect(startedRecovery.selected).toEqual(f.plan.candidate);
   expect(startedRecovery.planSha256).toBe(recoveryContext.planSha256);
+  await exerciseLateStartupProofChanges({ fixture: f, startup: recoveryStartup, mode });
   const readyRecord = {
     ...recoveryObservedRecord,
     native: {
@@ -1805,6 +1806,7 @@ test.each([
     await expect(readMaintenanceLauncherStartup(recoveryStartup)).resolves.toMatchObject({
       selected: f.plan.candidate,
     });
+    await exerciseRecoveryStartupRaces({ fixture: f, startup: recoveryStartup });
     writeFileSync(historyFile, JSON.stringify([resolvedOriginal, readyRecovery]), { mode: 0o600 });
     await expect(discover()).resolves.toMatchObject({
       executorSetupFile: f.plan.candidate.setup.path,
@@ -2039,6 +2041,11 @@ test.each([
   const startup = () =>
     readMaintenanceLauncherStartup({ setupFile: f.plan.candidate.setup.path, account: f.account });
   await expect(startup()).resolves.toMatchObject({ selected: f.plan.candidate, job: claimed });
+  await exerciseLateStartupProofChanges({
+    fixture: f,
+    startup: { setupFile: f.plan.candidate.setup.path, account: f.account },
+    mode,
+  });
   const { maintenanceExecutorStartupBinding } =
     await import("./coordinator-bootstrap-maintenance-executor-evidence.js");
   // Role discovery alone is not native proof: verify the exact registered
@@ -4322,4 +4329,207 @@ async function assertBookkeepingExclusion(
   );
   expect(journal.readLifecycle()).toEqual(before);
   journal.writeLifecycle(current);
+}
+
+async function exerciseRecoveryStartupRaces(input: {
+  fixture: Awaited<ReturnType<typeof fixture>>;
+  startup: { setupFile: string; account: { uid: number; home: string } };
+}) {
+  const { readProtectedDocument } = await import("./coordinator-bootstrap-artifact.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const { FileEnrollmentJournal, changeStandingGrant } =
+    await import("./maintenance/authorization.js");
+  const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
+  const { failedServiceCheck } = await import("./maintenance/service-progress.js");
+  const f = input.fixture;
+  const enrollmentFile = path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json");
+  const jobsFile = path.join(f.enrollmentStateDirectory, "restart-jobs.json");
+  const selectionFile = f.plan.identity.selectionPath!;
+  const originalEnrollment = readFileSync(enrollmentFile);
+  const originalJobs = readFileSync(jobsFile);
+  const originalSelection = readFileSync(selectionFile);
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const enrollment = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+  const selection = JSON.parse(originalSelection.toString("utf8"));
+  const jobs = journal.readLifecycle();
+  const job = MaintenanceServiceJobSchema.parse(
+    jobs.find((item) => item.id === selection.requestId),
+  );
+  const state = enrollment.read();
+  if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const restore = () => {
+    writeFileSync(enrollmentFile, originalEnrollment);
+    writeFileSync(jobsFile, originalJobs);
+    writeFileSync(selectionFile, originalSelection);
+  };
+  for (const mode of [
+    "bookkeeping",
+    "revocation",
+    "manifest",
+    "grant",
+    "selection",
+    "intent",
+    "ancestor",
+  ] as const) {
+    restore();
+    let reads = 0,
+      injected = false;
+    const mutate = () => {
+      injected = true;
+      if (mode === "bookkeeping")
+        journal.writeLifecycle(
+          jobs.map((item) => (item.id === job.id ? failedServiceCheck(job, Date.now()) : item)),
+        );
+      if (mode === "revocation")
+        changeStandingGrant(enrollment, {
+          expectedRevision: state.grant.revision,
+          paused: false,
+          disabledTargets: [],
+          revoke: true,
+        });
+      if (mode === "manifest")
+        writeFileSync(
+          enrollmentFile,
+          JSON.stringify({
+            ...state,
+            grant: {
+              ...state.grant,
+              manifest: {
+                ...state.grant.manifest,
+                trustedRepositories: ["https://example.invalid/changed"],
+              },
+            },
+          }),
+        );
+      if (mode === "grant")
+        writeFileSync(
+          enrollmentFile,
+          JSON.stringify({ ...state, grant: { ...state.grant, id: randomUUID() } }),
+        );
+      if (mode === "selection")
+        writeFileSync(selectionFile, JSON.stringify({ ...selection, generation: randomUUID() }));
+      if (mode === "intent")
+        journal.writeLifecycle(
+          jobs.map((item) =>
+            item.id === job.id
+              ? { ...job, effectIntent: { ...job.effectIntent!, id: randomUUID() } }
+              : item,
+          ),
+        );
+      if (mode === "ancestor")
+        journal.writeLifecycle(
+          jobs.map((item) => {
+            if (item.id === job.id) return item;
+            const ancestor = MaintenanceServiceJobSchema.parse(item);
+            ancestor.resolvedBy = {
+              requestId: job.id,
+              generation: randomUUID(),
+              planSha256: job.proposal.planSha256,
+              observationSha256: "f".repeat(64),
+            };
+            return ancestor;
+          }),
+        );
+    };
+    try {
+      const loading = readMaintenanceLauncherStartup(input.startup, {
+        readDocument: async (file) => {
+          const bytes = await readProtectedDocument(file);
+          if (file === selectionFile && ++reads === 2) mutate();
+          return bytes;
+        },
+      });
+      if (mode === "bookkeeping" || mode === "revocation") {
+        await expect(loading).resolves.toMatchObject({ selected: f.plan.candidate });
+      } else await expect(loading).rejects.toThrow();
+      expect(injected).toBe(true);
+      expect(reads).toBe(2);
+    } finally {
+      restore();
+    }
+  }
+}
+
+async function exerciseLateStartupProofChanges(input: {
+  fixture: Awaited<ReturnType<typeof fixture>>;
+  mode: string;
+  startup: { setupFile: string; account: { uid: number; home: string } };
+}) {
+  if (input.mode !== "valid") return;
+  const { readMaintenanceStartupProof } =
+    await import("./coordinator-bootstrap-maintenance-startup.js");
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const { FileEnrollmentJournal, changeStandingGrant } =
+    await import("./maintenance/authorization.js");
+  const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
+  const f = input.fixture;
+  const enrollmentFile = path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json");
+  const jobsFile = path.join(f.enrollmentStateDirectory, "restart-jobs.json");
+  const originalEnrollment = readFileSync(enrollmentFile);
+  const originalJobs = readFileSync(jobsFile);
+  const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
+  const enrollment = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+  const selection = JSON.parse(readFileSync(f.plan.identity.selectionPath!, "utf8"));
+  const jobs = journal.readLifecycle();
+  const job = MaintenanceServiceJobSchema.parse(
+    jobs.find((item) => item.id === selection.requestId),
+  );
+  const state = enrollment.read();
+  if (state.status !== "enrolled") throw new Error("Fixture enrollment absent");
+  const modes = ["revocation", "grant", "intent"];
+  if (selection.version === 3) modes.push("ancestor");
+  const restore = () => {
+    writeFileSync(enrollmentFile, originalEnrollment);
+    writeFileSync(jobsFile, originalJobs);
+  };
+  for (const mode of modes) {
+    restore();
+    try {
+      const first = await readMaintenanceStartupProof(input.startup);
+      const second = await readMaintenanceStartupProof(input.startup);
+      if (mode === "revocation")
+        changeStandingGrant(enrollment, {
+          expectedRevision: state.grant.revision,
+          paused: false,
+          disabledTargets: [],
+          revoke: true,
+        });
+      if (mode === "grant")
+        writeFileSync(
+          enrollmentFile,
+          JSON.stringify({ ...state, grant: { ...state.grant, id: randomUUID() } }),
+        );
+      if (mode === "intent")
+        journal.writeLifecycle(
+          jobs.map((item) =>
+            item.id === job.id
+              ? { ...job, effectIntent: { ...job.effectIntent!, id: randomUUID() } }
+              : item,
+          ),
+        );
+      if (mode === "ancestor")
+        journal.writeLifecycle(
+          jobs.map((item) => {
+            if (item.id === job.id) return item;
+            const ancestor = MaintenanceServiceJobSchema.parse(item);
+            ancestor.resolvedBy = {
+              requestId: job.id,
+              generation: randomUUID(),
+              planSha256: job.proposal.planSha256,
+              observationSha256: "f".repeat(64),
+            };
+            return ancestor;
+          }),
+        );
+      if (mode === "revocation") {
+        expect(() => first.assertCurrent()).not.toThrow();
+        expect(() => second.assertCurrent()).not.toThrow();
+      } else {
+        expect(() => first.assertCurrent()).toThrow();
+        expect(() => second.assertCurrent()).toThrow();
+      }
+    } finally {
+      restore();
+    }
+  }
 }
