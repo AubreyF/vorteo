@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, symlink, rm, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { realpathSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Script } from "node:vm";
 import type { InstallationConfig } from "../config.js";
@@ -12,6 +12,8 @@ import {
 } from "./native-identity.js";
 import {
   inspectEnrollmentDaemonIdentity,
+  inspectInitialHostSupervisorMigration,
+  InitialHostSupervisorPreconditionSchema,
   DEV_DAEMON_INSPECTION_SCRIPT,
   type EnrollmentDaemonInspectionPorts,
 } from "./native-daemon-inspection.js";
@@ -125,10 +127,14 @@ async function fixture() {
   const plist = {
     Label: "local.vorteo.test.host",
     ProgramArguments: argv,
-    EnvironmentVariables: { PASEO_HOME: home },
+    EnvironmentVariables: { PASEO_HOME: home } as Record<string, string>,
   };
   const service = () =>
-    `${config.host.launchdService} = {\n\tpath = ${launcher}\n\tprogram = ${node}\n\targuments = {\n\t\t${argv.join("\n\t\t")}\n\t}\n\tenvironment = {\n\t\tPASEO_HOME => ${home}\n\t}\n\tpid = 101\n}\n`;
+    `${config.host.launchdService} = {\n\tpath = ${launcher}\n\tprogram = ${node}\n\targuments = {\n\t\t${argv.join("\n\t\t")}\n\t}\n\tenvironment = {\n\t\t${Object.entries(
+      plist.EnvironmentVariables,
+    )
+      .map(([key, value]) => `${key} => ${value}`)
+      .join("\n\t\t")}\n\t}\n\tpid = 101\n}\n`;
   const bootId = randomUUID();
   const supervisor = {
     pid: 101,
@@ -748,4 +754,251 @@ test("retained custody refuses a missing launcher", async () => {
   const observation = await inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports);
   await rm(f.expected.launcherPath);
   expect(() => observation.assertCurrent()).toThrow();
+});
+
+async function initialHostMigrationFixture() {
+  const f = await fixture();
+  const supervisorEntrypoint = path.join(
+    f.release,
+    "packages/server/dist/scripts/supervisor-entrypoint.js",
+  );
+  const workerEntrypoint = path.join(
+    f.release,
+    "packages/server/dist/server/server/daemon-worker.js",
+  );
+  await mkdir(path.dirname(supervisorEntrypoint), { recursive: true, mode: 0o700 });
+  await mkdir(path.dirname(workerEntrypoint), { recursive: true, mode: 0o700 });
+  await writeFile(supervisorEntrypoint, "observed incumbent supervisor", { mode: 0o600 });
+  await writeFile(workerEntrypoint, "observed incumbent worker", { mode: 0o600 });
+  const clientFile = path.join(f.root, "installation-client.json");
+  await f.file(clientFile, { fixture: true });
+  f.plist.EnvironmentVariables.VORTEO_INSTALLATION_CLIENT_CONFIG = clientFile;
+  f.supervisor.argumentsSha256 = "f".repeat(64);
+  const serverId = "host-id",
+    workerInstanceId = "legacy-worker-instance";
+  f.ports.daemon = async () => ({
+    serverId,
+    pid: f.worker.pid,
+    workerInstanceId,
+    workerInstanceSupport: "supported",
+  });
+  let nativeAssertions = 0;
+  f.ports.retainInitialHostCustody = async (_setup, _roots, bound) => () => {
+    nativeAssertions++;
+    expect(f.supervisor).toEqual(bound.supervisor);
+    expect(f.worker).toEqual(bound.worker);
+  };
+  const preparedFile = async (file: string) => ({
+    path: file,
+    sha256: createHash("sha256")
+      .update(await readFile(file))
+      .digest("hex"),
+  });
+  const precondition = InitialHostSupervisorPreconditionSchema.parse({
+    version: 1,
+    purpose: "initial-host-supervisor-migration",
+    provenance: "service-custody-and-observed-files",
+    identity: f.expected,
+    configuration: await preparedFile(f.configFile),
+    launcher: await preparedFile(f.expected.launcherPath),
+    clientConfiguration: await preparedFile(clientFile),
+    node: await preparedFile(f.config.host.startupValidation!.node),
+    supervisorEntrypoint: await preparedFile(supervisorEntrypoint),
+    workerEntrypoint: await preparedFile(workerEntrypoint),
+    sourceReceipt: await preparedFile(path.join(f.release, ".installation-source.json")),
+    selectedRelease: f.release,
+    sourceCommit: f.sourceCommit,
+    hostEndpoint: f.config.host.endpoint,
+    serverId,
+    workerInstanceId,
+    workerInstanceSupport: "supported",
+    registration: {
+      program: null,
+      arguments: f.plist.ProgramArguments,
+      environment: f.plist.EnvironmentVariables,
+      loadedEnvironment: f.plist.EnvironmentVariables,
+    },
+    supervisor: f.supervisor,
+    worker: f.worker,
+  });
+  return { ...f, precondition, nativeAssertions: () => nativeAssertions };
+}
+
+test("initial Host migration pins service custody without weakening ordinary supervisor identity", async () => {
+  const f = await initialHostMigrationFixture();
+  await expect(inspectEnrollmentDaemonIdentity(f.config, f.expected, f.ports)).rejects.toThrow(
+    "Host supervisor does not match registration",
+  );
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  expect(proof.precondition).toEqual(f.precondition);
+  expect(proof.preconditionSha256).toBe(hash(f.precondition));
+  expect(Object.keys(proof).sort()).toEqual([
+    "assertCurrent",
+    "observedAt",
+    "precondition",
+    "preconditionSha256",
+  ]);
+  const assertions = f.nativeAssertions();
+  expect(proof.assertCurrent()).toBeUndefined();
+  expect(f.nativeAssertions()).toBe(assertions + 1);
+  f.supervisor.argumentsSha256 = "e".repeat(64);
+  expect(() => proof.assertCurrent()).toThrow();
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow();
+});
+
+test.each([
+  "client configuration",
+  "launcher",
+  "configuration",
+  "source receipt",
+  "supervisor entry",
+  "worker entry",
+])("initial Host migration refuses changed %s bytes", async (changed) => {
+  const f = await initialHostMigrationFixture();
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  const files = {
+    "client configuration": f.precondition.clientConfiguration,
+    launcher: f.precondition.launcher,
+    configuration: f.precondition.configuration,
+    "source receipt": f.precondition.sourceReceipt,
+    "supervisor entry": f.precondition.supervisorEntrypoint,
+    "worker entry": f.precondition.workerEntrypoint,
+  };
+  await writeFile(files[changed].path, "changed", { mode: 0o600 });
+  expect(() => proof.assertCurrent()).toThrow("custody changed");
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow();
+});
+
+test.each([
+  "worker instance",
+  "registered environment",
+  "client path",
+  "supervisor birth",
+  "worker parent",
+])("initial Host migration refuses changed %s binding", async (changed) => {
+  const f = await initialHostMigrationFixture();
+  if (changed === "worker instance")
+    f.ports.daemon = async () => ({
+      serverId: "host-id",
+      pid: f.worker.pid,
+      workerInstanceId: "other",
+    });
+  if (changed === "registered environment") f.plist.EnvironmentVariables.UNREVIEWED = "value";
+  if (changed === "client path")
+    f.precondition.clientConfiguration.path = f.precondition.configuration.path;
+  if (changed === "supervisor birth") f.supervisor.startIdentity = "changed";
+  if (changed === "worker parent") f.worker.parentPid = 999;
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow();
+});
+
+test("initial Host migration requires synchronous native custody and expires without refreshing proof", async () => {
+  const f = await initialHostMigrationFixture();
+  let now = f.ports.now();
+  f.ports.now = () => now;
+  delete f.ports.retainInitialHostCustody;
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow("Initial Host native custody is unavailable");
+  f.ports.retainInitialHostCustody = async () => () => {};
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  now += 30_000;
+  expect(() => proof.assertCurrent()).toThrow("expired");
+});
+
+test("initial Host migration refuses mutation of its returned precondition and asynchronous custody", async () => {
+  const f = await initialHostMigrationFixture();
+  f.ports.retainInitialHostCustody = async () => async () => {};
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow("must be synchronous");
+  f.ports.retainInitialHostCustody = async () => () => {};
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  proof.precondition.supervisor.argumentsSha256 = "e".repeat(64);
+  expect(() => proof.assertCurrent()).toThrow("precondition changed");
+});
+
+test.each(["file", "expiry"])(
+  "initial Host migration rechecks %s after synchronous native custody",
+  async (changed) => {
+    const f = await initialHostMigrationFixture();
+    let now = f.ports.now();
+    f.ports.now = () => now;
+    let mutate = () => {};
+    f.ports.retainInitialHostCustody = async () => () => mutate();
+    const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+    if (changed === "file")
+      mutate = () => writeFileSync(f.precondition.configuration.path, "changed");
+    else
+      mutate = () => {
+        now += 30_000;
+      };
+    expect(() => proof.assertCurrent()).toThrow(changed === "file" ? "custody changed" : "expired");
+  },
+);
+
+test("initial Host migration records unavailable legacy instance evidence without inventing an identity", async () => {
+  const f = await initialHostMigrationFixture();
+  f.ports.daemon = async () => ({
+    serverId: "host-id",
+    pid: f.worker.pid,
+    workerInstanceSupport: "unsupported",
+  });
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow("authenticated worker changed");
+  const bound = { ...f.precondition, workerInstanceId: null, workerInstanceSupport: "unsupported" };
+  const proof = await inspectInitialHostSupervisorMigration(f.config, bound, f.ports);
+  expect(proof.precondition.workerInstanceId).toBeNull();
+  expect(proof.precondition.worker).toEqual(f.worker);
+  expect(proof.precondition.serverId).toBe("host-id");
+  f.ports.daemon = async () => ({ serverId: "host-id", pid: f.worker.pid });
+  await expect(inspectInitialHostSupervisorMigration(f.config, bound, f.ports)).rejects.toThrow(
+    "authenticated worker changed",
+  );
+  f.ports.daemon = async () => {
+    throw new Error("Advertised inspection failed");
+  };
+  await expect(inspectInitialHostSupervisorMigration(f.config, bound, f.ports)).rejects.toThrow(
+    "Advertised inspection failed",
+  );
+  f.worker.startIdentity = "changed";
+  expect(() => proof.assertCurrent()).toThrow();
+});
+
+test("initial Host migration streams a pinned executable larger than the document limit", async () => {
+  const f = await initialHostMigrationFixture();
+  const executable = Buffer.alloc(2 * 1024 * 1024, 1);
+  await writeFile(f.precondition.node.path, executable, { mode: 0o600 });
+  f.precondition.node.sha256 = createHash("sha256").update(executable).digest("hex");
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  expect(proof.precondition.node).toEqual(f.precondition.node);
+  expect(proof.assertCurrent()).toBeUndefined();
+});
+
+test("initial Host migration independently pins launchd-provided environment and on-disk variables", async () => {
+  const f = await initialHostMigrationFixture();
+  const command = f.ports.command;
+  let serviceName = "local.vorteo.test.host";
+  f.ports.command = async (file, args, limits) => {
+    const result = await command(file, args, limits);
+    if (file !== "/bin/launchctl") return result;
+    return result.replace(
+      "environment = {\n",
+      `environment = {\n\t\tXPC_SERVICE_NAME => ${serviceName}\n`,
+    );
+  };
+  f.precondition.registration.loadedEnvironment.XPC_SERVICE_NAME = serviceName;
+  const proof = await inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports);
+  expect(proof.precondition.registration.loadedEnvironment.XPC_SERVICE_NAME).toBe(serviceName);
+  expect(proof.precondition.registration.environment.XPC_SERVICE_NAME).toBeUndefined();
+  serviceName = "changed";
+  await expect(
+    inspectInitialHostSupervisorMigration(f.config, f.precondition, f.ports),
+  ).rejects.toThrow("registered environment changed");
 });

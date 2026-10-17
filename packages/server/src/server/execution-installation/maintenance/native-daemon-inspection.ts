@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { DaemonMaintenanceProcessSchema as RuntimeProcessSchema } from "@getpaseo/protocol/maintenance-interruption";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -16,6 +16,8 @@ import {
 import {
   assertBootstrapPathsProtected,
   readProtectedDocument,
+  readBootstrapPreparedFile,
+  verifyBootstrapPreparedDependency,
 } from "../coordinator-bootstrap-artifact.js";
 import {
   createNativeBootstrapServiceReader,
@@ -36,6 +38,51 @@ const COMMAND_LIMITS: { timeout: number; maxBuffer: number; env: { PATH: string 
   env: { PATH: "/usr/bin:/bin" },
 };
 const SourceSchema = z.object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) });
+
+const MigrationFileSchema = z.strictObject({
+  path: z.string().startsWith("/").max(4096),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Initial service custody is deliberately not running-runtime provenance. The
+ * incumbent's overwritten argv cannot establish its imported module graph. */
+export const InitialHostSupervisorPreconditionSchema = z.strictObject({
+  version: z.literal(1),
+  purpose: z.literal("initial-host-supervisor-migration"),
+  provenance: z.literal("service-custody-and-observed-files"),
+  identity: EnrollmentNativeIdentitySchema,
+  configuration: MigrationFileSchema,
+  launcher: MigrationFileSchema,
+  clientConfiguration: MigrationFileSchema,
+  node: MigrationFileSchema,
+  supervisorEntrypoint: MigrationFileSchema,
+  workerEntrypoint: MigrationFileSchema,
+  sourceReceipt: MigrationFileSchema,
+  selectedRelease: z.string().startsWith("/").max(4096),
+  sourceCommit: SourceSchema.shape.sourceCommit,
+  serverId: z.string().min(1).max(200),
+  workerInstanceId: z.string().min(1).max(200).nullable(),
+  workerInstanceSupport: z.enum(["supported", "unsupported"]),
+  hostEndpoint: z.string().min(1).max(4096),
+  registration: z.strictObject({
+    program: z.string().nullable(),
+    arguments: z.array(z.string()).min(2).max(16),
+    environment: z.record(z.string(), z.string()),
+    loadedEnvironment: z.record(z.string(), z.string()),
+  }),
+  supervisor: RuntimeProcessSchema,
+  worker: RuntimeProcessSchema,
+});
+type InitialHostSupervisorPrecondition = z.infer<typeof InitialHostSupervisorPreconditionSchema>;
+interface InitialHostMigrationProof {
+  precondition: InitialHostSupervisorPrecondition;
+  preconditionSha256: string;
+  observedAt: string;
+  assertCurrent(): void;
+}
+type HostInspectionPurpose =
+  | { kind: "standing" }
+  | { kind: "initial-migration"; precondition: InitialHostSupervisorPrecondition };
+
 export interface EnrollmentDaemonObservation {
   /** Synchronous retained custody check for locked admission. Does not refresh
    * kernel process or Docker evidence, acquire locks, or authorize effects. */
@@ -80,9 +127,16 @@ export interface EnrollmentDaemonInspectionPorts {
     serverId: string;
     pid: number;
     workerInstanceId?: string;
+    workerInstanceSupport?: "supported" | "unsupported";
     restartDrainId?: string | null;
   }>;
   now(): number;
+  /** Migration-only synchronous native custody. No ordinary evidence is produced. */
+  retainInitialHostCustody?(
+    setup: z.infer<typeof BootstrapAdmissionSetupSchema>,
+    roots: string[],
+    precondition: InitialHostSupervisorPrecondition,
+  ): Promise<() => void>;
 }
 const nativePorts: EnrollmentDaemonInspectionPorts = {
   platform: process.platform,
@@ -110,15 +164,17 @@ const nativePorts: EnrollmentDaemonInspectionPorts = {
           serverId: info.serverId,
           pid: status.pid,
           workerInstanceId: held.impact.workerInstanceId,
+          workerInstanceSupport: "supported",
           restartDrainId: held.impact.restartDrainId,
         };
       }
-      return { serverId: info!.serverId, pid: status.pid };
+      return { serverId: info!.serverId, pid: status.pid, workerInstanceSupport: "unsupported" };
     } finally {
       await client.close();
     }
   },
   now: Date.now,
+  retainInitialHostCustody: retainNativeInitialHostCustody,
 };
 function requireMatch(condition: unknown, reason: string): asserts condition {
   if (!condition) throw new Error(reason);
@@ -194,6 +250,46 @@ export async function inspectEnrollmentDaemonIdentity(
   expectedDescriptor: EnrollmentNativeIdentity,
   ports: EnrollmentDaemonInspectionPorts = nativePorts,
 ): Promise<EnrollmentDaemonObservation> {
+  return inspectDaemonCustody(config, expectedDescriptor, ports, { kind: "standing" });
+}
+
+/** This proof can bind an initial migration plan only. It is not convertible to
+ * EnrollmentDaemonObservation and cannot authorize ordinary standing effects. */
+export async function inspectInitialHostSupervisorMigration(
+  config: InstallationConfig,
+  value: unknown,
+  ports: EnrollmentDaemonInspectionPorts = nativePorts,
+): Promise<InitialHostMigrationProof> {
+  const precondition = InitialHostSupervisorPreconditionSchema.parse(value);
+  requireMatch(
+    precondition.identity.environment === "host" && precondition.identity.target === "host",
+    "Initial migration requires the enrolled Host identity",
+  );
+  requireMatch(
+    (precondition.workerInstanceSupport === "unsupported") ===
+      (precondition.workerInstanceId === null),
+    "Initial Host worker capability binding is inconsistent",
+  );
+  const observation = await inspectDaemonCustody(config, precondition.identity, ports, {
+    kind: "initial-migration",
+    precondition,
+  });
+  const preconditionSha256 = sha(precondition);
+  const assertCurrent = () => {
+    requireMatch(sha(precondition) === preconditionSha256, "Initial Host precondition changed");
+    observation.assertCurrent();
+    requireMatch(sha(precondition) === preconditionSha256, "Initial Host precondition changed");
+  };
+  assertCurrent();
+  return { precondition, preconditionSha256, observedAt: observation.observedAt, assertCurrent };
+}
+
+async function inspectDaemonCustody(
+  config: InstallationConfig,
+  expectedDescriptor: EnrollmentNativeIdentity,
+  ports: EnrollmentDaemonInspectionPorts,
+  purpose: HostInspectionPurpose,
+): Promise<EnrollmentDaemonObservation> {
   const expected = EnrollmentNativeIdentitySchema.parse(expectedDescriptor);
   enrollmentNativeIdentityDigest(expected);
   requireMatch(
@@ -220,6 +316,8 @@ export async function inspectEnrollmentDaemonIdentity(
     },
   };
   const custody = retainCustody();
+  if (purpose.kind === "initial-migration")
+    custody.capture(migrationFiles(purpose.precondition).map((file) => file.path));
   const anchor = path.join(expected.installationRoot, "coordinator-bootstrap-runner.json");
   custody.capture([expected.installationRoot, config.stateDir, anchor]);
   const runner = z
@@ -300,6 +398,16 @@ export async function inspectEnrollmentDaemonIdentity(
     mounts.roots,
     ports.uid,
   );
+  let assertMigrationCurrent = () => {};
+  if (purpose.kind === "initial-migration") {
+    requireMatch(ports.retainInitialHostCustody, "Initial Host native custody is unavailable");
+    await verifyInitialHostFiles(config, setup, purpose.precondition, mounts.roots, ports.uid);
+    assertMigrationCurrent = await ports.retainInitialHostCustody(
+      setup,
+      mounts.roots,
+      purpose.precondition,
+    );
+  }
   const kind = expected.environment === "host" ? "host" : "container";
   const daemon = await ports.daemon(config, kind);
   const server = config.public.environments.find((item) => item.kind === kind);
@@ -317,7 +425,16 @@ export async function inspectEnrollmentDaemonIdentity(
   }
   const observed =
     expected.environment === "host"
-      ? await inspectHost(config, expected, setup, mounts.roots, daemon.pid, ports, custody)
+      ? await inspectHost(
+          config,
+          expected,
+          setup,
+          mounts.roots,
+          daemon.pid,
+          ports,
+          custody,
+          purpose,
+        )
       : await inspectDev(config, expected, setup, daemon.pid, ports);
   requireMatch(
     isDeepStrictEqual(mounts, await inspectMounts()),
@@ -350,10 +467,33 @@ export async function inspectEnrollmentDaemonIdentity(
     enrollmentNativeIdentityDigest(descriptor) === enrollmentNativeIdentityDigest(expected),
     "Observed native identity differs from enrollment",
   );
-  custody.assertCurrent();
+  if (purpose.kind === "initial-migration")
+    requireMatch(
+      daemon.serverId === purpose.precondition.serverId &&
+        daemon.workerInstanceSupport === purpose.precondition.workerInstanceSupport &&
+        (daemon.workerInstanceId ?? null) === purpose.precondition.workerInstanceId,
+      "Initial Host authenticated worker changed",
+    );
+  const observedAt = new Date(ports.now()).toISOString();
+  const assertCurrent = () => {
+    custody.assertCurrent();
+    if (purpose.kind === "initial-migration") {
+      const age = ports.now() - Date.parse(observedAt);
+      requireMatch(age >= 0 && age < 30_000, "Initial Host custody proof expired");
+      requireMatch(
+        assertMigrationCurrent() === undefined,
+        "Initial Host custody must be synchronous",
+      );
+      custody.assertCurrent();
+      const finalAge = ports.now() - Date.parse(observedAt);
+      requireMatch(finalAge >= 0 && finalAge < 30_000, "Initial Host custody proof expired");
+    }
+  };
+  assertCurrent();
+  requireMatch(ports.now() - started <= 60_000, "Native observation exceeded freshness deadline");
   return {
     ...observed,
-    assertCurrent: custody.assertCurrent,
+    assertCurrent,
     descriptor,
     identitySha256: enrollmentNativeIdentityDigest(descriptor),
     writableMountRoots: await Promise.all(mounts.roots.map((root) => realpath(root))),
@@ -361,8 +501,196 @@ export async function inspectEnrollmentDaemonIdentity(
     serverId: daemon.serverId,
     ...(daemon.workerInstanceId ? { workerInstanceId: daemon.workerInstanceId } : {}),
     ...(daemon.restartDrainId !== undefined ? { restartDrainId: daemon.restartDrainId } : {}),
-    observedAt: new Date(ports.now()).toISOString(),
+    observedAt,
   };
+}
+
+function migrationFiles(precondition: InitialHostSupervisorPrecondition) {
+  return [
+    precondition.configuration,
+    precondition.launcher,
+    precondition.clientConfiguration,
+    precondition.node,
+    precondition.supervisorEntrypoint,
+    precondition.workerEntrypoint,
+    precondition.sourceReceipt,
+  ];
+}
+
+async function verifyInitialHostFiles(
+  config: InstallationConfig,
+  setup: z.infer<typeof BootstrapAdmissionSetupSchema>,
+  precondition: InitialHostSupervisorPrecondition,
+  roots: string[],
+  uid: number,
+) {
+  const startup = config.host.startupValidation;
+  requireMatch(startup, "Initial Host startup configuration is unavailable");
+  const selected = precondition.selectedRelease;
+  requireMatch(
+    precondition.configuration.path === setup.configurationFile &&
+      precondition.launcher.path === precondition.identity.launcherPath &&
+      precondition.node.path === startup.node &&
+      precondition.hostEndpoint === config.host.endpoint &&
+      precondition.supervisorEntrypoint.path ===
+        path.join(selected, "packages/server/dist/scripts/supervisor-entrypoint.js") &&
+      precondition.workerEntrypoint.path ===
+        path.join(selected, "packages/server/dist/server/server/daemon-worker.js") &&
+      precondition.sourceReceipt.path === path.join(selected, ".installation-source.json") &&
+      precondition.registration.environment.VORTEO_INSTALLATION_CLIENT_CONFIG ===
+        precondition.clientConfiguration.path &&
+      precondition.supervisor.argumentsSha256 !== sha([startup.node, startup.entrypoint]),
+    "Initial Host migration precondition differs from configuration",
+  );
+  const files = migrationFiles(precondition);
+  await protectedPaths(
+    files.map((file) => file.path),
+    roots,
+    uid,
+  );
+  for (const file of files) {
+    if (file === precondition.node) await verifyBootstrapPreparedDependency(file, roots);
+    else await readBootstrapPreparedFile(file, roots);
+  }
+}
+
+function verifyInitialHostRegistration(
+  service: string,
+  plist: {
+    Program?: string;
+    ProgramArguments: string[];
+    EnvironmentVariables: Record<string, string>;
+  },
+  precondition: InitialHostSupervisorPrecondition,
+) {
+  const { loadedEnvironment, ...diskRegistration } = precondition.registration;
+  requireMatch(
+    isDeepStrictEqual(diskRegistration, {
+      program: plist.Program ?? null,
+      arguments: plist.ProgramArguments,
+      environment: plist.EnvironmentVariables,
+    }),
+    "Initial Host registered launcher changed",
+  );
+  const sections = [...service.matchAll(/^\tenvironment = \{\n([\s\S]*?)^\t\}$/gm)];
+  requireMatch(sections.length === 1, "Initial Host registered environment is unavailable");
+  const entries = sections[0][1]
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const separator = line.indexOf(" => ");
+      requireMatch(separator > 0, "Initial Host registered environment is malformed");
+      return [line.slice(0, separator).trim(), line.slice(separator + 4)] as const;
+    });
+  const actualEnvironment = Object.fromEntries(entries);
+  requireMatch(
+    new Set(entries.map(([key]) => key)).size === entries.length &&
+      isDeepStrictEqual(actualEnvironment, loadedEnvironment) &&
+      Object.entries(precondition.registration.environment).every(
+        ([key, value]) => actualEnvironment[key] === value,
+      ),
+    "Initial Host registered environment changed",
+  );
+}
+
+async function retainNativeInitialHostCustody(
+  setup: z.infer<typeof BootstrapAdmissionSetupSchema>,
+  roots: string[],
+  precondition: InitialHostSupervisorPrecondition,
+): Promise<() => void> {
+  const custody = retainCustody();
+  custody.capture([setup.helperPath]);
+  const helper = (
+    await readBootstrapPreparedFile({ path: setup.helperPath, sha256: setup.helperSha256 }, roots)
+  ).toString("utf8");
+  const identity = precondition.identity;
+  requireMatch(identity.environment === "host", "Initial Host service identity required");
+  const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
+  const options = {
+    env: { PATH: "/usr/bin:/bin" },
+    timeout: 2000,
+    maxBuffer: 1024 * 1024,
+    encoding: "utf8" as const,
+  };
+  return () => {
+    custody.assertCurrent();
+    const registration = execFileSync("/bin/launchctl", ["print", service], options);
+    requireMatch(
+      loadedCoordinatorPid(service, registration) === precondition.supervisor.pid,
+      "Initial Host registered process changed",
+    );
+    verifyHostRegistration(
+      registration,
+      precondition.registration.arguments,
+      identity.launcherPath,
+      precondition.registration.environment.PASEO_HOME,
+    );
+    verifyInitialHostRegistration(
+      registration,
+      {
+        ...(precondition.registration.program === null
+          ? {}
+          : { Program: precondition.registration.program }),
+        ProgramArguments: precondition.registration.arguments,
+        EnvironmentVariables: precondition.registration.environment,
+      },
+      precondition,
+    );
+    for (const expected of [precondition.supervisor, precondition.worker]) {
+      const { stopped: _stopped, ...current } = ProcessObservationSchema.extend({
+        stopped: z.literal(false),
+      }).parse(
+        JSON.parse(
+          execFileSync(
+            "/usr/bin/python3",
+            ["-I", "-B", "-c", helper, String(expected.pid), "--require-running"],
+            options,
+          ),
+        ),
+      );
+      requireMatch(isDeepStrictEqual(current, expected), "Initial Host process custody changed");
+    }
+    custody.assertCurrent();
+  };
+}
+
+interface HostProcessCustody {
+  supervisor: z.infer<typeof RuntimeProcessSchema>;
+  worker: z.infer<typeof RuntimeProcessSchema>;
+  supervisorPid: number;
+  workerPid: number;
+  uid: number;
+  node: string;
+  selectedRelease: string;
+  argv: string[];
+  purpose: HostInspectionPurpose;
+}
+
+function verifyHostProcesses(input: HostProcessCustody): void {
+  const { supervisor, worker } = input;
+  requireMatch(
+    supervisor.pid === input.supervisorPid &&
+      supervisor.uid === input.uid &&
+      supervisor.parentPid === 1 &&
+      supervisor.executable === input.node &&
+      (input.purpose.kind === "standing"
+        ? supervisor.argumentsSha256 === sha(input.argv)
+        : isDeepStrictEqual(supervisor, input.purpose.precondition.supervisor)),
+    "Host supervisor does not match registration",
+  );
+  requireMatch(
+    worker.pid === input.workerPid &&
+      worker.uid === input.uid &&
+      worker.parentPid === input.supervisorPid &&
+      worker.bootId === supervisor.bootId &&
+      worker.executable === input.node &&
+      worker.argumentsSha256 ===
+        sha([
+          input.node,
+          path.join(input.selectedRelease, "packages/server/dist/server/server/daemon-worker.js"),
+        ]),
+    "Host worker differs from selected source",
+  );
 }
 
 async function inspectHost(
@@ -373,6 +701,7 @@ async function inspectHost(
   pid: number,
   ports: EnrollmentDaemonInspectionPorts,
   custody: ReturnType<typeof retainCustody>,
+  purpose: HostInspectionPurpose,
 ) {
   const source = config.sourceUpdates;
   const startup = config.host.startupValidation;
@@ -447,6 +776,8 @@ async function inspectHost(
   const service = await readService();
   const supervisorPid = loadedCoordinatorPid(config.host.launchdService, service);
   verifyHostRegistration(service, argv, expected.launcherPath, startup.home);
+  if (purpose.kind === "initial-migration")
+    verifyInitialHostRegistration(service, plist, purpose.precondition);
   const reader = await ports.processes(setup, roots);
   const inspect = async (processId: number) => {
     const { stopped: _stopped, ...observation } = ProcessObservationSchema.extend({
@@ -456,30 +787,27 @@ async function inspectHost(
   };
   const supervisor = await inspect(supervisorPid);
   const worker = await inspect(pid);
-  requireMatch(
-    supervisor.pid === supervisorPid &&
-      supervisor.uid === ports.uid &&
-      supervisor.parentPid === 1 &&
-      supervisor.executable === startup.node &&
-      supervisor.argumentsSha256 === sha(argv),
-    "Host supervisor does not match registration",
-  );
-  requireMatch(
-    worker.pid === pid &&
-      worker.uid === ports.uid &&
-      worker.parentPid === supervisorPid &&
-      worker.bootId === supervisor.bootId &&
-      worker.executable === startup.node &&
-      worker.argumentsSha256 ===
-        sha([
-          startup.node,
-          path.join(selectedRelease, "packages/server/dist/server/server/daemon-worker.js"),
-        ]),
-    "Host worker differs from selected source",
-  );
+  verifyHostProcesses({
+    supervisor,
+    worker,
+    supervisorPid,
+    workerPid: pid,
+    uid: ports.uid,
+    node: startup.node,
+    selectedRelease,
+    argv,
+    purpose,
+  });
   const receipt = SourceSchema.parse(
     JSON.parse((await readProtectedDocument(receiptPath)).toString("utf8")),
   );
+  if (purpose.kind === "initial-migration")
+    requireMatch(
+      isDeepStrictEqual(worker, purpose.precondition.worker) &&
+        selectedRelease === purpose.precondition.selectedRelease &&
+        receipt.sourceCommit === purpose.precondition.sourceCommit,
+      "Initial Host source or worker changed",
+    );
   requireMatch(
     isDeepStrictEqual(supervisor, await inspect(supervisorPid)) &&
       isDeepStrictEqual(worker, await inspect(pid)) &&

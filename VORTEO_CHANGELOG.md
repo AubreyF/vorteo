@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.662 - 2026-10-17
+
+### Maintenance
+
+- Add a distinct initial Host supervisor migration precondition inspector. It pins protected configuration and observed launch files, exact registered environment, actual supervisor lifetime and overwritten argument digest, authenticated worker instance and parent relationship, and selected source. It returns a digest and bounded synchronous custody proof without ordinary standing evidence, reservations or effects.
+- Keep an unsupported legacy worker-instance field explicitly null, bound to authenticated capability evidence and an independently verified kernel lifetime. Advertised inspection failures remain refusals.
+- Recheck protected files, proof identity and freshness after native custody commands. Owning regressions preserve the ordinary strict supervisor check and reject file, registration, process and expiry changes. Incumbent evidence establishes service custody and observed files, not running-runtime provenance. Candidate/fallback integrity, activation binding and installed migration remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.661 - 2026-10-17
 
 ### Fixed
