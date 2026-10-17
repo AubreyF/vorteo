@@ -1,4 +1,10 @@
 import { inspectRetainedMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-binding.js";
+import { inspectRetainedMaintenanceRecoveryEffect } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
+import {
+  MaintenanceLauncherSelectionSchema,
+  MaintenanceServiceSelectionSchema,
+  MaintenanceRecoverySelectionSchema,
+} from "./coordinator-bootstrap-maintenance-selection.js";
 import { readRegisteredMaintenanceRuntimeReadiness } from "./coordinator-bootstrap-maintenance-service-status.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
@@ -153,7 +159,8 @@ export async function inspectMaintenanceServiceNative(input: {
     { path: identity.launcherPath, sha256: hash(launcher) },
     input.writableMountRoots,
   );
-  if (!isDeepStrictEqual(decoded, maintenanceUserLauncher(plan, "previous")))
+  const expectedLauncher = maintenanceUserLauncher(plan, "previous");
+  if (!isDeepStrictEqual(decoded, expectedLauncher))
     throw new BootstrapRequestConflict(
       "Native service registration differs from previous launcher",
     );
@@ -183,7 +190,8 @@ export async function inspectMaintenanceServiceNative(input: {
         registered: true,
         launcherPath: identity.launcherPath,
         launcherSha256: hash(launcher),
-        registrationSha256: hash(JSON.stringify(decoded)),
+        // plutil dictionary order is not the reviewed registration's field order.
+        registrationSha256: hash(JSON.stringify(expectedLauncher)),
       },
       selection: {
         path: identity.selectionPath,
@@ -266,9 +274,14 @@ export async function inspectMaintenanceServiceReadiness(input: {
   input.signal.throwIfAborted();
   const journal = new FileBootstrapRequestJournal(input.stateDirectory);
   const retained = journal.readLifecycle().find((job) => job.id === input.requestId);
-  const context = inspectRetainedMaintenanceServiceEffect({ ...input, retained });
-  await verifyMaintenanceLauncherArtifacts(input);
-  const { plan, identitySha256, planSha256, reservation } = context;
+  const retainedJob = MaintenanceServiceJobSchema.parse(retained);
+  const context =
+    retainedJob.operation === "replacement"
+      ? inspectRetainedMaintenanceServiceEffect({ ...input, retained })
+      : inspectRetainedMaintenanceRecoveryEffect({ ...input, retained });
+  const plan = "original" in context.plan ? context.plan.original : context.plan;
+  await verifyMaintenanceLauncherArtifacts({ ...input, plan });
+  const { identitySha256, planSha256, reservation } = context;
   const identity = plan.identity;
   if (identity.environment !== "host" || !identity.selectionPath || !plan.previous)
     throw new BootstrapRequestConflict("Native readiness requires enrolled Host selection");
@@ -277,22 +290,13 @@ export async function inspectMaintenanceServiceReadiness(input: {
   )
     throw new BootstrapRequestConflict("Native readiness registration changed");
   const selectionBytes = await readProtectedDocument(identity.selectionPath);
-  const selection = JSON.parse(selectionBytes.toString("utf8"));
-  const outcome =
-    selection.planSha256 === planSha256 && selection.slot === "candidate"
-      ? "candidate"
-      : "previous";
-  if (
-    outcome === "candidate" &&
-    (selection.version !== 2 ||
-      selection.requestId !== context.job.id ||
-      selection.intentId !== context.intent.id ||
-      selection.generation !== reservation.generation)
-  )
-    throw new BootstrapRequestConflict("Native readiness belongs to another generation");
+  const { selectedSlot, outcome } = inspectReadinessSelection(
+    context,
+    JSON.parse(selectionBytes.toString("utf8")),
+  );
   if (outcome === "previous")
     await verifyRetainedProcessExited(input.ports.reader, context.intent.executor);
-  const selected = plan[outcome];
+  const selected = plan[selectedSlot];
   if (
     !selected ||
     (identity.target !== "maintenance-controller" && identity.target !== "recovery-launcher")
@@ -319,14 +323,15 @@ export async function inspectMaintenanceServiceReadiness(input: {
     { path: identity.launcherPath, sha256: hash(launcher) },
     input.writableMountRoots,
   );
-  if (!isDeepStrictEqual(decoded, maintenanceUserLauncher(plan, outcome)))
+  const expectedLauncher = maintenanceUserLauncher(plan, selectedSlot);
+  if (!isDeepStrictEqual(decoded, expectedLauncher))
     throw new BootstrapRequestConflict("Native readiness launcher differs from selected release");
   const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
   const pid = loadedCoordinatorPid(service, await input.ports.reader.readService(service));
   const process = await verifyMaintenanceLauncherProcess({
     plan,
     account: input.account,
-    selected: outcome,
+    selected: selectedSlot,
     pid,
     reader: input.ports.reader,
   });
@@ -378,7 +383,7 @@ export async function inspectMaintenanceServiceReadiness(input: {
         registered: true,
         launcherPath: identity.launcherPath,
         launcherSha256: hash(launcher),
-        registrationSha256: hash(JSON.stringify(decoded)),
+        registrationSha256: hash(JSON.stringify(expectedLauncher)),
       },
       selection: {
         path: identity.selectionPath,
@@ -404,4 +409,44 @@ export async function inspectMaintenanceServiceReadiness(input: {
     record,
     assertCurrent: health.assertCurrent,
   };
+}
+
+function inspectReadinessSelection(
+  context:
+    | ReturnType<typeof inspectRetainedMaintenanceServiceEffect>
+    | ReturnType<typeof inspectRetainedMaintenanceRecoveryEffect>,
+  value: unknown,
+) {
+  const selection = MaintenanceLauncherSelectionSchema.or(MaintenanceServiceSelectionSchema)
+    .or(MaintenanceRecoverySelectionSchema)
+    .parse(value);
+  const expected = {
+    requestId: context.job.id,
+    requestRevision: context.reservation.requestRevision,
+    intentId: context.intent.id,
+    generation: context.reservation.generation,
+    planSha256: context.planSha256,
+  };
+  if ("slot" in context) {
+    if (
+      !isDeepStrictEqual(selection, {
+        ...expected,
+        version: 3,
+        operation: context.job.operation,
+        slot: context.slot,
+      })
+    )
+      throw new BootstrapRequestConflict("Native recovery readiness belongs to another generation");
+    return { selectedSlot: context.slot, outcome: "candidate" as const };
+  }
+  const selectedSlot =
+    selection.planSha256 === context.planSha256 && selection.slot === "candidate"
+      ? "candidate"
+      : "previous";
+  if (
+    selectedSlot === "candidate" &&
+    !isDeepStrictEqual(selection, { ...expected, version: 2, slot: "candidate" })
+  )
+    throw new BootstrapRequestConflict("Native readiness belongs to another generation");
+  return { selectedSlot, outcome: selectedSlot } as const;
 }

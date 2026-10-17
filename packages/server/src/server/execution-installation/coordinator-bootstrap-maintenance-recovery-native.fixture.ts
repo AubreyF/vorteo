@@ -2,7 +2,9 @@ import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-b
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import {
   MaintenanceServiceJobSchema,
   MaintenanceServiceEvidenceRecordSchema,
@@ -11,7 +13,12 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { claimMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-claim.js";
 import { inspectMaintenanceRecoveryPlan } from "./coordinator-bootstrap-maintenance-recovery-plan.js";
-import { executeAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-native.js";
+import {
+  executeAbsentMaintenanceRecovery,
+  observeMaintenanceRecovery,
+} from "./coordinator-bootstrap-maintenance-recovery-native.js";
+import { FileEnrollmentJournal, changeStandingGrant } from "./maintenance/authorization.js";
+import { inspectMaintenanceServiceReadiness } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import { retainEnrollmentNativeIdentity } from "./maintenance/native-registration.js";
 import {
@@ -38,10 +45,9 @@ export async function exerciseAbsentRecovery(input: {
   const original = inspectMaintenanceRecoveryPlan(input.plan, f.account);
   const plan = {
     ...original.plan,
-    operation:
-      input.mode === "recover-rollback"
-        ? "maintenance-service-rollback"
-        : "maintenance-service-recovery",
+    operation: ["recover-rollback", "recover-observe-rollback"].includes(input.mode)
+      ? "maintenance-service-rollback"
+      : "maintenance-service-recovery",
   };
   const context = inspectMaintenanceRecoveryPlan(plan, f.account);
   const previous = context.slot === "previous" ? f.plan.candidate : f.plan.previous!;
@@ -194,7 +200,7 @@ export async function exerciseAbsentRecovery(input: {
         planSha256: context.planSha256,
         identitySha256: context.identitySha256,
         outcome: "candidate" as const,
-        ready: true,
+        ready: input.mode !== "recover-unready-execution",
         sourceCommit: context.selected.sourceCommit,
         artifactSha256: context.selected.artifactSha256,
         evidenceSha256: hash(JSON.stringify(record)),
@@ -204,22 +210,33 @@ export async function exerciseAbsentRecovery(input: {
       };
     },
   };
+  const lostStartReply = [
+    "recover-lost-start",
+    "recover-observe-lost-start",
+    "recover-observe-runtime",
+    "recover-observe-rollback",
+    "recover-observe-unready",
+  ].includes(input.mode);
   const command = {
     run: async (args: readonly string[]) => {
       journal.withRecoveryTransaction(() => undefined);
       commands.push([...args]);
       expect(args).toEqual(["bootstrap", identity.serviceDomain, identity.launcherPath]);
       started = true;
-      if (input.mode === "recover-lost-start") throw new Error("Lost native start reply");
+      if (lostStartReply) throw new Error("Lost native start reply");
     },
   };
-  if (input.mode === "recover-lost-start")
+  if (lostStartReply)
     await expect(executeAbsentMaintenanceRecovery(executeInput, command)).rejects.toThrow(
       "Lost native start reply",
     );
   else if (input.mode === "recover-wrong-observation")
     await expect(executeAbsentMaintenanceRecovery(executeInput, command)).rejects.toThrow(
       "post-intent observation",
+    );
+  else if (input.mode === "recover-unready-execution")
+    await expect(executeAbsentMaintenanceRecovery(executeInput, command)).rejects.toThrow(
+      "candidate is not ready",
     );
   else {
     const result = await executeAbsentMaintenanceRecovery(executeInput, command);
@@ -245,4 +262,124 @@ export async function exerciseAbsentRecovery(input: {
     ),
   ).rejects.toThrow("fresh unconsumed");
   expect(commands).toHaveLength(1);
+  if (
+    [
+      "recover-observe-lost-start",
+      "recover-observe-runtime",
+      "recover-observe-rollback",
+      "recover-observe-unready",
+    ].includes(input.mode)
+  ) {
+    const enrollment = new FileEnrollmentJournal(f.enrollmentStateDirectory);
+    const state = enrollment.read();
+    if (state.status !== "enrolled") throw new Error("Missing fixture enrollment");
+    changeStandingGrant(enrollment, {
+      expectedRevision: state.grant.revision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+    const before = JSON.stringify(
+      new FileBootstrapRequestJournal(f.enrollmentStateDirectory).readLifecycle(),
+    );
+    const revoked = JSON.stringify(enrollment.read());
+    const server = createServer((request, response) => {
+      const nonce = new URL(request.url!, "http://127.0.0.1").searchParams.get("nonce");
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify({
+          version: 1,
+          nonce,
+          installationId: identity.installationId,
+          target: identity.target,
+          identitySha256: context.identitySha256,
+          sourceCommit: context.selected.sourceCommit,
+          artifactSha256: context.selected.artifactSha256,
+          process: targetProcess,
+          ready: input.mode !== "recover-observe-unready",
+        }),
+      );
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing fixture port");
+      writeFileSync(
+        path.join(identity.installationRoot, `maintenance-control-${targetProcess.pid}.json`),
+        JSON.stringify({
+          version: 1,
+          admissionSha256: "a".repeat(64),
+          requestId: randomUUID(),
+          process: targetProcess,
+          address: "127.0.0.1",
+          port: address.port,
+        }),
+        { mode: 0o600 },
+      );
+      const readObservation = [
+        "recover-observe-runtime",
+        "recover-observe-rollback",
+        "recover-observe-unready",
+      ].includes(input.mode)
+        ? (signal: AbortSignal) =>
+            inspectMaintenanceServiceReadiness({
+              ...executeInput,
+              signal,
+              ports: { reader, assertCurrent: () => undefined },
+            })
+        : executeInput.readCandidateObservation;
+      const result = await observeMaintenanceRecovery({ ...executeInput, readObservation });
+      expect(result).toMatchObject({
+        ready: input.mode !== "recover-observe-unready",
+        outcome: "candidate",
+        generation: job.reservation!.generation,
+        sourceCommit: context.selected.sourceCommit,
+      });
+      expect(result.record.native.service.registrationSha256).toBe(
+        hash(JSON.stringify(maintenanceUserLauncher(f.plan, context.slot))),
+      );
+      result.assertCurrent();
+      expect(JSON.stringify(journal.readLifecycle())).toBe(before);
+      expect(JSON.stringify(enrollment.read())).toBe(revoked);
+      expect(commands).toHaveLength(1);
+      const changed = journal.readLifecycle();
+      const current = changed.find((entry) => entry.id === job.id);
+      if (!current) throw new Error("Missing fixture recovery");
+      current.revision = randomUUID();
+      journal.writeLifecycle(changed);
+      expect(result.assertCurrent).toThrow("changed");
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        }),
+      );
+    }
+  }
+  if (input.mode === "recover-observe-timeout") {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let signal: AbortSignal | undefined;
+    let notify: () => void = () => undefined;
+    const reading = new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+    const pending = observeMaintenanceRecovery({
+      ...executeInput,
+      readObservation: (current) => {
+        signal = current;
+        notify();
+        return new Promise(() => undefined);
+      },
+    });
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    await reading;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+    expect(signal?.aborted).toBe(true);
+    expect(commands).toHaveLength(1);
+    vi.useRealTimers();
+  }
 }

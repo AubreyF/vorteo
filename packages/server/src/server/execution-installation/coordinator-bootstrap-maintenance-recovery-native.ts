@@ -6,14 +6,23 @@ import { BootstrapProcessIdentitySchema } from "@getpaseo/protocol/coordinator-b
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { claimMaintenanceServiceEffect } from "./coordinator-bootstrap-maintenance-service-claim.js";
-import { inspectMaintenanceRecoveryExecution } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
+import {
+  inspectMaintenanceRecoveryExecution,
+  inspectRetainedMaintenanceRecoveryEffect,
+} from "./coordinator-bootstrap-maintenance-recovery-binding.js";
 import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
 import { assertMaintenanceServiceAbsent } from "./coordinator-bootstrap-maintenance-absence.js";
 import { assertMaintenanceRuntimeProcessesAbsent } from "./coordinator-bootstrap-maintenance-process-inventory.js";
-import { renderMaintenanceUserLauncher } from "./coordinator-bootstrap-maintenance-launcher.js";
+import {
+  renderMaintenanceUserLauncher,
+  verifyMaintenanceLauncherArtifacts,
+} from "./coordinator-bootstrap-maintenance-launcher.js";
 import { selectMaintenanceFiles } from "./coordinator-bootstrap-maintenance-file-selection.js";
 import { readBoundedCandidateObservation } from "./coordinator-bootstrap-maintenance-service-native.js";
-import { verifyMaintenanceRecoveryReady } from "./coordinator-bootstrap-maintenance-recovery-ready.js";
+import {
+  verifyMaintenanceRecoveryReady,
+  verifyMaintenanceRecoveryObservation,
+} from "./coordinator-bootstrap-maintenance-recovery-ready.js";
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import type { NativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
 
@@ -149,4 +158,43 @@ export async function executeAbsentMaintenanceRecovery(
       requireClaim();
     },
   };
+}
+
+/** Reopening consumes no authority and performs no effects. A lost start reply
+ * or revoked grant cannot erase observation of an already consumed generation. */
+export async function observeMaintenanceRecovery(
+  input: Pick<Claim, "stateDirectory" | "requestId" | "reservation" | "plan" | "account"> & {
+    reader: NativeBootstrapServiceReader;
+    writableMountRoots: readonly string[];
+    readObservation(signal: AbortSignal): Promise<MaintenanceServiceNativeObservation>;
+  },
+): Promise<MaintenanceServiceNativeObservation> {
+  return readBoundedCandidateObservation(async (signal) => {
+    const journal = new FileBootstrapRequestJournal(input.stateDirectory);
+    const readJob = () => journal.readLifecycle().find((job) => job.id === input.requestId);
+    const retained = readJob();
+    const context = inspectRetainedMaintenanceRecoveryEffect({ ...input, retained });
+    if (
+      context.identity.stateDirectory !== input.stateDirectory ||
+      !isDeepStrictEqual(context.reservation, input.reservation)
+    )
+      throw new BootstrapRequestConflict("Recovery observation reservation changed");
+    await verifyMaintenanceLauncherArtifacts({ ...input, plan: context.plan.original });
+    signal.throwIfAborted();
+    const result = await input.readObservation(signal);
+    signal.throwIfAborted();
+    const assertObservation = await verifyMaintenanceRecoveryObservation({
+      ...input,
+      retained,
+      result,
+    });
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      assertObservation();
+      if (!isDeepStrictEqual(retained, readJob()))
+        throw new BootstrapRequestConflict("Retained recovery observation changed");
+    };
+    assertCurrent();
+    return { ...result, assertCurrent };
+  });
 }

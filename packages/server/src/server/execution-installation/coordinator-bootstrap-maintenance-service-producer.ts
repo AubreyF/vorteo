@@ -38,6 +38,7 @@ import {
   inspectMaintenanceServiceReadiness,
 } from "./coordinator-bootstrap-maintenance-service-inspection.js";
 import { observeMaintenanceServiceReplacement } from "./coordinator-bootstrap-maintenance-service-native.js";
+import { observeMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-native.js";
 import type { MaintenanceServiceExecutor } from "./maintenance/service-execution.js";
 
 import {
@@ -145,7 +146,11 @@ export async function createNativeMaintenanceServiceExecutor(input: {
   };
   const observe: MaintenanceServiceExecutor["observe"] = async (request, reservation) => {
     const context = await load(request, true);
-    return observeMaintenanceServiceReplacement({
+    const read =
+      request.operation === "replacement"
+        ? observeMaintenanceServiceReplacement
+        : observeMaintenanceRecovery;
+    return read({
       ...context,
       requestId: request.id,
       reservation,

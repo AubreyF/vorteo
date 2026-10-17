@@ -112,7 +112,8 @@ async function inspectSelectedMaintenanceRole(input: SelectedMaintenanceInspecti
     { path: identity.launcherPath, sha256: hash(launcher) },
     input.writableMountRoots,
   );
-  if (!isDeepStrictEqual(decoded, maintenanceUserLauncher(startup.plan, startup.selection.slot)))
+  const expectedLauncher = maintenanceUserLauncher(startup.plan, startup.selection.slot);
+  if (!isDeepStrictEqual(decoded, expectedLauncher))
     throw new BootstrapRequestConflict("Executor launcher differs from selected slot");
   const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
   const pid = loadedCoordinatorPid(service, await input.ports.reader.readService(service));
@@ -149,7 +150,7 @@ async function inspectSelectedMaintenanceRole(input: SelectedMaintenanceInspecti
         registered: true,
         launcherPath: identity.launcherPath,
         launcherSha256: hash(launcher),
-        registrationSha256: hash(JSON.stringify(decoded)),
+        registrationSha256: hash(JSON.stringify(expectedLauncher)),
       },
       selection: {
         path: identity.selectionPath,

@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.630 - 2026-10-16
+
+### Maintenance
+
+- Add observation-only reopening for consumed native recovery and rollback generations. The existing producer routes retained recovery observations through exact generation, selected slot, protected artifact and native lifetime checks without granting new dispatch support or requiring an active grant. A total thirty-second observation bound discards late results; final custody checks reject changed journals and files.
+- Preserve an independently verified selected process with readiness false as an unready observation. Successful execution still requires readiness. A rollback job identifies its restored slot as that new job's candidate, without rewriting the failed predecessor as successful.
+- Hash the verified reviewed launcher shape for native registration evidence. The actual HTTP readiness regression exposed a mismatch caused by plist dictionary key order; exact decoded equality and launcher byte digests remain required. Retained evidence is never rewritten.
+- Focused filesystem and actual HTTP cases cover lost start replies, revocation, recovery and rollback slots, unready observation, refusal of unready execution, journal changes and timeout. Native process ports are simulated. Compiled native recovery dispatch, installed delivery, permanent private HTTPS and remote owner acceptance remain open; the README recovery feature remains a delivery gate.
+
 ## 0.11.0-beta.3.vorteo.629 - 2026-10-16
 
 ### Maintenance

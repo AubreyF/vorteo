@@ -20,9 +20,9 @@ import type { NativeBootstrapServiceReader } from "./coordinator-bootstrap-servi
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 type Context = ReturnType<typeof inspectRetainedMaintenanceRecoveryEffect>;
 
-/** Verifies a new recovery generation's selected slot. Rollback readiness is
- * success of this new job, never a rewrite of the original failed operation. */
-export async function verifyMaintenanceRecoveryReady(input: {
+/** Verify the selected recovery generation independently of its readiness.
+ * A restored rollback slot belongs to this new job, not its failed predecessor. */
+export async function verifyMaintenanceRecoveryObservation(input: {
   retained: unknown;
   plan: unknown;
   account: { uid: number; home: string };
@@ -30,7 +30,7 @@ export async function verifyMaintenanceRecoveryReady(input: {
   result: MaintenanceServiceNativeObservation;
 }) {
   const context = inspectRetainedMaintenanceRecoveryEffect(input);
-  const record = requireReadyObservation(context, input.result);
+  const record = requireRecoveryObservation(context, input.result);
   const identity = context.identity;
   if (identity.environment !== "host" || !identity.selectionPath)
     throw new BootstrapRequestConflict("Recovery readiness requires native selection custody");
@@ -105,7 +105,15 @@ function requireSelectedGeneration(
     throw new BootstrapRequestConflict("Recovery selected runtime belongs to another generation");
 }
 
-function requireReadyObservation(context: Context, result: MaintenanceServiceNativeObservation) {
+export async function verifyMaintenanceRecoveryReady(
+  input: Parameters<typeof verifyMaintenanceRecoveryObservation>[0],
+) {
+  const assertCurrent = await verifyMaintenanceRecoveryObservation(input);
+  if (!input.result.ready) throw new BootstrapRequestConflict("Recovery candidate is not ready");
+  return assertCurrent;
+}
+
+function requireRecoveryObservation(context: Context, result: MaintenanceServiceNativeObservation) {
   const { record: value, assertCurrent: _assert, ...observation } = result;
   const observed = MaintenanceServiceObservationSchema.parse(observation);
   const record = MaintenanceServiceEvidenceRecordSchema.parse(value);
@@ -127,7 +135,6 @@ function requireReadyObservation(context: Context, result: MaintenanceServiceNat
       throw new BootstrapRequestConflict("Recovery observation differs from retained generation");
   }
   if (
-    !observed.ready ||
     observed.outcome !== "candidate" ||
     observed.generation !== context.reservation.generation ||
     hash(JSON.stringify(record)) !== observed.evidenceSha256 ||
