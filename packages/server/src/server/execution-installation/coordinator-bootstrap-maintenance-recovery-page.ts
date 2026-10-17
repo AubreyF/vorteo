@@ -29,12 +29,13 @@ const requests=document.getElementById("requests");
 let active=null;
 let generation=0;
 let unlocked=false;
+let preparationBlocked=true;
 const attempted=new Set();
 const flags={bootRecovery:true,compatibleRecovery:true,factoryRuntimeAdoption:true,sourceUpdateTooling:true,previewMonitor:true};
 function controls(){
   button.disabled=Boolean(active);
   diagnose.disabled=Boolean(active);
-  prepare.disabled=Boolean(active)||!unlocked;
+  prepare.disabled=Boolean(active)||!unlocked||preparationBlocked;
   for(const item of requests.querySelectorAll("button"))item.disabled=Boolean(active)||item.dataset.attempted==="true";
 }
 function lock(){
@@ -42,6 +43,7 @@ function lock(){
   if(active)active.abort();
   active=null;
   unlocked=false;
+  preparationBlocked=true;
   password.value="";
   requests.replaceChildren();
   application.replaceChildren();
@@ -68,12 +70,29 @@ function decisionButton(parent,request,decision,label){
 }
 function render(retained){
   requests.replaceChildren();
+  preparationBlocked=false;
   for(const request of retained){
     if(!request||typeof request.id!=="string"||typeof request.revision!=="string"||typeof request.planSha256!=="string"||!request.plan)throw new Error("The retained review is incomplete. No decision was submitted.");
     const item=document.createElement("li");
     text(item,"h2","Coordinator: "+String(request.status));
     text(item,"p",request.reason);
     const stage=request.execution?.stage;
+    const completed=["succeeded","resumed","rolled_back"].includes(stage);
+    const unresolved=request.status==="pending"||(request.status==="approved"&&!completed);
+    if(unresolved)preparationBlocked=true;
+    if(stage==="recovery_required"){
+      text(item,"h3","Repair required");
+      text(item,"p",request.execution.rollbackAttemptedAt
+        ?"Automatic rollback did not establish a verified working release. The fallback outcome remains unverified."
+        :"The coordinator outcome remains unverified.");
+      text(item,"p","Check retained status before further action. This operation needs authenticated repair; its approval and rollback must not be repeated.");
+    }else if(stage==="rollback_pending"){
+      text(item,"h3","Rollback outcome unverified");
+      text(item,"p","A rollback attempt is recorded. It may still be running or need recovery. Check retained status; do not repeat it.");
+    }else if(stage==="rolled_back"){
+      text(item,"h3","Recorded result: compatible fallback restored");
+      text(item,"p","Recovery verified the reviewed fallback. This is not candidate success or a fresh application check.");
+    }
     if(stage)text(item,"p","Recorded stage: "+stage+". This is retained evidence, not a fresh application test.");
     else if(request.status==="approved")text(item,"p","Dispatch outcome unverified. Check status; do not submit approval again.");
     text(item,"p","Current reviewed source: "+String(request.plan.previous?.sourceCommit));
@@ -87,6 +106,7 @@ function render(retained){
     if((request.status==="pending"||request.status==="approved")&&!request.execution)decisionButton(item,request,"cancel","Cancel exact request before claim");
     requests.append(item);
   }
+  if(preparationBlocked)text(requests,"li","Another rollback cannot be prepared while this operation is unresolved. Check maintenance status to refresh its recorded outcome.");
 }
 function renderDiagnostics(report){
   if(report?.version!==1||report.scope!=="recovery-host"||report.browserUsability!=="unverified"||!Array.isArray(report.checks)||report.checks.length!==4)throw new Error("Application diagnostic evidence is incomplete.");
@@ -132,9 +152,12 @@ async function run(pending,message,timeout,expectedType){
       result.textContent="Retained reviews checked. Preparation is not approval; approval is not verified completion. Check the recorded outcome before any further action.";
     }
   }catch(error){
-    if(current===generation)result.textContent=controller.signal.aborted
-      ? "The reply timed out. Submitted work may still be running. Check retained status; do not repeat approval."
-      : error.message;
+    if(current===generation){
+      preparationBlocked=true;
+      result.textContent=controller.signal.aborted
+        ? "The reply timed out. Submitted work may still be running. Check retained status; do not repeat approval."
+        : error.message;
+    }
   }finally{
     clearTimeout(timer);if(current===generation){active=null;controls();}
   }

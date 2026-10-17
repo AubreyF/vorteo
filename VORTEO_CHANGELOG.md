@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.629 - 2026-10-16
+
+### Maintenance
+
+- Give the independent recovery page explicit repair-required and unverified rollback messages. A retained fallback receipt is labeled as a recorded result, separate from candidate success and current application usability.
+- Disable new rollback preparation until authenticated retained status is available, while a request remains unresolved, and after a failed refresh. Lock and rejected authentication clear private state. Existing server admission, exact approval and replay checks remain unchanged.
+- Validate these controls in a real Chromium fixture with owner authentication and file-backed retained history. Native effects are disabled in this browser case; it does not establish native fallback-failure recovery or installed availability. Permanent routing, remote owner acceptance and the primary README feature remain delivery gates.
+
 ## 0.11.0-beta.3.vorteo.628 - 2026-10-16
 
 ### Maintenance
