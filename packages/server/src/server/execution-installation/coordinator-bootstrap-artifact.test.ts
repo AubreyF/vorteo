@@ -1,4 +1,5 @@
 import { test, expect, afterEach, vi } from "vitest";
+import * as nativeFs from "node:fs";
 import {
   mkdtemp,
   mkdir,
@@ -18,8 +19,14 @@ import {
   inspectBootstrapArtifact,
   assertBootstrapPathsProtected,
   verifyBootstrapReleaseArtifacts,
+  inspectBootstrapReleaseArtifacts,
   verifyBootstrapPreparedDependency,
 } from "./coordinator-bootstrap-artifact.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, lstatSync: vi.fn(actual.lstatSync) };
+});
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -78,7 +85,7 @@ test("artifact digests preserve chunk boundaries and isolate concurrent scan buf
   );
 });
 
-test("prepared release binds external dependencies and its complete runtime tree", async () => {
+async function preparedReleaseFixture() {
   const { root, release } = await fixture();
   const digest = (text: string) => createHash("sha256").update(text).digest("hex");
   const node = path.join(root, "node");
@@ -101,6 +108,11 @@ test("prepared release binds external dependencies and its complete runtime tree
     configuration: { path: configuration, sha256: digest("{}") },
     launcher: { path: launcher, sha256: digest("fixture launcher") },
   };
+  return { root, release, candidate, node, configuration };
+}
+
+test("prepared release binds external dependencies and its complete runtime tree", async () => {
+  const { root, release, candidate, node, configuration } = await preparedReleaseFixture();
   await expect(verifyBootstrapReleaseArtifacts(candidate, [])).resolves.toBeUndefined();
   await expect(
     verifyBootstrapReleaseArtifacts({ ...candidate, sourceCommit: "b".repeat(40) }, []),
@@ -259,4 +271,53 @@ test("retained artifact proof keeps the original caller cancellation signal", as
   limits.signal = new AbortController().signal;
   original.abort(new Error("Original caller canceled"));
   expect(() => inspected.assertCurrent()).toThrow("Original caller canceled");
+});
+
+test("retained release proof binds the source receipt, external dependencies and runtime tree", async () => {
+  for (const changed of ["configuration", "launcher", "node", "receipt", "dependency"] as const) {
+    const { release, candidate } = await preparedReleaseFixture();
+    const proof = await inspectBootstrapReleaseArtifacts(candidate, [], { timeoutMs: 1000 });
+    expect(proof.assertCurrent()).toBeUndefined();
+    const changedFile = {
+      receipt: path.join(release, ".installation-source.json"),
+      dependency: path.join(release, "new-import.js"),
+      configuration: candidate.configuration.path,
+      launcher: candidate.launcher.path,
+      node: candidate.node.path,
+    }[changed];
+    await writeFile(changedFile, "changed bytes", { mode: 0o600 });
+    expect(() => proof.assertCurrent()).toThrow("changed");
+  }
+});
+
+test("retained release proof snapshots declarations and preserves original caller cancellation", async () => {
+  const { candidate } = await preparedReleaseFixture();
+  const cancellation = new AbortController();
+  const limits = { signal: cancellation.signal, timeoutMs: 1000 };
+  const proof = await inspectBootstrapReleaseArtifacts(candidate, [], limits);
+  candidate.configuration.path = "/changed-after-collection";
+  limits.signal = new AbortController().signal;
+  expect(proof.assertCurrent()).toBeUndefined();
+  cancellation.abort(new Error("Release caller canceled"));
+  expect(() => proof.assertCurrent()).toThrow("Release caller canceled");
+});
+
+test("release collection refuses crossing its deadline during final synchronous custody", async () => {
+  const { candidate } = await preparedReleaseFixture();
+  let now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  const { lstatSync: originalStat } = await vi.importActual<typeof import("node:fs")>("node:fs");
+  const stat = vi.mocked(nativeFs.lstatSync).mockImplementation((...args) => {
+    const result = Reflect.apply(originalStat, nativeFs, args);
+    now += 1001;
+    return result;
+  });
+  try {
+    await expect(
+      inspectBootstrapReleaseArtifacts(candidate, [], { timeoutMs: 1000 }),
+    ).rejects.toThrow("deadline exceeded");
+  } finally {
+    stat.mockImplementation(originalStat);
+    clock.mockRestore();
+  }
 });

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.665 - 2026-10-17
+
+### Maintenance
+
+- Retain complete release proofs across source-receipt verification, external runtime dependencies and the full artifact tree. Capture declarations and limits before collection, reject changes during final synchronous custody and preserve the original caller cancellation after successful collection.
+- Preserve the existing verification API while making its custody proof available to initial migration preparation. Seventeen owning cases cover dependency, receipt, directory, declaration, cancellation and final-deadline changes. Compatibility, fresh native admission and installed migration remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.664 - 2026-10-17
 
 ### Maintenance

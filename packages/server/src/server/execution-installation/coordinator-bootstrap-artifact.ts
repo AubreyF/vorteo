@@ -35,8 +35,30 @@ export async function verifyBootstrapReleaseArtifacts(
   release: CoordinatorBootstrapPlan["candidate"],
   writableMountRoots: readonly string[],
 ): Promise<void> {
+  await inspectBootstrapReleaseArtifacts(release, writableMountRoots);
+}
+
+/** Retain reviewed release declarations and every byte supplier before reading.
+ * Runtime compatibility and current writable-mount evidence remain caller checks. */
+export async function inspectBootstrapReleaseArtifacts(
+  value: CoordinatorBootstrapPlan["candidate"],
+  writableMountRoots: readonly string[],
+  limits: BootstrapArtifactDigestLimits = {},
+) {
+  const release = structuredClone(value);
+  const { signal, timeoutMs, maxFiles, maxBytes } = limits;
+  const startedAt = Date.now();
+  const checkBudget = () => {
+    signal?.throwIfAborted();
+    if (timeoutMs !== undefined && Date.now() - startedAt >= timeoutMs)
+      throw new BootstrapRequestConflict("Release verification deadline exceeded");
+  };
+  checkBudget();
   const files = [release.node, release.entrypoint, release.configuration, release.launcher];
+  const receiptPath = path.join(release.directory, ".installation-source.json");
   const observed = new Map<string, BigIntStats>();
+  for (const file of [...files.map((item) => item.path), receiptPath])
+    observed.set(file, await lstat(file, { bigint: true }));
   await assertBootstrapPathsProtected(
     [release.directory, ...files.map((file) => file.path)],
     writableMountRoots,
@@ -46,27 +68,46 @@ export async function verifyBootstrapReleaseArtifacts(
   for (const file of files) {
     if ((await realpath(file.path)) !== file.path)
       throw new BootstrapRequestConflict("Prepared file requires a canonical path");
-    const stat = await lstat(file.path, { bigint: true });
-    observed.set(file.path, stat);
+    const stat = observed.get(file.path)!;
+    checkBudget();
     requireOwned(stat);
     if (!stat.isFile())
       throw new BootstrapRequestConflict("Prepared dependency must be a regular file");
-    if ((await digestFile(file.path, stat)) !== file.sha256)
+    if ((await digestFile(file.path, stat, { checkBudget })) !== file.sha256)
       throw new BootstrapRequestConflict("Prepared dependency digest changed");
     if (file === release.node && (stat.mode & 0o100n) === 0n)
       throw new BootstrapRequestConflict("Prepared Node executable is not executable");
   }
-  const receiptPath = path.join(release.directory, ".installation-source.json");
-  observed.set(receiptPath, await lstat(receiptPath, { bigint: true }));
+  checkBudget();
   const receiptBytes = await readProtectedDocument(receiptPath);
   const receipt = z
     .object({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/) })
     .parse(JSON.parse(receiptBytes.toString("utf8")));
   if (receipt.sourceCommit !== release.sourceCommit)
     throw new BootstrapRequestConflict("Prepared source does not match its installation receipt");
-  if ((await digestBootstrapArtifact(release.directory)) !== release.artifactSha256)
+  checkBudget();
+  const artifact = await inspectBootstrapArtifact(release.directory, {
+    signal,
+    timeoutMs: timeoutMs === undefined ? undefined : timeoutMs - (Date.now() - startedAt),
+    maxFiles,
+    maxBytes,
+  });
+  if (artifact.sha256 !== release.artifactSha256)
     throw new BootstrapRequestConflict("Prepared release artifact changed");
-  for (const [file, stat] of observed) requireUnchanged(stat, await lstat(file, { bigint: true }));
+  const assertCurrent = () => {
+    signal?.throwIfAborted();
+    artifact.assertCurrent();
+    for (const [file, stat] of observed) {
+      if (realpathSync(file) !== file)
+        throw new BootstrapRequestConflict("Prepared dependency canonical path changed");
+      requireUnchanged(stat, lstatSync(file, { bigint: true }));
+    }
+    signal?.throwIfAborted();
+  };
+  checkBudget();
+  assertCurrent();
+  checkBudget();
+  return { assertCurrent };
 }
 
 function identity(stat: BigIntStats): string {
