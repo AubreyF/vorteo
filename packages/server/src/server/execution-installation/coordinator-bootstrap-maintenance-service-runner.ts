@@ -4,6 +4,7 @@ import {
   maintenanceExecutorStartupBinding,
   bindMaintenanceExecutorEvidence,
   requireReservedMaintenanceExecutor,
+  maintenanceRecoveryBootWitness,
 } from "./coordinator-bootstrap-maintenance-executor-evidence.js";
 import { userInfo } from "node:os";
 import {
@@ -44,6 +45,12 @@ import {
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import { inspectMaintenanceServiceExecution } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { inspectMaintenanceRecoveryExecution } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
+import { inspectAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-inspection.js";
+import {
+  executeAbsentMaintenanceRecovery,
+  observeMaintenanceRecovery,
+} from "./coordinator-bootstrap-maintenance-recovery-native.js";
 
 const InvocationSchema = z.tuple([
   z.string().uuid(),
@@ -59,7 +66,11 @@ export function inspectMaintenanceServiceInvocation(
   input: Parameters<typeof inspectMaintenanceServiceExecution>[0],
 ) {
   const [requestId, approvedRevision, generation, planSha256] = InvocationSchema.parse(args);
-  const context = inspectMaintenanceServiceExecution(input);
+  const job = MaintenanceServiceJobSchema.parse(input.retained);
+  const context =
+    job.operation === "replacement"
+      ? inspectMaintenanceServiceExecution(input)
+      : inspectMaintenanceRecoveryExecution(input);
   if (
     requestId !== context.job.id ||
     approvedRevision !== context.reservation.requestRevision ||
@@ -224,7 +235,7 @@ export async function verifyNativeMaintenanceServiceInvocation(
       writableMountRoots: roots,
     });
     await verifyMaintenanceLauncherArtifacts({
-      plan: context.plan,
+      plan: "original" in context.plan ? context.plan.original : context.plan,
       account: input.account,
       writableMountRoots: roots,
     });
@@ -297,6 +308,10 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
   });
   const selectedExecutor = await inspectSelectedMaintenanceExecutor({
     setupFile,
+    expectedTarget:
+      context.job.operation === "replacement"
+        ? "maintenance-controller"
+        : context.startup.setup.target,
     account,
     stateDirectory,
     writableMountRoots: context.writableMountRoots,
@@ -305,14 +320,23 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
   if (!isDeepStrictEqual(selectedExecutor.startup.selected, context.startup.selected))
     throw new BootstrapRequestConflict("Child runtime differs from selected executor");
   requireReservedMaintenanceExecutor(context.job, selectedExecutor.executor);
-  const targetEvidence = await inspectMaintenanceServiceNative({
+  const currentBoot = maintenanceRecoveryBootWitness(selectedExecutor);
+  const nativeInput = {
     request: context.job,
     plan: context.plan,
     account,
     stateDirectory,
     writableMountRoots: context.writableMountRoots,
     ports,
-  });
+    reader: context.reader,
+    currentBoot,
+    childCustody: context.childCustody,
+    signal: AbortSignal.timeout(10_000),
+  };
+  const targetEvidence =
+    context.job.operation === "replacement"
+      ? await inspectMaintenanceServiceNative(nativeInput)
+      : await inspectAbsentMaintenanceRecovery(nativeInput);
   const evidence = bindMaintenanceExecutorEvidence(targetEvidence, selectedExecutor);
   const { evidenceSha256, assertCurrent, ...record } = evidence;
   const observationInput = {
@@ -324,11 +348,21 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     reader: context.reader,
     writableMountRoots: context.writableMountRoots,
   };
-  return executeMaintenanceServiceReplacement({
+  const execute =
+    context.job.operation === "replacement"
+      ? executeMaintenanceServiceReplacement
+      : executeAbsentMaintenanceRecovery;
+  const observe =
+    context.job.operation === "replacement"
+      ? observeMaintenanceServiceReplacement
+      : observeMaintenanceRecovery;
+  return execute({
     ...observationInput,
     expectedRevision: context.expectedRevision,
     executor: context.executor,
     evidence,
+    currentBoot,
+    childCustody: context.childCustody,
     requireExecutor: context.requireExecutor,
     admission: maintenanceServiceClaimAdmission({
       stateDirectory,
@@ -340,7 +374,7 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
       },
     }),
     readCandidateObservation: (signal) =>
-      observeMaintenanceServiceReplacement({
+      observe({
         ...observationInput,
         readObservation: () =>
           inspectMaintenanceServiceReadiness({

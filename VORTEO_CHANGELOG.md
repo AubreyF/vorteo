@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.632 - 2026-10-16
+
+### Maintenance
+
+- Route an exact reserved recovery or rollback generation through the existing native service child. Load its protected recovery plan, verify original artifacts and child custody, inspect target absence and retained history, then use the existing shared admission and exclusive effect claim. Replacement keeps its controller-only execution role.
+- Validate the approved revision independently of the later journal revision and reject a consumed generation before another child effect. Twenty focused filesystem and native-port cases pass, with workspace types, lint and server/CLI compilation. Process ports are simulated; this does not establish compiled recovery dispatch or installed acceptance.
+- Keep recovery dispatch unadvertised until selected executor roles, preclaim reconciliation and compiled acceptance are complete. No installed service, selection, route, credentials or owner decision changes. The final combined activation and primary README recovery feature remain pending.
+
 ## 0.11.0-beta.3.vorteo.631 - 2026-10-16
 
 ### Maintenance

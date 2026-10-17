@@ -91,6 +91,25 @@ export async function exerciseAbsentRecovery(input: {
   });
   const journal = new FileBootstrapRequestJournal(f.enrollmentStateDirectory);
   journal.writeLifecycle([input.failed, job]);
+  const { inspectMaintenanceServiceInvocation } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const invocationArgs = [
+    job.id,
+    job.reservation!.requestRevision,
+    job.reservation!.generation,
+    context.planSha256,
+  ];
+  const invocationInput = { retained: job, reservation: job.reservation, plan, account: f.account };
+  expect(inspectMaintenanceServiceInvocation(invocationArgs, invocationInput).reservation).toEqual(
+    job.reservation,
+  );
+  expect(job.revision).not.toBe(job.reservation!.requestRevision);
+  expect(() =>
+    inspectMaintenanceServiceInvocation(
+      [job.id, job.revision, job.reservation!.generation, context.planSha256],
+      invocationInput,
+    ),
+  ).toThrow("invocation differs");
   const executor = BootstrapProcessIdentitySchema.parse({
     ...(input.claimInput.executor as object),
     bootId: randomUUID(),
@@ -255,6 +274,12 @@ export async function exerciseAbsentRecovery(input: {
   expect(journal.readLifecycle()[0]).toEqual(input.failed);
   const retained = MaintenanceServiceJobSchema.parse(journal.readLifecycle()[1]);
   expect(retained.effectIntent).toBeTruthy();
+  expect(() =>
+    inspectMaintenanceServiceInvocation(invocationArgs, {
+      ...invocationInput,
+      retained,
+    }),
+  ).toThrow("fresh unconsumed");
   await expect(
     executeAbsentMaintenanceRecovery(
       { ...executeInput, expectedRevision: retained.revision },
