@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.633 - 2026-10-16
+
+### Maintenance
+
+- Let an unconsumed replacement reservation observe only its independently verified previous slot, with evidence collected after reservation. Reconciliation uses the existing exact journal transaction and shared native admission, including after grant revocation. It never dispatches or treats the candidate as successful without an intent.
+- Add real file-journal races: previous readiness can terminalize the unclaimed replacement and block a late child claim; a child claim that wins first prevents terminalization and retains its intent. Candidate evidence without an intent is refused. Native process ports are simulated and no service command is issued in these cases.
+- Preserve consumed-intent observation and previous-executor exit requirements. Absent or unready targets, first installation without a previous slot and unclaimed recovery wrappers still need their exact reconciliation paths. This is source only; final combined activation and installed acceptance remain open. README recovery availability is unchanged.
+
 ## 0.11.0-beta.3.vorteo.632 - 2026-10-16
 
 ### Maintenance

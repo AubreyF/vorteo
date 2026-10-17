@@ -24,6 +24,7 @@ import {
 import { selectMaintenanceFiles } from "./coordinator-bootstrap-maintenance-file-selection.js";
 import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintenance-startup.js";
 import {
+  MaintenanceServiceJobSchema,
   MaintenanceServiceObservationSchema,
   MaintenanceServiceEvidenceRecordSchema,
 } from "@getpaseo/protocol/maintenance-service";
@@ -192,8 +193,9 @@ export async function executeMaintenanceServiceReplacement(
   return result;
 }
 
-/** A consumed intent can be observed after revocation or executor loss. There
- * are no native effect ports here, and the exact reservation remains immutable. */
+/** Observation never dispatches effects. An unconsumed reservation may reconcile
+ * only the verified previous slot. The final journal CAS then fences a late
+ * child claim; if the child claims first, retained custody rejects this result. */
 export async function observeMaintenanceServiceReplacement(
   input: Pick<Claim, "stateDirectory" | "requestId" | "reservation" | "plan" | "account"> & {
     reader: NativeBootstrapServiceReader;
@@ -203,7 +205,11 @@ export async function observeMaintenanceServiceReplacement(
 ): Promise<MaintenanceServiceNativeObservation> {
   const journal = new FileBootstrapRequestJournal(input.stateDirectory);
   const retained = journal.readLifecycle().find((job) => job.id === input.requestId);
-  const context = inspectRetainedMaintenanceServiceEffect({ ...input, retained });
+  const retainedRequest = MaintenanceServiceJobSchema.parse(retained);
+  const consumed = retainedRequest.effectIntent
+    ? inspectRetainedMaintenanceServiceEffect({ ...input, retained })
+    : undefined;
+  const context = consumed ?? inspectMaintenanceServiceExecution({ ...input, retained });
   if (!isDeepStrictEqual(context.reservation, input.reservation))
     throw new BootstrapRequestConflict("Native observation reservation changed");
   const identity = context.plan.identity;
@@ -212,8 +218,36 @@ export async function observeMaintenanceServiceReplacement(
   await verifyMaintenanceLauncherArtifacts(input);
   const result = await readBoundedCandidateObservation((signal) => input.readObservation(signal));
   verifyServiceObservation(result, context);
+  if (!consumed) assertUnclaimedObservation(result, context.reservation);
   const evidence = result.record.native;
   await verifyObservedServiceFiles(evidence, identity);
+  await verifyObservedServiceLifetime(result, context, input);
+  const settled = consumed
+    ? await settleServiceObservation(result, consumed, input.reader)
+    : result;
+  const assertCurrent = () => {
+    result.assertCurrent();
+    if (
+      !isDeepStrictEqual(
+        retained,
+        journal.readLifecycle().find((job) => job.id === input.requestId),
+      )
+    )
+      throw new BootstrapRequestConflict("Retained native observation changed");
+  };
+  assertCurrent();
+  return { ...settled, assertCurrent };
+}
+
+async function verifyObservedServiceLifetime(
+  result: MaintenanceServiceNativeObservation,
+  context: ReturnType<typeof inspectMaintenanceServiceExecution>,
+  input: Pick<Claim, "account"> & { reader: NativeBootstrapServiceReader },
+): Promise<void> {
+  const evidence = result.record.native;
+  const identity = context.plan.identity;
+  if (identity.environment !== "host")
+    throw new BootstrapRequestConflict("Native observation requires enrolled Host custody");
   if (result.outcome === "unknown") {
     if (evidence.process || evidence.service.registered)
       throw new BootstrapRequestConflict("Unknown service absence is not proven");
@@ -254,24 +288,24 @@ export async function observeMaintenanceServiceReplacement(
       result.outcome === "candidate" &&
       (startup.selection.version !== 2 ||
         startup.selection.requestId !== context.job.id ||
-        startup.selection.intentId !== context.intent.id ||
+        startup.selection.intentId !== context.job.effectIntent?.id ||
         startup.selection.generation !== context.reservation.generation)
     )
       throw new BootstrapRequestConflict("Candidate selection belongs to another attempt");
   }
-  const settled = await settleServiceObservation(result, context, input.reader);
-  const assertCurrent = () => {
-    result.assertCurrent();
-    if (
-      !isDeepStrictEqual(
-        retained,
-        journal.readLifecycle().find((job) => job.id === input.requestId),
-      )
-    )
-      throw new BootstrapRequestConflict("Retained native observation changed");
-  };
-  assertCurrent();
-  return { ...settled, assertCurrent };
+}
+
+function assertUnclaimedObservation(
+  result: MaintenanceServiceNativeObservation,
+  reservation: Claim["reservation"],
+): void {
+  if (
+    result.outcome !== "previous" ||
+    Date.parse(result.observedAt) < Date.parse(reservation.reservedAt)
+  )
+    throw new BootstrapRequestConflict(
+      "Unclaimed service requires a fresh previous-slot observation",
+    );
 }
 
 /** A ready old service does not mean a live consumed executor has finished.

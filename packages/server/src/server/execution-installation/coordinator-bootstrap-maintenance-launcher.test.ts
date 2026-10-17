@@ -670,6 +670,9 @@ test.each([
   "recover-wrong-observation",
   "recover-unready-execution",
   "native-success",
+  "native-unclaimed",
+  "native-unclaimed-race",
+  "native-unclaimed-candidate",
   "native-runtime-readiness",
   "native-grant-revoked",
   "native-stop-failure",
@@ -745,6 +748,9 @@ test.each([
   if (
     [
       "native-success",
+      "native-unclaimed",
+      "native-unclaimed-race",
+      "native-unclaimed-candidate",
       "native-runtime-readiness",
       "native-grant-revoked",
       "native-stop-failure",
@@ -2166,6 +2172,19 @@ async function exerciseNativeReplacement(
     },
   });
   const run = () => executeMaintenanceServiceReplacement(input, command);
+  if (mode.startsWith("native-unclaimed")) {
+    await exerciseNativeObservation(
+      f,
+      input,
+      loaded,
+      mode,
+      processFor,
+      commands,
+      enrollment,
+      state.grant.revision,
+    );
+    return;
+  }
   if (mode === "native-grant-revoked") {
     const { changeStandingGrant } = await import("./maintenance/authorization.js");
     changeStandingGrant(enrollment, {
@@ -2238,13 +2257,7 @@ async function exerciseNativeObservation(
   const digest = (value: string) => createHash("sha256").update(value).digest("hex");
   const { observeMaintenanceServiceReplacement } =
     await import("./coordinator-bootstrap-maintenance-service-native.js");
-  const { changeStandingGrant } = await import("./maintenance/authorization.js");
-  changeStandingGrant(enrollment, {
-    expectedRevision: grantRevision,
-    paused: false,
-    disabledTargets: [],
-    revoke: true,
-  });
+  await revokeObservationGrant(enrollment, grantRevision, mode);
   const observedSlot = loaded;
   const outcome = observedSlot ?? "unknown";
   const selected = observedSlot ? f.plan[observedSlot]! : null;
@@ -2274,9 +2287,23 @@ async function exerciseNativeObservation(
     evidenceSha256: digest(JSON.stringify(observedRecord)),
   };
   const observerInput = { ...input, readObservation: async () => observedValue };
+  if (mode === "native-unclaimed-candidate") {
+    await expect(
+      observeMaintenanceServiceReplacement({
+        ...observerInput,
+        readObservation: async () => candidate,
+      }),
+    ).rejects.toThrow("fresh previous-slot observation");
+    expect(journal.readLifecycle()).toEqual(retained);
+    expect(commands).toHaveLength(0);
+    return;
+  }
   const observed = await observeMaintenanceServiceReplacement(observerInput);
-  expect(observed.outcome).toBe(outcome === "previous" ? "unknown" : outcome);
-  expect(observed.ready).toBe(outcome === "previous" ? false : observedValue.ready);
+  if (mode.startsWith("native-unclaimed")) {
+    await verifyUnclaimedObservation({ observerInput, observed, claim: input, mode, commands });
+    return;
+  }
+  assertConsumedObservation(outcome, observed, observedValue);
   await verifyTerminalObservation(observerInput, observedValue, observed);
   expect(observed.requestRevision).toBe(input.reservation.requestRevision);
   observed.assertCurrent();
@@ -2305,6 +2332,105 @@ async function exerciseNativeObservation(
       : "Retained native observation changed",
   );
   expect(commands).toHaveLength(calls);
+}
+
+async function revokeObservationGrant(
+  enrollment: import("./maintenance/authorization.js").FileEnrollmentJournal,
+  grantRevision: string,
+  mode: string,
+) {
+  const { changeStandingGrant } = await import("./maintenance/authorization.js");
+  if (mode !== "native-unclaimed-race")
+    changeStandingGrant(enrollment, {
+      expectedRevision: grantRevision,
+      paused: false,
+      disabledTargets: [],
+      revoke: true,
+    });
+}
+
+function assertConsumedObservation(
+  outcome: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation["outcome"],
+  observed: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation,
+  expected: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation,
+) {
+  expect(observed.outcome).toBe(outcome === "previous" ? "unknown" : outcome);
+  expect(observed.ready).toBe(outcome === "previous" ? false : expected.ready);
+}
+
+async function verifyUnclaimedObservation(input: {
+  observerInput: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-native.js").observeMaintenanceServiceReplacement
+  >[0];
+  observed: import("./maintenance/service-execution.js").MaintenanceServiceNativeObservation;
+  claim: Parameters<
+    typeof import("./coordinator-bootstrap-maintenance-service-claim.js").claimMaintenanceServiceEffect
+  >[0];
+  mode: string;
+  commands: string[][];
+}) {
+  const { observerInput, observed, claim, mode, commands } = input;
+  const { FileBootstrapRequestJournal } = await import("./coordinator-bootstrap-journal.js");
+  const journal = new FileBootstrapRequestJournal(observerInput.stateDirectory);
+  expect(observed).toMatchObject({ outcome: "previous", ready: true });
+  const { MaintenanceServiceJobSchema } = await import("@getpaseo/protocol/maintenance-service");
+  const { maintenanceServiceClaimAdmission } =
+    await import("./coordinator-bootstrap-maintenance-service-runner.js");
+  const { claimMaintenanceServiceEffect } =
+    await import("./coordinator-bootstrap-maintenance-service-claim.js");
+  const before = MaintenanceServiceJobSchema.parse(journal.readLifecycle()[0]);
+  expect(before.effectIntent).toBeUndefined();
+  const { record, assertCurrent, ...receipt } = observed;
+  const admission = maintenanceServiceClaimAdmission({
+    stateDirectory: claim.stateDirectory,
+    evidence: {
+      expectedRevision: before.revision,
+      record,
+      sha256: observed.evidenceSha256,
+      assertCurrent,
+    },
+  });
+  const settle = () =>
+    journal.mutateLifecycle(
+      (jobs) =>
+        jobs.map((job) =>
+          job.id === before.id
+            ? {
+                ...before,
+                revision: randomUUID(),
+                status: "failed",
+                observation: receipt,
+                evidence: [...before.evidence, { record, sha256: observed.evidenceSha256 }],
+              }
+            : job,
+        ),
+      admission,
+    );
+  if (mode === "native-unclaimed-race") {
+    claimMaintenanceServiceEffect(claim);
+    expect(() => observed.assertCurrent()).toThrow("Retained native observation changed");
+    expect(MaintenanceServiceJobSchema.parse(journal.readLifecycle()[0]).effectIntent).toBeTruthy();
+    const claimed = journal.readLifecycle();
+    expect(settle).toThrow("Retained service authority or generation changed");
+    expect(journal.readLifecycle()).toEqual(claimed);
+    expect(commands).toHaveLength(0);
+    return;
+  }
+  settle();
+  const terminal = MaintenanceServiceJobSchema.parse(
+    new FileBootstrapRequestJournal(claim.stateDirectory).readLifecycle()[0],
+  );
+  expect(terminal).toMatchObject({
+    status: "failed",
+    observation: { outcome: "previous", ready: true },
+  });
+  expect(terminal.reservation).toEqual(before.reservation);
+  expect(terminal.approval).toEqual(before.approval);
+  expect(() =>
+    claimMaintenanceServiceEffect({ ...claim, expectedRevision: terminal.revision }),
+  ).toThrow("unconsumed");
+  expect(commands).toHaveLength(0);
+  expect(journal.readLifecycle()).toEqual([terminal]);
 }
 
 async function verifyChildIdentityCases(
