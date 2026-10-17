@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.637 - 2026-10-16
+
+### Fixed
+
+- Reconcile exact retained enrollment consent through a no-change update under the existing lifecycle lock before acknowledging success. A previous rename with failed directory synchronization cannot produce an idempotent success until journal synchronization succeeds. Return current revocation and activation progress without replacing consent or repeating authentication.
+- Add a real file-journal regression that fails directory synchronization after publication, refuses the retry, then succeeds with byte-identical enrollment after synchronization recovers. Thirteen focused consent and provisioning cases cover the change; native proposal inspection remains an explicit fixture port. This is source only, not a complete final consent gate or installed activation; README recovery delivery remains open.
+
 ## 0.11.0-beta.3.vorteo.636 - 2026-10-16
 
 ### Maintenance

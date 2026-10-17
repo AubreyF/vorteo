@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, realpath, mkdir, rm, writeFile, readFile, readdir } from "node:fs/promises";
+import { fstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as artifacts from "./coordinator-bootstrap-artifact.js";
@@ -1066,6 +1067,59 @@ test.each([
     expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
   },
 );
+
+test("consent-only retry reconciles post-rename synchronization before acknowledging durability", async () => {
+  const { input, context, digest, directory, journal, manifest, enrollmentManifestDigest } =
+    await enrollmentFixture();
+  const { recordCoordinatorMaintenanceEnrollment } =
+    await import("./coordinator-bootstrap-maintenance-provisioning.js");
+  const { enrollmentWriteFiles } = await import("./maintenance/authorization.js");
+  const review = { id: randomUUID(), revision: manifest.revision, manifest };
+  const prepared = {
+    ...input,
+    admissionSha256: digest,
+    review,
+    decision: {
+      id: review.id,
+      revision: review.revision,
+      manifestSha256: enrollmentManifestDigest(manifest),
+    },
+  };
+  let refuseSync = true;
+  let directorySyncs = 0;
+  const ports = {
+    verifyProposal: async () => context,
+    writeFiles: {
+      ...enrollmentWriteFiles,
+      sync(descriptor: number) {
+        if (fstatSync(descriptor).isDirectory()) {
+          directorySyncs++;
+          if (refuseSync) throw new Error("Fixture directory synchronization failed");
+        }
+        enrollmentWriteFiles.sync(descriptor);
+      },
+    },
+  };
+  await expect(
+    recordCoordinatorMaintenanceEnrollment({ ...prepared, ownerPassword: "fixture-owner" }, ports),
+  ).rejects.toThrow("Fixture directory synchronization failed");
+  const retained = journal.read();
+  expect(retained.status).toBe("enrolled");
+  const file = path.join(input.plan.state.directory, "maintenance-enrollment.json");
+  const selectedBytes = await readFile(file);
+  expect(directorySyncs).toBe(1);
+  await expect(recordCoordinatorMaintenanceEnrollment(prepared, ports)).rejects.toThrow(
+    "Fixture directory synchronization failed",
+  );
+  expect(directorySyncs).toBe(2);
+  expect(await readFile(file)).toEqual(selectedBytes);
+  refuseSync = false;
+  expect(await recordCoordinatorMaintenanceEnrollment(prepared, ports)).toEqual(retained);
+  expect(directorySyncs).toBe(3);
+  expect(await readFile(file)).toEqual(selectedBytes);
+  expect(await readdir(directory)).toEqual([]);
+  expect(new FileBootstrapRequestJournal(input.plan.state.directory).read()).toEqual([]);
+});
 
 test("interrupted provisioning resumes the retained enrollment without another approval", async () => {
   const { input, context, digest, directory, journal, manifest, enrollmentManifestDigest } =

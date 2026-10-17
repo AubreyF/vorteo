@@ -8,6 +8,7 @@ import {
   enrollmentManifestDigest,
   enrollInstallation,
   validateEnrollmentManifest,
+  type EnrollmentWriteFiles,
 } from "./maintenance/authorization.js";
 import { z } from "zod";
 import type { InstallationEnrollmentManifest } from "@getpaseo/protocol/installation-enrollment";
@@ -68,6 +69,7 @@ interface CoordinatorEnrollmentInput extends MaintenanceProvisioningInput {
 
 interface MaintenanceConsentPorts {
   verifyProposal: typeof verifyNativeMaintenanceProposal;
+  writeFiles?: EnrollmentWriteFiles;
 }
 
 /** Record only the exact authenticated consent. No admission artifact, lifecycle
@@ -98,8 +100,8 @@ export async function recordCoordinatorMaintenanceEnrollment(
   const step = manifest.steps.find((item) => item.id === manifest.provisioning?.coordinatorStepId);
   if (!matchesCoordinatorStep(step, first))
     throw new BootstrapRequestConflict("Enrollment coordinator step changed");
-  const journal = new FileEnrollmentJournal(first.plan.state.directory);
-  let state = journal.read();
+  const journal = new FileEnrollmentJournal(first.plan.state.directory, ports.writeFiles);
+  const state = journal.read();
   if (state.status === "absent") {
     if (!input.ownerPassword)
       throw new BootstrapAuthenticationRequired("Installation owner authentication required");
@@ -108,7 +110,7 @@ export async function recordCoordinatorMaintenanceEnrollment(
     if (!isDeepStrictEqual(first, final))
       throw new BootstrapRequestConflict("Enrollment context changed during authentication");
     await readBootstrapPreparedFile(final.host.renewal!.configuration, final.writableMountRoots);
-    state = enrollInstallation(journal, {
+    enrollInstallation(journal, {
       manifest,
       approval: {
         operation: "installation-enrollment",
@@ -119,15 +121,23 @@ export async function recordCoordinatorMaintenanceEnrollment(
       },
     });
   }
-  if (
-    state.status !== "enrolled" ||
-    state.grant.approval.requestId !== input.review.id ||
-    state.grant.approval.reviewRevision !== input.review.revision ||
-    state.grant.approval.manifestSha256 !== digest ||
-    !isDeepStrictEqual(state.grant.manifest, manifest)
-  )
-    throw new BootstrapRequestConflict("Retained enrollment differs from this decision");
-  return state;
+  // A prior rename may have succeeded without directory synchronization. The
+  // locked no-change update reconciles durability and returns current revocation
+  // and activation progress instead of an earlier unlocked snapshot.
+  const retained = journal.update((current) => {
+    if (
+      current.status !== "enrolled" ||
+      current.grant.approval.requestId !== input.review.id ||
+      current.grant.approval.reviewRevision !== input.review.revision ||
+      current.grant.approval.manifestSha256 !== digest ||
+      !isDeepStrictEqual(current.grant.manifest, manifest)
+    )
+      throw new BootstrapRequestConflict("Retained enrollment differs from this decision");
+    return current;
+  });
+  if (retained.status !== "enrolled")
+    throw new BootstrapRequestConflict("Retained enrollment is unavailable");
+  return retained;
 }
 
 /** The existing enrollment action retains its provision-immediately behavior.
