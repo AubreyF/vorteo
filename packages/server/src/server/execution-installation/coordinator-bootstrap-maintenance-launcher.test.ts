@@ -1592,6 +1592,16 @@ test.each([
       target: job.target,
     };
     const discover = () => resolveNativeMaintenanceRoleSetup(discoveryInput);
+    writeFileSync(historyFile, JSON.stringify([historyJobs[0], uncertainRecovery]), {
+      mode: 0o600,
+    });
+    await expect(discover()).rejects.toThrow(
+      "Selected maintenance recovery is still being reconciled",
+    );
+    await expect(readMaintenanceLauncherStartup(recoveryStartup)).resolves.toMatchObject({
+      selected: f.plan.candidate,
+    });
+    writeFileSync(historyFile, JSON.stringify([resolvedOriginal, readyRecovery]), { mode: 0o600 });
     await expect(discover()).resolves.toMatchObject({
       executorSetupFile: f.plan.candidate.setup.path,
     });
@@ -2882,6 +2892,55 @@ test("recovery page scheduling is reviewed per slot without changing retained la
   await expect(verifyMaintenanceLauncherArtifacts(f)).resolves.toMatchObject({
     plan: selected.plan,
   });
+});
+
+test("controller scheduling is reviewed per slot without changing retained launchers", async () => {
+  const f = await fixture(false, true);
+  const original = inspectMaintenanceLauncherPlan(f.plan, f.account);
+  const previous = maintenanceUserLauncher(f.plan, "previous");
+  const proposed = {
+    ...f.plan,
+    candidate: { ...f.plan.candidate, processType: "Standard" },
+  };
+  const selected = inspectMaintenanceLauncherPlan(proposed, f.account);
+  expect(selected.planSha256).not.toBe(original.planSha256);
+  expect(maintenanceUserLauncher(selected.plan, "candidate")).toMatchObject({
+    ProcessType: "Standard",
+    KeepAlive: false,
+  });
+  expect(maintenanceUserLauncher(selected.plan, "previous")).toEqual(previous);
+  expect(maintenanceUserLauncher(f.plan, "candidate").ProcessType).toBe("Background");
+  expect(() =>
+    inspectMaintenanceLauncherPlan(
+      {
+        ...proposed,
+        candidate: {
+          ...proposed.candidate,
+          entrypoint: {
+            ...proposed.candidate.entrypoint,
+            path: path.join(
+              proposed.candidate.directory,
+              "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-maintenance-recovery-access.js",
+            ),
+          },
+        },
+      },
+      f.account,
+    ),
+  ).toThrow("outside its immutable runtime");
+});
+
+test.each(["launcher", "page"])("standard scheduling is refused for recovery %s", async (mode) => {
+  const f = mode === "page" ? await independentAccessFixture() : await fixture();
+  expect(() =>
+    inspectMaintenanceLauncherPlan(
+      {
+        ...f.plan,
+        candidate: { ...f.plan.candidate, processType: "Standard" },
+      },
+      f.account,
+    ),
+  ).toThrow("Standard scheduling requires a maintenance controller");
 });
 
 test.each([false, true])(

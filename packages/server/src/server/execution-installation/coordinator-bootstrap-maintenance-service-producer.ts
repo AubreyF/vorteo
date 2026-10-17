@@ -518,6 +518,10 @@ export async function resolveNativeMaintenanceRoleSetup(input: {
     !isDeepStrictEqual(state, journal.read())
   )
     throw new BootstrapRequestConflict("Maintenance role registration changed during resolution");
+  // Fresh external discovery must not open runtime artifacts while the exact
+  // selected recovery is still running. Candidate startup uses its own verifier.
+  if ("recoveryPlan" in startup && startup.job.status === "running")
+    throw new BootstrapRequestConflict("Selected maintenance recovery is still being reconciled");
   return {
     installationId: input.installationId,
     stateDirectory: input.stateDirectory,

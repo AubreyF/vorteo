@@ -43,7 +43,7 @@ const slot = z.strictObject({
   setup: pin,
   // Owner controls need responsive native inspection. Pin scheduling per slot
   // so a new policy never changes the launcher of an older reviewed release.
-  processType: z.literal("Interactive").optional(),
+  processType: z.enum(["Interactive", "Standard"]).optional(),
 });
 
 /** Both immutable slots and the stable user service identity enter the owner
@@ -85,10 +85,16 @@ export function inspectMaintenanceLauncherPlan(
     throw new BootstrapRequestConflict("Maintenance launcher paths differ from enrolled custody");
   for (const release of [plan.previous, plan.candidate]) {
     if (!release) continue;
-    if (release.processType && !isRecoveryAccessSlot(plan, release))
-      throw new BootstrapRequestConflict(
-        "Interactive scheduling requires the standalone owner recovery page",
-      );
+    const allowedScheduling = {
+      Interactive: isRecoveryAccessSlot(plan, release),
+      Standard: identity.target === "maintenance-controller",
+    };
+    const schedulingErrors = {
+      Interactive: "Interactive scheduling requires the standalone owner recovery page",
+      Standard: "Standard scheduling requires a maintenance controller",
+    };
+    if (release.processType && !allowedScheduling[release.processType])
+      throw new BootstrapRequestConflict(schedulingErrors[release.processType]);
     if (
       release.directory !==
         path.join(identity.installationRoot, "maintenance-runtimes", release.sourceCommit) ||

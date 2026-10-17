@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.646 - 2026-10-16
+
+### Fixed
+
+- Refuse fresh external maintenance-role discovery while its exactly selected recovery generation remains running. The gate follows full wrapper, selection and history validation, suppressing new health and producer artifact reads until reconciliation finishes. Candidate startup and the executing child's readiness keep their direct verified paths.
+- Allow an explicitly reviewed Standard scheduling policy only for controller slots using the canonical runner. Interactive remains limited to standalone owner pages, omitted policy retains Background, and previous launcher bytes remain unchanged. This enables a scheduling experiment after three-minute background startup failed to establish readiness; it is not a claimed throttle fix.
+- Cover controller scheduling digests, retained bytes, KeepAlive and invalid roles, plus running-recovery discovery refusal alongside direct startup success and resolved recovery/rollback discovery. This is not global reader exclusion: earlier readers, other shared-runtime readers and failed-but-live executors remain separate acceptance work. No installed service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.645 - 2026-10-16
 
 ### Fixed
