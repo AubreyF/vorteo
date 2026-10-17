@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
@@ -8,6 +9,13 @@ import type {
   EnrollmentStep,
 } from "@getpaseo/protocol/installation-enrollment";
 import { BootstrapRequestConflict } from "../coordinator-bootstrap.js";
+import {
+  inspectBootstrapReleaseArtifacts,
+  assertBootstrapPathsProtected,
+  readBootstrapPreparedFile,
+  readProtectedDocument,
+} from "../coordinator-bootstrap-artifact.js";
+import { retainServiceFiles } from "../coordinator-bootstrap-maintenance-service-inspection.js";
 import { FileEnrollmentJournal, enrollmentManifestDigest } from "./authorization.js";
 import { enrollmentNativeIdentityDigest } from "./native-identity.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
@@ -62,6 +70,10 @@ export function inspectInitialHostSupervisorMigrationPlan(value: unknown) {
     "Initial Host migration requires a distinct compatible fallback",
   );
   for (const release of [plan.candidate, plan.fallback]) {
+    requireMatch(
+      release.launcher.sha256 === previous.launcher.sha256,
+      "Initial Host migration changed its reviewed persistent launcher",
+    );
     requireMatch(
       path.posix.normalize(release.directory) === release.directory &&
         release.entrypoint.path ===
@@ -167,4 +179,96 @@ function requireMigrationPrerequisites(step: EnrollmentStep, activation: Install
       ),
     "Initial Host migration prerequisites require reconciliation",
   );
+}
+
+// These modules implement the initial migration's launch, selector, lock and
+// native-argv contract. This is deliberately stricter than source-version checks.
+const initialHostContractFiles = [
+  "scripts/supervisor-entrypoint.js",
+  "scripts/supervisor.js",
+  "scripts/managed-release.js",
+  "scripts/supervisor-log-config.js",
+  "server/server/daemon-worker.js",
+  "server/server/pid-lock.js",
+  "server/server/paseo-home.js",
+  "server/server/daemon-instance.js",
+  "server/server/private-files.js",
+  "server/server/persisted-config.js",
+  "server/server/host-name.js",
+  "server/server/config-environment.js",
+  "server/server/local-credential.js",
+  "server/server/config-writer.js",
+  "server/server/agent/provider-launch-config.js",
+  "server/utils/tree-kill.js",
+  "src/server/pid-lock.js",
+  "src/server/paseo-home.js",
+  "src/server/daemon-instance.js",
+  "src/server/private-files.js",
+  "src/server/persisted-config.js",
+  "src/server/host-name.js",
+  "src/server/config-environment.js",
+  "src/server/local-credential.js",
+  "src/server/config-writer.js",
+  "src/server/agent/provider-launch-config.js",
+  "src/utils/tree-kill.js",
+] as const;
+
+/** Reviewed bytes and a known startup contract, not permission to interrupt or
+ * replace the incumbent. The executing runtime needs independent native custody. */
+export async function inspectInitialHostMigrationArtifacts(input: {
+  plan: unknown;
+  writableMountRoots: readonly string[];
+  signal: AbortSignal;
+}) {
+  const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const signal = input.signal;
+  const roots = [...input.writableMountRoots];
+  const deadline = Date.now() + 30_000;
+  const checkCollection = () => {
+    signal.throwIfAborted();
+    requireMatch(Date.now() < deadline, "Initial Host artifact collection deadline exceeded");
+  };
+  checkCollection();
+  const trustedRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+  const trustedFiles = initialHostContractFiles.map((name) => path.join(trustedRoot, name));
+  const assertContract = retainServiceFiles(trustedFiles);
+  await assertBootstrapPathsProtected(trustedFiles, roots);
+  const contract: Array<{ name: string; sha256: string }> = [];
+  for (const [index, name] of initialHostContractFiles.entries()) {
+    checkCollection();
+    const bytes = await readProtectedDocument(trustedFiles[index]);
+    contract.push({ name, sha256: createHash("sha256").update(bytes).digest("hex") });
+  }
+  const proofs: Array<{ assertCurrent(): void }> = [];
+  for (const release of [plan.candidate, plan.fallback]) {
+    checkCollection();
+    const proof = await inspectBootstrapReleaseArtifacts(release, roots, {
+      signal,
+      timeoutMs: deadline - Date.now(),
+      maxFiles: 100_000,
+      maxBytes: 2 * 1024 * 1024 * 1024,
+    });
+    proofs.push(proof);
+    for (const entry of contract) {
+      checkCollection();
+      await readBootstrapPreparedFile(
+        {
+          path: path.join(release.directory, "packages/server/dist", entry.name),
+          sha256: entry.sha256,
+        },
+        roots,
+      );
+    }
+    proof.assertCurrent();
+  }
+  const assertCurrent = () => {
+    signal.throwIfAborted();
+    assertContract();
+    for (const proof of proofs) proof.assertCurrent();
+    requireMatch(hash(plan) === planSha256, "Initial Host migration artifact plan changed");
+    signal.throwIfAborted();
+  };
+  assertCurrent();
+  checkCollection();
+  return { plan, planSha256, assertCurrent };
 }

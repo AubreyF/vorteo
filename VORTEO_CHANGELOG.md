@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.666 - 2026-10-17
+
+### Maintenance
+
+- Connect initial Host migration plans to complete candidate/fallback release custody and a pinned compiled launch contract. Compare the helpers actually imported by supervisor scripts separately from worker-side copies, including argument preservation, selectors, locks and private-file persistence. Preserve exact persistent launcher bytes before runtime inspection.
+- Add two plan regressions and a disposable compiled artifact check covering coherently repinned helper/worker substitutions, changed fallback launcher, mount overlap, cancellation and retained custody. These checks establish artifact integrity and the compared contract only. Complete startup compatibility, runnable fallback, fresh native admission, single-use intent and installed migration remain open.
+
 ## 0.11.0-beta.3.vorteo.665 - 2026-10-17
 
 ### Maintenance

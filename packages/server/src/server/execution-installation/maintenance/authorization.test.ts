@@ -4458,3 +4458,13 @@ test("initial Host migration enrollment refuses a terminal reservation", () => {
   });
   expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow("exact reserved step");
 });
+
+test.each(["candidate", "fallback"] as const)(
+  "initial Host migration plan preserves the persistent launcher for %s",
+  (slot) => {
+    const f = initialHostPlanFixture();
+    expect(inspectInitialHostSupervisorMigrationPlan(f.plan).plan).toEqual(f.plan);
+    f.plan[slot].launcher.sha256 = "0".repeat(64);
+    expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow("persistent launcher");
+  },
+);
