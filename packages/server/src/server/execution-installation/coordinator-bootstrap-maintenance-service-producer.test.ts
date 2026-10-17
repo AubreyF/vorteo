@@ -10,7 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { launchRetainedMaintenanceService } from "./coordinator-bootstrap-maintenance-service-producer.js";
+import {
+  launchRetainedMaintenanceService,
+  verifyRecordedMaintenanceChildExited,
+} from "./coordinator-bootstrap-maintenance-service-producer.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -508,3 +511,72 @@ test("inspection rejects a synchronous late result before timer delivery", async
     ),
   ).rejects.toThrow("Fixture collection timed out");
 });
+
+function childDiagnostic() {
+  const stateDirectory = realpathSync(path.dirname(fixture()));
+  const requestId = randomUUID(),
+    generation = randomUUID();
+  const file = path.join(stateDirectory, `maintenance-service-${requestId}-${generation}.stderr`);
+  const entry = { phase: "child-entry", pid: 42, at: new Date().toISOString() };
+  const save = (value: string) => writeFileSync(file, value, { mode: 0o600 });
+  return { stateDirectory, requestId, generation, file, entry, save };
+}
+
+test.each(["live", "reused", "inconclusive"])(
+  "recorded %s PID defers unclaimed artifact collection",
+  async (reason) => {
+    const f = childDiagnostic();
+    f.save(JSON.stringify(f.entry) + "\nMaintenance service invocation verified.\n");
+    const collect = vi.fn();
+    const reader = {
+      verifyProcessExited: vi.fn(async () => {
+        throw new Error(reason);
+      }),
+    };
+    await expect(
+      verifyRecordedMaintenanceChildExited({ ...f, reader }).then(collect),
+    ).rejects.toThrow(reason);
+    expect(reader.verifyProcessExited).toHaveBeenCalledWith(f.entry.pid);
+    expect(collect).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["exited", "missing"])(
+  "%s diagnostic hint still requires independent absence validation",
+  async (kind) => {
+    const f = childDiagnostic();
+    if (kind === "exited") f.save(JSON.stringify(f.entry));
+    const reader = { verifyProcessExited: vi.fn(async () => undefined) };
+    const collect = vi.fn(async () => {
+      throw new Error("Independent native absence is not proved");
+    });
+    await expect(
+      verifyRecordedMaintenanceChildExited({ ...f, reader }).then(collect),
+    ).rejects.toThrow("Independent native absence");
+    expect(collect).toHaveBeenCalledOnce();
+    expect(reader.verifyProcessExited).toHaveBeenCalledTimes(kind === "exited" ? 1 : 0);
+  },
+);
+
+test.each(["duplicate", "invalid-pid", "unexpected-field", "truncated", "symlink"])(
+  "%s diagnostic refuses before native or artifact inspection",
+  async (kind) => {
+    const f = childDiagnostic();
+    if (kind === "duplicate") f.save(JSON.stringify(f.entry) + "\n" + JSON.stringify(f.entry));
+    if (kind === "invalid-pid") f.save(JSON.stringify({ ...f.entry, pid: -1 }));
+    if (kind === "unexpected-field") f.save(JSON.stringify({ ...f.entry, authority: true }));
+    if (kind === "truncated") f.save('{"phase":"child-entry"');
+    if (kind === "symlink") {
+      const target = path.join(f.stateDirectory, "target");
+      writeFileSync(target, JSON.stringify(f.entry), { mode: 0o600 });
+      symlinkSync(target, f.file);
+    }
+    const reader = { verifyProcessExited: vi.fn(async () => undefined) };
+    const collect = vi.fn();
+    await expect(
+      verifyRecordedMaintenanceChildExited({ ...f, reader }).then(collect),
+    ).rejects.toThrow();
+    expect(reader.verifyProcessExited).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
+  },
+);

@@ -186,6 +186,18 @@ export async function createNativeMaintenanceServiceExecutor(
     };
     if (request.operation === "replacement")
       return observeMaintenanceServiceReplacement(observationInput);
+    const retained = requireCurrentServiceRequest(journal, request);
+    if (!retained.effectIntent) {
+      if (!retained.reservation || !isDeepStrictEqual(retained.reservation, reservation))
+        throw new BootstrapRequestConflict("Unclaimed observation reservation changed");
+      await verifyRecordedMaintenanceChildExited({
+        requestId: request.id,
+        generation: retained.reservation.generation,
+        stateDirectory,
+        reader: context.ports.reader,
+      });
+      requireCurrentServiceRequest(journal, request);
+    }
     return observeMaintenanceRecovery({
       ...observationInput,
       readUnclaimedEvidence: async (signal) => {
@@ -361,6 +373,58 @@ function requireCurrentServiceRequest(
       "Native service request changed before observation or launch",
     );
   return parsed;
+}
+
+/** Diagnostics only add a conservative refusal before artifact collection.
+ * PID absence removes that refusal; full native absence and the locked claim
+ * fence remain mandatory. A missing entry is not proof that no child exists. */
+export async function verifyRecordedMaintenanceChildExited(input: {
+  requestId: string;
+  generation: string;
+  stateDirectory: string;
+  reader: { verifyProcessExited(pid: number): Promise<void> };
+}): Promise<void> {
+  const requestId = z.string().uuid().parse(input.requestId);
+  const generation = z.string().uuid().parse(input.generation);
+  const file = path.join(
+    input.stateDirectory,
+    `maintenance-service-${requestId}-${generation}.stderr`,
+  );
+  let bytes: Buffer;
+  try {
+    bytes = await readProtectedDocument(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const child = z.strictObject({
+    phase: z.literal("child-entry"),
+    pid: z.number().int().min(2).max(2147483647),
+    at: z.iso.datetime(),
+  });
+  const launch = z.strictObject({ phase: z.literal("launch-attempt"), at: z.iso.datetime() });
+  const entries: number[] = [];
+  for (const line of bytes.toString("utf8").split("\n")) {
+    // The same descriptor carries ordinary text verification and error lines.
+    // Structured diagnostic records must still parse exactly.
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      throw new BootstrapRequestConflict(
+        "Native child diagnostic is incomplete; defer observation",
+      );
+    }
+    const parsed = z.union([child, launch]).safeParse(value);
+    if (!parsed.success)
+      throw new BootstrapRequestConflict("Native child diagnostic is malformed; defer observation");
+    if (parsed.data.phase === "child-entry") entries.push(parsed.data.pid);
+  }
+  if (entries.length > 1)
+    throw new BootstrapRequestConflict("Native child diagnostic is ambiguous; defer observation");
+  if (entries.length === 1) await input.reader.verifyProcessExited(entries[0]!);
 }
 
 /** One launch, no retry or signal. A lost reply, nonzero exit or elapsed bound

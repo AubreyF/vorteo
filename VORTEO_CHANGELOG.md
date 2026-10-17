@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.649 - 2026-10-17
+
+### Fixed
+
+- Defer external unclaimed recovery inspection while a protected generation diagnostic records a child whose PID has not been proved absent. Check the exact current reservation before and after this refusal gate, before opening shared runtime artifacts.
+- Treat malformed, duplicate or unsafe diagnostic records as uncertainty. Missing records and verified PID absence grant no authority; full retained contract, native absence and locked terminal fencing remain required. Consumed observation retains its exact executor-lifetime check.
+- Thirty producer cases pass, including recorded live or reused PIDs, inconclusive native checks, exited and missing diagnostics, invalid records and symlinks. The native fixture passed unclaimed fencing and delayed-child refusal but its fresh successor refused before intent; full native recovery remains unaccepted. The missing-entry window and other-reader interference remain open. Nothing is installed.
+
 ## 0.11.0-beta.3.vorteo.648 - 2026-10-17
 
 ### Fixed
