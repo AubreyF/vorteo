@@ -10,6 +10,7 @@ import {
   inspectInitialHostSupervisorMigrationPlan,
   inspectInitialHostMigrationEnrollment,
   reserveInitialHostMigrationIntent,
+  verifyInitialHostMigrationLaunchers,
 } from "./host-supervisor-migration.js";
 import type { LifecycleJob } from "../lifecycle-journal.js";
 import {
@@ -4296,8 +4297,9 @@ function initialHostPlanFixture() {
     entrypoint: file(name + "/packages/server/dist/scripts/supervisor-entrypoint.js"),
   });
   const plan = InitialHostSupervisorMigrationPlanSchema.parse({
-    version: 2,
+    version: 3,
     operation: "initial-host-supervisor-migration",
+    managedReleaseRoot: f.directory,
     installationId: f.manifest.installationId,
     identitySha256: enrollmentNativeIdentityDigest(identity),
     preconditionSha256: createHash("sha256").update(JSON.stringify(precondition)).digest("hex"),
@@ -4648,13 +4650,90 @@ test("initial Host migration enrollment refuses a terminal reservation", () => {
   expect(() => inspectInitialHostMigrationEnrollment(f.input)).toThrow("exact reserved step");
 });
 
-test.each(["candidate", "fallback"] as const)(
-  "initial Host migration plan preserves the persistent launcher for %s",
-  (slot) => {
+test("initial Host migration plan preserves the original immutable fallback launcher", () => {
+  const f = initialHostPlanFixture();
+  expect(inspectInitialHostSupervisorMigrationPlan(f.plan).plan).toEqual(f.plan);
+  f.plan.fallback.launcher.sha256 = "0".repeat(64);
+  expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow("persistent launcher");
+});
+
+function initialHostLauncherFixture() {
+  const f = initialHostPlanFixture();
+  const current = {
+    Label: f.plan.precondition.identity.serviceLabel,
+    ProgramArguments: f.plan.precondition.registration.arguments,
+    EnvironmentVariables: { ...f.plan.precondition.registration.environment },
+    KeepAlive: true,
+    RunAtLoad: true,
+    StandardErrorPath: path.join(f.directory, "retained-error.log"),
+    ThrottleInterval: 10,
+  };
+  const fallback = structuredClone(current);
+  const candidate = {
+    ...structuredClone(current),
+    EnvironmentVariables: {
+      ...current.EnvironmentVariables,
+      PASEO_MANAGED_RELEASE_LINK: f.plan.precondition.identity.selectionPath!,
+      PASEO_MANAGED_RELEASE_ROOT: f.plan.managedReleaseRoot,
+    },
+  };
+  const sourceUpdates = {
+    releaseRoot: f.plan.managedReleaseRoot,
+    currentReleaseLink: f.plan.precondition.identity.selectionPath,
+  };
+  return { ...f, current, fallback, candidate, sourceUpdates };
+}
+
+test("initial Host managed launchers preserve every setting except the exact managed selection", () => {
+  const f = initialHostLauncherFixture();
+  expect(() => verifyInitialHostMigrationLaunchers(f)).not.toThrow();
+  Reflect.set(f.current, "Program", f.plan.precondition.node.path);
+  f.plan.precondition.registration.program = f.plan.precondition.node.path;
+  f.plan.preconditionSha256 = createHash("sha256")
+    .update(JSON.stringify(f.plan.precondition))
+    .digest("hex");
+  Reflect.set(f.fallback, "Program", f.plan.precondition.node.path);
+  Reflect.set(f.candidate, "Program", f.plan.precondition.node.path);
+  expect(() => verifyInitialHostMigrationLaunchers(f)).not.toThrow();
+});
+
+test.each([
+  "configured root",
+  "configured selector",
+  "fallback",
+  "label",
+  "arguments",
+  "environment",
+  "link",
+  "root",
+  "lifetime",
+])("initial Host managed launchers refuse changed %s", (changed) => {
+  const f = initialHostLauncherFixture();
+  if (changed === "configured root") f.sourceUpdates.releaseRoot += "/other";
+  if (changed === "configured selector") f.sourceUpdates.currentReleaseLink += "-other";
+  if (changed === "fallback") f.fallback.KeepAlive = false;
+  if (changed === "label") f.candidate.Label += ".other";
+  if (changed === "arguments")
+    f.candidate.ProgramArguments = [f.plan.precondition.node.path, "--eval"];
+  if (changed === "environment")
+    Reflect.set(f.candidate.EnvironmentVariables, "NODE_OPTIONS", "--require=/unreviewed");
+  if (changed === "link") f.candidate.EnvironmentVariables.PASEO_MANAGED_RELEASE_LINK += "-other";
+  if (changed === "root") f.candidate.EnvironmentVariables.PASEO_MANAGED_RELEASE_ROOT += "/other";
+  if (changed === "lifetime") f.candidate.RunAtLoad = false;
+  expect(() => verifyInitialHostMigrationLaunchers(f)).toThrow();
+});
+
+test.each(["live fallback", "live candidate", "shared copy", "outside root"])(
+  "initial Host managed launchers refuse %s declarations",
+  (changed) => {
     const f = initialHostPlanFixture();
-    expect(inspectInitialHostSupervisorMigrationPlan(f.plan).plan).toEqual(f.plan);
-    f.plan[slot].launcher.sha256 = "0".repeat(64);
-    expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow("persistent launcher");
+    if (changed === "live fallback")
+      f.plan.fallback.launcher.path = f.plan.precondition.launcher.path;
+    if (changed === "live candidate")
+      f.plan.candidate.launcher.path = f.plan.precondition.launcher.path;
+    if (changed === "shared copy") f.plan.candidate.launcher.path = f.plan.fallback.launcher.path;
+    if (changed === "outside root") f.plan.managedReleaseRoot = path.join(f.directory, "elsewhere");
+    expect(() => inspectInitialHostSupervisorMigrationPlan(f.plan)).toThrow();
   },
 );
 

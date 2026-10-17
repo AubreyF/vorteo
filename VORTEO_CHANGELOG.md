@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.671 - 2026-10-17
+
+### Maintenance
+
+- Bind initial Host migration to the configured managed release root, an exact candidate-only launcher environment change and an immutable copy of the original fallback launcher. Preserve all other launcher settings and reject releases outside their declared root.
+- Support a protected Host release selector outside the release directory while retaining canonical root, parent and selector custody. Add focused substitution and launcher-binding coverage plus compiled supervisor selection checks. These changes prepare migration; no installed service or standing authority changes.
+
 ## 0.11.0-beta.3.vorteo.670 - 2026-10-17
 
 ### Maintenance

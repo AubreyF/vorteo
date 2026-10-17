@@ -15,7 +15,13 @@ import {
   openBootstrapRequests,
 } from "../coordinator-bootstrap.js";
 import { FileBootstrapRequestJournal } from "../coordinator-bootstrap-journal.js";
-import { inspectBootstrapReleaseArtifacts } from "../coordinator-bootstrap-artifact.js";
+import {
+  inspectBootstrapReleaseArtifacts,
+  readBootstrapPreparedFile,
+} from "../coordinator-bootstrap-artifact.js";
+import { readBootstrapLauncher } from "../coordinator-bootstrap-service.js";
+import { retainServiceFiles } from "../coordinator-bootstrap-maintenance-service-inspection.js";
+import { InstallationConfigSchema } from "../config.js";
 import {
   FileEnrollmentJournal,
   enrollmentManifestDigest,
@@ -30,8 +36,9 @@ import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const InitialHostSupervisorMigrationPlanSchema = z.strictObject({
-  version: z.literal(2),
+  version: z.literal(3),
   operation: z.literal("initial-host-supervisor-migration"),
+  managedReleaseRoot: z.string().startsWith("/").max(4096),
   installationId: z.string().uuid(),
   identitySha256: digest,
   preconditionSha256: digest,
@@ -81,11 +88,23 @@ export function inspectInitialHostSupervisorMigrationPlan(value: unknown) {
       plan.candidate.artifactSha256 !== plan.fallback.artifactSha256,
     "Initial Host migration requires a distinct compatible fallback",
   );
+  requireMatch(
+    path.normalize(plan.managedReleaseRoot) === plan.managedReleaseRoot &&
+      plan.candidate.directory.startsWith(plan.managedReleaseRoot + path.sep) &&
+      identity.selectionPath !== null,
+    "Initial Host migration changed its managed release root",
+  );
+  const launcherPaths = [
+    previous.launcher.path,
+    plan.candidate.launcher.path,
+    plan.fallback.launcher.path,
+  ];
+  requireMatch(
+    new Set(launcherPaths).size === launcherPaths.length &&
+      plan.fallback.launcher.sha256 === previous.launcher.sha256,
+    "Initial Host migration requires its original immutable persistent launcher",
+  );
   for (const release of [plan.candidate, plan.fallback]) {
-    requireMatch(
-      release.launcher.sha256 === previous.launcher.sha256,
-      "Initial Host migration changed its reviewed persistent launcher",
-    );
     requireMatch(
       path.posix.normalize(release.directory) === release.directory &&
         release.entrypoint.path ===
@@ -113,6 +132,110 @@ export function inspectInitialHostSupervisorMigrationPlan(value: unknown) {
     "Initial Host migration changed its reviewed incumbent fallback",
   );
   return { plan, planSha256: hash(plan) };
+}
+
+/** Semantic binding supplements byte custody. The exact original bytes must be
+ * retained separately because the installed plist will change during migration. */
+export function verifyInitialHostMigrationLaunchers(input: {
+  plan: unknown;
+  sourceUpdates: unknown;
+  current: unknown;
+  fallback: unknown;
+  candidate: unknown;
+}) {
+  const { plan } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  requireMatch(
+    plan.precondition.identity.environment === "host",
+    "Initial Host launcher identity is not native",
+  );
+  const selected = plan.precondition.identity.selectionPath;
+  requireMatch(selected !== null, "Initial Host launcher selector is missing");
+  const updates = z
+    .object({ releaseRoot: z.string(), currentReleaseLink: z.string() })
+    .parse(input.sourceUpdates);
+  requireMatch(
+    updates.releaseRoot === plan.managedReleaseRoot && updates.currentReleaseLink === selected,
+    "Initial Host managed startup differs from configured source updates",
+  );
+  const record = z.record(z.string(), z.unknown());
+  const current = record.parse(input.current);
+  const fallback = record.parse(input.fallback);
+  const candidate = record.parse(input.candidate);
+  const previous = plan.precondition;
+  const environment = z.record(z.string(), z.string()).parse(current.EnvironmentVariables);
+  requireMatch(
+    current.Label === plan.precondition.identity.serviceLabel &&
+      isDeepStrictEqual(current.ProgramArguments, [
+        previous.node.path,
+        path.join(selected, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      ]) &&
+      isDeepStrictEqual(current.ProgramArguments, previous.registration.arguments) &&
+      (current.Program ?? null) === previous.registration.program &&
+      isDeepStrictEqual(environment, previous.registration.environment),
+    "Initial Host original launcher differs from native registration",
+  );
+  requireMatch(
+    isDeepStrictEqual(current, fallback),
+    "Initial Host fallback launcher changed its original settings",
+  );
+  requireMatch(
+    isDeepStrictEqual(candidate, {
+      ...current,
+      EnvironmentVariables: {
+        ...environment,
+        PASEO_MANAGED_RELEASE_LINK: selected,
+        PASEO_MANAGED_RELEASE_ROOT: plan.managedReleaseRoot,
+      },
+    }),
+    "Initial Host candidate launcher changes unreviewed settings",
+  );
+  verifyLegacyManagedFallback(plan, environment);
+}
+
+function verifyLegacyManagedFallback(
+  plan: InitialHostSupervisorMigrationPlan,
+  environment: Record<string, string>,
+) {
+  const link = environment.PASEO_MANAGED_RELEASE_LINK;
+  const root = environment.PASEO_MANAGED_RELEASE_ROOT;
+  if (!link && !root) return;
+  requireMatch(
+    link === plan.precondition.identity.selectionPath &&
+      !!root &&
+      path.isAbsolute(root) &&
+      path.normalize(root) === root &&
+      plan.fallback.directory.startsWith(root + path.sep),
+    "Initial Host fallback no longer fits its original managed startup",
+  );
+}
+
+async function inspectInitialHostMigrationLaunchers(
+  plan: InitialHostSupervisorMigrationPlan,
+  roots: readonly string[],
+) {
+  const assertCurrent = retainServiceFiles([
+    plan.precondition.launcher.path,
+    plan.candidate.launcher.path,
+    plan.fallback.launcher.path,
+    plan.precondition.configuration.path,
+  ]);
+  const configuration = InstallationConfigSchema.parse(
+    JSON.parse(
+      (await readBootstrapPreparedFile(plan.precondition.configuration, roots)).toString("utf8"),
+    ),
+  );
+  const current = await readBootstrapLauncher(plan.precondition.launcher, roots);
+  const fallback = await readBootstrapLauncher(plan.fallback.launcher, roots);
+  const candidate = await readBootstrapLauncher(plan.candidate.launcher, roots);
+  verifyInitialHostMigrationLaunchers({
+    plan,
+    sourceUpdates: configuration.sourceUpdates,
+    current,
+    fallback,
+    candidate,
+  });
+  assertCurrent();
+  return { assertCurrent };
 }
 
 interface MigrationEnrollmentInput {
@@ -347,6 +470,8 @@ export async function inspectInitialHostMigrationArtifacts(input: {
   checkCollection();
   const referenceRoot = fileURLToPath(new URL("../../../../../../../", import.meta.url));
   const proofs: Array<{ assertCurrent(): void }> = [];
+  proofs.push(await inspectInitialHostMigrationLaunchers(plan, roots));
+  checkCollection();
   proofs.push(
     await inspectBootstrapReleaseArtifacts(plan.candidate, roots, {
       signal,
