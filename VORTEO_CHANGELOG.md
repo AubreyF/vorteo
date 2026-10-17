@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.678 - 2026-10-17
+
+### Maintenance
+
+- Collect initial Host publication state after exact child exit, retaining protected control files, missing addressed records, launcher bytes and the selector's lifetime, literal text and canonical target. Incomplete images remain unresolved without runtime or readiness collection; complete candidates still require strict independent verification.
+- Retain one raw Host observation read across timeouts, including anchor construction and candidate collection. Refuse another scan before constructing tools until the original read settles, discard late results and retain caller cancellation in successful proofs. This adds read-only recovery inspection; fallback effects and installed acceptance remain unfinished.
+
 ## 0.11.0-beta.3.vorteo.677 - 2026-10-17
 
 ### Maintenance

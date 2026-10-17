@@ -221,17 +221,16 @@ async function retainCandidateNativeCustody(
   };
 }
 
-/** Reopening is observation-only, including after revocation. No command port,
- * child constructor or publication operation is available on this path. */
-export async function observeInitialHostMigrationTransition(
-  input: {
-    enrollmentStateDirectory: string;
-    plan: unknown;
-    stepId: string;
-    generation: string;
-  },
-  ports: HostObservationPorts,
-) {
+interface InitialHostObservationInput {
+  enrollmentStateDirectory: string;
+  plan: unknown;
+  stepId: string;
+  generation: string;
+}
+
+/** Protected control metadata only. Callers must prove this exact executor
+ * exited before collecting any target files or runtime artifacts. */
+export function readInitialHostRetainedClaim(input: InitialHostObservationInput) {
   const stepId = z.uuid().parse(input.stepId);
   const generation = z.uuid().parse(input.generation);
   const inspected = inspectInitialHostSupervisorMigrationPlan(input.plan);
@@ -261,13 +260,24 @@ export async function observeInitialHostMigrationTransition(
   const context = { ...inspected, file, intentFile, intent, claim };
   const retained = retainHostClaim(directory, context);
   retained();
+  return { context, assertCurrent: retained };
+}
+
+/** Reopening is observation-only, including after revocation. No command port,
+ * child constructor or publication operation is available on this path. */
+export async function observeInitialHostMigrationTransition(
+  input: InitialHostObservationInput,
+  ports: HostObservationPorts,
+) {
+  const { context, assertCurrent: retained } = readInitialHostRetainedClaim(input);
+  const { claim } = context;
   await verifyRetainedProcessExited(ports.reader, claim.executor);
   retained();
   const collected = await readBoundedMaintenanceInspection(
     (signal) => ports.collectCandidate(context, signal),
     { timeoutMs: 30_000, detail: "Host retained candidate observation timed out" },
   );
-  return recordHostCandidate(directory, context, collected.observation, () => {
+  return recordHostCandidate(input.enrollmentStateDirectory, context, collected.observation, () => {
     requireMatch(
       collected.assertSelection() === undefined,
       "Host retained selection custody must be synchronous",

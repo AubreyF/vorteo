@@ -8,7 +8,13 @@ import { readEnrollmentNativeIdentity } from "./native-registration.js";
 import {
   collectInitialHostCandidate,
   observeInitialHostMigrationTransition,
+  readInitialHostRetainedClaim,
 } from "./host-supervisor-execution.js";
+import {
+  initialHostObservationPending,
+  inspectInitialHostRecoveryPublication,
+  readInitialHostObservation,
+} from "./host-supervisor-recovery-inspection.js";
 import {
   BootstrapRequestConflict,
   assertCoordinatorLifecycleIdle,
@@ -61,6 +67,7 @@ export async function reconcileNativeInitialHostActivation(input: {
   configuration: InstallationConfig;
   configurationFile: string;
 }): Promise<InitialHostActivationResult> {
+  if (initialHostObservationPending()) return "unresolved";
   const { configuration } = input;
   const journal = new FileEnrollmentJournal(configuration.stateDir);
   const state = journal.readPolicySnapshot();
@@ -108,22 +115,36 @@ export async function reconcileNativeInitialHostActivation(input: {
             inspected.plan.precondition.configuration.path === input.configurationFile,
           "Initial Host observation differs from configured identity",
         );
-        const anchor = await inspectMaintenanceObservationRuntime(input);
+        const anchor = await readInitialHostObservation(() =>
+          inspectMaintenanceObservationRuntime(input),
+        );
         requireMatch(
           anchor.installationRoot === identity.installationRoot,
           "Initial Host and coordinator observation roots differ",
         );
         assertIdentity();
         anchor.assertCurrent();
+        const publication = await inspectInitialHostRecoveryPublication({
+          retained: readInitialHostRetainedClaim(invocation),
+          reader: anchor.ports.reader,
+          writableMountRoots: anchor.writableMountRoots,
+          signal: new AbortController().signal,
+          assertAnchorCurrent() {
+            anchor.assertCurrent();
+            assertIdentity();
+          },
+        });
+        publication.assertCurrent();
+        if (publication.publication.classification !== "completed-candidate")
+          return publication.publication;
         return observeInitialHostMigrationTransition(invocation, {
           reader: anchor.ports.reader,
           async collectCandidate(context, signal) {
-            const collected = await collectInitialHostCandidate(
-              context,
-              anchor.writableMountRoots,
-              signal,
+            const collected = await readInitialHostObservation(() =>
+              collectInitialHostCandidate(context, anchor.writableMountRoots, signal),
             );
             const assertSelection = () => {
+              publication.assertCurrent();
               anchor.assertCurrent();
               assertIdentity();
               requireMatch(
@@ -132,6 +153,7 @@ export async function reconcileNativeInitialHostActivation(input: {
               );
               anchor.assertCurrent();
               assertIdentity();
+              publication.assertCurrent();
             };
             assertSelection();
             return { ...collected, assertSelection };
