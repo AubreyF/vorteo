@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.670 - 2026-10-17
+
+### Maintenance
+
+- Add fenced symlink publication to the existing maintenance file publisher for the Host release selector. Persist the addressed attempt before atomic selection, retain exact previous target, directory and staged-link custody, and reject replaced attempt files before publication.
+- Preserve substituted files during cleanup and retain the selected target after uncertain directory synchronization. Focused filesystem cases cover replay, substitution, path and custody failures. This supplies a file-selection primitive, not lifecycle authority or installed Host migration.
+
 ## 0.11.0-beta.3.vorteo.669 - 2026-10-17
 
 ### Maintenance

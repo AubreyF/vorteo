@@ -9,10 +9,13 @@ import {
   linkSync,
   openSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
+  symlinkSync,
+  type BigIntStats,
 } from "node:fs";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 
@@ -23,6 +26,145 @@ interface SelectedFile {
   path: string;
   previousSha256: string | null;
   bytes: Buffer;
+}
+
+/** The Host selector is a symlink, unlike maintenance-service JSON selections.
+ * Called under lifecycle exclusion with independently verified target absence,
+ * artifacts and executor custody. The caller supplies reviewed paths only.
+ * An uncertain publication retains the addressed attempt and is never replayed. */
+export function selectMaintenanceReleaseLink(input: {
+  attemptFile: string;
+  reservationSha256: string;
+  link: string;
+  previous: string;
+  candidate: string;
+  assertCurrent(): void;
+}) {
+  const { attemptFile, reservationSha256, link, previous, candidate, assertCurrent } = input;
+  if (!/^[a-f0-9]{64}$/.test(reservationSha256))
+    throw new BootstrapRequestConflict("Release selection reservation digest is invalid");
+  if (new Set([attemptFile, link, previous, candidate]).size !== 4)
+    throw new BootstrapRequestConflict("Release selection paths must be distinct");
+  const paths = [attemptFile, link, previous, candidate];
+  if (paths.some((file) => !path.isAbsolute(file) || path.normalize(file) !== file))
+    throw new BootstrapRequestConflict("Release selection requires canonical absolute paths");
+  if (
+    [previous, candidate].some((directory) =>
+      [attemptFile, link].some((file) => file.startsWith(directory + path.sep)),
+    )
+  )
+    throw new BootstrapRequestConflict(
+      "Release selection must preserve prepared runtime directories",
+    );
+  const parent = protectedParent(link);
+  const attemptParent = protectedParent(attemptFile);
+  const nextDirectory = protectedParent(path.join(candidate, ".maintenance-release-probe"));
+  protectedParent(path.join(previous, ".maintenance-release-probe"));
+  const expected = releaseLinkIdentity(link, previous);
+  const assertSelection = () => {
+    if (typeof assertCurrent !== "function" || assertCurrent() !== undefined)
+      throw new BootstrapRequestConflict("Release selection requires synchronous custody proof");
+    requireSameParent(link, parent);
+    requireSameParent(attemptFile, attemptParent);
+    requireSameParent(path.join(candidate, ".maintenance-release-probe"), nextDirectory);
+    if (releaseLinkIdentity(link, previous) !== expected)
+      throw new BootstrapRequestConflict("Release selector changed before publication");
+  };
+  assertSelection();
+  const receipt = {
+    version: 1,
+    operation: "release-link-selection",
+    reservationSha256,
+    link,
+    previous,
+    candidate,
+  };
+  const receiptBytes = Buffer.from(JSON.stringify(receipt));
+  writeExclusive(attemptFile, receiptBytes);
+  const assertAttempt = retainReleaseSelectionAttempt(attemptFile, receiptBytes);
+  syncDirectory(attemptParent.directory);
+  const temporary = path.join(parent.directory, `.maintenance-release-${randomUUID()}`);
+  symlinkSync(candidate, temporary);
+  const stagedIdentity = releaseLinkIdentity(temporary, candidate);
+  let renamed = false;
+  try {
+    assertSelection();
+    assertAttempt();
+    if (releaseLinkIdentity(temporary, candidate) !== stagedIdentity)
+      throw new BootstrapRequestConflict("Staged release selector changed before publication");
+    renameSync(temporary, link);
+    renamed = true;
+    syncDirectory(parent.directory);
+    requireSameParent(link, parent);
+    requireSameParent(path.join(candidate, ".maintenance-release-probe"), nextDirectory);
+    releaseLinkIdentity(link, candidate);
+    assertAttempt();
+  } finally {
+    if (!renamed) removeRetainedReleaseLink(temporary, candidate, stagedIdentity);
+  }
+  return receipt;
+}
+
+function retainReleaseSelectionAttempt(file: string, bytes: Buffer) {
+  const expected = linkStatIdentity(lstatSync(file, { bigint: true }));
+  const selected = { path: file, previousSha256: digest(bytes), bytes };
+  const assertCurrent = () => {
+    if (linkStatIdentity(lstatSync(file, { bigint: true })) !== expected)
+      throw new BootstrapRequestConflict("Release selection attempt changed");
+    requirePrevious(selected);
+    if (linkStatIdentity(lstatSync(file, { bigint: true })) !== expected)
+      throw new BootstrapRequestConflict("Release selection attempt changed during inspection");
+  };
+  assertCurrent();
+  return assertCurrent;
+}
+
+function removeRetainedReleaseLink(file: string, target: string, expected: string) {
+  let stat: BigIntStats;
+  try {
+    stat = lstatSync(file, { bigint: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!stat.isSymbolicLink() || linkStatIdentity(stat) !== expected) return;
+  if (readlinkSync(file) !== target) return;
+  if (linkStatIdentity(lstatSync(file, { bigint: true })) === expected) unlinkSync(file);
+}
+
+function requireSameParent(file: string, expected: ReturnType<typeof protectedParent>) {
+  const current = protectedParent(file);
+  if (current.dev !== expected.dev || current.ino !== expected.ino)
+    throw new BootstrapRequestConflict("Release selection parent changed");
+}
+
+function linkStatIdentity(stat: BigIntStats) {
+  return [
+    stat.dev,
+    stat.ino,
+    stat.mode,
+    stat.uid,
+    stat.nlink,
+    stat.size,
+    stat.ctimeNs,
+    stat.mtimeNs,
+  ].join(":");
+}
+
+function releaseLinkIdentity(file: string, expected: string): string {
+  const before = lstatSync(file, { bigint: true });
+  if (!before.isSymbolicLink() || before.uid !== BigInt(process.getuid!()) || before.nlink !== 1n)
+    throw new BootstrapRequestConflict("Release selector must be an owned symbolic link");
+  const target = readlinkSync(file);
+  if (realpathSync(file) !== expected || realpathSync(expected) !== expected)
+    throw new BootstrapRequestConflict("Release selector changed its reviewed target");
+  const identity = linkStatIdentity(before);
+  if (
+    linkStatIdentity(lstatSync(file, { bigint: true })) !== identity ||
+    readlinkSync(file) !== target
+  )
+    throw new BootstrapRequestConflict("Release selector changed during inspection");
+  return identity;
 }
 
 /** Called inside the existing lifecycle transaction after verifying the retained

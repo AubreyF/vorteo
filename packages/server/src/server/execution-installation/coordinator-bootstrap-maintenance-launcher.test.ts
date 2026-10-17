@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import nativeFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { selectMaintenanceReleaseLink } from "./coordinator-bootstrap-maintenance-file-selection.js";
 import { fileURLToPath } from "node:url";
 import { retainFixtureServiceAdmission } from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
 import { hashSync } from "bcryptjs";
@@ -23,6 +26,8 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  readlinkSync,
+  readdirSync,
 } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
@@ -57,6 +62,199 @@ const roots: string[] = [];
 afterEach(() => {
   vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function releaseLinkFixture() {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-release-link-")));
+  roots.push(root);
+  const previous = path.join(root, "previous");
+  const candidate = path.join(root, "candidate");
+  mkdirSync(previous, { mode: 0o700 });
+  mkdirSync(candidate, { mode: 0o700 });
+  const link = path.join(root, "current");
+  symlinkSync("previous", link);
+  const input = {
+    attemptFile: path.join(root, "selection-attempt.json"),
+    reservationSha256: "a".repeat(64),
+    link,
+    previous,
+    candidate,
+    assertCurrent: vi.fn(() => undefined),
+  };
+  return { root, input };
+}
+
+test("release link selection records one attempt before publishing the exact target", () => {
+  const f = releaseLinkFixture();
+  const receipt = selectMaintenanceReleaseLink(f.input);
+  expect(JSON.parse(readFileSync(f.input.attemptFile, "utf8"))).toEqual(receipt);
+  expect(receipt).toEqual({
+    version: 1,
+    operation: "release-link-selection",
+    reservationSha256: f.input.reservationSha256,
+    link: f.input.link,
+    previous: f.input.previous,
+    candidate: f.input.candidate,
+  });
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+  expect(readlinkSync(f.input.link)).toBe(f.input.candidate);
+  const before = readFileSync(f.input.attemptFile);
+  expect(() =>
+    selectMaintenanceReleaseLink({
+      ...f.input,
+      previous: f.input.candidate,
+      candidate: f.input.previous,
+    }),
+  ).toThrow();
+  expect(readFileSync(f.input.attemptFile)).toEqual(before);
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+});
+
+test.each(["previous", "regular", "candidate alias", "writable candidate", "custody"])(
+  "release link selection refuses changed %s before recording an attempt",
+  (changed) => {
+    const f = releaseLinkFixture();
+    if (changed === "previous") f.input.previous = f.input.candidate;
+    if (changed === "regular") {
+      nativeFs.unlinkSync(f.input.link);
+      writeFileSync(f.input.link, "retained");
+    }
+    if (changed === "candidate alias") {
+      const alias = path.join(f.root, "alias");
+      symlinkSync(f.input.candidate, alias);
+      f.input.candidate = alias;
+    }
+    if (changed === "writable candidate") chmodSync(f.input.candidate, 0o777);
+    if (changed === "custody")
+      f.input.assertCurrent.mockImplementation(() => {
+        throw new Error("lost custody");
+      });
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow();
+    expect(fileExists(f.input.attemptFile)).toBe(false);
+  },
+);
+
+test("release link selection retains its fence when custody changes after the attempt", () => {
+  const f = releaseLinkFixture();
+  let calls = 0;
+  f.input.assertCurrent.mockImplementation(() => {
+    if (++calls === 2) {
+      nativeFs.unlinkSync(f.input.link);
+      symlinkSync(f.input.candidate, f.input.link);
+    }
+  });
+  expect(() => selectMaintenanceReleaseLink(f.input)).toThrow();
+  expect(fileExists(f.input.attemptFile)).toBe(true);
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+  expect(() =>
+    selectMaintenanceReleaseLink({
+      ...f.input,
+      previous: f.input.candidate,
+      candidate: f.input.previous,
+    }),
+  ).toThrow();
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+});
+
+test.each(["noncanonical", "runtime overlap"])(
+  "release link selection refuses %s paths before publication",
+  (changed) => {
+    const f = releaseLinkFixture();
+    if (changed === "noncanonical") f.input.candidate = f.root + "/previous/../candidate";
+    else f.input.attemptFile = path.join(f.input.candidate, "attempt.json");
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow();
+    expect(realpathSync(f.input.link)).toBe(f.input.previous);
+    expect(fileExists(f.input.attemptFile)).toBe(false);
+  },
+);
+
+test.each(["selector lifetime", "candidate directory"])(
+  "release link selection retains exact %s through the final check",
+  (changed) => {
+    const f = releaseLinkFixture();
+    let calls = 0;
+    f.input.assertCurrent.mockImplementation(() => {
+      if (++calls !== 2) return;
+      if (changed === "selector lifetime") {
+        nativeFs.renameSync(f.input.link, path.join(f.root, "retained-link"));
+        symlinkSync("previous", f.input.link);
+      } else {
+        nativeFs.renameSync(f.input.candidate, path.join(f.root, "retained-candidate"));
+        mkdirSync(f.input.candidate, { mode: 0o700 });
+      }
+    });
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow();
+    expect(realpathSync(f.input.link)).toBe(f.input.previous);
+    expect(fileExists(f.input.attemptFile)).toBe(true);
+  },
+);
+
+test.each(["staged link", "attempt file"])(
+  "release link selection refuses substituted %s without deleting it",
+  (changed) => {
+    const f = releaseLinkFixture();
+    let calls = 0;
+    let substituted = "";
+    f.input.assertCurrent.mockImplementation(() => {
+      if (++calls !== 2) return;
+      if (changed === "staged link") {
+        const staged = readdirSync(f.root).filter((name) =>
+          name.startsWith(".maintenance-release-"),
+        );
+        expect(staged).toHaveLength(1);
+        substituted = path.join(f.root, staged[0]);
+        nativeFs.renameSync(substituted, path.join(f.root, "retained-staged-link"));
+        symlinkSync(f.input.previous, substituted);
+      } else {
+        substituted = f.input.attemptFile;
+        const bytes = readFileSync(substituted);
+        nativeFs.renameSync(substituted, path.join(f.root, "retained-attempt.json"));
+        writeFileSync(substituted, bytes, { mode: 0o600 });
+      }
+    });
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow();
+    expect(realpathSync(f.input.link)).toBe(f.input.previous);
+    expect(fileExists(substituted)).toBe(true);
+    if (changed === "staged link") expect(readlinkSync(substituted)).toBe(f.input.previous);
+    else
+      expect(readFileSync(substituted)).toEqual(
+        readFileSync(path.join(f.root, "retained-attempt.json")),
+      );
+  },
+);
+
+test("release link selection retains published target after uncertain directory synchronization", () => {
+  const f = releaseLinkFixture();
+  let calls = 0;
+  let restore = () => {};
+  f.input.assertCurrent.mockImplementation(() => {
+    if (++calls === 2) {
+      const spy = vi.spyOn(nativeFs, "fsyncSync").mockImplementation(() => {
+        throw new Error("injected selection sync failure");
+      });
+      syncBuiltinESMExports();
+      restore = () => {
+        spy.mockRestore();
+        syncBuiltinESMExports();
+      };
+    }
+  });
+  try {
+    expect(() => selectMaintenanceReleaseLink(f.input)).toThrow("selection sync failure");
+  } finally {
+    restore();
+  }
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
+  const attempt = readFileSync(f.input.attemptFile);
+  expect(() =>
+    selectMaintenanceReleaseLink({
+      ...f.input,
+      previous: f.input.candidate,
+      candidate: f.input.previous,
+    }),
+  ).toThrow();
+  expect(readFileSync(f.input.attemptFile)).toEqual(attempt);
+  expect(realpathSync(f.input.link)).toBe(f.input.candidate);
 });
 async function fixture(separateEnrollment = false, controller = false, nativeAccount = false) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "maintenance-slots-")));
