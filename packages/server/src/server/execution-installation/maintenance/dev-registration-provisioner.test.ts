@@ -611,3 +611,65 @@ test("both prepared scripts bind the fixed gate into the whole reviewed buffer b
     DEV_REGISTRATION_GATE_PREFIX.length - 1,
   );
 });
+
+for (const operation of ["replace", "rollback"] as const) {
+  test(`${operation} writes an exact root lifetime witness before service and pointer effects`, () => {
+    const prepared = prepareDevRegistrationProvisioner(fixture());
+    const request = {
+      jobId: "read-only-unit-job",
+      planSha256: prepared.planSha256,
+      claimSha256: "a".repeat(64),
+      originalClaimSha256: "b".repeat(64),
+      scriptSha256: operation === "replace" ? prepared.sha256 : prepared.rollback.sha256,
+    };
+    const rootExecutor = {
+      pid: 999,
+      parentPid: 1,
+      uid: 0,
+      gid: 0,
+      bootId: "same-boot",
+      startIdentity: "123",
+      executable: prepared.plan.systemPython.path,
+      argumentsSha256: "c".repeat(64),
+    };
+    const result = JSON.parse(
+      execFileSync(
+        "python3",
+        [
+          "-I",
+          "-c",
+          String.raw`
+import ast,json,sys
+value=json.load(sys.stdin);tree=ast.parse(value['source']);suffix='/attempt.json' if value['operation']=='replace' else '/rollback-attempt.json'
+calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='create' and isinstance(node.args[0],ast.BinOp) and isinstance(node.args[0].right,ast.Constant) and node.args[0].right.value==suffix]
+assert len(calls)==1
+call=calls[0]
+namespace=dict(request=value['request'],root_executor=value['rootExecutor'],json=json)
+# Evaluate only the pure bytes expression, never the native program or writer.
+record=json.loads(eval(compile(ast.Expression(body=call.args[1]),'<witness-unit>','eval'),namespace))
+effects=[node.lineno for node in ast.walk(tree) if isinstance(node,ast.Call) and ((isinstance(node.func,ast.Name) and node.func.id=='atomic') or (isinstance(node.func,ast.Attribute) and node.func.attr in ('stopProcess','startProcess')))]
+assert all(call.lineno<line for line in effects)
+print(json.dumps(record))
+`,
+        ],
+        {
+          input: JSON.stringify({
+            source: DEV_REGISTRATION_PROVISIONING_SCRIPT,
+            operation,
+            request,
+            rootExecutor,
+          }),
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(result.rootExecutor).toEqual(rootExecutor);
+    expect(result.scriptSha256).toBe(request.scriptSha256);
+    expect(result.claimSha256).toBe(request.claimSha256);
+    expect(result.jobId).toBe(request.jobId);
+    if (operation === "rollback") {
+      expect(result.operation).toBe("rollback");
+      expect(result.originalClaimSha256).toBe(request.originalClaimSha256);
+    } else expect(result.phase).toBe("prepared");
+  });
+}

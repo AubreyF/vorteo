@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.681 - 2026-10-17
+
+### Maintenance
+
+- Compose fenced Host legacy restoration with the existing continuation ledger, addressed file publications and a separate bootstrap attempt. Retain immutable proof callbacks, recheck absence after final admission synchronization, and observe fresh legacy readiness without completing candidate activation. Native launch election, proof factories and production command wiring remain required.
+- Add exact enrolled Host service-absence inspection without widening maintenance-label permissions. Bind both asynchronous and synchronous launchd reads to the enrolled account, domain and label; registration absence does not prove runtime or workload cleanup.
+- Collect protected Dev registration witnesses and outcomes with a separate fixed read-only native program. Check same-boot root-executor exit before mutable outcomes and retain witness custody; new rollback attempts now record their root lifetime before effects. Privileged invocation, authenticated readiness and workload settlement remain unavailable.
+
 ## 0.11.0-beta.3.vorteo.680 - 2026-10-17
 
 ### Maintenance

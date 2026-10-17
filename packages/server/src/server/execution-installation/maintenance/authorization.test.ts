@@ -6760,3 +6760,682 @@ test("Host restoration child admission accepts only the active consumed candidat
   expect(() => withHostContinuationAdmission(f.journal, input, action)).toThrow();
   expect(action).toHaveBeenCalledOnce();
 });
+
+import {
+  HostRestorationLaunchIntentSchema,
+  executeHostRestorationChild,
+  observeHostRestorationChild,
+  hostRestorationPaths,
+  type HostRestorationExecutionPorts,
+  type HostRestorationObservationPorts,
+} from "./host-supervisor-continuation.js";
+
+/** Reuses the actual lineage journal fixture. All native facts below are injected;
+ * no provider, subprocess, service command or immutable runtime is launched. */
+function hostRestorationChildFixture() {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const child = f.lineage().restoration;
+  const paths = hostRestorationPaths(f.directory, f.second, child.generation);
+  for (const image of [
+    f.restoreInput.publication.plan,
+    f.restoreInput.publication.intent,
+    f.restoreInput.publication.claim,
+    f.restoreInput.publication.launcher,
+  ]) {
+    if (image.state !== "present") throw new Error("Missing fixture image");
+    mkdirSync(path.dirname(image.path), { recursive: true, mode: 0o700 });
+    writeFileSync(image.path, image.bytes, { mode: 0o600 });
+  }
+  for (const directory of [
+    f.plan.precondition.selectedRelease,
+    f.plan.candidate.directory,
+    f.plan.fallback.directory,
+  ])
+    mkdirSync(directory, { recursive: true, mode: 0o755 });
+  symlinkSync(f.plan.precondition.selectedRelease, f.plan.precondition.identity.selectionPath!);
+  const intent = HostRestorationLaunchIntentSchema.parse({
+    version: 1,
+    operation: "host-continuation-launch",
+    role: "restoration",
+    installationId: f.manifest.installationId,
+    grantId: f.failedState.grant.id,
+    grantRevision: child.grantRevision,
+    manifestSha256: f.failedState.activation.manifestSha256,
+    stepId: f.second,
+    generation: child.generation,
+    reservationSha256: hostContinuationReservationDigest(f.lineage(), "restoration"),
+    planSha256: f.intent.planSha256,
+    originalClaimSha256: f.lineage().original.claimSha256,
+    publicationSnapshotSha256: f.lineage().restoration.evidence.publicationSnapshotSha256,
+    arrangementSha256: "1".repeat(64),
+    runtime: {
+      directory: path.join(f.directory, "immutable-child"),
+      sourceCommit: "2".repeat(40),
+      artifactSha256: "3".repeat(64),
+      node: { path: process.execPath, sha256: "4".repeat(64) },
+      entrypoint: {
+        path: path.join(f.directory, "immutable-child", "entrypoint.js"),
+        sha256: "5".repeat(64),
+      },
+    },
+    createdAt: child.reservedAt,
+  });
+  // Test-only stand-in for the still-unimplemented exclusive prebirth producer.
+  writeFileSync(paths.intent, JSON.stringify(intent), { flag: "wx", mode: 0o600 });
+  const nativeBirth = () => {
+    const now = Date.now();
+    return `${Math.floor(now / 1000)}:${(now % 1000) * 1000}`;
+  };
+  const executor = {
+    ...f.plan.precondition.supervisor,
+    pid: process.pid,
+    parentPid: process.ppid,
+    uid: process.getuid!(),
+    executable: process.execPath,
+    startIdentity: nativeBirth(),
+  };
+  const current = {
+    Label: f.plan.precondition.identity.serviceLabel,
+    ProgramArguments: f.plan.precondition.registration.arguments,
+    EnvironmentVariables: f.plan.precondition.registration.environment,
+    ...(f.plan.precondition.registration.program === null
+      ? {}
+      : { Program: f.plan.precondition.registration.program }),
+  };
+  const candidate = {
+    ...current,
+    EnvironmentVariables: {
+      ...current.EnvironmentVariables,
+      PASEO_MANAGED_RELEASE_LINK: f.plan.precondition.identity.selectionPath!,
+      PASEO_MANAGED_RELEASE_ROOT: f.plan.managedReleaseRoot,
+    },
+  };
+  const rawLauncher = f.restoreInput.publication.launcher;
+  if (rawLauncher.state !== "present") throw new Error("Missing launcher");
+  const prepared = {
+    planSha256: intent.planSha256,
+    launcher: Buffer.from(rawLauncher.bytes),
+    launchers: {
+      current,
+      fallback: structuredClone(current),
+      candidate,
+      sourceUpdates: {
+        releaseRoot: f.plan.managedReleaseRoot,
+        currentReleaseLink: f.plan.precondition.identity.selectionPath!,
+      },
+    },
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const absence = {
+    absent: true as const,
+    identitySha256: f.plan.identitySha256,
+    bootId: executor.bootId,
+    service: `${f.plan.precondition.identity.serviceDomain}/${f.plan.precondition.identity.serviceLabel}`,
+    runtimeDirectories: [
+      f.plan.precondition.selectedRelease,
+      f.plan.candidate.directory,
+      f.plan.fallback.directory,
+    ],
+    observedAt: new Date().toISOString(),
+    evidenceSha256: f.lineage().restoration.evidence.targetAbsenceSha256,
+    assertCurrent: vi.fn(() => undefined),
+  };
+  const bootstrap = vi.fn(async () => {
+    expect(f.lineage().restoration.claim).toBeDefined();
+    expect(existsSync(paths.claim)).toBe(true);
+    expect(existsSync(paths.bootstrapAttempt)).toBe(true);
+    expect(realpathSync(f.plan.precondition.identity.selectionPath!)).toBe(
+      f.plan.fallback.directory,
+    );
+  });
+  const ports: HostRestorationExecutionPorts = {
+    executor: { identity: executor, assertCurrent: vi.fn(() => undefined) },
+    assertLaunchArrangement: vi.fn(() => undefined),
+    assertOriginalPublication: vi.fn(() => undefined),
+    assertExclusive: f.ports.assertExclusive,
+    collectPrepared: vi.fn(async () => prepared),
+    collectAbsence: vi.fn(async () => absence),
+    bootstrap,
+  };
+  const input = {
+    journal: f.journal,
+    stepId: f.second,
+    generation: child.generation,
+    plan: f.plan,
+    publication: f.restoreInput.publication,
+  };
+  let live: EnrollmentDaemonObservation | undefined;
+  const observer: HostRestorationObservationPorts = {
+    reader: { verifyProcessExited: vi.fn(async () => undefined) },
+    assertLaunchIntent: vi.fn(() => undefined),
+    collectPrepared: vi.fn(async () => prepared),
+    collectLegacy: vi.fn(async () => {
+      if (!live) {
+        const supervisor = {
+          ...f.plan.precondition.supervisor,
+          pid: 901,
+          startIdentity: nativeBirth(),
+        };
+        live = {
+          assertCurrent: vi.fn(() => undefined),
+          descriptor: f.plan.precondition.identity,
+          identitySha256: f.plan.identitySha256,
+          observedAt: new Date().toISOString(),
+          custodyStateDirectory: f.directory,
+          writableMountRoots: [],
+          serverId: f.plan.precondition.serverId,
+          selectedRelease: f.plan.fallback.directory,
+          sourceCommit: f.plan.fallback.sourceCommit,
+          supervisor,
+          worker: { ...supervisor, pid: 902, parentPid: 901, startIdentity: nativeBirth() },
+        };
+      }
+      return { ready: true, observation: { ...live, observedAt: new Date().toISOString() } };
+    }),
+  };
+  return { ...f, input, intent, executor, paths, prepared, absence, ports, bootstrap, observer };
+}
+
+test("Host restoration child publishes claim-bound phases and bootstraps exactly once", async () => {
+  const f = hostRestorationChildFixture();
+  const original = JSON.stringify(f.restoreInput.publication);
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({
+    status: "bootstrap-requested",
+  });
+  expect(f.bootstrap).toHaveBeenCalledOnce();
+  expect(JSON.parse(readFileSync(f.paths.launcherAttempt, "utf8")).reservationSha256).toBe(
+    f.lineage().restoration.claim?.claimSha256,
+  );
+  expect(JSON.parse(readFileSync(f.paths.selectorAttempt, "utf8")).reservationSha256).toBe(
+    f.lineage().restoration.claim?.claimSha256,
+  );
+  expect(JSON.stringify(f.restoreInput.publication)).toBe(original);
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual(f.failed);
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "observe-only" });
+  expect(f.bootstrap).toHaveBeenCalledOnce();
+});
+
+test.each([
+  "intent",
+  "claim",
+  "phase",
+  "launcherAttempt",
+  "selectorAttempt",
+  "bootstrapAttempt",
+] as const)("Host restoration child refuses missing intent or existing %s fence", async (key) => {
+  const f = hostRestorationChildFixture();
+  if (key === "intent") unlinkSync(f.paths.intent);
+  else writeFileSync(f.paths[key], "uncertain", { mode: 0o600 });
+  expect((await executeHostRestorationChild(f.input, f.ports)).status).not.toBe(
+    "bootstrap-requested",
+  );
+  expect(f.bootstrap).not.toHaveBeenCalled();
+  expect(f.lineage().restoration.claim).toBeUndefined();
+});
+
+test.each(["generation", "runtime", "arrangement"] as const)(
+  "Host restoration child refuses substituted %s intent custody",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    if (changed === "generation")
+      writeFileSync(f.paths.intent, JSON.stringify({ ...f.intent, generation: randomUUID() }));
+    else
+      f.ports.assertLaunchArrangement = () => {
+        throw new Error("Pinned immutable native arrangement differs");
+      };
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+    expect(f.bootstrap).not.toHaveBeenCalled();
+    expect(f.lineage().restoration.claim).toBeUndefined();
+  },
+);
+
+test.each(["service", "inventories", "unknown"] as const)(
+  "Host restoration child requires independent %s absence",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    if (changed === "service") f.absence.service += ".foreign";
+    if (changed === "inventories") f.absence.runtimeDirectories.pop();
+    if (changed === "unknown")
+      f.ports.collectAbsence = async () => {
+        throw new Error("Readiness is unavailable, absence unknown");
+      };
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+    expect(f.lineage().restoration.claim).toBeUndefined();
+    expect(f.bootstrap).not.toHaveBeenCalled();
+  },
+);
+
+test("Host restoration child uncertain native claim sync is retained and cannot replay", async () => {
+  const f = hostRestorationChildFixture();
+  f.ports.files = {
+    ...enrollmentWriteFiles,
+    sync() {
+      throw new Error("Uncertain claim fsync");
+    },
+  };
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+  expect(existsSync(f.paths.claim)).toBe(true);
+  expect(f.lineage().restoration.claim).toBeUndefined();
+  expect(
+    await executeHostRestorationChild(f.input, { ...f.ports, files: enrollmentWriteFiles }),
+  ).toEqual({ status: "observe-only" });
+  expect(f.bootstrap).not.toHaveBeenCalled();
+});
+
+test("Host restoration child uncertain ledger consumption cannot publish or replay", async () => {
+  const f = hostRestorationChildFixture();
+  const uncertain = {
+    ...f.input,
+    journal: new FileEnrollmentJournal(f.directory, failingEnrollmentFiles("after-rename")),
+  };
+  expect(await executeHostRestorationChild(uncertain, f.ports)).toEqual({ status: "unresolved" });
+  expect(f.lineage().restoration.claim).toBeDefined();
+  expect(existsSync(f.paths.launcherAttempt)).toBe(false);
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "observe-only" });
+  expect(f.bootstrap).not.toHaveBeenCalled();
+});
+
+test.each(["launcher", "selector", "absence"] as const)(
+  "Host restoration child preserves new phase and untouched selector against changed %s",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    let altered = false;
+    f.prepared.assertCurrent.mockImplementation(() => {
+      if (!altered && existsSync(f.paths.phase)) {
+        altered = true;
+        if (changed === "launcher")
+          writeFileSync(f.plan.precondition.launcher.path, "Foreign bytes");
+        if (changed === "selector") {
+          unlinkSync(f.plan.precondition.identity.selectionPath!);
+          symlinkSync(f.plan.candidate.directory, f.plan.precondition.identity.selectionPath!);
+        }
+        if (changed === "absence")
+          f.absence.assertCurrent.mockImplementation(() => {
+            throw new Error("Target reappeared");
+          });
+      }
+    });
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+    expect(existsSync(f.paths.launcherAttempt)).toBe(true);
+    expect(existsSync(f.paths.selectorAttempt)).toBe(false);
+    expect(f.bootstrap).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["launcher-phase", "bootstrap-fence"] as const)(
+  "Host restoration child post-action %s fsync failure cannot retry effects",
+  async (stage) => {
+    const f = hostRestorationChildFixture();
+    const files: EnrollmentWriteFiles = {
+      ...enrollmentWriteFiles,
+      sync(descriptor) {
+        if (
+          (stage === "launcher-phase" &&
+            existsSync(f.paths.launcherAttempt) &&
+            !existsSync(f.paths.selectorAttempt)) ||
+          (stage === "bootstrap-fence" && existsSync(f.paths.bootstrapAttempt))
+        )
+          throw new Error("Post-action journal fsync uncertain");
+        enrollmentWriteFiles.sync(descriptor);
+      },
+    };
+    expect(
+      await executeHostRestorationChild(
+        { ...f.input, journal: new FileEnrollmentJournal(f.directory, files) },
+        f.ports,
+      ),
+    ).toEqual({ status: "unresolved" });
+    expect(existsSync(f.paths.launcherAttempt)).toBe(true);
+    if (stage === "bootstrap-fence") expect(existsSync(f.paths.bootstrapAttempt)).toBe(true);
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "observe-only" });
+    expect(f.bootstrap).not.toHaveBeenCalled();
+  },
+);
+
+test("Host restoration child lost bootstrap reply is observed without another command", async () => {
+  const f = hostRestorationChildFixture();
+  f.bootstrap.mockImplementation(async () => {
+    throw new Error("Lost native reply");
+  });
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+  expect(f.bootstrap).toHaveBeenCalledOnce();
+  expect((await observeHostRestorationChild(f.input, f.observer)).status).toBe("legacy-restored");
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual(f.failed);
+  expect(f.bootstrap).toHaveBeenCalledOnce();
+});
+
+test("Host restoration child observer proves executor exit before artifact or readiness collection", async () => {
+  const f = hostRestorationChildFixture();
+  await executeHostRestorationChild(f.input, f.ports);
+  f.observer.reader.verifyProcessExited = async () => {
+    throw new Error("Exact child is still alive");
+  };
+  expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({ status: "unresolved" });
+  expect(f.observer.collectPrepared).not.toHaveBeenCalled();
+  expect(f.observer.collectLegacy).not.toHaveBeenCalled();
+  expect(f.lineage().restoration.observation).toBeUndefined();
+});
+
+test("Host restoration child transient readiness stays unresolved and later observes revoked legacy", async () => {
+  const f = hostRestorationChildFixture();
+  await executeHostRestorationChild(f.input, f.ports);
+  const read = f.observer.collectLegacy;
+  f.observer.collectLegacy = async () => ({ ready: false });
+  expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({ status: "unresolved" });
+  expect(f.lineage().restoration.observation).toBeUndefined();
+  expect(existsSync(f.paths.result)).toBe(false);
+  changeStandingGrant(f.journal, {
+    expectedRevision: f.intent.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  f.observer.collectLegacy = read;
+  expect((await observeHostRestorationChild(f.input, f.observer)).status).toBe("legacy-restored");
+  const result = readFileSync(f.paths.result);
+  expect((await observeHostRestorationChild(f.input, f.observer)).status).toBe("legacy-restored");
+  expect(readFileSync(f.paths.result)).toEqual(result);
+  expect(enrolled(f.journal.read()).activation.steps[1]).toEqual(f.failed);
+});
+
+test("Host restoration child claim/ledger disagreement stays observation-only", async () => {
+  const f = hostRestorationChildFixture();
+  await executeHostRestorationChild(f.input, f.ports);
+  const claim = JSON.parse(readFileSync(f.paths.claim, "utf8"));
+  claim.executor.startIdentity = "999:1";
+  writeFileSync(f.paths.claim, JSON.stringify(claim));
+  expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({ status: "unresolved" });
+  expect(f.observer.collectPrepared).not.toHaveBeenCalled();
+  expect(f.lineage().restoration.observation).toBeUndefined();
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "observe-only" });
+});
+
+test("Host restoration child preserves immutable original publication records through restoration", async () => {
+  const f = hostRestorationChildFixture();
+  const files = [
+    f.restoreInput.publication.plan,
+    f.restoreInput.publication.intent,
+    f.restoreInput.publication.claim,
+  ];
+  const before = files.map((image) => readFileSync(image.path));
+  await executeHostRestorationChild(f.input, f.ports);
+  await observeHostRestorationChild(f.input, f.observer);
+  expect(files.map((image) => readFileSync(image.path))).toEqual(before);
+  expect(f.lineage().original.failed).toEqual(f.failed);
+  expect(() =>
+    reserveActivationStep(f.journal, {
+      grantRevision: f.intent.grantRevision,
+      stepId: f.followingId,
+    }),
+  ).toThrow();
+});
+
+test("Host restoration child concurrent invocations cannot duplicate native bootstrap", async () => {
+  const f = hostRestorationChildFixture();
+  const results = await Promise.all([
+    executeHostRestorationChild(f.input, f.ports),
+    executeHostRestorationChild(f.input, f.ports),
+  ]);
+  expect(results.filter((result) => result.status === "bootstrap-requested")).toHaveLength(1);
+  expect(f.bootstrap).toHaveBeenCalledOnce();
+});
+
+test("Host restoration child retains intent identity before asynchronous collection", async () => {
+  const f = hostRestorationChildFixture();
+  const prepare = f.ports.collectPrepared;
+  f.ports.collectPrepared = async (context, signal) => {
+    const bytes = readFileSync(f.paths.intent);
+    unlinkSync(f.paths.intent);
+    writeFileSync(f.paths.intent, bytes, { mode: 0o600 });
+    return prepare(context, signal);
+  };
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+  expect(f.lineage().restoration.claim).toBeUndefined();
+  expect(f.bootstrap).not.toHaveBeenCalled();
+});
+
+test.each(["source", "birth", "parent"] as const)(
+  "Host restoration child observer rejects wrong legacy %s without terminal failure",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    await executeHostRestorationChild(f.input, f.ports);
+    const collect = f.observer.collectLegacy;
+    f.observer.collectLegacy = async (context, signal) => {
+      const result = await collect(context, signal);
+      if (result.ready) {
+        if (changed === "source") result.observation.sourceCommit = f.plan.candidate.sourceCommit;
+        if (changed === "birth") result.observation.worker.startIdentity = "1:0";
+        if (changed === "parent") result.observation.worker.parentPid++;
+      }
+      return result;
+    };
+    expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({
+      status: "unresolved",
+    });
+    expect(f.lineage().restoration.observation).toBeUndefined();
+    expect(f.bootstrap).toHaveBeenCalledOnce();
+  },
+);
+
+test("Host restoration child observer retains raw read ownership after deadline", async () => {
+  const f = hostRestorationChildFixture();
+  await executeHostRestorationChild(f.input, f.ports);
+  const collect = f.observer.collectLegacy;
+  const pending = Promise.withResolvers<{ ready: false }>();
+  const read = vi.fn(() => pending.promise);
+  f.observer.collectLegacy = read;
+  vi.useFakeTimers();
+  try {
+    const first = observeHostRestorationChild(f.input, f.observer);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(await first).toEqual({ status: "unresolved" });
+    expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({
+      status: "unresolved",
+    });
+    expect(read).toHaveBeenCalledOnce();
+    pending.resolve({ ready: false });
+    await vi.advanceTimersByTimeAsync(0);
+    f.observer.collectLegacy = collect;
+    expect((await observeHostRestorationChild(f.input, f.observer)).status).toBe("legacy-restored");
+  } finally {
+    pending.resolve({ ready: false });
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  "prepared-callback",
+  "prepared-data",
+  "absence-callback",
+  "absence-data",
+  "self-callback",
+] as const)(
+  "Host restoration child v2 pins collected %s before claim or effects",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    const collect = f.ports.collectAbsence;
+    f.ports.collectAbsence = async (context, signal) => {
+      if (changed === "prepared-callback") f.prepared.assertCurrent = vi.fn(() => undefined);
+      if (changed === "prepared-data") f.prepared.launchers.fallback.Label += ".foreign";
+      const result = await collect(context, signal);
+      if (changed === "absence-callback")
+        result.assertCurrent = () => {
+          result.assertCurrent = () => undefined;
+        };
+      if (changed === "absence-data")
+        result.assertCurrent = () => {
+          result.observedAt = new Date().toISOString();
+          result.runtimeDirectories.push("/foreign");
+        };
+      if (changed === "self-callback") f.ports.executor.assertCurrent = () => undefined;
+      return result;
+    };
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+    expect(f.lineage().restoration.claim).toBeUndefined();
+    expect(existsSync(f.paths.launcherAttempt)).toBe(false);
+    expect(f.bootstrap).not.toHaveBeenCalled();
+  },
+);
+
+test("Host restoration child v2 rejects self callback replacement by native launch proof", async () => {
+  const f = hostRestorationChildFixture();
+  const replacement = vi.fn(() => undefined);
+  f.ports.assertLaunchArrangement = () => {
+    f.ports.executor.assertCurrent = replacement;
+  };
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+  expect(replacement).not.toHaveBeenCalled();
+  expect(existsSync(f.paths.claim)).toBe(false);
+  expect(f.bootstrap).not.toHaveBeenCalled();
+});
+
+test("Host restoration child v2 checks absence freshness after native callback", async () => {
+  const f = hostRestorationChildFixture();
+  let now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  f.absence.assertCurrent.mockImplementation(() => {
+    now += 30_001;
+  });
+  try {
+    expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+    expect(existsSync(f.paths.claim)).toBe(false);
+    expect(f.bootstrap).not.toHaveBeenCalled();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test.each(["time", "selector", "launcher", "self"] as const)(
+  "Host restoration child v2 rechecks %s after final journal fsync without retry",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    let now = Date.now(),
+      altered = false;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const files: EnrollmentWriteFiles = {
+      ...enrollmentWriteFiles,
+      sync(descriptor) {
+        enrollmentWriteFiles.sync(descriptor);
+        if (!altered && existsSync(f.paths.bootstrapAttempt)) {
+          altered = true;
+          if (changed === "time") now += 30_001;
+          if (changed === "selector") {
+            unlinkSync(f.plan.precondition.identity.selectionPath!);
+            symlinkSync(f.plan.candidate.directory, f.plan.precondition.identity.selectionPath!);
+          }
+          if (changed === "launcher") writeFileSync(f.plan.precondition.launcher.path, "foreign");
+          if (changed === "self") f.ports.executor.assertCurrent = () => undefined;
+        }
+      },
+    };
+    try {
+      expect(
+        await executeHostRestorationChild(
+          { ...f.input, journal: new FileEnrollmentJournal(f.directory, files) },
+          f.ports,
+        ),
+      ).toEqual({ status: "unresolved" });
+      expect(altered).toBe(true);
+      expect(existsSync(f.paths.bootstrapAttempt)).toBe(true);
+      expect(f.bootstrap).not.toHaveBeenCalled();
+      expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({
+        status: "observe-only",
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  },
+);
+
+test.each([
+  "selector",
+  "launcher",
+  "callback",
+  "data",
+  "time",
+  "prepared-callback",
+  "control-callback",
+] as const)(
+  "Host restoration child v2 observer rejects post-callback %s without false observation",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    expect((await executeHostRestorationChild(f.input, f.ports)).status).toBe(
+      "bootstrap-requested",
+    );
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const collect = f.observer.collectLegacy;
+    f.observer.collectLegacy = async (context, signal) => {
+      const result = await collect(context, signal);
+      if (result.ready) {
+        const observed = result.observation;
+        observed.assertCurrent = () => {
+          if (changed === "selector") {
+            unlinkSync(f.plan.precondition.identity.selectionPath!);
+            symlinkSync(f.plan.candidate.directory, f.plan.precondition.identity.selectionPath!);
+          }
+          if (changed === "launcher") writeFileSync(f.plan.precondition.launcher.path, "foreign");
+          if (changed === "callback") observed.assertCurrent = () => undefined;
+          if (changed === "data") observed.worker.parentPid++;
+          if (changed === "time") now += 30_001;
+          if (changed === "prepared-callback") f.prepared.assertCurrent = vi.fn(() => undefined);
+          if (changed === "control-callback") f.observer.assertLaunchIntent = () => undefined;
+        };
+      }
+      return result;
+    };
+    try {
+      expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({
+        status: "unresolved",
+      });
+      expect(f.lineage().restoration.observation).toBeUndefined();
+      expect(existsSync(f.paths.result)).toBe(false);
+      expect(f.bootstrap).toHaveBeenCalledOnce();
+    } finally {
+      clock.mockRestore();
+    }
+  },
+);
+
+test.each(["selector", "launcher"] as const)(
+  "Host restoration child v2 final intent callback cannot change restored %s",
+  async (changed) => {
+    const f = hostRestorationChildFixture();
+    await executeHostRestorationChild(f.input, f.ports);
+    let readinessCollected = false;
+    const collect = f.observer.collectLegacy;
+    f.observer.collectLegacy = async (context, signal) => {
+      const result = await collect(context, signal);
+      readinessCollected = true;
+      return result;
+    };
+    f.observer.assertLaunchIntent = () => {
+      if (readinessCollected) {
+        if (changed === "selector") {
+          unlinkSync(f.plan.precondition.identity.selectionPath!);
+          symlinkSync(f.plan.candidate.directory, f.plan.precondition.identity.selectionPath!);
+        } else writeFileSync(f.plan.precondition.launcher.path, "foreign");
+      }
+    };
+    expect(await observeHostRestorationChild(f.input, f.observer)).toEqual({
+      status: "unresolved",
+    });
+    expect(f.lineage().restoration.observation).toBeUndefined();
+    expect(existsSync(f.paths.result)).toBe(false);
+  },
+);
+
+test("Host restoration child v2 callback receiver cannot rewrite its private baseline", async () => {
+  const f = hostRestorationChildFixture();
+  f.ports.collectPrepared = async function (this: HostRestorationExecutionPorts) {
+    this.executor.assertCurrent = () => undefined;
+    f.ports.executor.assertCurrent = this.executor.assertCurrent;
+    return f.prepared;
+  };
+  expect(await executeHostRestorationChild(f.input, f.ports)).toEqual({ status: "unresolved" });
+  expect(existsSync(f.paths.claim)).toBe(false);
+  expect(f.bootstrap).not.toHaveBeenCalled();
+});
