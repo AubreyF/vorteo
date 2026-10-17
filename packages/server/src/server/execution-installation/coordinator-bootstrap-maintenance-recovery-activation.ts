@@ -1,6 +1,6 @@
 import path from "node:path";
 import { userInfo } from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { realpath } from "node:fs/promises";
 import { constants, openSync, closeSync, writeFileSync, fsyncSync, lstatSync } from "node:fs";
@@ -282,12 +282,26 @@ export async function activateNativeRecoveryBeforeCoordinator(input: {
           assertFiles();
           custody.assertCurrent();
         };
-        const invoke = (role: string, invocation: readonly string[]) => {
+        const invoke = (
+          role: "maintenance-recovery-registration" | "maintenance-recovery-observation",
+          invocation: readonly string[],
+        ) => {
           assertCurrent();
+          const { stepId, generation } = inspectRecoveryActivationInvocation(invocation);
+          // Registration is launched once per durable reservation. Repeated
+          // read-only reopening must not create an unbounded diagnostic stream.
+          const diagnosticFile =
+            role === "maintenance-recovery-registration"
+              ? path.join(
+                  input.stateDirectory,
+                  `maintenance-recovery-registration-${stepId}-${generation}-${randomUUID()}.stderr`,
+                )
+              : undefined;
           return launchRetainedMaintenanceService({
             node: plan.candidate.node.path,
             args: [runner, plan.candidate.setup.path, role, ...invocation],
             deadline,
+            diagnosticFile,
           });
         };
         return {

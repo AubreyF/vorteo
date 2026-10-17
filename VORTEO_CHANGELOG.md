@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.658 - 2026-10-17
+
+### Maintenance
+
+- Retain an exclusive private diagnostic for the initial recovery-page registration child. Derive its name from validated enrollment identifiers and a fresh nonce. Registration still launches only once per durable reservation; read-only reopening creates no automatic diagnostic stream.
+- Preserve controlled recovery conflict messages in private runner stderr and keep unknown errors generic. Real subprocess cases verify both outputs without creating enrollment state. Launch, custody, approval and uncertainty behavior are unchanged.
+- Preserve two unsuccessful linked-launcher fixtures and their cleanup evidence. Neither proves the original refusal's cause or installed readiness; linked native acceptance remains open.
+
 ## 0.11.0-beta.3.vorteo.657 - 2026-10-17
 
 ### Maintenance

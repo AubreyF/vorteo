@@ -909,8 +909,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         ),
       )
       .then((observation) => process.stdout.write(JSON.stringify(observation) + "\n"))
-      .catch(() => {
-        process.stderr.write("Recovery registration requires retained generation observation.\n");
+      .catch((error: unknown) => {
+        const failure =
+          error instanceof BootstrapRequestConflict ? error.message : "Unverified startup error";
+        process.stderr.write(
+          `Recovery registration requires retained generation observation: ${failure}\n`,
+        );
         process.exitCode = 1;
       });
   } else if (setup && identifier && role === "supervision-control") {

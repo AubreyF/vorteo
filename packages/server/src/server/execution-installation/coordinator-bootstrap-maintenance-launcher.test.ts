@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { retainFixtureServiceAdmission } from "./coordinator-bootstrap-maintenance-recovery-native.fixture.js";
 import { hashSync } from "bcryptjs";
 import {
@@ -3910,6 +3912,47 @@ test("recovery activation refuses a malformed retained intent without granting a
   await expect(reconcileRecoveryAccessActivation(f.input, f.ports)).rejects.toThrow();
   expect(f.commands).toEqual(commands);
 });
+
+test.each(["known", "unknown"] as const)(
+  "recovery activation CLI retains only controlled refusal details: %s",
+  async (mode) => {
+    const f = await fixture();
+    const setup =
+      mode === "known"
+        ? f.plan.candidate.setup.path
+        : path.join(f.plan.identity.stateDirectory, "missing-setup.json");
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        fileURLToPath(new URL("./coordinator-bootstrap-runner.ts", import.meta.url)),
+        setup,
+        "maintenance-recovery-observation",
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+      ],
+      { encoding: "utf8", timeout: 4000 },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    const refusal =
+      process.platform === "darwin"
+        ? "Exact initial recovery enrollment is unavailable"
+        : "Recovery activation requires native Host custody";
+    let failure = refusal;
+    if (mode === "unknown" && process.platform === "darwin") failure = "Unverified startup error";
+    expect(result.stderr).toBe(
+      `Recovery registration requires retained generation observation: ${failure}\n`,
+    );
+    expect(result.stdout).toBe("");
+    expect(fileExists(path.join(f.enrollmentStateDirectory, "maintenance-enrollment.json"))).toBe(
+      false,
+    );
+  },
+);
 
 test("recovery activation accepts only four immutable enrollment identifiers", () => {
   const args = Array.from({ length: 4 }, () => randomUUID());
