@@ -396,6 +396,33 @@ export async function exerciseAbsentRecovery(input: {
               ports: { reader, assertCurrent: () => undefined },
             })
         : executeInput.readCandidateObservation;
+      if (input.mode === "recover-observe-runtime") {
+        const nodeBytes = readFileSync(context.selected.node.path);
+        const readWhileLive = vi.fn(readObservation);
+        writeFileSync(
+          context.selected.node.path,
+          "Runtime must not be read while executor is live",
+        );
+        try {
+          await expect(
+            observeMaintenanceRecovery({
+              ...executeInput,
+              reader: {
+                ...reader,
+                verifyProcessExited: async () => {
+                  throw new Error("Recovery executor is live");
+                },
+                inspectProcess: async () => retained.effectIntent!.executor,
+              },
+              readObservation: readWhileLive,
+            }),
+          ).rejects.toThrow("Retained process lifetime exit is unproven");
+          expect(readWhileLive).not.toHaveBeenCalled();
+          expect(JSON.stringify(journal.readLifecycle())).toBe(before);
+        } finally {
+          writeFileSync(context.selected.node.path, nodeBytes);
+        }
+      }
       const result = await observeMaintenanceRecovery({ ...executeInput, readObservation });
       expect(result).toMatchObject({
         ready: input.mode !== "recover-observe-unready",

@@ -47,10 +47,7 @@ import { readMaintenanceLauncherStartup } from "./coordinator-bootstrap-maintena
 import { inspectMaintenanceServiceExecution } from "./coordinator-bootstrap-maintenance-service-binding.js";
 import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
 import { inspectMaintenanceRecoveryExecution } from "./coordinator-bootstrap-maintenance-recovery-binding.js";
-import {
-  executeAbsentMaintenanceRecovery,
-  observeMaintenanceRecovery,
-} from "./coordinator-bootstrap-maintenance-recovery-native.js";
+import { executeAbsentMaintenanceRecovery } from "./coordinator-bootstrap-maintenance-recovery-native.js";
 
 const InvocationSchema = z.tuple([
   z.string().uuid(),
@@ -353,10 +350,15 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
     context.job.operation === "replacement"
       ? executeMaintenanceServiceReplacement
       : executeAbsentMaintenanceRecovery;
-  const observe =
-    context.job.operation === "replacement"
-      ? observeMaintenanceServiceReplacement
-      : observeMaintenanceRecovery;
+  const readCandidateObservation = (signal: AbortSignal) => {
+    const readObservation = () =>
+      inspectMaintenanceServiceReadiness({ ...observationInput, ports, signal });
+    if (context.job.operation === "replacement")
+      return observeMaintenanceServiceReplacement({ ...observationInput, readObservation });
+    // Recovery execution verifies the returned readiness with its retained claim
+    // and child custody. External observation separately requires executor exit.
+    return readObservation();
+  };
   return execute({
     ...observationInput,
     expectedRevision: context.expectedRevision,
@@ -374,15 +376,6 @@ export async function runNativeMaintenanceService(setupFile: string, args: reado
         assertCurrent,
       },
     }),
-    readCandidateObservation: (signal) =>
-      observe({
-        ...observationInput,
-        readObservation: () =>
-          inspectMaintenanceServiceReadiness({
-            ...observationInput,
-            ports,
-            signal,
-          }),
-      }),
+    readCandidateObservation,
   });
 }

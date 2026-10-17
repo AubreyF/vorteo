@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.643 - 2026-10-16
+
+### Fixed
+
+- Defer external recovery observation artifact reads until the consumed intent's exact executor lifetime is proven exited. An observer hashing the target executable could otherwise interfere with the running child's native absence inventory. Live or unproven executors refuse observation without reading readiness or changing history.
+- Keep the executing child's post-bootstrap readiness collection under its existing retained claim, native custody and final readiness verifier. It does not use the external exit-first path or acquire permission to skip an exit check.
+- Reproduce artifact inspection before exit proof and cover same-generation readiness after exit and revocation. Eleven focused recovery cases pass with native ports simulated. Concurrent health/discovery artifact readers, full compiled linked recovery and installed activation remain open; no installed service or capability changes.
+
 ## 0.11.0-beta.3.vorteo.642 - 2026-10-16
 
 ### Fixed

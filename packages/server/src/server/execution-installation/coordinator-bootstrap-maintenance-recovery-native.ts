@@ -27,7 +27,10 @@ import {
   verifyMaintenanceRecoveryObservation,
 } from "./coordinator-bootstrap-maintenance-recovery-ready.js";
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
-import type { NativeBootstrapServiceReader } from "./coordinator-bootstrap-service.js";
+import {
+  verifyRetainedProcessExited,
+  type NativeBootstrapServiceReader,
+} from "./coordinator-bootstrap-service.js";
 
 type Claim = Parameters<typeof claimMaintenanceServiceEffect>[0];
 type Absence = Parameters<typeof inspectAbsentMaintenanceRecovery>[0];
@@ -186,6 +189,10 @@ export async function observeMaintenanceRecovery(
       !isDeepStrictEqual(context.reservation, input.reservation)
     )
       throw new BootstrapRequestConflict("Recovery observation reservation changed");
+    // Artifact readers hold native file references. Wait for the exact effect
+    // executor to exit so observation cannot invalidate its absence inventory.
+    await verifyRetainedProcessExited(input.reader, context.intent.executor);
+    signal.throwIfAborted();
     await verifyMaintenanceLauncherArtifacts({ ...input, plan: context.plan.original });
     signal.throwIfAborted();
     const result = await input.readObservation(signal);
