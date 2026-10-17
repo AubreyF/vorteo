@@ -224,7 +224,6 @@ async function inspectInitialHostMigrationLaunchers(
   roots: readonly string[],
 ) {
   const assertCurrent = retainServiceFiles([
-    plan.precondition.launcher.path,
     plan.candidate.launcher.path,
     plan.fallback.launcher.path,
     plan.precondition.configuration.path,
@@ -234,13 +233,14 @@ async function inspectInitialHostMigrationLaunchers(
       (await readBootstrapPreparedFile(plan.precondition.configuration, roots)).toString("utf8"),
     ),
   );
-  const current = await readBootstrapLauncher(plan.precondition.launcher, roots);
   const fallback = await readBootstrapLauncher(plan.fallback.launcher, roots);
   const candidate = await readBootstrapLauncher(plan.candidate.launcher, roots);
   verifyInitialHostMigrationLaunchers({
     plan,
     sourceUpdates: configuration.sourceUpdates,
-    current,
+    // Its exact pinned hash equals the original live launcher's hash. This copy
+    // remains immutable when the live launcher is intentionally replaced.
+    current: fallback,
     fallback,
     candidate,
   });
@@ -797,6 +797,36 @@ export async function inspectInitialHostMigrationArtifacts(input: {
   writableMountRoots: readonly string[];
   signal: AbortSignal;
 }) {
+  const { plan } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const signal = input.signal;
+  const roots = [...input.writableMountRoots];
+  const started = Date.now();
+  const original = retainServiceFiles([plan.precondition.launcher.path]);
+  signal.throwIfAborted();
+  await readBootstrapPreparedFile(plan.precondition.launcher, roots);
+  original();
+  const prepared = await inspectInitialHostPreparedArtifacts({
+    plan,
+    writableMountRoots: roots,
+    signal,
+  });
+  const assertCurrent = () => {
+    original();
+    prepared.assertPreparedCurrent();
+    original();
+  };
+  assertCurrent();
+  requireMatch(Date.now() - started < 30_000, "Initial Host artifact collection deadline exceeded");
+  return { ...prepared, assertCurrent };
+}
+
+/** Prepared integrity and launcher semantics remain inspectable after live
+ * publication. This grants neither incumbent custody nor effect authority. */
+export async function inspectInitialHostPreparedArtifacts(input: {
+  plan: unknown;
+  writableMountRoots: readonly string[];
+  signal: AbortSignal;
+}) {
   const { plan, planSha256 } = inspectInitialHostSupervisorMigrationPlan(input.plan);
   const signal = input.signal;
   const roots = [...input.writableMountRoots];
@@ -808,7 +838,7 @@ export async function inspectInitialHostMigrationArtifacts(input: {
   checkCollection();
   const referenceRoot = fileURLToPath(new URL("../../../../../../../", import.meta.url));
   const launcherProof = await inspectInitialHostMigrationLaunchers(plan, roots);
-  const proofs: Array<{ assertCurrent(): void }> = [];
+  const proofs: Array<{ assertCurrent(): void }> = [launcherProof];
   checkCollection();
   proofs.push(
     await inspectBootstrapReleaseArtifacts(plan.candidate, roots, {

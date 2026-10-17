@@ -158,7 +158,10 @@ function restartReply(
   requireOwnerApproval?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
+  // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
   const {
+    workerLaunch: _workerLaunch,
+    workerLaunchRequest: _workerLaunchRequest,
     standingDecision: _standingDecision,
     standingHold: _standingHold,
     standingInterruption: _standingInterruption,
@@ -673,6 +676,8 @@ export function createInstallationServer(
           res.json({
             version: 1,
             targets,
+            // No protected per-worker native launch capability has been installed.
+            workerLaunch: { available: false },
             ownerApprovalRequired: !automaticHost || !host,
             hostAutomaticRestarts: automaticHost,
             requireOwnerApproval: host,
@@ -1167,7 +1172,24 @@ export function createInstallationServer(
       res.sendStatus(401);
       return;
     }
-    const job = restarts.request(RestartRequestSchema.parse(req.body), requestedBy);
+    const input = RestartRequestSchema.parse(req.body);
+    if (input.workerLaunchRequest && req.query.workerLaunch !== "1") {
+      res
+        .status(409)
+        .json({ error: "Worker launch requires explicit compatible requester negotiation" });
+      return;
+    }
+    const job = restarts.request(input, requestedBy);
+    if (input.workerLaunchRequest) {
+      res.status(201).json({
+        id: job.id,
+        revision: job.revision,
+        status: job.status,
+        detail: job.detail,
+        workerLaunch: job.workerLaunch ?? null,
+      });
+      return;
+    }
     res
       .status(201)
       .json(
@@ -1199,6 +1221,16 @@ export function createInstallationServer(
     const job = restarts.list().find((candidate) => candidate.id === req.params.id);
     if (!job) {
       res.sendStatus(404);
+      return;
+    }
+    if (req.query.workerLaunch === "1") {
+      res.json({
+        id: job.id,
+        revision: job.revision,
+        status: job.status,
+        detail: job.detail,
+        workerLaunch: job.workerLaunch ?? null,
+      });
       return;
     }
     res.json(

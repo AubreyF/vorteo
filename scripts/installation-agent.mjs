@@ -195,6 +195,31 @@ switch (positionals[0]) {
     if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
     resource = `/api/installation/coordinator-requests/${positionals[1]}`;
     break;
+  case "request-worker-launch": {
+    if (config.kind !== "container-agent" || !values["request-file"] || !values["reason-file"])
+      throw new Error("Use the Dev requester with --request-file hints and --reason-file");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+    });
+    const capabilities = response.ok ? await response.json() : null;
+    if (capabilities?.workerLaunch?.available !== true)
+      throw new Error(
+        "Protected Linux worker launch capability is unavailable; no launch requested",
+      );
+    resource = "/api/installation/restart-requests?workerLaunch=1";
+    body = {
+      target: "container-daemon",
+      reason: readFileSync(values["reason-file"], "utf8"),
+      workerLaunchRequest: JSON.parse(readFileSync(values["request-file"], "utf8")),
+      ...(values.requester ? { requester: values.requester } : {}),
+    };
+    break;
+  }
+  case "worker-launch-status":
+    if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? "")) throw new Error("A request ID is required");
+    resource = `/api/installation/restart-requests/${positionals[1]}?workerLaunch=1`;
+    break;
   case "request-restart":
     if (!values["reason-file"])
       throw new Error("Use --reason-file with the disruption and restart reason");
@@ -232,7 +257,7 @@ switch (positionals[0]) {
     break;
   default:
     throw new Error(
-      "Commands: capabilities, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, container-agents (Host only)",
+      "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, container-agents (Host only)",
     );
 }
 let upload;

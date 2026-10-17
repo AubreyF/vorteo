@@ -45,9 +45,93 @@ export const InstallationUnlockSchema = z.strictObject({
 export type InstallationUnlock = z.infer<typeof InstallationUnlockSchema>;
 
 export const RestartTargetSchema = z.enum(["host", "container-daemon"]);
+/** Send only to coordinators advertising workerLaunch.available.
+ * Hints are never retained authority or an executable launch specification. */
+export const WorkerLaunchCauseHintSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("predecessor"), generation: z.string().uuid() }),
+  z.strictObject({ kind: z.literal("startup"), registrationGeneration: z.string().uuid() }),
+]);
+export const WorkerLaunchCauseSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("predecessor"),
+    generation: z.string().uuid(),
+    settlementSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  z.strictObject({
+    kind: z.literal("startup"),
+    registrationGeneration: z.string().uuid(),
+    registrationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+]);
+export const WorkerLaunchRequestSchema = z.strictObject({
+  profileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  supervisorPid: z.number().int().positive(),
+  cause: WorkerLaunchCauseHintSchema,
+});
+export type WorkerLaunchRequest = z.infer<typeof WorkerLaunchRequestSchema>;
+
+export const WorkerLaunchNativeIdentitySchema = z.strictObject({
+  pid: z.number().int().positive(),
+  parentPid: z.number().int().nonnegative(),
+  uid: z.number().int().nonnegative(),
+  bootId: z.string().min(1).max(200),
+  // Linux start ticks. Mac birth timestamps require a different native verifier.
+  startTicks: z.string().regex(/^[0-9]+$/),
+});
+export const WorkerLaunchBindingSchema = z.strictObject({
+  requestId: z.string().uuid(),
+  approvalRevision: z.string().uuid(),
+  generation: z.string().uuid(),
+  grantId: z.string().uuid(),
+  grantRevision: z.string().uuid(),
+  manifestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  profileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  targetIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  publicationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  cause: WorkerLaunchCauseSchema,
+  supervisor: WorkerLaunchNativeIdentitySchema,
+});
+export const WorkerLaunchVerifiedCauseSchema = WorkerLaunchBindingSchema.pick({
+  supervisor: true,
+  cause: true,
+  profileSha256: true,
+  targetIdentitySha256: true,
+});
+export type WorkerLaunchVerifiedCause = z.infer<typeof WorkerLaunchVerifiedCauseSchema>;
+const workerLaunchRecord = {
+  binding: WorkerLaunchBindingSchema,
+  reservedAt: z.string().datetime(),
+};
+/** Controller-owned suboperation, never accepted as a requester payload. */
+export const WorkerLaunchSchema = z.discriminatedUnion("phase", [
+  z.strictObject({ ...workerLaunchRecord, phase: z.literal("reserved") }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("consumed"),
+    consumedAt: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("uncertain"),
+    consumedAt: z.string().datetime(),
+  }),
+  z.strictObject({
+    ...workerLaunchRecord,
+    phase: z.literal("settled"),
+    consumedAt: z.string().datetime(),
+    observedAt: z.string().datetime(),
+    observationSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+]);
+export type WorkerLaunch = z.infer<typeof WorkerLaunchSchema>;
+export type WorkerLaunchBinding = z.infer<typeof WorkerLaunchBindingSchema>;
+
 export const RestartRequestSchema = z.strictObject({
   // COMPAT(requireOwnerApproval): optional in v311; project out for clients until 2027-04-11.
   requireOwnerApproval: z.boolean().optional(),
+  workerLaunchRequest: WorkerLaunchRequestSchema.optional(),
   factoryRuntimeRecoveryOf: z.string().uuid().optional(),
   // COMPAT(factoryRuntimeAdoption): optional in v285; remove legacy projection after 2027-04-10.
   factoryRuntimePlanSha256: z
@@ -215,6 +299,7 @@ export const StandingRestartHoldSchema = z.strictObject({
 });
 
 export const RestartJobSchema = RestartRequestSchema.extend({
+  workerLaunch: WorkerLaunchSchema.optional(),
   standingDecision: StandingRestartDecisionSchema.optional(),
   standingHold: StandingRestartHoldSchema.optional(),
   standingInterruption: StandingInterruptionSchema.optional(),

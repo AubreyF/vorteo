@@ -4247,3 +4247,68 @@ process.stdout.write(fs.readFileSync(selected,'utf8'));
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("worker launch hints retain one controller receipt and never dispatch ordinary restart", async () => {
+  const journal = new MemoryJournal();
+  const atomicJournal: RestartJournal = {
+    read: () => journal.read(),
+    write: (jobs) =>
+      journal.write(
+        jobs.filter(
+          (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+        ),
+      ),
+    mutate: (update) =>
+      journal.write(
+        update(journal.read()).filter(
+          (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+        ),
+      ),
+  };
+  let effects = 0;
+  const queue = new InstallationRestarts(atomicJournal, {
+    restart: async () => {
+      effects += 1;
+      return "wrong effect";
+    },
+  });
+  const request = {
+    target: "container-daemon" as const,
+    reason: "Recover exact predecessor",
+    workerLaunchRequest: {
+      profileSha256: "a".repeat(64),
+      supervisorPid: 123,
+      cause: { kind: "predecessor" as const, generation: randomUUID() },
+    },
+  };
+  const first = queue.request(request, "container-agent");
+  expect(queue.request(request, "container-agent").id).toBe(first.id);
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "ordinary restart" }, "owner"),
+  ).toThrow("cannot share");
+  queue.decide(first.id, first.revision, "approve");
+  await queue.drain();
+  expect(effects).toBe(0);
+  expect(queue.list().find((job) => job.id === first.id)?.detail).toContain(
+    "capability is unavailable",
+  );
+});
+
+test("worker launch cannot borrow Host, Factory or source-update authority", () => {
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => "wrong effect",
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "worker recovery",
+    workerLaunchRequest: {
+      profileSha256: "a".repeat(64),
+      supervisorPid: 123,
+      cause: { kind: "predecessor" as const, generation: randomUUID() },
+    },
+  };
+  expect(() => queue.request(input, "host-agent")).toThrow("separate Dev requester");
+  expect(() =>
+    queue.request({ ...input, factoryRuntimePlanSha256: "a".repeat(64) }, "container-agent"),
+  ).toThrow("separate Dev requester");
+});

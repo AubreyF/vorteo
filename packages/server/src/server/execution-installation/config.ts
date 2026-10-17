@@ -9,6 +9,8 @@ import {
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
 
+import { DevRegistrationReferenceSchema } from "./maintenance/dev-registration.js";
+
 const DaemonConnectionSchema = z.strictObject({
   endpoint: z.string().min(1),
   password: z.string().min(1),
@@ -71,6 +73,7 @@ export const InstallationConfigSchema = z.strictObject({
       .optional(),
   }),
   container: DaemonConnectionSchema.extend({
+    persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({

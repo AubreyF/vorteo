@@ -4,6 +4,14 @@ import { constants, openSync, closeSync, fsyncSync, existsSync } from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { z } from "zod";
+import { InstallationConfigSchema } from "../config.js";
+import { BootstrapAdmissionSetupSchema } from "../coordinator-bootstrap-host.js";
+import { BootstrapRunnerSetupSchema } from "../coordinator-bootstrap-runner.js";
+import { readBootstrapPreparedFile } from "../coordinator-bootstrap-artifact.js";
+import {
+  retainMaintenancePublishedFile,
+  retainMaintenancePublishedLink,
+} from "../coordinator-bootstrap-maintenance-file-selection.js";
 import {
   BootstrapRequestConflict,
   assertCoordinatorLifecycleIdle,
@@ -31,9 +39,14 @@ import {
   writeInitialHostArtifact,
   InitialHostMigrationClaimSchema,
   InitialHostMigrationIntentSchema,
+  inspectInitialHostPreparedArtifacts,
   type InitialHostSupervisorMigrationPlan,
 } from "./host-supervisor-migration.js";
-import type { EnrollmentDaemonObservation } from "./native-daemon-inspection.js";
+import {
+  inspectEnrollmentDaemonIdentity,
+  retainNativeHostServiceCustody,
+  type EnrollmentDaemonObservation,
+} from "./native-daemon-inspection.js";
 
 type ExecutionInput = Parameters<typeof claimInitialHostMigration>[0];
 type AbsenceProof = Parameters<typeof publishInitialHostMigrationSelection>[0]["absence"];
@@ -54,6 +67,195 @@ interface HostObservationPorts {
     observation: EnrollmentDaemonObservation;
     assertSelection(): void;
   }>;
+}
+
+/** Exact published bytes only. The caller must additionally retain prepared
+ * runtime and ordinary native custody before accepting candidate readiness. */
+export function inspectInitialHostCandidatePublication(
+  context: HostExecutionContext,
+  launcher: Buffer,
+) {
+  const { plan, claim, intent, planSha256 } = context;
+  requireMatch(
+    sha(plan) === planSha256 &&
+      intent.planSha256 === planSha256 &&
+      intent.identitySha256 === plan.identitySha256 &&
+      sha(plan.precondition) === intent.preconditionSha256 &&
+      claim.intentId === intent.id &&
+      claim.intentSha256 === sha(intent) &&
+      claim.planSha256 === planSha256 &&
+      claim.generation === intent.generation &&
+      claim.stepId === intent.stepId,
+    "Host publication differs from its exact claim",
+  );
+  requireMatch(
+    createHash("sha256").update(launcher).digest("hex") === plan.candidate.launcher.sha256,
+    "Host published launcher differs from candidate",
+  );
+  const directory = path.dirname(context.file);
+  const publicationFile = path.join(directory, `initial-host-publication-${intent.id}.json`);
+  const claimSha256 = sha(claim);
+  const phase = {
+    version: 1,
+    intentId: intent.id,
+    claimSha256,
+    generation: claim.generation,
+    planSha256,
+    slot: "candidate",
+  };
+  const phaseBytes = Buffer.from(JSON.stringify(phase));
+  const launcherAttempt = {
+    version: 1,
+    reservationSha256: claimSha256,
+    files: [
+      {
+        path: plan.precondition.launcher.path,
+        previousSha256: plan.precondition.launcher.sha256,
+        sha256: plan.candidate.launcher.sha256,
+      },
+      {
+        path: publicationFile,
+        previousSha256: null,
+        sha256: createHash("sha256").update(phaseBytes).digest("hex"),
+      },
+    ],
+  };
+  const selectorAttempt = {
+    version: 1,
+    operation: "release-link-selection",
+    reservationSha256: claimSha256,
+    link: plan.precondition.identity.selectionPath!,
+    previous: plan.precondition.selectedRelease,
+    candidate: plan.candidate.directory,
+  };
+  const proofs = [
+    retainMaintenancePublishedFile(publicationFile, phaseBytes),
+    retainMaintenancePublishedFile(
+      path.join(directory, `initial-host-launcher-attempt-${intent.id}.json`),
+      Buffer.from(JSON.stringify(launcherAttempt)),
+    ),
+    retainMaintenancePublishedFile(
+      path.join(directory, `initial-host-selector-attempt-${intent.id}.json`),
+      Buffer.from(JSON.stringify(selectorAttempt)),
+    ),
+    retainMaintenancePublishedFile(plan.precondition.launcher.path, launcher),
+    retainMaintenancePublishedLink(
+      plan.precondition.identity.selectionPath!,
+      plan.candidate.directory,
+    ),
+  ];
+  return () => {
+    for (const proof of proofs) proof();
+  };
+}
+
+/** Production read-only collection. Use only behind the observer's exact child
+ * exit gate; this intentionally contains no service or publication commands. */
+export async function collectInitialHostCandidate(
+  context: HostExecutionContext,
+  writableMountRoots: readonly string[],
+  signal: AbortSignal,
+) {
+  const roots = [...writableMountRoots];
+  const prepared = await inspectInitialHostPreparedArtifacts({
+    plan: context.plan,
+    writableMountRoots: roots,
+    signal,
+  });
+  const configuration = context.plan.precondition.configuration;
+  const configFiles = retainServiceFiles([configuration.path]);
+  const config = InstallationConfigSchema.parse(
+    JSON.parse((await readBootstrapPreparedFile(configuration, roots)).toString("utf8")),
+  );
+  configFiles();
+  const launcher = await readBootstrapPreparedFile(context.plan.candidate.launcher, roots);
+  const publication = inspectInitialHostCandidatePublication(context, launcher);
+  const observation = await inspectEnrollmentDaemonIdentity(
+    config,
+    context.plan.precondition.identity,
+  );
+  const native = await retainCandidateNativeCustody(context, observation, roots);
+  signal.throwIfAborted();
+  requireMatch(
+    isDeepStrictEqual([...observation.writableMountRoots].sort(), roots.sort()),
+    "Host candidate mount custody changed during observation",
+  );
+  const assertSelection = () => {
+    signal.throwIfAborted();
+    requireMatch(
+      prepared.assertPreparedCurrent() === undefined,
+      "Host prepared observation custody must be synchronous",
+    );
+    configFiles();
+    publication();
+    requireMatch(
+      sha(context.plan) === prepared.planSha256 && context.planSha256 === prepared.planSha256,
+      "Host candidate prepared plan changed",
+    );
+    signal.throwIfAborted();
+    const age = Date.now() - Date.parse(observation.observedAt);
+    requireMatch(age >= 0 && age < 30_000, "Host native candidate custody expired");
+  };
+  const assertNative = () => {
+    requireMatch(
+      observation.assertCurrent() === undefined && native() === undefined,
+      "Host native observation custody must be synchronous",
+    );
+    assertSelection();
+  };
+  assertNative();
+  return { observation: { ...observation, assertCurrent: assertNative }, assertSelection };
+}
+
+async function retainCandidateNativeCustody(
+  context: HostExecutionContext,
+  observed: EnrollmentDaemonObservation,
+  roots: string[],
+) {
+  const original = context.plan.precondition;
+  const runnerFile = path.join(
+    original.identity.installationRoot,
+    "coordinator-bootstrap-runner.json",
+  );
+  const runnerFiles = retainServiceFiles([runnerFile]);
+  const runner = BootstrapRunnerSetupSchema.parse(
+    readPrivateBootstrapConfiguration(runnerFile, nativeUid()),
+  );
+  const admissionFiles = retainServiceFiles([runner.admissionSetupFile]);
+  const setup = BootstrapAdmissionSetupSchema.parse(
+    readPrivateBootstrapConfiguration(runner.admissionSetupFile, nativeUid()),
+  );
+  requireMatch(
+    setup.configurationFile === original.configuration.path,
+    "Host native candidate admission configuration changed",
+  );
+  const environment = {
+    ...original.registration.environment,
+    PASEO_MANAGED_RELEASE_LINK: original.identity.selectionPath!,
+    PASEO_MANAGED_RELEASE_ROOT: context.plan.managedReleaseRoot,
+  };
+  const native = await retainNativeHostServiceCustody(setup, roots, {
+    identity: original.identity,
+    registration: {
+      program: original.registration.program,
+      arguments: original.registration.arguments,
+      environment,
+      loadedEnvironment: {
+        ...original.registration.loadedEnvironment,
+        PASEO_MANAGED_RELEASE_LINK: original.identity.selectionPath!,
+        PASEO_MANAGED_RELEASE_ROOT: context.plan.managedReleaseRoot,
+      },
+    },
+    supervisor: observed.supervisor,
+    worker: observed.worker,
+  });
+  return () => {
+    runnerFiles();
+    admissionFiles();
+    native();
+    runnerFiles();
+    admissionFiles();
+  };
 }
 
 /** Reopening is observation-only, including after revocation. No command port,
@@ -213,7 +415,6 @@ export async function executeInitialHostMigrationTransition(
   assertActive();
   const launcher = await readBoundedMaintenanceInspection(
     async () => {
-      const { readBootstrapPreparedFile } = await import("../coordinator-bootstrap-artifact.js");
       return readBootstrapPreparedFile(context.plan.candidate.launcher, writableMountRoots);
     },
     { timeoutMs: 10_000, detail: "Host launcher collection timed out" },

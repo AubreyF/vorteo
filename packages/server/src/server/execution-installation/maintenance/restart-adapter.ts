@@ -28,6 +28,10 @@ export interface StandingRestartAdmissionPorts {
   evidence(job: RestartJob): StandingRestartEvidence | null;
   /** Synchronous protected evidence checks only. Native collection precedes admission. */
   assertEvidence(job: RestartJob, phase: StandingRestartPhase): void;
+  /** Remains absent until protected Linux launch/observation is accepted. */
+  assertNativeWorkerEvidence?: Parameters<
+    typeof import("./worker-launch.js").assertWorkerLaunchAdmission
+  >[0]["assertNativeWorkerEvidence"];
 }
 
 /** Reuses the existing queue and its shared kernel lock. Enrollment policy evaluation

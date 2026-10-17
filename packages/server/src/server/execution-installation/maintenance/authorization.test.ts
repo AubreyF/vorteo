@@ -2,6 +2,7 @@ import { inspectInitialHostFallbackCopy } from "./host-supervisor-fallback.js";
 import {
   executeInitialHostMigrationTransition,
   observeInitialHostMigrationTransition,
+  inspectInitialHostCandidatePublication,
 } from "./host-supervisor-execution.js";
 import { digestBootstrapArtifact } from "../coordinator-bootstrap-artifact.js";
 import { InitialHostSupervisorPreconditionSchema } from "./native-daemon-inspection.js";
@@ -4787,6 +4788,38 @@ test("initial Host publication joins one claim to both exact file publications",
   expect(readFileSync(publication)).toEqual(before);
   expect(f.absence.assertCurrent).toHaveBeenCalled();
   expect(() => result.assertSelection()).not.toThrow();
+});
+
+test.each(["phase", "launcher attempt", "selector attempt", "launcher", "selector"])(
+  "initial Host candidate publication observation retains exact %s",
+  (changed) => {
+    const f = initialHostPublicationFixture();
+    publishInitialHostMigrationSelection(f.publication);
+    const context = { ...inspectInitialHostSupervisorMigrationPlan(f.plan), ...f.claim };
+    const assertCurrent = inspectInitialHostCandidatePublication(context, f.candidateLauncher);
+    expect(() => assertCurrent()).not.toThrow();
+    if (changed === "launcher")
+      writeFileSync(f.plan.precondition.launcher.path, "changed launcher");
+    else if (changed === "selector") {
+      unlinkSync(f.plan.precondition.identity.selectionPath!);
+      symlinkSync(f.plan.precondition.selectedRelease, f.plan.precondition.identity.selectionPath!);
+    } else {
+      const name = changed === "phase" ? "publication" : changed.replace(" ", "-");
+      writeFileSync(
+        path.join(f.directory, `initial-host-${name}-${f.retained.intent.id}.json`),
+        "changed receipt",
+      );
+    }
+    expect(() => assertCurrent()).toThrow();
+  },
+);
+
+test("initial Host candidate publication observation refuses another claim", () => {
+  const f = initialHostPublicationFixture();
+  publishInitialHostMigrationSelection(f.publication);
+  const context = { ...inspectInitialHostSupervisorMigrationPlan(f.plan), ...f.claim };
+  context.claim.executor = { ...context.claim.executor, startIdentity: "300:1" };
+  expect(() => inspectInitialHostCandidatePublication(context, f.candidateLauncher)).toThrow();
 });
 
 test.each(["launcher", "selector"])(

@@ -1,3 +1,4 @@
+import { assertWorkerLaunchAdmission, workerLaunchRequestCompatible } from "./worker-launch.js";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -24,6 +25,7 @@ export function standingRestartPlanDigest(job: RestartJob): string {
     reason: job.reason,
     createdAt: job.createdAt,
     requireOwnerApproval: job.requireOwnerApproval ?? false,
+    ...(job.workerLaunchRequest ? { workerLaunchRequest: job.workerLaunchRequest } : {}),
     update: job.update ?? null,
     sourceBatch: job.sourceBatch ?? null,
     supervisorPlanSha256: job.supervisorPlanSha256 ?? null,
@@ -38,6 +40,7 @@ function digest(value: unknown): string {
 }
 
 function enrolledOperation(job: RestartJob) {
+  if (job.workerLaunchRequest) return "worker-launch";
   if (job.supervisorPlanSha256) return "replacement";
   if (job.factoryRuntimePlanSha256) return "runtime-adoption";
   if (job.devRepairs?.some((repair) => repair.status === "prepared")) return "source-repair";
@@ -57,6 +60,12 @@ export function evaluateStandingRestart(input: {
   if (input.state.status === "absent") return undefined;
   const { grant, activation } = input.state;
   const { job } = input;
+  if (!workerLaunchRequestCompatible(job)) return null;
+  if (
+    job.workerLaunchRequest &&
+    grant.manifest.workerLaunchProfile?.profileSha256 !== job.workerLaunchRequest.profileSha256
+  )
+    return null;
   const target = job.supervisorPlanSha256 ? "supervisor" : job.target;
   const binding = grant.manifest.targets.find((item) => item.target === target);
   if (
@@ -172,11 +181,15 @@ interface AdmissionInput {
   /** Read protected preparation/admission receipts only. Heavy native validation
    * happens before the lock; the executor rechecks actual selection before effects. */
   assertEvidence(job: RestartJob, phase: StandingRestartPhase): void;
+  assertNativeWorkerEvidence?: Parameters<
+    typeof assertWorkerLaunchAdmission
+  >[0]["assertNativeWorkerEvidence"];
 }
 
 /** Called only inside FileBootstrapRequestJournal.writeLifecycle's admission hook.
  * Cancellation, hold release and terminal observations never acquire fresh authority. */
 export function assertStandingRestartAdmission(input: AdmissionInput): void {
+  assertWorkerLaunchAdmission(input);
   const previous = new Map(input.previous.map((job) => [job.id, job]));
   const next = new Map(input.next.map((job) => [job.id, job]));
   for (const retained of input.previous) {
@@ -196,6 +209,10 @@ export function assertStandingRestartAdmission(input: AdmissionInput): void {
     const phase = effectPhase(retained, proposed);
     assertInterruptionTransition(input, retained, proposed, phase);
     if (!phase) continue;
+    // Native worker launch has no accepted executor yet. Neither manual approval
+    // nor ordinary restart evidence may turn these hints into a daemon restart.
+    if (proposed.workerLaunchRequest)
+      throw new BootstrapRequestConflict("Protected Linux worker launch capability is unavailable");
     assertEffectAdmission(input, retained, proposed, phase);
   }
 }

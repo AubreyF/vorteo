@@ -15,6 +15,7 @@ import {
   inspectInitialHostSupervisorMigration,
   InitialHostSupervisorPreconditionSchema,
   DEV_DAEMON_INSPECTION_SCRIPT,
+  retainNativeHostServiceCustody,
   type EnrollmentDaemonInspectionPorts,
 } from "./native-daemon-inspection.js";
 
@@ -823,6 +824,74 @@ async function initialHostMigrationFixture() {
   });
   return { ...f, precondition, nativeAssertions: () => nativeAssertions };
 }
+
+async function retainedHostNativeFixture() {
+  const f = await initialHostMigrationFixture();
+  const helperPath = path.join(f.root, "helper");
+  const helper = "synthetic read-only native helper";
+  await writeFile(helperPath, helper, { mode: 0o600 });
+  const setup = JSON.parse(await readFile(path.join(f.root, "admission.json"), "utf8"));
+  setup.helperSha256 = createHash("sha256").update(helper).digest("hex");
+  const registration = () =>
+    `${f.config.host.launchdService} = {\n\tpath = ${f.expected.launcherPath}\n\tprogram = ${f.config.host.startupValidation!.node}\n\targuments = {\n\t\t${f.plist.ProgramArguments.join("\n\t\t")}\n\t}\n\tenvironment = {\n\t\t${Object.entries(
+      f.plist.EnvironmentVariables,
+    )
+      .map(([key, value]) => `${key} => ${value}`)
+      .join("\n\t\t")}\n\t}\n\tpid = ${f.supervisor.pid}\n}\n`;
+  let clock = 0;
+  let afterNative = () => {};
+  const calls: string[] = [];
+  const commands = {
+    now: () => clock,
+    run(file: string, args: string[]) {
+      calls.push(file);
+      const result =
+        file === "/bin/launchctl"
+          ? registration()
+          : JSON.stringify({
+              ...(Number(args[4]) === f.supervisor.pid ? f.supervisor : f.worker),
+              stopped: false,
+            });
+      afterNative();
+      return result;
+    },
+  };
+  const proof = await retainNativeHostServiceCustody(setup, [], f.precondition, commands);
+  return {
+    ...f,
+    proof,
+    commands,
+    calls,
+    helperPath,
+    setClock: (value: number) => {
+      clock = value;
+    },
+    afterCommand: (callback: () => void) => {
+      afterNative = callback;
+    },
+  };
+}
+
+test("retained Host native custody independently verifies service and both exact lifetimes", async () => {
+  const f = await retainedHostNativeFixture();
+  expect(() => f.proof()).not.toThrow();
+  expect(f.calls).toEqual(["/bin/launchctl", "/usr/bin/python3", "/usr/bin/python3"]);
+});
+
+test.each(["service", "birth", "argv", "parent", "environment", "helper", "deadline"])(
+  "retained Host native custody refuses changed %s during final verification",
+  async (changed) => {
+    const f = await retainedHostNativeFixture();
+    if (changed === "service") f.supervisor.pid++;
+    if (changed === "birth") f.worker.startIdentity = "202:123";
+    if (changed === "argv") f.supervisor.argumentsSha256 = "a".repeat(64);
+    if (changed === "parent") f.worker.parentPid++;
+    if (changed === "environment") f.plist.EnvironmentVariables.ADDED = "unreviewed";
+    if (changed === "helper") f.afterCommand(() => writeFileSync(f.helperPath, "changed helper"));
+    if (changed === "deadline") f.afterCommand(() => f.setClock(8_001));
+    expect(() => f.proof()).toThrow();
+  },
+);
 
 test("initial Host migration pins service custody without weakening ordinary supervisor identity", async () => {
   const f = await initialHostMigrationFixture();

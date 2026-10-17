@@ -31,6 +31,13 @@ import {
   type EnrollmentNativeIdentity,
 } from "./native-identity.js";
 
+import {
+  DEV_REGISTRATION_INSPECTION_SCRIPT,
+  DevStartupSchema,
+  readDevRegistrationBinding,
+  verifyDevRegistrationObservation,
+} from "./dev-registration.js";
+
 const execute = promisify(execFile);
 const COMMAND_LIMITS: { timeout: number; maxBuffer: number; env: { PATH: string } } = {
   timeout: 10_000,
@@ -435,7 +442,20 @@ async function inspectDaemonCustody(
           custody,
           purpose,
         )
-      : await inspectDev(config, expected, setup, daemon.pid, ports);
+      : await inspectDev(config, expected, setup, daemon.pid, ports, {
+          custody,
+          roots: mounts.roots,
+          startup: {
+            path: mounts.container.Path,
+            args: mounts.container.Args,
+            entrypoint: mounts.container.Config.Entrypoint,
+            cmd: mounts.container.Config.Cmd,
+          },
+          writableMounts: mounts.container.Mounts.filter((mount) => mount.RW).map(
+            (mount) =>
+              z.object({ Destination: z.string().startsWith("/") }).parse(mount).Destination,
+          ),
+        });
   requireMatch(
     isDeepStrictEqual(mounts, await inspectMounts()),
     "Docker custody changed during inspection",
@@ -561,7 +581,7 @@ function verifyInitialHostRegistration(
     ProgramArguments: string[];
     EnvironmentVariables: Record<string, string>;
   },
-  precondition: InitialHostSupervisorPrecondition,
+  precondition: Pick<InitialHostSupervisorPrecondition, "registration">,
 ) {
   const { loadedEnvironment, ...diskRegistration } = precondition.registration;
   requireMatch(
@@ -598,11 +618,25 @@ async function retainNativeInitialHostCustody(
   roots: string[],
   precondition: InitialHostSupervisorPrecondition,
 ): Promise<() => void> {
+  return retainNativeHostServiceCustody(setup, roots, precondition);
+}
+
+/** Read-only service/process custody shared by the legacy precondition and a
+ * strictly inspected candidate. It grants no ordinary or migration authority. */
+export async function retainNativeHostServiceCustody(
+  setup: z.infer<typeof BootstrapAdmissionSetupSchema>,
+  roots: string[],
+  value: Pick<
+    InitialHostSupervisorPrecondition,
+    "identity" | "registration" | "supervisor" | "worker"
+  >,
+  commands?: { run(file: string, args: string[]): string; now(): number },
+): Promise<() => void> {
+  const precondition = structuredClone(value);
+  const helperReference = { path: setup.helperPath, sha256: setup.helperSha256 };
   const custody = retainCustody();
-  custody.capture([setup.helperPath]);
-  const helper = (
-    await readBootstrapPreparedFile({ path: setup.helperPath, sha256: setup.helperSha256 }, roots)
-  ).toString("utf8");
+  custody.capture([helperReference.path]);
+  const helper = (await readBootstrapPreparedFile(helperReference, [...roots])).toString("utf8");
   const identity = precondition.identity;
   requireMatch(identity.environment === "host", "Initial Host service identity required");
   const service = `${identity.serviceDomain}/${identity.serviceLabel}`;
@@ -612,9 +646,16 @@ async function retainNativeInitialHostCustody(
     maxBuffer: 1024 * 1024,
     encoding: "utf8" as const,
   };
+  const run =
+    commands?.run ?? ((file: string, args: string[]) => execFileSync(file, args, options));
+  const now = commands?.now ?? (() => performance.now());
   return () => {
+    const deadline = now() + 8_000;
+    const budget = () =>
+      requireMatch(now() < deadline, "Host native custody verification exceeded its deadline");
     custody.assertCurrent();
-    const registration = execFileSync("/bin/launchctl", ["print", service], options);
+    const registration = run("/bin/launchctl", ["print", service]);
+    budget();
     requireMatch(
       loadedCoordinatorPid(service, registration) === precondition.supervisor.pid,
       "Initial Host registered process changed",
@@ -637,20 +678,26 @@ async function retainNativeInitialHostCustody(
       precondition,
     );
     for (const expected of [precondition.supervisor, precondition.worker]) {
+      budget();
       const { stopped: _stopped, ...current } = ProcessObservationSchema.extend({
         stopped: z.literal(false),
       }).parse(
         JSON.parse(
-          execFileSync(
-            "/usr/bin/python3",
-            ["-I", "-B", "-c", helper, String(expected.pid), "--require-running"],
-            options,
-          ),
+          run("/usr/bin/python3", [
+            "-I",
+            "-B",
+            "-c",
+            helper,
+            String(expected.pid),
+            "--require-running",
+          ]),
         ),
       );
       requireMatch(isDeepStrictEqual(current, expected), "Initial Host process custody changed");
+      budget();
     }
     custody.assertCurrent();
+    budget();
   };
 }
 
@@ -882,12 +929,20 @@ const clean=({argv,env,...rest})=>rest;
 console.log(JSON.stringify({ uid:account.uid,gid:account.gid,home,state,supervisorEntrypoint,selection,release,sourceCommit:receipt.sourceCommit,supervisor:clean(sup),worker:clean(worker) }));
 `;
 
+interface DevRegistrationCustody {
+  custody: ReturnType<typeof retainCustody>;
+  roots: string[];
+  startup: z.infer<typeof DevStartupSchema>;
+  writableMounts: string[];
+}
+
 async function inspectDev(
   config: InstallationConfig,
   expected: Extract<EnrollmentNativeIdentity, { environment: "container" }>,
   setup: z.infer<typeof BootstrapAdmissionSetupSchema>,
   pid: number,
   ports: EnrollmentDaemonInspectionPorts,
+  registrationCustody: DevRegistrationCustody,
 ): Promise<never> {
   const settings = config.containerSourceUpdates;
   requireMatch(
@@ -965,6 +1020,56 @@ async function inspectDev(
       result.selection === expected.selectionPath,
     "Dev observed account or selection differs from enrollment",
   );
+  const reference = config.container.persistentRegistration;
+  if (reference) {
+    const { custody, roots, startup, writableMounts } = registrationCustody;
+    custody.capture([reference.receiptFile]);
+    await protectedPaths([reference.receiptFile], roots, ports.uid);
+    const receipt = readDevRegistrationBinding({
+      bytes: await readProtectedDocument(reference.receiptFile),
+      reference,
+      config,
+      expected,
+      startup,
+    });
+    const plan = config.container.supervisorMaintenance;
+    requireMatch(plan, "Dev supervisor maintenance plan is unavailable");
+    custody.capture([plan.script, plan.node]);
+    await protectedPaths([plan.script, plan.node], roots, ports.uid);
+    await readBootstrapPreparedFile({ path: plan.script, sha256: plan.sha256 }, roots);
+    const observation = JSON.parse(
+      await ports.command(
+        setup.docker,
+        [
+          "--host",
+          `unix://${setup.socket}`,
+          "exec",
+          "--env",
+          "NODE_OPTIONS=",
+          "--env",
+          "NODE_PATH=",
+          "--user",
+          settings.user,
+          setup.containerId,
+          settings.node,
+          "--eval",
+          DEV_REGISTRATION_INSPECTION_SCRIPT,
+          JSON.stringify({ receipt, writableMounts, parentPid: result.supervisor.parentPid }),
+        ],
+        COMMAND_LIMITS,
+      ),
+    );
+    verifyDevRegistrationObservation({
+      receipt,
+      observation,
+      supervisor: result.supervisor,
+      selectedRelease: result.release,
+    });
+    custody.assertCurrent();
+    // Matching native files and a protected receipt do not establish what the
+    // opaque Factory entry executes. The provisioner must supply that contract.
+    throw new Error("Dev opaque Factory startup handoff remains unverified");
+  }
   // InstallationConfig pins source selection and one-operation runtime helpers,
   // but no persistent profile launcher registration. Docker's immutable entrypoint
   // plus live supervisor argv do not prove who recreates it after replacement.

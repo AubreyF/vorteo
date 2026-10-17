@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.674 - 2026-10-17
+
+### Maintenance
+
+- Separate prepared Host runtime verification from the live incumbent launcher precondition. Initial effects still retain and verify the original launcher before and after preparation; observation verifies the pinned immutable fallback launcher and original semantics after publication.
+- Add read-only candidate collection using exact claim-bound publication attempts, phase receipt, live candidate plist and selector, complete prepared runtime custody, strict native daemon inspection and fresh mount bindings. Retain bounded synchronous service, loaded-environment and process-lifetime checks through the final observation. Add substitution coverage for every publication record and another claim. The collector must remain behind executor-exit verification; native transition, active-provider custody, fallback continuation and installed delivery remain unfinished.
+
+- Integrate reviewed Dev registration source: optional protected receipt reference, strict startup/file/selector and account bindings, exact registration preparation preserving Factory behavior, guarded receipt/config publication, and streamed Node verification. Preserve existing selector, release root, account and home. No production registration caller, root worker-launch capability or native execution is enabled; lifecycle admission, retirement and rollback acceptance remain open.
+
+- Integrate worker-launch requester and shared-journal admission preparation using optional hints, exact protected profile and cause binding, locked one-use consumption, causal deduplication and observation-only reopening. Legacy replies omit the new fields and legacy digests stay unchanged. Production advertises unavailable; protected Linux execution and active-provider interruption remain unimplemented.
+
 ## 0.11.0-beta.3.vorteo.673 - 2026-10-17
 
 ### Maintenance

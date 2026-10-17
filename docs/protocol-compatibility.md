@@ -184,3 +184,9 @@ new unsolicited message types. New clients gate requests on the capability and s
 update message for older standalone daemons. Sidebar patches merge individual project
 maps, while concurrent changes to the same field use the last accepted write. Initialization
 only fills an absent shared state; reconnecting never replaces it with an old device cache.
+
+## Installation worker-launch preparation
+
+Worker-launch hints and retained child records are optional additions to the existing installation request schema. They use pure structural declarations. Legacy restart digests omit absent hints, and ordinary HTTP restart replies remove the new fields for older strict requesters. Only explicit `workerLaunch=1` negotiation returns the child record.
+
+The direct installation requester checks `workerLaunch.available` before submission. Production reports it unavailable, so this preparation adds no native launch behavior or new unsolicited messages. Ordinary restart authority does not imply worker launch; the optional enrollment profile and explicit operation must match independently verified native admission before a future implementation can consume a generation.

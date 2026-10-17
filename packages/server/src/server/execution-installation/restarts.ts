@@ -1,3 +1,10 @@
+import { WorkerLaunchVerifiedCauseSchema } from "@getpaseo/protocol/execution-installation";
+import {
+  reserveWorkerLaunch,
+  progressWorkerLaunch,
+  retainedWorkerLaunchForCause,
+  workerLaunchRequestCompatible,
+} from "./maintenance/worker-launch.js";
 import { selectMaintenanceServiceWork } from "./maintenance/service-recovery.js";
 import {
   StandingRestartDecisionSchema,
@@ -86,6 +93,11 @@ export interface RestartJournal {
 }
 
 export interface RestartExecutor {
+  /** Read only a single captured protected native cause while the lifecycle lock
+   * is held. Absence supplies no root launch authority. */
+  resolveWorkerLaunchCause?: (
+    hints: NonNullable<RestartRequest["workerLaunchRequest"]>,
+  ) => import("@getpaseo/protocol/execution-installation").WorkerLaunchVerifiedCause | null;
   prepareInterruption?(job: RestartJob): Promise<StandingInterruption>;
   restartHeld?(job: RestartJob): Promise<string>;
   /** Read-only verification of the exact candidate/source and old worker exit.
@@ -203,6 +215,19 @@ export class InstallationRestarts {
     if (!startup.fenced) this.activate();
   }
 
+  private loadState(): void {
+    this.snapshot = this.journal.read();
+    this.jobs = this.snapshot.filter(
+      (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+    );
+    this.helpers = this.snapshot.filter(
+      (job): job is NativeHelperJob => job.target === "native-helper",
+    );
+    this.monitors = this.snapshot.filter(
+      (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
+  }
+
   /** Only the verified coordinator handoff releases this startup fence. */
   activate(): void {
     if (this.active) return;
@@ -210,7 +235,7 @@ export class InstallationRestarts {
       throw new RestartRequestError("Restart journal changed while startup was fenced");
     // A coordinator crash leaves execution ambiguous. Never replay a disruptive action.
     const recovered = this.jobs.map((job): RestartJob => {
-      if (job.standingInterruption && job.status === "running") return job;
+      if ((job.standingInterruption || job.workerLaunch) && job.status === "running") return job;
       if (job.status === "pending" && job.devRepairs?.at(-1)?.status === "preparing") {
         return {
           ...job,
@@ -916,6 +941,61 @@ export class InstallationRestarts {
     requestedBy: RestartJob["requestedBy"],
     update?: RestartJob["update"],
   ): RestartJob {
+    if (input.workerLaunchRequest) return this.requestWorkerLaunch(input, requestedBy, update);
+    return this.requestRestart(input, requestedBy, update);
+  }
+
+  private requestWorkerLaunch(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
+    this.requireActive();
+    if (requestedBy !== "container-agent" || !workerLaunchRequestCompatible({ ...input, update }))
+      throw new RestartRequestError("Worker launch requires a separate Dev requester scope");
+    this.validateOwnerApprovalOrigin(input, requestedBy);
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    let retained: RestartJob | undefined;
+    this.journal.mutate((previous) => {
+      const verified = this.executor.resolveWorkerLaunchCause?.(input.workerLaunchRequest!);
+      if (verified)
+        retained = retainedWorkerLaunchForCause(
+          previous,
+          WorkerLaunchVerifiedCauseSchema.parse(verified),
+        );
+      if (!verified)
+        retained = previous.find(
+          (job): job is RestartJob =>
+            (job.target === "host" || job.target === "container-daemon") &&
+            !job.workerLaunch &&
+            Boolean(job.workerLaunchRequest) &&
+            isDeepStrictEqual(job.workerLaunchRequest, input.workerLaunchRequest),
+        );
+      if (retained) return [...previous];
+      if (
+        previous.some(
+          (job) =>
+            (job.target === "host" || job.target === "container-daemon") &&
+            this.conflictsWithRequest(job, input),
+        )
+      )
+        throw new RestartRequestError("Worker launch cannot share an ordinary restart approval");
+      retained = {
+        ...this.newRequest(input, requestedBy),
+        detail: "Protected Linux worker launch capability is unavailable; no effect dispatched.",
+      };
+      return [...previous, retained];
+    });
+    this.loadState();
+    return structuredClone(retained!);
+  }
+
+  private requestRestart(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
     this.requireActive();
     this.validateOwnerApprovalOrigin(input, requestedBy);
     this.validateSupervisorRequest(input, requestedBy, update);
@@ -943,8 +1023,20 @@ export class InstallationRestarts {
         "A different restart scope or Factory adoption plan already owns this target",
       );
     // Only plain restart requests share a target approval. Source approvals stay exact.
+    if (active && (active.workerLaunchRequest || input.workerLaunchRequest))
+      throw new RestartRequestError("Worker launch cannot share an ordinary restart approval");
     if (active) return this.sharePlainRequest(active, input.requireOwnerApproval === true);
-    const job: RestartJob = {
+    const job = this.newRequest(input, requestedBy, update);
+    this.commit([...this.jobs, job]);
+    return { ...job };
+  }
+
+  private newRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): RestartJob {
+    return {
       ...input,
       ...(update ? { update } : {}),
       id: randomUUID(),
@@ -958,8 +1050,32 @@ export class InstallationRestarts {
         ? `Owner approval required to build and install source on ${input.target === "host" ? "Host and publish the interface" : "Dev"}, and restart its daemon.`
         : "Owner approval required. Running work on the selected daemon may be interrupted.",
     };
-    this.commit([...this.jobs, job]);
-    return { ...job };
+  }
+
+  /** Controller-only child bookkeeping under the existing global lifecycle lock.
+   * The admission adapter independently rereads the current grant and receipts. */
+  reserveWorkerLaunch(input: Parameters<typeof reserveWorkerLaunch>[1]): RestartJob {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    let retained: RestartJob | undefined;
+    this.journal.mutate((previous) => {
+      const result = reserveWorkerLaunch(previous, input);
+      retained = result.retained;
+      return result.jobs;
+    });
+    this.loadState();
+    return structuredClone(retained!);
+  }
+
+  observeWorkerLaunch(
+    parentId: string,
+    expected: import("@getpaseo/protocol/execution-installation").WorkerLaunch,
+    observed: import("@getpaseo/protocol/execution-installation").WorkerLaunch,
+  ): void {
+    if (!this.journal.mutate)
+      throw new RestartRequestError("Atomic lifecycle journal is unavailable");
+    this.journal.mutate((previous) => progressWorkerLaunch(previous, parentId, expected, observed));
+    this.loadState();
   }
 
   /** Receipt identity and uploaded metadata never change, even after replacement. */
@@ -1841,6 +1957,7 @@ export class InstallationRestarts {
     const standing = this.approvalPolicy.standingDecision?.(job);
     return (
       job.status === "pending" &&
+      !job.workerLaunchRequest &&
       this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       (standing != null ||
@@ -2121,6 +2238,17 @@ export class InstallationRestarts {
   }
 
   private async dispatch(job: RestartJob): Promise<void> {
+    if (job.workerLaunchRequest) {
+      this.replace({
+        ...job,
+        detail: "Protected Linux worker launch capability is unavailable; no effect dispatched.",
+      });
+      return;
+    }
+    await this.dispatchRestart(job);
+  }
+
+  private async dispatchRestart(job: RestartJob): Promise<void> {
     if (!this.lifecycleAdmitted(job) || !this.automaticDispatchReady(job)) return;
     if (!this.interruptionAvailable(job)) {
       this.replace({
