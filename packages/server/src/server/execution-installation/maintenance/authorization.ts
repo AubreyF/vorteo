@@ -1270,6 +1270,98 @@ export function consumeHostContinuation(
   });
 }
 
+/** Rechecks one already-consumed, active child under the shared lifecycle lock.
+ * The action owns its addressed one-use publication/dispatch fences; this API
+ * never elects a constructor or makes a consumed claim replayable. Native
+ * commands and asynchronous work remain outside this synchronous boundary. */
+export function withHostContinuationAdmission(
+  journal: FileEnrollmentJournal,
+  input: HostContinuationConsumption,
+  action: (context: HostContinuationCustody, assertCurrent: () => void) => void,
+) {
+  const { plan } = inspectInitialHostSupervisorMigrationPlan(input.plan);
+  const executor = BootstrapProcessIdentitySchema.parse(input.executor);
+  const publication =
+    input.publication === null ? null : classifyInitialHostPublication(input.publication);
+  const {
+    grantRevision,
+    stepId,
+    generation,
+    role,
+    reservationSha256,
+    intentSha256,
+    claimSha256,
+    assertCurrent,
+    assertExclusive,
+  } = input;
+  hostRequire(
+    publication === null ||
+      publication.snapshot.enrollmentStateDirectory === journal.stateDirectory,
+    "publication namespace differs from enrollment journal",
+  );
+  return journal.update((current) => {
+    const state = requireHostEffect(current, grantRevision, stepId, role, plan);
+    const lineage = state.activation.hostContinuations?.find((item) => item.stepId === stepId);
+    hostRequire(
+      lineage && isDeepStrictEqual(lineage.binding, hostBinding(plan)),
+      "lineage binding changed",
+    );
+    hostRequire(
+      role !== "restoration" || !lineage.candidate,
+      "historical restoration cannot dispatch",
+    );
+    const child = hostChild(lineage, role);
+    hostRequire(
+      child.generation === generation &&
+        child.grantRevision === grantRevision &&
+        hostContinuationReservationDigest(lineage, role) === reservationSha256,
+      "admission does not match current child reservation",
+    );
+    hostRequire(
+      child.claim && !child.observation,
+      "admission requires an unobserved consumed child",
+    );
+    hostRequire(
+      child.claim.reservationSha256 === reservationSha256 &&
+        child.claim.intentSha256 === intentSha256 &&
+        child.claim.claimSha256 === claimSha256 &&
+        child.claim.executorSha256 === hostDigest(executor),
+      "admission differs from the consumed child",
+    );
+    if (role === "restoration") {
+      hostRequire(publication, "restoration requires the retained publication image");
+      assertHostPublication(lineage, publication);
+    } else
+      hostRequire(
+        publication === null,
+        "candidate uses its exact restoration receipt, not an original image",
+      );
+    const context: HostContinuationCustody = structuredClone({
+      state,
+      plan,
+      lineage,
+      role,
+      child,
+      publication,
+    });
+    const captured = hostDigest(context);
+    let active = true;
+    const check = () => {
+      hostRequire(active, "admission callback is no longer active");
+      hostRequire(hostDigest(context) === captured, "action mutated admitted bindings");
+      runHostEffectCustody(journal, context, { assertCurrent, assertExclusive }, grantRevision);
+    };
+    try {
+      check();
+      hostRequire(action(context, check) === undefined, "admitted action must be synchronous");
+      check();
+      return state;
+    } finally {
+      active = false;
+    }
+  });
+}
+
 export interface HostContinuationObservation {
   stepId: string;
   generation: string;

@@ -121,6 +121,7 @@ import {
   reserveHostRestoration,
   reserveHostCandidateContinuation,
   consumeHostContinuation,
+  withHostContinuationAdmission,
   observeHostContinuation,
   hostContinuationReservationDigest,
   assertHostContinuationExclusion,
@@ -6589,4 +6590,173 @@ test("initial Host sealed copy refuses inventory omission despite repinned whole
   f.manifest.artifactSha256 = f.plan.fallback.artifactSha256;
   f.writeManifest();
   await expect(f.inspect()).rejects.toThrow("provenance changed");
+});
+
+test("Host restoration child admission rechecks consumed custody without changing journal bytes", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const { input } = f.consume("restoration");
+  const before = f.journal.read();
+  let retained: (() => void) | undefined;
+  const action = vi.fn((_context, check) => {
+    check();
+    retained = check;
+  });
+  expect(withHostContinuationAdmission(f.journal, input, action)).toEqual(before);
+  expect(f.journal.read()).toEqual(before);
+  expect(action).toHaveBeenCalledOnce();
+  expect(() => retained!()).toThrow("no longer active");
+});
+
+test.each(["generation", "reservationSha256", "intentSha256", "claimSha256", "executor"])(
+  "Host restoration child admission rejects changed %s before action",
+  (field) => {
+    const f = hostContinuationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    const { input } = f.consume("restoration");
+    const changed = {
+      ...input,
+      [field]: field === "executor" ? { ...input.executor, pid: 999 } : "0".repeat(64),
+    };
+    const action = vi.fn();
+    expect(() => withHostContinuationAdmission(f.journal, changed, action)).toThrow();
+    expect(action).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["observed", "superseded"])(
+  "Host restoration child admission fences %s history",
+  (phase) => {
+    const f = hostContinuationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    const { input } = f.consume("restoration");
+    f.observe("restoration");
+    if (phase === "superseded") reserveHostCandidateContinuation(f.journal, f.candidateInput());
+    const action = vi.fn();
+    expect(() => withHostContinuationAdmission(f.journal, input, action)).toThrow();
+    expect(action).not.toHaveBeenCalled();
+  },
+);
+
+test("Host restoration child admission rejects async and mutated action data", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const { input } = f.consume("restoration");
+  expect(() =>
+    withHostContinuationAdmission(f.journal, input, () => Promise.resolve() as never),
+  ).toThrow("synchronous");
+  expect(() =>
+    withHostContinuationAdmission(f.journal, input, (context) => {
+      context.child.generation = randomUUID();
+    }),
+  ).toThrow("mutated");
+  const action = vi.fn();
+  expect(() =>
+    withHostContinuationAdmission(
+      f.journal,
+      {
+        ...input,
+        assertCurrent(context) {
+          context.child.generation = randomUUID();
+        },
+      },
+      action,
+    ),
+  ).toThrow("mutated");
+  expect(action).not.toHaveBeenCalled();
+});
+
+test("Host restoration child admission refuses reservation-only work", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const reserved = f.journal.read();
+  const { input } = f.consume("restoration");
+  writeFileSync(
+    path.join(f.journal.stateDirectory, "maintenance-enrollment.json"),
+    JSON.stringify(reserved),
+  );
+  const action = vi.fn();
+  expect(() => withHostContinuationAdmission(f.journal, input, action)).toThrow("consumed child");
+  expect(action).not.toHaveBeenCalled();
+});
+
+test("Host restoration child admission refuses revoked authority before action", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const { input } = f.consume("restoration");
+  changeStandingGrant(f.journal, {
+    expectedRevision: input.grantRevision,
+    paused: false,
+    disabledTargets: [],
+    revoke: true,
+  });
+  const action = vi.fn();
+  expect(() => withHostContinuationAdmission(f.journal, input, action)).toThrow();
+  expect(action).not.toHaveBeenCalled();
+});
+
+test.each(["custody", "action"])(
+  "Host restoration child admission detects grant change during %s",
+  (phase) => {
+    const f = hostContinuationFixture();
+    reserveHostRestoration(f.journal, f.restoreInput);
+    const { input } = f.consume("restoration");
+    const change = () => {
+      const state = enrolled(f.journal.readUnderLifecycleLock());
+      state.grant.revision = randomUUID();
+      writeFileSync(
+        path.join(f.journal.stateDirectory, "maintenance-enrollment.json"),
+        JSON.stringify(state),
+      );
+    };
+    const action = vi.fn(() => {
+      if (phase === "action") change();
+    });
+    expect(() =>
+      withHostContinuationAdmission(
+        f.journal,
+        {
+          ...input,
+          assertCurrent() {
+            if (phase === "custody") change();
+          },
+        },
+        action,
+      ),
+    ).toThrow();
+    expect(action).toHaveBeenCalledTimes(phase === "action" ? 1 : 0);
+  },
+);
+
+test("Host restoration child admission requires fresh global exclusion before action", () => {
+  const f = hostContinuationFixture();
+  reserveHostRestoration(f.journal, f.restoreInput);
+  const { input } = f.consume("restoration");
+  const action = vi.fn();
+  expect(() =>
+    withHostContinuationAdmission(
+      f.journal,
+      {
+        ...input,
+        assertExclusive() {
+          throw Error("competing lifecycle effect");
+        },
+      },
+      action,
+    ),
+  ).toThrow("competing");
+  expect(action).not.toHaveBeenCalled();
+});
+
+test("Host restoration child admission accepts only the active consumed candidate", () => {
+  const f = hostContinuationFixture();
+  f.restore();
+  reserveHostCandidateContinuation(f.journal, f.candidateInput());
+  const { input } = f.consume("candidate");
+  const action = vi.fn();
+  withHostContinuationAdmission(f.journal, input, action);
+  expect(action).toHaveBeenCalledOnce();
+  f.observe("candidate");
+  expect(() => withHostContinuationAdmission(f.journal, input, action)).toThrow();
+  expect(action).toHaveBeenCalledOnce();
 });
