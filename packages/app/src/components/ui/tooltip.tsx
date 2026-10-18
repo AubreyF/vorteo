@@ -624,14 +624,14 @@ export function TooltipContent({
   // On web, avoid React Native's <Modal/> implementation (it uses <dialog> and can
   // steal focus / disrupt hover). Rendering via Portal + position:fixed keeps the
   // exact same positioning math as DropdownMenu, without hover feedback loops.
+  // Web layout animations clone exiting nodes outside React. An interrupted
+  // animation can strand an unstyled shell, so React owns web tooltip removal.
   if (isWeb) {
     return createPortal(
       <View pointerEvents="none" style={styles.portalOverlay}>
         <FloatingSurface
           pointerEvents="none"
           ref={setOverlayScope}
-          entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
-          exiting={FadeOut.duration(180).reduceMotion(ReduceMotion.System)}
           collapsable={false}
           role="tooltip"
           nativeID={ctx.contentId}
