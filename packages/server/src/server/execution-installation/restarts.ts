@@ -2588,9 +2588,11 @@ export class InstallationRestarts {
   }
 
   private async serviceCall<T>(call: () => Promise<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Select the Node overload even when client ambient timer types are present.
+    const scheduleTimeout: (callback: () => void, delay: number) => NodeJS.Timeout = setTimeout;
+    let timer: ReturnType<typeof scheduleTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
+      timer = scheduleTimeout(
         () =>
           reject(
             new RestartRequestError(

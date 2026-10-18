@@ -31,10 +31,12 @@ export function createRecoveryAccessStatusReader(input: {
     if (!read) return Promise.resolve(unverified());
     const controller = new AbortController();
     const expiresAt = Date.now() + 10_000;
-    let timer: ReturnType<typeof setTimeout>;
+    // Select the Node overload even when client ambient timer types are present.
+    const scheduleTimeout: (callback: () => void, delay: number) => NodeJS.Timeout = setTimeout;
+    let timer: ReturnType<typeof scheduleTimeout>;
     const inspection = Promise.resolve().then(() => read(controller.signal));
     const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => {
+      timer = scheduleTimeout(() => {
         controller.abort();
         resolve(null);
       }, 10_000);

@@ -4,6 +4,31 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.686 - 2026-10-18
+
+### Maintenance
+
+- Integrate the served web tooltip dismissal fix with the prepared installation runtime source, retaining both complete parent release histories. This merge preserves existing interface behavior and does not activate maintenance.
+- Restore three historical release entries and retain the later source annotations below instead of editing published history.
+- Select Node timer types explicitly in three maintenance deadline functions so the combined app and server source typechecks with React Native declarations. Keep the existing deadlines, timer cleanup and event-loop behavior.
+
+### Retained maintenance source notes
+
+These annotations were previously appended to older entries. Their validation statements describe retained source evidence, not new validation or installed behavior in this merge.
+
+- Add controller and recovery-launcher jobs to the existing lifecycle journal with exact standing approval, a visible cancellation interval and one reserved generation. Native execution consumes a durable intent; lost replies and reopened generations permit observation only.
+- Expose owner-only maintenance status and exact cancellation in General controls, with public sidebar counts that omit private evidence. Distinguish recorded outcomes from current service health.
+- Validate native evidence, source and artifact identity, approved revisions, shared lifecycle exclusion and observation chronology under the existing journal lock.
+- Bound native callback waits and retries so an unavailable response cannot wedge queue reconciliation. Reconcile revocation before retry limits and retain uncertain execution without replay.
+- Preserve plain restart timing when optional native verification is absent. Clear busy state and private maintenance data on expired owner access, allowing sign-in again.
+- Focused queue, admission, owner HTTP, client, model and responsive browser checks pass. Persistent native startup, production execution, recovery and installed acceptance remain incomplete. This source checkpoint enables no native maintenance capability.
+- Wire standing daemon decisions through the existing shared lifecycle journal, independently inspected native identity and protected source provenance. Recheck built candidates before hold and selection.
+- Support a reserved initial migration against older drain APIs through a durable acknowledgment tied to the daemon lifetime. Lost acknowledgments remain fenced, and release invalidates the retained authority before its RPC.
+- Project fresh native Host observations into installation health and expire unavailable observations. Refuse Dev identity until its persistent profile launcher is independently proven.
+- Prepare later coordinator standing approvals and one-shot launch reservations with a synchronous custody recheck under the existing lifecycle lock.
+- Retain the tested dual-slot launcher and startup-verification checkpoint without registering its unfinished runner role.
+- Focused tests cover shared-lock admission, source custody, initial migration, cancellation, changed process lifetime and stale health. Packaged browser fixtures use the compiled native coordinator boundary. Persistent recovery, Dev profile registration and installed acceptance remain open; this checkpoint does not activate maintenance.
+
 ## 0.11.0-beta.3.vorteo.685 - 2026-10-17
 
 ### Maintenance
@@ -953,6 +978,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Integrate the published connection diagnostics with the prepared maintenance source, preserving both histories and the existing runtime boundaries. No service capability or installation is activated by this merge.
 
+## 0.11.0-beta.3.vorteo.562 - 2026-10-16
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
 ## 0.11.0-beta.3.vorteo.562 - 2026-10-15
 
 ### Fixed
@@ -963,47 +994,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Validation and delivery
 
 - Focused journal tests cover missing executor proof, changed custody, cross-boot evidence, changed executor after reservation and legacy observation. Native producer refresh and installed acceptance remain open; capability remains disabled.
-
-## 0.11.0-beta.3.vorteo.561 - 2026-10-15
-
-### Added
-
-- Add controller and recovery-launcher jobs to the existing lifecycle journal with exact standing approval, a visible cancellation interval and one reserved generation. Native execution consumes a durable intent; lost replies and reopened generations permit observation only.
-- Expose owner-only maintenance status and exact cancellation in General controls, with public sidebar counts that omit private evidence. Distinguish recorded outcomes from current service health.
-- Validate native evidence, source and artifact identity, approved revisions, shared lifecycle exclusion and observation chronology under the existing journal lock.
-
-### Fixed
-
-- Bound native callback waits and retries so an unavailable response cannot wedge queue reconciliation. Reconcile revocation before retry limits and retain uncertain execution without replay.
-- Preserve plain restart timing when optional native verification is absent. Clear busy state and private maintenance data on expired owner access, allowing sign-in again.
-
-### Changed
-
-- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
-
-### Validation and delivery
-
-- Focused queue, admission, owner HTTP, client, model and responsive browser checks pass. Persistent native startup, production execution, recovery and installed acceptance remain incomplete. This source checkpoint enables no native maintenance capability.
-
-## 0.11.0-beta.3.vorteo.560 - 2026-10-15
-
-### Added
-
-- Wire standing daemon decisions through the existing shared lifecycle journal, independently inspected native identity and protected source provenance. Recheck built candidates before hold and selection.
-- Support a reserved initial migration against older drain APIs through a durable acknowledgment tied to the daemon lifetime. Lost acknowledgments remain fenced, and release invalidates the retained authority before its RPC.
-- Project fresh native Host observations into installation health and expire unavailable observations. Refuse Dev identity until its persistent profile launcher is independently proven.
-- Prepare later coordinator standing approvals and one-shot launch reservations with a synchronous custody recheck under the existing lifecycle lock.
-- Retain the tested dual-slot launcher and startup-verification checkpoint without registering its unfinished runner role.
-
-### Changed
-
-- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
-- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
-- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.
-
-### Validation and delivery
-
-- Focused tests cover shared-lock admission, source custody, initial migration, cancellation, changed process lifetime and stale health. Packaged browser fixtures use the compiled native coordinator boundary. Persistent recovery, Dev profile registration and installed acceptance remain open; this checkpoint does not activate maintenance.
 
 ## 0.11.0-beta.3.vorteo.559 - 2026-10-15
 
@@ -5318,6 +5308,22 @@ This baseline summarizes custom features and fixes present through this version,
 
 - Apply accepted task-status guidance to the installed Dev source: require in-progress updates before execution, current status at work transitions, and verified completion. Preserve installed Factory code and complete release history from both source branches.
 
-## 0.11.0-beta.3.vorteo.562 - 2026-10-16
+## 0.11.0-beta.3.vorteo.563 - 2026-10-16
 
-#
+### Fixed
+
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+
+## 0.11.0-beta.3.vorteo.561 - 2026-10-15
+
+### Changed
+
+- Keep the message queue at the bottom of the primary conversation whether the details sidebar is open or closed. Preserve inline editing across sidebar toggles and keep queue review, saving and sending controls in that location.
+
+## 0.11.0-beta.3.vorteo.560 - 2026-10-15
+
+### Changed
+
+- Expand General connection diagnostics with independent health HTTP, WebSocket handshake, cross-origin response and enforced browser content-policy evidence. Keep hidden DNS, TLS, VPN and device-permission failures explicitly unknown.
+- Compare saved app addresses and authentication with the installation endpoints; include device network hints, exposed local-network permission and interface source in a copyable report without credentials or storage contents.
+- Provide one-click browser error pages and a selectable report when clipboard access fails. Validate real HTTP, WebSocket, cross-origin failure and responsive rendering without daemon changes.

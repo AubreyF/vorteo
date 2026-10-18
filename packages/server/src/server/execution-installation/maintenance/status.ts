@@ -35,12 +35,14 @@ export async function readMaintenanceServiceObservations(
   if (!read) return [];
   const controller = new AbortController();
   const expiresAt = Date.now() + 10_000;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Select the Node overload even when client ambient timer types are present.
+  const scheduleTimeout: (callback: () => void, delay: number) => NodeJS.Timeout = setTimeout;
+  let timer: ReturnType<typeof scheduleTimeout> | undefined;
   try {
     const result = await Promise.race([
       Promise.resolve().then(() => read(controller.signal)),
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
+        timer = scheduleTimeout(() => {
           controller.abort();
           reject(new BootstrapRequestConflict("Native service readiness timed out"));
         }, 10_000);
