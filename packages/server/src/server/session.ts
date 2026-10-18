@@ -2777,6 +2777,7 @@ export class Session {
           msg.idleMode,
           msg.restartDrainId,
           msg.heldRestart,
+          msg.restartContinuation,
         );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
@@ -3463,13 +3464,55 @@ export class Session {
     this.terminalController.handleBinaryFrame(binaryFrame.frame, source);
   }
 
+  private async handleRestartContinuation(input: {
+    requestId: string;
+    restartDrainId?: string;
+    idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+    heldRestart?: HeldRestart;
+    restartContinuation: "capture" | "ready" | "cancelled";
+  }): Promise<void> {
+    const { requestId, restartDrainId, idleMode, heldRestart, restartContinuation } = input;
+    const expectedMode = restartContinuation === "capture" ? "drain" : "cancel-drain";
+    if (!restartDrainId || idleMode !== expectedMode || heldRestart)
+      throw new Error("Restart continuation requires its exact request and control mode");
+    let accepted = true;
+    if (restartContinuation === "capture")
+      await this.agentManager.captureRestartContinuation(restartDrainId);
+    else
+      accepted = await this.agentManager.releaseRestartContinuation(
+        restartDrainId,
+        restartContinuation,
+      );
+    this.emit({
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId,
+        clientId: this.clientId,
+        accepted,
+        impact: this.agentManager.getRestartImpact(),
+      },
+    });
+  }
+
   private async handleRestartServerRequest(
     requestId: string,
     reason?: string,
     idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
     restartDrainId?: string,
     heldRestart?: HeldRestart,
+    restartContinuation?: "capture" | "ready" | "cancelled",
   ): Promise<void> {
+    if (restartContinuation) {
+      await this.handleRestartContinuation({
+        requestId,
+        restartDrainId,
+        idleMode,
+        heldRestart,
+        restartContinuation,
+      });
+      return;
+    }
     if (heldRestart) {
       if (idleMode !== "restart" || restartDrainId !== heldRestart.requestId)
         throw new Error("Acknowledged restart requires the exact held request");

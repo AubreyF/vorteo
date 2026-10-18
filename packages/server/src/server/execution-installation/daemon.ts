@@ -526,6 +526,43 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     },
+    async captureRestartContinuation(target, requestId) {
+      assertReady(target);
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        assertReady(target);
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "drain",
+          restartDrainId: requestId,
+          restartContinuation: "capture",
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment did not confirm durable restart continuation capture");
+      } finally {
+        await client.close();
+      }
+    },
+    async releaseRestartContinuation(target, requestId, outcome) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "cancel-drain",
+          restartDrainId: requestId,
+          restartContinuation: outcome,
+        });
+        return result.accepted === true;
+      } finally {
+        await client.close();
+      }
+    },
     async holdCurrentTurns(target, requestId) {
       assertReady(target);
       const client = await connectInstallationDaemon(

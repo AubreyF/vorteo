@@ -2076,6 +2076,7 @@ export const RestartServerRequestMessageSchema = z.object({
   idleMode: z.enum(["inspect", "restart", "drain", "cancel-drain"]).optional(),
   restartDrainId: z.string().uuid().optional(),
   heldRestart: HeldRestartSchema.optional(),
+  restartContinuation: z.enum(["capture", "ready", "cancelled"]).optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3954,6 +3955,8 @@ export const ServerInfoStatusPayloadSchema = z
         gracefulRestart: z.boolean().optional(),
         // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
         restartDrainObservation: z.boolean().optional(),
+        // COMPAT(restartContinuation): added after v688; retain until 2027-04-18.
+        restartContinuation: z.boolean().optional(),
         // COMPAT(heldIdleRestart): added v574; retain until daemon floor includes v574.
         heldIdleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.

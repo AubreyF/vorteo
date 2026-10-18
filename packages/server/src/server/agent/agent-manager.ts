@@ -1238,13 +1238,29 @@ export class AgentManager {
         | "suppressHistoryRestoration"
         | "queueRestartContinuation"
       > &
-        Partial<Pick<MessageQueueService, "withIdleQueue">>)
+        Partial<
+          Pick<
+            MessageQueueService,
+            | "withIdleQueue"
+            | "captureRestartContinuation"
+            | "releaseRestartContinuation"
+            | "restartContinuationHeld"
+            | "restartContinuationReleased"
+            | "abandonRestartContinuation"
+          >
+        >)
     | null = null;
   private readonly queueGoalMutationTails = new Map<string, Promise<void>>();
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
+  private readonly stoppedRestartContinuations = new Set<string>();
+  private readonly releasedRestartContinuations = new Set<string>();
+  private readonly ownedRestartContinuations = new Set<string>();
+  private readonly restartContinuationCaptures = new Map<string, Promise<void>>();
+  private readonly capturedRestartContinuations = new Set<string>();
+  private readonly restartContinuationReleases = new Map<string, Promise<boolean>>();
   private restartDrainId: string | null = null;
   private readonly restartWorkerInstanceId = randomUUID();
   private committedRestartDrainId: string | null = null;
@@ -1470,7 +1486,17 @@ export class AgentManager {
       | "suppressHistoryRestoration"
       | "queueRestartContinuation"
     > &
-      Partial<Pick<MessageQueueService, "withIdleQueue">>,
+      Partial<
+        Pick<
+          MessageQueueService,
+          | "withIdleQueue"
+          | "captureRestartContinuation"
+          | "releaseRestartContinuation"
+          | "restartContinuationHeld"
+          | "restartContinuationReleased"
+          | "abandonRestartContinuation"
+        >
+      >,
   ): void {
     this.messageQueueControl = control;
   }
@@ -1609,10 +1635,150 @@ export class AgentManager {
     return this.restartDrainId !== null;
   }
 
-  beginRestartDrain(requestId: string): boolean {
-    if (this.cancelledRestartDrains.has(requestId)) return false;
-    if (this.restartDrainId && this.restartDrainId !== requestId) return false;
+  supportsRestartContinuation(): boolean {
+    return !!(
+      this.messageQueueControl?.captureRestartContinuation &&
+      this.messageQueueControl.releaseRestartContinuation &&
+      this.messageQueueControl.restartContinuationHeld &&
+      this.messageQueueControl.restartContinuationReleased &&
+      this.messageQueueControl.abandonRestartContinuation
+    );
+  }
+
+  captureRestartContinuation(requestId: string): Promise<void> {
+    const retained = this.restartContinuationCaptures.get(requestId);
+    if (retained) return retained;
+    if (!this.supportsRestartContinuation())
+      return Promise.reject(new Error("Durable restart continuation is unavailable"));
+    if (
+      this.cancelledRestartDrains.has(requestId) ||
+      this.releasedRestartContinuations.has(requestId)
+    )
+      return Promise.reject(new Error("This restart was cancelled"));
+    if (this.restartDrainId && this.restartDrainId !== requestId)
+      return Promise.reject(new Error("Another restart owns task admission"));
+    const previousDrainId = this.restartDrainId;
+    const previouslyOwned = this.ownedRestartContinuations.has(requestId);
     this.restartDrainId = requestId;
+    this.ownedRestartContinuations.add(requestId);
+    const queue = this.messageQueueControl;
+    const running = new Set(
+      [...this.agents.values()]
+        .filter((agent) => this.hasInFlightRun(agent.id))
+        .map((agent) => agent.id),
+    );
+    const capture = (async () => {
+      if (await queue?.restartContinuationReleased?.(requestId)) {
+        this.releasedRestartContinuations.add(requestId);
+        if (!previouslyOwned) this.ownedRestartContinuations.delete(requestId);
+        if (previousDrainId === null && this.restartDrainId === requestId)
+          this.restartDrainId = null;
+        throw new Error("This restart continuation was already released");
+      }
+      await Promise.all(this.agentRegistrationTasks);
+      for (const agent of this.agents.values()) {
+        const archived = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
+        if (archived || agent.lifecycle === "initializing") continue;
+        const wasRunning = running.has(agent.id) || this.hasInFlightRun(agent.id);
+        if (!wasRunning && agent.session?.goals?.state.goal?.status !== "active") continue;
+        await this.retainRestartContinuation(agent.id, requestId, wasRunning);
+      }
+      this.capturedRestartContinuations.add(requestId);
+    })();
+    this.restartContinuationCaptures.set(requestId, capture);
+    return capture;
+  }
+
+  async releaseRestartContinuation(
+    requestId: string,
+    outcome: "ready" | "cancelled",
+  ): Promise<boolean> {
+    if (outcome === "cancelled" && this.committedRestartDrainId === requestId) return false;
+    const key = `${requestId}:${outcome}`;
+    const pending = this.restartContinuationReleases.get(key);
+    if (pending) return pending;
+    const queue = this.messageQueueControl;
+    if (!queue?.releaseRestartContinuation) return false;
+    const releaseControl = queue.releaseRestartContinuation;
+    const release = (async () => {
+      // A rejected pause still has to settle before cancellation can release admission.
+      await this.restartContinuationCaptures.get(requestId)?.catch((error: unknown) => {
+        if (outcome === "ready") throw error;
+      });
+      if (outcome === "cancelled" && !this.ownedRestartContinuations.has(requestId)) return false;
+      await Promise.all(this.restartDrainTasks.values());
+      const released = await releaseControl.call(queue, requestId, outcome);
+      if (!released) return false;
+      this.releasedRestartContinuations.add(requestId);
+      if (outcome === "cancelled") this.cancelledRestartDrains.add(requestId);
+      if (this.restartDrainId === requestId) {
+        this.restartDrainId = null;
+        this.restartDrainPrepared.clear();
+        this.restartDrainWarnings.clear();
+        this.restartDrainErrors.clear();
+      }
+      for (const agent of this.agents.values()) queue.wake(agent.id);
+      return true;
+    })();
+    this.restartContinuationReleases.set(key, release);
+    try {
+      return await release;
+    } finally {
+      // Failed durability is observable again; a successful release remains idempotent.
+      this.restartContinuationReleases.delete(key);
+    }
+  }
+
+  private async retainRestartContinuation(
+    agentId: string,
+    requestId: string,
+    wasRunning: boolean,
+  ): Promise<void> {
+    const agent = this.requireSessionAgent(agentId);
+    await this.messageQueueControl?.captureRestartContinuation?.(agentId, requestId);
+    if (
+      this.messageQueueControl?.restartContinuationHeld &&
+      !(await this.messageQueueControl.restartContinuationHeld(agentId))
+    )
+      return;
+    if (agent.session.goals)
+      await this.pauseGoalForQueuedMessages(
+        agentId,
+        () => this.restartDrainId === requestId,
+        "restart",
+        requestId,
+      );
+    if (
+      wasRunning &&
+      !this.stoppedRestartContinuations.has(agentId) &&
+      this.agents.get(agentId) === agent &&
+      !this.registry?.getLoadedRecord(agentId)?.archivedAt &&
+      !agent.session.goals?.state.goal
+    )
+      await this.messageQueueControl?.queueRestartContinuation(agentId, requestId);
+  }
+
+  beginRestartDrain(requestId: string): boolean {
+    if (
+      this.cancelledRestartDrains.has(requestId) ||
+      this.releasedRestartContinuations.has(requestId)
+    )
+      return false;
+    if (this.restartDrainId && this.restartDrainId !== requestId) return false;
+    if (this.supportsRestartContinuation() && !this.capturedRestartContinuations.has(requestId)) {
+      if (!this.restartContinuationCaptures.has(requestId)) {
+        // Capture fences admission synchronously. Legacy callers must wait for
+        // validation and durable capture before this method can acknowledge.
+        void this.captureRestartContinuation(requestId)
+          .then(() => this.restartDrainId === requestId && this.beginRestartDrain(requestId))
+          .catch((error: unknown) => {
+            this.logger.warn({ err: error }, "Restart drain capture was not confirmed");
+          });
+      }
+      return false;
+    }
+    this.restartDrainId = requestId;
+    this.ownedRestartContinuations.add(requestId);
     for (const agent of this.agents.values()) {
       const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
       if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
@@ -1645,6 +1811,7 @@ export class AgentManager {
     const notify = this.hasInFlightRun(agentId) && !this.restartDrainWarnings.has(turnKey);
     const warning =
       "The owner approved a restart after current turns finish. Finish your current small step, save your work and a brief continuation note, then end this turn. Do not start new work.";
+    await this.retainRestartContinuation(agentId, requestId, this.hasInFlightRun(agentId));
     if (notify) {
       this.restartDrainWarnings.add(turnKey);
       await this.appendTimelineItem(agentId, {
@@ -1662,12 +1829,10 @@ export class AgentManager {
     if (!notify || this.restartDrainId !== requestId || !this.hasInFlightRun(agentId)) return;
     if ((agent.activeForegroundTurnId ?? agent.activeTurnId) !== turnId) return;
     // Steering never replaces or interrupts a turn. Unsupported providers finish normally.
-    let steered = false;
     try {
       await this.steerAgentRun(agentId, warning, {
         clientMessageId: `restart-warning-${requestId}-${agentId}`,
       });
-      steered = true;
     } catch (error) {
       this.logger.warn(
         { err: error, agentId },
@@ -1680,8 +1845,6 @@ export class AgentManager {
           "The provider could not receive the restart warning. Its current turn will finish normally before restart.",
       });
     }
-    if (steered && this.restartDrainId === requestId && !agent.session.goals?.state.goal)
-      await this.messageQueueControl?.queueRestartContinuation(agentId, requestId);
     // Steering may change provider goal state. Confirm the hold again before declaring readiness.
     if (agent.session.goals)
       await this.pauseGoalForQueuedMessages(
@@ -1693,11 +1856,20 @@ export class AgentManager {
 
   cancelRestartDrain(requestId: string): boolean {
     if (this.committedRestartDrainId === requestId) return false;
+    if (this.supportsRestartContinuation() && !this.ownedRestartContinuations.has(requestId))
+      return false;
     this.cancelledRestartDrains.add(requestId);
     if (this.restartDrainId !== requestId) return true;
     // Let outstanding goal pauses settle before releasing the barrier so cancellation
     // cannot strand a late pause or resume a goal during another hold.
     if (this.restartDrainTasks.size) return false;
+    if (this.supportsRestartContinuation()) {
+      // The compatibility API can only acknowledge once the durable release settles.
+      void this.releaseRestartContinuation(requestId, "cancelled").catch((error: unknown) => {
+        this.logger.warn({ err: error }, "Restart continuation release remains unresolved");
+      });
+      return false;
+    }
     this.restartDrainId = null;
     this.restartDrainPrepared.clear();
     this.restartDrainWarnings.clear();
@@ -1732,7 +1904,14 @@ export class AgentManager {
     }
     return {
       agents,
-      pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
+      pendingStarts:
+        this.agentRegistrationTasks.size +
+        this.restartDrainTasks.size +
+        (this.restartDrainId &&
+        this.restartContinuationCaptures.has(this.restartDrainId) &&
+        !this.capturedRestartContinuations.has(this.restartDrainId)
+          ? 1
+          : 0),
       restartDrainId: this.restartDrainId,
       workerInstanceId: this.restartWorkerInstanceId,
       workerPid: process.pid,
@@ -3324,11 +3503,13 @@ export class AgentManager {
     agentId: string,
     canPause: () => boolean,
     reason?: "restart",
+    restartRequestId?: string,
   ): Promise<void> {
     await this.withQueueGoalMutation(agentId, () =>
       pauseGoalForQueue(
         this.queueGoalPort(agentId, async () => false, canPause),
         reason,
+        restartRequestId,
       ),
     );
   }
@@ -3351,11 +3532,16 @@ export class AgentManager {
               agent.lifecycle === "idle" &&
               !this.hasInFlightRun(agentId) &&
               agent.pendingPermissions.size === 0 &&
+              !(await this.messageQueueControl?.restartContinuationHeld?.(agentId)) &&
               (await queueIsEmpty())
             );
           },
           () => !this.isRestartDraining() && canContinueGoal(),
-          async () => !this.isRestartDraining() && canContinueGoal() && (await queueIsEmpty()),
+          async () =>
+            !this.isRestartDraining() &&
+            canContinueGoal() &&
+            !(await this.messageQueueControl?.restartContinuationHeld?.(agentId)) &&
+            (await queueIsEmpty()),
         ),
       ),
     );
@@ -4055,6 +4241,7 @@ export class AgentManager {
     const isReplacement = agent.pendingReplacement;
     agent.lastError = undefined;
 
+    this.stoppedRestartContinuations.delete(agentId);
     const pendingRun = this.runs.createPendingRun(agentId);
 
     const streamForwarder = async function* streamForwarder(this: AgentManager) {
@@ -4602,7 +4789,9 @@ export class AgentManager {
       return { status: "settled" };
     }
     if (options?.reason === "manual") {
+      this.stoppedRestartContinuations.add(agentId);
       try {
+        await this.messageQueueControl?.abandonRestartContinuation?.(agentId);
         // Revoke automatic goal resumption without changing queue delivery.
         await this.releaseQueueGoalHold(agentId);
         await this.pauseGoalForManualStop(agentId);

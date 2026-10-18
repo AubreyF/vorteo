@@ -27,7 +27,7 @@ import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
   readProtectedDocument,
-  inspectBootstrapReleaseArtifacts,
+  withBootstrapReleaseInspection,
   assertBootstrapPathsProtected,
 } from "./coordinator-bootstrap-artifact.js";
 import {
@@ -234,114 +234,122 @@ export async function verifyBootstrapPlan(
   plan: CoordinatorBootstrapPlan,
   host: BootstrapAdmissionHost,
 ): Promise<void> {
-  const verifyPrevious = plan.supervisionRecovery
-    ? verifyUnregisteredBootstrapCoordinator
-    : verifyLoadedBootstrapService;
-  const verifyRestorationHistory = () => {
-    if (plan.supervisionRecovery)
-      assertRecoveredBootstrapBase(
-        plan,
-        new FileBootstrapRequestJournal(plan.state.directory).read(),
+  return withBootstrapReleaseInspection(async (inspectRelease) => {
+    const verifyPrevious = plan.supervisionRecovery
+      ? verifyUnregisteredBootstrapCoordinator
+      : verifyLoadedBootstrapService;
+    const verifyRestorationHistory = () => {
+      if (plan.supervisionRecovery)
+        assertRecoveredBootstrapBase(
+          plan,
+          new FileBootstrapRequestJournal(plan.state.directory).read(),
+        );
+    };
+    verifyRestorationHistory();
+    const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
+    const devConfiguration = inspectBootstrapConfiguration({ plan, ...host });
+    if (
+      plan.nativeHelperConfiguration &&
+      (plan.nativeHelperConfiguration.docker !== host.docker ||
+        plan.nativeHelperConfiguration.socket !== host.socket ||
+        plan.nativeHelperConfiguration.containerId !== host.containerId)
+    )
+      throw new BootstrapRequestConflict(
+        "Helper configuration must retain the paired Host Docker identity",
       );
-  };
-  verifyRestorationHistory();
-  const releaseAssertions: Array<() => void> = [];
-  const initial = readBootstrapHostBinding(host.configurationFile, host.daemonId);
-  const devConfiguration = inspectBootstrapConfiguration({ plan, ...host });
-  if (
-    plan.nativeHelperConfiguration &&
-    (plan.nativeHelperConfiguration.docker !== host.docker ||
-      plan.nativeHelperConfiguration.socket !== host.socket ||
-      plan.nativeHelperConfiguration.containerId !== host.containerId)
-  )
-    throw new BootstrapRequestConflict(
-      "Helper configuration must retain the paired Host Docker identity",
+    if (
+      devConfiguration &&
+      (devConfiguration.docker.path !== host.docker ||
+        devConfiguration.docker.socket !== host.socket ||
+        devConfiguration.docker.containerId !== host.containerId)
+    )
+      throw new BootstrapRequestConflict(
+        "Dev registration must retain the paired Host Docker identity",
+      );
+    verifyMonitorBootstrapBinding(plan, host);
+    const roots = await inspectBootstrapWritableMountRoots(host);
+    await assertBootstrapPathsProtected(
+      [
+        host.configurationFile,
+        host.launcherFile,
+        initial.stateDirectory,
+        ...(devConfiguration?.paths ?? []),
+      ],
+      roots,
     );
-  if (
-    devConfiguration &&
-    (devConfiguration.docker.path !== host.docker ||
-      devConfiguration.docker.socket !== host.socket ||
-      devConfiguration.docker.containerId !== host.containerId)
-  )
-    throw new BootstrapRequestConflict(
-      "Dev registration must retain the paired Host Docker identity",
+    await verifySourceUpdateTooling(plan, roots);
+    await verifyBootstrapRecoveryArtifacts(plan, roots);
+    for (const release of new Set([
+      plan.previous,
+      plan.candidate,
+      bootstrapRecoveryRelease(plan),
+    ])) {
+      await inspectRelease(release, roots);
+    }
+    const current = await readBootstrapLauncher(
+      { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
+      roots,
     );
-  verifyMonitorBootstrapBinding(plan, host);
-  const roots = await inspectBootstrapWritableMountRoots(host);
-  await assertBootstrapPathsProtected(
-    [
-      host.configurationFile,
-      host.launcherFile,
-      initial.stateDirectory,
-      ...(devConfiguration?.paths ?? []),
-    ],
-    roots,
-  );
-  await verifySourceUpdateTooling(plan, roots);
-  await verifyBootstrapRecoveryArtifacts(plan, roots);
-  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)])) {
-    const retained = await inspectBootstrapReleaseArtifacts(release, roots);
-    releaseAssertions.push(retained.assertCurrent);
-  }
-  const current = await readBootstrapLauncher(
-    { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
-    roots,
-  );
-  const previous = await readBootstrapLauncher(plan.previous.launcher, roots);
-  const candidate = await readBootstrapLauncher(plan.candidate.launcher, roots);
-  verifyBootstrapLaunchers({
-    plan,
-    configurationFile: host.configurationFile,
-    current,
-    previous,
-    candidate,
-  });
-  if (plan.compatibleRecovery) {
+    const previous = await readBootstrapLauncher(plan.previous.launcher, roots);
+    const candidate = await readBootstrapLauncher(plan.candidate.launcher, roots);
     verifyBootstrapLaunchers({
-      plan: { ...plan, candidate: plan.compatibleRecovery },
+      plan,
       configurationFile: host.configurationFile,
       current,
       previous,
-      candidate: await readBootstrapLauncher(plan.compatibleRecovery.launcher, roots),
+      candidate,
     });
-  }
-  const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
-  await verifyPrevious({
-    plan,
-    hostUid: process.getuid!(),
-    configurationFile: host.configurationFile,
-    reader,
+    if (plan.compatibleRecovery) {
+      verifyBootstrapLaunchers({
+        plan: { ...plan, candidate: plan.compatibleRecovery },
+        configurationFile: host.configurationFile,
+        current,
+        previous,
+        candidate: await readBootstrapLauncher(plan.compatibleRecovery.launcher, roots),
+      });
+    }
+    const reader = await createNativeBootstrapServiceReader({ ...host, writableMountRoots: roots });
+    await verifyPrevious({
+      plan,
+      hostUid: process.getuid!(),
+      configurationFile: host.configurationFile,
+      reader,
+    });
+    await verifyRecoveredBootstrapExit(plan, roots, reader);
+    // Async collection is not a lock. Reject changed evidence before admitting the
+    // request, and repeat this entire check under the dispatch fence before acting.
+    const finalRoots = await inspectBootstrapWritableMountRoots(host);
+    if (!isDeepStrictEqual(roots, finalRoots))
+      throw new BootstrapRequestConflict("Writable container mounts changed during verification");
+    verifyBootstrapConfiguration({ plan, ...host });
+    if (devConfiguration) await assertBootstrapPathsProtected(devConfiguration.paths, finalRoots);
+    await verifySourceUpdateTooling(plan, finalRoots);
+    await verifyBootstrapRecoveryArtifacts(plan, finalRoots);
+    for (const release of new Set([
+      plan.previous,
+      plan.candidate,
+      bootstrapRecoveryRelease(plan),
+    ])) {
+      await inspectRelease(release, finalRoots);
+    }
+    await readBootstrapLauncher(
+      { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
+      finalRoots,
+    );
+    await verifyPrevious({
+      plan,
+      hostUid: process.getuid!(),
+      configurationFile: host.configurationFile,
+      reader,
+    });
+    await verifyRecoveredBootstrapExit(plan, finalRoots, reader);
+    verifyRestorationHistory();
+    if (
+      !isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId))
+    )
+      throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
+    devConfiguration?.assertCurrent();
   });
-  await verifyRecoveredBootstrapExit(plan, roots, reader);
-  // Async collection is not a lock. Reject changed evidence before admitting the
-  // request, and repeat this entire check under the dispatch fence before acting.
-  const finalRoots = await inspectBootstrapWritableMountRoots(host);
-  if (!isDeepStrictEqual(roots, finalRoots))
-    throw new BootstrapRequestConflict("Writable container mounts changed during verification");
-  verifyBootstrapConfiguration({ plan, ...host });
-  if (devConfiguration) await assertBootstrapPathsProtected(devConfiguration.paths, finalRoots);
-  await verifySourceUpdateTooling(plan, finalRoots);
-  await verifyBootstrapRecoveryArtifacts(plan, finalRoots);
-  for (const release of new Set([plan.previous, plan.candidate, bootstrapRecoveryRelease(plan)])) {
-    const retained = await inspectBootstrapReleaseArtifacts(release, finalRoots);
-    releaseAssertions.push(retained.assertCurrent);
-  }
-  await readBootstrapLauncher(
-    { path: host.launcherFile, sha256: plan.previous.launcher.sha256 },
-    finalRoots,
-  );
-  await verifyPrevious({
-    plan,
-    hostUid: process.getuid!(),
-    configurationFile: host.configurationFile,
-    reader,
-  });
-  await verifyRecoveredBootstrapExit(plan, finalRoots, reader);
-  verifyRestorationHistory();
-  if (!isDeepStrictEqual(initial, readBootstrapHostBinding(host.configurationFile, host.daemonId)))
-    throw new BootstrapRequestConflict("Bootstrap Host binding changed during verification");
-  devConfiguration?.assertCurrent();
-  for (const assertRelease of releaseAssertions) assertRelease();
 }
 
 /** Same complete read-only admission, isolated from the execution lock owner.

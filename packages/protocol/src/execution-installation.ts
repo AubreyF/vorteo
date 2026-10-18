@@ -436,6 +436,7 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   whenIdle: z.boolean().optional(),
   finishCurrentTurns: z.boolean().optional(),
   holdReleased: z.boolean().optional(),
+  continuationCaptureRequested: z.boolean().optional(),
   approvedAt: z.string().datetime().optional(),
   impact: RestartImpactSchema.optional(),
 });

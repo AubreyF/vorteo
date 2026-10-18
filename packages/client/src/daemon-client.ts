@@ -784,6 +784,7 @@ export interface RestartServerOptions {
   idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
   restartDrainId?: string;
   heldRestart?: HeldRestart;
+  restartContinuation?: "capture" | "ready" | "cancelled";
 }
 
 function assertHeldRestartAcknowledgement(
@@ -4344,11 +4345,22 @@ export class DaemonClient {
     return held;
   }
 
+  private requireRestartContinuation(options?: RestartServerOptions): void {
+    if (options?.restartContinuation) {
+      if (this.lastServerInfoMessage?.features?.restartContinuation !== true)
+        throw new Error("Update this daemon to preserve tasks across restarts");
+      const expectedMode = options.restartContinuation === "capture" ? "drain" : "cancel-drain";
+      if (!options.restartDrainId || options.idleMode !== expectedMode || options.heldRestart)
+        throw new Error("Restart continuation requires its exact request and control mode");
+    }
+  }
+
   async restartServer(
     reason?: string,
     requestId?: string,
     options?: RestartServerOptions,
   ): Promise<RestartRequestedStatusPayload> {
+    this.requireRestartContinuation(options);
     const heldRestart = this.requireHeldRestart(options);
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
@@ -4364,6 +4376,7 @@ export class DaemonClient {
       type: "restart_server_request",
       heldRestart,
       restartDrainId: options?.restartDrainId,
+      restartContinuation: options?.restartContinuation,
       idleMode: options?.idleMode,
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,

@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.689 - 2026-10-18
+
+### Fixes
+
+- Preserve running goal and no-goal tasks before tracked daemon restarts, including force restarts. Release their saved continuations only after verified replacement readiness or cancellation by the original daemon.
+- Keep paused, stopped, exhausted and uncertain work fenced during recovery. Reject stale restart causes and retain unresolved capture intent across adapter changes.
+- Give coordinator preparation POSTs one sixteen-minute connection, headers and body deadline using the standalone client’s built-in HTTP transport. Clean up on completion or failure without replaying uncertain requests.
+- Reuse retained release proofs within coordinator plan verification when candidate and fallback share a runtime. Separate configuration checks and final custody assertions remain required.
+
+### Validation
+
+- Combined source passes all workspace typechecks, repository lint and 42 focused manager and transport cases. Startup-contract validation passes; tracked installation acceptance remains pending.
+
 ## 0.11.0-beta.3.vorteo.688 - 2026-10-18
 
 ### Fixes

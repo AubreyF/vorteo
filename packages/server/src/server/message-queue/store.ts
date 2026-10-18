@@ -15,7 +15,15 @@ import {
   type QueueAttachment,
 } from "@getpaseo/protocol/message-queue";
 
+const RestartContinuationSchema = z.object({
+  requestId: IdSchema,
+  owner: z.string().uuid(),
+  phase: z.enum(["held", "ready", "cancelled"]),
+  abandoned: z.boolean().optional(),
+});
+
 const RecordSchema = z.object({
+  restartContinuation: RestartContinuationSchema.optional(),
   snapshot: SnapshotSchema,
   messageIds: z.array(IdSchema),
   receipts: z.array(
@@ -136,10 +144,65 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => (await this.load(agentId)).snapshot);
   }
 
+  restartContinuation(agentId: string) {
+    return this.serial(agentId, async () => (await this.load(agentId)).restartContinuation);
+  }
+
+  captureRestartContinuation(agentId: string, requestId: string, owner: string): Promise<void> {
+    IdSchema.parse(requestId);
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      if (retained?.requestId === requestId) {
+        if (retained.phase === "held" && retained.owner !== owner)
+          throw new Error("Restart continuation belongs to another daemon lifetime");
+        return;
+      }
+      if (retained?.phase === "held")
+        throw new Error("Another restart owns this task's continuation");
+      record.restartContinuation = { requestId, owner, phase: "held" };
+      await this.commit(record);
+    });
+  }
+
+  abandonRestartContinuation(agentId: string): Promise<void> {
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      if (!retained) return;
+      const id = `restart-${retained.requestId}-${agentId}`;
+      record.restartContinuation = { ...retained, abandoned: true };
+      record.snapshot.items = record.snapshot.items.filter(
+        (item) => item.id !== id || item.delivery.status !== "queued",
+      );
+      record.snapshot.revision += 1;
+      await this.commit(record);
+    });
+  }
+
+  releaseRestartContinuation(
+    agentId: string,
+    requestId: string,
+    owner: string,
+    outcome: "ready" | "cancelled",
+  ): Promise<boolean> {
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      if (!retained || retained.requestId !== requestId) return true;
+      if (outcome === "cancelled" && retained.owner !== owner) return false;
+      if (retained.phase !== "held") return true;
+      record.restartContinuation = { ...retained, phase: outcome };
+      await this.commit(record);
+      return true;
+    });
+  }
+
   /** Reserve ordinary automatic work only while no user queue operation can interleave. */
   withIdleQueue<T>(agentId: string, operation: () => Promise<T>): Promise<T | null> {
     return this.serial(agentId, async () => {
-      const { snapshot } = await this.load(agentId);
+      const { snapshot, restartContinuation } = await this.load(agentId);
+      if (restartContinuation?.phase === "held") return null;
       if (snapshot.paused || snapshot.items.length || snapshot.deliveryError) return null;
       return operation();
     });
@@ -207,6 +270,7 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => {
       const record = await this.load(agentId);
       const head = record.snapshot.items[0];
+      if (record.restartContinuation?.phase === "held") return null;
       if (!head || (record.snapshot.paused && !head.sendNow) || head.delivery.status !== "queued")
         return null;
       head.delivery = {
@@ -429,6 +493,16 @@ export class MessageQueueStore {
         // snapshot that existed when this operation originally committed.
         return record.snapshot;
       }
+      const restart = record.restartContinuation;
+      const restartMessage =
+        operation.kind === "enqueue" &&
+        restart &&
+        operation.messageId === `restart-${restart.requestId}-${agentId}`;
+      if (
+        restartMessage &&
+        (restart.phase !== "held" || restart.abandoned || record.snapshot.paused)
+      )
+        return record.snapshot;
       apply(record, operation);
       record.snapshot.revision += 1;
       record.receipts.push({

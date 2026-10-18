@@ -2037,6 +2037,7 @@ export class VoiceAssistantWebSocketServer {
         idleRestart: true,
         gracefulRestart: true,
         restartDrainObservation: true,
+        restartContinuation: this.agentManager.supportsRestartContinuation(),
         heldIdleRestart: this.maintenanceRestart?.supported() === true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,

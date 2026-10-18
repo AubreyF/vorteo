@@ -127,6 +127,9 @@ test("frozen handoff refuses active jobs, preparations, unresolved holds and chi
     { status: "failed", finishCurrentTurns: true },
     { status: "rejected", finishCurrentTurns: true, holdReleased: false },
     { status: "succeeded", finishCurrentTurns: true },
+    { status: "failed", continuationCaptureRequested: true },
+    { status: "rejected", continuationCaptureRequested: true, holdReleased: false },
+    { status: "succeeded", continuationCaptureRequested: true },
   ])
     expect(() => assertFrozenCoordinatorIdle([{ ...pending, ...change }], [])).toThrow(
       "unresolved",

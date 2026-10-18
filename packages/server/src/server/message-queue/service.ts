@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { QueueOperation, QueueSnapshot } from "@getpaseo/protocol/message-queue";
 import { QueueAttachmentStore } from "./attachments.js";
 import { MessageQueueStore, QueueStoreError } from "./store.js";
@@ -8,6 +9,7 @@ type QueueListener = (snapshot: QueueSnapshot) => void;
 
 /** One instance belongs to the daemon. Subscriptions never own stored messages. */
 export class MessageQueueService {
+  private readonly restartOwner = randomUUID();
   private readonly listeners = new Map<string, Set<QueueListener>>();
   private readonly queuedAgents = new Set<string>();
   private closed = false;
@@ -28,6 +30,14 @@ export class MessageQueueService {
     this.deliveryPort = port;
     this.delivery = new QueueDeliveryWorker(this.store, {
       ...port,
+      prepare: async (...args) => {
+        if (await this.restartContinuationHeld(args[0])) return false;
+        return port.prepare(...args);
+      },
+      complete: async (...args) => {
+        if (await this.restartContinuationHeld(args[0])) return;
+        await port.complete?.(...args);
+      },
       changed: (snapshot) => this.publish(snapshot),
     });
     const stored = await this.store.listAgentIds();
@@ -35,7 +45,55 @@ export class MessageQueueService {
     for (const agentId of new Set([...stored, ...held])) void this.delivery.wake(agentId);
   }
 
+  async captureRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    await this.initialize();
+    await this.store.captureRestartContinuation(agentId, requestId, this.restartOwner);
+  }
+
+  async restartContinuationReleased(requestId: string): Promise<boolean> {
+    await this.initialize();
+    for (const id of await this.store.listAgentIds()) {
+      const retained = await this.store.restartContinuation(id);
+      if (retained?.requestId === requestId && retained.phase !== "held") return true;
+    }
+    return false;
+  }
+
+  async abandonRestartContinuation(agentId: string): Promise<void> {
+    await this.store.abandonRestartContinuation(agentId);
+    this.publish(await this.store.read(agentId));
+  }
+
+  async restartContinuationHeld(agentId: string): Promise<boolean> {
+    return (await this.store.restartContinuation(agentId))?.phase === "held";
+  }
+
+  async releaseRestartContinuation(
+    requestId: string,
+    outcome: "ready" | "cancelled",
+  ): Promise<boolean> {
+    await this.initialize();
+    const agents = await this.store.listAgentIds();
+    const matching: string[] = [];
+    for (const id of agents) {
+      const retained = await this.store.restartContinuation(id);
+      if (retained?.requestId !== requestId) continue;
+      if (outcome === "cancelled" && retained.owner !== this.restartOwner) return false;
+      matching.push(id);
+    }
+    for (const id of matching) {
+      if (!(await this.store.releaseRestartContinuation(id, requestId, this.restartOwner, outcome)))
+        return false;
+    }
+    for (const id of matching) void this.delivery?.wake(id);
+    return true;
+  }
+
   async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    const retained = await this.store.restartContinuation(agentId);
+    if (retained?.requestId === requestId && (retained.phase !== "held" || retained.abandoned))
+      return;
+
     const snapshot = await this.read(agentId);
     // Existing queued work already supplies continuation. User-paused queues stay paused.
     if (snapshot.paused || snapshot.items.length) return;

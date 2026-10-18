@@ -358,3 +358,39 @@ it("persists rewind suppression without erasing delivery receipts or earlier his
   });
   expect((await restarted.read("agent")).items).toEqual([]);
 });
+
+it("retains an uncertain dispatch behind restart readiness without replay or idle admission", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-queue-restart-uncertain-"));
+  roots.push(root);
+  const store = new MessageQueueStore(root);
+  await store.mutate("agent", {
+    kind: "enqueue",
+    operationId: "enqueue",
+    messageId: "message",
+    text: "Existing work",
+    attachments: [],
+  });
+  expect(await store.claim("agent")).not.toBeNull();
+  const owner = "8eebd9f4-90f5-4f69-a5ce-6db9891642f2";
+  await store.captureRestartContinuation("agent", "request", owner);
+  const reopened = new MessageQueueStore(root);
+  await reopened.recover("agent");
+  expect(await reopened.withIdleQueue("agent", async () => "unexpected")).toBeNull();
+  expect(await reopened.claim("agent")).toBeNull();
+  expect(
+    await reopened.releaseRestartContinuation(
+      "agent",
+      "request",
+      "b15ea011-654a-48b1-85d4-ea05c46e8946",
+      "cancelled",
+    ),
+  ).toBe(false);
+  expect(await reopened.releaseRestartContinuation("agent", "request", owner, "ready")).toBe(true);
+  expect((await reopened.read("agent")).items[0].delivery.status).toBe("uncertain");
+  expect(await reopened.claim("agent")).toBeNull();
+  await reopened.captureRestartContinuation("agent", "request", owner);
+  expect(await reopened.restartContinuation("agent")).toMatchObject({
+    phase: "ready",
+    requestId: "request",
+  });
+});

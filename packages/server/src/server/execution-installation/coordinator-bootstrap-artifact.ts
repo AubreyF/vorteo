@@ -38,12 +38,62 @@ export async function verifyBootstrapReleaseArtifacts(
   await inspectBootstrapReleaseArtifacts(release, writableMountRoots);
 }
 
+type ReleaseInspector = (
+  release: CoordinatorBootstrapPlan["candidate"],
+  writableMountRoots: readonly string[],
+) => Promise<{ assertCurrent(): void }>;
+
+/** Proofs belong to this invocation only, never to another request or process. */
+export async function withBootstrapReleaseInspection<T>(
+  action: (inspect: ReleaseInspector) => Promise<T>,
+): Promise<T> {
+  const artifacts = new Map<string, ReturnType<typeof inspectBootstrapArtifact>>();
+  const releases: Array<() => void> = [];
+  let active = true;
+  const inspect: ReleaseInspector = async (release, roots) => {
+    if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
+    const captured = structuredClone(release);
+    const proof = await inspectReleaseArtifacts(captured, roots, {}, async (directory, limits) => {
+      const key = JSON.stringify([directory, captured.artifactSha256]);
+      let pending = artifacts.get(key);
+      if (!pending) {
+        pending = inspectBootstrapArtifact(directory, limits);
+        artifacts.set(key, pending);
+      }
+      const artifact = await pending;
+      if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
+      artifact.assertCurrent();
+      return artifact;
+    });
+    if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
+    releases.push(proof.assertCurrent);
+    return proof;
+  };
+  try {
+    const result = await action(inspect);
+    for (const assertRelease of releases) assertRelease();
+    return result;
+  } finally {
+    active = false;
+    artifacts.clear();
+  }
+}
+
 /** Retain reviewed release declarations and every byte supplier before reading.
  * Runtime compatibility and current writable-mount evidence remain caller checks. */
 export async function inspectBootstrapReleaseArtifacts(
   value: CoordinatorBootstrapPlan["candidate"],
   writableMountRoots: readonly string[],
   limits: BootstrapArtifactDigestLimits = {},
+) {
+  return inspectReleaseArtifacts(value, writableMountRoots, limits, inspectBootstrapArtifact);
+}
+
+async function inspectReleaseArtifacts(
+  value: CoordinatorBootstrapPlan["candidate"],
+  writableMountRoots: readonly string[],
+  limits: BootstrapArtifactDigestLimits,
+  inspectArtifact: typeof inspectBootstrapArtifact,
 ) {
   const release = structuredClone(value);
   const { signal, timeoutMs, maxFiles, maxBytes } = limits;
@@ -86,7 +136,7 @@ export async function inspectBootstrapReleaseArtifacts(
   if (receipt.sourceCommit !== release.sourceCommit)
     throw new BootstrapRequestConflict("Prepared source does not match its installation receipt");
   checkBudget();
-  const artifact = await inspectBootstrapArtifact(release.directory, {
+  const artifact = await inspectArtifact(release.directory, {
     signal,
     timeoutMs: timeoutMs === undefined ? undefined : timeoutMs - (Date.now() - startedAt),
     maxFiles,
