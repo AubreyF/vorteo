@@ -428,6 +428,45 @@ describe("toAgentPayload", () => {
     });
   });
 
+  it("drops the injected tool server and its token from stored persistence", () => {
+    const record = toStoredAgentRecord(
+      createManagedAgent({
+        provider: "claude",
+        config: { provider: "claude" },
+        persistence: {
+          provider: "claude",
+          sessionId: "persist-tools",
+          metadata: {
+            cwd: "/work",
+            mcpServers: {
+              paseo: {
+                type: "http",
+                url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
+                headers: { Authorization: "Bearer run-scoped-token" },
+              },
+              hub: {
+                type: "http",
+                url: "https://hub.test/mcp",
+                headers: { Authorization: "Bearer configured-token" },
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(record.persistence?.metadata).toEqual({
+      cwd: "/work",
+      mcpServers: {
+        hub: {
+          type: "http",
+          url: "https://hub.test/mcp",
+          headers: { Authorization: "Bearer configured-token" },
+        },
+      },
+    });
+  });
+
   it("omits lastUsage when not available", () => {
     const agent = createManagedAgent({ lastUsage: undefined });
     const payload = toAgentPayload(agent);

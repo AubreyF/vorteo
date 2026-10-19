@@ -15,6 +15,7 @@ import {
   HelloRequestSchema,
   MAX_FRAME_BYTES,
   MAX_HELLO_FRAME_BYTES,
+  SELF_PROBE_RELEASE,
   SESSION_HOST_PROTOCOL_VERSION,
   SessionHostRequestSchema,
   type AttachResult,
@@ -96,7 +97,12 @@ const MAX_ERROR_MESSAGE_LENGTH = 2_000;
 
 export interface SessionHostOptions {
   socketPath: string;
-  token: string;
+  /**
+   * The capability workers present at hello. A function is resolved only once this host holds
+   * the lock and has claimed the socket path, so a host that loses the race to start never
+   * replaces the token of the one that won.
+   */
+  token: string | (() => Promise<string>);
   /** Given to every worker at hello; see the hello reply in the protocol. */
   mcpToken: string;
   openSession: HostedSessionFactory;
@@ -109,6 +115,8 @@ export interface SessionHostOptions {
 
 export interface SessionHost {
   readonly identity: HostIdentity;
+  /** Hosted sessions, counting ones still opening, since those already run a provider. */
+  sessionCount(): number;
   close(): Promise<void>;
 }
 
@@ -258,6 +266,8 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
   const opening = new Set<string>();
   const sockets = new Set<net.Socket>();
   let closing = false;
+  /** Set after the lock is held and before the first connection can arrive. */
+  let token = "";
   let nextOrder = 1;
   let totalRetainedBytes = 0;
 
@@ -539,6 +549,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
     }
     sockets.add(socket);
     let phase: "greeting" | "ready" | "rejected" = "greeting";
+    let selfProbe = false;
 
     const push = createOutbox({
       socket,
@@ -577,12 +588,18 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
      * Connection-level failures end the connection after one error frame. Later frames are
      * ignored, and a peer that never reads cannot hold the socket open.
      */
-    function reject(code: SessionHostErrorCode, message: string, reason: string): void {
+    function reject(
+      code: SessionHostErrorCode,
+      message: string,
+      reason: string,
+      detail: { protocolVersion?: number } = {},
+    ): void {
       if (phase === "rejected") return;
       audit({
         event: phase === "ready" ? "frame_rejected" : "hello_rejected",
         connectionId,
         reason,
+        ...detail,
       });
       phase = "rejected";
       fail(null, new HostError(code, message));
@@ -604,12 +621,15 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
         reject("unauthorized", "Say hello before using the session host.", "no_hello");
         return;
       }
-      if (!tokenMatches(options.token, envelope.data.token)) {
+      if (!tokenMatches(token, envelope.data.token)) {
         reject("unauthorized", "Session host token rejected.", "unauthorized");
         return;
       }
       if (envelope.data.protocolVersion !== SESSION_HOST_PROTOCOL_VERSION) {
-        reject("version", "Session host protocol version differs.", "version");
+        // The peer's version tells the service whether a newer worker is waiting for an upgrade.
+        reject("version", "Session host protocol version differs.", "version", {
+          protocolVersion: envelope.data.protocolVersion,
+        });
         return;
       }
       const hello = HelloRequestSchema.safeParse(frame);
@@ -620,12 +640,17 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       phase = "ready";
       clearTimeout(helloTimer);
       reader.setMaxFrameBytes(limits.maxFrameBytes);
-      audit({
-        event: "hello_accepted",
-        connectionId,
-        clientPid: hello.data.client.pid,
-        clientRelease: hello.data.client.release,
-      });
+      // The watchdog's liveness probe greets as this process every few seconds and never
+      // attaches; recording each one would bury the attach history the audit log is for.
+      selfProbe =
+        hello.data.client.pid === process.pid && hello.data.client.release === SELF_PROBE_RELEASE;
+      if (!selfProbe)
+        audit({
+          event: "hello_accepted",
+          connectionId,
+          clientPid: hello.data.client.pid,
+          clientRelease: hello.data.client.release,
+        });
       connection.send({
         type: "hello",
         protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
@@ -746,7 +771,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
           state.attached = null;
           released += 1;
         }
-      if (phase === "ready" || released > 0)
+      if ((phase === "ready" && !selfProbe) || released > 0)
         audit({ event: "disconnected", connectionId, released });
     });
   }
@@ -757,15 +782,18 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
   const server = net.createServer(serve);
   try {
     await claimSocketPath(options.socketPath);
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(options.socketPath, () => {
-        server.off("error", reject);
-        resolve();
+    token = typeof options.token === "string" ? options.token : await options.token();
+    await withPrivateUmask(async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(options.socketPath, () => {
+          server.off("error", reject);
+          resolve();
+        });
       });
+      // The private directory is the access boundary; this keeps the socket private as well.
+      await chmod(options.socketPath, 0o600);
     });
-    // The private directory is the access boundary; this keeps the socket private as well.
-    await chmod(options.socketPath, 0o600);
   } catch (error) {
     server.close();
     await lock.release();
@@ -776,6 +804,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
 
   return {
     identity,
+    sessionCount: () => sessions.size + opening.size,
     async close() {
       if (closing) return;
       closing = true;
@@ -793,6 +822,26 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       audit({ event: "host_stopped", hostId: identity.id });
     },
   };
+}
+
+/** Hosts in this process currently binding, and the mask to restore when the last one is done. */
+let privateUmaskUsers = 0;
+let restoreUmask = 0;
+
+/**
+ * Applies a 077 umask only while the socket is created, so it is never briefly reachable with
+ * looser permissions. The mask is process-wide and provider processes inherit it, so it is
+ * restored before any provider can start; a counter keeps concurrent binds from restoring early.
+ */
+async function withPrivateUmask<T>(operation: () => Promise<T>): Promise<T> {
+  if (privateUmaskUsers === 0) restoreUmask = process.umask(0o077);
+  privateUmaskUsers += 1;
+  try {
+    return await operation();
+  } finally {
+    privateUmaskUsers -= 1;
+    if (privateUmaskUsers === 0) process.umask(restoreUmask);
+  }
 }
 
 async function settleWithin(

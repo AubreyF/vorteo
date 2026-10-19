@@ -13,6 +13,7 @@ import type { ProviderRuntimeSettings } from "../agent/provider-launch-config.js
 import { SessionHostClientError, type HostedSession, type SessionHostClient } from "./client.js";
 import type { SessionHostConnector } from "./connector.js";
 import {
+  DEFAULT_REATTACH_POLICY,
   HostedAgentSession,
   HostedReattachPendingError,
   type HostedReattachment,
@@ -49,6 +50,23 @@ export interface HostedAdoption {
   lossy: boolean;
   /** Receives the adopted session, so startup can release its held events. */
   onAdopted?(session: HostedAgentSession): void;
+}
+
+/**
+ * The host still holds this agent's session but did not answer within the reattach window.
+ * Starting the agent in the worker would put a second provider on its conversation.
+ */
+export class SessionHostUnresponsiveError extends Error {
+  constructor(readonly agentId: string) {
+    super(
+      "The session host still runs this agent's session but is not answering. Try again shortly.",
+    );
+    this.name = "SessionHostUnresponsiveError";
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms).unref());
 }
 
 interface EligibilityInput {
@@ -180,9 +198,29 @@ export function createHostedAgentClient(input: {
   }
 
   /**
+   * Connects before a decision that would otherwise start the provider in the worker. A host that
+   * is alive but slow gets the reattach window to answer, since its watchdog replaces a host that
+   * cannot; a host that is gone answers null at once.
+   */
+  async function connectWhileHostLives(agentId: string): Promise<SessionHostClient | null> {
+    const policy = routing.reattach ?? DEFAULT_REATTACH_POLICY;
+    const deadline = Date.now() + policy.windowMs;
+    let delay = policy.initialDelayMs;
+    for (;;) {
+      const client = await routing.connector.connect({ force: true });
+      if (client) return client;
+      if (!(await routing.connector.hostAlive())) return null;
+      if (Date.now() + delay > deadline) throw new SessionHostUnresponsiveError(agentId);
+      await sleep(delay);
+      delay = Math.min(delay * 2, policy.maxDelayMs);
+    }
+  }
+
+  /**
    * An agent with an applied record may still have its session in the host, even after the
    * setting was turned off. Starting it in the worker would run two providers on one
-   * conversation, so the host is asked first; a record the host no longer backs is dropped.
+   * conversation, so the host is asked first. A record the host no longer backs is dropped, and
+   * so is one whose host is gone, since the agent now runs in the worker.
    */
   async function remnant(
     agentId: string | undefined,
@@ -190,9 +228,8 @@ export function createHostedAgentClient(input: {
     launchEnv: Record<string, string> | undefined,
   ): Promise<HostedAgentSession | null> {
     if (!agentId || !routing.applied || !(await routing.applied.read(agentId))) return null;
-    const client = await routing.connector.connect({ force: true });
-    if (!client) return null;
-    const session = await attachExisting({ client, agentId, model, launchEnv });
+    const client = await connectWhileHostLives(agentId);
+    const session = client ? await attachExisting({ client, agentId, model, launchEnv }) : null;
     if (!session) await routing.applied.remove(agentId);
     return session;
   }

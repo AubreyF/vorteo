@@ -19,6 +19,13 @@ export const MAX_HELLO_FRAME_BYTES = 4 * 1024;
 const IdSchema = z.string().min(1).max(200);
 const JsonSchema = z.json();
 const SeqSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/**
+ * The release label the host's own watchdog reports, with the host's pid, when it probes the
+ * hello exchange. The host leaves such connections out of its audit log; both must match, so a
+ * worker that shares the host's process, as in tests, is still audited.
+ */
+export const SELF_PROBE_RELEASE = "session-host-self-probe";
+
 /** Free-form identity text for the audit log, never used for authorization. */
 const LabelSchema = z.string().max(200);
 

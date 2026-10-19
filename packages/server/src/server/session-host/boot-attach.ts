@@ -62,10 +62,15 @@ export async function planHostedStartup(input: {
   const { routing, logger } = input;
   const records = await routing.applied.list();
   const plan: HostedStartupPlan = { adopted: [], closed: [], lost: [], hostReachable: false };
-  if (records.size === 0 && !routing.isEnabled()) return plan;
+  // A session's first record follows its first event, so a worker that died sooner left none.
+  // With the setting off, such a session is still found as long as a host socket exists.
+  if (records.size === 0 && !routing.isEnabled() && !(await routing.connector.present()))
+    return plan;
   const client = await routing.connector.connect({ force: true });
   if (!client) {
-    plan.lost = [...records.keys()];
+    // Startup does not wait for a host that is alive but slow: its sessions may still run, and
+    // loading each agent takes it over then. Only a host that is gone took its sessions along.
+    if (!(await routing.connector.hostAlive())) plan.lost = [...records.keys()];
     return plan;
   }
   plan.hostReachable = true;

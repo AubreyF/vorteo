@@ -43,8 +43,14 @@ import {
 const ACK_INTERVAL_MS = 250;
 /** Events held for a manager that has not subscribed yet, such as replay right after attach. */
 const MAX_HELD_EVENTS = 10_000;
-/** An adopted session whose history is never read still delivers its live events after this. */
-const REBUILD_RELEASE_MS = 30_000;
+/** Live events of an adopted session whose history is never read are delivered after this. */
+const REBUILD_UNREAD_RELEASE_MS = 120_000;
+/**
+ * Once its history has been read, an adopted session waits this long for the manager to commit
+ * the rows before it delivers live events anyway. Reading itself has no deadline: a slow read must
+ * not let live rows overtake the history they follow.
+ */
+const REBUILD_APPLY_RELEASE_MS = 30_000;
 
 export type HostedSessionUnavailableReason = "fenced" | "lost" | "closed" | "detached";
 
@@ -93,7 +99,7 @@ export interface HostedReattachPolicy {
   maxDelayMs: number;
 }
 
-const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
+export const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
   windowMs: 60_000,
   initialDelayMs: 250,
   maxDelayMs: 5_000,
@@ -193,6 +199,8 @@ export class HostedAgentSession implements AgentSession {
   private interruptPending = false;
   private persistenceSource: AgentPersistenceHandle | null = null;
   private persistenceView: AgentPersistenceHandle | null = null;
+  /** Delivers held live events if the rebuilt history is never read or never applied. */
+  private releaseTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: HostedAgentSessionOptions) {
     this.provider = options.provider;
@@ -205,14 +213,8 @@ export class HostedAgentSession implements AgentSession {
     this.appliedSeq = options.rebuild?.throughSeq ?? 0;
     this.ackedSeq = this.appliedSeq;
     this.bind(options.channel);
-    if (this.liveHeld) {
-      const release = setTimeout(() => {
-        if (!this.liveHeld) return;
-        this.options.logger.warn("Hosted history was not read in time; delivering live events");
-        this.releaseLive();
-      }, REBUILD_RELEASE_MS);
-      release.unref();
-    }
+    if (this.liveHeld)
+      this.armRelease(REBUILD_UNREAD_RELEASE_MS, "Hosted history was not read in time");
   }
 
   get id(): string | null {
@@ -250,8 +252,12 @@ export class HostedAgentSession implements AgentSession {
     return this.persistenceView;
   }
 
+  /**
+   * The provider runs outside this worker and outlives it. A session that is reattaching counts:
+   * its provider is still in the host, so a restart must neither wrap up nor interrupt its turn.
+   */
   isDurablyHosted(): boolean {
-    return this.status === "attached";
+    return this.status === "attached" || this.status === "reattaching";
   }
 
   /**
@@ -259,11 +265,20 @@ export class HostedAgentSession implements AgentSession {
    * the provider keeps running and the next worker takes it over.
    */
   async detach(): Promise<void> {
-    if (this.status === "closed" || this.status === "detached") return;
-    await this.flushAck();
+    if (this.status !== "attached" && this.status !== "reattaching") return;
+    if (this.status === "attached") await this.flushAck();
+    // Reattaching has no channel to acknowledge on, but the record still tells the next worker
+    // which events this one applied.
+    else await this.recordApplied(this.appliedSeq);
+    // Closed, fenced or lost while the record was written: nothing is left to hand over.
+    if (!this.isDurablyHosted()) return;
+    const wasAttached = this.isAttached();
     this.status = "detached";
     this.wakeRecovery?.();
     this.unsubscribeChannel();
+    // Not required, since the next attach fences this one, but it puts the handoff in the audit log.
+    if (wasAttached) this.channel.release();
+    this.clearReleaseTimer();
     this.subscribers.clear();
     this.held = [];
   }
@@ -297,6 +312,7 @@ export class HostedAgentSession implements AgentSession {
    * loading an adopted agent finished or failed, so events are never held forever.
    */
   releaseLive(): void {
+    this.clearReleaseTimer();
     if (!this.liveHeld) return;
     this.liveHeld = false;
     this.flushHeld();
@@ -413,15 +429,18 @@ export class HostedAgentSession implements AgentSession {
 
   async close(): Promise<void> {
     if (this.status === "closed" || this.status === "detached") return;
-    const attached = this.status === "attached";
+    const status = this.status;
     try {
       // While reattaching, the recovery closes the host session if it gets an attachment back.
       // Only a close that reached the host may forget the applied record: a fenced worker would
       // otherwise delete the record its successor just wrote for the same agent.
-      if (attached) {
+      if (status === "attached") {
         await this.invoke({ method: "close" });
         await this.forgetApplied();
       }
+      // The host no longer runs a lost session, and its agent is moving to a fresh session. A
+      // record left behind would make the next startup report the agent lost a second time.
+      if (status === "lost") await this.forgetApplied();
     } catch (error) {
       this.options.logger.warn(
         { err: error },
@@ -432,6 +451,7 @@ export class HostedAgentSession implements AgentSession {
       this.status = "closed";
       this.wakeRecovery?.();
       this.unsubscribeChannel();
+      this.clearReleaseTimer();
       this.subscribers.clear();
       this.held = [];
     }
@@ -441,6 +461,8 @@ export class HostedAgentSession implements AgentSession {
     // Like the provider itself, saved history is yielded once per session object.
     if (this.historyRead) return;
     this.historyRead = true;
+    // However long the read takes, live events stay behind the history they follow.
+    this.clearReleaseTimer();
     let complete = false;
     try {
       yield* this.readProviderHistory();
@@ -450,7 +472,31 @@ export class HostedAgentSession implements AgentSession {
       // A failed read can be retried; the manager collects history before it appends rows, and
       // signals historyApplied once they are committed, which releases the held live events.
       if (!complete) this.historyRead = false;
+      if (this.liveHeld && !this.isFinished())
+        this.armRelease(
+          complete ? REBUILD_APPLY_RELEASE_MS : REBUILD_UNREAD_RELEASE_MS,
+          complete
+            ? "Rebuilt hosted history was not applied in time"
+            : "Hosted history read failed",
+        );
     }
+  }
+
+  /** Delivers held live events after ms unless history is applied, read or the session ends. */
+  private armRelease(ms: number, reason: string): void {
+    this.clearReleaseTimer();
+    this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = null;
+      if (!this.liveHeld) return;
+      this.options.logger.warn(`${reason}; delivering live events`);
+      this.releaseLive();
+    }, ms);
+    this.releaseTimer.unref();
+  }
+
+  private clearReleaseTimer(): void {
+    if (this.releaseTimer) clearTimeout(this.releaseTimer);
+    this.releaseTimer = null;
   }
 
   private async *readProviderHistory(): AsyncGenerator<AgentStreamEvent> {
@@ -653,22 +699,24 @@ export class HostedAgentSession implements AgentSession {
     const seq = this.appliedSeq;
     const channel = this.channel;
     if (seq <= this.ackedSeq || this.status !== "attached") return;
-    const applied = this.options.applied;
-    if (applied) {
-      try {
-        await applied.store.write(applied.agentId, {
-          hostId: applied.hostId,
-          lastAppliedSeq: seq,
-        });
-      } catch (error) {
-        // Without a durable record the host must keep treating these events as unapplied.
-        this.options.logger.warn({ err: error }, "Could not record applied hosted events");
-        return;
-      }
-    }
+    // Without a durable record the host must keep treating these events as unapplied.
+    if (!(await this.recordApplied(seq))) return;
     if (channel !== this.channel || this.status !== "attached") return;
     channel.acknowledge(seq);
     this.ackedSeq = Math.max(this.ackedSeq, seq);
+  }
+
+  /** Writes the applied record. False when it could not be written. */
+  private async recordApplied(seq: number): Promise<boolean> {
+    const applied = this.options.applied;
+    if (!applied || seq <= this.ackedSeq) return true;
+    try {
+      await applied.store.write(applied.agentId, { hostId: applied.hostId, lastAppliedSeq: seq });
+      return true;
+    } catch (error) {
+      this.options.logger.warn({ err: error }, "Could not record applied hosted events");
+      return false;
+    }
   }
 
   private async forgetApplied(): Promise<void> {
@@ -704,19 +752,21 @@ export class HostedAgentSession implements AgentSession {
       try {
         next = await this.options.reattach(afterSeq);
       } catch (error) {
-        if (this.isClosed()) return;
+        if (this.isFinished()) return;
         if (Date.now() + delay > deadline) {
           this.options.logger.warn({ err: error }, "The session host did not answer in time");
           this.markLost();
           return;
         }
         await this.backoff(delay);
-        if (this.isClosed()) return;
+        if (this.isFinished()) return;
         delay = Math.min(delay * 2, policy.maxDelayMs);
         continue;
       }
-      if (this.isClosed()) {
-        next?.channel.call({ method: "close" }).catch(() => {});
+      if (this.isFinished()) {
+        // A closed session ends in the host as well; a released one stays for the next worker.
+        if (this.isClosed()) next?.channel.call({ method: "close" }).catch(() => {});
+        else next?.channel.release();
         return;
       }
       if (!next) {
@@ -741,6 +791,16 @@ export class HostedAgentSession implements AgentSession {
   /** Read through a method: close() can change the status while recovery awaits. */
   private isClosed(): boolean {
     return this.status === "closed";
+  }
+
+  /** Closed, or released to the next worker by detach(); either way recovery must stop. */
+  private isFinished(): boolean {
+    return this.status === "closed" || this.status === "detached";
+  }
+
+  /** Read through a method: detach() awaits the record write before reading it. */
+  private isAttached(): boolean {
+    return this.status === "attached";
   }
 
   private backoff(ms: number): Promise<void> {
@@ -769,8 +829,8 @@ export class HostedAgentSession implements AgentSession {
 
   /**
    * The provider process ended with its host. Like a restart, the turn is canceled here and the
-   * agent continues from a queued continuation on a fresh session. The applied record stays: the
-   * next worker's startup reconciles it with what the host runs.
+   * agent continues from a queued continuation on a fresh session. The applied record stays until
+   * the agent moves to that session, so a worker that stops first leaves it for the next startup.
    */
   private markLost(): void {
     this.status = "lost";

@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import type { Logger } from "pino";
 import {
   connectSessionHost,
@@ -5,7 +6,11 @@ import {
   type ConnectSessionHostOptions,
   type SessionHostClient,
 } from "./client.js";
-import { readSessionHostToken, type SessionHostPaths } from "./host-files.js";
+import {
+  readSessionHostToken,
+  sessionHostProcessAlive,
+  type SessionHostPaths,
+} from "./host-files.js";
 
 export interface SessionHostConnector {
   /**
@@ -16,6 +21,10 @@ export interface SessionHostConnector {
   connect(options?: { force?: boolean }): Promise<SessionHostClient | null>;
   /** The live connection, without connecting. */
   current(): SessionHostClient | null;
+  /** Whether a host socket exists, checked without connecting or logging. */
+  present(): Promise<boolean>;
+  /** Whether a host process holds the host lock, answering or not. */
+  hostAlive(): Promise<boolean>;
   /**
    * Tool endpoint tokens of the last host this worker reached. Hosted providers keep using them
    * while the connection is down, so the endpoint must keep accepting them.
@@ -105,6 +114,11 @@ export function createSessionHostConnector(
       return attempt;
     },
     current: () => client,
+    async present() {
+      const stats = await lstat(options.paths.socketPath).catch(() => null);
+      return stats?.isSocket() === true;
+    },
+    hostAlive: () => sessionHostProcessAlive(options.paths.socketPath),
     knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {
       closed = true;

@@ -18,6 +18,7 @@ import { afterEach, expect, test } from "vitest";
 import { connectSessionHost, type HostedSession, type SessionHostClient } from "./client.js";
 import {
   claimSocketPath,
+  createRotatingAppender,
   createSessionHostAuditLog,
   preparePrivateDirectory,
   readSessionHostToken,
@@ -32,7 +33,7 @@ import {
   type SessionHost,
   type SessionHostLimits,
 } from "./host.js";
-import { SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js";
+import { SELF_PROBE_RELEASE, SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js";
 
 const token = "test-session-host-token";
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -102,7 +103,7 @@ async function hostWith(
     limits?: Partial<SessionHostLimits>;
     audit?: (record: SessionHostAuditRecord) => void;
     socketPath?: string;
-    token?: string;
+    token?: string | (() => Promise<string>);
     openSession?: () => Promise<HostedSessionPort>;
   } = {},
 ) {
@@ -818,4 +819,86 @@ test("the session list leaves out snapshots that would not fit one frame", async
   await client.open({ sessionId: "agent-2", provider: "fake", config: {} });
   const sessions = await client.list();
   expect(sessions.map((session) => session.snapshot === null)).toEqual([false, true]);
+});
+
+test("the private mask covers only the socket bind, so providers keep the usual mask", async () => {
+  const previous = process.umask(0o022);
+  try {
+    const hosts = await Promise.all([
+      hostWith(controllableSession()),
+      hostWith(controllableSession()),
+    ]);
+    // Concurrent binds must not leave the private mask behind for the providers they start.
+    expect(process.umask(0o022)).toBe(0o022);
+    for (const { socketPath } of hosts) expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+  } finally {
+    process.umask(previous);
+  }
+});
+
+test("a version refusal records the peer's protocol version", async () => {
+  const records: SessionHostAuditRecord[] = [];
+  const { socketPath } = await hostWith(controllableSession(), {
+    audit: (entry) => records.push(entry),
+  });
+  const futureWorker = await rawPeer(socketPath);
+  futureWorker.send({ type: "hello", protocolVersion: 99, token, client: { pid: 1 } });
+  await futureWorker.closed;
+  expect(records).toContainEqual(
+    expect.objectContaining({ event: "hello_rejected", reason: "version", protocolVersion: 99 }),
+  );
+});
+
+test("a host that loses the race to start never produces its token", async () => {
+  const { socketPath } = await hostWith(controllableSession(), { token: async () => token });
+  let produced = false;
+  await expect(
+    startSessionHost({
+      socketPath,
+      token: async () => {
+        produced = true;
+        return "replacement-token";
+      },
+      mcpToken: "test-mcp-token",
+      openSession: async () => controllableSession().port,
+    }),
+  ).rejects.toBeInstanceOf(SessionHostAlreadyRunningError);
+  expect(produced).toBe(false);
+  // The running host still answers with the token it resolved at start.
+  const client = await worker(socketPath);
+  expect(client.closed).toBe(false);
+});
+
+test("the watchdog's self-probe is answered but left out of the audit log", async () => {
+  const records: SessionHostAuditRecord[] = [];
+  const { socketPath } = await hostWith(controllableSession(), {
+    audit: (entry) => records.push(entry),
+  });
+  const probe = await rawPeer(socketPath);
+  probe.send({
+    type: "hello",
+    protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
+    token,
+    client: { pid: process.pid, release: SELF_PROBE_RELEASE },
+  });
+  await expect.poll(() => probe.frames.length).toBe(1);
+  expect(probe.frames[0]).toMatchObject({ type: "hello" });
+  probe.socket.destroy();
+  await probe.closed;
+
+  // A real worker in the same process is still audited, as before.
+  const client = await worker(socketPath);
+  client.close();
+  await expect.poll(() => records.some((entry) => entry.event === "disconnected")).toBe(true);
+  expect(records.filter((entry) => entry.event === "hello_accepted")).toHaveLength(1);
+  expect(records.filter((entry) => entry.event === "disconnected")).toHaveLength(1);
+});
+
+test("a rotating appender keeps one predecessor at its size bound", () => {
+  const logPath = join(scratchDirectory(), "host.log");
+  const append = createRotatingAppender({ path: logPath, maxBytes: 100 });
+  for (let index = 0; index < 20; index += 1) append(`line ${index} of the host log\n`);
+  expect(statSync(logPath).size).toBeLessThanOrEqual(100);
+  expect(readFileSync(`${logPath}.1`, "utf8")).toContain("line");
+  expect(statSync(logPath).mode & 0o777).toBe(0o600);
 });

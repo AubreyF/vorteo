@@ -2174,21 +2174,9 @@ export class AgentManager {
     return new Date(nextMs).toISOString();
   }
 
-  /** The provider runs in the durable session host and this worker is attached to it. */
+  /** The provider runs in the durable session host and outlives this worker. */
   private isDurablyHosted(agent: ManagedAgent): boolean {
     return agent.session?.isDurablyHosted?.() === true;
-  }
-
-  /** How many loaded agents run in the session host, for the restart readiness signal. */
-  countDurablyHostedSessions(): { attached: number; total: number } {
-    let attached = 0;
-    let total = 0;
-    for (const agent of this.agents.values()) {
-      if (!agent.session?.isDurablyHosted) continue;
-      total += 1;
-      if (this.isDurablyHosted(agent)) attached += 1;
-    }
-    return { attached, total };
   }
 
   /**
@@ -2214,10 +2202,17 @@ export class AgentManager {
   async continueAfterHostedSessionLoss(agentId: string): Promise<void> {
     if (this.agents.has(agentId)) {
       await this.drainSessionEvents(agentId).catch(() => {});
-      try {
-        await this.reloadAgentSession(agentId);
-      } catch (error) {
-        this.logger.warn({ err: error, agentId }, "Could not reopen an agent after its host ended");
+      // During a restart drain no session may open. The next worker loads the agent afresh and
+      // delivers the continuation, so only the continuation is queued here.
+      if (!this.isRestartDraining()) {
+        try {
+          await this.reloadAgentSession(agentId);
+        } catch (error) {
+          this.logger.warn(
+            { err: error, agentId },
+            "Could not reopen an agent after its host ended",
+          );
+        }
       }
     }
     await this.messageQueueControl?.queueHostedSessionContinuation?.(agentId, String(Date.now()));

@@ -144,6 +144,19 @@ async function lockIsStale(lockPath: string, socketPath: string): Promise<boolea
 }
 
 /**
+ * Whether the process holding the host lock is alive. A host that holds its lock but does not
+ * answer is stalled rather than gone, and its watchdog replaces it, so a worker waits for it
+ * instead of starting a second provider on the same conversation. A reused process id reads as
+ * alive, which only makes the caller wait out its bound.
+ */
+export async function sessionHostProcessAlive(socketPath: string): Promise<boolean> {
+  const content = await readFile(`${socketPath}.lock`, "utf8").catch(() => null);
+  if (content === null) return false;
+  const holder = Number.parseInt(content.trim(), 10);
+  return Number.isSafeInteger(holder) && holder > 0 && processAlive(holder);
+}
+
+/**
  * Holds `<socket>.lock` for the life of one host so two hosts never serve one socket, even when
  * they start together. launchd already runs one instance per label; this keeps the library safe
  * without it. A lock left by an exited process is taken over.
@@ -198,18 +211,20 @@ export interface SessionHostAuditRecord {
 
 export type SessionHostAuditSink = (record: SessionHostAuditRecord) => void;
 
+/** Appends one line to a private, size-capped file. */
+export type RotatingAppender = (line: string) => void;
+
 /**
- * Appends JSON lines to a private file, keeping one rotated predecessor. Audit failures are
- * reported to onError and never interrupt the host.
+ * Appends lines to a private file synchronously, so the last lines before an exit survive, and
+ * keeps one rotated predecessor once the file would pass maxBytes. Failures are reported to
+ * onError and never thrown, since losing a log line must not interrupt the host.
  */
-export function createSessionHostAuditLog(input: {
+export function createRotatingAppender(input: {
   path: string;
   maxBytes?: number;
-  now?: () => Date;
   onError?: (error: unknown) => void;
-}): SessionHostAuditSink {
+}): RotatingAppender {
   const maxBytes = input.maxBytes ?? 5 * 1024 * 1024;
-  const now = input.now ?? (() => new Date());
   // Creation modes do not tighten files left by an earlier host, so tighten them here.
   for (const existing of [input.path, `${input.path}.1`]) {
     try {
@@ -218,9 +233,8 @@ export function createSessionHostAuditLog(input: {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") input.onError?.(error);
     }
   }
-  return (record) => {
+  return (line) => {
     try {
-      const line = `${JSON.stringify({ at: now().toISOString(), ...record })}\n`;
       const size = statSync(input.path, { throwIfNoEntry: false })?.size ?? 0;
       if (size > 0 && size + Buffer.byteLength(line) > maxBytes)
         renameSync(input.path, `${input.path}.1`);
@@ -228,5 +242,26 @@ export function createSessionHostAuditLog(input: {
     } catch (error) {
       input.onError?.(error);
     }
+  };
+}
+
+/** Appends audit records as JSON lines to a private file, keeping one rotated predecessor. */
+export function createSessionHostAuditLog(input: {
+  path: string;
+  maxBytes?: number;
+  now?: () => Date;
+  onError?: (error: unknown) => void;
+}): SessionHostAuditSink {
+  const now = input.now ?? (() => new Date());
+  const append = createRotatingAppender(input);
+  return (record) => {
+    let line: string;
+    try {
+      line = `${JSON.stringify({ at: now().toISOString(), ...record })}\n`;
+    } catch (error) {
+      input.onError?.(error);
+      return;
+    }
+    append(line);
   };
 }

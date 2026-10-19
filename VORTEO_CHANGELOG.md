@@ -4,6 +4,31 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.701 - 2026-10-19
+
+### Added
+
+- The session host runs as its own service process for a launchd job that depends on neither the daemon, its port nor its workers. It writes a fresh token only after it holds the host lock, keeps the tool server token in memory and logs to a size-capped private file. When a newer worker needs a newer protocol, the host exits once no session runs so launchd starts the installed release; an older worker never causes an exit.
+- A watchdog on its own thread kills the host when its main thread stops responding, or when the host fails its own hello probe for 30 seconds, as with a deleted socket, a replaced token or exhausted connection slots. A session therefore counts as lost only once its host is gone. launchd job helpers manage only test labels unless a caller explicitly allows an installed one.
+
+### Fixes
+
+- A hosted session that is reconnecting when a restart begins is treated as hosted: the restart neither counts, steers nor interrupts it, and shutdown releases it to the next worker without closing it.
+- Loading an agent whose host is alive but not answering waits up to the reattach window and then fails with a clear message, instead of starting a second provider on the same conversation. Startup no longer reports the sessions of such a host as lost.
+- With the setting off, startup also asks a running host when no applied record exists, so a session whose worker died before its first record is taken over. A lost session's record is removed once its agent moves to a fresh session, and a host lost during a restart drain queues the continuation without trying to reopen the agent.
+- An adopted session holds live events for as long as its history takes to read; the safety release starts only after reading finishes. Detaching tells the host, so its audit log records the handoff.
+- Stored agent records no longer keep the injected tool server or its run-scoped token for any provider.
+- The host applies a private file mask only while it creates its socket, so files that Claude and its tools create keep their usual permissions.
+
+### Maintenance
+
+- The audit and service logs share one rotating appender, and the scripts build includes the session host entrypoint.
+- Still missing: installation steps for the launchd job and an isolated end-to-end run of the real daemon, so the setting stays off.
+
+### Validation
+
+- 120 focused session host, authentication, tool configuration and projection tests pass, plus 340 in the agent manager, persistence and storage suites, and the opt-in launchd round trip passes with a test label and leaves nothing behind. New restart tests cover a session reconnecting during a restart, a session without its first record with the setting off, a host lost during a restart drain and a live but silent host.
+
 ## 0.11.0-beta.3.vorteo.700 - 2026-10-19
 
 ### Added
