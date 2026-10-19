@@ -61,6 +61,19 @@ export function workerExecArgv(parent: readonly string[] = process.execArgv): st
   return kept;
 }
 
+/** Worker options that inherit the parent's execArgv unchanged unless main-input
+ * options had to be removed. Node rejects V8 and process-level options such as
+ * --max-old-space-size in an explicit execArgv, though it accepts them by
+ * inheritance, so the list is passed only when filtering changed it. Every known
+ * --input-type launcher passes no other option, which leaves an empty list. A
+ * parent combining such an option with --input-type remains unsupported. */
+export function workerExecArgvOptions(parent: readonly string[] = process.execArgv): {
+  execArgv?: string[];
+} {
+  const filtered = workerExecArgv(parent);
+  return filtered.length === parent.length ? {} : { execArgv: filtered };
+}
+
 export function identity(stat: BigIntStats): string {
   return [
     stat.dev,
@@ -255,7 +268,7 @@ function runArtifactWorker<T>(
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL(import.meta.url), {
       workerData: request,
-      execArgv: workerExecArgv(),
+      ...workerExecArgvOptions(),
     });
     let settled = false;
     const settle = (complete: () => void) => {
@@ -446,7 +459,7 @@ function digestFiles(
       // again keeps readers safe however the scan worker itself was started.
       const worker = new Worker(new URL(import.meta.url), {
         workerData: { role: DIGEST_ROLE, deadline } satisfies z.infer<typeof DigestRequestSchema>,
-        execArgv: workerExecArgv(),
+        ...workerExecArgvOptions(),
       });
       workers.push(worker);
       let batch: readonly PendingFile[] = [];

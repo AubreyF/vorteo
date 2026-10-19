@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-18
+
+### Fixes
+
+- Let release scan workers inherit the parent's execArgv unchanged unless main-input options had to be removed. Node rejects V8 and process-level options such as `--max-old-space-size` in an explicit worker execArgv, which broke scans in development daemons. A parent that combines such an option with `--input-type` remains unsupported.
+
+### Validation
+
+- A parent started with `--max-old-space-size=64` digests successfully, and that test fails with an always-explicit execArgv. The `--input-type=module --eval` child tests still pass.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes

@@ -20,7 +20,7 @@ import {
   inspectBootstrapArtifact,
   withBootstrapArtifactReuse,
 } from "./coordinator-bootstrap-artifact.js";
-import { workerExecArgv } from "./coordinator-bootstrap-artifact-scan.js";
+import { workerExecArgv, workerExecArgvOptions } from "./coordinator-bootstrap-artifact-scan.js";
 import { inspectLegacyBootstrapArtifact } from "./test-utils/legacy-artifact-digest.js";
 
 vi.mock("node:worker_threads", async (importOriginal) => {
@@ -362,3 +362,31 @@ test.each([
     expect(result.digest).toBe(expected);
   },
 );
+
+test("workers inherit execArgv unchanged unless main-input options were removed", () => {
+  expect(workerExecArgvOptions(["--max-old-space-size=3072", "--inspect"])).toEqual({});
+  expect(workerExecArgvOptions([])).toEqual({});
+  expect(workerExecArgvOptions(["--input-type=module", "--eval", "await main()"])).toEqual({
+    execArgv: [],
+  });
+});
+
+test("a parent started with a V8 heap option digests with inherited worker options", async () => {
+  const release = await richTree();
+  const expected = (await inspectLegacyBootstrapArtifact(release)).sha256;
+  const script = path.join(path.dirname(release), "digest.mjs");
+  await writeFile(
+    script,
+    `import { scanArtifactTree } from ${JSON.stringify(scanModule)};
+const scan = await scanArtifactTree(process.argv[2], { maxFiles: Infinity, maxBytes: Infinity, deadline: Infinity });
+process.stdout.write(scan.sha256);`,
+  );
+  const child = spawnSync(process.execPath, ["--max-old-space-size=64", script, release], {
+    env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  expect(child.stderr).toBe("");
+  expect(child.status).toBe(0);
+  expect(child.stdout).toBe(expected);
+});
