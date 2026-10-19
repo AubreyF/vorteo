@@ -174,6 +174,7 @@ import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import { resolveConfigFromPersisted, type CliConfigOverrides } from "./config.js";
 import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
+import { startEmbeddedHeadlessHost } from "./browser-tools/embedded-headless-host.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
 import { resolveWorkspaceIdForPath } from "./resolve-workspace-id-for-path.js";
@@ -682,6 +683,12 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
+  // Read at startup; changing daemon.browserTools.headlessHost requires a restart.
+  const embeddedHeadlessHost = startEmbeddedHeadlessHost({
+    broker: browserToolsBroker,
+    persisted: loadPersistedConfig(config.paseoHome),
+    logger,
+  });
   let resolveFactoryObservation: () => NativeFactoryObservationService | null = () => null;
   let factorySetupService: NativeFactorySetupService | null = null;
   let resolveFactoryInstaller: () => NativeFactoryInstaller | null = () => null;
@@ -2056,6 +2063,7 @@ export async function createPaseoDaemon(
       await quotaReservePolling.stop();
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
+      await embeddedHeadlessHost.stop().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
       if (mainStarted) {
         httpServer.closeAllConnections();
@@ -2116,6 +2124,7 @@ export async function createPaseoDaemon(
     await agentProviderRuntime.shutdown();
     await pluginRuntime.stopAllPlugins();
     terminalManager.killAll();
+    await embeddedHeadlessHost.stop().catch(() => undefined);
     await speechService.stop();
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {

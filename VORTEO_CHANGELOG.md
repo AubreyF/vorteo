@@ -4,6 +4,30 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+Integrates GitHub main (vorteo.555 and vorteo.556 below) onto installed source vorteo.695. Main's entries keep their original labels verbatim; neither was installed.
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium owned by the Host daemon. See vorteo.556 below.
+
+## 0.11.0-beta.3.vorteo.556 - 2026-10-18
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium, run by the Host daemon when `daemon.browserTools.headlessHost` is enabled or by `paseo browser host`. Each run uses an empty profile and blocks denied origins, including redirects, popups, fetches and WebSockets. The protected interface still refuses automation.
+
+### Changed
+
+- Share one browser automation engine between the desktop app and the headless host, and merge current main into the browser host work.
+
+## 0.11.0-beta.3.vorteo.555 - 2026-10-18
+
+### Fixed
+
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes
