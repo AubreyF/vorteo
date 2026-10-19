@@ -927,7 +927,9 @@ def executor_runner_activity(parent, record):
     for name in names:
         try:
             runner = private_document(os.path.join(parent, name), maximum=256 * 1024)
-        except (OSError, ValueError):
+        except Exception:
+            # A diagnostic file must never crash the watchdog; deeply nested
+            # JSON raises RecursionError, which is not a ValueError.
             continue
         if (isinstance(runner, dict) and runner.get("role") == "executor"
                 and runner.get("authority") == "diagnostic-only"

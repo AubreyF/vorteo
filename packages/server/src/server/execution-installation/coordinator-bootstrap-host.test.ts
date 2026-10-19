@@ -1666,6 +1666,8 @@ test.runIf(process.platform === "darwin")(
     write("foreign-generation", { ...runner, generation: randomUUID(), sequence: 500 });
     write("unprotected", { ...runner, sequence: 500 }, 0o644);
     write("unreadable", "{");
+    // Deeply nested JSON raises RecursionError; it must not crash the watchdog.
+    write("nested", "[".repeat(200_000));
     expect(JSON.parse(await read())).toBeNull();
     write("executor", runner);
     expect(JSON.parse(await read())).toEqual([92, runner.updatedAt]);

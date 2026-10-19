@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Count any unreadable or malformed coordinator runner file, including deeply nested JSON, as no executor activity, so a diagnostic file can never stop the automatic watchdog.
+
+### Validation
+
+- The runner-file filter regression now includes a deeply nested JSON file.
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-19
 
 ### Fixes
