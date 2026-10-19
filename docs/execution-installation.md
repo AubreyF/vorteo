@@ -150,6 +150,12 @@ The extra container origin admission and generated guest request skill remain af
 
 For a failed setup, inspect the private logs and installation receipt before retrying. Setup refuses to overwrite an existing receipt or reuse credentials automatically. Do not delete state to force a retry. Restoring a previous protected release requires a prepared host deployment and rollback plan; automatic release upgrades are outside this first installer.
 
+### Sealed releases
+
+Release seals are off unless both the coordinator and Host services run with `VORTEO_RELEASE_SEALS=enabled`, and they require macOS. With seals on, preparation refuses a release that contains tool caches (`.cache`, `.vite`, `.vitest` and similar) directly under a `node_modules` directory or at its root, or a linked `node_modules`. It also refuses while any process of the account still holds a release file open for writing. It then sets the user-immutable flag on the whole tree, digests it in full and writes `<release>.release-manifest`, `<release>.release-seal.observed` and `<release>.release-seal.json` beside it. The admission receipt binds those seal digests. Approval checks file metadata instead of re-reading bytes. A change falls back to a full byte check, and the refusal names the changed path.
+
+Never point a worktree's dependencies at an installed release: writes into it fail with "Operation not permitted". Cleanup code must remove releases through `removeBootstrapRelease`, because a plain recursive delete fails on flagged files. To remove a sealed release by hand, first clear the flags on the tree and its seal files: `chflags -R nouchg <release> <release>.release-*`. Then delete them. Sealing does not detect writable shared memory mappings opened before sealing.
+
 ## Validation
 
 Run `npm run test:e2e:installation --workspace=@getpaseo/app` for the packaged interface on desktop and phone-sized Chromium. It starts two isolated supervised daemons and the real coordinator, verifies plugin and credential boundaries, prepares both editable update drafts without starting agents, and approves and verifies a container-daemon restart. All fixture processes and state are torn down. This does not test launchd, Tailscale, macOS folder permissions or a physical phone; those belong to host acceptance.

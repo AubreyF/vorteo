@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Features
+
+- Add optional release seals, off unless both the coordinator and the Host run with `VORTEO_RELEASE_SEALS=enabled`, and macOS only. Preparation refuses tool caches directly under `node_modules` or at the release root, linked `node_modules` and descriptors open for writing. It then makes the release immutable, digests it in full and records its manifest and per-entry metadata beside it. The admission receipt binds the seal digests. Approval checks metadata instead of re-reading bytes; a change falls back to a full byte check and names the changed path. The v1 digest and wire format are unchanged.
+- Add `removeBootstrapRelease` for cleanup of sealed releases, and document manual cleanup with `chflags -R nouchg`.
+
+### Validation
+
+- Seal tests cover digest equality with the sequential implementation, write refusal, sweep-only acceptance, the default-off setting, named content and cache changes, metadata-only fallback, forged and unbound seals, a mismatched manifest, open writers, policy refusals, resealing, unsealing, removal and the non-macOS refusal. A source-update test seals a prepared candidate and refuses later writes.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-18
 
 ### Fixes

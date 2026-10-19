@@ -32,7 +32,32 @@ const BATCH_FILES = 64;
 const BATCH_BYTES = 16 * 1024 * 1024;
 const CHUNK_BYTES = 1024 * 1024;
 
-export class ArtifactScanConflict extends Error {}
+// Tool caches that development commands create beside installed packages or at
+// a checkout root. npm package names cannot start with ".", so a release built
+// from a clean checkout never holds these names in those positions.
+const TOOL_CACHE_NAMES = new Set([
+  ".cache",
+  ".eslintcache",
+  ".prettiercache",
+  ".turbo",
+  ".vite",
+  ".vitest",
+]);
+
+export interface ArtifactChange {
+  path: string;
+  kind: "added" | "removed" | "changed";
+}
+
+// Explicit fields only: workers load this source through type stripping, which
+// cannot erase constructor parameter properties.
+export class ArtifactScanConflict extends Error {
+  readonly change: ArtifactChange | null;
+  constructor(message: string, change: ArtifactChange | null = null) {
+    super(message);
+    this.change = change;
+  }
+}
 
 // Workers inherit the parent's execArgv. Options that describe a main script's
 // string input either make Node refuse to start a worker (--input-type, as in
@@ -94,6 +119,8 @@ const ScanRequestSchema = z.strictObject({
   maxFiles: z.number().nullable(),
   maxBytes: z.number().nullable(),
   deadline: z.number().nullable(),
+  manifest: z.boolean(),
+  policy: z.boolean(),
 });
 const DigestRequestSchema = z.strictObject({
   role: z.literal(DIGEST_ROLE),
@@ -105,6 +132,7 @@ const VerifyRequestSchema = z.strictObject({
   paths: z.string(),
   identities: z.string(),
   deadline: z.number().nullable(),
+  explain: z.boolean(),
 });
 const WorkerRequestSchema = z.discriminatedUnion("role", [
   ScanRequestSchema,
@@ -114,7 +142,13 @@ const WorkerRequestSchema = z.discriminatedUnion("role", [
 const DigestBatchSchema = z.array(z.tuple([z.string(), z.string()]));
 
 const ScanFailureSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("conflict"), message: z.string() }),
+  z.strictObject({
+    kind: z.literal("conflict"),
+    message: z.string(),
+    change: z
+      .strictObject({ path: z.string(), kind: z.enum(["added", "removed", "changed"]) })
+      .nullable(),
+  }),
   z.strictObject({
     kind: z.literal("system"),
     message: z.string(),
@@ -133,6 +167,7 @@ const ScanReplySchema = z.discriminatedUnion("type", [
     sha256: z.string(),
     paths: z.string(),
     identities: z.string(),
+    manifest: z.string().nullable(),
   }),
   z.strictObject({ type: z.literal("error"), failure: ScanFailureSchema }),
 ]);
@@ -157,6 +192,14 @@ export interface ArtifactBudget {
 export interface ArtifactScan {
   sha256: string;
   observed: ObservedMetadata;
+  /** The exact digested byte stream, when requested; its SHA-256 is `sha256`. */
+  manifest: string | null;
+}
+
+export interface ArtifactScanOptions {
+  manifest?: boolean;
+  /** Refuse development tool output and linked dependency trees. */
+  policy?: boolean;
 }
 
 export interface ObservedMetadata {
@@ -164,8 +207,8 @@ export interface ObservedMetadata {
   identities: string;
 }
 
-function conflict(message: string): ArtifactScanConflict {
-  return new ArtifactScanConflict(message);
+function conflict(message: string, change: ArtifactChange | null = null): ArtifactScanConflict {
+  return new ArtifactScanConflict(message, change);
 }
 
 function finiteOrNull(value: number): number | null {
@@ -173,7 +216,8 @@ function finiteOrNull(value: number): number | null {
 }
 
 function describe(error: unknown): ScanFailure {
-  if (error instanceof ArtifactScanConflict) return { kind: "conflict", message: error.message };
+  if (error instanceof ArtifactScanConflict)
+    return { kind: "conflict", message: error.message, change: error.change };
   const field = (name: string) =>
     error instanceof Error && name in error ? Reflect.get(error, name) : null;
   const text = (name: string) => {
@@ -193,7 +237,7 @@ function describe(error: unknown): ScanFailure {
 
 /** Callers branch on filesystem codes such as ENOENT, so they cross threads intact. */
 function revive(failure: ScanFailure): Error {
-  if (failure.kind === "conflict") return conflict(failure.message);
+  if (failure.kind === "conflict") return conflict(failure.message, failure.change);
   const error = new Error(failure.message);
   for (const name of ["code", "errno", "syscall", "path"] as const)
     if (failure[name] !== null) Reflect.set(error, name, failure[name]);
@@ -207,18 +251,25 @@ function checkDeadline(deadline: number | null): void {
 
 /** Runs the complete traversal off the calling thread. Cancellation and the
  * deadline terminate the workers rather than waiting for a read to return. */
-export function scanArtifactTree(directory: string, input: ArtifactBudget): Promise<ArtifactScan> {
+export function scanArtifactTree(
+  directory: string,
+  input: ArtifactBudget,
+  options: ArtifactScanOptions = {},
+): Promise<ArtifactScan> {
   const request: z.infer<typeof ScanRequestSchema> = {
     role: SCAN_ROLE,
     directory,
     maxFiles: finiteOrNull(input.maxFiles),
     maxBytes: finiteOrNull(input.maxBytes),
     deadline: finiteOrNull(input.deadline),
+    manifest: options.manifest ?? false,
+    policy: options.policy ?? false,
   };
   return runArtifactWorker(request, input, (message) => {
     const reply = ScanReplySchema.parse(message);
     if (reply.type === "error") throw revive(reply.failure);
-    return { sha256: reply.sha256, observed: { paths: reply.paths, identities: reply.identities } };
+    const observed = { paths: reply.paths, identities: reply.identities };
+    return { sha256: reply.sha256, observed, manifest: reply.manifest };
   });
 }
 
@@ -228,12 +279,16 @@ export async function verifyArtifactTree(
   directory: string,
   observed: ObservedMetadata,
   input: ArtifactBudget,
+  options: { explain?: boolean } = {},
 ): Promise<void> {
+  // With explain, a refusal names the first added, removed or changed path in
+  // its `change` field, and a missing path is a conflict, not a raw ENOENT.
   const request: z.infer<typeof VerifyRequestSchema> = {
     role: VERIFY_ROLE,
     directory,
     ...observed,
     deadline: finiteOrNull(input.deadline),
+    explain: options.explain ?? false,
   };
   await runArtifactWorker(request, input, (message) => {
     const reply = VerifyReplySchema.parse(message);
@@ -303,14 +358,46 @@ function runArtifactWorker<T>(
 }
 
 function verifyObserved(request: z.infer<typeof VerifyRequestSchema>) {
-  if (realpathSync(request.directory) !== request.directory)
-    throw conflict("Retained artifact requires its canonical directory");
+  if (realpathSync(request.directory) !== request.directory) {
+    const moved: ArtifactChange = { path: request.directory, kind: "changed" };
+    throw conflict(
+      "Retained artifact requires its canonical directory",
+      request.explain ? moved : null,
+    );
+  }
   for (const [file, expected] of observedEntries(request)) {
     checkDeadline(request.deadline);
-    if (identity(lstatSync(file, { bigint: true })) !== expected)
-      throw conflict("Prepared artifact changed during verification");
+    const current = request.explain
+      ? explainedIdentity(file)
+      : identity(lstatSync(file, { bigint: true }));
+    if (current === expected) continue;
+    const change = request.explain ? explainChange(request, file) : null;
+    throw conflict("Prepared artifact changed during verification", change);
   }
   return { type: "current" as const };
+}
+
+function explainedIdentity(file: string): string | null {
+  try {
+    return identity(lstatSync(file, { bigint: true }));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** Traversal visits a directory before its entries, so an insertion first
+ * shows as its parent directory's change; name the inserted entry instead. */
+function explainChange(observed: ObservedMetadata, file: string): ArtifactChange {
+  const stat = lstatSync(file, { throwIfNoEntry: false });
+  if (!stat) return { path: file, kind: "removed" };
+  if (!stat.isDirectory()) return { path: file, kind: "changed" };
+  const known = new Set(observed.paths.split("\0"));
+  const added = readdirSync(file)
+    .sort()
+    .map((entry) => path.join(file, entry))
+    .find((entry) => !known.has(entry));
+  return added ? { path: added, kind: "added" } : { path: file, kind: "changed" };
 }
 
 interface PendingFile {
@@ -346,6 +433,7 @@ async function scan(request: z.infer<typeof ScanRequestSchema>) {
   if (root !== directory) throw conflict("Prepared artifact requires a canonical directory");
   const records: Array<string | PendingFile> = [];
   const pending: PendingFile[] = [];
+  const violations: string[] = [];
   const paths: string[] = [];
   const identities: string[] = [];
   const hardLinks = new Map<string, { count: bigint; paths: string[] }>();
@@ -359,6 +447,7 @@ async function scan(request: z.infer<typeof ScanRequestSchema>) {
     const observed = identity(before);
     paths.push(file);
     identities.push(observed);
+    if (request.policy && violatesReleasePolicy(relative, file, before)) violations.push(relative);
     if (before.isDirectory()) {
       records.push(JSON.stringify(["directory", relative, String(before.mode)]) + "\n");
       for (const entry of readdirSync(file).sort()) visit(path.join(relative, entry));
@@ -394,15 +483,21 @@ async function scan(request: z.infer<typeof ScanRequestSchema>) {
 
   if (!lstatSync(root).isDirectory()) throw conflict("Prepared artifact must be a directory");
   visit("");
+  if (violations.length > 0) throw policyConflict(violations);
   const digests = await digestFiles(pending, deadline);
   const hash = createHash("sha256");
-  hash.update("vorteo-coordinator-artifact-v1\n");
+  const manifest: string[] = [];
+  const emit = (line: string) => {
+    hash.update(line);
+    if (request.manifest) manifest.push(line);
+  };
+  emit("vorteo-coordinator-artifact-v1\n");
   for (const record of records) {
-    if (typeof record === "string") hash.update(record);
+    if (typeof record === "string") emit(record);
     else {
       const digest = digests.get(record);
       if (digest === undefined) throw new Error("Artifact digest is missing");
-      hash.update(JSON.stringify(["file", record.relative, record.mode, digest]) + "\n");
+      emit(JSON.stringify(["file", record.relative, record.mode, digest]) + "\n");
     }
   }
   // npm links some executable packages within the release. Count every physical
@@ -410,7 +505,7 @@ async function scan(request: z.infer<typeof ScanRequestSchema>) {
   for (const group of hardLinks.values()) {
     if (BigInt(group.paths.length) !== group.count)
       throw conflict("Prepared hard-linked file escapes its release");
-    hash.update(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
+    emit(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
   }
   // A dependency visited earlier may change while another subtree is read.
   for (const [index, file] of paths.entries()) {
@@ -424,7 +519,28 @@ async function scan(request: z.infer<typeof ScanRequestSchema>) {
     sha256: hash.digest("hex"),
     paths: paths.join("\0"),
     identities: identities.join("\0"),
+    manifest: request.manifest ? manifest.join("") : null,
   };
+}
+
+/** Development tools that ran with this tree as their root or dependency source
+ * leave caches here; a linked node_modules means dependencies came from elsewhere. */
+function violatesReleasePolicy(relative: string, file: string, stat: BigIntStats): boolean {
+  const name = path.basename(relative);
+  const parent = path.dirname(relative);
+  const cacheParent = parent === "." || path.basename(parent) === "node_modules";
+  if (TOOL_CACHE_NAMES.has(name) && cacheParent) return true;
+  if (!stat.isSymbolicLink()) return false;
+  return name === "node_modules" || path.basename(readlinkSync(file)) === "node_modules";
+}
+
+function policyConflict(violations: readonly string[]): ArtifactScanConflict {
+  const shown = violations.slice(0, 5).join(", ");
+  const more = violations.length > 5 ? ` and ${violations.length - 5} more` : "";
+  return conflict(
+    `Release contains development tool output or linked dependencies: ${shown}${more}. ` +
+      "A release must never be a dependency source or tool cache root; rebuild it from a clean checkout.",
+  );
 }
 
 function nextBatch(pending: readonly PendingFile[], start: number): number {
