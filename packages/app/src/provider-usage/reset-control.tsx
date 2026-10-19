@@ -14,7 +14,7 @@ import { providerUsageQueryKey } from "./use-provider-usage";
 import { currentResetPreparation, resetPresentation, selectableResetCredits } from "./reset-state";
 import { providerResetQueryOptions } from "./reset-query";
 import { initialResetFlow, resetFlowReducer } from "./reset-flow";
-import { ResetDialogContent } from "./reset-dialog";
+import { ResetDialogContent, ResetDialogActions } from "./reset-dialog";
 import { prepareResetForView, reconcileResetResult, resetResultNotice } from "./reset-result";
 
 function useResetControl({
@@ -197,7 +197,6 @@ function useResetControl({
 }
 
 export function ProviderResetControl(props: {
-  critical?: boolean;
   compact?: boolean;
   preloaded?: boolean;
   serverId: string | null;
@@ -224,10 +223,6 @@ export function ProviderResetControl(props: {
     select,
   } = useResetControl(props);
   const { name, providerId } = props;
-  const criticalTextStyle = useMemo(
-    () => (props.critical ? styles.critical : undefined),
-    [props.critical],
-  );
   const { visible, showBadge, badge, enabled } = resetPresentation({
     supported,
     connected,
@@ -237,6 +232,42 @@ export function ProviderResetControl(props: {
     readFailed: query.isError,
     positiveOnly: props.compact,
   });
+  const modalFooter1 = useMemo(
+    () => (
+      <ResetDialogActions
+        name={name}
+        view={view}
+        flow={flow}
+        selectedCreditId={selectedCreditId}
+        selectionSupported={selectionSupported}
+        enabled={enabled && selectionSupported && (Boolean(prepared) || selectedExists)}
+        connected={connected}
+        readFailed={query.isError}
+        onSelect={select}
+        onBack={back}
+        onClose={close}
+        onRefresh={refresh}
+        onAct={press}
+      />
+    ),
+    [
+      name,
+      view,
+      flow,
+      selectedCreditId,
+      selectionSupported,
+      enabled,
+      prepared,
+      selectedExists,
+      connected,
+      query,
+      select,
+      back,
+      close,
+      refresh,
+      press,
+    ],
+  );
   if (!visible) return null;
   const BadgeButton = props.compact ? CompactAccountButton : Button;
   return (
@@ -248,10 +279,10 @@ export function ProviderResetControl(props: {
           size="sm"
           onPress={show}
           accessibilityLabel={`${name}: ${badge}`}
-          textStyle={[styles.text, props.compact && styles.compactText, criticalTextStyle]}
+          textStyle={[styles.text, props.compact && styles.compactText]}
           testID={`provider-reset-${providerId}`}
         >
-          <Text numberOfLines={1} style={criticalTextStyle}>
+          <Text numberOfLines={1} style={styles.textColor}>
             {badge}
           </Text>
         </BadgeButton>
@@ -263,6 +294,7 @@ export function ProviderResetControl(props: {
           onClose={close}
           desktopMaxWidth={560}
           testID="provider-reset-dialog"
+          footer={modalFooter1}
         >
           <ResetDialogContent
             name={name}
@@ -287,6 +319,6 @@ export function ProviderResetControl(props: {
 
 const styles = StyleSheet.create((theme) => ({
   compactText: { fontSize: theme.fontSize.sm - 2, lineHeight: 16 },
-  critical: { color: theme.colors.destructive },
+  textColor: { color: theme.colors.foregroundMuted },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
 }));

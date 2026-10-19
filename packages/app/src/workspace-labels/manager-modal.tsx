@@ -1,3 +1,4 @@
+import { ActionFooter, ActionFooterLeading } from "@/components/ui/action-footer";
 import {
   useCallback,
   useEffect,
@@ -22,6 +23,7 @@ import { Field, FormTextInput } from "@/components/ui/form-field";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative } from "@/constants/platform";
 import { useHosts } from "@/runtime/host-runtime";
+import { useHostFeature } from "@/runtime/host-features";
 import type { Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import {
@@ -89,6 +91,7 @@ export function WorkspaceLabelManagerModal({
     );
   }, [hosts, model, snapshots, visible]);
   const state = useSyncExternalStore(model.subscribe, model.snapshot, model.snapshot);
+  const allowCustomColors = useHostFeature(state.serverId, "workspaceLabelNeutralColors");
   const draft = state.draft;
   const editing = state.editing;
   const disabled = state.host?.status !== "online" || state.pending;
@@ -142,17 +145,18 @@ export function WorkspaceLabelManagerModal({
   const footer = useMemo(
     () =>
       isEditing ? (
-        <View style={styles.footer}>
-          <Button
-            // Red belongs to the confirm dialog, not to the surface that opens it — docs/design.md.
-            variant="outline"
-            size="md"
-            disabled={disabled}
-            onPress={remove}
-            testID="workspace-label-manager-delete"
-          >
-            {t("workspaceLabels.manage.delete")}
-          </Button>
+        <ActionFooter style={styles.footer}>
+          <ActionFooterLeading>
+            <Button
+              variant="destructive"
+              size="md"
+              disabled={disabled}
+              onPress={remove}
+              testID="workspace-label-manager-delete"
+            >
+              {t("workspaceLabels.manage.delete")}
+            </Button>
+          </ActionFooterLeading>
           <Button
             size="md"
             style={styles.saveButton}
@@ -163,7 +167,7 @@ export function WorkspaceLabelManagerModal({
           >
             {t("workspaceLabels.manage.save")}
           </Button>
-        </View>
+        </ActionFooter>
       ) : undefined,
     [disabled, isEditing, remove, save, state.dirty, state.pending, t],
   );
@@ -181,6 +185,7 @@ export function WorkspaceLabelManagerModal({
     >
       {draft && editing ? (
         <WorkspaceLabelEditView
+          allowCustomColors={allowCustomColors}
           draft={draft}
           disabled={disabled}
           error={state.error}
@@ -298,6 +303,7 @@ function WorkspaceLabelManagerRow({
  * thing to report and the draft is still exactly what was typed.
  */
 function WorkspaceLabelEditView({
+  allowCustomColors,
   draft,
   disabled,
   error,
@@ -305,6 +311,7 @@ function WorkspaceLabelEditView({
   onChangeColor,
   onSubmit,
 }: {
+  allowCustomColors: boolean;
   draft: WorkspaceLabelManagerDraft;
   disabled: boolean;
   error: string | null;
@@ -332,12 +339,18 @@ function WorkspaceLabelEditView({
       </Field>
       <Field label={t("workspaceLabels.manage.color")}>
         <WorkspaceLabelSwatchRow
+          allowCustomColors={allowCustomColors}
           value={draft.color}
           onChange={onChangeColor}
           disabled={disabled}
           testID="workspace-label-manager-colors"
         />
       </Field>
+      {!allowCustomColors ? (
+        <Text style={styles.muted}>
+          Custom colors require a host update. Neutral is available now.
+        </Text>
+      ) : null}
       {error ? (
         <Text style={styles.error} testID="workspace-label-manager-error">
           {error}

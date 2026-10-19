@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { View, type PointerEvent as RNPointerEvent } from "react-native";
 import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { StyleSheet } from "react-native-unistyles";
+import Animated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import {
   resolveSidebarResizeHandleGeometry,
   type SidebarResizeEdge,
-} from "@/components/sidebar-resize-handle-layout";
+} from "./sidebar-resize-handle-layout";
+import { FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import { isWeb } from "@/constants/platform";
 import { useHasFinePointer } from "@/hooks/use-fine-pointer";
 
@@ -14,159 +16,95 @@ interface SidebarResizeHandleProps {
   gesture: GestureType;
   pressed: boolean;
   testID: string;
+  floating?: boolean;
+  onPointerDown?: (event: RNPointerEvent) => void;
 }
 
-const HIGHLIGHT_DELAY_MS = 100;
-
-const webResizeCursorStyle = isWeb
-  ? ({
-      cursor: "col-resize",
-    } as object)
-  : null;
-
-function edgeOffsetStyle(edge: SidebarResizeEdge, edgeOffset: number) {
-  return edge === "left" ? { left: edgeOffset } : { right: edgeOffset };
-}
-
-export function SidebarResizeHandle({ edge, gesture, pressed, testID }: SidebarResizeHandleProps) {
+/** Freed's neutral gap indicator, shared by both sidebars and both input modes. */
+export function SidebarResizeHandle({
+  edge,
+  gesture,
+  pressed,
+  testID,
+  floating = false,
+  onPointerDown,
+}: SidebarResizeHandleProps) {
   const finePointer = useHasFinePointer();
-
-  if (finePointer) {
-    return <PointerResizeHandle edge={edge} gesture={gesture} pressed={pressed} testID={testID} />;
-  }
-  return <TouchResizeHandle edge={edge} gesture={gesture} pressed={pressed} testID={testID} />;
-}
-
-function PointerResizeHandle({ edge, gesture, testID }: SidebarResizeHandleProps) {
-  const [highlighted, setHighlighted] = useState(false);
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const geometry = resolveSidebarResizeHandleGeometry(true);
-  const hitAreaStyle = [
-    styles.hitArea,
-    { width: geometry.width },
-    edgeOffsetStyle(edge, geometry.edgeOffset),
-    webResizeCursorStyle,
-  ];
-
-  const cancelHighlightTimer = useCallback(() => {
-    if (highlightTimerRef.current === null) return;
-    clearTimeout(highlightTimerRef.current);
-    highlightTimerRef.current = null;
-  }, []);
-
-  const handleHoverIn = useCallback(() => {
-    cancelHighlightTimer();
-    highlightTimerRef.current = setTimeout(() => {
-      highlightTimerRef.current = null;
-      setHighlighted(true);
-    }, HIGHLIGHT_DELAY_MS);
-  }, [cancelHighlightTimer]);
-
-  const handleHoverOut = useCallback(() => {
-    cancelHighlightTimer();
-    setHighlighted(false);
-  }, [cancelHighlightTimer]);
-
-  useEffect(() => cancelHighlightTimer, [cancelHighlightTimer]);
-
-  return (
-    <GestureDetector gesture={gesture}>
-      <Pressable
-        testID={testID}
-        style={hitAreaStyle}
-        onHoverIn={handleHoverIn}
-        onHoverOut={handleHoverOut}
-      >
-        {highlighted ? (
-          <View pointerEvents="none" testID={`${testID}-highlight`} style={styles.highlight} />
-        ) : null}
-      </Pressable>
-    </GestureDetector>
+  const [hovered, setHovered] = useState(false);
+  const enter = useCallback(() => setHovered(true), []);
+  const leave = useCallback(() => setHovered(false), []);
+  const geometry = resolveSidebarResizeHandleGeometry(finePointer);
+  // Browser pointer capture supports fingers and pens as well as a mouse.
+  const usePointerEvents = isWeb && Boolean(onPointerDown);
+  const targetStyle = useMemo(() => {
+    // Web hit testing can reach the gutter; native targets must stay inside their parent.
+    const edgeOffset = isWeb ? -geometry.width / 2 : geometry.edgeOffset;
+    const offset = edgeOffset - (isWeb && floating ? FLOATING_PANEL_INSET / 2 : 0);
+    return [
+      styles.layer,
+      { width: geometry.width },
+      edge === "left" ? { left: offset } : { right: offset },
+    ];
+  }, [edge, floating, geometry.edgeOffset, geometry.width]);
+  const hitStyle = useMemo(
+    () => [
+      styles.target,
+      {
+        width: geometry.width,
+        height: isWeb ? "100%" : (geometry.height ?? "100%"),
+      },
+      isWeb ? ({ cursor: "col-resize", touchAction: "none" } as object) : null,
+    ],
+    [geometry.height, geometry.width],
   );
-}
-
-function TouchResizeHandle({ edge, gesture, pressed, testID }: SidebarResizeHandleProps) {
-  const geometry = resolveSidebarResizeHandleGeometry(false);
-  // `box-none` keeps the full-height column out of hit-testing so only the
-  // grab target steals taps from the rows behind it.
-  const layerStyle = [
-    styles.touchLayer,
-    { width: geometry.width },
-    edgeOffsetStyle(edge, geometry.edgeOffset),
-  ];
-  const targetStyle = [
-    styles.touchTarget,
-    { width: geometry.width, height: geometry.height ?? undefined },
-  ];
-  const gripStyle = [
-    styles.grip,
-    edge === "left" ? styles.leftEdgeGrip : styles.rightEdgeGrip,
-    pressed ? styles.visibleGrip : styles.hiddenGrip,
-  ];
-
+  let opacity = hovered && finePointer ? 0.22 * 0.82 : 0;
+  if (pressed) opacity = 0.34;
+  const highlightStyle = useAnimatedStyle(
+    () => ({ opacity: withTiming(opacity, { duration: 180, reduceMotion: ReduceMotion.System }) }),
+    [opacity],
+  );
+  const target = (
+    <View
+      testID={testID}
+      role="separator"
+      aria-orientation="vertical"
+      accessibilityLabel="Resize sidebar"
+      collapsable={false}
+      style={hitStyle}
+      onPointerDown={usePointerEvents ? onPointerDown : undefined}
+      onPointerEnter={enter}
+      onPointerLeave={leave}
+    >
+      <Animated.View
+        pointerEvents="none"
+        testID={`${testID}-highlight`}
+        style={[styles.highlight, highlightStyle]}
+      />
+    </View>
+  );
   return (
-    <View pointerEvents="box-none" style={layerStyle}>
-      <GestureDetector gesture={gesture}>
-        <View
-          testID={testID}
-          role="separator"
-          aria-orientation="vertical"
-          collapsable={false}
-          style={targetStyle}
-        >
-          <View pointerEvents="none" testID={`${testID}-grip`} style={gripStyle} />
-        </View>
-      </GestureDetector>
+    <View pointerEvents="box-none" style={targetStyle}>
+      {usePointerEvents ? target : <GestureDetector gesture={gesture}>{target}</GestureDetector>}
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  hitArea: {
+  layer: {
     position: "absolute",
     top: 0,
     bottom: 0,
     zIndex: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  target: { alignItems: "center", justifyContent: "center" },
   highlight: {
     position: "absolute",
     top: 0,
     bottom: 0,
-    left: 5,
-    width: 1,
+    width: 2,
+    borderRadius: 999,
     backgroundColor: theme.colors.foreground,
-    opacity: 0.25,
-  },
-  touchLayer: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    zIndex: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  touchTarget: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  grip: {
-    width: 4,
-    height: 36,
-    borderRadius: 2,
-    backgroundColor: theme.colors.foreground,
-  },
-  hiddenGrip: {
-    opacity: 0,
-  },
-  visibleGrip: {
-    opacity: 0.3,
-  },
-  leftEdgeGrip: {
-    alignSelf: "flex-start",
-    marginLeft: theme.spacing[0.5],
-  },
-  rightEdgeGrip: {
-    alignSelf: "flex-end",
-    marginRight: theme.spacing[0.5],
   },
 }));

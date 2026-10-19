@@ -222,6 +222,21 @@ describe("buildSubagentRowPresentationData for provider rows", () => {
     };
   }
 
+  it.each([
+    ["Review prompt preservation", "review_prompt_preservation"],
+    ["Review / Prompt preservation", "review/prompt_preservation"],
+  ])("uses readable title %s once instead of native task path %s", (title, description) => {
+    const presentation = buildSubagentRowPresentationData(
+      providerRow({
+        provider: "codex",
+        title,
+        description,
+      }),
+    );
+    expect(presentation.label).toBe(title);
+    expect(presentation.subtitle).toBe("");
+  });
+
   it("names the row after the task and demotes the subagent type", () => {
     const presentation = buildSubagentRowPresentationData(
       providerRow({ title: "general-purpose", description: "Reply with banana" }),

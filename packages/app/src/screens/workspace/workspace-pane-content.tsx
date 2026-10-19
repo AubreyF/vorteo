@@ -55,6 +55,13 @@ export function buildWorkspacePaneContentModel({
   onOpenWorkspaceFile,
   onOpenImportSheet,
 }: BuildWorkspacePaneContentModelInput): WorkspacePaneContentModel {
+  function scopeTarget(target: WorkspaceTabDescriptor["target"]) {
+    const environment = target.environment ?? tab.target.environment;
+    const belongsToOwner =
+      environment?.serverId === normalizedServerId &&
+      environment?.workspaceId === normalizedWorkspaceId;
+    return { ...target, environment: belongsToOwner ? undefined : environment };
+  }
   ensurePanelsRegistered();
   const registration = getPanelRegistration(tab.kind);
   invariant(registration, `No panel registration for kind: ${tab.kind}`);
@@ -62,20 +69,31 @@ export function buildWorkspacePaneContentModel({
     key: `${normalizedServerId}:${normalizedWorkspaceId}:${tab.tabId}`,
     Component: registration.component,
     paneContextValue: {
-      serverId: normalizedServerId,
-      workspaceId: normalizedWorkspaceId,
+      serverId: tab.target.environment?.serverId ?? normalizedServerId,
+      workspaceId: tab.target.environment?.workspaceId ?? normalizedWorkspaceId,
       host,
       tabId: tab.tabId,
       target: tab.target,
       state: tab.state,
       fileNavigationRevision,
-      openTab: onOpenTab,
-      openPreferredTarget: onOpenPreferredTarget,
-      openTargetToSide: onOpenTargetToSide,
+      openTab: (target) => onOpenTab(scopeTarget(target)),
+      openPreferredTarget: (target, source) => onOpenPreferredTarget(scopeTarget(target), source),
+      openTargetToSide: onOpenTargetToSide
+        ? (target) => onOpenTargetToSide(scopeTarget(target))
+        : undefined,
       closeCurrentTab: onCloseCurrentTab,
-      retargetCurrentTab: onRetargetCurrentTab,
+      retargetCurrentTab: (target) => onRetargetCurrentTab(scopeTarget(target)),
       setCurrentTabState: onSetCurrentTabState,
-      openFileInWorkspace: onOpenWorkspaceFile,
+      openFileInWorkspace: (request) => {
+        if (!tab.target.environment) return onOpenWorkspaceFile(request);
+        const target = {
+          kind: "file" as const,
+          ...request.location,
+          environment: tab.target.environment,
+        };
+        if (request.disposition === "side" && onOpenTargetToSide) onOpenTargetToSide(target);
+        else onOpenTab(target);
+      },
       openImportSheet: onOpenImportSheet,
     },
   };

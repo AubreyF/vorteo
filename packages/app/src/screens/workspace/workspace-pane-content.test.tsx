@@ -182,3 +182,34 @@ describe("WorkspacePaneContent", () => {
     });
   });
 });
+
+it("opens remote task files and supporting tabs on the task's own environment", () => {
+  const environment = { serverId: "container", workspaceId: "bound-workspace" };
+  const onOpenTab = vi.fn();
+  const content = buildWorkspacePaneContentModel({
+    tab: { ...agentTab, target: { kind: "agent", agentId: "task", environment } },
+    normalizedServerId: "host",
+    normalizedWorkspaceId: "original-workspace",
+    host: "main",
+    onOpenTab,
+    onOpenPreferredTarget: vi.fn(),
+    onCloseCurrentTab: vi.fn(),
+    onRetargetCurrentTab: vi.fn(),
+    onSetCurrentTabState: vi.fn(),
+    onOpenWorkspaceFile: vi.fn(),
+    onOpenImportSheet: vi.fn(),
+  });
+  expect(content.paneContextValue.serverId).toBe("container");
+  expect(content.paneContextValue.workspaceId).toBe("bound-workspace");
+  content.paneContextValue.openFileInWorkspace({
+    location: { path: "src/app.ts" },
+    disposition: "main",
+  });
+  expect(onOpenTab).toHaveBeenCalledWith({ kind: "file", path: "src/app.ts", environment });
+  content.paneContextValue.openTab({ kind: "terminal", terminalId: "terminal" });
+  expect(onOpenTab).toHaveBeenLastCalledWith({
+    kind: "terminal",
+    terminalId: "terminal",
+    environment,
+  });
+});

@@ -495,7 +495,9 @@ export function createPluginWorker(options: {
       .parseAsync(message.input)
       .then((input) => {
         if (!paseo) throw new Error("Plugin Vorteo API is unavailable");
-        return registered.handler(input, { paseo });
+        const serverId = daemonClient?.getLastServerInfoMessage()?.serverId;
+        if (!serverId) throw new Error("Plugin daemon identity is unavailable");
+        return registered.handler(input, { paseo, serverId });
       })
       .then((output) => registered.contract.output.parseAsync(output))
       .then(

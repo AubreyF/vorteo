@@ -150,7 +150,7 @@ export function CommitsSection({
 const styles = StyleSheet.create((theme) => ({
   container: {
     borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
+    borderTopColor: theme.colors.divider,
   },
   header: {
     flexDirection: "row",

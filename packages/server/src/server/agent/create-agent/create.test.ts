@@ -12,6 +12,9 @@ import { AgentManager } from "../agent-manager.js";
 import { AgentStorage } from "../agent-storage.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.js";
 import { createAgentCommand } from "./create.js";
+import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
+import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import { z } from "zod";
 import { QuotaReservePolling } from "../quota-reserve/polling.js";
 import { ProviderUsageService } from "../../../services/quota-fetcher/service.js";
 import type { ManagedAgent } from "../agent-manager.js";
@@ -61,44 +64,49 @@ function fakeWorktreeCreator(args: { repoRoot: string; createdWorkspaceId: strin
     }) as unknown as CreatePaseoWorktreeWorkflowResult;
 }
 
-test("session create forwards clientMessageId to the initial prompt run options", async () => {
-  const snapshot = {
-    id: "agent-1",
-    provider: "codex",
-    cwd: "/tmp/paseo-create-test",
-    runtimeInfo: null,
-  } as ManagedAgent;
-  const streamAgent = vi.fn(() => (async function* noop() {})());
-  const dependencies: Parameters<typeof createAgentCommand>[0] = {
-    agentManager: {
-      createAgent: vi.fn(async () => snapshot),
-      getAgent: vi.fn(() => snapshot),
-      tryRunOutOfBand: vi.fn(() => false),
-      hasInFlightRun: vi.fn(() => false),
-      streamAgent,
-      waitForAgentRunStart: vi.fn(async () => undefined),
-    } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
-    agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
-    logger: createTestLogger(),
-    providerSnapshotManager: createProviderSnapshotManagerStub().manager,
-  };
+test.each([undefined, "agent"] as const)(
+  "session create forwards message identity and origin %s",
+  async (origin) => {
+    const snapshot = {
+      id: "agent-1",
+      provider: "codex",
+      cwd: "/tmp/paseo-create-test",
+      runtimeInfo: null,
+    } as ManagedAgent;
+    const streamAgent = vi.fn(() => (async function* noop() {})());
+    const dependencies: Parameters<typeof createAgentCommand>[0] = {
+      agentManager: {
+        createAgent: vi.fn(async () => snapshot),
+        getAgent: vi.fn(() => snapshot),
+        tryRunOutOfBand: vi.fn(() => false),
+        hasInFlightRun: vi.fn(() => false),
+        streamAgent,
+        waitForAgentRunStart: vi.fn(async () => undefined),
+      } as unknown as Parameters<typeof createAgentCommand>[0]["agentManager"],
+      agentStorage: {} as Parameters<typeof createAgentCommand>[0]["agentStorage"],
+      logger: createTestLogger(),
+      providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+    };
 
-  await createAgentCommand(dependencies, {
-    kind: "session",
-    config: { provider: "codex", cwd: "/tmp/paseo-create-test" },
-    workspaceId: "ws-create-test",
-    initialPrompt: "hello from create",
-    clientMessageId: "msg-create-1",
-    labels: {},
-    provisionalTitle: null,
-    firstAgentContext: { attachments: [] },
-    buildSessionConfig: async (config) => ({ sessionConfig: config }),
-  });
+    await createAgentCommand(dependencies, {
+      kind: "session",
+      config: { provider: "codex", cwd: "/tmp/paseo-create-test" },
+      workspaceId: "ws-create-test",
+      initialPrompt: "hello from create",
+      clientMessageId: "msg-create-1",
+      ...(origin ? { origin } : {}),
+      labels: {},
+      provisionalTitle: null,
+      firstAgentContext: { attachments: [] },
+      buildSessionConfig: async (config) => ({ sessionConfig: config }),
+    });
 
-  expect(streamAgent).toHaveBeenCalledWith("agent-1", "hello from create", {
-    clientMessageId: "msg-create-1",
-  });
-});
+    expect(streamAgent).toHaveBeenCalledWith("agent-1", "hello from create", {
+      clientMessageId: "msg-create-1",
+      ...(origin ? { origin } : {}),
+    });
+  },
+);
 
 test("session create validates the requested mode against the provider's modes", async () => {
   const snapshot = {
@@ -298,6 +306,50 @@ test("session create stamps the new worktree's workspaceId when a setup continua
   }
 });
 
+test("top-level MCP creation records canonical agent origin without inventing a parent", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "mcp-create-origin-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const agentManager = createRealAgentManager(storage);
+  try {
+    const created = await createAgentCommand(
+      {
+        agentManager,
+        agentStorage: storage,
+        logger,
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      },
+      {
+        kind: "mcp",
+        provider: "codex",
+        title: "Machine-created task",
+        cwd: workdir,
+        workspaceId: "fixture-workspace",
+        initialPrompt: "top-level machine instruction",
+        background: false,
+        notifyOnFinish: false,
+      },
+    );
+    expect(created.initialPromptStarted).toBe(true);
+    const messages = agentManager
+      .getTimeline(created.snapshot.id)
+      .filter((item) => item.type === "user_message");
+    expect(messages).toMatchObject([
+      {
+        text: "top-level machine instruction",
+        origin: "agent",
+        clientMessageId: expect.any(String),
+      },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(z.uuid().safeParse(messages[0].clientMessageId).success).toBe(true);
+    expect(created.snapshot.labels).not.toHaveProperty(PARENT_AGENT_ID_LABEL);
+    expect(await new TaskOwnerEvidenceStore(workdir).list(created.snapshot.id)).toEqual([]);
+    expect(agentManager.listAgents()).toHaveLength(1);
+  } finally {
+    await removeRealAgentManagerWorkdir({ agentManager, storage, workdir });
+  }
+});
+
 test("mcp create stamps the new worktree's workspaceId, not the parent's", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "create-agent-test-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -318,6 +370,7 @@ test("mcp create stamps the new worktree's workspaceId, not the parent's", async
       },
     );
 
+    const streamAgent = vi.spyOn(agentManager, "streamAgent");
     const { snapshot: child } = await createAgentCommand(
       {
         agentManager,
@@ -341,6 +394,11 @@ test("mcp create stamps the new worktree's workspaceId, not the parent's", async
       },
     );
 
+    expect(streamAgent).toHaveBeenCalledWith(
+      child.id,
+      "do the thing",
+      expect.objectContaining({ origin: "agent", clientMessageId: expect.any(String) }),
+    );
     const storedChild = await storage.get(child.id);
     expect(storedChild?.workspaceId).toBe("ws-new-worktree");
     expect(child.cwd).toBe(join(workdir, "worktree", "packages", "app"));

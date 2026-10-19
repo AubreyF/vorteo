@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
-import type { QuotaGovernorPolicy, QuotaObservation } from "@getpaseo/protocol/quota-governor";
+import {
+  parseQuotaGovernorPolicy,
+  type QuotaGovernorPolicy,
+  type QuotaObservation,
+} from "@getpaseo/protocol/quota-governor";
 import { evaluateQuotaGovernor } from "./governor-evaluate.js";
 
 const now = Date.parse("2026-09-14T08:00:00Z");
@@ -29,6 +33,136 @@ const observation: QuotaObservation = {
   ],
   consumptionMeters: [],
 };
+
+it("admits prepaid-authorized weekly exhaustion without treating occupancy as prepaid spending", () => {
+  const prepaidPolicy = {
+    ...policy,
+    prepaidAuthorization: {
+      bucketId: "coding",
+      windowId: "primary",
+      startsAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 3_600_000).toISOString(),
+    },
+    estimatedHourly: { bucketId: "coding", windowId: "primary", maxConsumedPoints: 10 },
+  };
+  expect(
+    evaluateQuotaGovernor({
+      policy: prepaidPolicy,
+      observation: {
+        ...observation,
+        windows: [{ ...observation.windows[0], usedPercent: 100 }],
+      },
+      nowMs: now,
+      phase: "admission",
+    }),
+  ).toEqual({ action: "admit", reasons: [] });
+});
+
+const prepaidAuthorization = {
+  bucketId: "coding",
+  windowId: "primary",
+  startsAt: new Date(now).toISOString(),
+  expiresAt: new Date(now + 3_600_000).toISOString(),
+};
+
+it.each(["admission", "active"] as const)(
+  "refuses inactive prepaid authorization at exact boundaries during %s",
+  (phase) => {
+    for (const clock of [now - 1, now + 3_600_000]) {
+      expect(
+        evaluateQuotaGovernor({
+          policy: { ...policy, prepaidAuthorization },
+          observation: { ...observation, observedAt: new Date(clock).toISOString() },
+          nowMs: clock,
+          phase,
+        }),
+      ).toEqual({
+        action: phase === "active" ? "freeze" : "hold",
+        reasons: [{ code: "prepaid_authorization_inactive" }],
+      });
+    }
+  },
+);
+
+it("prepaid authorization preserves short-window, account, freshness and missing-window holds", () => {
+  const prepaidPolicy = { ...policy, prepaidAuthorization };
+  const evaluate = (sample: QuotaObservation) =>
+    evaluateQuotaGovernor({
+      policy: prepaidPolicy,
+      observation: sample,
+      nowMs: now,
+      phase: "active",
+    });
+  expect(
+    evaluate({
+      ...observation,
+      windows: [
+        { ...observation.windows[0], usedPercent: 100 },
+        { ...observation.windows[0], windowId: "short", durationMinutes: 300, usedPercent: 100 },
+      ],
+    }),
+  ).toEqual({
+    action: "freeze",
+    reasons: [{ code: "freeze_floor", bucketId: "coding", windowId: "short" }],
+  });
+  expect(
+    evaluate({ ...observation, account: { ...policy.account, accountId: "other" } }).reasons,
+  ).toEqual([{ code: "account_changed" }]);
+  expect(
+    evaluate({ ...observation, observedAt: new Date(now - 120_001).toISOString() }).reasons,
+  ).toEqual([{ code: "telemetry_stale" }]);
+  expect(
+    evaluate({ ...observation, windows: [{ ...observation.windows[0], windowId: "other" }] })
+      .reasons,
+  ).toEqual([{ code: "required_window_unavailable", bucketId: "coding", windowId: "primary" }]);
+  expect(evaluate({ status: "unavailable", reason: "read_failed" }).reasons).toEqual([
+    { code: "telemetry_unavailable" },
+  ]);
+  expect(
+    evaluate({ ...observation, windows: [...observation.windows, ...observation.windows] }).reasons,
+  ).toEqual([{ code: "invalid_observation" }]);
+});
+
+it("prepaid authorization cannot remove a configured consumption meter", () => {
+  expect(
+    evaluateQuotaGovernor({
+      policy: {
+        ...policy,
+        prepaidAuthorization,
+        consumptionLimits: [
+          {
+            meterId: "paid",
+            bucketId: "coding",
+            revision: "1",
+            unit: "credits",
+            period: { kind: "trailing_hour" },
+            throttleAt: 5,
+            holdAt: 10,
+            freezeAt: 15,
+          },
+        ],
+      },
+      observation,
+      nowMs: now,
+      phase: "active",
+    }),
+  ).toEqual({ action: "freeze", reasons: [{ code: "meter_unavailable", meterId: "paid" }] });
+});
+
+it.each([
+  { startsAt: new Date(now + 1).toISOString(), expiresAt: new Date(now).toISOString() },
+  { expiresAt: new Date(now).toISOString() },
+  { expiresAt: new Date(now + 86_400_001).toISOString() },
+  { bucketId: "unmapped" },
+  { windowId: "short" },
+])("rejects invalid prepaid authorization scope or duration %j", (patch) => {
+  expect(() =>
+    parseQuotaGovernorPolicy({
+      ...policy,
+      prepaidAuthorization: { ...prepaidAuthorization, ...patch },
+    }),
+  ).toThrow("Prepaid authorization");
+});
 
 it.each([
   [74, "admit"],

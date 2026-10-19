@@ -154,6 +154,33 @@ describe("loadConfig logger config", () => {
 });
 
 describe("createRootLogger", () => {
+  it.each([false, true])(
+    "keeps redacted entries and later logs after pretty formatting fails (file=%s)",
+    async (file) => {
+      const root = await mkdtemp(path.join(tmpdir(), "paseo-logger-depth-"));
+      const logPath = path.join(root, "output.log");
+      const { stdout, stderr } = await runLoggerFixture(`
+      const logger = createRootLogger({ log: {
+        console: { level: "info", format: "pretty" },
+        ${file ? `file: { path: ${JSON.stringify(logPath)} },` : ""}
+      } });
+      let detail = { value: "fixture" };
+      for (let i = 0; i < 1500; i++) detail = { child: detail };
+      logger.info({ detail, authorization: "synthetic-secret", headers: { authorization: "synthetic-secret" } }, "nested fixture");
+      logger.info("after nested fixture");
+      logger.flush();
+    `);
+      const output = file ? await readFile(logPath, "utf8") : stdout;
+      expect(output, stderr).toContain("after nested fixture");
+      expect(output).not.toContain("synthetic-secret");
+      const fallback = JSON.parse(output.split("\n")[0]!);
+      expect(fallback.msg).toBe("nested fixture");
+      expect(fallback.authorization).toBeUndefined();
+      expect(fallback.headers).toEqual({});
+      expect(stderr).not.toContain("MaxDepthExceededError");
+    },
+  );
+
   it("includes the daemon version in child logger entries", async () => {
     const paseoHome = await mkdtemp(path.join(tmpdir(), "paseo-logger-version-"));
 

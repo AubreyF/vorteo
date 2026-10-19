@@ -1,3 +1,10 @@
+import { useAppSettings } from "@/hooks/use-settings";
+import {
+  installationProviderReference,
+  localInstallationProvider,
+} from "@getpaseo/protocol/installation-settings";
+import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { defaultProfile } from "@/agent-profiles/internal/default-profile";
 import {
   memo,
@@ -16,12 +23,12 @@ import {
   Text,
   Pressable,
   Keyboard,
-  useWindowDimensions,
   type LayoutChangeEvent,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
 import { Settings2 } from "lucide-react-native";
@@ -154,6 +161,7 @@ export interface DraftAgentControlsProps {
   selectedThinkingOptionId: string;
   onSelectThinkingOption: (thinkingOptionId: string) => void;
   onApplyAgentProfile: DraftAgentProfileControls["applyProfile"];
+  onSelectEnvironment?: DraftAgentProfileControls["selectEnvironment"];
   features?: AgentFeature[];
   onSetFeature?: (featureId: string, value: unknown) => void;
   onDropdownClose?: () => void;
@@ -1885,6 +1893,7 @@ export function DraftAgentControls({
   selectedThinkingOptionId,
   onSelectThinkingOption,
   onApplyAgentProfile,
+  onSelectEnvironment,
   project,
   features,
   onSetFeature,
@@ -1897,6 +1906,7 @@ export function DraftAgentControls({
   isCompactLayout,
 }: DraftAgentControlsProps) {
   const { supportsLaunch, profiles: savedProfiles } = useAgentProfiles(modelSelectorServerId);
+  const { config: profileConfig } = useDaemonConfig(modelSelectorServerId);
   const mappedThinkingOptions = useMemo<AgentControlOption[]>(() => {
     return toThinkingControlOptions(thinkingOptions);
   }, [thinkingOptions]);
@@ -1924,10 +1934,11 @@ export function DraftAgentControls({
       kind: "draft",
       controls: {
         applyProfile: onApplyAgentProfile,
+        selectEnvironment: onSelectEnvironment,
         project,
       },
     }),
-    [onApplyAgentProfile, project],
+    [onApplyAgentProfile, onSelectEnvironment, project],
   );
   const agentProfiles = useAgentProfilePicker({
     serverId: modelSelectorServerId,
@@ -1944,24 +1955,40 @@ export function DraftAgentControls({
     supported: supportsLaunch,
     picker: agentProfiles,
   });
+  const { settings, isLoading: settingsLoading } = useAppSettings();
   const appliedDefaultRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!presetPicker || selectedProfileId || isModelLoading) return;
+    if (!presetPicker || selectedProfileId || isModelLoading || settingsLoading) return;
+    const defaults = settings.workspaceDefaults;
+    const providers = profileConfig?.providers ?? {};
+    const preferred = defaults.account
+      ? localInstallationProvider(defaults.account, providers)
+      : null;
+    const provider =
+      preferred && profileProviders.includes(preferred) ? preferred : selectedProvider;
     const available = savedProfiles?.filter(
       (entry) =>
-        (!selectedProvider || entry.provider === selectedProvider) &&
+        (!provider ||
+          entry.provider === provider ||
+          entry.provider === resolveProviderType(provider, providers)) &&
         presetPicker.rows.some((row) => row.id === entry.id),
     );
-    const profile = defaultProfile(available);
+    const account = provider ? installationProviderReference(provider, providers) : "";
+    const preferredProfile = defaults.profilesByAccount[account];
+    const profile = defaultProfile(available, preferredProfile);
     if (!profile || !presetPicker.rows.some((row) => row.id === profile.id)) return;
     const key = `${modelSelectorServerId}:${profile.id}`;
     if (appliedDefaultRef.current === key) return;
     appliedDefaultRef.current = key;
-    presetPicker.applyProfile(profile.id);
+    presetPicker.applyProfile(profile.id, { provider: provider ?? undefined });
   }, [
+    settings,
+    settingsLoading,
+    profileProviders,
     modelSelectorServerId,
     presetPicker,
     savedProfiles,
+    profileConfig,
     selectedProfileId,
     selectedProvider,
     isModelLoading,
@@ -1988,6 +2015,7 @@ export function DraftAgentControls({
       <AgentProfileOverlays editor={profileEditor} picker={agentProfiles} />
       {presetPicker ? (
         <PresetControls
+          inline
           serverId={modelSelectorServerId}
           currentProvider={selectedProvider ?? undefined}
           currentModel={selectedModel}

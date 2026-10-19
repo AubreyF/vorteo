@@ -43,3 +43,19 @@ export function useVisibleAgentIds(input: {
   }
   return stableAgentIds.current;
 }
+
+export function groupVisibleAgentsByEnvironment(
+  serverId: string,
+  agentIds: string[],
+  tabs: WorkspaceTab[],
+): Record<string, string[]> {
+  const groups: Record<string, string[]> = {};
+  for (const agentId of agentIds) {
+    const target = tabs.find(
+      (tab) => tab.target.kind === "agent" && tab.target.agentId === agentId,
+    )?.target;
+    const owner = target?.environment?.serverId ?? serverId;
+    (groups[owner] ??= []).push(agentId);
+  }
+  return groups;
+}

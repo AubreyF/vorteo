@@ -4,8 +4,11 @@ import {
   type InstallationEnvironment,
 } from "@getpaseo/protocol/execution-installation";
 import { isWeb } from "@/constants/platform";
+import { isDemoSession } from "@/demo/mode";
+import { isIsolatedDemoPreview } from "@/demo/preview";
 
 export function readExecutionInstallation(): ExecutionInstallation | null {
+  if (isDemoSession() || isIsolatedDemoPreview) return null;
   if (!isWeb || typeof window === "undefined") return null;
   const descriptor: unknown = Reflect.get(globalThis, "__VORTEO_EXECUTION_INSTALLATION__");
   if (descriptor === undefined) return null;

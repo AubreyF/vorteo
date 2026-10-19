@@ -91,7 +91,13 @@ export function useNewWorkspaceProjectPicker({
 }: NewWorkspaceProjectPickerInput): NewWorkspaceProjectPickerState {
   const selectableProjects = useMemo(
     () =>
-      filterWorkspaceProjectsForHost({ projects, serverId: selectedServerId, allowAllProjects }),
+      allowAllProjects
+        ? projects
+        : filterWorkspaceProjectsForHost({
+            projects,
+            serverId: selectedServerId,
+            allowAllProjects,
+          }),
     [allowAllProjects, projects, selectedServerId],
   );
   const initialProject = useMemo(

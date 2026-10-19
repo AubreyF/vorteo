@@ -64,8 +64,12 @@ export class CreationService {
       const fingerprint = digest(input.request);
       let record = await this.read(identity);
       if (!record) record = await this.readLegacyAgent(input, fingerprint);
-      if (record && record.fingerprint !== fingerprint)
-        throw new Error(`${input.kind}_request_key_conflict`);
+      if (record && record.fingerprint !== fingerprint) {
+        if (!(await this.canReviseRejectedAgent(identity, record, input)))
+          throw new Error(`${input.kind}_request_key_conflict`);
+        record.fingerprint = fingerprint;
+        await this.write(identity, record);
+      }
       const running = this.active.get(identity);
       if (running && record) return { completion: running, snapshot: record.snapshot };
       if (record?.snapshot.phase === "completed") await this.validateCompleted(record.snapshot);
@@ -116,6 +120,27 @@ export class CreationService {
     } finally {
       unsubscribe();
     }
+  }
+
+  private async canReviseRejectedAgent(
+    identity: string,
+    record: Record,
+    input: CreationInput,
+  ): Promise<boolean> {
+    // A rejected agent draft can change account, prompt or attachments before
+    // retry. Keep its reserved ID, but never replay an ambiguous or started turn.
+    return (
+      input.kind === "agent" &&
+      !this.active.has(identity) &&
+      record.inFlight === null &&
+      record.snapshot.phase === "failed" &&
+      record.snapshot.failedStage === "agent" &&
+      record.snapshot.outcomeUnknown === false &&
+      !record.snapshot.agent &&
+      record.snapshot.workspaceId === (input.workspaceId ?? null) &&
+      Boolean(record.snapshot.agentId) &&
+      !(await input.exists("agent", record.snapshot.agentId!))
+    );
   }
 
   async subscribe(

@@ -1,4 +1,6 @@
-import { useMemo, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
+import { CardPaneDividerContext } from "@/components/use-scroll-divider";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import {
   Text,
   View,
@@ -30,9 +32,24 @@ export function PaneContentToolbar({
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
+  const divider = useContext(CardPaneDividerContext);
   return (
-    <View style={[styles.toolbar, style]} testID={testID}>
+    <View style={[styles.toolbar, style, divider && styles.cardToolbar]} testID={testID}>
       {children}
+      {divider ? (
+        <View
+          pointerEvents="none"
+          testID={testID ? `${testID}-divider` : undefined}
+          style={[
+            styles.divider,
+            inlineUnistylesStyle({
+              left: -divider.inset,
+              right: -divider.inset,
+              opacity: divider.scrolled ? 1 : 0,
+            }),
+          ]}
+        />
+      ) : null}
     </View>
   );
 }
@@ -204,9 +221,11 @@ const styles = StyleSheet.create((theme) => ({
     height: WORKSPACE_SECONDARY_HEADER_HEIGHT,
     backgroundColor: theme.colors.surface0,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
     flexShrink: 0,
   },
+  cardToolbar: { borderBottomColor: "transparent" },
+  divider: { position: "absolute", bottom: -1, height: 1, backgroundColor: theme.colors.divider },
   controls: {
     flexDirection: "row",
     alignItems: "center",

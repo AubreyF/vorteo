@@ -1,3 +1,4 @@
+import { scheduledWorkspaceStates } from "@/workspace/lifecycle/scheduled-workspaces";
 import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -127,4 +128,52 @@ describe("fetchAggregatedSchedules load state", () => {
       hostErrors: [],
     });
   });
+});
+
+describe("Scheduled workspace indicators", () => {
+  it("uses exact host and agent ownership, retaining paused schedules but excluding ended triggers and run outputs", () => {
+    const target = { type: "agent" as const, agentId: "agent" };
+    const agents = new Map([["agent", { workspaceId: "workspace" }]]);
+    const now = Date.parse("2026-10-06T00:00:00Z");
+    const schedules = [makeSchedule({ target, status: "paused" }), makeSchedule({ target })];
+    expect(
+      scheduledWorkspaceStates(
+        [
+          { serverId: "one", schedules, agents },
+          { serverId: "two", schedules: [makeSchedule({ target, status: "completed" })], agents },
+        ],
+        now,
+      ),
+    ).toEqual(new Map([["one:workspace", "scheduled"]]));
+    expect(
+      scheduledWorkspaceStates(
+        [
+          {
+            serverId: "one",
+            agents,
+            schedules: [
+              makeSchedule(),
+              makeSchedule({ target, status: "completed" }),
+              makeSchedule({ target, expiresAt: "2026-10-05T00:00:00Z" }),
+              makeSchedule({ target: { type: "agent", agentId: "missing" } }),
+            ],
+          },
+        ],
+        now,
+      ),
+    ).toEqual(new Map());
+  });
+});
+
+it("shows Paused only when all remaining workspace schedules are paused", () => {
+  const target = { type: "agent" as const, agentId: "agent" };
+  const agents = new Map([["agent", { workspaceId: "workspace" }]]);
+  const paused = makeSchedule({ target, status: "paused" });
+  const active = makeSchedule({ target });
+  const project = (schedules: ScheduleSummary[]) =>
+    scheduledWorkspaceStates([{ serverId: "host", schedules, agents }], Date.now());
+  expect(project([paused]).get("host:workspace")).toBe("paused");
+  expect(project([active, paused]).get("host:workspace")).toBe("scheduled");
+  expect(project([paused, active]).get("host:workspace")).toBe("scheduled");
+  expect(project([]).size).toBe(0);
 });

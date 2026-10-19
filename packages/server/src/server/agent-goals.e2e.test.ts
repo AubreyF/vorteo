@@ -1,6 +1,7 @@
+import { createThreadGoalTools } from "./agent/tools/thread-goal.js";
 import path from "node:path";
 import { AgentStorage } from "./agent/agent-storage.js";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AgentGoalSetInputSchema, type AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { createTestPaseoDaemon } from "./test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "./test-utils/fake-agent-client.js";
@@ -8,6 +9,10 @@ import { DaemonClient } from "./test-utils/daemon-client.js";
 import { createTestLogger } from "../test-utils/test-logger.js";
 import { CodexAppServerAgentSession } from "./agent/providers/codex-app-server-agent.js";
 import { createFakeCodexAppServer } from "./agent/providers/codex/test-utils/fake-app-server.js";
+
+// These standalone test homes must not inherit the installed daemon launcher binding.
+beforeEach(() => vi.stubEnv("VORTEO_INSTALLATION_CLIENT_CONFIG", undefined));
+afterEach(() => vi.unstubAllEnvs());
 
 test("goal RPCs project native updates to subscribers, history and reconnect snapshots", async () => {
   let nativeGoal: AgentGoal | null = null;
@@ -53,7 +58,8 @@ test("goal RPCs project native updates to subscribers, history and reconnect sna
   try {
     await first.connect();
     await second.connect();
-    await second.fetchAgents({ subscribe: { subscriptionId: "goal-observer" } });
+    const observation = second.observeAgents();
+    await observation.ready;
     const agent = await first.createAgent({
       config: { provider: "codex", cwd: daemon.paseoHome },
       initialGoal: { objective: "First goal", status: "paused" },
@@ -83,6 +89,26 @@ test("goal RPCs project native updates to subscribers, history and reconnect sna
       status: "paused",
       tokenBudget: null,
     });
+    const tools = createThreadGoalTools(daemon.daemon.agentManager, agent.id);
+    const edit = tools.find((tool) => tool.name === "update_thread_goal")!;
+    const current = await first.getAgentGoal(agent.id);
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = current.goal!;
+    await edit.handler(
+      {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        objective: "Ship the goal tools",
+      },
+      {},
+    );
+    await second.waitForAgentUpsert(
+      agent.id,
+      (snapshot) => snapshot.goalState?.goal?.objective === "Ship the goal tools",
+    );
+    expect((await first.getAgentGoal(agent.id)).goal).toMatchObject({
+      ...current.goal,
+      objective: "Ship the goal tools",
+      status: "paused",
+    });
     const timeline = await first.fetchAgentTimeline(agent.id);
     expect(JSON.stringify(timeline)).toContain('"intent":"goal"');
     await daemon.daemon.agentManager.flush();
@@ -94,7 +120,7 @@ test("goal RPCs project native updates to subscribers, history and reconnect sna
     await reopenedStorage.initialize();
     expect(
       (await reopenedStorage.get(agent.id))?.goalSubmissions?.map((entry) => entry.text),
-    ).toEqual(["First goal", "Ship the goal bar"]);
+    ).toEqual(["First goal", "Ship the goal bar", "Ship the goal tools"]);
     nativeGoal = { ...nativeGoal!, status: "complete", tokensUsed: 123, timeUsedSeconds: 4 };
     native.child.stdout.write(
       JSON.stringify({
@@ -106,6 +132,7 @@ test("goal RPCs project native updates to subscribers, history and reconnect sna
       agent.id,
       (snapshot) => snapshot.goalState?.goal?.status === "complete",
     );
+    await observation.release();
     await second.close();
     second = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws`, appVersion: "0.7.2" });
     await second.connect();

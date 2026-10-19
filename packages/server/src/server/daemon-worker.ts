@@ -1,5 +1,8 @@
+import { initializePackagedClaudeCli } from "./agent/providers/claude/packaged-cli.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
+import { resolveManagedInstallationClient } from "./execution-installation/managed-client.js";
 import { createPaseoDaemon, formatListenTarget } from "./bootstrap.js";
 import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
@@ -8,7 +11,17 @@ import type { DaemonLifecycleIntent } from "./bootstrap.js";
 import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
 
-process.title = "Paseo Daemon";
+// Managed updates and Host renewal verify the entrypoint through OS arguments.
+// Changing the title overwrites that evidence on macOS.
+const managedWorker = process.env.PASEO_MANAGED_WORKER === "1";
+delete process.env.PASEO_MANAGED_WORKER;
+initializePackagedClaudeCli(managedWorker);
+if (
+  !managedWorker &&
+  !process.env.VORTEO_INSTALLATION_CLIENT_CONFIG &&
+  !process.env.VORTEO_COORDINATOR_BOOTSTRAP_SETUP
+)
+  process.title = "Paseo Daemon";
 
 type SupervisorLifecycleMessage =
   | {
@@ -72,6 +85,15 @@ function bootstrapFromEnvironment(): BootstrapResult {
   try {
     const paseoHome = resolvePaseoHome();
     const config = loadConfig(paseoHome);
+    const installationClient = resolveManagedInstallationClient({
+      configuredPath: process.env.VORTEO_INSTALLATION_CLIENT_CONFIG,
+      managedWorker,
+      environment: config.sharedProviderPreferences?.installation?.environment,
+      platform: process.platform,
+      homeDir: homedir(),
+      uid: process.getuid?.(),
+    });
+    if (installationClient) process.env.VORTEO_INSTALLATION_CLIENT_CONFIG = installationClient;
     const logger = createRootLogger({ log: config.log }, { paseoHome, file: false });
     return { paseoHome, logger, config };
   } catch (err) {

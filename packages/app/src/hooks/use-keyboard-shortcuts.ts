@@ -1,3 +1,4 @@
+import { useThemePreviewActive } from "@/appearance/provider";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "expo-router";
 import { getIsElectronRuntime } from "@/constants/layout";
@@ -45,21 +46,18 @@ import { dispatchTopWebOverlayKeyDown } from "@/lib/overlay-root";
 export function useKeyboardShortcuts({
   enabled,
   isMobile,
-  isWorkspaceFocusModeEnabled,
   toggleAgentList,
   toggleBothSidebars,
-  exitFocusMode,
   cycleTheme,
 }: {
   enabled: boolean;
   isMobile: boolean;
-  isWorkspaceFocusModeEnabled: boolean;
   toggleAgentList: () => void;
   toggleBothSidebars?: () => void;
-  exitFocusMode: () => void;
   cycleTheme?: () => void;
 }) {
   const keyboardActionDispatcher = useKeyboardActionDispatcher();
+  const previewingTheme = useThemePreviewActive();
   const pathname = usePathname();
   const router = useRouter();
   const resetModifiers = useKeyboardShortcutsStore((s) => s.resetModifiers);
@@ -238,9 +236,6 @@ export function useKeyboardShortcuts({
       input.domEvent,
       input.browserFocusRestoreElement,
     );
-    if (handled && isWorkspaceFocusModeEnabled && input.action.startsWith("sidebar.")) {
-      exitFocusMode();
-    }
     return handled;
   };
 
@@ -320,12 +315,16 @@ export function useKeyboardShortcuts({
     if (dispatchTopWebOverlayKeyDown(event)) {
       return;
     }
+    // The chooser consumes Escape to restore the saved theme before route navigation.
+    if (event.key === "Escape" && previewingTheme) return;
 
     // During IME composition, Enter confirms the candidate selection and must
     // not route through global shortcuts like message send.
     if (isImeComposingKeyboardEvent(event)) {
       return;
     }
+
+    if (isReorderKey(event)) return;
 
     const store = useKeyboardShortcutsStore.getState();
     if (store.capturingShortcut) {
@@ -425,4 +424,21 @@ export function useKeyboardShortcuts({
     resetModifiers,
     shortcutsAvailable,
   ]);
+}
+
+// Sortable handles own activation, movement and cancellation; Space must not mute voice here.
+function isReorderKey(event: KeyboardEvent): boolean {
+  if (!(event.target instanceof Element)) return false;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+  const handle = event.target.closest("[data-keyboard-reorder='true']");
+  const reorderKey = [
+    "Space",
+    "Enter",
+    "Escape",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+  ].includes(event.code);
+  return Boolean(handle) && reorderKey;
 }

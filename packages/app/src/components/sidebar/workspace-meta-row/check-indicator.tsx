@@ -86,7 +86,7 @@ function Pie({ fraction, color }: { fraction: number; color: string }) {
 const ThemedCheckIndicatorSvg = withUnistyles(CheckIndicatorSvg);
 
 const COLOR_MAPPINGS: Record<CheckSummary["state"], (theme: Theme) => { color: string }> = {
-  passed: (theme) => ({ color: theme.colors.statusSuccess }),
+  passed: (theme) => ({ color: theme.colors.foregroundMuted }),
   failed: (theme) => ({ color: theme.colors.statusDanger }),
   running: (theme) => ({ color: theme.colors.statusWarning }),
 };

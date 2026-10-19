@@ -1,6 +1,7 @@
+import { handleDesktopCommand } from "../desktop-ipc.js";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { app, BrowserWindow, Notification, ipcMain, nativeImage } from "electron";
+import { app, BrowserWindow, Notification, nativeImage } from "electron";
 import { getDesktopSettingsStore } from "../settings/desktop-settings-electron.js";
 
 interface NotificationInput {
@@ -79,11 +80,11 @@ export function ensureNotificationCenterRegistration(): void {
 }
 
 export function registerNotificationHandlers(): void {
-  ipcMain.handle("paseo:notification:isSupported", () => {
+  handleDesktopCommand("paseo:notification:isSupported", () => {
     return Notification.isSupported();
   });
 
-  ipcMain.handle("paseo:notification:send", async (event, rawInput?: NotificationInput) => {
+  handleDesktopCommand("paseo:notification:send", async (event, rawInput?: NotificationInput) => {
     if (!Notification.isSupported()) {
       return false;
     }

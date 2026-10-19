@@ -719,6 +719,7 @@ export default function TerminalEmulator({
     <div
       ref={rootRef}
       data-testid={testId}
+      data-pmono="true"
       data-terminal-scrollbar-root="true"
       style={rootDivStyle}
       onPointerDown={handleRootPointerDown}

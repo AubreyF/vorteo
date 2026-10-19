@@ -102,7 +102,7 @@ import {
 import { mapOmpAvailableCommandsUpdate, mapOmpRuntimeSlashCommands } from "./commands.js";
 import { readOmpHistoryTodoState, streamOmpHistory } from "./history.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
-import { mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
+import { mapOmpRuntimeEventToTimelineItem, mapOmpCompactionEnd } from "./event-mapper.js";
 import { mapOmpAdvisorMessageToToolCall } from "./advisor-message.js";
 import { handleOmpHostToolRuntimeEvent, OmpHostToolRouter } from "./host-tools.js";
 import { OmpSubagentIndex } from "./subagent-index.js";
@@ -1839,11 +1839,7 @@ export class OmpAgentSession implements AgentSession {
       case "compaction_end":
         this.emitCompactionTimeline({
           turnId,
-          item: {
-            type: "compaction",
-            status: "completed",
-            trigger: event.reason === "manual" ? "manual" : "auto",
-          },
+          item: mapOmpCompactionEnd(event, event.reason === "manual" ? "manual" : "auto"),
         });
         return;
       case "agent_end": {

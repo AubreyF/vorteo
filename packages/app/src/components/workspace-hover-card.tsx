@@ -1,3 +1,5 @@
+import { getInterfaceWindow } from "@/appearance/interface-geometry";
+import { interfaceRect } from "@/appearance/interface-geometry";
 import { WorkspacePreviewRows } from "@/components/workspace-preview-rows";
 import { useVortonTouch } from "@/vorton-touch";
 import {
@@ -10,7 +12,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import { Dimensions, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { FadeIn, FadeOut } from "react-native-reanimated";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -60,7 +62,7 @@ interface Rect {
 function measureElement(element: View): Promise<Rect> {
   return new Promise((resolve) => {
     element.measureInWindow((x, y, width, height) => {
-      resolve({ x, y, width, height });
+      resolve(interfaceRect({ x, y, width, height }));
     });
   });
 }
@@ -254,7 +256,7 @@ function WorkspaceHoverCardContent({
   // Compute position when both measurements are available
   useEffect(() => {
     if (!triggerRect || !contentSize) return;
-    const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+    const { width: screenWidth, height: screenHeight } = getInterfaceWindow();
     const displayArea = { x: 0, y: 0, width: screenWidth, height: screenHeight };
     const result = computeHoverCardPosition({
       triggerRect,

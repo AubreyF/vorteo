@@ -1,12 +1,17 @@
 import type { QueuePresentation } from "@getpaseo/protocol/message-queue";
 import type {
+  AgentTaskItem,
   AgentProvider,
   AgentTimelineItem,
   JsonValue,
   ToolCallDetail,
 } from "@getpaseo/protocol/agent-types";
 import { timelineItemIdentity } from "@getpaseo/protocol/timeline-identity";
-import type { AgentAttachment, AgentStreamEventPayload } from "@getpaseo/protocol/messages";
+import type {
+  CompactionInspection,
+  AgentAttachment,
+  AgentStreamEventPayload,
+} from "@getpaseo/protocol/messages";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { extractTaskEntriesFromToolCall } from "../utils/tool-call-parsers";
 
@@ -504,9 +509,12 @@ function mergeRetainedLifecycleItem(tail: StreamItem[], retained: StreamItem): S
     return next;
   }
   if (retained.kind === "compaction" && retained.status === "completed") {
-    const tailIndex = tail.findIndex(
-      (item) => item.kind === "compaction" && item.status === "loading",
-    );
+    const tailIndex = tail.findIndex((item) => {
+      if (item.kind !== "compaction") return false;
+      if (retained.compactionId && item.compactionId)
+        return retained.compactionId === item.compactionId;
+      return item.status === "loading";
+    });
     const existing = tail[tailIndex];
     if (tailIndex < 0 || !existing || existing.kind !== "compaction") {
       return null;
@@ -518,6 +526,8 @@ function mergeRetainedLifecycleItem(tail: StreamItem[], retained: StreamItem): S
       status: "completed",
       trigger: retained.trigger ?? existing.trigger,
       preTokens: retained.preTokens ?? existing.preTokens,
+      compactionId: retained.compactionId ?? existing.compactionId,
+      inspection: retained.inspection ?? existing.inspection,
     };
     return next;
   }
@@ -819,6 +829,8 @@ export interface CompactionItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineStreamItem {
@@ -834,13 +846,7 @@ export interface PluginTimelineStreamItem {
   data: JsonValue;
 }
 
-export interface TodoEntry {
-  text: string;
-  completed: boolean;
-  id?: string;
-  status?: "pending" | "in_progress" | "completed";
-  activeForm?: string;
-}
+export type TodoEntry = AgentTaskItem;
 
 export type TaskActivity =
   | { type: "created"; count: number }
@@ -1311,13 +1317,7 @@ function appendTodoList(
   timestamp: Date,
   timelineCursor?: TimelinePosition,
 ): StreamItem[] {
-  const normalizedItems = items.map((item) => ({
-    text: item.text,
-    completed: item.completed,
-    ...(item.id ? { id: item.id } : {}),
-    ...(item.status ? { status: item.status } : {}),
-    ...(item.activeForm ? { activeForm: item.activeForm } : {}),
-  }));
+  const normalizedItems = items;
 
   const previousIndex = state.findLastIndex(
     (item) => item.kind === "todo_list" && item.provider === provider,
@@ -1376,7 +1376,7 @@ function appendTodoList(
 
 function taskStatus(task: TodoEntry): NonNullable<TodoEntry["status"]> {
   if (task.completed || task.status === "completed") return "completed";
-  return task.status === "in_progress" ? "in_progress" : "pending";
+  return task.status ?? "pending";
 }
 
 function taskKey(task: TodoEntry, index: number): string {
@@ -1489,7 +1489,20 @@ function reduceTimelineCompaction(
   timelineCursor?: TimelinePosition,
 ): StreamItem[] {
   if (item.status === "completed") {
-    const loadingIdx = state.findIndex((s) => s.kind === "compaction" && s.status === "loading");
+    const matchingIdx = item.compactionId
+      ? state.findIndex(
+          (entry) => entry.kind === "compaction" && entry.compactionId === item.compactionId,
+        )
+      : -1;
+    const loadingIdx =
+      matchingIdx >= 0
+        ? matchingIdx
+        : state.findIndex((entry) => {
+            if (entry.kind !== "compaction" || entry.status !== "loading") return false;
+            return (
+              !item.compactionId || !entry.compactionId || entry.compactionId === item.compactionId
+            );
+          });
     const existing = loadingIdx >= 0 ? state[loadingIdx] : undefined;
     if (loadingIdx >= 0 && existing && existing.kind === "compaction") {
       const updated: CompactionItem = {
@@ -1498,6 +1511,8 @@ function reduceTimelineCompaction(
         status: "completed",
         trigger: item.trigger ?? existing.trigger,
         preTokens: item.preTokens ?? existing.preTokens,
+        compactionId: item.compactionId ?? existing.compactionId,
+        inspection: item.inspection ?? existing.inspection,
       };
       return [...state.slice(0, loadingIdx), updated, ...state.slice(loadingIdx + 1)];
     }
@@ -1513,6 +1528,8 @@ function reduceTimelineCompaction(
     status: item.status,
     trigger: item.trigger,
     preTokens: item.preTokens,
+    ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+    ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
   };
   return [...state, compaction];
 }
@@ -1561,13 +1578,7 @@ function reduceTimelineEvent(
         reduceTimelineToolCall(state, event, item, timestamp, timelineCursor),
       );
     case "todo": {
-      const items: TodoEntry[] = (item.items ?? []).map((todo) => ({
-        text: todo.text,
-        completed: todo.completed,
-        id: todo.id,
-        status: todo.status,
-        activeForm: todo.activeForm,
-      }));
+      const items = item.items ?? [];
       return finalizeActiveThoughts(
         appendTodoList(state, event.provider, items, timestamp, timelineCursor),
       );

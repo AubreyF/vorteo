@@ -1,3 +1,6 @@
+import { SidebarStateStore } from "./sidebar-state/store.js";
+import { bootstrapReviewFeatures } from "./execution-installation/coordinator-bootstrap-session.js";
+import { serializeLegacyChecklistMessage } from "./agent/task-checklist/compatibility.js";
 import { QueueAttachmentStore } from "./message-queue/attachments.js";
 import { createAgentQueueDelivery } from "./message-queue/agent-delivery.js";
 import { MessageQueueService } from "./message-queue/service.js";
@@ -162,6 +165,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
   getAllowedOrigins?: () => Set<string>;
@@ -566,6 +570,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly workspaceAutoName: WorkspaceAutoName;
   private readonly downloadTokenStore: DownloadTokenStore;
+  private readonly sidebarState: SidebarStateStore;
   private readonly paseoHome: string;
   private readonly passwordHash: string | undefined;
   private readonly credentialSource: DaemonAuthConfig | undefined;
@@ -595,6 +600,7 @@ export class VoiceAssistantWebSocketServer {
     | ((workspaceId: string, oldBranch: string | null, newBranch: string | null) => void)
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
+  private readonly coordinatorBootstrap: SessionOptions["coordinatorBootstrap"];
   private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private lastRuntimeMetricsSnapshot: WebSocketRuntimeDiagnosticPayload | null = null;
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -602,6 +608,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly applicationSocketLease = new ApplicationSocketLease<WebSocketLike>();
   private eventLoopDelayMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
+  private unsubscribeBootstrapAvailability: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
   private readonly providerUsageService: ProviderUsageService;
   private readonly providerLoginService: ProviderLoginService;
@@ -689,6 +696,7 @@ export class VoiceAssistantWebSocketServer {
   ) {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
+    this.coordinatorBootstrap = wsConfig.coordinatorBootstrap;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
@@ -728,6 +736,7 @@ export class VoiceAssistantWebSocketServer {
     this.workspaceAutoName = workspaceAutoName;
     this.downloadTokenStore = downloadTokenStore;
     this.paseoHome = paseoHome;
+    this.sidebarState = new SidebarStateStore(join(paseoHome, "sidebar-state.json"));
     this.passwordHash = auth?.password;
     this.worktreesRoot = daemonRuntimeConfig?.worktreesRoot;
     this.daemonConfigStore = daemonConfigStore;
@@ -823,6 +832,7 @@ export class VoiceAssistantWebSocketServer {
     });
 
     this.wss = this.createWebSocketServer(server, wsConfig, auth);
+    this.subscribeBootstrapAvailability();
     this.startRuntimeMetricsInterval();
     this.startApplicationSocketLeaseInterval();
 
@@ -1165,6 +1175,8 @@ export class VoiceAssistantWebSocketServer {
     this.prepareForShutdown();
     this.unsubscribeSpeechReadiness?.();
     this.unsubscribeSpeechReadiness = null;
+    this.unsubscribeBootstrapAvailability?.();
+    this.unsubscribeBootstrapAvailability = null;
     this.unsubscribeDaemonConfigChange?.();
     this.unsubscribeDaemonConfigChange = null;
     this.unsubscribeTerminalActivity?.();
@@ -1285,8 +1297,23 @@ export class VoiceAssistantWebSocketServer {
     }
 
     const payloadBytes = outboundFrameByteLength(payload);
+    const projections = new Map<string, { payload: string; bytes: number }>();
     for (const ws of writableSockets) {
-      this.sendFrameToClient(ws, payload, payloadBytes, () => {
+      const session = this.sessions.get(ws)?.session;
+      const blocked = session?.supportsForSource(CLIENT_CAPS.checklistBlockedStatus, ws) === true;
+      const review = session?.supportsForSource(CLIENT_CAPS.checklistReviewStatus, ws) === true;
+      const key = `${blocked}:${review}`;
+      let frame = { payload, bytes: payloadBytes };
+      if (!blocked || !review) {
+        const cached = projections.get(key);
+        if (cached) frame = cached;
+        else {
+          const projected = serializeLegacyChecklistMessage(message, payload, { blocked, review });
+          frame = { payload: projected, bytes: outboundFrameByteLength(projected) };
+          projections.set(key, frame);
+        }
+      }
+      this.sendFrameToClient(ws, frame.payload, frame.bytes, () => {
         this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
       });
     }
@@ -1555,8 +1582,17 @@ export class VoiceAssistantWebSocketServer {
     return connection;
   }
 
+  private supportsSidebarState(): boolean {
+    return (
+      this.daemonConfigStore.get().sharedProviderPreferences?.installation?.environment !==
+      "container"
+    );
+  }
+
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
+      coordinatorBootstrap: this.coordinatorBootstrap,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
       principalId: options.principalId,
@@ -1909,7 +1945,9 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(directorySync): added in v0.3.x, remove gate after 2027-02-12.
         directorySync: true,
         // COMPAT(workspaceLabels): added in v0.5.0, remove after 2027-08-14.
-        ...(this.workspaceLabelService ? { workspaceLabels: true } : {}),
+        ...(this.workspaceLabelService
+          ? { workspaceLabels: true, workspaceLabelNeutralColors: true }
+          : {}),
         // COMPAT(workspaceSetupRun): added in v0.7.3, remove gate after 2027-09-02.
         workspaceSetupRun: true,
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
@@ -1920,6 +1958,7 @@ export class VoiceAssistantWebSocketServer {
         // Policy-aware scheduling fails closed when its execution backend is unavailable.
         scheduleQuotaPolicy: true,
         estimatedHourlyQuota: true,
+        prepaidQuotaAuthorization: true,
         // COMPAT(providersSnapshotCwd): added in v0.3.2, remove gate after 2027-02-10.
         providersSnapshotCwd: true,
         // COMPAT(checkoutForgeSetAutoMerge): added in v0.2.0-beta.1. Remove the
@@ -1946,6 +1985,9 @@ export class VoiceAssistantWebSocketServer {
         ...(this.advertiseDaemonStatusRpc ? { daemonStatusRpc: true } : {}),
         // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
         daemonConfigReload: true,
+        guardedOriginAdmission: Boolean(
+          this.serverId && this.daemonConfigStore.hasOriginAdmissionOwner(),
+        ),
         // COMPAT(relayConfig): added in v0.2.6, remove gate after 2027-01-31.
         ...(this.advertiseRelayConfig ? { relayConfig: true } : {}),
         // COMPAT(pushTokenRevocation): added in v0.3.2, remove gate after 2027-02-10.
@@ -1986,7 +2028,10 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
+        workspaceCreateProjectMembership: true,
+        workspaceTaskEnvironments: true,
         idleRestart: true,
+        gracefulRestart: true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -1998,6 +2043,7 @@ export class VoiceAssistantWebSocketServer {
         worktreeRestore: true,
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
         workspaceRecovery: true,
+        workspaceRecoveryGuard: true,
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: true,
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
@@ -2014,6 +2060,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
         agentDetach: true,
         agentGoals: true,
+        ...bootstrapReviewFeatures(this.coordinatorBootstrap),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
         agentThinkingUpdate: true,
@@ -2027,12 +2074,19 @@ export class VoiceAssistantWebSocketServer {
         agentForkContextCursor: true,
         // COMPAT(providerSubagents): added in v0.1.107, remove gate after 2027-01-12.
         providerSubagents: true,
+        agentTaskSnapshots: true,
+        agentChecklistMutations: true,
+        checklistBlockedStatus: true,
+        sidebarState: this.supportsSidebarState(),
+        checklistReviewStatus: true,
+        agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
         providerSubagentNesting: true,
         // COMPAT(workspacePinning): added in v0.1.107, remove gate after 2027-01-12.
         workspacePinning: true,
+        workspaceLifecycle: true,
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: true,
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -2077,12 +2131,16 @@ export class VoiceAssistantWebSocketServer {
         agentProfiles: true,
         agentProfileLaunch: true,
         sharedProviderPreferences: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        accountIndependentProfiles: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
+        explicitWorkerAccounts: true,
+        uncappedManagedWorkers: true,
         profileWorkflowAliases: Boolean(this.daemonConfigStore.get().sharedProviderPreferences),
         installationProfileAuthority: Boolean(
           this.daemonConfigStore.get().sharedProviderPreferences,
         ),
         installationResourceBindings: true,
         installationSettingsAuthority: true,
+        installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
       },
@@ -2107,6 +2165,13 @@ export class VoiceAssistantWebSocketServer {
         config,
       },
     });
+  }
+
+  private subscribeBootstrapAvailability(): void {
+    this.unsubscribeBootstrapAvailability =
+      this.coordinatorBootstrap?.subscribeAvailability?.(() =>
+        this.broadcastCapabilitiesUpdate(),
+      ) ?? null;
   }
 
   private broadcastCapabilitiesUpdate(): void {

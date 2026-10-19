@@ -74,6 +74,19 @@ export class PiHistoryMapper {
 
     for (const message of messages) {
       switch (message.role) {
+        case "compactionSummary":
+          events.push({
+            type: "timeline",
+            provider: this.provider,
+            timestamp: new Date(message.timestamp).toISOString(),
+            item: {
+              type: "compaction",
+              status: "completed",
+              preTokens: message.tokensBefore,
+              inspection: { summary: { type: "text", text: message.summary } },
+            },
+          });
+          break;
         case "user":
           events.push(...this.mapUserMessage(message));
           break;

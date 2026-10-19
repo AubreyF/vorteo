@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useMemo, useState, useCallback, useEffect, type ReactElement } from "react";
 import { View, Text } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
@@ -142,11 +143,11 @@ function SessionsScreenContent() {
       return null;
     }
     return (
-      <View style={styles.footer}>
+      <ActionFooter style={styles.footer}>
         <Button variant="ghost" onPress={loadMore} disabled={isLoadingMore}>
           {isLoadingMore ? "Loading..." : t("sessions.actions.loadMore")}
         </Button>
-      </View>
+      </ActionFooter>
     );
   }, [hasMore, isLoadingMore, isSearchTruncated, loadMore, t]);
 

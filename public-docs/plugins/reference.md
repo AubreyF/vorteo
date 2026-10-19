@@ -72,7 +72,12 @@ Empty strings, invalid ranges, and unknown manifest requirement keys are rejecte
 | `^0.8.0`         | 0.8.x releases, including prereleases                                        |
 | `>=0.8.3 <0.9.0` | 0.8.3 through the last 0.8 patch, including prereleases                      |
 
-Prerelease Vorteo versions also satisfy a range their stable core (`major.minor.patch`) satisfies, so `0.8.0-beta.1` satisfies `>=0.8.0` but not `<0.8.0`.
+Prerelease Vorteo versions also satisfy author-written stable ranges their stable core
+(`major.minor.patch`) satisfies, so `0.8.0-beta.1` satisfies `>=0.8.0` and `^0.8.0`, but not
+`<0.8.0`. A range branch with an explicit prerelease qualifier uses ordinary npm semver
+matching: `0.8.0-beta.1` does not satisfy `>=0.8.0-beta.2`. Each `||` branch is checked
+independently. Parser-generated prerelease bounds for caret, tilde and wildcard ranges do
+not make an author-written stable branch explicit.
 
 `paseo plugin init` writes `>=` followed by the current CLI version and pins the matching SDK
 for typechecking. Raise the minimum when adopting a newer API. Add an upper bound when a later
@@ -2117,7 +2122,7 @@ export default function contribute(server: PluginServerContext) {
 
 Inputs and outputs are validated on both sides. RPC names start with a lowercase letter and contain lowercase letters, numbers, dots, hyphens, or underscores. `useRpc()` returns a typed async function. Use TanStack Query for request state, caching, and mutations.
 
-Backend handlers receive the same `PaseoApi` as `{ paseo }`. Their connection belongs to the subprocess and closes when the plugin stops. It does not subscribe to timelines or catalog events until plugin code subscribes. Follow the [SDK event contract](../../sdk/events.md) for cleanup and timeline replacements. Backend code can use Node APIs and dependencies installed in the plugin directory.
+Backend handlers receive the same `PaseoApi` as `{ paseo }` and a `serverId` from the serving daemon's session handshake. Use that identity when returning host-attributed observations; never take the serving identity from caller input. Their connection belongs to the subprocess and closes when the plugin stops. It does not subscribe to timelines or catalog events until plugin code subscribes. Follow the [SDK event contract](../../sdk/events.md) for cleanup and timeline replacements. Backend code can use Node APIs and dependencies installed in the plugin directory.
 
 ## Debug backend output
 

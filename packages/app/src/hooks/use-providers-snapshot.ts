@@ -134,7 +134,9 @@ export function useProvidersSnapshot(
     isLoading: snapshotQuery.isLoading,
     isFetching: snapshotQuery.isFetching,
     isRefreshing,
-    error: snapshotQuery.error instanceof Error ? snapshotQuery.error.message : null,
+    error:
+      refreshMutation.error?.message ??
+      (snapshotQuery.error instanceof Error ? snapshotQuery.error.message : null),
     supportsSnapshot,
     refresh,
     refetchIfStale,

@@ -6,6 +6,7 @@ import type { ProjectIconTarget } from "./icon-target";
 const STORAGE_KEY = "@paseo:project-icon-cache";
 const CACHE_VERSION = 1;
 const PERSIST_DELAY_MS = 250;
+const RESTORE_TIMEOUT_MS = 2_000;
 const MAX_ENTRIES = 512;
 
 export interface ProjectIconCacheStorage {
@@ -81,14 +82,26 @@ export class ProjectIconCache {
 
   async restore(): Promise<void> {
     let raw: string | null;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      raw = await this.storage.getItem(STORAGE_KEY);
+      // An optional browser cache must not keep host startup waiting indefinitely.
+      raw = await Promise.race([
+        this.storage.getItem(STORAGE_KEY),
+        new Promise<null>((resolve) => {
+          timeout = setTimeout(() => resolve(null), RESTORE_TIMEOUT_MS);
+        }),
+      ]);
     } catch {
       return;
+    } finally {
+      clearTimeout(timeout);
     }
     if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as { version?: unknown; entries?: unknown };
+      const parsed = JSON.parse(raw) as {
+        version?: unknown;
+        entries?: unknown;
+      };
       if (parsed.version !== CACHE_VERSION || !Array.isArray(parsed.entries)) return;
       for (const value of parsed.entries) {
         const entry = parseStoredIcon(value);
@@ -128,7 +141,11 @@ export class ProjectIconCache {
     // their icon results remain memory-only.
     const revision = target.iconRevision ?? target.customIconRevision ?? "automatic";
     const identity: ProjectIconIdentity | null = target.iconRevision
-      ? { serverId: target.serverId, projectId: target.projectId, revision: target.iconRevision }
+      ? {
+          serverId: target.serverId,
+          projectId: target.projectId,
+          revision: target.iconRevision,
+        }
       : null;
     const cached = identity ? this.read(identity) : { hit: false as const };
     const lookup = resolveLookup(target, supportsCustomIcons);
@@ -180,7 +197,10 @@ export class ProjectIconCache {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
-    const payload = JSON.stringify({ version: CACHE_VERSION, entries: [...this.entries.values()] });
+    const payload = JSON.stringify({
+      version: CACHE_VERSION,
+      entries: [...this.entries.values()],
+    });
     const write = this.writeQueue
       .catch(() => undefined)
       .then(() => this.storage.setItem(STORAGE_KEY, payload));

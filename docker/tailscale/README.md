@@ -27,7 +27,51 @@ python3 host-recovery.py resume
 
 Pause before planned Docker maintenance or rollback. The worker starts Docker if absent, with three attempts spaced ten minutes apart. It starts an existing stopped serving container with three attempts spaced five minutes apart. It never recreates a container or restarts a running unhealthy daemon. A running rollback container suppresses replacement recovery. Restore operations run as the agent user with all capabilities removed. Review private `recovery-status.json` and logs when manual attention is needed.
 
+Managed Dev workers retain their process arguments. Preview recovery verifies their selected release, Node executable, supervisor parent, ownership and boot/start identity instead of depending on the process title. Legacy workers retain their existing process-title check; an invalid managed supervisor marker fails closed.
+
 ## Preview lifecycle and private HTTPS
+
+### Native Host workspaces
+
+The native adapter serves workspaces registered with the macOS Host daemon. It
+uses the same broker reservations, receipts, stop barriers and verification as
+Dev previews, with a separate deployment directory and native Tailscale node.
+It does not require Docker or restart either agent daemon.
+
+Run `install-native-https-broker.py` with explicit `--deployment`, `--daemon-home`,
+`--node`, `--cli-entry` and `--tailscale` paths. The CLI entry must belong to a
+compatible installed release. The installer verifies the daemon's loopback
+listener, existing tailnet policy and native node identity before installing its
+own login consumer. It never broadens tailnet grants. Existing identity or policy
+changes require review rather than silent adoption.
+
+The installer prints `helperCommand`. Use that command with the ordinary
+`start`, `status`, `restart`, `stop` and `list` arguments below. The helper pins
+the native daemon home and supplies the reserved origin to the managed service.
+It also installs `~/.local/bin/paseo-preview` and the preview instructions under
+`~/.config/paseo-preview/AGENTS.md`. The non-secret
+`~/.local/share/paseo-preview/https/installed.json` records the pinned command.
+Keep using the owning task workspace, including when its command explicitly
+targets an isolated worktree. Do not create a duplicate preview workspace.
+
+Native listener verification requires an IPv4 loopback binding and a matching
+managed terminal environment. Process birth timestamps come from macOS libproc;
+arguments cannot impersonate environment bindings. Native tasks share the
+logged-in user's authority. Native broker state is separate from project source,
+but this is not the privilege boundary provided by the Dev container.
+When republishing its own reservation, the native adapter permits retained
+connections on this node's Tailscale addresses after route removal. A new
+reservation, an unrelated address or any remaining listener still blocks reuse.
+
+For a Vorteo UI-only preview, `scripts/preview-static.mjs --directory EXPORT`
+serves a sealed preview export through this workflow without starting another
+agent daemon. It verifies asset hashes, serves only manifest-listed assets and
+rejects unexpected hosts, origins and write requests. Rebuild and restart the
+managed preview to select a new export while retaining its HTTPS reservation.
+Connecting the preview to an agent environment still requires that environment's
+normal authentication and origin policy; serving static assets grants no access.
+
+### Dev container workspaces
 
 On the Mac host, run these commands from this source directory, then install against the retained serving container:
 
@@ -50,7 +94,11 @@ Requests contain only lifecycle operation, workspace ID, service name, request I
 
 The host resolves live daemon workspace and script records, checks the configuration fingerprint and managed terminal, and verifies the actual loopback listener process before publishing. It reserves a stable frontend, writes startup origin configuration, and starts the registered command through the existing unprivileged daemon CLI. The command wrapper supplies `PASEO_PREVIEW_ORIGIN` at launch. Applications must consume it where framework hosts, callback URLs or WSS origins need explicit configuration. A caller's environment does not reach a daemon-launched service.
 
-The mapping ledger, deduplication journal and lock remain outside agent-writable mounts. Repeated start adopts an unchanged owned mapping without probing its occupied frontend or replacing it. Stop persists its barrier and removes the exact owned route before stopping the service. Old queued starts and replays cannot undo a stop. Recovery revalidates ownership and process identity, removes stale routes, and never automatically restarts broker-managed services after a crash or daemon restart. An explicit new start is required. This conservative policy prevents backend reuse from being adopted during recovery.
+The mapping ledger, deduplication journal and lock remain outside agent-writable mounts. Repeated start adopts an unchanged owned mapping without probing its occupied frontend or replacing it. Stop persists its barrier and removes the exact owned route before stopping the service. Old queued starts and replays cannot undo a stop.
+
+Install with `--restore-after-restart` to restore verified previews after a daemon or retained-container restart. The broker records the daemon process identity after successful verification. When that identity changes, it removes the stale route and starts the same service only if its workspace remains active and its path and command fingerprint are unchanged. It retains the frontend reservation and verifies the new managed terminal, loopback listener and HTTPS certificate before publishing. Recovery makes at most three start attempts per new daemon, with increasing delays. An uncertain start response or unexpected running replacement requires an explicit start rather than adoption.
+
+Use the preview helper's stop operation to durably cancel recovery, including during maintenance. A service observed stopped in the same daemon also remains stopped; recovery does not supervise application crashes. Archived, moved or reconfigured workspaces do not recover automatically. Enabling recovery never revives old stopped reservations. Omit the installer option to preserve existing policy, or use `--no-restore-after-restart` to disable it. Without this option, previews still require explicit start after restart. Container downtime remains downtime; the broker restores service when the container and daemon return.
 
 The consumer checks every ten seconds while the user session is available. It has bounded file sizes, queue batches, command timeouts and reconciliation work. It is not a synchronous process-death firewall: an external process exit or replacement can precede the next check. Use the helper for deliberate stop/restart so route removal precedes process termination. Never run a new unrelated listener on a reserved backend before its route is removed. Unexpected route changes require administrator review and are never evicted.
 

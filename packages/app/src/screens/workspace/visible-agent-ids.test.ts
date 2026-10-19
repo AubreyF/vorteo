@@ -44,7 +44,7 @@ test("route blur publishes no viewed agents", () => {
   ).toEqual([]);
 });
 
-test("compact and focus modes contribute only the focused pane", () => {
+test("compact layouts contribute only the focused pane", () => {
   const layout: WorkspaceLayout = {
     focusedPaneId: "right",
     root: {
@@ -109,4 +109,24 @@ test("pane retargeting replaces the viewed agent and duplicate panes collapse to
       focusedPaneOnly: false,
     }),
   }).toEqual({ duplicate: ["agent-a"], retargeted: ["agent-a", "agent-b"] });
+});
+
+test("routes visible task details to their execution environment", async () => {
+  const { groupVisibleAgentsByEnvironment } = await import("./visible-agent-ids");
+  const tabs: WorkspaceTab[] = [
+    { tabId: "local", target: { kind: "agent", agentId: "local" }, createdAt: 1 },
+    {
+      tabId: "remote",
+      target: {
+        kind: "agent",
+        agentId: "remote",
+        environment: { serverId: "container", workspaceId: "bound" },
+      },
+      createdAt: 2,
+    },
+  ];
+  expect(groupVisibleAgentsByEnvironment("host", ["local", "remote"], tabs)).toEqual({
+    host: ["local"],
+    container: ["remote"],
+  });
 });

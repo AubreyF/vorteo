@@ -17,6 +17,12 @@ interface AssignmentCommit {
   catalogChanged: boolean;
 }
 
+function storedLabelAppearance(color: WorkspaceLabelDefinition["color"], explicitColor?: boolean) {
+  // Neutral intent uses a legacy hue so older clients can still read the catalog.
+  if (color === "neutral") return { color: "violet" as const, explicitColor: false };
+  return { color, ...(explicitColor === undefined ? {} : { explicitColor }) };
+}
+
 interface UpdateCommit {
   label: WorkspaceLabelDefinition;
   affectedWorkspaceCount: number;
@@ -53,6 +59,15 @@ export class WorkspaceLabelService {
 
   async initialize(): Promise<void> {
     await this.catalog.initialize();
+    // Convert the old decorative label before clients can observe or archive workspaces.
+    // The catalog journal commits protection and label removal together, including recovery.
+    await this.exclusive(() =>
+      this.catalog.commit((catalog, workspaces) => ({
+        labels: catalog.filter((label) => workspaceLabelKey(label.name) !== "protected"),
+        workspaceUpdates: migrateProtectedAssignments(workspaces),
+        result: undefined,
+      })),
+    );
   }
 
   async list(
@@ -88,7 +103,7 @@ export class WorkspaceLabelService {
     assigned: boolean;
   }): Promise<{ label: WorkspaceLabelDefinition; workspaceLabels: string[] }> {
     return this.exclusive(async () => {
-      const name = requireName(input.label.name);
+      const name = requireCustomName(input.label.name);
       const committed = await this.catalog.commit<AssignmentCommit>((catalog, workspaces) => {
         const workspace = workspaces.get(input.workspaceId);
         if (!workspace || workspace.archivedAt) {
@@ -96,7 +111,10 @@ export class WorkspaceLabelService {
         }
         const key = workspaceLabelKey(name);
         const existing = catalog.find((label) => workspaceLabelKey(label.name) === key);
-        const definition = existing ?? { name, color: input.label.color };
+        const definition = existing ?? {
+          name,
+          ...storedLabelAppearance(input.label.color, input.label.explicitColor),
+        };
         const current = workspace.labels ?? [];
         const workspaceLabels = updateAssignmentLabels(
           current,
@@ -142,10 +160,11 @@ export class WorkspaceLabelService {
     name: string;
     newName?: string;
     color?: WorkspaceLabelDefinition["color"];
+    explicitColor?: boolean;
   }): Promise<{ label: WorkspaceLabelDefinition; affectedWorkspaceCount: number }> {
     return this.exclusive(async () => {
       const fromKey = workspaceLabelKey(requireName(input.name));
-      const newName = input.newName === undefined ? null : requireName(input.newName);
+      const newName = input.newName === undefined ? null : requireCustomName(input.newName);
       const committed = await this.catalog.commit<UpdateCommit>((catalog, workspaces) => {
         const existing = catalog.find((label) => workspaceLabelKey(label.name) === fromKey);
         if (!existing) throw new WorkspaceLabelError("label_not_found", "Label not found");
@@ -160,7 +179,9 @@ export class WorkspaceLabelService {
           }
         }
         const nameChanged = newName !== null && newName !== existing.name;
-        const colorChanged = input.color !== undefined && input.color !== existing.color;
+        const colorChanged =
+          (input.color !== undefined && input.color !== existing.color) ||
+          (input.explicitColor !== undefined && existing.explicitColor !== input.explicitColor);
         if (!nameChanged && !colorChanged) {
           return {
             labels: [...catalog],
@@ -170,7 +191,10 @@ export class WorkspaceLabelService {
         }
         const label = {
           name: nameChanged && newName !== null ? newName : existing.name,
-          color: input.color ?? existing.color,
+          ...storedLabelAppearance(
+            input.color ?? existing.color,
+            input.explicitColor ?? existing.explicitColor,
+          ),
         };
         // Workspaces store names, so only a rename rewrites assignments; a recolour is catalog-only.
         const workspaceUpdates = nameChanged
@@ -301,4 +325,31 @@ function requireName(raw: string): string {
     throw new WorkspaceLabelError("label_name_empty", "Label name cannot be empty");
   }
   return name;
+}
+
+function requireCustomName(raw: string): string {
+  const name = requireName(raw);
+  if (workspaceLabelKey(name) === "protected") {
+    throw new WorkspaceLabelError("label_name_taken", "Protected is a built-in workspace flag");
+  }
+  return name;
+}
+
+function migrateProtectedAssignments(
+  workspaces: ReadonlyMap<string, PersistedWorkspaceRecord>,
+): PersistedWorkspaceRecord[] {
+  return [...workspaces.values()].flatMap((workspace) => {
+    if (!workspaceHasLabel(workspace, "protected")) return [];
+    const labels = (workspace.labels ?? []).filter(
+      (name) => workspaceLabelKey(name) !== "protected",
+    );
+    return [
+      {
+        ...workspace,
+        protected: true,
+        labels: labels.length ? labels : undefined,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  });
 }

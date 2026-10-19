@@ -69,6 +69,60 @@ test("scroll detector distinguishes entered image growth from a simultaneous vie
   ).toHaveLength(1);
 });
 
+test("scroll detector preserves text below an image that shrinks across the reading line", () => {
+  const before: ScrollFrame = {
+    at: 1000,
+    scrollTop: 3180,
+    scrollHeight: 95085,
+    viewportHeight: 535,
+    virtualized: true,
+    loading: false,
+    rows: [
+      { id: "image", top: -472, height: 539, image: true },
+      { id: "text", top: 67, height: 130 },
+      { id: "next", top: 197, height: 81 },
+    ],
+    anchor: "image",
+    wheelTotal: 99360,
+    lastWheelAt: 500,
+    inputFinishedAt: 600,
+    imageLoads: 53,
+    mounted: 3,
+    unmounted: 0,
+  };
+  const after: ScrollFrame = {
+    ...before,
+    at: 1060,
+    scrollTop: 2858,
+    scrollHeight: 94763,
+    imageLoads: 54,
+    rows: [{ id: "image", top: -150, height: 217, image: true }, ...before.rows.slice(1)],
+  };
+  expect(findScrollJumps([before, after])).toEqual([]);
+  expect(
+    findScrollJumps([
+      { ...before, rows: before.rows.map((row) => ({ ...row, image: false })) },
+      after,
+    ]),
+  ).toHaveLength(1);
+  for (const movement of [-100, 100]) {
+    expect(
+      findScrollJumps([
+        before,
+        {
+          ...after,
+          rows: after.rows.map((row) => ({
+            id: row.id,
+            top: row.top + movement,
+            height: row.height,
+            image: row.image,
+          })),
+        },
+      ]),
+    ).toHaveLength(1);
+  }
+});
+
 test("scroll detector accounts for delayed wheel input and growth below the new reader", () => {
   const before: ScrollFrame = {
     at: 1000,

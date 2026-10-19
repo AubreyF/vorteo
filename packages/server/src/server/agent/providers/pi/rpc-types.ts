@@ -33,7 +33,15 @@ export interface PiToolCallContent {
 
 export type PiAssistantContent = PiTextContent | PiThinkingContent | PiToolCallContent;
 
+export interface PiCompactionResult {
+  summary: string;
+  firstKeptEntryId: string;
+  tokensBefore: number;
+  estimatedTokensAfter?: number;
+}
+
 export type PiAgentMessage =
+  | { role: "compactionSummary"; summary: string; tokensBefore: number; timestamp: number }
   | {
       role: "user";
       content: string | Array<PiTextContent | PiImageContent>;
@@ -192,7 +200,13 @@ export type PiAgentSessionEvent =
       isError?: boolean;
     }
   | { type: "compaction_start"; reason?: "manual" | "threshold" | "overflow" | string }
-  | { type: "compaction_end"; reason?: string; errorMessage?: string; aborted?: boolean }
+  | {
+      type: "compaction_end";
+      reason?: string;
+      result?: PiCompactionResult;
+      errorMessage?: string;
+      aborted?: boolean;
+    }
   | { type: "agent_end"; messages?: PiAgentMessage[]; willRetry?: boolean }
   | { type: "agent_settled" }
   | {

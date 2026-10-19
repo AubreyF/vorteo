@@ -4,7 +4,9 @@ import path from "node:path";
 import { z } from "zod";
 import { writePrivateFileAtomicSync } from "../private-files.js";
 
-const SessionsSchema = z.array(z.strictObject({ hash: z.string(), expiresAt: z.number() }));
+export const OwnerSessionsSchema = z.array(
+  z.strictObject({ hash: z.string(), expiresAt: z.number() }),
+);
 export const OWNER_SESSION_MAX_AGE = 7 * 24 * 60 * 60;
 
 /** Persist only token hashes. Expiry is absolute, so polling cannot prolong owner access. */
@@ -16,7 +18,9 @@ export class OwnerSessions {
 
   private read() {
     return (
-      existsSync(this.file) ? SessionsSchema.parse(JSON.parse(readFileSync(this.file, "utf8"))) : []
+      existsSync(this.file)
+        ? OwnerSessionsSchema.parse(JSON.parse(readFileSync(this.file, "utf8")))
+        : []
     ).filter((session) => session.expiresAt > this.now());
   }
 
@@ -24,7 +28,7 @@ export class OwnerSessions {
     return createHash("sha256").update(token).digest("hex");
   }
 
-  private write(sessions: z.infer<typeof SessionsSchema>): void {
+  private write(sessions: z.infer<typeof OwnerSessionsSchema>): void {
     writePrivateFileAtomicSync(this.file, JSON.stringify(sessions));
     // Windows requires a writable handle for FlushFileBuffers and does not
     // support opening directories through this API. POSIX also syncs the rename.

@@ -200,7 +200,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
       "data-testid",
       "queue-message-" + initialOrder[0],
     );
-    await expect(queue).toContainText("Message queue");
+    await expect(queue).toContainText("Messages");
     await expect(
       page.getByTestId("agent-chat-scroll").getByTestId("shared-message-queue"),
     ).toHaveCount(1);
@@ -213,7 +213,7 @@ test("shared queue survives reload and synchronizes a second device with Vorton 
     for (const target of [page, other]) {
       const card = target.getByTestId("shared-message-queue");
       await card.scrollIntoViewIfNeeded();
-      const heading = card.getByText("Message queue", { exact: true });
+      const heading = card.getByText("Messages", { exact: true });
       const icon = card.getByTestId("message-queue-pause-resume").locator("svg");
       await expect(heading).toBeVisible();
       await expect(icon).toBeVisible();

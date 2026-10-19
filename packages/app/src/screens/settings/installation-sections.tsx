@@ -1,16 +1,18 @@
+import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { useState } from "react";
+import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { SharedProvidersPage } from "./shared-providers-page";
 import { Text, View } from "react-native";
-import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import type { SettingsSectionSlug } from "@/utils/host-routes";
 import { useHosts } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useInstallationProfiles } from "@/execution-installation/profiles";
+import { selectProfileCatalogSources } from "@/execution-installation/profile-catalog";
 import { InstallationSettingsStatus } from "@/execution-installation/settings-status";
 import { SharedProviderSection } from "@/agent-profiles/settings/shared-provider-section";
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
-import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { settingsStyles } from "@/styles/settings";
@@ -51,6 +53,7 @@ export function isInstallationSettingsSection(
 }
 
 function ProfilesSettings({ serverId }: { serverId: string }) {
+  const [selectedType, setSelectedType] = useState<string | null>(null);
   const profiles = useInstallationProfiles();
   const containerId =
     profiles.installation?.environments.find((environment) => environment.kind === "container")
@@ -63,18 +66,14 @@ function ProfilesSettings({ serverId }: { serverId: string }) {
   if (profiles.error) return <Alert variant="error" description={profiles.error.message} />;
   if (profiles.isPending) return <Text style={settingsStyles.rowHint}>Loading profiles...</Text>;
   if (!profiles.data) return null;
-  const sections = new Map<string, { serverId: string; provider: string }>();
-  for (const catalog of [
-    { serverId, entries: hostCatalog.entries, config: hostConfig },
-    { serverId: containerId, entries: containerCatalog.entries, config: containerConfig },
-  ]) {
-    if (!catalog.serverId) continue;
-    for (const entry of catalog.entries ?? []) {
-      const type = resolveProviderType(entry.provider, catalog.config?.providers ?? {});
-      if (!sections.has(type))
-        sections.set(type, { serverId: catalog.serverId, provider: entry.provider });
-    }
-  }
+  const sections = selectProfileCatalogSources([
+    { serverId, entries: hostCatalog.entries, providers: hostConfig?.providers },
+    {
+      serverId: containerId,
+      entries: containerCatalog.entries,
+      providers: containerConfig?.providers,
+    },
+  ]);
   for (const type of Object.keys(profiles.data.providers)) {
     if (!sections.has(type)) sections.set(type, { serverId, provider: type });
   }
@@ -82,13 +81,33 @@ function ProfilesSettings({ serverId }: { serverId: string }) {
     return (
       <Alert description="Connect a provider in Providers settings to create your first profile." />
     );
+  const activeType =
+    selectedType && sections.has(selectedType) ? selectedType : [...sections.keys()][0];
+  const target = sections.get(activeType)!;
+  const options = [...sections.keys()].map((type) => ({
+    value: type,
+    label:
+      [...(hostCatalog.entries ?? []), ...(containerCatalog.entries ?? [])].find(
+        (entry) => entry.provider === type,
+      )?.label ?? type,
+  }));
   return (
     <View>
-      {[...sections].map(([type, target]) => (
-        <SettingsSection key={type} title={type}>
-          <SharedProviderSection serverId={target.serverId} provider={target.provider} />
-        </SettingsSection>
-      ))}
+      <Text style={settingsStyles.rowHint}>
+        Choose a provider to manage its defaults and profiles. Connections supply accounts; profiles
+        define how new tasks run.
+      </Text>
+      <SettingsTabs
+        options={options}
+        value={activeType}
+        onValueChange={setSelectedType}
+        testID="profile-provider-tabs"
+      />
+      <SharedProviderSection
+        key={activeType}
+        serverId={target.serverId}
+        provider={target.provider}
+      />
     </View>
   );
 }

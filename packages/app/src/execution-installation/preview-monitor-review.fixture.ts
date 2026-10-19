@@ -1,0 +1,26 @@
+import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
+export const monitorReviewFixture: PreviewMonitorJob = {
+  target: "preview-monitor",
+  operation: "preview-monitor-replace",
+  id: "00000000-0000-4000-8000-000000000003",
+  revision: "00000000-0000-4000-8000-000000000004",
+  planSha256: "a".repeat(64),
+  requestedBy: "host-agent",
+  reason: "Replace preview monitor",
+  createdAt: "2026-10-11T00:00:00.000Z",
+  status: "pending",
+  stage: "prepared",
+  detail: "Review",
+  plan: {
+    version: 1,
+    operation: "preview-monitor-replace",
+    installationId: "00000000-0000-4000-8000-000000000001",
+    sourceCommit: "b".repeat(40),
+    containerId: "c".repeat(64),
+    destination: "/home/paseo/.local/bin/paseo-preview",
+    candidate: { path: "/private/candidate", sha256: "d".repeat(64) },
+    previous: { path: "/private/previous", sha256: "e".repeat(64) },
+    expected: { sha256: "e".repeat(64), uid: 0, gid: 0, mode: 0o755 },
+    ancestrySha256: "f".repeat(64),
+  },
+};

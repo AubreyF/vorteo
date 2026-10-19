@@ -58,7 +58,7 @@ function visibleTestId(page: Page, testId: string) {
 }
 
 function explorerSidebar(page: Page) {
-  return visibleTestId(page, "workspace-explorer-sidebar").first();
+  return visibleTestId(page, "workspace-supporting-cards").first();
 }
 
 async function selectWorkspaceTab(tab: Locator): Promise<void> {
@@ -82,14 +82,18 @@ export async function ensureExplorerSidebar(page: Page): Promise<Locator> {
   return explorer;
 }
 
-/** Reveals the Explorer sidebar and selects one of its fixed navigation views. */
+/** Reveal and expand one of the workspace's supporting cards. */
 async function openExplorerView(
   page: Page,
-  view: { tabTestId: string; contentTestId: string; timeout?: number },
+  view: { cardTestId: string; contentTestId: string; timeout?: number },
 ): Promise<void> {
   const explorer = await ensureExplorerSidebar(page);
-  const tab = explorer.getByTestId(view.tabTestId);
-  await selectWorkspaceTab(tab);
+  const disclosure = explorer.getByTestId(`${view.cardTestId}-toggle`);
+  await expect(disclosure).toBeVisible({ timeout: view.timeout ?? 30_000 });
+  if ((await disclosure.getAttribute("aria-expanded")) !== "true") {
+    await disclosure.click();
+  }
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
   await expect(visibleTestId(page, view.contentTestId).first()).toBeVisible({
     timeout: view.timeout ?? 30_000,
   });
@@ -97,7 +101,7 @@ async function openExplorerView(
 
 export async function openChangesTreePanel(page: Page): Promise<void> {
   await openExplorerView(page, {
-    tabTestId: "workspace-tab-changes_tree",
+    cardTestId: "supporting-card-changes_tree",
     contentTestId: "changes-tree-panel",
   });
 }
@@ -117,7 +121,7 @@ export async function openChangesPanel(page: Page, timeout = 30_000): Promise<vo
 
 export async function openFilesPanel(page: Page): Promise<void> {
   await openExplorerView(page, {
-    tabTestId: "workspace-tab-files",
+    cardTestId: "supporting-card-files",
     contentTestId: "file-explorer-tree-scroll",
   });
 }

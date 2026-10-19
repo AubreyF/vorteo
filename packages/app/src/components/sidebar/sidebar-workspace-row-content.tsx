@@ -1,11 +1,14 @@
+import { useSidebarWidth } from "./sidebar-width";
+import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
+import { WorkspaceLifecycleIndicators } from "@/workspace/lifecycle/indicators";
 import {
   ExecutionEnvironmentIcon,
   useHasExecutionEnvironment,
 } from "@/execution-installation/environment-icon";
-import { WorkspaceGoalBadge } from "@/goals/workspace-goal-badge";
+import { WorkspaceChecklistProgress } from "@/task-checklist/workspace-progress";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
-import { useVortonTouch, VORTON_ACTION_SLOT } from "@/vorton-touch";
+import { useVortonTouch } from "@/vorton-touch";
 
 import { useSidebarActionSize } from "./use-sidebar-action-size";
 import { memo, useMemo, useCallback, useState, type ReactNode } from "react";
@@ -39,10 +42,15 @@ import {
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { StatusRing } from "@/components/status-ring";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
-import { TrailingActionScrim } from "@/components/ui/trailing-action-scrim";
+import { WorkspaceLabelChip } from "@/workspace-labels/chip";
 import { useWorkspaceLabelDefinitions } from "@/workspace-labels";
 
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const managedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
+const managedAlertMapping = (theme: Theme) => ({
+  color: theme.colors.surface0,
+  fill: theme.colors.foregroundExtraMuted,
+});
 const needsInputColorMapping = (theme: Theme) => ({
   color: theme.colors.surface0,
   fill: getStatusDotColor({ theme, bucket: "needs_input" }) ?? undefined,
@@ -114,7 +122,6 @@ function WorkspaceActivityBadges({
     <>
       <WorkspaceQueueCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceSubagentCount serverId={serverId} workspaceId={workspaceId} />
-      <WorkspaceGoalBadge serverId={serverId} workspaceId={workspaceId} />
     </>
   );
 }
@@ -155,23 +162,19 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
   children?: ReactNode;
 }) {
   const {
-    settings: { workspaceTitleSource, sidebarRowItems },
+    settings: { workspaceTitleSource },
   } = useAppSettings();
   const workspaceLabel = resolveSidebarWorkspacePrimaryLabel({ workspace, workspaceTitleSource });
 
   const installedEnvironment = useHasExecutionEnvironment(workspace.serverId);
-  const actionSize = useSidebarActionSize();
-  const inlineService = selectWorkspaceServiceSummary(workspace.scripts);
-  // The workspace carries label names; their colors live in its host's catalog, so the row is
-  // where the two meet — the meta line is handed finished definitions.
-  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
   const workspaceBranchTextStyle = useMemo(
     () => [
       styles.workspaceBranchText,
       isHovered && styles.workspaceBranchTextHovered,
       isCreating && styles.workspaceBranchTextCreating,
+      (workspace.standing || workspace.factoryMembership) && styles.managedText,
     ],
-    [isHovered, isCreating],
+    [isHovered, isCreating, workspace.standing, workspace.factoryMembership],
   );
 
   return (
@@ -193,28 +196,16 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             workspaceKind={workspace.workspaceKind}
             loading={isLoading}
             reserveIdleSpace={reserveIdleStatusIndicatorSpace}
+            muted={Boolean(workspace.standing || workspace.factoryMembership)}
           />
         )}
         <View style={styles.workspaceContentColumn}>
           <View style={[styles.workspaceTitleRow, styles.alignedRow]}>
-            <ExecutionEnvironmentIcon serverId={workspace.serverId} hostOnly />
             <Text style={workspaceBranchTextStyle} numberOfLines={1}>
               {workspaceLabel}
             </Text>
             <View style={[sidebarWorkspaceRowStyles.rowRight, styles.alignedActions]}>
-              {inlineService ? (
-                <View style={[styles.serviceSlot, actionSize]}>
-                  <ServiceItem summary={inlineService} iconOnly />
-                </View>
-              ) : null}
               {children}
-              {
-                <WorkspaceActivityBadges
-                  serverId={workspace.serverId}
-                  workspaceId={workspace.workspaceId}
-                  visible={sidebarRowItems.activityBadges}
-                />
-              }
             </View>
           </View>
           <WorkspaceMetaRow
@@ -223,7 +214,6 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
             hostBadge={visibleHostBadge(installedEnvironment, hostBadge)}
             prHint={workspace.prHint}
             serviceSummary={null}
-            labels={labels}
           />
         </View>
       </View>
@@ -241,11 +231,13 @@ function WorkspaceStatusIndicator({
   workspaceKind,
   loading = false,
   reserveIdleSpace = true,
+  muted = false,
 }: {
   bucket: SidebarWorkspaceEntry["statusBucket"];
   workspaceKind: SidebarWorkspaceEntry["workspaceKind"];
   loading?: boolean;
   reserveIdleSpace?: boolean;
+  muted?: boolean;
 }) {
   // Busy is the only status that moves, and it is the ring rather than a dot for the same
   // reason it is a dot elsewhere: every status in the sidebar sits in this one slot, so busy
@@ -254,7 +246,7 @@ function WorkspaceStatusIndicator({
   if (loading) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-loading">
-        <StatusRing />
+        <StatusRing variant={muted ? "task" : "agent"} />
       </View>
     );
   }
@@ -262,7 +254,7 @@ function WorkspaceStatusIndicator({
   if (shouldRenderSyncedStatusLoader({ bucket })) {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-running">
-        <StatusRing />
+        <StatusRing variant={muted ? "task" : "agent"} />
       </View>
     );
   }
@@ -270,7 +262,10 @@ function WorkspaceStatusIndicator({
   if (bucket === "needs_input") {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-needs_input">
-        <ThemedCircleAlert size={STATUS_INDICATOR_ALERT_SIZE} uniProps={needsInputColorMapping} />
+        <ThemedCircleAlert
+          size={STATUS_INDICATOR_ALERT_SIZE}
+          uniProps={muted ? managedAlertMapping : needsInputColorMapping}
+        />
       </View>
     );
   }
@@ -278,7 +273,7 @@ function WorkspaceStatusIndicator({
   if (bucket === "attention") {
     return (
       <View style={styles.workspaceStatusDot} testID="workspace-status-indicator-attention">
-        <View style={styles.standaloneStatusDot} />
+        <View style={[styles.standaloneStatusDot, muted && styles.managedStatusDot]} />
       </View>
     );
   }
@@ -303,8 +298,10 @@ function WorkspaceStatusIndicator({
   const dotColorStyle = getStatusDotColorStyle(bucket);
   return (
     <View style={styles.workspaceStatusDot} testID={`workspace-status-indicator-${bucket}`}>
-      <KindIcon size={14} uniProps={foregroundMutedColorMapping} />
-      {dotColorStyle ? <StatusDotOverlay dotColorStyle={dotColorStyle} /> : null}
+      <KindIcon size={14} uniProps={muted ? managedColorMapping : foregroundMutedColorMapping} />
+      {dotColorStyle ? (
+        <StatusDotOverlay dotColorStyle={muted ? styles.managedStatusDot : dotColorStyle} />
+      ) : null}
     </View>
   );
 }
@@ -329,6 +326,9 @@ function getStatusDotColorStyle(bucket: SidebarStateBucket) {
 }
 
 export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
+  // Project children sit one icon column inside the project heading. Keep the
+  // full-width row background while making the parent-child hierarchy visible.
+  projectIndented: { paddingLeft: 14 + theme.iconSize.md },
   // How far a workspace row sits inside the group header above it — a project row or a
   // status group header. Both groupings share this one indent, so every grouped workspace row
   // in the sidebar sits on the same rail regardless of how the list is grouped. Pinned rows
@@ -344,7 +344,8 @@ export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
   shortcutBadge: {
     minWidth: 18,
@@ -365,28 +366,6 @@ export const sidebarWorkspaceRowStyles = StyleSheet.create((theme) => ({
     lineHeight: 14,
   },
   hidden: { opacity: 0 },
-  // Stays position:relative at zero width so the absolutely-positioned kebab keeps
-  // anchoring to the same right edge whether or not the slot holds anything.
-  trailingActionSlot: {
-    position: "relative",
-    minHeight: 20,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-  },
-  trailingActionSlotReserved: {
-    position: "relative",
-    minWidth: 18,
-    minHeight: 20,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-  },
-  trailingActionOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-  },
 }));
 
 export function SidebarWorkspaceShortcutBadge({ number }: { number: number }) {
@@ -399,16 +378,7 @@ export function SidebarWorkspaceShortcutBadge({ number }: { number: number }) {
 
 export type SidebarWorkspaceTrailingPresentation = "visible" | "hidden" | "absent";
 
-/**
- * What the trailing slot shows for a row. Derived in one place because three row renderers
- * share it: the two project-mode rows and the status-mode row. The rule used to be copied
- * into each of them and immediately drifted — one call site kept hiding the diff after the
- * others stopped.
- *
- * The trailing content survives the kebab on hover and fades under the scrim instead of
- * blinking out. Touch has no hover, so its permanent kebab still hides the content outright
- * rather than scrimming an unhovered row whose background doesn't match the gradient.
- */
+/** Shared visibility for project and status grouping. The menu reserves space only when shown. */
 export function resolveTrailingActionVisibility({
   workspace,
   trailing,
@@ -426,52 +396,65 @@ export function resolveTrailingActionVisibility({
 }): {
   trailingPresentation: SidebarWorkspaceTrailingPresentation;
   showKebab: boolean;
-  showScrim: boolean;
   renderSlot: boolean;
-  reserveSlotWidth: boolean;
 } {
   const hasTrailing = hasSidebarWorkspaceTrailing({ workspace, trailing });
-  const showKebab = Boolean(hasArchiveAction && (isHovered || isTouchPlatform)) && !showShortcut;
-  // Touch permanently replaces the stats with the menu. Only temporary shortcut hints
-  // conceal content while retaining its width, so desktop rows do not shift.
-  const hasContent = hasTrailing && !(hasArchiveAction && isTouchPlatform);
+  const showKebab = hasArchiveAction && isHovered && !isTouchPlatform && !showShortcut;
   let trailingPresentation: SidebarWorkspaceTrailingPresentation = "absent";
-  if (hasContent) trailingPresentation = showShortcut ? "hidden" : "visible";
+  if (hasTrailing) trailingPresentation = showShortcut ? "hidden" : "visible";
   return {
     trailingPresentation,
     showKebab,
-    // The scrim paints the row's own hover background, so it can only be drawn on a hovered
-    // row — over an unhovered one the gradient fades to the wrong color. That is also why
-    // touch, which shows the kebab without ever hovering, never gets one.
-    showScrim: showKebab && isHovered,
-    renderSlot: hasArchiveAction || hasTrailing,
-    // The slot only holds width for something that permanently sits in it. Trailing content
-    // does; the kebab only does on touch, where there is no hover for it to appear on and so
-    // no scrim to let it overlay the title. Everywhere else the width goes back to the title
-    // and the kebab fades in over its tail.
-    reserveSlotWidth: hasContent || (hasArchiveAction && isTouchPlatform),
+    renderSlot: true,
   };
 }
 
-export function SidebarWorkspaceTrailingActionSlot({
-  reserveWidth,
-  children,
-}: {
-  reserveWidth: boolean;
-  children: ReactNode;
-}) {
-  const actionSize = useSidebarActionSize();
+export function SidebarWorkspaceTrailingActionSlot({ children }: { children: ReactNode }) {
   return (
-    <View
-      dataSet={VORTON_ACTION_SLOT}
-      style={[
-        reserveWidth
-          ? sidebarWorkspaceRowStyles.trailingActionSlotReserved
-          : sidebarWorkspaceRowStyles.trailingActionSlot,
-        actionSize && { minWidth: actionSize.width, minHeight: actionSize.height },
-      ]}
-    >
+    <View style={styles.trailingRail} testID="sidebar-trailing-rail">
       {children}
+    </View>
+  );
+}
+
+export function SidebarWorkspaceTrailingDetails({
+  workspace,
+}: {
+  workspace: SidebarWorkspaceEntry;
+}) {
+  const {
+    settings: { sidebarRowItems },
+  } = useAppSettings();
+  const width = useSidebarWidth();
+  const service = selectWorkspaceServiceSummary(workspace.scripts);
+  const labels = useWorkspaceLabelDefinitions(workspace.serverId, workspace.labels);
+  return (
+    <View style={styles.trailingDetails}>
+      <WorkspaceActivityBadges
+        serverId={workspace.serverId}
+        workspaceId={workspace.workspaceId}
+        visible={sidebarRowItems.activityBadges && width >= 280}
+      />
+      {sidebarRowItems.labels && labels.length > 0 ? (
+        <View style={styles.customLabels}>
+          {labels.map((label) => (
+            <WorkspaceLabelChip key={label.name} label={label} />
+          ))}
+        </View>
+      ) : null}
+      <ExecutionEnvironmentIcon
+        serverId={workspace.serverId}
+        hostOnly
+        muted={Boolean(workspace.standing || workspace.factoryMembership)}
+      />
+      <WorkspaceLifecycleIndicators workspace={workspace} />
+      {service ? <ServiceItem summary={service} iconOnly /> : null}
+      {sidebarRowItems.activityBadges ? (
+        <WorkspaceChecklistProgress
+          serverId={workspace.serverId}
+          workspaceId={workspace.workspaceId}
+        />
+      ) : null}
     </View>
   );
 }
@@ -491,28 +474,69 @@ export function SidebarWorkspaceTrailingActionBase({
   );
 }
 
-export function SidebarWorkspaceTrailingActionOverlay({
+export function SidebarWorkspaceMenuReveal({
   visible,
-  scrimBackdrop,
+  backdrop,
   children,
 }: {
   visible: boolean;
-  /** Fade the row into the kebab when something (the diff stat) is still rendered behind it. */
-  scrimBackdrop?: SidebarSurfaceBackdrop;
+  backdrop: SidebarSurfaceBackdrop;
   children: ReactNode;
 }) {
-  if (!visible || !children) return null;
+  const actionSize = useSidebarActionSize();
+  const touch = useVortonTouch();
+  // Overlay the trailing content without changing the row's layout.
   return (
     <>
-      {scrimBackdrop ? (
-        <TrailingActionScrim backdrop={scrimBackdrop} testID="sidebar-workspace-trailing-scrim" />
+      {touch && visible ? (
+        <View pointerEvents="none" style={[styles.touchMenuSpace, actionSize]} />
       ) : null}
-      <View style={sidebarWorkspaceRowStyles.trailingActionOverlay}>{children}</View>
+      {visible ? (
+        <View
+          testID="sidebar-menu-backdrop"
+          style={[styles.menuEdge, styles.menuBackdrop(backdrop), actionSize]}
+        >
+          {!touch ? <TrailingActionScrim backdrop={backdrop} testID="sidebar-menu-fade" /> : null}
+          {children}
+        </View>
+      ) : null}
     </>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
+  trailingRail: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  trailingDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    marginLeft: theme.spacing[1],
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  // Custom names yield before the built-in state badges in a crowded row.
+  customLabels: {
+    flexDirection: "row",
+    gap: theme.spacing[1],
+    flexShrink: 1000,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  menuBackdrop: (backdrop: SidebarSurfaceBackdrop) => ({ backgroundColor: theme.colors[backdrop] }),
+  touchMenuSpace: { flexShrink: 0, marginLeft: 4 },
+  menuEdge: {
+    position: "absolute",
+    right: 0,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    borderRadius: 0,
+  },
   alignedRow: { alignItems: "center" },
   alignedActions: { alignItems: "center", gap: 4 },
   serviceSlot: { alignItems: "center", justifyContent: "center", flexShrink: 0 },
@@ -578,10 +602,17 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 20,
     opacity: 0.76,
     flex: 1,
-    minWidth: 0,
+    minWidth: theme.spacing[12],
   },
   workspaceBranchTextCreating: {
     opacity: 0.92,
+  },
+  managedText: { color: theme.colors.foregroundExtraMuted, opacity: 1 },
+  managedStatusDot: {
+    width: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    height: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.foregroundExtraMuted,
   },
   workspaceBranchTextHovered: {
     opacity: 1,

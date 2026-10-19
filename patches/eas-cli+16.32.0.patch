@@ -1,0 +1,13 @@
+diff --git a/node_modules/eas-cli/build/commands/upload.js b/node_modules/eas-cli/build/commands/upload.js
+index 4a0aee6..ca3228c 100644
+--- a/node_modules/eas-cli/build/commands/upload.js
++++ b/node_modules/eas-cli/build/commands/upload.js
+@@ -8,7 +8,7 @@ const fast_glob_1 = tslib_1.__importDefault(require("fast-glob"));
+ const fs_extra_1 = tslib_1.__importDefault(require("fs-extra"));
+ const node_stream_zip_1 = tslib_1.__importDefault(require("node-stream-zip"));
+ const path_1 = tslib_1.__importDefault(require("path"));
+-const tar_1 = tslib_1.__importDefault(require("tar"));
++const tar_1 = { default: require("tar") };
+ const uuid_1 = require("uuid");
+ const url_1 = require("../build/utils/url");
+ const EasCommand_1 = tslib_1.__importDefault(require("../commandUtils/EasCommand"));

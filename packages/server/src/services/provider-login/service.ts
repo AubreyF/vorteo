@@ -1,6 +1,10 @@
+import { setTimeout, clearTimeout } from "node:timers";
 import { randomUUID } from "node:crypto";
 import type { ProviderLoginState } from "@getpaseo/protocol/provider-login";
 import type { ProviderLoginSession } from "./session.js";
+
+// React Native overloads global timers when browser fixtures import this Node-only module.
+const nodeTimeout = setTimeout as (callback: () => void, delay: number) => NodeJS.Timeout;
 
 interface LoginClient {
   openAccountLoginSession?(): Promise<ProviderLoginSession>;
@@ -24,7 +28,7 @@ function isActive(state: ProviderLoginState): boolean {
   return state.status === "starting" || state.status === "waiting" || state.status === "verifying";
 }
 function scheduleTimeout(callback: () => void, delay: number): () => void {
-  const timer = setTimeout(callback, delay);
+  const timer = nodeTimeout(callback, delay);
   timer.unref();
   return () => clearTimeout(timer);
 }

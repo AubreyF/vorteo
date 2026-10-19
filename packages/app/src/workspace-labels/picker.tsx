@@ -35,6 +35,10 @@ import {
 } from "@/workspace-labels";
 import type { Theme } from "@/styles/theme";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
+import { useHostFeature } from "@/runtime/host-features";
+import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
+import { workspaceLabelDisplayName, isBuiltInWorkspaceLabel } from "./display-name";
+import { useVortonTouch } from "@/vorton-touch";
 
 /** The `MenuSubTrigger` on a workspace's menu that opens the assign page. */
 export const WORKSPACE_LABEL_PAGE_ID = "workspaceLabels";
@@ -73,12 +77,14 @@ export function useWorkspaceLabelMenuPages(
   target: WorkspaceLabelTarget | null,
 ): readonly MenuPageDefinition[] {
   const { t } = useTranslation();
+  const touch = useVortonTouch();
   return useMemo(() => {
     if (!target) return NO_PAGES;
     return [
       {
         id: WORKSPACE_LABEL_PAGE_ID,
-        title: t("workspaceLabels.title"),
+        title: "Tag As",
+        hoverIntent: !touch,
         content: (
           <WorkspaceLabelPickerPage
             serverId={target.serverId}
@@ -97,7 +103,7 @@ export function useWorkspaceLabelMenuPages(
         ),
       },
     ];
-  }, [t, target]);
+  }, [t, target, touch]);
 }
 
 /**
@@ -142,6 +148,8 @@ function WorkspaceLabelPickerPage({
 
   return (
     <>
+      <WorkspaceLifecycleMenuItems serverId={serverId} workspaceId={workspaceId} />
+      {snapshot.rows.length > 0 ? <MenuHint>Custom labels</MenuHint> : null}
       {snapshot.rows.map((row) => (
         <WorkspaceLabelAssignRow
           key={row.name.toLocaleLowerCase()}
@@ -152,18 +160,18 @@ function WorkspaceLabelPickerPage({
         />
       ))}
       {snapshot.rows.length > 0 ? <MenuSeparator /> : null}
+      {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
+      {host?.status === "unsupported" ? (
+        <MenuHint>{t("workspaceLabels.updateHostUse")}</MenuHint>
+      ) : null}
       <MenuSubTrigger
         id={WORKSPACE_LABEL_CREATE_PAGE_ID}
         leading={CREATE_LEADING}
         disabled={offline}
         testID="workspace-label-picker-create"
       >
-        {t("workspaceLabels.create")}
+        Create Label
       </MenuSubTrigger>
-      {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
-      {host?.status === "unsupported" ? (
-        <MenuHint>{t("workspaceLabels.updateHostUse")}</MenuHint>
-      ) : null}
     </>
   );
 }
@@ -194,7 +202,7 @@ function WorkspaceLabelAssignRow({
       onSelect={select}
       testID={`workspace-label-picker-row-${row.name}`}
     >
-      {row.name}
+      {workspaceLabelDisplayName(row.name)}
     </MenuItem>
   );
 }
@@ -215,6 +223,7 @@ function WorkspaceLabelCreatePage({
 }): ReactElement {
   const { t } = useTranslation();
   const menu = useMenuContext("WorkspaceLabelCreatePage");
+  const allowCustomColors = useHostFeature(serverId, "workspaceLabelNeutralColors");
   const { targetHost: host } = useWorkspaceLabelProjection(serverId);
   const [name, setName] = useState("");
   const [color, setColor] = useState<WorkspaceLabelColor>(DEFAULT_CREATE_COLOR);
@@ -225,6 +234,10 @@ function WorkspaceLabelCreatePage({
   const submit = useCallback(() => {
     const trimmed = normalizeWorkspaceLabelName(name);
     if (!trimmed || pending) return;
+    if (isBuiltInWorkspaceLabel(trimmed)) {
+      setError("This name is reserved for a built-in label. Use the controls under Tag As.");
+      return;
+    }
     setPending(true);
     setError(null);
     workspaceLabels
@@ -251,6 +264,7 @@ function WorkspaceLabelCreatePage({
       />
       <View style={styles.swatches}>
         <WorkspaceLabelSwatchRow
+          allowCustomColors={allowCustomColors}
           value={color}
           onChange={setColor}
           disabled={offline || pending}

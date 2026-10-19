@@ -323,6 +323,7 @@ export const OmpAgentSessionEventSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("compaction_end"),
+      result: z.unknown().optional(),
       reason: z.string().optional(),
       errorMessage: z.string().optional(),
       aborted: z.boolean().optional(),

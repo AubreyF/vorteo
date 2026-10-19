@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { test } from "../support/fixtures";
-import { openFileExplorer } from "../support/helpers/file-explorer";
+import { openFileExplorer, openFileFromExplorer } from "../support/helpers/file-explorer";
 import { openChangesPanel } from "../support/helpers/workspace-tabs";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
@@ -109,6 +109,81 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   await workspace?.cleanup();
+});
+
+test("downloads the original PNG from the image toolbar", async ({ page }, testInfo) => {
+  const image = await readFile(path.resolve("assets/images/icon.png"));
+  await writeFile(path.join(workspace.repoPath, "logo.png"), image);
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  await openFileFromExplorer(page, "logo.png");
+  await expect(page.getByTestId("image-file-preview")).toBeVisible();
+  const button = page.getByTestId("file-panel-bar").getByRole("button", { name: "Download" });
+  await expect(button).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("image-download-toolbar.png") });
+  const downloaded = page.waitForEvent("download");
+  await button.click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toBe("logo.png");
+  const savedPath = await download.path();
+  expect(savedPath).not.toBeNull();
+  expect(await readFile(savedPath!)).toEqual(image);
+
+  await openFileFromExplorer(page, "README.md");
+  await expect(page.getByTestId("file-copy-all")).toBeVisible();
+  await expect(page.getByTestId("file-download")).toBeHidden();
+});
+
+test("image toolbar download shows pending and persistent failure, then allows retry", async ({
+  page,
+}) => {
+  const image = await readFile(path.resolve("assets/images/icon.png"));
+  const imagePath = path.join(workspace.repoPath, "logo.png");
+  await writeFile(imagePath, image);
+  let releaseRequest: (() => void) | undefined;
+  let held = false;
+  await page.routeWebSocket(daemonWsRoutePattern(), (browserSocket) => {
+    const serverSocket = browserSocket.connectToServer();
+    serverSocket.onMessage((message) => browserSocket.send(message));
+    browserSocket.onMessage((message) => {
+      if (typeof message !== "string") {
+        serverSocket.send(message);
+        return;
+      }
+      const envelope = JSON.parse(message.toString()) as { message?: { type?: string } };
+      if (!held && envelope.message?.type === "file_download_token_request") {
+        held = true;
+        // The real daemon rejects a missing file while its request is held in transit.
+        releaseRequest = () => serverSocket.send(message);
+        return;
+      }
+      serverSocket.send(message);
+    });
+  });
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  await openFileFromExplorer(page, "logo.png");
+  const button = page.getByTestId("file-download");
+  await button.click();
+  await expect(button).toBeDisabled();
+  await expect.poll(() => Boolean(releaseRequest)).toBe(true);
+  await rm(imagePath);
+  releaseRequest!();
+  const error = page
+    .getByTestId("download-toast")
+    .getByText(/file not found|ENOENT|does not exist/i);
+  await expect(error).toBeVisible();
+  // Success toasts expire after three seconds; failures must remain actionable.
+  await page.waitForTimeout(3500);
+  await expect(error).toBeVisible();
+  await writeFile(imagePath, image);
+  await openFileFromExplorer(page, "README.md");
+  await openFileFromExplorer(page, "logo.png");
+  const downloaded = page.waitForEvent("download");
+  await page.getByTestId("file-download").click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toBe("logo.png");
+  expect(await download.failure()).toBeNull();
 });
 
 test("creates, renames, copies, and deletes entries through the file explorer", async ({

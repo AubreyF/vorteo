@@ -224,6 +224,114 @@ describe("deriveAgentStreamTurnLiveness", () => {
 });
 
 describe("timeline turn membership compatibility", () => {
+  it("recovers a missing prefix before accepting a later chunk after empty bootstrap", () => {
+    const initial = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: [],
+      currentHead: [],
+      currentCursor: undefined,
+      isInitializing: true,
+      hasActiveInitDeferred: true,
+      initRequestDirection: "tail",
+      payload: {
+        ...baseTimelineInput.payload,
+        direction: "tail",
+        projection: "projected",
+        reset: false,
+        window: { minSeq: 0, maxSeq: 0, nextSeq: 1 },
+        startCursor: null,
+        endCursor: null,
+        entries: [],
+        hasOlder: false,
+        hasNewer: false,
+      },
+    });
+    expect(initial.sideEffects).toContainEqual({
+      type: "catch_up",
+      cursor: { epoch: "epoch-1", endSeq: 0 },
+    });
+    const continuation = processAgentStreamEvent({
+      ...baseStreamInput,
+      currentTail: initial.tail,
+      currentHead: initial.head,
+      currentCursor: initial.cursor ?? undefined,
+      event: makeAssistantTimelineEvent("LAUDE_ACCEPTANCE_OK", "message-1"),
+      seq: 3,
+      epoch: "epoch-1",
+    });
+    expect(getAssistantTexts(continuation.head)).toEqual([]);
+    expect(continuation.sideEffects).toEqual([
+      { type: "catch_up", cursor: { epoch: "epoch-1", endSeq: 0 } },
+    ]);
+    const recovered = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: continuation.tail,
+      currentHead: continuation.head,
+      currentCursor: initial.cursor ?? undefined,
+      payload: {
+        ...baseTimelineInput.payload,
+        direction: "after",
+        projection: "projected",
+        window: { minSeq: 1, maxSeq: 4, nextSeq: 5 },
+        startCursor: { seq: 1 },
+        endCursor: { seq: 4 },
+        entries: [
+          makeTimelineEntry(1, "prompt", "user_message"),
+          {
+            ...makeTimelineEntry(2, "CLAUDE_ACCEPTANCE_OK", "assistant_message", 4),
+            item: {
+              type: "assistant_message",
+              text: "CLAUDE_ACCEPTANCE_OK",
+              messageId: "message-1",
+            },
+          },
+        ],
+        hasOlder: false,
+        hasNewer: false,
+      },
+    });
+    expect(getAssistantTexts([...recovered.tail, ...recovered.head])).toEqual([
+      "CLAUDE_ACCEPTANCE_OK",
+    ]);
+    const duplicate = processAgentStreamEvent({
+      ...baseStreamInput,
+      currentTail: recovered.tail,
+      currentHead: recovered.head,
+      currentCursor: recovered.cursor ?? undefined,
+      event: makeAssistantTimelineEvent("LAUDE_ACCEPTANCE_OK", "message-1"),
+      seq: 3,
+      epoch: "epoch-1",
+    });
+    expect(getAssistantTexts([...duplicate.tail, ...duplicate.head])).toEqual([
+      "CLAUDE_ACCEPTANCE_OK",
+    ]);
+    expect(duplicate.sideEffects).toEqual([]);
+    const reconnected = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: duplicate.tail,
+      currentHead: duplicate.head,
+      currentCursor: recovered.cursor ?? undefined,
+      payload: {
+        ...baseTimelineInput.payload,
+        direction: "tail",
+        projection: "projected",
+        window: { minSeq: 1, maxSeq: 4, nextSeq: 5 },
+        startCursor: { seq: 1 },
+        endCursor: { seq: 4 },
+        entries: [
+          makeTimelineEntry(1, "prompt", "user_message"),
+          makeTimelineEntry(2, "CLAUDE_ACCEPTANCE_OK", "assistant_message", 4),
+        ],
+        hasOlder: false,
+        hasNewer: false,
+      },
+    });
+    expect(getAssistantTexts([...reconnected.tail, ...reconnected.head])).toEqual([
+      "CLAUDE_ACCEPTANCE_OK",
+    ]);
+    expect(reconnected.commit).toBe("discard");
+  });
+
   it("hydrates tagged rows while retaining legacy rows without a turn ID", () => {
     const hydrated = hydrateStreamState([
       {
@@ -842,7 +950,7 @@ describe("processTimelineResponse", () => {
     });
 
     expect(result.tail).toEqual([]);
-    expect(result.cursor).toBeNull();
+    expect(result.cursor).toEqual({ epoch: "epoch-1", startSeq: 0, endSeq: 0 });
   });
 
   it("keeps a newer live assistant continuation when bootstrap ends on the same message", () => {

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, type ReactNode } from "react";
 import invariant from "tiny-invariant";
+import { Portal } from "@gorhom/portal";
 import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
@@ -34,6 +35,19 @@ export interface PaneFocusContextValue {
 const PaneContext = createContext<PaneContextValue | null>(null);
 const PaneFocusContext = createContext<PaneFocusContextValue | null>(null);
 const noopFocusPane = () => {};
+
+/** Gorhom renders at the host's React location, so carry the source pane explicitly. */
+export function PanePortal({ hostName, children }: { hostName: string; children: ReactNode }) {
+  const pane = useContext(PaneContext);
+  const focus = useContext(PaneFocusContext);
+  return (
+    <Portal hostName={hostName}>
+      <PaneContext.Provider value={pane}>
+        <PaneFocusContext.Provider value={focus}>{children}</PaneFocusContext.Provider>
+      </PaneContext.Provider>
+    </Portal>
+  );
+}
 
 export function createPaneFocusContextValue(input: {
   isWorkspaceFocused: boolean;

@@ -102,6 +102,12 @@ Starting the service must not create, focus, reveal, or leave behind macOS Simul
 
 ### Running the iOS app on a local simulator
 
+The SDK 54 config plugin in `packages/app/plugins/with-ios-scenes.js` generates a single UIKit scene for iOS 27. Application launch still notifies Expo subscribers before a scene exists. The development-launcher patch waits for the scene's React window; other modules keep their normal launch callbacks, including background-only launches. The Podfile hook raises dependency deployment targets to the app minimum without lowering newer targets. Run prebuild and CocoaPods after changing this plugin. Use a clean prebuild when revising its generated Swift startup code.
+
+Remove the plugin and development-launcher patch together when upgrading to Expo's built-in scene runtime. Validate ordinary launch, cold and warm custom/universal links, foreground/background transitions, notifications and paste input before accepting that upgrade. Simulator startup does not establish physical-device notification or keyboard behavior.
+
+Set `PASEO_METRO_CACHE_DIRECTORY` to a private build directory when exporting a native bundle alongside a live preview. React Native's Xcode bundle phase resets its cache; sharing the default cache with a running Metro server can fail or disrupt preview transforms.
+
 For fast, native, interactive iOS dev at the Mac — as opposed to the remote `/.sim` preview above — skip the service and build the dev client directly:
 
 ```bash

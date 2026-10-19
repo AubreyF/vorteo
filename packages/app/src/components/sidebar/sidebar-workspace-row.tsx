@@ -1,3 +1,4 @@
+import { useWorkspaceSessionMenu } from "@/workspace/use-workspace-session-menu";
 import { useSidebarRowDensity } from "@/components/sidebar/use-sidebar-row-density";
 import { useVortonTouch } from "@/vorton-touch";
 import { memo, useCallback, useMemo, useState, type Ref } from "react";
@@ -30,8 +31,9 @@ import {
   SidebarWorkspaceRowContent,
   resolveTrailingActionVisibility,
   SidebarWorkspaceTrailingActionBase,
-  SidebarWorkspaceTrailingActionOverlay,
+  SidebarWorkspaceMenuReveal,
   SidebarWorkspaceTrailingActionSlot,
+  SidebarWorkspaceTrailingDetails,
 } from "@/components/sidebar/sidebar-workspace-row-content";
 import { useOpenKebabMenuVisibility } from "@/components/sidebar/use-open-kebab-menu-visibility";
 import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop";
@@ -144,7 +146,7 @@ export function SidebarWorkspaceRow({
   useKeyboardActionHandler({
     handlerId: `workspace-archive-${workspace.workspaceKey}`,
     actions: ["workspace.archive"],
-    enabled: selected && !isArchiving,
+    enabled: selected && !isArchiving && !archiveController.archiveProtected,
     priority: 0,
     handle: () => {
       handleArchive();
@@ -410,9 +412,7 @@ function WorkspaceRowTrailingActions({
   const {
     trailingPresentation,
     showKebab: showKebabInSlot,
-    showScrim,
     renderSlot,
-    reserveSlotWidth,
   } = resolveTrailingActionVisibility({
     workspace,
     trailing,
@@ -421,25 +421,27 @@ function WorkspaceRowTrailingActions({
     isTouchPlatform,
     showShortcut,
   });
+  const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
   const kebab = useOpenKebabMenuVisibility(showKebabInSlot);
 
   return (
     <>
+      {sessionMenu.sheet}
       {isCreating ? (
         <Text style={styles.workspaceCreatingText}>{t("sidebar.workspace.status.creating")}</Text>
       ) : null}
       {renderSlot ? (
-        <SidebarWorkspaceTrailingActionSlot reserveWidth={reserveSlotWidth}>
+        <SidebarWorkspaceTrailingActionSlot>
           <SidebarWorkspaceTrailingActionBase presentation={trailingPresentation}>
             <SidebarWorkspaceTrailingContent workspace={workspace} trailing={trailing} />
           </SidebarWorkspaceTrailingActionBase>
-          <SidebarWorkspaceTrailingActionOverlay
-            visible={kebab.showKebab}
-            scrimBackdrop={showScrim ? backdrop : undefined}
-          >
-            {onArchive ? (
+          <SidebarWorkspaceTrailingDetails workspace={workspace} />
+          <SidebarWorkspaceMenuReveal visible={kebab.showKebab} backdrop={backdrop}>
+            {kebab.showKebab && onArchive ? (
               <SidebarWorkspaceMenu
+                {...sessionMenu}
                 {...kebab.menuProps}
+                backdrop={backdrop}
                 workspaceKey={workspace.workspaceKey}
                 serverId={workspace.serverId}
                 workspaceId={workspace.workspaceId}
@@ -456,7 +458,7 @@ function WorkspaceRowTrailingActions({
                 archiveShortcutKeys={archiveShortcutKeys}
               />
             ) : null}
-          </SidebarWorkspaceTrailingActionOverlay>
+          </SidebarWorkspaceMenuReveal>
         </SidebarWorkspaceTrailingActionSlot>
       ) : null}
     </>
@@ -494,7 +496,7 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[1],
     paddingVertical: theme.spacing[2],
     paddingLeft: theme.spacing[2],
-    paddingRight: theme.spacing[3],
+    paddingRight: theme.spacing[1.5],
     borderRadius: theme.borderRadius.lg,
     flexDirection: "column",
     alignItems: "stretch",

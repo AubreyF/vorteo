@@ -2,7 +2,6 @@ import type pino from "pino";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import { getPidLockInfo } from "../../pid-lock.js";
-import { generateLocalPairingOffer } from "../../pairing-offer.js";
 import {
   collectDaemonDiagnostics,
   type DaemonWebSocketRuntimeDiagnosticSnapshot,
@@ -11,7 +10,14 @@ import { DaemonSelfUpdateSessionController } from "./daemon-self-update-session-
 import type { ManagedAgent } from "../../agent/agent-manager.js";
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "../../workspace-registry.js";
 import type { HubRelationshipManagement } from "../../hub/relationship-controller.js";
-import type { DaemonConfigReloadResult } from "../../daemon-config-store.js";
+import {
+  type DaemonConfigReloadResult,
+  type DaemonConfigStore,
+  OriginAdmissionUnavailableError,
+} from "../../daemon-config-store.js";
+import { ConfigWriterError } from "../../config-writer.js";
+import { ZodError } from "zod";
+import type { DaemonOriginAdmissionResponse } from "@getpaseo/protocol/messages";
 
 export interface DaemonRuntimeConfig {
   listen: string | null;
@@ -53,6 +59,7 @@ export interface DaemonSessionOptions {
   logger: pino.Logger;
   hubRelationships?: HubRelationshipManagement;
   reloadConfig: () => DaemonConfigReloadResult;
+  originAdmission?: Pick<DaemonConfigStore, "inspectOriginAdmission" | "admitOrigin">;
 }
 
 /**
@@ -79,6 +86,8 @@ export class DaemonSession {
   private readonly selfUpdate: DaemonSelfUpdateSessionController;
   private readonly hubRelationships: HubRelationshipManagement | null;
   private readonly reloadConfig: () => DaemonConfigReloadResult;
+  private readonly inspectOrigins: DaemonConfigStore["inspectOriginAdmission"] | null;
+  private readonly admitOrigin: DaemonConfigStore["admitOrigin"] | null;
 
   constructor(options: DaemonSessionOptions) {
     this.host = options.host;
@@ -96,6 +105,12 @@ export class DaemonSession {
     this.logger = options.logger;
     this.hubRelationships = options.hubRelationships ?? null;
     this.reloadConfig = options.reloadConfig;
+    this.inspectOrigins = options.originAdmission
+      ? options.originAdmission.inspectOriginAdmission.bind(options.originAdmission)
+      : null;
+    this.admitOrigin = options.originAdmission
+      ? options.originAdmission.admitOrigin.bind(options.originAdmission)
+      : null;
     this.selfUpdate = new DaemonSelfUpdateSessionController({
       clientId: this.clientId,
       daemonVersion: this.daemonVersion ?? null,
@@ -212,39 +227,95 @@ export class DaemonSession {
     }
   }
 
+  // COMPAT(retiredPairing): added in v155, retain the error response until legacy pairing clients are unsupported.
   async handleGetPairingOfferRequest(
     msg: Extract<SessionInboundMessage, { type: "daemon.get_pairing_offer.request" }>,
   ): Promise<void> {
+    this.host.emit({
+      type: "rpc_error",
+      payload: {
+        requestId: msg.requestId,
+        requestType: msg.type,
+        error:
+          "Device pairing has been retired. Connect through Tailscale using the environment address and existing authentication.",
+      },
+    });
+  }
+
+  handleOriginAdmissionInspectRequest(
+    msg: Extract<SessionInboundMessage, { type: "daemon.config.get_origin_admission.request" }>,
+  ): void {
     try {
-      const relay = this.daemonRuntimeConfig?.getRelayConfig();
-      const pairing = await generateLocalPairingOffer({
-        paseoHome: this.paseoHome,
-        relayEnabled: relay?.enabled ?? false,
-        relayEndpoint: relay?.endpoint,
-        relayPublicEndpoint: relay?.publicEndpoint,
-        relayUseTls: relay?.useTls,
-        relayPublicUseTls: relay?.publicUseTls,
-        appBaseUrl: this.daemonRuntimeConfig?.appBaseUrl,
-        includeQr: true,
-        logger: this.logger,
-      });
+      if (!this.serverId || this.serverId !== msg.expectedServerId || !this.inspectOrigins)
+        throw new OriginAdmissionUnavailableError();
+      const observation = this.inspectOrigins();
       this.host.emit({
-        type: "daemon.get_pairing_offer.response",
+        type: "daemon.config.get_origin_admission.response",
         payload: {
           requestId: msg.requestId,
-          url: pairing.url ?? "",
-          qr: pairing.qr ?? null,
-          relayEnabled: pairing.relayEnabled,
+          serverId: this.serverId,
+          observedAt: new Date().toISOString(),
+          ...observation,
         },
       });
-    } catch (error) {
-      this.logger.error({ err: error }, "Failed to handle daemon pairing offer request");
+    } catch {
       this.host.emit({
         type: "rpc_error",
         payload: {
           requestId: msg.requestId,
-          requestType: "daemon.get_pairing_offer.request",
-          error: error instanceof Error ? error.message : String(error),
+          requestType: msg.type,
+          code: "handler_error",
+          error:
+            "Origin inspection unavailable on the expected serving daemon. No admission was attempted.",
+        },
+      });
+    }
+  }
+
+  handleOriginAdmissionRequest(
+    msg: Extract<SessionInboundMessage, { type: "daemon.config.admit_origin.request" }>,
+  ): void {
+    const captured = structuredClone(msg);
+    const identity = { requestId: captured.requestId, serverId: this.serverId ?? null };
+    if (!this.serverId || this.serverId !== captured.expectedServerId) {
+      this.host.emit({
+        type: "daemon.config.admit_origin.response",
+        payload: {
+          ...identity,
+          observedAt: new Date().toISOString(),
+          state: "refused",
+          code: "host_mismatch",
+          reason: "Serving daemon identity does not match the requested host.",
+          writeAttempted: false,
+        },
+      });
+      return;
+    }
+    try {
+      if (!this.admitOrigin) throw new OriginAdmissionUnavailableError();
+      const result = this.admitOrigin({
+        origin: captured.origin,
+        expectedPersistedOrigins: captured.expectedPersistedOrigins,
+        expectedActiveOrigins: captured.expectedActiveOrigins,
+      });
+      this.host.emit({
+        type: "daemon.config.admit_origin.response",
+        payload: {
+          ...identity,
+          observedAt: new Date().toISOString(),
+          state: "applied",
+          origin: captured.origin,
+          ...result,
+        },
+      });
+    } catch (error) {
+      const failure = originAdmissionFailure(error);
+      this.host.emit({
+        type: "daemon.config.admit_origin.response",
+        payload: {
+          ...identity,
+          observedAt: new Date().toISOString(),
+          ...failure,
         },
       });
     }
@@ -315,4 +386,52 @@ export class DaemonSession {
   ): Promise<void> {
     await this.selfUpdate.dispatch(msg);
   }
+}
+
+function originAdmissionFailure(
+  error: unknown,
+): Omit<
+  Exclude<DaemonOriginAdmissionResponse["payload"], { state: "applied" }>,
+  "requestId" | "serverId" | "observedAt"
+> {
+  if (error instanceof OriginAdmissionUnavailableError)
+    return {
+      state: "refused",
+      code: "unavailable",
+      writeAttempted: false,
+      reason: "The native origin field owner is unavailable or overridden.",
+    };
+  if (error instanceof ZodError)
+    return {
+      state: "refused",
+      code: "invalid_origin",
+      writeAttempted: false,
+      reason: "Supply a canonical HTTP or HTTPS origin without credentials, path or query.",
+    };
+  if (error instanceof ConfigWriterError) {
+    const refusal =
+      !error.writeAttempted && (error.code === "busy" || error.code === "stale_input");
+    if (refusal)
+      return {
+        state: "refused",
+        code: error.code,
+        writeAttempted: false,
+        reason:
+          "Configuration ownership or observed origin preconditions changed. Inspect again before a new authorized attempt.",
+      };
+    return {
+      state: "uncertain",
+      code: "uncertain",
+      writeAttempted: error.writeAttempted,
+      reason:
+        "Origin admission may have changed state. Retain this invocation and reconcile the exact host, persisted and active origins. Do not retry automatically.",
+    };
+  }
+  return {
+    state: "uncertain",
+    code: "uncertain",
+    writeAttempted: null,
+    reason:
+      "Origin admission outcome is unknown. Retain this invocation and reconcile the exact host without automatic replay.",
+  };
 }

@@ -1239,6 +1239,13 @@ function buildOpenCodeSessionTimeline(
     const compactionPart = findOpenCodeCompactionPart(message);
     if (message.info.role === "assistant" && hideNextAssistantAfterCompaction) {
       hideNextAssistantAfterCompaction = false;
+      const marker = timeline.at(-1);
+      if (marker?.type === "compaction" && isOpenCodeCompactionSummaryMessage(message.info)) {
+        const text = message.parts
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n\n");
+        marker.inspection = { summary: { type: "text", text } };
+      }
       continue;
     }
     if (message.info.role === "user" && !compactionPart) {
@@ -2329,7 +2336,7 @@ export function translateOpenCodeEvent(
         events.push({
           type: "timeline",
           provider: "opencode",
-          item: createCompactionTimelineItem("completed"),
+          item: completedOpenCodeCompaction(state),
         });
       }
       break;
@@ -2348,6 +2355,22 @@ export function translateOpenCodeEvent(
   }
 
   return events;
+}
+
+function completedOpenCodeCompaction(
+  state: OpenCodeEventTranslationState,
+): Extract<AgentTimelineItem, { type: "compaction" }> {
+  const item = createCompactionTimelineItem("completed");
+  const summaryId = [...state.compactionSummaryMessageIds].at(-1);
+  if (!summaryId) return item;
+  const parts = [...state.materializedParts.values()].filter(
+    (part) => part.messageId === summaryId,
+  );
+  if (parts.length > 0)
+    item.inspection = {
+      summary: { type: "text", text: parts.map((part) => part.emittedText).join("\n\n") },
+    };
+  return item;
 }
 
 function resetOpenCodeTurnTrackingState(state: OpenCodeEventTranslationState): void {
@@ -2798,6 +2821,13 @@ function appendOpenCodeMessagePartUpdated(
   state.partTypes.set(part.id, part.type);
 
   if (state.compactionSummaryMessageIds.has(part.messageID)) {
+    if (part.type === "text") {
+      state.materializedParts.set(part.id, {
+        messageId: part.messageID,
+        emittedText: part.text,
+        closed: false,
+      });
+    }
     return;
   }
 
@@ -2976,6 +3006,7 @@ function appendOpenCodeMessagePartDelta(
   const isReasoning = knownPartType === "reasoning" || field === "reasoning";
 
   if (messageID && state.compactionSummaryMessageIds.has(messageID)) {
+    if (field === "text") appendOpenCodeMaterializedDelta(state, partID, messageID, delta);
     return;
   }
 

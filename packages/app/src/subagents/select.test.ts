@@ -1,6 +1,10 @@
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { afterEach, describe, expect, it } from "vitest";
-import { selectProviderSubagentsForParent, selectSubagentsForParent } from "./select";
+import {
+  isActiveSubagent,
+  selectProviderSubagentsForParent,
+  selectSubagentsForParent,
+} from "./select";
 import { useProviderSubagentStore } from "./provider-store";
 import { useSessionStore, type Agent } from "@/stores/session-store";
 
@@ -68,6 +72,31 @@ afterEach(() => {
 });
 
 describe("selectSubagentsForParent", () => {
+  it("shows the child's profile code and runtime model rather than the supervisor's", () => {
+    setAgents([
+      makeAgent({ id: "parent", model: "gpt-6-astra" }),
+      makeAgent({
+        id: "child",
+        parentAgentId: "parent",
+        profile: { id: "worker", name: "Codex 1 Sol Medium" },
+        model: "gpt-6-astra",
+        runtimeInfo: {
+          provider: "codex",
+          sessionId: "child-session",
+          model: "gpt-6.1-sol",
+          thinkingOptionId: "medium",
+        },
+      }),
+    ]);
+    const rows = selectSubagentsForParent(
+      useSessionStore.getState(),
+      { serverId: SERVER_ID, parentAgentId: "parent" },
+      EMPTY_PENDING_ARCHIVE_IDS,
+      [{ id: "worker", name: "Codex 1 Sol Medium", nickname: "C1-SM", provider: "codex" }],
+    );
+    expect(rows[0]?.subtitle).toBe("C1-SM · gpt-6.1-sol · medium");
+  });
+
   it("hides cached provider children when the host does not support them", () => {
     useProviderSubagentStore.getState().applyUpdate(SERVER_ID, {
       kind: "upsert",
@@ -116,6 +145,13 @@ describe("selectSubagentsForParent", () => {
         toolCallId: "call-1",
       },
     });
+    expect(
+      selectProviderSubagentsForParent(
+        useProviderSubagentStore.getState(),
+        { serverId: SERVER_ID, parentAgentId: "parent-a" },
+        true,
+      )[0]?.subtitle,
+    ).toBe("Model not reported");
     store.hideFromTrack(SERVER_ID, "parent-a", ["provider-child"]);
 
     expect(
@@ -293,7 +329,7 @@ describe("selectSubagentsForParent", () => {
         status: "running",
         requiresAttention: true,
         createdAt,
-        model: "should-not-leak",
+        model: "claude-sonnet-5",
         cwd: "/private/project",
       }),
     ]);
@@ -314,7 +350,7 @@ describe("selectSubagentsForParent", () => {
         provider: "claude",
         title: "Review child",
         description: null,
-        subtitle: null,
+        subtitle: "No profile · claude-sonnet-5",
         status: "running",
         turn: { phase: "idle", cancellationRequestId: null },
         requiresAttention: true,
@@ -434,4 +470,50 @@ describe("selectSubagentsForParent", () => {
       ),
     );
   });
+});
+
+it("counts managed activity from open turns rather than retained or stale running status", () => {
+  setAgents([
+    makeAgent({ id: "idle", parentAgentId: "parent" }),
+    makeAgent({ id: "failed", parentAgentId: "parent", status: "error" }),
+    makeAgent({ id: "stale", parentAgentId: "parent", status: "running" }),
+    makeAgent({
+      id: "working",
+      parentAgentId: "parent",
+      status: "running",
+      turn: { phase: "open", turnId: null, startedAt: null, cancellationRequestId: null },
+    }),
+    makeAgent({
+      id: "waiting",
+      parentAgentId: "parent",
+      status: "idle",
+      requiresAttention: true,
+      turn: { phase: "open", turnId: null, startedAt: null, cancellationRequestId: null },
+    }),
+  ]);
+  const rows = selectSubagentsForParent(
+    useSessionStore.getState(),
+    { serverId: SERVER_ID, parentAgentId: "parent" },
+    EMPTY_PENDING_ARCHIVE_IDS,
+  );
+  expect(rows.filter(isActiveSubagent).map((row) => row.id)).toEqual(["working", "waiting"]);
+});
+
+it("counts only running provider sub-agents", () => {
+  for (const status of ["running", "completed", "failed", "canceled"] as const) {
+    expect(
+      isActiveSubagent({
+        kind: "provider",
+        id: status,
+        parentAgentId: "parent",
+        provider: "codex",
+        title: null,
+        description: null,
+        subtitle: null,
+        status,
+        requiresAttention: false,
+        createdAt: AGENT_TIMESTAMP,
+      }),
+    ).toBe(status === "running");
+  }
 });

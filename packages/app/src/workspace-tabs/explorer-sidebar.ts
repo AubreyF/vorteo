@@ -6,6 +6,7 @@ import {
   useWorkspaceLayoutStore,
 } from "@/stores/workspace-layout-store";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
+import { requestSupportingCard } from "./supporting-card-requests";
 
 export type ExplorerSidebarView = "changes" | "files" | "pr";
 export type ExplorerSidebarPresentation = "overlay" | "dock" | "pane";
@@ -61,6 +62,7 @@ export function openExplorerSidebarView(
   if (!input.workspaceKey) return;
   const store = useWorkspaceLayoutStore.getState();
   const paneId = store.showExplorerSidebar(input.workspaceKey);
+  requestSupportingCard(input.workspaceKey, VIEW_TARGETS[input.view].kind);
   store.openTab({
     workspaceKey: input.workspaceKey,
     target: VIEW_TARGETS[input.view],

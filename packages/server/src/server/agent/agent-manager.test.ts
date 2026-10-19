@@ -1,3 +1,9 @@
+import { BlockedTaskReviewService } from "./task-checklist/review-service.js";
+import { blockedReviewDue } from "./task-checklist/blocked-review.js";
+import { MessageQueueService } from "../message-queue/service.js";
+import { MessageQueueStore } from "../message-queue/store.js";
+import { QueueAttachmentStore } from "../message-queue/attachments.js";
+import { TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import { CodexGoals } from "./providers/codex/goals.js";
 import type { AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { expect, test, vi } from "vitest";
@@ -668,6 +674,22 @@ async function startAndSteerThroughManager(
   return { manager, agentId: agent.id, workdir };
 }
 
+test("saved timeline can be read without loading or starting a provider", async () => {
+  const store = new RecordingTimelineStore();
+  await store.appendCommitted("saved-outbox", {
+    type: "assistant_message",
+    text: "Permanent run history",
+  });
+  const manager = new AgentManager({ clients: {}, durableTimelineStore: store, logger });
+  const result = await manager.fetchSavedTimeline("saved-outbox", { limit: 0 });
+  expect(result.rows).toContainEqual(
+    expect.objectContaining({
+      item: { type: "assistant_message", text: "Permanent run history" },
+    }),
+  );
+  expect(manager.listAgents()).toEqual([]);
+});
+
 test("uses an injected timeline store without making it a production requirement", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-timeline-store-"));
   const store = new RecordingTimelineStore();
@@ -1320,18 +1342,23 @@ test("steering records concurrent early echoes as canonical submitted prompts", 
     })();
     await manager.waitForAgentRunStart(agent.id);
     await Promise.all([
-      manager.steerAgentRun(agent.id, "one", { clientMessageId: "client-one" }),
+      manager.steerAgentRun(agent.id, "one", { clientMessageId: "client-one", origin: "agent" }),
       manager.steerAgentRun(agent.id, "two", { clientMessageId: "client-two" }),
     ]);
     const rows = manager.getTimeline(agent.id).filter((item) => item.type === "user_message");
     expect(rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ messageId: "client-one", clientMessageId: "client-one" }),
+        expect.objectContaining({
+          messageId: "client-one",
+          clientMessageId: "client-one",
+          origin: "agent",
+        }),
         expect.objectContaining({ messageId: "client-two", clientMessageId: "client-two" }),
       ]),
     );
     expect(rows.filter((item) => item.clientMessageId === "client-one")).toHaveLength(1);
     expect(rows.filter((item) => item.clientMessageId === "client-two")).toHaveLength(1);
+    expect(rows.find((item) => item.clientMessageId === "client-two")).not.toHaveProperty("origin");
   } finally {
     if (agentId) await manager.closeAgent(agentId);
     rmSync(workdir, { recursive: true, force: true });
@@ -3368,7 +3395,9 @@ test("createAgent injects daemon append system prompt at runtime only", async ()
   const record = await storage.get(snapshot.id);
 
   expect(client.createdConfigs[0]?.systemPrompt).toBe("Agent instructions.");
-  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe("Daemon instructions.");
+  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
+    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+  );
   expect(snapshot.config).not.toHaveProperty("daemonAppendSystemPrompt");
   expect(record?.config?.systemPrompt).toBe("Agent instructions.");
   expect(record?.config).not.toHaveProperty("daemonAppendSystemPrompt");
@@ -3402,7 +3431,9 @@ test("daemon append system prompt is injected into Pi configs", async () => {
     { workspaceId: undefined },
   );
 
-  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe("Daemon instructions.");
+  expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
+    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+  );
 });
 
 test("setAgentMode persists the selected mode across session reload", async () => {
@@ -3781,7 +3812,7 @@ test.each(["hang", "reject"])(
   },
 );
 
-test("manual stop interrupts the provider even when queue pause persistence fails", async () => {
+test("manual stop interrupts the provider without changing the queue", async () => {
   const fixture = await createControlledInterruptFixture({
     name: "queue-pause-write-failure",
     agentId: "00000000-0000-4000-8000-000000000399",
@@ -3795,6 +3826,8 @@ test("manual stop interrupts the provider even when queue pause persistence fail
     },
   });
   fixture.manager.setMessageQueueControl({
+    queueRestartContinuation: async () => {},
+    wake() {},
     pause: async () => {
       throw new Error("Queue pause could not be persisted: disk full");
     },
@@ -3807,7 +3840,7 @@ test("manual stop interrupts the provider even when queue pause persistence fail
     await fixture.startForegroundRun();
     await expect(
       fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" }),
-    ).rejects.toThrow("disk full");
+    ).resolves.toMatchObject({ status: "settled" });
     expect(fixture.session.interruptCalled).toBe(true);
     expect(fixture.manager.getAgent(fixture.agentId)?.lifecycle).toBe("idle");
   } finally {
@@ -4006,6 +4039,7 @@ test("createAgent passes daemon launch env through the provider launch context",
   );
 
   expect(client.lastConfig).toEqual({
+    daemonAppendSystemPrompt: TASK_CHECKLIST_GUIDANCE,
     provider: "codex",
     cwd: workdir,
     model: "gpt-5.4",
@@ -9361,6 +9395,40 @@ test("acknowledged cancellation settles a pending run before it has a turn id", 
   }
 });
 
+test("workspace protection rejects live and stored chat archives while allowing runtime shutdown", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-workspace-protection-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let protectedWorkspace = true;
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+    assertWorkspaceArchiveAllowed: async () => {
+      if (protectedWorkspace) throw new Error("Workspace is protected");
+    },
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: "standing",
+    });
+    await expect(manager.archiveAgent(agent.id)).rejects.toThrow("protected");
+    expect(manager.getAgent(agent.id)).not.toBeNull();
+    expect((await storage.get(agent.id))?.archivedAt).toBeFalsy();
+    await manager.closeAgent(agent.id);
+    await expect(manager.archiveSnapshot(agent.id, new Date().toISOString())).rejects.toThrow(
+      "protected",
+    );
+    expect((await storage.get(agent.id))?.archivedAt).toBeFalsy();
+    protectedWorkspace = false;
+    await manager.archiveSnapshot(agent.id, new Date().toISOString());
+    expect((await storage.get(agent.id))?.archivedAt).toEqual(expect.any(String));
+  } finally {
+    await manager.flush();
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("archiveAgent persists archivedAt and updatedAt before emitting closed state", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-archive-"));
   const storagePath = join(workdir, "agents");
@@ -9545,6 +9613,218 @@ test("unarchiveSnapshot skips native provider unarchive for active records", asy
 
   expect(unarchived).toBe(false);
   expect(client.unarchivedHandles).toEqual([]);
+});
+
+async function retainedRecoveryFixture() {
+  const directory = mkdtempSync(join(tmpdir(), "retained-agent-recovery-"));
+  const storage = new AgentStorage(join(directory, "agents"), logger);
+  const client = new NativeArchiveRecordingClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const agent = await manager.createAgent(
+    { provider: "codex", cwd: directory, title: "Retained" },
+    undefined,
+    { workspaceId: "retained-workspace" },
+  );
+  await manager.archiveAgent(agent.id);
+  const expected = structuredClone((await storage.get(agent.id))!);
+  return { directory, storage, client, manager, expected };
+}
+
+test("guarded retained recovery restores only native archive state without loading a runtime", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    const restored = await f.manager.unarchiveRetainedSnapshot({
+      expected: f.expected,
+      assertCurrent() {},
+    });
+    expect(restored).toEqual({ ...f.expected, archivedAt: null, updatedAt: expect.any(String) });
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+    expect(f.client.unarchivedHandles).toEqual([f.expected.persistence]);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses changed identity before native restoration", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await f.storage.upsert({
+      ...f.expected,
+      config: { ...f.expected.config, model: "changed-model" },
+    });
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("identity or recovery action changed");
+    expect(f.client.unarchivedHandles).toEqual([]);
+    expect((await f.storage.get(f.expected.id))?.archivedAt).toBe(f.expected.archivedAt);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses a loaded runtime without interrupting it", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await f.manager.unarchiveSnapshot(f.expected.id);
+    await ensureAgentLoaded(f.expected.id, {
+      agentManager: f.manager,
+      agentStorage: f.storage,
+      logger,
+    });
+    const loaded = f.manager.getAgent(f.expected.id);
+    const calls = f.client.unarchivedHandles.length;
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("loaded agent runtime");
+    expect(f.manager.getAgent(f.expected.id)).toEqual(loaded);
+    expect(f.client.unarchivedHandles).toHaveLength(calls);
+    await f.manager.closeAgent(f.expected.id);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery preserves post-provider record drift as a partial failure", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    const changed = { ...f.expected, labels: { ...f.expected.labels, changed: "yes" } };
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      await f.storage.upsert(changed);
+      return changed.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("changed");
+    expect(f.client.unarchivedHandles).toEqual([f.expected.persistence]);
+    expect(await f.storage.get(f.expected.id)).toEqual(changed);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test.each(["provider", "workspace", "persistence", "archive-action"] as const)(
+  "guarded retained recovery rejects %s identity drift before native restoration",
+  async (field) => {
+    const f = await retainedRecoveryFixture();
+    try {
+      const changed = structuredClone(f.expected);
+      if (field === "provider") changed.provider = "claude";
+      if (field === "workspace") changed.workspaceId = "foreign-workspace";
+      if (field === "persistence")
+        changed.persistence = { ...changed.persistence!, sessionId: "foreign-session" };
+      if (field === "archive-action") changed.archivedAt = null;
+      await f.storage.upsert(changed);
+      await expect(
+        f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+      ).rejects.toThrow("identity or recovery action changed");
+      expect(f.client.unarchivedHandles).toEqual([]);
+      expect(await f.storage.get(f.expected.id)).toEqual(changed);
+    } finally {
+      rmSync(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("guarded retained recovery refuses missing native restoration support without changing retained state", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    Object.defineProperty(f.client, "unarchiveNativeSession", {
+      value: undefined,
+      configurable: true,
+    });
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("does not support native archive restoration");
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.client.unarchivedHandles).toEqual([]);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery refuses native restoration method drift after provider side effects", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      Object.defineProperty(f.client, "unarchiveNativeSession", {
+        value: undefined,
+        configurable: true,
+      });
+      return f.expected.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("native restoration provider changed");
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery preserves native provider failure without clearing the record", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    f.client.unarchiveFailure = new Error("Provider restoration uncertain");
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({ expected: f.expected, assertCurrent() {} }),
+    ).rejects.toThrow("Provider restoration uncertain");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery fails stop on custody revocation after native restoration", async () => {
+  const f = await retainedRecoveryFixture();
+  let revoked = false;
+  try {
+    f.client.readArchivedAtDuringUnarchive = async () => {
+      revoked = true;
+      return f.expected.archivedAt;
+    };
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({
+        expected: f.expected,
+        assertCurrent() {
+          if (revoked) throw new Error("Custody revoked");
+        },
+      }),
+    ).rejects.toThrow("Custody revoked");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual(f.expected);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("guarded retained recovery retains an applied result after post-persistence custody failure", async () => {
+  const f = await retainedRecoveryFixture();
+  try {
+    await expect(
+      f.manager.unarchiveRetainedSnapshot({
+        expected: f.expected,
+        assertCurrent() {
+          if (f.storage.getLoadedRecord(f.expected.id)?.archivedAt === null)
+            throw new Error("Custody revoked after persistence");
+        },
+      }),
+    ).rejects.toThrow("Custody revoked after persistence");
+    expect(f.client.unarchivedHandles).toHaveLength(1);
+    expect(await f.storage.get(f.expected.id)).toEqual({
+      ...f.expected,
+      archivedAt: null,
+      updatedAt: expect.any(String),
+    });
+    expect(f.manager.getAgent(f.expected.id)).toBeNull();
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
 });
 
 test("unarchiveSnapshot unarchives native provider storage before clearing archivedAt", async () => {
@@ -11692,10 +11972,12 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
     }
   }
 
+  const store = new RecordingTimelineStore();
   const client = new SubmittedUserMessageClient();
   const manager = new AgentManager({
     clients: { codex: client },
     registry: storage,
+    durableTimelineStore: store,
     logger,
     idFactory: () => "00000000-0000-4000-8000-000000000402",
   });
@@ -11728,6 +12010,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
 
     const run = manager.runAgent(snapshot.id, "hello from composer", {
       clientMessageId: "msg-client-1",
+      origin: "agent",
     });
     await manager.waitForAgentRunStart(snapshot.id);
 
@@ -11764,6 +12047,7 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
           text: "hello from composer",
           messageId: "msg-client-1",
           clientMessageId: "msg-client-1",
+          origin: "agent",
         },
       },
       {
@@ -11774,7 +12058,18 @@ test("canonical submitted prompt keeps wire identity while rewind resolves provi
       },
     ]);
 
+    await manager.flush();
+    const reader = new AgentManager({ clients: {}, durableTimelineStore: store, logger });
+    const saved = await reader.fetchSavedTimeline(snapshot.id, { limit: 0 });
+    expect(saved.rows[0]?.item).toMatchObject({
+      type: "user_message",
+      origin: "agent",
+      clientMessageId: "msg-client-1",
+    });
+
     manager.setMessageQueueControl({
+      queueRestartContinuation: async () => {},
+      wake() {},
       pause: async () => {
         rewindSteps.push("pause");
       },
@@ -11854,7 +12149,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
     });
 
     await startAgentRun(manager, snapshot.id, "/handled", logger, {
-      runOptions: { clientMessageId: "msg-client-daemon-handled" },
+      runOptions: { clientMessageId: "msg-client-daemon-handled", origin: "agent" },
     });
     await commandCompleted.promise;
 
@@ -11866,6 +12161,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
       {
         type: "user_message",
         text: "/handled",
+        origin: "agent",
         clientMessageId: "msg-client-daemon-handled",
       },
       { type: "assistant_message", text: "Handled by the daemon" },
@@ -11876,6 +12172,7 @@ test("authoritative timeline records a daemon-handled submitted prompt before it
       {
         type: "user_message",
         text: "/handled",
+        origin: "agent",
         clientMessageId: "msg-client-daemon-handled",
       },
       { type: "assistant_message", text: "Handled by the daemon" },
@@ -12661,57 +12958,86 @@ test("Vorton launch settings and account environment override plugin transformat
     rmSync(workdir, { recursive: true, force: true });
   }
 });
-test.each(["idle", "running", "pause failure"] as const)(
-  "manual stop handles an active goal when %s",
-  async (mode) => {
-    const fixture = await createControlledInterruptFixture({
-      name: "manual-goal-stop",
-      agentId: "00000000-0000-4000-8000-000000000498",
-      turnId: "goal-stop-turn",
-      interrupt: async (session) => {
-        session.pushEvent({
-          type: "turn_completed",
-          provider: session.provider,
-          turnId: "goal-stop-turn",
-        });
-      },
-    });
-    let goal: AgentGoal = {
-      threadId: "thread",
-      objective: "Finish",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 0,
-      timeUsedSeconds: 0,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    const goals = new CodexGoals({
-      request: async (method) => {
-        if (method === "thread/goal/set") {
-          if (mode === "pause failure") throw new Error("Goal pause unavailable");
-          goal = { ...goal, status: "paused", updatedAt: 2 };
-        }
-        return { goal };
-      },
-      onChange: () => {},
-    });
-    goals.bind("thread");
-    Object.defineProperty(fixture.session, "goals", { value: goals });
-    try {
-      if (mode !== "idle") await fixture.startForegroundRun();
-      const stop = fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" });
-      if (mode === "pause failure") await expect(stop).rejects.toThrow("Goal pause unavailable");
-      else {
-        await stop;
-        expect(goal.status).toBe("paused");
+test.each([
+  ["idle", false],
+  ["running", false],
+  ["pause failure", false],
+  ["idle", true],
+  ["running", true],
+  ["pause failure", true],
+] as const)("manual stop handles a goal when %s (queue-held=%s)", async (mode, held) => {
+  const fixture = await createControlledInterruptFixture({
+    name: "manual-goal-stop",
+    agentId: "00000000-0000-4000-8000-000000000498",
+    turnId: "goal-stop-turn",
+    interrupt: async (session) => {
+      session.pushEvent({
+        type: "turn_completed",
+        provider: session.provider,
+        turnId: "goal-stop-turn",
+      });
+    },
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Finish",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "blocked" && status !== "active")
+          throw new Error("Unexpected goal status");
+        if (mode === "pause failure" && status === "paused")
+          throw new Error("Goal pause unavailable");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
       }
-      if (mode !== "idle") expect(fixture.session.interruptCalled).toBe(true);
-    } finally {
-      await fixture.cleanup();
+      return { goal };
+    },
+    onChange: () => {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  let queuePaused = false;
+  fixture.manager.setMessageQueueControl({
+    queueRestartContinuation: async () => {},
+    wake() {},
+    pause: async () => {
+      queuePaused = true;
+    },
+    acceptedHistory: async () => [],
+    reconcileHistory: async () => {},
+    suppressHistoryRestoration: async () => {},
+    recordProviderMessageId: async () => {},
+  });
+  try {
+    if (held) {
+      await fixture.manager.pauseGoalForQueuedMessages(fixture.agentId, () => true);
+      expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
     }
-  },
-);
+    if (mode !== "idle") await fixture.startForegroundRun();
+    const stop = fixture.manager.cancelAgentRun(fixture.agentId, { reason: "manual" });
+    if (mode === "pause failure") await expect(stop).rejects.toThrow("Goal pause unavailable");
+    else {
+      await stop;
+      expect(goal.status).toBe("paused");
+    }
+    if (mode !== "idle") expect(fixture.session.interruptCalled).toBe(true);
+    expect(queuePaused).toBe(false);
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold).toBeUndefined();
+    const stoppedStatus = goal.status;
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe(stoppedStatus);
+  } finally {
+    await fixture.cleanup();
+  }
+});
 test("commits startup notices once on create and after restored history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-startup-notice-"));
   const notice: AgentTimelineItem = { type: "notification", level: "info", message: "Runtime v2" };
@@ -12891,4 +13217,863 @@ test("idle restart waits for registering sessions and closes admission before ne
     }),
   ).rejects.toThrow("shutting down");
   await manager.closeAgent(agent.id);
+});
+
+test("restart drain warns once without interrupting and rejects new turns until cancellation", async () => {
+  const session = new SteeringTestSession({ provider: "codex", cwd: process.cwd() });
+  const client = new (class extends TestAgentClient {
+    override async createSession() {
+      return session;
+    }
+  })();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  const continuations: string[] = [];
+  manager.setMessageQueueControl({
+    queueRestartContinuation: async (id) => {
+      continuations.push(id);
+    },
+    wake() {},
+    pause: async () => {},
+    acceptedHistory: async () => [],
+    reconcileHistory: async () => {},
+    suppressHistoryRestoration: async () => {},
+    recordProviderMessageId: async () => {},
+  });
+  const run = manager.streamAgent(agent.id, "initial");
+  const consume = (async () => {
+    for await (const _event of run) {
+    }
+  })();
+  await manager.waitForAgentRunStart(agent.id);
+  const id = randomUUID();
+  expect(manager.beginRestartDrain(id)).toBe(true);
+  await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+  expect(continuations).toEqual([agent.id]);
+  expect(session.steerCount).toBe(1);
+  expect(session.interruptCount).toBe(0);
+  expect(() => manager.streamAgent(agent.id, "new work")).toThrow("held");
+  expect(manager.prepareIdleRestart()).toBe(false);
+  expect(manager.beginRestartDrain(id)).toBe(true);
+  expect(session.steerCount).toBe(1);
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  expect(manager.isRestartDraining()).toBe(false);
+  expect(manager.beginRestartDrain(id)).toBe(false);
+  await manager.cancelAgentRun(agent.id);
+  await consume;
+  await manager.closeAgent(agent.id);
+});
+
+test("restart drain includes registrations crossing the hold and does not cancel unsupported providers", async () => {
+  const client = new HeldAgentCreationClient();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const creation = manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+    workspaceId: undefined,
+  });
+  await client.waitForCreationToStart();
+  const id = randomUUID();
+  manager.beginRestartDrain(id);
+  expect(manager.prepareIdleRestart()).toBe(false);
+  client.finishCreating();
+  const agent = await creation;
+  manager.beginRestartDrain(id);
+  await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+  await expect(
+    manager.createAgent({ provider: "codex", cwd: process.cwd() }, undefined, {
+      workspaceId: undefined,
+    }),
+  ).rejects.toThrow("held");
+  expect(manager.cancelRestartDrain(id)).toBe(true);
+  await manager.closeAgent(agent.id);
+});
+
+test("restart drain preserves a held goal and cancellation can resume it without reviving manual pauses", async () => {
+  const fixture = await createControlledInterruptFixture({
+    name: "restart-goal-hold",
+    agentId: randomUUID(),
+    turnId: "restart-held-turn",
+    interrupt: async () => {},
+  });
+  let goal: AgentGoal = {
+    threadId: "thread",
+    objective: "Finish",
+    status: "active",
+    tokenBudget: null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const goals = new CodexGoals({
+    request: async (method, input) => {
+      if (method === "thread/goal/set") {
+        const status = Reflect.get(input, "status");
+        if (status !== "paused" && status !== "blocked" && status !== "active")
+          throw new Error("Unexpected goal state");
+        goal = { ...goal, status, updatedAt: goal.updatedAt + 1 };
+      }
+      return { goal };
+    },
+    onChange() {},
+  });
+  goals.bind("thread");
+  Object.defineProperty(fixture.session, "goals", { value: goals });
+  try {
+    const id = randomUUID();
+    fixture.manager.beginRestartDrain(id);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    expect(goal.status).toBe("blocked");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.reason).toBe("restart");
+    await expect(
+      fixture.manager.setAgentGoal(fixture.agentId, { objective: "New goal" }),
+    ).rejects.toThrow("held");
+    expect(fixture.manager.getAgent(fixture.agentId)?.queueGoalHold?.phase).toBe("held");
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = goal;
+    await expect(
+      fixture.manager.editOwnGoal(fixture.agentId, {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        status: "active",
+      }),
+    ).rejects.toThrow("held");
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("blocked");
+    expect(fixture.manager.cancelRestartDrain(id)).toBe(true);
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("active");
+    const second = randomUUID();
+    fixture.manager.beginRestartDrain(second);
+    await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    await fixture.manager.setAgentGoal(fixture.agentId, { status: "paused" });
+    fixture.manager.cancelRestartDrain(second);
+    await fixture.manager.resumeGoalAfterQueuedMessages(fixture.agentId, async () => true);
+    expect(goal.status).toBe("paused");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("open checklist tasks do not start work or prevent a restart drain from becoming idle", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "restart-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const requestId = randomUUID();
+    expect(manager.beginRestartDrain(requestId)).toBe(true);
+    await expect.poll(() => manager.getRestartImpact().pendingStarts).toBe(0);
+    await manager.mutateChecklist(agent.id, {
+      operation: "create",
+      id: "review",
+      text: "Review after restart",
+    });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "review",
+      status: "in_progress",
+    });
+    expect(manager.readChecklist(agent.id)).toMatchObject([
+      { id: "review", status: "in_progress", completed: false },
+    ]);
+    expect(manager.getRestartImpact()).toMatchObject({ agents: [], pendingStarts: 0 });
+    expect(() => manager.streamAgent(agent.id, "new work")).toThrow("held");
+    expect(manager.prepareIdleRestart()).toBe(true);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("native task snapshots persist without timeline subscribers and restore after reopening", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const tasks = [
+      { id: "1", text: "Verify navigation", completed: true, status: "completed" as const },
+    ];
+    client.sessions[0]!.pushEvent({
+      type: "timeline",
+      provider: "codex",
+      item: { type: "todo", items: tasks },
+    });
+    await vi.waitFor(() => expect(manager.getAgent(agent.id)?.tasks).toEqual(tasks));
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual(tasks);
+    await manager.closeAgent(agent.id);
+    const record = await storage.get(agent.id);
+    expect(record?.tasks).toEqual(tasks);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.getAgent(agent.id)?.tasks).toEqual(tasks);
+    // A replacement history with no task list must remove the old completion ring.
+    await manager.hydrateTimelineFromProvider(agent.id, { force: true });
+    expect(manager.getAgent(agent.id)?.tasks).toEqual([]);
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual([]);
+  } finally {
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("restart drain leaves loaded archived history out of preparation", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "restart-archived-history-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+  });
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    await manager.archiveAgent(agent.id);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.getAgent(agent.id)).toBeDefined();
+    const id = randomUUID();
+    expect(manager.beginRestartDrain(id)).toBe(true);
+    expect(manager.getRestartImpact()).toEqual({ agents: [], pendingStarts: 0 });
+    expect(manager.cancelRestartDrain(id)).toBe(true);
+  } finally {
+    for (const agent of manager.listAgents()) await manager.closeAgent(agent.id);
+    await storage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("Vorteo checklist mutations survive provider updates, history refresh, and reopening", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-managed-checklist-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  try {
+    await Promise.all([
+      manager.mutateChecklist(agent.id, { operation: "create", id: "api", text: "Build API" }),
+      manager.mutateChecklist(agent.id, { operation: "create", id: "ui", text: "Build UI" }),
+    ]);
+    expect(manager.readChecklist(agent.id).map((task) => task.id)).toEqual(["api", "ui"]);
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "api",
+      status: "completed",
+    });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "ui",
+      status: "blocked",
+      description: "Awaiting review",
+    });
+    const managed = manager.readChecklist(agent.id);
+    expect(managed[1]).toMatchObject({ status: "blocked", completed: false });
+    const rejectedWrite = vi
+      .spyOn(storage, "mutateChecklist")
+      .mockRejectedValueOnce(new Error("Disk full"));
+    await expect(
+      manager.mutateChecklist(agent.id, { operation: "update", id: "ui", status: "completed" }),
+    ).rejects.toThrow("Disk full");
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+    rejectedWrite.mockRestore();
+    const native = { id: "native", text: "Provider plan", completed: false };
+    client.sessions[0]!.pushEvent({
+      type: "timeline",
+      provider: "codex",
+      item: { type: "todo", items: [native] },
+    });
+    await vi.waitFor(() => expect(manager.readChecklist(agent.id)).toEqual([native, ...managed]));
+    await manager.hydrateTimelineFromProvider(agent.id, { force: true });
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+    await manager.flush();
+    expect((await storage.get(agent.id))?.tasks).toEqual(managed);
+    await manager.closeAgent(agent.id);
+    await ensureAgentLoaded(agent.id, { agentManager: manager, agentStorage: storage, logger });
+    expect(manager.readChecklist(agent.id)).toEqual(managed);
+  } finally {
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test.each([true, false])(
+  "periodic blocked review preserves goal identity and budget with checklist=%s",
+  async (withChecklist) => {
+    const workdir = mkdtempSync(join(tmpdir(), "blocked-review-manager-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const client = new SessionRecordingAgentClient();
+    let now = Date.now();
+    const manager = new AgentManager({
+      clients: { codex: client },
+      registry: storage,
+      logger,
+      now: () => now,
+    });
+    const queue = new MessageQueueService(
+      new MessageQueueStore(workdir),
+      new QueueAttachmentStore(workdir),
+    );
+    manager.setMessageQueueControl(queue);
+    let agentId: string | undefined;
+    try {
+      const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+      });
+      agentId = agent.id;
+      const goal: AgentGoal = {
+        threadId: "retained",
+        objective: "Finish accepted work",
+        status: "blocked",
+        tokenBudget: 1000,
+        tokensUsed: 400,
+        timeUsedSeconds: 5,
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      const goals = new CodexGoals({
+        request: async () => ({ goal }),
+        onChange() {},
+      });
+      goals.bind("retained");
+      Object.defineProperty(client.sessions[0], "goals", { value: goals });
+      if (withChecklist) {
+        await manager.mutateChecklist(agent.id, {
+          operation: "create",
+          id: "blocked",
+          text: "Check prerequisite",
+        });
+        await manager.mutateChecklist(agent.id, {
+          operation: "update",
+          id: "blocked",
+          status: "blocked",
+          description: "Waiting for the accepted dependency",
+        });
+      } else {
+        await manager.readAgentGoal(agent.id);
+      }
+      await manager.flush();
+      const reviewRecord = storage.getLoadedRecord(agent.id)!;
+      now =
+        Math.max(
+          Date.parse(reviewRecord.createdAt),
+          Date.parse(reviewRecord.lastActivityAt ?? reviewRecord.createdAt),
+        ) + 3_600_001;
+      expect(storage.getLoadedRecord(agent.id)).toMatchObject({
+        persistence: { sessionId: client.sessions[0]!.id },
+      });
+      expect(manager.getAgent(agent.id)).toMatchObject({
+        lifecycle: "idle",
+        activeTurnId: null,
+      });
+      expect(blockedReviewDue(storage.getLoadedRecord(agent.id)!, now)).toBe(true);
+      const stream = await manager.startBlockedTaskReview(agent.id, () => true);
+      expect(stream).not.toBeNull();
+      if (!stream) throw new Error("Expected review turn");
+      for await (const event of stream) void event;
+      expect(goals.state).toMatchObject({ status: "ready", goal });
+      expect(await manager.startBlockedTaskReview(agent.id, () => true)).toBeNull();
+      expect((await storage.get(agent.id))?.lastBlockedReviewAt).toBe(new Date(now).toISOString());
+    } finally {
+      queue.close();
+      if (agentId) await manager.closeAgent(agentId);
+      await manager.flush();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each(
+  (
+    [
+      "paused",
+      "active",
+      "complete",
+      "budgetLimited",
+      "usageLimited",
+      "spent",
+      "restart",
+      "queue",
+      "stopped",
+    ] as const
+  ).flatMap((condition) => [true, false].map((withChecklist) => ({ condition, withChecklist }))),
+)(
+  "periodic blocked review respects $condition admission with checklist=$withChecklist",
+  async ({ condition, withChecklist }) => {
+    const workdir = mkdtempSync(join(tmpdir(), "blocked-review-manager-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const client = new SessionRecordingAgentClient();
+    let now = Date.now();
+    const manager = new AgentManager({
+      clients: { codex: client },
+      registry: storage,
+      logger,
+      now: () => now,
+    });
+    const queue = new MessageQueueService(
+      new MessageQueueStore(workdir),
+      new QueueAttachmentStore(workdir),
+    );
+    manager.setMessageQueueControl(queue);
+    let agentId: string | undefined;
+    try {
+      const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+      });
+      agentId = agent.id;
+      const goal: AgentGoal = {
+        threadId: "retained",
+        objective: "Finish accepted work",
+        status: "blocked",
+        tokenBudget: 1000,
+        tokensUsed: 400,
+        timeUsedSeconds: 5,
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      const goals = new CodexGoals({
+        request: async () => ({ goal }),
+        onChange() {},
+      });
+      goals.bind("retained");
+      Object.defineProperty(client.sessions[0], "goals", { value: goals });
+      if (withChecklist) {
+        await manager.mutateChecklist(agent.id, {
+          operation: "create",
+          id: "blocked",
+          text: "Check prerequisite",
+        });
+        await manager.mutateChecklist(agent.id, {
+          operation: "update",
+          id: "blocked",
+          status: "blocked",
+          description: "Waiting for the accepted dependency",
+        });
+      } else {
+        await manager.readAgentGoal(agent.id);
+      }
+      // Change native state after discovery to prove a stale hint cannot admit work.
+      if (
+        condition !== "spent" &&
+        condition !== "restart" &&
+        condition !== "queue" &&
+        condition !== "stopped"
+      )
+        goal.status = condition;
+      if (condition === "spent") goal.tokensUsed = 1000;
+      await manager.flush();
+      const reviewRecord = storage.getLoadedRecord(agent.id)!;
+      now =
+        Math.max(
+          Date.parse(reviewRecord.createdAt),
+          Date.parse(reviewRecord.lastActivityAt ?? reviewRecord.createdAt),
+        ) + 3_600_001;
+      expect(storage.getLoadedRecord(agent.id)).toMatchObject({
+        persistence: { sessionId: client.sessions[0]!.id },
+      });
+      expect(manager.getAgent(agent.id)).toMatchObject({
+        lifecycle: "idle",
+        activeTurnId: null,
+      });
+      expect(blockedReviewDue(storage.getLoadedRecord(agent.id)!, now)).toBe(true);
+      if (condition === "restart") manager.beginRestartDrain(randomUUID());
+      if (condition === "queue") await queue.pause(agent.id);
+      expect(
+        await manager.startBlockedTaskReview(agent.id, () => condition !== "stopped"),
+      ).toBeNull();
+      expect((await storage.get(agent.id))?.lastBlockedReviewAt).toBeUndefined();
+      expect(manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+    } finally {
+      queue.close();
+      if (agentId) await manager.closeAgent(agentId);
+      await manager.flush();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("periodic review scan honors the hourly cooldown and stops without creating another session", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "blocked-review-manager-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  let now = Date.now();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    now: () => now,
+  });
+  const queue = new MessageQueueService(
+    new MessageQueueStore(workdir),
+    new QueueAttachmentStore(workdir),
+  );
+  manager.setMessageQueueControl(queue);
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const goal: AgentGoal = {
+      threadId: "retained",
+      objective: "Finish accepted work",
+      status: "blocked",
+      tokenBudget: 1000,
+      tokensUsed: 400,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const goals = new CodexGoals({
+      request: async () => ({ goal }),
+      onChange() {},
+    });
+    goals.bind("retained");
+    Object.defineProperty(client.sessions[0], "goals", { value: goals });
+    await manager.mutateChecklist(agent.id, {
+      operation: "create",
+      id: "blocked",
+      text: "Check prerequisite",
+    });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "blocked",
+      status: "blocked",
+      description: "Waiting for the accepted dependency",
+    });
+    await manager.flush();
+    const reviewRecord = storage.getLoadedRecord(agent.id)!;
+    now =
+      Math.max(
+        Date.parse(reviewRecord.createdAt),
+        Date.parse(reviewRecord.lastActivityAt ?? reviewRecord.createdAt),
+      ) + 3_600_001;
+    expect(storage.getLoadedRecord(agent.id)).toMatchObject({
+      tasks: [{ status: "blocked" }],
+      persistence: { sessionId: client.sessions[0]!.id },
+    });
+    expect(manager.getAgent(agent.id)).toMatchObject({
+      lifecycle: "idle",
+      activeTurnId: null,
+    });
+    expect(blockedReviewDue(storage.getLoadedRecord(agent.id)!, now)).toBe(true);
+    const reviews = new BlockedTaskReviewService({
+      agentManager: manager,
+      agentStorage: storage,
+      logger,
+      now: () => now,
+    });
+    await reviews.tick();
+    const claimedAt = new Date(now).toISOString();
+    expect((await storage.get(agent.id))?.lastBlockedReviewAt).toBe(claimedAt);
+    await reviews.tick();
+    expect((await storage.get(agent.id))?.lastBlockedReviewAt).toBe(claimedAt);
+    expect(client.sessions).toHaveLength(1);
+    reviews.stop();
+    now += 3_600_001;
+    await reviews.tick();
+    expect((await storage.get(agent.id))?.lastBlockedReviewAt).toBe(claimedAt);
+    expect(client.sessions).toHaveLength(1);
+  } finally {
+    queue.close();
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("periodic review yields to a goal pause received during durable preparation", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "blocked-review-manager-"));
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const storage = new (class extends AgentStorage {
+    override async claimBlockedReview(id: string, at: number): Promise<boolean> {
+      entered.resolve();
+      await release.promise;
+      return super.claimBlockedReview(id, at);
+    }
+  })(join(workdir, "agents"), logger);
+  const client = new SessionRecordingAgentClient();
+  let now = Date.now();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: storage,
+    logger,
+    now: () => now,
+  });
+  const queue = new MessageQueueService(
+    new MessageQueueStore(workdir),
+    new QueueAttachmentStore(workdir),
+  );
+  manager.setMessageQueueControl(queue);
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    let goal: AgentGoal = {
+      threadId: "retained",
+      objective: "Finish accepted work",
+      status: "blocked",
+      tokenBudget: 1000,
+      tokensUsed: 400,
+      timeUsedSeconds: 5,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const goals = new CodexGoals({
+      request: async (method) => {
+        if (method === "thread/goal/set") goal = { ...goal, status: "paused", updatedAt: 3 };
+        return { goal };
+      },
+      onChange() {},
+    });
+    goals.bind("retained");
+    Object.defineProperty(client.sessions[0], "goals", { value: goals });
+    await manager.mutateChecklist(agent.id, {
+      operation: "create",
+      id: "blocked",
+      text: "Check prerequisite",
+    });
+    await manager.mutateChecklist(agent.id, {
+      operation: "update",
+      id: "blocked",
+      status: "blocked",
+      description: "Waiting for the accepted dependency",
+    });
+    await manager.flush();
+    const reviewRecord = storage.getLoadedRecord(agent.id)!;
+    now =
+      Math.max(
+        Date.parse(reviewRecord.createdAt),
+        Date.parse(reviewRecord.lastActivityAt ?? reviewRecord.createdAt),
+      ) + 3_600_001;
+    expect(storage.getLoadedRecord(agent.id)).toMatchObject({
+      tasks: [{ status: "blocked" }],
+      persistence: { sessionId: client.sessions[0]!.id },
+    });
+    expect(manager.getAgent(agent.id)).toMatchObject({
+      lifecycle: "idle",
+      activeTurnId: null,
+    });
+    expect(blockedReviewDue(storage.getLoadedRecord(agent.id)!, now)).toBe(true);
+    const review = manager.startBlockedTaskReview(agent.id, () => true);
+    await entered.promise;
+    const pause = manager.setAgentGoal(agent.id, { status: "paused" });
+    release.resolve();
+    const reviewed = await review;
+    await pause;
+    expect(reviewed).toBeNull();
+    expect(goals.state).toMatchObject({ status: "ready", goal: { status: "paused" } });
+    expect(manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  } finally {
+    release.resolve();
+    queue.close();
+    if (agentId) await manager.closeAgent(agentId);
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test.each([
+  { archive: false, goalStatus: null },
+  { archive: true, goalStatus: null },
+  { archive: false, goalStatus: "blocked" },
+  { archive: true, goalStatus: "blocked" },
+  { archive: false, goalStatus: "paused" },
+] as const)(
+  "periodic review retains the session across reload, archive=$archive, goal=$goalStatus",
+  async ({ archive, goalStatus }) => {
+    const workdir = mkdtempSync(join(tmpdir(), "blocked-review-reload-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const handles: AgentPersistenceHandle[] = [];
+    let turns = 0;
+    const client = new (class extends TestAgentClient {
+      override async resumeSession(
+        handle: AgentPersistenceHandle,
+        config?: Partial<AgentSessionConfig>,
+      ): Promise<AgentSession> {
+        handles.push(handle);
+        entered.resolve();
+        await release.promise;
+        const session = new (class extends TestAgentSession {
+          override async startTurn(): Promise<{ turnId: string }> {
+            turns += 1;
+            return super.startTurn();
+          }
+        })({ provider: "codex", cwd: config?.cwd ?? workdir });
+        Object.defineProperty(session, "id", { value: handle.sessionId });
+        if (goalStatus) {
+          const goal: AgentGoal = {
+            threadId: handle.sessionId,
+            objective: "Finish accepted work",
+            status: goalStatus,
+            tokenBudget: 1000,
+            tokensUsed: 400,
+            timeUsedSeconds: 5,
+            createdAt: 1,
+            updatedAt: 2,
+          };
+          const goals = new CodexGoals({ request: async () => ({ goal }), onChange() {} });
+          goals.bind(handle.sessionId);
+          Object.defineProperty(session, "goals", { value: goals });
+        }
+        return session;
+      }
+    })();
+    let now = Date.now();
+    const manager = new AgentManager({
+      clients: { codex: client },
+      registry: storage,
+      logger,
+      now: () => now,
+    });
+    const queue = new MessageQueueService(
+      new MessageQueueStore(workdir),
+      new QueueAttachmentStore(workdir),
+    );
+    manager.setMessageQueueControl(queue);
+    const reviews = new BlockedTaskReviewService({
+      agentManager: manager,
+      agentStorage: storage,
+      logger,
+      now: () => now,
+    });
+    let agentId: string | undefined;
+    try {
+      const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+      });
+      agentId = agent.id;
+      if (!goalStatus) {
+        await manager.mutateChecklist(agent.id, {
+          operation: "create",
+          id: "blocked",
+          text: "Check prerequisite",
+        });
+        await manager.mutateChecklist(agent.id, {
+          operation: "update",
+          id: "blocked",
+          status: "blocked",
+        });
+      }
+      await manager.closeAgent(agent.id);
+      await manager.flush();
+      if (goalStatus) await storage.updateBlockedGoalReview(agent.id, true);
+      const retained = await storage.get(agent.id);
+      const reviewRecord = storage.getLoadedRecord(agent.id)!;
+      now =
+        Math.max(
+          Date.parse(reviewRecord.createdAt),
+          Date.parse(reviewRecord.lastActivityAt ?? reviewRecord.createdAt),
+        ) + 3_600_001;
+      const review = reviews.tick();
+      await entered.promise;
+      const archived = archive
+        ? manager.archiveSnapshot(agent.id, new Date().toISOString())
+        : Promise.resolve();
+      release.resolve();
+      await archived;
+      await review;
+      expect(handles).toEqual([retained!.persistence]);
+      expect(client.createdConfigs).toHaveLength(1);
+      expect(turns).toBe(archive || goalStatus === "paused" ? 0 : 1);
+      expect((await storage.get(agent.id))?.persistence).toEqual(retained!.persistence);
+      expect(Boolean((await storage.get(agent.id))?.archivedAt)).toBe(archive);
+    } finally {
+      release.resolve();
+      reviews.stop();
+      queue.close();
+      if (agentId) await manager.closeAgent(agentId);
+      await manager.flush();
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("uncapped frozen profiles admit more than eight managed fake workers and still enforce quota", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "uncapped-worker-test-"));
+  const sessions: SteeringTestSession[] = [];
+  class Client extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const s = new SteeringTestSession(config);
+      sessions.push(s);
+      return s;
+    }
+  }
+  const manager = new AgentManager({ clients: { codex: new Client() }, logger });
+  const drains: Promise<void>[] = [];
+  try {
+    const root = await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+        profileLaunch: {
+          profile: {
+            id: "team",
+            name: "Team",
+            provider: "codex",
+            uncappedWorkers: true,
+            maxWorkers: 1,
+          },
+          worker: { id: "worker", name: "Worker", provider: "codex", model: "gpt-5.4" },
+        },
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    for (let i = 0; i < 9; i++) {
+      const child = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+        labels: { [PARENT_AGENT_ID_LABEL]: root.id },
+      });
+      const stream = manager.streamAgent(child.id, "synthetic work");
+      drains.push(
+        (async () => {
+          for await (const _event of stream) {
+          }
+        })(),
+      );
+      await vi.waitFor(() => expect(sessions[i + 1].startCount).toBe(1));
+    }
+    expect(manager.listRunningWorkerCounts()).toEqual({ codex: 9 });
+    sessions[0].pushEvent({
+      type: "turn_failed",
+      provider: "codex",
+      code: "quota_exhausted",
+      error: "Quota exhausted",
+    });
+    await vi.waitFor(() =>
+      expect(manager.getAgent(root.id)?.config.quotaPausedAt).not.toBeUndefined(),
+    );
+    await Promise.all(drains);
+    await expect(
+      manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+        workspaceId: undefined,
+        labels: { [PARENT_AGENT_ID_LABEL]: root.id },
+      }),
+    ).rejects.toThrow("paused");
+  } finally {
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
 });

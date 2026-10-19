@@ -13,6 +13,7 @@ import {
 } from "@getpaseo/protocol/messages";
 import {
   importEnvironmentProfiles,
+  consolidateProfileDefinitions,
   projectEnvironmentProfiles,
   prepareEnvironmentProfiles,
   canonicalizeWorkerReferences,
@@ -20,6 +21,7 @@ import {
 } from "./migration.js";
 import { ProfileSharingConflict } from "./merge.js";
 import { validateProviderPreferences } from "../../agent/provider-preferences/validation.js";
+import { isSharedWorkflowProfile } from "@getpaseo/protocol/provider-preferences";
 import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
 
 const ProvidersSchema = z.record(z.string(), ProviderPreferencesSchema);
@@ -45,7 +47,7 @@ function assertWorkerReference(
 ): void {
   if (!reference) return;
   const parts = reference.split("/");
-  if (parts.length !== 3 || parts[0] !== "shared-workflow") return;
+  if (parts.length !== 3 || !isSharedWorkflowProfile(reference)) return;
   assertRetainedWorkflow(state, decodeURIComponent(parts[1]), decodeURIComponent(parts[2]), owner);
 }
 
@@ -72,6 +74,8 @@ export type ProfileSharingState = z.infer<typeof ProfileSharingStateSchema>;
 export interface ProfileEnvironment {
   serverId: string;
   kind: "host" | "container";
+  workerAccounts?: boolean;
+  uncappedManagedWorkers?: boolean;
   read(): Promise<MutableDaemonConfig>;
   patch(patch: MutableDaemonConfigPatch): Promise<MutableDaemonConfig>;
 }
@@ -140,7 +144,14 @@ export class InstallationProfiles {
       Object.values(this.state.sources).some((source) => !source.projection)
     )
       return null;
-    return { ...status, providers: structuredClone(this.state.providers) };
+    return {
+      ...status,
+      providers: structuredClone(this.state.providers),
+      workerAccounts: this.environments.every((environment) => environment.workerAccounts === true),
+      uncappedManagedWorkers: this.environments.every(
+        (environment) => environment.uncappedManagedWorkers === true,
+      ),
+    };
   }
 
   patch(input: InstallationProfilesPatch): Promise<InstallationProfilesSnapshot> {
@@ -158,6 +169,47 @@ export class InstallationProfiles {
       throw new ProfileSharingConflict(["revision"]);
     const next = structuredClone(state);
     next.providers = ProvidersSchema.parse(input.providers);
+    // COMPAT(uncappedProfile): added in vorteo.494, remove after 2027-04-14 once editors preserve this flag.
+    // Omission from an older editor is not permission to restore a finite cap.
+    for (const [type, group] of Object.entries(next.providers)) {
+      const previous = state.providers[type];
+      if (
+        group.defaults.uncappedWorkers === undefined &&
+        previous?.defaults.uncappedWorkers !== undefined
+      ) {
+        group.defaults.uncappedWorkers = previous.defaults.uncappedWorkers;
+      }
+      for (const workflow of group.workflows) {
+        const prior = previous?.workflows.find((item) => item.id === workflow.id);
+        if (workflow.uncappedWorkers === undefined && prior?.uncappedWorkers !== undefined) {
+          workflow.uncappedWorkers = prior.uncappedWorkers;
+        }
+      }
+    }
+    if (
+      Object.values(next.providers).some((group) =>
+        [group.defaults, ...group.workflows].some((profile) => profile.uncappedWorkers === true),
+      ) &&
+      !this.environments.every((environment) => environment.uncappedManagedWorkers === true)
+    ) {
+      throw new ProfileSharingConflict([
+        "Update every environment before selecting uncapped workers.",
+      ]);
+    }
+    for (const [type, group] of Object.entries(next.providers)) {
+      const previous = state.providers[type];
+      const changed = [group.defaults, ...group.workflows].some((profile, index) => {
+        const original =
+          index === 0
+            ? previous?.defaults
+            : previous?.workflows.find((item) => item.id === group.workflows[index - 1].id);
+        return Boolean(profile.workerAccount) && profile.workerAccount !== original?.workerAccount;
+      });
+      if (changed && !this.environments.every((environment) => environment.workerAccounts === true))
+        throw new ProfileSharingConflict([
+          "Update every environment before selecting a worker account.",
+        ]);
+    }
     this.validateRetainedWorkflows(next);
     validateProviderPreferences({
       preferences: {
@@ -300,9 +352,47 @@ export class InstallationProfiles {
     if (Object.values(this.state?.sources ?? {}).some((source) => !source.projection)) {
       this.upgradeLegacyJournal(configs);
     }
+    this.consolidateLibrary(configs);
     for (const [index, observation] of observations.entries()) {
       await this.reconcileEnvironment(this.environments[index], observation);
     }
+  }
+
+  private consolidateLibrary(configs: Record<string, MutableDaemonConfig>): void {
+    if (!this.state) return;
+    const normalized = consolidateProfileDefinitions({
+      version: 1,
+      revision: this.state.revision,
+      providers: this.state.providers,
+      legacyProfiles: {},
+    });
+    if (isDeepStrictEqual(normalized.providers, this.state.providers)) return;
+    if (Object.keys(configs).length !== this.environments.length) return;
+    const next = structuredClone(this.state);
+    for (const source of Object.values(next.sources)) {
+      if (!source.projection) throw new Error("Missing profile projection during consolidation");
+      source.projection = consolidateProfileDefinitions({
+        ...source.projection,
+        providers: next.providers,
+      });
+      for (const [type, mapping] of Object.entries(source.workflowIds)) {
+        const aliases = source.projection.workflowAliases?.[type] ?? {};
+        for (const [oldId, id] of Object.entries(mapping)) mapping[oldId] = aliases[id] ?? id;
+      }
+      for (const [type, ids] of Object.entries(source.retainedWorkflows)) {
+        const aliases = source.projection.workflowAliases?.[type] ?? {};
+        source.retainedWorkflows[type] = [...new Set(ids.map((id) => aliases[id] ?? id))];
+      }
+    }
+    next.providers = normalized.providers;
+    const backups: Parameters<ProfileSharingJournal["backup"]>[0] = {};
+    for (const [id, config] of Object.entries(configs))
+      backups[id] = {
+        agentProfiles: config.agentProfiles,
+        sharedProviderPreferences: config.sharedProviderPreferences,
+      };
+    this.journal.backup(backups);
+    this.commit(next);
   }
 
   private upgradeLegacyJournal(configs: Record<string, MutableDaemonConfig>): void {

@@ -5,6 +5,7 @@ import {
   readInstallationProviders,
   mergeInstallationProviders,
   projectInstallationProviders,
+  installationAccountBindingsComplete,
 } from "./providers.js";
 const accountId = "ef227b47-c914-4d5b-bd92-2e50d784407b";
 const host: ProviderOverrides = {
@@ -27,6 +28,23 @@ const dev: ProviderOverrides = {
     options: { local: "dev" },
   },
 };
+
+test("only explicit exclusions or disabled accounts waive a required account binding", () => {
+  const definitions = readInstallationProviders("host", host);
+  const definition = definitions[0];
+  expect(installationAccountBindingsComplete(definitions, "host")).toBe(true);
+  expect(installationAccountBindingsComplete(definitions, "dev")).toBe(false);
+  expect(installationAccountBindingsComplete(definitions, "dev", [definition.id])).toBe(true);
+  expect(installationAccountBindingsComplete([{ ...definition, removed: true }], "dev")).toBe(true);
+  expect(
+    installationAccountBindingsComplete(
+      [{ ...definition, policy: { ...definition.policy, enabled: false } }],
+      "dev",
+    ),
+  ).toBe(true);
+  const plugin = { ...definition, accountId: undefined, providerType: "plugin-agent" };
+  expect(installationAccountBindingsComplete([plugin], "dev")).toBe(true);
+});
 test("verified accounts share one portable definition while credentials and runtime state remain local", () => {
   const observed = {
     host: readInstallationProviders("host", host),
@@ -192,6 +210,11 @@ test("launch admission rejects excluded, removed, rebound and pending providers 
     "excluded",
   );
   admission.settings.resourceExclusions = {};
+  definitions[0].removed = true;
+  expect(() => assertInstallationProviderLaunch(config, "host-account", admission)).toThrow(
+    "disabled",
+  );
+  definitions[0].removed = false;
   definitions[0].policy.enabled = false;
   expect(() => assertInstallationProviderLaunch(config, "host-account", admission)).toThrow(
     "disabled",
@@ -241,6 +264,9 @@ test("local removal requires its own environment exclusion and retains missing o
   expect(() => assertInstallationProviderRemoval("host-account", admission)).toThrow(
     "Exclude this provider",
   );
+  definitions[0].removed = true;
+  expect(() => assertInstallationProviderRemoval("host-account", admission)).not.toThrow();
+  definitions[0].removed = false;
   admission.settings.resourceExclusions.host = admission.settings.resourceExclusions.dev;
   expect(() => assertInstallationProviderRemoval("host-account", admission)).not.toThrow();
   expect(() => assertInstallationProviderRemoval("unbound-local-runtime", admission)).not.toThrow();
@@ -372,4 +398,14 @@ test("plugin enrollment requires an approved running source and rejects local ac
     pluginIds: ["approved"],
   };
   expect(enrollInstallationPluginProviders(input)).toEqual([]);
+});
+
+test("removed definitions disable local runtime without losing credentials or stable account bindings", () => {
+  const definition = { ...readInstallationProviders("host", host)[0], removed: true };
+  const projected = projectInstallationProviders([definition], "host", host);
+  expect(projected["host-account"]).toEqual({ ...host["host-account"], enabled: false });
+  expect(definition.bindings).toEqual({ host: "host-account" });
+  expect(
+    projectInstallationProviders([{ ...definition, removed: false }], "host", projected),
+  ).toEqual(host);
 });

@@ -1,6 +1,8 @@
+import { getInterfaceScale } from "@/appearance/interface-zoom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { useVortonTouch } from "@/vorton-touch";
 import {
   FIT_TRANSFORM,
   fitContentSize,
@@ -67,6 +69,7 @@ export function ZoomableViewport({
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [hasTouchInput, setHasTouchInput] = useState(false);
+  const touchControls = useVortonTouch();
   const fittedContent = useMemo(
     () => (viewport ? fitContentSize(contentSize, viewport, fit) : null),
     [contentSize, fit, viewport],
@@ -132,8 +135,8 @@ export function ZoomableViewport({
       const bounds = activeCanvas.getBoundingClientRect();
       const factor = Math.min(1.25, Math.max(0.8, Math.exp(-event.deltaY * 0.01)));
       zoomAt(transformRef.current.scale * factor, {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
+        x: (event.clientX - bounds.left) / getInterfaceScale(),
+        y: (event.clientY - bounds.top) / getInterfaceScale(),
       });
     }
     activeCanvas.addEventListener("wheel", zoomWithWheel, { passive: false });
@@ -178,8 +181,8 @@ export function ZoomableViewport({
         const panned = panContent({
           transform: transformRef.current,
           delta: {
-            x: nextMidpoint.x - gesture.midpoint.x,
-            y: nextMidpoint.y - gesture.midpoint.y,
+            x: (nextMidpoint.x - gesture.midpoint.x) / getInterfaceScale(),
+            y: (nextMidpoint.y - gesture.midpoint.y) / getInterfaceScale(),
           },
           fittedContent,
           viewport,
@@ -188,7 +191,14 @@ export function ZoomableViewport({
         const next = zoomContentAtPoint({
           transform: panned,
           scale: panned.scale * (nextDistance / gesture.distance),
-          focalPoint: nextMidpoint,
+          focalPoint: {
+            x:
+              (nextMidpoint.x - event.currentTarget.getBoundingClientRect().left) /
+              getInterfaceScale(),
+            y:
+              (nextMidpoint.y - event.currentTarget.getBoundingClientRect().top) /
+              getInterfaceScale(),
+          },
           fittedContent,
           viewport,
           limits,
@@ -207,8 +217,8 @@ export function ZoomableViewport({
         panContent({
           transform: gesture.startTransform,
           delta: {
-            x: event.clientX - gesture.startPoint.x,
-            y: event.clientY - gesture.startPoint.y,
+            x: (event.clientX - gesture.startPoint.x) / getInterfaceScale(),
+            y: (event.clientY - gesture.startPoint.y) / getInterfaceScale(),
           },
           fittedContent,
           viewport,
@@ -249,7 +259,10 @@ export function ZoomableViewport({
       if (!fittedContent || !viewport || !onPressOutsideContent) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       const isInside = isPointInsideTransformedContent({
-        point: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        point: {
+          x: (event.clientX - bounds.left) / getInterfaceScale(),
+          y: (event.clientY - bounds.top) / getInterfaceScale(),
+        },
         transform: transformRef.current,
         fittedContent,
         viewport,
@@ -273,7 +286,7 @@ export function ZoomableViewport({
     }),
     [fittedContent, transform],
   );
-  const controlsVisible = isHovered || isFocusWithin || hasTouchInput;
+  const controlsVisible = isHovered || isFocusWithin || hasTouchInput || touchControls;
   const handleFocus = useCallback(() => setIsFocusWithin(true), []);
   const handleBlur = useCallback(() => setIsFocusWithin(false), []);
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
@@ -341,6 +354,8 @@ const contentDomStyle: React.CSSProperties = {
   transformOrigin: "center center",
 };
 const toolbarDomStyle: React.CSSProperties = {
+  // Only visible buttons intercept input, never the empty toolbar overlay.
+  pointerEvents: "none",
   position: "absolute",
   top: 0,
   right: 0,

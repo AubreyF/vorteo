@@ -1,0 +1,7 @@
+context platform=ios timeout=60000 retries=0
+
+# Supply a seeded workspace URL that this app installation has never opened.
+# Connect to its disposable fixture first; keep the sidebar closed throughout.
+open "${WORKSPACE_URL}"
+wait "id=\"workspace-header-title\"" 30000
+wait "id=\"message-input-root\"" 30000

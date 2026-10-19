@@ -1,3 +1,4 @@
+import type { CompactionInspection } from "@getpaseo/protocol/messages";
 import type { SkillSnapshot } from "@getpaseo/protocol/skill-library";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderLoginSession } from "../../services/provider-login/session.js";
@@ -217,6 +218,7 @@ export type AgentPromptContentBlock =
 export type AgentPromptInput = string | AgentPromptContentBlock[];
 
 export interface AgentRunOptions {
+  origin?: "agent";
   queuedMessage?: import("@getpaseo/protocol/message-queue").QueueItem;
   intent?: "goal";
   outputSchema?: unknown;
@@ -399,6 +401,8 @@ export interface CompactionTimelineItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineItem {
@@ -417,6 +421,8 @@ export type AgentTimelineItem =
       messageId?: string;
       clientMessageId?: string;
       intent?: "goal";
+      /** Set only by trusted agent dispatch, never inferred from prompt text. */
+      origin?: "agent";
       queue?: import("@getpaseo/protocol/message-queue").QueuePresentation;
     }
   | { type: "assistant_message"; text: string; messageId?: string }

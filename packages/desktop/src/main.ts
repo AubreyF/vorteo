@@ -17,7 +17,6 @@ import {
   ClipboardItem,
   clipboard,
   Menu,
-  ipcMain,
   nativeImage,
   net,
   protocol,
@@ -39,9 +38,10 @@ import {
   setupWindowResizeEvents,
   setupWindowStatePersistence,
   setupDefaultContextMenu,
-  setupDragDropPrevention,
   buildStandardContextMenuItems,
 } from "./window/window-manager.js";
+import { registerAppNavigationGuards } from "./window/navigation.js";
+import { handleDesktopCommand, registerTrustedDesktopWindow } from "./desktop-ipc.js";
 import { setupDarwinCompositorWatchdog } from "./window/compositor-watchdog/index.js";
 import { resolveDesktopWindowChromeMode, windowChromeModeArgument } from "./window/chrome.js";
 import { registerDialogHandlers } from "./features/dialogs.js";
@@ -51,6 +51,11 @@ import {
 } from "./features/notifications.js";
 import { createExternalUrlOpener } from "./features/opener.js";
 import { createBrowserCaptureService } from "./features/browser-capture.js";
+import {
+  createBrowserPermissionStore,
+  type BrowserPermissionStore,
+} from "./features/browser-permissions.js";
+import { installBrowserPermissionHandlers } from "./features/browser-permissions-electron.js";
 import { registerEditorTargetHandlers } from "./features/editor-targets/ipc.js";
 import { resolveAppIconPath } from "./features/stamped-icon.js";
 import { setupApplicationMenu } from "./features/menu.js";
@@ -378,7 +383,7 @@ if (PASEO_DEBUG) {
 
 // The renderer pulls the pending path on mount via IPC — this avoids
 // a race where the push event arrives before React registers its listener.
-ipcMain.handle("paseo:get-pending-open-project", (event) => {
+handleDesktopCommand("paseo:get-pending-open-project", (event) => {
   const webContentsId = event.sender.id;
   const result = desktopWindowOwner.takePendingProject(webContentsId);
   log.info("[open-project] renderer requested pending path:", {
@@ -388,11 +393,11 @@ ipcMain.handle("paseo:get-pending-open-project", (event) => {
   return result;
 });
 
-ipcMain.handle("paseo:agent-navigation:ready", (event) => {
+handleDesktopCommand("paseo:agent-navigation:ready", (event) => {
   return agentNavigationInbox.windowReady(event.sender.id);
 });
 
-ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => {
+handleDesktopCommand("paseo:browser:register-attached", (event, rawInput: unknown) => {
   const input = readAttachedBrowserInput(rawInput);
   if (!input) {
     throw new Error("Invalid attached browser registration");
@@ -424,43 +429,46 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
   }
 });
 
-ipcMain.handle("paseo:browser:unregister-workspace-browser", async (event, browserId: unknown) => {
-  if (typeof browserId === "string" && browserId.trim().length > 0) {
-    const normalizedBrowserId = browserId.trim();
-    const hasOtherHost = getPaseoBrowserWebviewRegistry().hasBrowserInOtherHostWindow(
-      event.sender.id,
-      normalizedBrowserId,
-    );
-    unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
-    // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
-    const legacyProfile = hasOtherHost
-      ? null
-      : getLegacyPaseoBrowserProfileSession(session, normalizedBrowserId);
-    if (legacyProfile) {
-      try {
-        await clearPaseoBrowserProfile({
-          profileSessions: [legacyProfile],
-          listGuests: () => [],
-          logReloadError: () => {},
-        });
-      } catch (error) {
-        log.warn("[browser-profile] failed to clear legacy tab profile", {
-          browserId: normalizedBrowserId,
-          error,
-        });
+handleDesktopCommand(
+  "paseo:browser:unregister-workspace-browser",
+  async (event, browserId: unknown) => {
+    if (typeof browserId === "string" && browserId.trim().length > 0) {
+      const normalizedBrowserId = browserId.trim();
+      const hasOtherHost = getPaseoBrowserWebviewRegistry().hasBrowserInOtherHostWindow(
+        event.sender.id,
+        normalizedBrowserId,
+      );
+      unregisterPaseoBrowserFromHost(event.sender.id, normalizedBrowserId);
+      // COMPAT(browserProfile): added in v0.1.108; remove after 2027-01-15.
+      const legacyProfile = hasOtherHost
+        ? null
+        : getLegacyPaseoBrowserProfileSession(session, normalizedBrowserId);
+      if (legacyProfile) {
+        try {
+          await clearPaseoBrowserProfile({
+            profileSessions: [legacyProfile],
+            listGuests: () => [],
+            logReloadError: () => {},
+          });
+        } catch (error) {
+          log.warn("[browser-profile] failed to clear legacy tab profile", {
+            browserId: normalizedBrowserId,
+            error,
+          });
+        }
       }
     }
-  }
-});
+  },
+);
 
-ipcMain.handle("paseo:browser:set-workspace-active-browser", (event, rawInput: unknown) => {
+handleDesktopCommand("paseo:browser:set-workspace-active-browser", (event, rawInput: unknown) => {
   const input = readActiveBrowserInput(rawInput);
   if (input) {
     setWorkspaceActivePaseoBrowserId({ ...input, hostWebContentsId: event.sender.id });
   }
 });
 
-ipcMain.handle("paseo:browser:focus", (event, browserId: unknown): boolean => {
+handleDesktopCommand("paseo:browser:focus", (event, browserId: unknown): boolean => {
   if (typeof browserId !== "string" || browserId.trim().length === 0) {
     return false;
   }
@@ -472,7 +480,7 @@ ipcMain.handle("paseo:browser:focus", (event, browserId: unknown): boolean => {
   return true;
 });
 
-ipcMain.handle("paseo:browser:open-devtools", (event, browserId: unknown) => {
+handleDesktopCommand("paseo:browser:open-devtools", (event, browserId: unknown) => {
   if (typeof browserId !== "string" || browserId.trim().length === 0) {
     const result = {
       ok: false,
@@ -513,24 +521,40 @@ ipcMain.handle("paseo:browser:open-devtools", (event, browserId: unknown) => {
   return result;
 });
 
-ipcMain.handle("paseo:browser:clear-profile", async (_event, rawLegacyBrowserIds: unknown) => {
-  const profileSessions = getPaseoBrowserProfileSessions(
-    session,
-    readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
-  );
-  const profileSession = profileSessions[0];
-  await clearPaseoBrowserProfile({
-    profileSessions,
-    listGuests: () =>
-      listPaseoBrowserProfileGuests({
-        profileSession,
-        webContents: webContents.getAllWebContents(),
-      }),
-    logReloadError: (webContentsId, error) => {
-      log.warn("[browser-profile] failed to reload guest", { webContentsId, error });
-    },
-  });
+let browserPermissions: BrowserPermissionStore;
+
+handleDesktopCommand("paseo:browser:reset-permissions", async () => {
+  await browserPermissions.reset();
+  for (const guest of listPaseoBrowserProfileGuests({
+    profileSession: getPaseoBrowserProfileSession(session),
+    webContents: webContents.getAllWebContents(),
+  })) {
+    if (!guest.isDestroyed()) guest.reload();
+  }
 });
+
+handleDesktopCommand(
+  "paseo:browser:clear-profile",
+  async (_event, rawLegacyBrowserIds: unknown) => {
+    await browserPermissions.reset();
+    const profileSessions = getPaseoBrowserProfileSessions(
+      session,
+      readLegacyPaseoBrowserIds(rawLegacyBrowserIds),
+    );
+    const profileSession = profileSessions[0];
+    await clearPaseoBrowserProfile({
+      profileSessions,
+      listGuests: () =>
+        listPaseoBrowserProfileGuests({
+          profileSession,
+          webContents: webContents.getAllWebContents(),
+        }),
+      logReloadError: (webContentsId, error) => {
+        log.warn("[browser-profile] failed to reload guest", { webContentsId, error });
+      },
+    });
+  },
+);
 
 const browserCapture = createBrowserCaptureService<Electron.NativeImage>({
   findGuest: getPaseoBrowserWebContentsForHostWindow,
@@ -551,11 +575,11 @@ const browserCapture = createBrowserCaptureService<Electron.NativeImage>({
   warn: (event, details) => log.warn(`[browser-capture] ${event}`, details),
 });
 
-ipcMain.handle("paseo:browser:capture-element", (event, browserId: unknown, rect: unknown) =>
+handleDesktopCommand("paseo:browser:capture-element", (event, browserId: unknown, rect: unknown) =>
   browserCapture.capture({ browserId, hostWebContentsId: event.sender.id, rect }),
 );
 
-ipcMain.handle("paseo:browser:copy-element", (_event, payload: unknown) =>
+handleDesktopCommand("paseo:browser:copy-element", (_event, payload: unknown) =>
   browserCapture.copy(payload),
 );
 
@@ -741,7 +765,9 @@ async function createWindow(
     setupWindowStatePersistence(mainWindow, windowStateStore);
   }
   setupDefaultContextMenu(mainWindow);
-  setupDragDropPrevention(mainWindow);
+  const trustedAppUrl = app.isPackaged ? `${APP_SCHEME}://app/` : DEV_SERVER_URL;
+  registerTrustedDesktopWindow(mainWindow.webContents, trustedAppUrl);
+  registerAppNavigationGuards(mainWindow.webContents, trustedAppUrl);
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
     if (!isPaseoBrowserWebviewAttach(params)) {
       event.preventDefault();
@@ -931,6 +957,12 @@ async function bootstrap(): Promise<void> {
 
   await app.whenReady();
 
+  browserPermissions = await createBrowserPermissionStore(app.getPath("userData"));
+  installBrowserPermissionHandlers(
+    session.fromPartition(PASEO_BROWSER_PROFILE_PARTITION),
+    browserPermissions,
+  );
+
   const appDistDir = getAppDistDir();
   protocol.handle(APP_SCHEME, (request) => {
     const { pathname, search, hash } = new URL(request.url);
@@ -972,13 +1004,13 @@ async function bootstrap(): Promise<void> {
   registerDialogHandlers();
   registerNotificationHandlers();
   const openExternalUrl = createExternalUrlOpener({ open: shell.openExternal });
-  ipcMain.handle("paseo:opener:openUrl", (_event, value: unknown) => openExternalUrl(value));
+  handleDesktopCommand("paseo:opener:openUrl", (_event, value: unknown) => openExternalUrl(value));
   registerEditorTargetHandlers();
   registerBrowserAutomationIpc();
 
   // In-app "Open in new window": opens a window that lands on the given project
   // via the same open-project flow as a CLI launch (no move, no ownership).
-  ipcMain.handle("paseo:window:openNew", async (_event, options?: unknown) => {
+  handleDesktopCommand("paseo:window:openNew", async (_event, options?: unknown) => {
     const pendingPath =
       options && typeof options === "object" && "pendingOpenProjectPath" in options
         ? (options as { pendingOpenProjectPath?: unknown }).pendingOpenProjectPath

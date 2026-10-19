@@ -52,12 +52,27 @@ function DirectoryBindingForm({
   const submit = useCallback(() => mutation.mutate(), [mutation]);
   const error = bindingError(mutation.error);
   const header = useMemo(() => ({ title: `Directory for ${draft.id}` }), [draft.id]);
+  const modalFooter1 = useMemo(
+    () => (
+      <Button
+        variant="default"
+        size={size}
+        disabled={!state.canSubmit || mutation.isPending}
+        onPress={submit}
+        testID="plugin-directory-binding-save"
+      >
+        {mutation.isPending ? "Saving..." : "Save directory"}
+      </Button>
+    ),
+    [size, state, mutation, submit],
+  );
   return (
     <AdaptiveModalSheet
       visible
       onClose={onClose}
       header={header}
       testID="plugin-directory-binding-form"
+      footer={modalFooter1}
     >
       <View style={styles.form}>
         <Field label="Directory">
@@ -71,15 +86,6 @@ function DirectoryBindingForm({
           />
         </Field>
         {error ? <Alert variant="error" description={error} /> : null}
-        <Button
-          variant="default"
-          size={size}
-          disabled={!state.canSubmit || mutation.isPending}
-          onPress={submit}
-          testID="plugin-directory-binding-save"
-        >
-          {mutation.isPending ? "Saving..." : "Save directory"}
-        </Button>
       </View>
     </AdaptiveModalSheet>
   );

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   Columns2,
@@ -79,7 +78,6 @@ const WORKSPACE_COMMAND_CENTER_ICONS = {
   copy: getCommandCenterIcon(Copy),
   focusPane: getCommandCenterIcon(Focus),
   moveTab: getCommandCenterIcon(Move),
-  focusMode: getCommandCenterIcon(ArrowDownToLine),
   explorerSidebar: getCommandCenterIcon(PanelRight),
   // Workspace management action icons
   copyPath: getCommandCenterIcon(Copy),
@@ -87,7 +85,6 @@ const WORKSPACE_COMMAND_CENTER_ICONS = {
   pin: getCommandCenterIcon(Pin),
   unpin: getCommandCenterIcon(PinOff),
   showSetup: getCommandCenterIcon(ListChecks),
-  toggleFocusMode: getCommandCenterIcon(Focus),
 };
 
 const OPEN_PANEL_LABEL_KEYS = {
@@ -267,7 +264,6 @@ export function useWorkspaceCommandCenterActions(): void {
           moveTabUp: t("settings.shortcuts.help.moveTabUp"),
           moveTabDown: t("settings.shortcuts.help.moveTabDown"),
           closePane: t("settings.shortcuts.help.closePane"),
-          toggleFocusMode: t("settings.shortcuts.help.toggleFocusMode"),
           toggleExplorerSidebar: t("workspace.tabs.explorerSidebar.toggle"),
           // Workspace management labels
           rename: t("sidebar.workspace.actions.rename"),

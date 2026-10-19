@@ -1,3 +1,14 @@
+import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
+import type {
+  CoordinatorBootstrapPreparation,
+  CoordinatorSubmissionProof,
+  CoordinatorBootstrapDecision,
+  CoordinatorBootstrapRequestView as CoordinatorBootstrapRequest,
+  BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
+  BootstrapPreclaimRecoveryPreparation,
+  BootstrapClaimedRecoveryPreparation,
+  BootstrapClaimedRecoveryRequestView as BootstrapClaimedRecoveryRequest,
+} from "@getpaseo/protocol/coordinator-bootstrap";
 import type {
   PluginDirectoryBinding,
   ResolvedPluginSource,
@@ -17,7 +28,7 @@ import {
   type TimelineSubscription,
 } from "./connection/index.js";
 import { CreationClient } from "./creation/index.js";
-import type { CreationSnapshot } from "@getpaseo/protocol/messages";
+import type { CreationSnapshot, WorkspaceRecoveryGuard } from "@getpaseo/protocol/messages";
 import type {
   ProjectDirectoryBrowseRequest,
   ProjectDirectoryBrowsePayload,
@@ -39,6 +50,9 @@ import {
   RestartRequestedStatusPayloadSchema,
   ShutdownRequestedStatusPayloadSchema,
   DaemonUpdateResponseSchema,
+  DaemonOriginAdmissionRequestSchema,
+  DaemonOriginAdmissionInputSchema,
+  DaemonOriginAdmissionInspectRequestSchema,
   SessionInboundMessageSchema,
   type ActiveTurnBehavior,
   type ServerInfoStatusPayload,
@@ -114,6 +128,8 @@ import type {
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
   DaemonConfigReloadResponse,
+  DaemonOriginAdmissionResponse,
+  DaemonOriginAdmissionInspectResponse,
   DiagnosticsResponse,
   AgentRewindResponseMessage,
   ListTerminalsResponse,
@@ -445,6 +461,7 @@ export interface DaemonClientTrace {
 }
 
 export interface SendMessageOptions {
+  origin?: SendAgentMessageRequest["origin"];
   messageId?: string;
   /** What happens when the agent is mid-turn. The daemon interrupts the turn when omitted. */
   activeTurnBehavior?: ActiveTurnBehavior;
@@ -471,6 +488,7 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
   env?: CreateAgentRequestMessage["env"];
   workspaceId?: string;
   callerAgentId?: string;
+  origin?: CreateAgentRequestMessage["origin"];
   initialPrompt?: string;
   initialGoal?: import("@getpaseo/protocol/agent-goals").AgentGoalSetInput;
   idempotencyKey?: string;
@@ -489,6 +507,7 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
 }
 
 export interface CreateWorkspaceRequestOptions {
+  projectMembership?: WorkspaceCreateRequest["projectMembership"];
   source: WorkspaceCreateRequest["source"];
   title?: string;
   idempotencyKey?: string;
@@ -763,6 +782,16 @@ export interface ShutdownServerOptions {
   requestId?: string;
   timeout?: number;
 }
+export interface OriginAdmissionOptions extends Omit<
+  z.infer<typeof DaemonOriginAdmissionInspectRequestSchema>,
+  "type" | "requestId"
+> {
+  requestId?: string;
+  timeout?: number;
+}
+export interface OriginAdmissionInput
+  extends OriginAdmissionOptions, z.infer<typeof DaemonOriginAdmissionInputSchema> {}
+
 export interface DaemonStatusOptions {
   requestId?: string;
   timeout?: number;
@@ -2576,6 +2605,7 @@ export class DaemonClient {
     name: string;
     newName?: string;
     color?: Extract<SessionInboundMessage, { type: "workspace.label.update.request" }>["color"];
+    explicitColor?: boolean;
     requestId?: string;
   }): Promise<WorkspaceLabelUpdatePayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"workspace.label.update.response">({
@@ -2585,6 +2615,7 @@ export class DaemonClient {
         name: options.name,
         ...(options.newName === undefined ? {} : { newName: options.newName }),
         ...(options.color === undefined ? {} : { color: options.color }),
+        ...(options.explicitColor === undefined ? {} : { explicitColor: options.explicitColor }),
       },
     });
   }
@@ -2906,6 +2937,7 @@ export class DaemonClient {
       ...(options.env ? { env: options.env } : {}),
       ...(options.workspaceId !== undefined ? { workspaceId: options.workspaceId } : {}),
       ...(options.callerAgentId !== undefined ? { callerAgentId: options.callerAgentId } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
       ...(options.initialPrompt ? { initialPrompt: options.initialPrompt } : {}),
       ...(options.initialGoal ? { initialGoal: options.initialGoal } : {}),
       idempotencyKey: options.idempotencyKey,
@@ -3139,6 +3171,22 @@ export class DaemonClient {
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
   }
 
+  async setWorkspaceLifecycle(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "workspace.lifecycle.set.request" }>,
+      "type" | "requestId"
+    >,
+  ): Promise<void> {
+    if (this.lastServerInfoMessage?.features?.workspaceLifecycle !== true) {
+      throw new Error("Update this host to manage Standing and Protected workspaces.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"workspace.lifecycle.set.response">({
+        message: { type: "workspace.lifecycle.set.request", ...options },
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to update workspace");
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,
@@ -3174,13 +3222,26 @@ export class DaemonClient {
     return payload.state;
   }
 
-  async restoreWorkspace(workspaceId: string, requestId?: string): Promise<void> {
+  async restoreWorkspace(
+    workspaceId: string,
+    requestId?: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    if (guard) {
+      const info = this.getLastServerInfoMessage();
+      // Old hosts can strip unknown request fields. Never send a guard to one.
+      if (info?.features?.workspaceRecoveryGuard !== true)
+        throw new Error("Update the host before using guarded workspace recovery.");
+      if (info.serverId !== guard.serverId)
+        throw new Error("Workspace recovery host identity changed.");
+    }
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.recovery.restore.response">({
         requestId,
         message: {
           type: "workspace.recovery.restore.request",
           workspaceId,
+          ...(guard ? { guard } : {}),
         },
         timeout: 150_000,
       });
@@ -3517,6 +3578,7 @@ export class DaemonClient {
       text,
       ...(messageId ? { messageId } : {}),
       ...(options?.activeTurnBehavior ? { activeTurnBehavior: options.activeTurnBehavior } : {}),
+      ...(options?.origin ? { origin: options.origin } : {}),
       ...(options?.images ? { images: options.images } : {}),
       ...(options?.attachments ? { attachments: options.attachments } : {}),
     });
@@ -3689,6 +3751,431 @@ export class DaemonClient {
     });
   }
 
+  async getAgentChecklist(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.get.response">({
+        message: { type: "agent.checklist.get.request", agentId },
+      });
+    if (result.error || !result.tasks) throw new Error(result.error ?? "Checklist unavailable");
+    return result.tasks;
+  }
+
+  async mutateAgentChecklist(
+    agentId: string,
+    mutation: import("@getpaseo/protocol/task-checklist").ChecklistMutation,
+  ): Promise<import("@getpaseo/protocol/agent-types").AgentTaskItem[]> {
+    this.assertChecklistSupport();
+    if (
+      ((mutation.operation === "update" && mutation.status === "blocked") ||
+        ("expectedTask" in mutation && mutation.expectedTask?.status === "blocked")) &&
+      this.lastServerInfoMessage?.features?.checklistBlockedStatus !== true
+    ) {
+      throw new Error("Update the daemon before using blocked checklist status.");
+    }
+    if (
+      ((mutation.operation === "update" && mutation.status === "review") ||
+        ("expectedTask" in mutation && mutation.expectedTask?.status === "review")) &&
+      this.lastServerInfoMessage?.features?.checklistReviewStatus !== true
+    ) {
+      throw new Error("Update the daemon before using Review checklist status.");
+    }
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.checklist.mutate.response">({
+        message: { type: "agent.checklist.mutate.request", agentId, mutation },
+      });
+    if (result.error || !result.tasks)
+      throw new Error(result.error ?? "Checklist update unconfirmed");
+    return result.tasks;
+  }
+
+  private assertChecklistSupport(): void {
+    if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
+      throw new Error("Update the daemon before editing thread checklists.");
+    }
+  }
+
+  private assertCoordinatorBootstrapReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapReview !== true)
+      throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
+  }
+
+  private bootstrapReviewCapabilities(): {
+    factoryRuntimeAdoption?: true;
+    compatibleRecovery?: true;
+    previewMonitor?: true;
+    sourceUpdateTooling?: true;
+    bootRecovery?: true;
+    automaticStatus?: true;
+  } {
+    const features = this.lastServerInfoMessage?.features;
+    return {
+      ...(features?.coordinatorBootstrapAutomaticStatus === true
+        ? { automaticStatus: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapFactoryAdoption === true
+        ? { factoryRuntimeAdoption: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapCompatibleRecovery === true
+        ? { compatibleRecovery: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapPreviewMonitor === true
+        ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapBootRecovery === true
+        ? { bootRecovery: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapSourceUpdateTooling === true
+        ? { sourceUpdateTooling: true as const }
+        : {}),
+    };
+  }
+
+  async reconcileAutomaticCoordinatorBootstrap(
+    id: string,
+    options: { timeout?: number } = {},
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapAutomaticReconciliation !== true)
+      throw new Error("Update the Host before reconciling automatic coordinator maintenance.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.reconcile_automatic.response">(
+        {
+          message: {
+            type: "installation.bootstrap.reconcile_automatic.request",
+            id,
+            ...this.bootstrapReviewCapabilities(),
+          },
+          timeout: options.timeout ?? 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Automatic coordinator reconciliation unconfirmed");
+    return result.requests;
+  }
+
+  async listCoordinatorBootstrapRequests(): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.list_requests.response">(
+        {
+          message: {
+            type: "installation.bootstrap.list_requests.request",
+            ...this.bootstrapReviewCapabilities(),
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Bootstrap status unavailable");
+    return result.requests;
+  }
+
+  private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
+    if (
+      input.plan.bootRecovery &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapBootRecovery !== true
+    )
+      throw new Error("Update the Host before preparing startup recovery.");
+  }
+
+  private assertAuthenticatedCoordinatorSubmission(
+    proof: CoordinatorSubmissionProof | undefined,
+  ): void {
+    if (
+      proof &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapAuthenticatedSubmission !== true
+    )
+      throw new Error("Update the Host before submitting authenticated coordinator maintenance.");
+  }
+
+  async prepareCoordinatorBootstrap(
+    input: CoordinatorBootstrapPreparation,
+    options: { timeout?: number; submissionProof?: CoordinatorSubmissionProof } = {},
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    this.assertBootRecoveryPreparation(input);
+    this.assertAuthenticatedCoordinatorSubmission(options.submissionProof);
+    if (
+      input.plan.sourceUpdateTooling === true &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
+    )
+      throw new Error("Update the Host before preparing source update tooling selection.");
+    if (
+      input.plan.previewMonitorConfiguration !== undefined &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapPreviewMonitor !== true
+    )
+      throw new Error("Update the Host before preparing preview monitor configuration.");
+    if (
+      input.plan.compatibleRecovery &&
+      this.lastServerInfoMessage?.features?.coordinatorBootstrapCompatibleRecovery !== true
+    )
+      throw new Error("Update the Host before preparing compatible coordinator recovery.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.prepare.response">({
+        message: {
+          type: "installation.bootstrap.prepare.request",
+          input,
+          submissionProof: options.submissionProof,
+          ...this.bootstrapReviewCapabilities(),
+        },
+        // Large protected releases can outlast the interactive default. This
+        // changes only response waiting, never preparation or approval rules.
+        timeout: options.timeout ?? 15 * 60_000,
+      });
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Bootstrap preparation unconfirmed");
+    return result.requests;
+  }
+
+  async decideCoordinatorBootstrap(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<CoordinatorBootstrapRequest[]> {
+    this.assertCoordinatorBootstrapReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap.decide.response">({
+        message: {
+          type: "installation.bootstrap.decide.request",
+          input,
+          ownerPassword,
+          ...this.bootstrapReviewCapabilities(),
+        },
+        // Approval verifies protected releases before and after recording the decision.
+        // Status refresh can expose that durable decision before this response arrives.
+        timeout: input.decision === "approve" ? 60 * 60_000 : 15 * 60_000,
+      });
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Bootstrap decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  private assertPreclaimRecoveryReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimRecovery !== true)
+      throw new Error(
+        "Managed bootstrap recovery is unavailable. Update the Host to use this review.",
+      );
+  }
+
+  private recoveryBootPlanCapability(): { recoveryBootPlan?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapRecoveryBootPlan === true
+      ? { recoveryBootPlan: true }
+      : {};
+  }
+
+  private assertRecoveryBootPlan(originals: CoordinatorBootstrapRequest[]): void {
+    if (
+      originals.some((request) => request.plan.bootRecovery) &&
+      !this.recoveryBootPlanCapability().recoveryBootPlan
+    )
+      throw new Error("Update the Host before preparing recovery with a retained startup plan.");
+  }
+
+  private preclaimOwnerCancellationCapability(): { ownerCanceledOriginal?: true } {
+    return this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimOwnerCancellation ===
+      true
+      ? { ownerCanceledOriginal: true }
+      : {};
+  }
+
+  async reconcilePreclaimRecovery(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapPreclaimObservation !== true)
+      throw new Error("Update the Host to verify a retained recovery outcome.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
+            ...this.preclaimOwnerCancellationCapability(),
+            reconcile: input,
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery observation unconfirmed");
+    return result.requests;
+  }
+
+  async listPreclaimRecoveryRequests(): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
+            ...this.preclaimOwnerCancellationCapability(),
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery status unavailable");
+    return result.requests;
+  }
+
+  async preparePreclaimRecovery(
+    input: BootstrapPreclaimRecoveryPreparation,
+  ): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    this.assertRecoveryBootPlan([
+      input.plan.original,
+      input.plan.canceled,
+      ...(input.plan.ownerCancellation ? [input.plan.ownerCancellation] : []),
+    ]);
+    if (
+      input.plan.ownerCancellation &&
+      !this.preclaimOwnerCancellationCapability().ownerCanceledOriginal
+    )
+      throw new Error("Update the Host to recover an owner-canceled original operation.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.prepare.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.prepare.request",
+            ...this.recoveryBootPlanCapability(),
+            ...this.preclaimOwnerCancellationCapability(),
+            input,
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery preparation unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  async decidePreclaimRecovery(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<BootstrapPreclaimRecoveryRequest[]> {
+    this.assertPreclaimRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.bootstrap_recovery.decide.response">(
+        {
+          message: {
+            type: "installation.bootstrap_recovery.decide.request",
+            ...this.recoveryBootPlanCapability(),
+            input,
+            ownerPassword,
+            preclaimRecovery: true,
+            ...this.preclaimOwnerCancellationCapability(),
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  private assertClaimedRecoveryReview(): void {
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapClaimedRecovery !== true)
+      throw new Error(
+        "Managed bootstrap recovery is unavailable. Update the Host to use this review.",
+      );
+  }
+
+  async reconcileClaimedRecovery(input: {
+    id: string;
+    revision: string;
+    planSha256: string;
+    generation: string;
+  }): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    if (this.lastServerInfoMessage?.features?.coordinatorBootstrapClaimedObservation !== true)
+      throw new Error("Update the Host to verify a retained recovery outcome.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
+            reconcile: input,
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery observation unconfirmed");
+    return result.requests;
+  }
+
+  async listClaimedRecoveryRequests(): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.list_requests.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.list_requests.request",
+            ...this.recoveryBootPlanCapability(),
+          },
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(result.error ?? "Recovery status unavailable");
+    return result.requests;
+  }
+
+  async prepareClaimedRecovery(
+    input: BootstrapClaimedRecoveryPreparation,
+  ): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    this.assertRecoveryBootPlan([input.plan.original]);
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.prepare.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.prepare.request",
+            ...this.recoveryBootPlanCapability(),
+            input,
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery preparation unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
+  async decideClaimedRecovery(
+    input: CoordinatorBootstrapDecision,
+    ownerPassword: string,
+  ): Promise<BootstrapClaimedRecoveryRequest[]> {
+    this.assertClaimedRecoveryReview();
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"installation.claimed_recovery.decide.response">(
+        {
+          message: {
+            type: "installation.claimed_recovery.decide.request",
+            ...this.recoveryBootPlanCapability(),
+            input,
+            ownerPassword,
+            claimedRecovery: true,
+          },
+          timeout: 15 * 60_000,
+        },
+      );
+    if (result.error || !result.requests)
+      throw new Error(
+        result.error ?? "Recovery decision unconfirmed. Refresh its status before retrying.",
+      );
+    return result.requests;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
@@ -3825,14 +4312,25 @@ export class DaemonClient {
   async restartServer(
     reason?: string,
     requestId?: string,
-    options?: { timeout?: number; idleMode?: "inspect" | "restart" },
+    options?: {
+      timeout?: number;
+      idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+      restartDrainId?: string;
+    },
   ): Promise<RestartRequestedStatusPayload> {
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
     }
+    if (
+      (options?.idleMode === "drain" || options?.idleMode === "cancel-drain") &&
+      this.lastServerInfoMessage?.features?.gracefulRestart !== true
+    ) {
+      throw new Error("Update this daemon to support finishing current turns before restart");
+    }
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
       type: "restart_server_request",
+      ...(options?.restartDrainId ? { restartDrainId: options.restartDrainId } : {}),
       ...(options?.idleMode ? { idleMode: options.idleMode } : {}),
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,
@@ -4684,6 +5182,14 @@ export class DaemonClient {
     input: CreateWorkspaceRequestOptions,
     requestId?: string,
   ): Promise<WorkspaceCreatePayload> {
+    // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
+    if (
+      input.projectMembership &&
+      this.lastServerInfoMessage?.features?.workspaceCreateProjectMembership !== true
+    )
+      throw new Error(
+        "Update this environment before creating a workspace in the selected project.",
+      );
     const resolvedRequestId = this.createRequestId(requestId ?? input.requestId);
     if (input.agent) this.requireWorkflowLaunchSupport(resolveAgentConfig(input.agent).profileId);
     const result = await this.creations.createWorkspace({
@@ -4711,6 +5217,7 @@ export class DaemonClient {
       message: {
         type: "workspace.create.request",
         source: input.source,
+        ...(input.projectMembership ? { projectMembership: input.projectMembership } : {}),
         // COMPAT(workspaceRequestReceipts): added in v0.8.0; remove after 2027-03-15 once the daemon floor supports workspace receipts.
         ...(this.lastServerInfoMessage?.features?.workspaceRequestReceipts &&
         input.idempotencyKey !== undefined
@@ -5244,6 +5751,76 @@ export class DaemonClient {
     });
   }
 
+  async inspectOriginAdmission(
+    options: OriginAdmissionOptions,
+  ): Promise<DaemonOriginAdmissionInspectResponse["payload"]> {
+    const request = DaemonOriginAdmissionInspectRequestSchema.parse({
+      ...options,
+      type: "daemon.config.get_origin_admission.request",
+      requestId: this.createRequestId(options.requestId),
+    });
+    const timeout = options.timeout;
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    const result = await this.sendCorrelatedRequest({
+      requestId: request.requestId,
+      message: request,
+      responseType: "daemon.config.get_origin_admission.response",
+      timeout,
+      options: { skipQueue: true },
+    });
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    if (result.serverId !== request.expectedServerId)
+      throw new DaemonConnectionError("Origin inspection serving identity changed.");
+    return result;
+  }
+
+  async admitOrigin(
+    options: OriginAdmissionInput,
+  ): Promise<DaemonOriginAdmissionResponse["payload"]> {
+    const request = DaemonOriginAdmissionRequestSchema.parse({
+      ...options,
+      type: "daemon.config.admit_origin.request",
+      requestId: this.createRequestId(options.requestId),
+    });
+    const timeout = options.timeout;
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    const result = await this.sendCorrelatedRequest({
+      requestId: request.requestId,
+      message: request,
+      responseType: "daemon.config.admit_origin.response",
+      timeout,
+      options: { skipQueue: true },
+    });
+    this.requireOriginAdmissionSupport(request.expectedServerId);
+    if (result.serverId !== request.expectedServerId)
+      throw new DaemonConnectionError(
+        "Origin admission serving identity changed. Reconcile without replay.",
+      );
+    if (result.state === "applied") {
+      const addedToPersisted = !request.expectedPersistedOrigins.includes(request.origin);
+      const addedToActive = !request.expectedActiveOrigins.includes(request.origin);
+      const expectedPersisted = [...request.expectedPersistedOrigins];
+      const expectedActive = [...request.expectedActiveOrigins];
+      if (addedToPersisted) expectedPersisted.push(request.origin);
+      if (addedToActive) expectedActive.push(request.origin);
+      const persistedMatches =
+        JSON.stringify(expectedPersisted) === JSON.stringify(result.persistedOrigins);
+      const activeMatches = JSON.stringify(expectedActive) === JSON.stringify(result.activeOrigins);
+      const additionsMatch =
+        addedToPersisted === result.addedToPersisted && addedToActive === result.addedToActive;
+      if (
+        result.origin !== request.origin ||
+        !persistedMatches ||
+        !activeMatches ||
+        !additionsMatch
+      )
+        throw new Error(
+          "Origin admission response failed exact postconditions. Reconcile without replay.",
+        );
+    }
+    return result;
+  }
+
   async reloadDaemonConfig(requestId?: string): Promise<DaemonConfigReloadResponse["payload"]> {
     this.requireDaemonConfigReloadSupport();
     return this.sendNamespacedCorrelatedSessionRequest({
@@ -5324,6 +5901,12 @@ export class DaemonClient {
 
   private requireWorkflowLaunchSupport(profileId: string | undefined): void {
     if (profileId && isSharedWorkflowProfile(profileId)) this.requireSharedProviderPreferences();
+    if (
+      profileId?.startsWith("shared-profile/") &&
+      this.lastServerInfoMessage?.features?.accountIndependentProfiles !== true
+    ) {
+      throw new Error("Update the host to use account-independent profiles.");
+    }
   }
 
   private requireSharedProviderPreferences(): void {
@@ -5349,6 +5932,28 @@ export class DaemonClient {
       this.lastServerInfoMessage?.features?.skillLibrary !== true
     )
       throw new Error("Update this environment before saving profile skill policies.");
+  }
+
+  async readSidebarState() {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.read.request" },
+      responseType: "sidebar.state.read.response",
+    });
+  }
+
+  async changeSidebarState(change: SidebarStateChange) {
+    this.requireSidebarState();
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "sidebar.state.change.request", change },
+      responseType: "sidebar.state.change.response",
+    });
+  }
+
+  private requireSidebarState(): void {
+    if (this.lastServerInfoMessage?.features?.sidebarState !== true) {
+      throw new Error("Update the host to synchronize sidebar state.");
+    }
   }
 
   async patchDaemonConfig(
@@ -5456,6 +6061,7 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.preview_remove.response">(
       {
         message: { type: "provider.connection.preview_remove.request", providerId },
+        timeout: 10000,
       },
     );
   }
@@ -5463,6 +6069,7 @@ export class DaemonClient {
   async removeProvider(providerId: string, revision: string) {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.connection.remove.response">({
       message: { type: "provider.connection.remove.request", providerId, revision },
+      timeout: 10000,
     });
   }
 
@@ -6410,6 +7017,7 @@ export class DaemonClient {
     if (options.target.type === "new-agent" && options.target.config.quotaPolicy !== undefined)
       this.assertScheduleQuotaPolicySupport(
         Boolean(options.target.config.quotaPolicy?.estimatedHourly),
+        Boolean(options.target.config.quotaPolicy?.prepaidAuthorization),
       );
     return this.sendCorrelatedSessionRequest({
       requestId: options.requestId,
@@ -6503,7 +7111,7 @@ export class DaemonClient {
     });
   }
 
-  private assertScheduleQuotaPolicySupport(estimatedHourly = false): void {
+  private assertScheduleQuotaPolicySupport(estimatedHourly = false, prepaid = false): void {
     // COMPAT(scheduleQuotaPolicy): added in v0.7.2; remove only when every supported host enforces policies.
     // A policy-unaware host may strip unknown fields and launch ordinary work.
     if (this.lastServerInfoMessage?.features?.scheduleQuotaPolicy !== true)
@@ -6511,12 +7119,17 @@ export class DaemonClient {
     // COMPAT(estimatedHourlyQuota): added in v0.7.2; retain until every supported host enforces estimates.
     if (estimatedHourly && this.lastServerInfoMessage?.features?.estimatedHourlyQuota !== true)
       throw new Error("Update the host before using estimated hourly quota.");
+    // COMPAT(prepaidQuotaAuthorization): prepared 2026-10-09; remove after 2027-04-09
+    // once the supported daemon floor enforces expiring prepaid authorizations.
+    if (prepaid && this.lastServerInfoMessage?.features?.prepaidQuotaAuthorization !== true)
+      throw new Error("Update the host before using prepaid quota authorization.");
   }
 
   async scheduleUpdate(options: UpdateScheduleOptions): Promise<ScheduleUpdatePayload> {
     if (options.newAgentConfig?.quotaPolicy !== undefined)
       this.assertScheduleQuotaPolicySupport(
         Boolean(options.newAgentConfig.quotaPolicy?.estimatedHourly),
+        Boolean(options.newAgentConfig.quotaPolicy?.prepaidAuthorization),
       );
     if (
       options.expectedConfigurationRevision !== undefined &&
@@ -6585,6 +7198,16 @@ export class DaemonClient {
     if (this.lastServerInfoMessage?.features?.hubRelationship !== true) {
       throw new Error("Update the host to use Hub relationship management.");
     }
+  }
+
+  private requireOriginAdmissionSupport(expectedServerId: string): void {
+    const info = this.lastServerInfoMessage;
+    if (info?.features?.guardedOriginAdmission !== true)
+      throw new Error("Update the host before using guarded origin admission.");
+    if (info.serverId !== expectedServerId)
+      throw new DaemonConnectionError(
+        "Origin operation requires the exact expected serving identity.",
+      );
   }
 
   private requireDaemonConfigReloadSupport(): void {
@@ -7348,6 +7971,7 @@ function resolveAgentConfig(options: CreateAgentRequestOptions): AgentSessionCon
     idempotencyKey: _idempotencyKey,
     clientMessageId: _clientMessageId,
     callerAgentId: _callerAgentId,
+    origin: _origin,
     outputSchema: _outputSchema,
     attachments: _attachments,
     worktree: _worktree,

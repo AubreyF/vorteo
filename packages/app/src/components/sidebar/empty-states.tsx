@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { type ReactNode, useCallback } from "react";
 import { Import, Plus } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -23,7 +24,7 @@ function SidebarEmptyStateCard({
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
       </View>
-      <View style={styles.actions}>{children}</View>
+      <ActionFooter style={styles.actions}>{children}</ActionFooter>
     </View>
   );
 }

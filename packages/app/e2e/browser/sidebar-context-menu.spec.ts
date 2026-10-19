@@ -1,4 +1,6 @@
-import { test } from "../support/fixtures";
+import { getServerId } from "../support/helpers/server-id";
+import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
+import { test, expect } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import {
@@ -38,3 +40,43 @@ test.describe("Sidebar context menus", () => {
     }
   });
 });
+
+for (const width of [1024, 1133, 1600]) {
+  test(`project margins stay balanced with indented children at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 744 });
+    const workspace = await seedWorkspace({ repoPrefix: "sidebar-margins-" });
+    try {
+      await gotoAppShell(page);
+      const project = page
+        .getByTestId(`sidebar-project-row-${projectEquivalenceViewKey(workspace.projectKey)}`)
+        .filter({ visible: true });
+      const child = page
+        .getByTestId(`sidebar-workspace-row-${getServerId()}:${workspace.workspaceId}`)
+        .filter({ visible: true });
+      await expect(project).toBeVisible();
+      await expect(child).toBeVisible();
+      const [parentBox, childBox] = await Promise.all(
+        [project.locator(".."), child].map((row) =>
+          row.evaluate((element) => {
+            const style = getComputedStyle(element);
+            const box = element.getBoundingClientRect();
+            return {
+              left: parseFloat(style.paddingLeft),
+              right: parseFloat(style.paddingRight),
+              x: box.x,
+              width: box.width,
+            };
+          }),
+        ),
+      );
+      expect(parentBox.left).toBe(parentBox.right);
+      expect(parentBox.left).toBe(6);
+      expect(childBox.left).toBe(30);
+      expect(Math.abs(childBox.x - parentBox.x)).toBeLessThan(2);
+      expect(Math.abs(childBox.width - parentBox.width)).toBeLessThan(2);
+      await page.screenshot({ path: test.info().outputPath(`project-margins-${width}.png`) });
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+}

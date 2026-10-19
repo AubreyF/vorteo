@@ -1,4 +1,5 @@
 import { expect, test } from "../support/fixtures";
+import { openSidebarDisplayPage } from "../support/helpers/sidebar";
 import { gotoAppShell } from "../support/helpers/app";
 import { getServerId } from "../support/helpers/server-id";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -159,15 +160,14 @@ test.describe("Workspace labels", () => {
       });
       await gotoAppShell(page);
 
-      await page.getByTestId("sidebar-display-preferences-menu").click();
-      await page.getByTestId("sidebar-display-label-filter").click();
+      await openSidebarDisplayPage(page, "sidebar-display-label-filter");
       // Clear only exists once something is filtered, so the row has to be selected first.
       await expect(page.getByTestId("sidebar-label-filter-clear")).toBeHidden();
       await page.getByTestId("sidebar-label-filter-option-Unused").click();
 
       await expect(page.getByText("No workspaces match", { exact: true })).toBeVisible();
       await expect(page.getByTestId("sidebar-project-empty-state")).toBeHidden();
-      await expect(page.getByTestId("sidebar-display-preferences-menu")).toBeVisible();
+      await expect(page.getByTestId("sidebar-footer-overflow")).toBeVisible();
 
       // Emptying the sidebar swaps the list's body and nothing above it, so the page the filter
       // was set on is still up over the empty state and clearing it is one press away.
@@ -231,8 +231,7 @@ test.describe("Workspace labels", () => {
         const unlabelledRow = page.getByTestId(
           `sidebar-workspace-row-${getServerId()}:${unlabelled.workspaceId}`,
         );
-        await page.getByTestId("sidebar-display-preferences-menu").click();
-        await page.getByTestId("sidebar-display-label-filter").click();
+        await openSidebarDisplayPage(page, "sidebar-display-label-filter");
 
         const urgent = page.getByTestId("sidebar-label-filter-option-Urgent");
         const frontend = page.getByTestId("sidebar-label-filter-option-Frontend");
@@ -278,8 +277,7 @@ test.describe("Workspace labels", () => {
       });
 
       await test.step("editing a label is one operation and preserves its assignments", async () => {
-        await page.getByTestId("sidebar-display-preferences-menu").click();
-        await page.getByTestId("sidebar-display-label-filter").click();
+        await openSidebarDisplayPage(page, "sidebar-display-label-filter");
         await page.getByTestId("sidebar-label-manage").click();
         await expect(page.getByText("Manage labels", { exact: true })).toBeVisible();
 
@@ -355,10 +353,9 @@ test.describe("Workspace labels", () => {
         await waitForSidebarHydration(page);
 
         const serverId = getServerId();
-        await page.getByTestId(`sidebar-workspace-kebab-${serverId}:${seeded.workspaceId}`).click();
-        await page
-          .getByTestId(`sidebar-workspace-menu-labels-${serverId}:${seeded.workspaceId}`)
-          .tap();
+        await page.getByTestId(`sidebar-workspace-row-${serverId}:${seeded.workspaceId}`).tap();
+        await page.getByTestId("workspace-header-menu-trigger").tap();
+        await page.getByTestId("workspace-header-labels").tap();
         await expectAssigned(page, "Touch", true);
 
         await labelRow(page, "Touch").tap();
@@ -369,6 +366,11 @@ test.describe("Workspace labels", () => {
         await page.getByTestId("workspace-label-picker-create").tap();
         await expect(page.getByTestId("workspace-label-picker-create-name")).toBeVisible();
         await expect(labelRow(page, "Touch")).toBeHidden();
+        await page.getByTestId("workspace-label-picker-create-name").fill("Protected");
+        await page.getByTestId("workspace-label-picker-create-submit").tap();
+        await expect(page.getByTestId("workspace-label-picker-error")).toContainText(
+          "reserved for a built-in label",
+        );
         await page.getByTestId("workspace-label-picker-create-name").fill("Handheld");
         await page.getByTestId("workspace-label-swatch-emerald").tap();
         await page.getByTestId("workspace-label-picker-create-submit").tap();

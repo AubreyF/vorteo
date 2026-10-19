@@ -1,4 +1,8 @@
-import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
+import {
+  canonicalProfileId,
+  resolveProviderType,
+  sharedWorkflowProfileId,
+} from "@getpaseo/protocol/provider-preferences";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { Button } from "@/components/ui/button";
 import { useCallback, useMemo } from "react";
@@ -20,7 +24,8 @@ export function ProfilePermissionWarning({
   serverId: string;
   agentId: string;
 }) {
-  const { profiles, legacyProfiles, supportsLaunch } = useAgentProfiles(serverId);
+  const { profiles, legacyProfiles, supportsLaunch, accountIndependent } =
+    useAgentProfiles(serverId);
   const { config } = useDaemonConfig(serverId);
   const { entries } = useProvidersSnapshot(serverId, { cwd: null });
   const agent = useSessionStore(
@@ -34,17 +39,22 @@ export function ProfilePermissionWarning({
       };
     }),
   );
-  const binding = agent.profileId
-    ? config?.sharedProviderPreferences?.legacyProfiles[agent.profileId]
-    : undefined;
-  const profileId = binding
+  const preferences = config?.sharedProviderPreferences;
+  const binding = agent.profileId ? preferences?.legacyProfiles[agent.profileId] : undefined;
+  const oldProfileId = binding
     ? sharedWorkflowProfileId(binding.provider, binding.workflowId)
     : agent.profileId;
+  const profileId =
+    agent.profileId && preferences && accountIndependent
+      ? canonicalProfileId(agent.profileId, preferences, config.providers)
+      : oldProfileId;
   const profile =
     profiles?.find((candidate) => candidate.id === profileId) ??
     legacyProfiles.find((candidate) => candidate.id === profileId);
-  if (!profile || !supportsLaunch || profile.provider !== agent.provider) return null;
-  const entry = entries?.find((candidate) => candidate.provider === profile.provider);
+  if (!profile || !supportsLaunch || !agent.provider) return null;
+  const providerType = resolveProviderType(agent.provider, config?.providers ?? {});
+  if (profile.provider !== agent.provider && profile.provider !== providerType) return null;
+  const entry = entries?.find((candidate) => candidate.provider === agent.provider);
   const mismatch = profilePermissionMismatch(profile, agent.mode, entry);
   if (!mismatch) return null;
   return (
@@ -52,7 +62,7 @@ export function ProfilePermissionWarning({
       serverId={serverId}
       agentId={agentId}
       profileId={profile.id}
-      provider={profile.provider}
+      provider={agent.provider}
       running={agent.running}
       current={mismatch.current}
       expected={mismatch.expected}
@@ -85,7 +95,10 @@ function PermissionWarningAction({
     [agentId],
   );
   const picker = useAgentProfilePicker({ serverId, availableProviders: providers, target });
-  const recreate = useCallback(() => picker?.applyProfile(profileId), [picker, profileId]);
+  const recreate = useCallback(
+    () => picker?.applyProfile(profileId, { provider }),
+    [picker, profileId, provider],
+  );
   const runningHint = running ? " Stop this chat before recreating it." : "";
   const description = useMemo(
     () => (

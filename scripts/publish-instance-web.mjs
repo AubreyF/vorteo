@@ -4,9 +4,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { compressFile } from "./compress-web-asset.mjs";
-import { digest, hashFiles, manifestName, readLiveState } from "./instance-web-artifact.mjs";
+import { fallbackIcons, isReviewedFallback } from "./web-icon-migration.mjs";
+import {
+  digest,
+  hashFiles,
+  manifestName,
+  readLiveState,
+  readPublicationBinding,
+  verifyPublicationSource,
+  retainPublicationSource,
+} from "./instance-web-artifact.mjs";
 
 const [sourceArg, destinationArg] = process.argv.slice(2);
 if (!sourceArg || !destinationArg || process.argv.length !== 4) {
@@ -40,6 +48,7 @@ try {
 const id = crypto.randomUUID();
 const staging = path.join(destination, `.staging-${id}`);
 const releaseDirectory = path.join(destination, ".releases", id);
+const iconAliases = new Map();
 try {
   await fs.writeFile(
     path.join(lock, "owner.json"),
@@ -57,17 +66,16 @@ try {
   ) {
     throw new Error("Integration branch does not match the live release.");
   }
-  // Verify ancestry again at publication, without requiring the checkout to remain unchanged.
-  execFileSync("git", ["cat-file", "-e", `${manifest.sourceCommit}^{commit}`], {
-    cwd: manifest.deployment.repository,
+  const binding = await readPublicationBinding(destination);
+  if (binding && binding.integrationRef !== manifest.deployment.integrationRef)
+    throw new Error("Integration branch does not match the protected publication binding");
+  // Verify ancestry again without requiring the checkout to remain unchanged.
+  await verifyPublicationSource({
+    repository: manifest.deployment.repository,
+    sourceCommit: manifest.sourceCommit,
+    previousCommit: live.release?.sourceCommit,
+    requireComplete: Boolean(binding),
   });
-  if (live.release?.sourceCommit) {
-    execFileSync(
-      "git",
-      ["merge-base", "--is-ancestor", live.release.sourceCommit, manifest.sourceCommit],
-      { cwd: manifest.deployment.repository },
-    );
-  }
   await fs.cp(source, staging, { recursive: true, dereference: false });
   const files = await hashFiles(staging);
   if (JSON.stringify(files) !== JSON.stringify(manifest.files))
@@ -84,6 +92,14 @@ try {
   const assets = Object.keys(files).filter(
     (name) => !reserved.has(name) && !name.endsWith(".br") && !name.endsWith(".gz"),
   );
+  for (const name of Object.keys(fallbackIcons)) {
+    const target = await fs.readlink(path.join(destination, name)).catch((error) => {
+      if (error.code === "ENOENT" || error.code === "EINVAL") return null;
+      throw error;
+    });
+    if (target === `.current/${name}` && !assets.includes(name))
+      throw new Error(`Export omits selected fallback icon: ${name}`);
+  }
   for (const name of assets) {
     if (
       name.split("/").some((part) => part.startsWith(".")) ||
@@ -96,12 +112,21 @@ try {
       if (error.code === "ENOENT") return null;
       throw error;
     });
-    // Existing clients can still request their old chunks. Never change bytes at an existing URL.
-    if (existing && digest(existing) !== files[name])
+    const reviewedIcon = isReviewedFallback(name, existing ? digest(existing) : null, files[name]);
+    if (reviewedIcon) iconAliases.set(name, existing);
+    // Only exact reviewed icon aliases may change. Open clients retain every old chunk.
+    if (!reviewedIcon && existing && digest(existing) !== files[name])
       throw new Error(`Asset URL collision: ${name}. Export a new content-addressed filename.`);
     if ([".js", ".css", ".json", ".svg", ".map"].includes(path.extname(name))) {
       await compressFile(path.join(staging, name));
     }
+  }
+  if (binding) {
+    await retainPublicationSource({
+      binding,
+      repository: manifest.deployment.repository,
+      sourceCommit: manifest.sourceCommit,
+    });
   }
   const release = {
     publishedAt: new Date().toISOString(),
@@ -120,6 +145,10 @@ try {
     JSON.stringify(release, null, 2) + "\n",
   );
   for (const name of assets) {
+    if (iconAliases.has(name)) {
+      await fs.copyFile(path.join(staging, name), path.join(releaseDirectory, name));
+      continue;
+    }
     await installAsset(name);
     for (const extension of [".br", ".gz"]) {
       await installAsset(name + extension).catch((error) => {
@@ -128,6 +157,7 @@ try {
     }
   }
   await prepareCurrent(live);
+  await prepareIconAliases();
   if (live.index) await atomicFile(path.join(destination, "index.previous.html"), live.index);
   // One rename commits both index and receipt. A killed publisher leaves the old release selected.
   await atomicLink(path.join(destination, ".current"), `.releases/${id}`);
@@ -157,6 +187,23 @@ async function atomicLink(target, relative) {
   const temporary = `${target}.${id}.tmp`;
   await fs.symlink(relative, temporary);
   await fs.rename(temporary, target);
+}
+async function prepareIconAliases() {
+  const selected = await fs.realpath(path.join(destination, ".current"));
+  if (!selected.startsWith(path.join(destination, ".releases") + path.sep))
+    throw new Error("Selected release must remain inside .releases");
+  for (const [name, previous] of iconAliases) {
+    if (previous) {
+      const retained = path.join(selected, name);
+      await fs.writeFile(retained, previous, { flag: "wx" }).catch(async (error) => {
+        if (error.code !== "EEXIST") throw error;
+        if (!(await fs.readFile(retained)).equals(previous))
+          throw new Error(`Retained fallback icon differs: ${name}`);
+      });
+    }
+    // Until .current switches, this still serves the exact previous icon bytes.
+    await atomicLink(path.join(destination, name), `.current/${name}`);
+  }
 }
 async function prepareCurrent(live) {
   const current = path.join(destination, ".current");

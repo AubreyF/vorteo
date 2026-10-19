@@ -1,3 +1,5 @@
+import { helperReviewFixture } from "./helper-review.fixture";
+import { InstallationRouteUnavailable } from "./client";
 import { expect, test, vi } from "vitest";
 import { InstallationClient, hasInstallationConnections } from "./client";
 import type { HostProfile } from "@/types/host-connection";
@@ -134,7 +136,10 @@ test("session-capable clients discard the password and restore verified connecti
     expect(await client.restoreSession()).toBe(false);
     await client.unlock("recovery-password");
     await client.listRestarts();
-    expect(calls.at(-1)).toEqual(["restarts/query", ""]);
+    expect(calls.at(-1)).toEqual([
+      "restarts/query?sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1",
+      "",
+    ]);
     expect(await client.restoreSession()).toBe(true);
     expect(calls.at(-1)).toEqual(["connections", ""]);
     await client.lock();
@@ -165,5 +170,229 @@ test("capable installation clients request extended restart details without chan
   );
   await client.unlock("test-owner");
   await client.listRestarts();
-  expect(calls).toEqual(["unlock", "restarts/query?idleRestarts=1"]);
+  expect(calls).toEqual([
+    "unlock",
+    "restarts/query?idleRestarts=1&sourceUpdates=1&sourceBatches=1&containerSourceUpdates=1&supervisorMaintenance=1&hostAutomaticRestarts=1&factoryRuntimeAdoption=1",
+  ]);
+});
+
+test("helper client preserves exact approval binding and reads old coordinators without requests", async () => {
+  const calls: Array<{ path: string; body: unknown }> = [];
+  let available = false;
+  let now = 1_000;
+  const client = new InstallationClient(installation, {
+    now: () => now,
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) =>
+            Object.assign({}, environment, { password: "fixture" }),
+          ),
+        };
+      if (path === "helpers/query") {
+        if (!available) throw new InstallationRouteUnavailable();
+        return { jobs: [helperReviewFixture] };
+      }
+      return helperReviewFixture;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.listHelpers()).rejects.toThrow("Unlock");
+  await client.unlock("fixture-owner");
+  expect(await client.listHelpers()).toEqual([]);
+  const callsAfterUnavailable = calls.length;
+  now += 5_000;
+  expect(await client.listHelpers()).toEqual([]);
+  expect(calls).toHaveLength(callsAfterUnavailable);
+  await client.lock();
+  await expect(client.listHelpers()).rejects.toThrow("Unlock");
+  await client.unlock("fixture-owner");
+  available = true;
+  now += 55_000;
+  expect(await client.listHelpers()).toEqual([helperReviewFixture]);
+  expect(await client.listHelpers()).toEqual([helperReviewFixture]);
+  await client.decideHelper(helperReviewFixture, "approve");
+  expect(calls.at(-1)).toEqual({
+    path: "helpers/decision",
+    body: {
+      id: helperReviewFixture.id,
+      revision: helperReviewFixture.revision,
+      planSha256: helperReviewFixture.planSha256,
+      operation: "native-helper-install",
+      decision: "approve",
+    },
+  });
+  await client.decideHelper(helperReviewFixture, "verify-installed");
+  expect(calls.at(-1)).toEqual({
+    path: "helpers/verify-installed",
+    body: {
+      id: helperReviewFixture.id,
+      revision: helperReviewFixture.revision,
+      planSha256: helperReviewFixture.planSha256,
+      operation: "native-helper-verify-installed",
+    },
+  });
+});
+
+test("monitor client fails closed with legacy coordinator, rediscovers and binds exact approval", async () => {
+  const { monitorReviewFixture: job } = await import("./preview-monitor-review.fixture");
+  let now = 0;
+  let available = false;
+  let tamper = false;
+  const calls: Array<{ path: string; body: unknown }> = [];
+  const client = new InstallationClient(installation, {
+    now: () => now,
+    request: async (path, _password, body) => {
+      calls.push({ path, body });
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((e) =>
+            Object.assign({}, e, { password: "fixture" }),
+          ),
+        };
+      if (path === "monitors/query") {
+        if (!available) throw new InstallationRouteUnavailable();
+        return { jobs: [job] };
+      }
+      return tamper ? { ...job, revision: "00000000-0000-4000-8000-000000000005" } : job;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.listMonitors()).rejects.toThrow("Unlock");
+  await client.unlock("owner");
+  expect(await client.listMonitors()).toEqual([]);
+  const n = calls.length;
+  now = 5000;
+  expect(await client.listMonitors()).toEqual([]);
+  expect(calls).toHaveLength(n);
+  available = true;
+  now = 60000;
+  expect(await client.listMonitors()).toEqual([job]);
+  await client.decideMonitor(job, "approve");
+  expect(calls.at(-1)).toEqual({
+    path: "monitors/decision",
+    body: {
+      id: job.id,
+      revision: job.revision,
+      planSha256: job.planSha256,
+      operation: job.operation,
+      decision: "approve",
+    },
+  });
+  tamper = true;
+  await expect(client.decideMonitor(job, "cancel")).rejects.toThrow("changed");
+  await client.lock();
+  await expect(client.listMonitors()).rejects.toThrow("Unlock");
+});
+
+test("daemon automation requires unlocked access and refuses writes without supported query", async () => {
+  const calls: string[] = [];
+  let supported = false;
+  const preference = { revision: null, enabled: false, enabledAfter: null, legacyHostOnly: false };
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      calls.push(resource);
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture-password",
+          })),
+        };
+      if (!supported) throw new InstallationRouteUnavailable("Unavailable");
+      return preference;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.daemonAutomation()).rejects.toThrow("Unlock installation controls first");
+  expect(calls).toEqual([]);
+  await client.unlock("owner-password");
+  expect(await client.daemonAutomation()).toBeNull();
+  await expect(client.changeDaemonAutomation(preference, true)).rejects.toThrow("unavailable");
+  expect(calls).toEqual(["unlock", "maintenance-permissions/query", "daemon-automation/query"]);
+  supported = true;
+  expect(await client.daemonAutomation()).toEqual(preference);
+  supported = false;
+  await expect(client.daemonAutomation()).rejects.toThrow("Unavailable");
+});
+
+test("Dev repair capability loss fails closed and preparation sends only the exact request identity", async () => {
+  let available = true;
+  const sent: Array<{ path: string; body: unknown }> = [];
+  const id = "c429363b-8277-4d56-8f46-029b0c05668c";
+  const revision = "b752672e-bd0e-4464-8367-41fb0a695eb2";
+  const client = new InstallationClient(installation, {
+    request: async (path, _password, body) => {
+      if (path === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((item) =>
+            Object.assign({}, item, { password: "fixture" }),
+          ),
+        };
+      if (!available) throw new InstallationRouteUnavailable("Unavailable");
+      sent.push({ path, body });
+      return path === "dev-repair/query" ? { available: true, preparingIds: [] } : { id, revision };
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await client.unlock("fixture");
+  await client.devRepairStatus();
+  await client.prepareDevRepair({ id, revision } as Parameters<typeof client.prepareDevRepair>[0]);
+  expect(sent.at(-1)).toEqual({
+    path: "dev-repair/prepare",
+    body: { id, revision },
+  });
+  available = false;
+  await expect(client.devRepairStatus()).rejects.toThrow("Unavailable");
+  const before = sent.length;
+  await expect(
+    client.prepareDevRepair({ id, revision } as Parameters<typeof client.prepareDevRepair>[0]),
+  ).rejects.toThrow("Update the coordinator");
+  expect(sent).toHaveLength(before);
+});
+
+test("maintenance status distinguishes an older coordinator from a failed observation", async () => {
+  let outcome: "old" | "ready" | "failed" = "old";
+  const status = {
+    version: 1,
+    checkedAt: new Date().toISOString(),
+    paths: [],
+    preference: { revision: null, enabled: false, enabledAfter: null, legacyHostOnly: true },
+  };
+  const client = new InstallationClient(installation, {
+    request: async (resource) => {
+      if (resource === "unlock")
+        return {
+          installationId: installation.installationId,
+          connections: installation.environments.map((environment) => ({
+            kind: environment.kind,
+            serverId: environment.serverId,
+            endpoint: environment.endpoint,
+            useTls: environment.useTls,
+            password: "fixture",
+          })),
+        };
+      if (outcome === "old") throw new InstallationRouteUnavailable("Update coordinator");
+      if (outcome === "failed") throw new Error("Observation failed");
+      return status;
+    },
+    register: { installExecutionEnvironments: async () => {} },
+  });
+  await expect(client.maintenanceStatus()).rejects.toThrow("Unlock");
+  await client.unlock("owner-password");
+  expect(await client.maintenanceStatus()).toBeNull();
+  outcome = "ready";
+  expect(await client.maintenanceStatus()).toEqual(status);
+  outcome = "old";
+  await expect(client.maintenanceStatus()).rejects.toThrow("Update coordinator");
+  outcome = "failed";
+  await expect(client.maintenanceStatus()).rejects.toThrow("Observation failed");
 });

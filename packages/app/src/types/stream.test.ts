@@ -402,13 +402,7 @@ function canonicalToolTimeline(params: {
 }
 
 function todoTimeline(
-  items: Array<{
-    id?: string;
-    text: string;
-    completed: boolean;
-    status?: "pending" | "in_progress" | "completed";
-    activeForm?: string;
-  }>,
+  items: import("@getpaseo/protocol/agent-types").AgentTaskItem[],
   provider: AgentProvider = "codex",
 ): AgentStreamEventPayload {
   return {
@@ -1264,6 +1258,26 @@ describe("stream reducer canonical tool calls", () => {
     assert.strictEqual(tools[0].payload.data.status, "completed");
   });
 
+  it("retains checklist editing details in live timeline projections", () => {
+    const task = {
+      id: "task",
+      source: "vorteo" as const,
+      text: "Verify",
+      completed: false,
+      description: "Check the rendered card",
+      owner: "worker",
+      blockedBy: ["build"],
+      metadata: { milestone: "Delivery" },
+    };
+    const state = hydrateStreamState([
+      { event: todoTimeline([task]), timestamp: new Date("2025-01-01T10:50:00Z") },
+    ]);
+    const todos = state.find(
+      (item): item is Extract<StreamItem, { kind: "todo_list" }> => item.kind === "todo_list",
+    );
+    assert.deepStrictEqual(todos?.items, [task]);
+  });
+
   it("converts todo timeline updates to todo_list", () => {
     const state = hydrateStreamState([
       {
@@ -1379,6 +1393,62 @@ describe("stream reducer canonical tool calls", () => {
           expect.objectContaining({ text: "Ship fix" }),
         ]),
       }),
+    ]);
+  });
+
+  it("preserves exact summaries and updates only the matching compaction", () => {
+    const timestamp = new Date("2026-10-07T10:00:00Z");
+    const state = hydrateStreamState([
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "first",
+            inspection: { summary: { type: "text", text: "First summary\n" } },
+          },
+        },
+      },
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "second",
+            preTokens: 10000,
+          },
+        },
+      },
+      {
+        timestamp,
+        event: {
+          type: "timeline",
+          provider: "claude",
+          item: {
+            type: "compaction",
+            status: "completed",
+            compactionId: "second",
+            inspection: {
+              summary: { type: "text", text: "  Exact summary\n\nKeep this.\n" },
+              postTokens: 1200,
+            },
+          },
+        },
+      },
+    ]);
+    expect(state.filter((item) => item.kind === "compaction")).toMatchObject([
+      { compactionId: "first", inspection: { summary: { text: "First summary\n" } } },
+      {
+        compactionId: "second",
+        preTokens: 10000,
+        inspection: { summary: { text: "  Exact summary\n\nKeep this.\n" }, postTokens: 1200 },
+      },
     ]);
   });
 

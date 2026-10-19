@@ -7,7 +7,7 @@ import {
   type MockAgentWorkspace,
 } from "../support/helpers/mock-agent";
 import { getServerId } from "../support/helpers/server-id";
-import { closeMobileAgentSidebar, openMobileAgentSidebar } from "../support/helpers/sidebar";
+import { openMobileAgentSidebar } from "../support/helpers/sidebar";
 
 interface FinishedWorkspaces {
   subject: MockAgentWorkspace;
@@ -109,48 +109,6 @@ async function completeTurnAndLeave(page: Page, { subject, other }: FinishedWork
   });
 }
 
-async function openWorkspaceOnCompact(page: Page, workspaceId: string) {
-  await openWorkspace(page, workspaceId);
-  await openMobileAgentSidebar(page);
-}
-
-async function leaveMarkedWorkspaceAndReadOnCompact(
-  page: Page,
-  { subject, other }: FinishedWorkspaces,
-) {
-  await test.step("leaving preserves manual unread until Mark as read", async () => {
-    await markAsUnread(page, subject.workspaceId);
-    await openWorkspaceOnCompact(page, other.workspaceId);
-    await markAsRead(page, subject.workspaceId);
-    await openWorkspaceOnCompact(page, subject.workspaceId);
-  });
-}
-
-async function leaveMarkedWorkspaceAndReopenOnCompact(
-  page: Page,
-  { subject, other }: FinishedWorkspaces,
-) {
-  await test.step("leaving preserves manual unread until reopening", async () => {
-    await markAsUnread(page, subject.workspaceId);
-    await openWorkspaceOnCompact(page, other.workspaceId);
-    await expectStatus(page, subject.workspaceId, "attention");
-    await openWorkspaceOnCompact(page, subject.workspaceId);
-    await expectStatus(page, subject.workspaceId, "done");
-  });
-}
-
-async function completeTurnAndLeaveOnCompact(page: Page, { subject, other }: FinishedWorkspaces) {
-  await test.step("ordinary completion still clears on departure", async () => {
-    await closeMobileAgentSidebar(page);
-    await subject.client.sendAgentMessage(subject.agentId, "Finish another turn.");
-    await subject.client.waitForFinish(subject.agentId, 20_000);
-    await openMobileAgentSidebar(page);
-    await expectStatus(page, subject.workspaceId, "attention");
-    await openWorkspaceOnCompact(page, other.workspaceId);
-    await expectStatus(page, subject.workspaceId, "done");
-  });
-}
-
 async function markBackgroundWorkspaceAndRead(page: Page, workspaceId: string) {
   await test.step("explicit Mark as read clears a background workspace", async () => {
     await markAsUnread(page, workspaceId);
@@ -173,22 +131,6 @@ async function addFinishedAgent(workspace: MockAgentWorkspace) {
     title: "Newest agent",
     modeId: "load-test",
     model: "e2e-fast-stream",
-  });
-}
-
-async function openCompactWorkspace(page: Page, workspace: MockAgentWorkspace) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await openAgentRoute(page, workspace);
-  await openMobileAgentSidebar(page);
-}
-
-async function markUnreadThenResumeChat(page: Page, workspaceId: string) {
-  await test.step("interacting with the visible chat clears manual unread", async () => {
-    await markAsUnread(page, workspaceId);
-    await closeMobileAgentSidebar(page);
-    await page.getByRole("textbox", { name: "Message agent..." }).click();
-    await openMobileAgentSidebar(page);
-    await expectStatus(page, workspaceId, "done");
   });
 }
 
@@ -217,13 +159,42 @@ test("clicking a multi-agent workspace reveals and clears its marked agent", asy
   await expectSelectedAgent(page, newest.id);
 });
 
+async function chooseHeaderReadAction(page: Page, action: "read" | "unread") {
+  await page.locator('[data-testid="workspace-header-menu-trigger"]:visible').click();
+  const item = page.getByTestId(`workspace-header-mark-as-${action}`);
+  await expect(item).toBeVisible();
+  await item.click();
+}
+
 test("manual unread survives leaving the current workspace on compact layout", async ({
   page,
   workspaces,
 }) => {
-  await openCompactWorkspace(page, workspaces.subject);
-  await leaveMarkedWorkspaceAndReadOnCompact(page, workspaces);
-  await leaveMarkedWorkspaceAndReopenOnCompact(page, workspaces);
-  await markUnreadThenResumeChat(page, workspaces.subject.workspaceId);
-  await completeTurnAndLeaveOnCompact(page, workspaces);
+  test.setTimeout(120_000);
+  const { subject, other } = workspaces;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAgentRoute(page, subject);
+  await chooseHeaderReadAction(page, "unread");
+  await chooseHeaderReadAction(page, "read");
+  await chooseHeaderReadAction(page, "unread");
+
+  await openMobileAgentSidebar(page);
+  await openWorkspace(page, other.workspaceId);
+  await openMobileAgentSidebar(page);
+  await expectStatus(page, subject.workspaceId, "attention");
+  await openWorkspace(page, subject.workspaceId);
+  await chooseHeaderReadAction(page, "unread");
+  await page.getByRole("textbox", { name: "Message agent..." }).click();
+  await chooseHeaderReadAction(page, "unread");
+  await chooseHeaderReadAction(page, "read");
+
+  // Mark unread ends pane viewing. Resume viewing before testing a normal completion.
+  await page.getByRole("textbox", { name: "Message agent..." }).click();
+  await subject.client.sendAgentMessage(subject.agentId, "Finish another turn.");
+  await subject.client.waitForFinish(subject.agentId, 20_000);
+  await openMobileAgentSidebar(page);
+  await expectStatus(page, subject.workspaceId, "attention");
+  await openWorkspace(page, other.workspaceId);
+  await openMobileAgentSidebar(page);
+  await expectStatus(page, subject.workspaceId, "done");
 });

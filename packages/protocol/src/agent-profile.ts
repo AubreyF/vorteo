@@ -33,6 +33,10 @@ export const AgentProfileSchema = z
     /** Selected automatically for new Vorton drafts on this host. */
     isDefault: z.boolean().optional(),
     workerProfileId: z.string().optional(),
+    /** Explicit local account or portable installation account reference for this worker. */
+    workerAccount: z.string().optional(),
+    /** Explicitly remove the managed-worker count limit; omission retains the finite default. */
+    uncappedWorkers: z.boolean().optional(),
     maxWorkers: z.number().int().min(1).max(8).optional(),
   })
   .passthrough();

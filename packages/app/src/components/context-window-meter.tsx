@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
@@ -60,18 +61,11 @@ function formatSessionCost(value: number): string | null {
   return `$${value.toFixed(2)}`;
 }
 
-function getMeterColors(
-  percentage: number,
-  theme: ReturnType<typeof useUnistyles>["theme"],
-): { progress: string; track: string } {
-  const track = theme.colors.surface3;
-  if (percentage > 90) {
-    return { progress: theme.colors.destructive, track };
-  }
-  if (percentage >= 70) {
-    return { progress: theme.colors.palette.amber[500], track };
-  }
-  return { progress: theme.colors.foregroundMuted, track };
+function getMeterColors(theme: ReturnType<typeof useUnistyles>["theme"]): {
+  progress: string;
+  track: string;
+} {
+  return { progress: theme.colors.foregroundMuted, track: theme.colors.surface3 };
 }
 
 function getMeterGeometry(showPercentage: boolean, glyphSize?: number) {
@@ -157,7 +151,7 @@ export function ContextWindowMeter({
   const roundedPercentage = Math.round(percentage);
   const { svgSize, center, radius, strokeWidth, circumference, containerStyle } = geometry;
   const dashOffset = circumference - (clampedPercentage / 100) * circumference;
-  const colors = getMeterColors(clampedPercentage, theme);
+  const colors = getMeterColors(theme);
   const formattedSessionCost =
     typeof totalCostUsd === "number" ? formatSessionCost(totalCostUsd) : null;
 

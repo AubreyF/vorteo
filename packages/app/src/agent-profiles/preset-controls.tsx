@@ -3,21 +3,29 @@ import { EnvironmentPresetMenu } from "./environment-preset-menu";
 import { AccountDisconnectedIcon } from "@/provider-usage/reconnect-control";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
-import { ActivityIndicator, Text, View, useWindowDimensions } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import { Combobox } from "@/components/ui/combobox";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { usePresetData } from "./use-preset-data";
 import type { AgentProfilePicker } from "./internal/use-agent-profile-picker";
 import { useAgentProfiles } from "./internal/use-agent-profiles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { NEW_WORKSPACE_CARD_HEIGHT, useIsCompactFormFactor } from "@/constants/layout";
 import { useVortonTouch } from "@/vorton-touch";
 import { RemainingRing } from "@/provider-usage/remaining-ring";
 import { useCompactProfileName } from "./use-compact-profile-name";
+import { canonicalProfileId } from "@getpaseo/protocol/provider-preferences";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { selectedPresetPresentation } from "./selected-preset-presentation";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 
 const PROFILE_SNAP_POINTS = ["90%"];
+const PendingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
 const EMPTY_OPTIONS: { id: string; label: string }[] = [];
 
 function PresetStatusIcon({
@@ -33,7 +41,7 @@ function PresetStatusIcon({
   remaining: number | null;
   stale: boolean;
 }) {
-  if (waiting) return <ActivityIndicator size="small" style={styles.pendingRing} />;
+  if (waiting) return <PendingSpinner size="small" style={styles.pendingRing} />;
   if (showWarning) return <AccountDisconnectedIcon />;
   if (showRing)
     return (
@@ -45,6 +53,7 @@ function PresetStatusIcon({
 }
 
 interface PresetControlsProps {
+  inline?: boolean;
   serverId: string | null;
   profiles: AgentProfilePicker;
   selectedProfileId?: string;
@@ -65,9 +74,10 @@ export function activePresetPicker(input: {
   return input.enabled && input.supported ? input.picker : null;
 }
 export function PresetControls({
+  inline = false,
   serverId,
   profiles,
-  selectedProfileId,
+  selectedProfileId: storedProfileId,
   selectedProfileName,
   activeProfileId,
   currentProvider,
@@ -96,10 +106,17 @@ export function PresetControls({
     [touch, isCompact],
   );
   const { width } = useWindowDimensions();
-  const { profiles: definitions } = useAgentProfiles(serverId);
+  const { profiles: definitions, accountIndependent } = useAgentProfiles(serverId);
+  const { entries } = useProvidersSnapshot(serverId, { cwd: null });
+  const { config } = useDaemonConfig(serverId);
+  const preferences = config?.sharedProviderPreferences;
+  const selectedProfileId =
+    storedProfileId && preferences && accountIndependent
+      ? canonicalProfileId(storedProfileId, preferences, config.providers)
+      : storedProfileId;
   const hasLocalEndpoint = profiles.rows.some((row) => Boolean(row.localEndpoint));
   const active = panelActive;
-  const { view } = usePresetData(serverId, profiles, active);
+  const { view } = usePresetData(serverId, active);
   // Refresh visible usage in the background without gating the menu.
   const refreshRef = useRef(profiles.refreshStatus);
   refreshRef.current = profiles.refreshStatus;
@@ -121,8 +138,8 @@ export function PresetControls({
     return () => clearInterval(timer);
   }, [active, hasLocalEndpoint, serverId]);
   useEffect(() => {
-    setOpen(false);
-  }, [serverId, active]);
+    if (!active) setOpen(false);
+  }, [active]);
   const selected = profiles.rows.find((row) => row.id === selectedProfileId);
   const compactName = useCompactProfileName(controlsRef, isCompact);
   const { triggerLabel, showWarning, showRing, remaining, statusLabel, accessibilityLabel } =
@@ -133,6 +150,7 @@ export function PresetControls({
       currentProvider,
       selected,
       definitions,
+      entries,
       view,
       now,
     });
@@ -140,7 +158,10 @@ export function PresetControls({
     setOpen(true);
   }, []);
   const select = useCallback(
-    (id: string, choices?: Pick<AgentProfile, "model" | "thinkingOptionId">) => {
+    (
+      id: string,
+      choices?: Partial<Pick<AgentProfile, "provider" | "model" | "thinkingOptionId">>,
+    ) => {
       if (disabled || profiles.isApplying) return;
       profiles.applyProfile(id, choices);
       setOpen(false);
@@ -148,6 +169,28 @@ export function PresetControls({
     [disabled, profiles],
   );
   const closeMenu = useCallback(() => setOpen(false), []);
+  if (inline)
+    return (
+      <View
+        style={isCompact ? styles.inlineCompact : styles.inline}
+        testID="new-workspace-profile-selector"
+      >
+        <EnvironmentPresetMenu
+          inline
+          now={now}
+          serverId={serverId}
+          profiles={profiles}
+          selectedId={selectedProfileId}
+          compact={isCompact}
+          disabled={selectionDisabled}
+          onApply={select}
+          onClose={closeMenu}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          currentThinkingOptionId={currentThinkingOptionId}
+        />
+      </View>
+    );
   return (
     <View ref={controlsRef} style={controlsStyle} testID="preset-controls">
       <View ref={anchorRef} collapsable={false} style={styles.trigger}>
@@ -197,7 +240,11 @@ export function PresetControls({
           serverId={serverId}
           profiles={profiles}
           selectedId={selectedProfileId}
-          activeProfileId={activeProfileId}
+          activeProfileId={
+            activeProfileId && preferences && accountIndependent
+              ? canonicalProfileId(activeProfileId, preferences, config.providers)
+              : activeProfileId
+          }
           compact={isCompact}
           disabled={selectionDisabled}
           onApply={select}
@@ -211,6 +258,8 @@ export function PresetControls({
   );
 }
 const styles = StyleSheet.create((theme) => ({
+  inline: { height: NEW_WORKSPACE_CARD_HEIGHT, width: "100%" },
+  inlineCompact: { height: 340, width: "100%" },
   touchControls: { flex: 1, flexWrap: "nowrap" },
   centerControls: { justifyContent: "center", marginHorizontal: 8 },
   controls: {

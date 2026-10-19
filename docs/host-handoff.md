@@ -2,6 +2,24 @@
 
 Keep an installation handoff outside Git. Include the current repository revision, active work, private deployment configuration, backed-up state, image references and verified acceptance evidence. Do not place credentials or machine-specific records in public documentation.
 
+## Use supported operations first
+
+Before preparing a host continuity prompt, inspect the installed skills and clients for the operation you need. Use supported operations within the owner's authorization, even when the target daemon runs outside your container.
+
+For Host and Dev daemon restart requests or status queries, read the installed `installation-maintenance` skill and use its configured client. The [skill template](../scripts/installation-skills/installation-maintenance/SKILL.md) documents the workflow; the installed copy supplies the environment's command. Complete preparation, validation and rollback planning before `request-restart`, return the exact request's approval link, and use `restart-status` to inspect its durable outcome. An existing request should be checked before proposing another. Submit prepared requests without asking for verbal approval. The owner approves each restart by clicking its matching button in Installation controls; the recorded decision is sufficient to continue without a second chat confirmation. Never approve on the owner's behalf. A request, unlocked controls or a previous restart approval does not authorize a new restart.
+
+For build requests outside a Host thread, explain the delivery options at the start and invite the owner to restart the task in a Host thread for live interface previews as validated changes become ready. Moving the task does not mean restarting the daemon. Continue authorized work unless the owner chooses to move.
+
+Keep these routes distinct:
+
+- Managed private previews use the preview helper for start, status, stop and restart. Dev can use this route when the broker accepts the existing task workspace.
+- Interface-only publication uses the guarded publisher from the environment that owns the configured web destination. A Host thread can publish validated interface changes without restarting agents. Check for an installed scoped web-only route before declaring it unavailable from Dev.
+- A combined Host source update can be submitted from Dev when the maintenance client's live capabilities advertise support. After preparation and exact owner approval, it installs source, restarts the Host daemon and publishes the interface. A plain restart installs no source. Combined update support does not establish web-only publication support; explain its restart requirement and use the tracked approval workflow when submitting it.
+
+Inspect the installed skill and live capabilities because available routes can change. None of these routes grants arbitrary Host diagnostics or host policy changes. Host-only container-agent management remains restricted to trusted host orchestrators.
+
+A handoff is required only when the remaining work has no supported tool route or a concrete access or policy failure blocks that route. Identify the unsupported operation or observed failure, finish the work available here, and transfer only the remaining work. Do not hand off a supported restart request or status query merely because you lack a host shell. Do not bypass a broker rejection or broaden credentials to avoid a handoff.
+
 ## Install or operate
 
 For a new instance, follow the [container installer](../docker/multiplex/README.md). It builds locally on AMD64 or ARM64 and enrolls Tailscale inside the container. Connect provider accounts after installation. Optional macOS preview and recovery tools are separate from the standard installation.
@@ -21,7 +39,7 @@ Record pass, fail or not tested for each row, with the tested revision and priva
 - Verify shared profiles and their environment exclusions on Host and Dev. Saved accounts, profile references and running work must survive migration. Verify permission selection in the profile editor.
 - Verify private HTTPS, password authentication, WebSocket continuity, intended-user access and denied-user access. Keep node identity and control state inaccessible to the agent user.
 - For a native macOS host, complete the [desktop permission checks](execution-installation.md#macos-desktop-permissions) from an agent launched by its installed supervisor. Identify the responsible executable, verify screen capture and application control, or record desktop automation as intentionally unavailable. Recheck after runtime identity changes.
-- If the optional preview broker is installed, start, repeat-start, stop and restart a preview. Verify its rendered application and stable frontend port. In a disposable instance or approved maintenance window, verify a daemon restart requires explicit preview start and does not undo a deliberate stop.
+- If the optional preview broker is installed, start, repeat-start, stop and restart a preview. Verify its rendered application and stable frontend port. In a disposable instance or approved maintenance window, verify the configured restart policy: default installations require explicit preview start; opted-in installations restore unchanged previously verified previews on the same reservation. Neither policy may undo a deliberate stop.
 - Test home, credential and web persistence through disposable-container recreation. If installed, verify per-instance broker and recovery installation, rollback and removal preserve sibling instances. Test cold boot separately during an approved window.
 - Follow the [touch audit](vorton-touch-audit.md) for physical iPhone/iPad keyboard, dictation, pinch zoom and Home Screen viewport checks. Capture accessibility and performance results for the actual served release.
 

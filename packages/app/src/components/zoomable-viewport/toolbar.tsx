@@ -3,7 +3,7 @@ import { Pressable, View } from "react-native";
 import { Scan, ZoomIn, ZoomOut } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { useVortonTouch } from "@/vorton-touch";
 import {
   iconButtonChromeGlyphSize,
   iconButtonChromeStyle,
@@ -59,7 +59,7 @@ export const ViewportToolbar = React.memo(function ViewportToolbar({
   ];
 
   return (
-    <View style={styles.cluster} testID="zoomable-viewport-toolbar">
+    <View style={styles.cluster} pointerEvents="box-none" testID="zoomable-viewport-toolbar">
       {viewportActions.map((action) => (
         <ViewportToolbarButton
           key={action.label}
@@ -82,7 +82,7 @@ function ViewportToolbarButton({
   visible: boolean;
 }) {
   const Icon = action.icon;
-  const isCompact = useIsCompactFormFactor();
+  const isCompact = useVortonTouch();
   const iconSize = iconButtonChromeGlyphSize("small", isCompact);
   const buttonStyle = React.useCallback(
     ({ hovered, pressed }: { hovered?: boolean; pressed: boolean }) =>
@@ -91,7 +91,10 @@ function ViewportToolbarButton({
         compact: isCompact,
         state: { hovered, pressed },
         disabled,
-        style: visible ? styles.button : styles.buttonHidden,
+        style: [
+          visible ? styles.button : styles.buttonHidden,
+          isCompact ? styles.touchButton : null,
+        ],
       }),
     [disabled, isCompact, visible],
   );
@@ -120,8 +123,8 @@ const styles = StyleSheet.create((theme) => ({
     zIndex: 1,
     flexDirection: "row",
     gap: theme.spacing[1],
-    pointerEvents: "box-none",
   },
+  touchButton: { width: 44, height: 44 },
   button: {
     backgroundColor: theme.colors.surface2,
     opacity: 1,

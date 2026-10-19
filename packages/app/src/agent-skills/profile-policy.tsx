@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { profileSkillChoices, savedSkillIdentities } from "./profile-selection";
+import { useCallback, useState } from "react";
 import { useFetchQuery } from "@/data/query";
 import { Text, View } from "react-native";
 
@@ -12,13 +13,17 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 
 export function ProfileSkillPolicy({
   serverId,
+  providerType,
   value,
   onChange,
 }: {
   serverId: string;
+  providerType: string;
   value: SkillPolicy | undefined;
   onChange: (value: SkillPolicy | undefined) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const toggleExpanded = useCallback(() => setExpanded((current) => !current), []);
   const supported = useHostFeature(serverId, "skillLibrary");
   const client = useHostRuntimeClient(serverId);
   const query = useFetchQuery({
@@ -36,7 +41,24 @@ export function ProfileSkillPolicy({
   const none = useCallback(() => onChange({ mode: "none" }), [onChange]);
   const policy = value ?? inheritedPolicy;
   const skills = query.data?.kind === "inventory" ? query.data.inventory.skills : [];
-  const unique = [...new Map(skills.map((skill) => [skill.identity, skill])).values()];
+  const unique = profileSkillChoices(skills, providerType);
+  const savedIdentities = savedSkillIdentities(policy);
+  const unavailable = savedIdentities.filter(
+    (identity) => !unique.some((skill) => skill.identity === identity),
+  );
+  const removeUnavailable = useCallback(
+    (identity: string) => {
+      if (policy.mode === "selected")
+        onChange({ ...policy, skills: policy.skills.filter((item) => item !== identity) });
+      if (policy.mode === "inherit")
+        onChange({
+          ...policy,
+          include: policy.include.filter((item) => item !== identity),
+          exclude: policy.exclude.filter((item) => item !== identity),
+        });
+    },
+    [policy, onChange],
+  );
   const toggle = useCallback(
     (identity: string, enabled: boolean) => {
       if (policy.mode === "none") return;
@@ -59,6 +81,19 @@ export function ProfileSkillPolicy({
     [policy, onChange],
   );
   if (!supported) return null;
+  if (providerType !== "claude" && providerType !== "codex")
+    return (
+      <Field label="Skills">
+        <Text style={styles.hint}>
+          This provider uses its own skill discovery and does not support profile skill filtering.
+        </Text>
+        {value ? (
+          <Button variant="outline" onPress={inherit}>
+            Clear saved skill policy
+          </Button>
+        ) : null}
+      </Field>
+    );
   return (
     <Field label="Skills">
       <View style={styles.actions}>
@@ -73,12 +108,21 @@ export function ProfileSkillPolicy({
         </Button>
       </View>
       <Text style={styles.hint}>
-        Session filtering is supported for Claude and Codex. Other providers refuse restrictive
-        policies. Skills do not control tool permissions. Existing tasks retain their launch
-        selection.
+        Skills discovered for {providerType} in this environment. Skills do not control tool
+        permissions. Existing tasks retain their launch selection.
       </Text>
       {query.error ? <Text style={styles.hint}>{query.error.message}</Text> : null}
-      {policy.mode !== "none"
+      {policy.mode === "inherit" ? (
+        <Button variant="outline" onPress={toggleExpanded}>
+          {expanded ? "Hide skill choices" : "Customize skill choices"}
+        </Button>
+      ) : null}
+      {query.data?.kind === "inventory"
+        ? unavailable.map((identity) => (
+            <UnavailableSkill key={identity} identity={identity} onRemove={removeUnavailable} />
+          ))
+        : null}
+      {policy.mode === "selected" || (policy.mode === "inherit" && expanded)
         ? unique.map((skill) => {
             const enabled =
               policy.mode === "selected"
@@ -132,3 +176,21 @@ function PolicyRow({
 }
 
 const inheritedPolicy: SkillPolicy = { mode: "inherit", include: [], exclude: [] };
+
+function UnavailableSkill({
+  identity,
+  onRemove,
+}: {
+  identity: string;
+  onRemove: (identity: string) => void;
+}) {
+  const remove = useCallback(() => onRemove(identity), [identity, onRemove]);
+  return (
+    <View style={styles.row}>
+      <Text style={styles.label}>Saved skill unavailable here: {identity}</Text>
+      <Button variant="outline" onPress={remove}>
+        Remove
+      </Button>
+    </View>
+  );
+}

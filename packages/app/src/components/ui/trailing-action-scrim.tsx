@@ -6,7 +6,7 @@ import type { SurfaceBackdrop } from "@/styles/surface-backdrop";
 import type { Theme } from "@/styles/theme";
 
 export const SCRIM_WIDTH = 48;
-const SCRIM_SOLID_OFFSET = "55%";
+const SCRIM_SOLID_OFFSET = "50%";
 
 function TrailingActionScrimSvg({ gradientId, color }: { gradientId: string; color: string }) {
   return (
@@ -16,6 +16,11 @@ function TrailingActionScrimSvg({ gradientId, color }: { gradientId: string; col
           {/* Vary opacity rather than interpolating toward `transparent`, which crosses black in
               some engines and leaves a grey fringe. */}
           <Stop offset="0%" stopColor={color} stopOpacity={0} />
+          <Stop offset="8.333%" stopColor={color} stopOpacity={0.074} />
+          <Stop offset="16.667%" stopColor={color} stopOpacity={0.259} />
+          <Stop offset="25%" stopColor={color} stopOpacity={0.5} />
+          <Stop offset="33.333%" stopColor={color} stopOpacity={0.741} />
+          <Stop offset="41.667%" stopColor={color} stopOpacity={0.926} />
           <Stop offset={SCRIM_SOLID_OFFSET} stopColor={color} stopOpacity={1} />
           <Stop offset="100%" stopColor={color} stopOpacity={1} />
         </SvgLinearGradient>

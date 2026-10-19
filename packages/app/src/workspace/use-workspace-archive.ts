@@ -1,3 +1,7 @@
+import {
+  getWorkspaceArchiveBlockReason,
+  useWorkspaceArchiveBlockReason,
+} from "./lifecycle/archive";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -7,10 +11,14 @@ import {
   DEFAULT_WORKTREE_ARCHIVE_WARNING_LABELS,
   type WorktreeArchiveWarningLabels,
 } from "@/git/worktree-archive-warning";
-import type { WorkspaceDescriptor } from "@/stores/session-store";
+import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { archiveWorkspaceOptimistically } from "@/workspace/workspace-archive";
+import {
+  FACTORY_MANAGED_EXPLANATION,
+  selectFactoryMembership,
+} from "./lifecycle/factory-membership";
 
 function purgeArchivedWorkspaceState(input: { serverId: string; workspaceId: string }): void {
   const workspaceKey = buildWorkspaceTabPersistenceKey(input);
@@ -34,6 +42,8 @@ export interface ArchiveWorkspaceInput {
 
 export interface WorkspaceArchiveController {
   archive: () => void;
+  archiveProtected: boolean;
+  archiveBlockReason: string | null;
 }
 
 export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArchiveController {
@@ -51,18 +61,27 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
   } = input;
   const { t } = useTranslation();
   const toast = useToast();
+  const archiveBlockReason = useWorkspaceArchiveBlockReason(serverId, workspaceId);
+  const archiveProtected = archiveBlockReason !== null;
 
   const archiveWorkspaceRecord = useCallback(async () => {
+    const reason = getWorkspaceArchiveBlockReason(serverId, workspaceId);
+    if (reason) {
+      toast.error(reason);
+      return;
+    }
     const client = getHostRuntimeStore().getClient(serverId);
     if (!client) {
       toast.error(t("sidebar.workspace.toasts.hostDisconnected"));
       return;
     }
-    onSetHiding?.(true);
     try {
-      onArchiveStarted();
       await archiveWorkspaceOptimistically({
         client,
+        onArchiveStarted: () => {
+          onSetHiding?.(true);
+          onArchiveStarted();
+        },
         workspace: {
           serverId,
           workspaceId,
@@ -80,6 +99,15 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   const archive = useCallback(() => {
     void (async () => {
+      if (selectFactoryMembership(useSessionStore.getState(), serverId, workspaceId)) {
+        toast.error(FACTORY_MANAGED_EXPLANATION);
+        return;
+      }
+      const reason = getWorkspaceArchiveBlockReason(serverId, workspaceId);
+      if (reason) {
+        toast.error(reason);
+        return;
+      }
       if (workspaceKind === "worktree") {
         const confirmed = await confirmRiskyWorktreeArchive(
           {
@@ -97,6 +125,9 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
       await archiveWorkspaceRecord();
     })();
   }, [
+    serverId,
+    workspaceId,
+    toast,
     aheadOfOrigin,
     archiveWorkspaceRecord,
     diffStat,
@@ -108,5 +139,7 @@ export function useWorkspaceArchive(input: ArchiveWorkspaceInput): WorkspaceArch
 
   return {
     archive,
+    archiveProtected,
+    archiveBlockReason,
   };
 }

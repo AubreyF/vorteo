@@ -1,5 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import type { WorkspaceRecoveryGuard } from "@getpaseo/protocol/messages";
 
 import { resolveRepositoryDefaultBranch } from "../../../utils/checkout-git.js";
 import { createRealpathAwarePathMatcher } from "../../../utils/path.js";
@@ -16,9 +18,27 @@ import {
   resolveWorkspaceDisplayName,
   type PersistedProjectRecord,
   type PersistedWorkspaceRecord,
+  type WorkspaceRegistry,
 } from "../../workspace-registry.js";
 
+/** The registry serializes this comparison with the archive-state mutation. */
+export async function unarchiveWorkspaceGuarded(
+  registry: WorkspaceRegistry,
+  expected: PersistedWorkspaceRecord,
+): Promise<void> {
+  const updated = await registry.update(expected.workspaceId, (current) => {
+    if (!expected.archivedAt || !isDeepStrictEqual(current, expected))
+      throw new Error("Workspace recovery record changed before unarchive.");
+    return { ...current, archivedAt: null, updatedAt: new Date().toISOString() };
+  });
+  if (!updated) throw new Error("Workspace recovery record is no longer available.");
+}
+
 export type WorkspaceRecoveryAction = "unarchive" | "restore";
+
+function recoveryRecordHash(workspace: PersistedWorkspaceRecord): string {
+  return createHash("sha256").update(JSON.stringify(workspace)).digest("hex");
+}
 
 export type WorkspaceRecoveryState =
   | {
@@ -27,6 +47,7 @@ export type WorkspaceRecoveryState =
       workspaceName: string;
       action: WorkspaceRecoveryAction;
       branch: string | null;
+      guard?: WorkspaceRecoveryGuard;
     }
   | {
       kind: "unavailable";
@@ -43,7 +64,10 @@ export type WorkspaceRecoveryState =
 
 export interface WorkspaceRecoveryService {
   inspect(workspaceId: string): Promise<WorkspaceRecoveryState>;
-  restore(workspaceId: string): Promise<{ workspaceId: string; action: WorkspaceRecoveryAction }>;
+  restore(
+    workspaceId: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<{ workspaceId: string; action: WorkspaceRecoveryAction }>;
 }
 
 type RecoveryPlan =
@@ -62,12 +86,15 @@ type RecoveryPlan =
 type UnavailableRecoveryState = Extract<WorkspaceRecoveryState, { kind: "unavailable" }>;
 
 export function createWorkspaceRecoveryService(deps: {
+  serverId?: string;
   paseoHome: string;
   worktreesRoot?: string;
   getWorkspace: (workspaceId: string) => Promise<PersistedWorkspaceRecord | null>;
   getProject: (projectId: string) => Promise<PersistedProjectRecord | null>;
   isDirectory: (path: string) => Promise<boolean>;
   unarchiveWorkspace: (workspace: PersistedWorkspaceRecord) => Promise<void>;
+  /** Compare this retained snapshot again inside the serialized registry mutation. */
+  unarchiveWorkspaceGuarded?: (workspace: PersistedWorkspaceRecord) => Promise<void>;
 }): WorkspaceRecoveryService {
   async function resolveRecovery(
     workspaceId: string,
@@ -129,15 +156,61 @@ export function createWorkspaceRecoveryService(deps: {
 
   async function inspect(workspaceId: string): Promise<WorkspaceRecoveryState> {
     const resolved = await resolveRecovery(workspaceId);
-    return resolved.kind === "unavailable" ? resolved : resolved.state;
+    if (resolved.kind === "unavailable") return resolved;
+    if (resolved.kind !== "unarchive" || !deps.serverId || !deps.unarchiveWorkspaceGuarded)
+      return resolved.state;
+    const workspace = resolved.workspace;
+    if (!workspace.archivedAt) return resolved.state;
+    return {
+      ...resolved.state,
+      guard: {
+        action: "unarchive",
+        serverId: deps.serverId,
+        projectId: workspace.projectId,
+        cwd: workspace.cwd,
+        kind: workspace.kind,
+        archivedAt: workspace.archivedAt,
+        updatedAt: workspace.updatedAt,
+        recordHash: recoveryRecordHash(workspace),
+      },
+    };
   }
 
   async function restore(
     workspaceId: string,
+    guard?: WorkspaceRecoveryGuard,
   ): Promise<{ workspaceId: string; action: WorkspaceRecoveryAction }> {
     const resolved = await resolveRecovery(workspaceId);
     if (resolved.kind === "unavailable") {
       throw new Error(resolved.message);
+    }
+
+    if (guard) {
+      const workspace = structuredClone(resolved.workspace);
+      if (
+        guard.action !== "unarchive" ||
+        resolved.kind !== "unarchive" ||
+        deps.serverId !== guard.serverId ||
+        workspace.workspaceId !== workspaceId ||
+        workspace.projectId !== guard.projectId ||
+        workspace.cwd !== guard.cwd ||
+        workspace.kind !== guard.kind ||
+        workspace.archivedAt !== guard.archivedAt ||
+        workspace.updatedAt !== guard.updatedAt ||
+        recoveryRecordHash(workspace) !== guard.recordHash
+      )
+        throw new Error("Workspace recovery action or retained identity changed.");
+      const project = await deps.getProject(workspace.projectId);
+      if (!project || project.projectId !== workspace.projectId || project.archivedAt)
+        throw new Error("Guarded recovery requires the retained project to remain active.");
+      if (!deps.unarchiveWorkspaceGuarded)
+        throw new Error("Guarded workspace recovery is unavailable.");
+      // This checks existence, not an OS-level directory lease. A disappearing
+      // directory never triggers recreation and successful unarchive is not admission.
+      if (!(await deps.isDirectory(workspace.cwd)))
+        throw new Error("Guarded recovery directory is no longer available.");
+      await deps.unarchiveWorkspaceGuarded(workspace);
+      return { workspaceId, action: "unarchive" };
     }
 
     if (resolved.kind === "restore") {

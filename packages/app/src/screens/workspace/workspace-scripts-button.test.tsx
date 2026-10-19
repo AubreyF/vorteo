@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { openServiceUrl } from "@/utils/open-service-url";
 import { i18n as testI18n } from "@/i18n/i18next";
 import React, { type ReactElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
@@ -23,6 +24,7 @@ const {
   setPreferredRouteMock,
 } = vi.hoisted(() => {
   const hoistedTheme = {
+    opacity: { 50: 0.5 },
     spacing: { 1: 4, 1.5: 6, 2: 8, 3: 12 },
     borderWidth: { 1: 1 },
     borderRadius: { md: 6, lg: 8 },
@@ -130,6 +132,8 @@ vi.mock("@/stores/session-store", () => ({
 vi.mock("@/contexts/toast-context", () => ({
   useToast: () => ({ show: vi.fn(), error: vi.fn(), copied: copiedToastMock }),
 }));
+
+vi.mock("@/utils/open-service-url", () => ({ openServiceUrl: vi.fn() }));
 
 vi.mock("expo-clipboard", () => ({
   setStringAsync: setStringAsyncMock,
@@ -264,7 +268,7 @@ function renderScripts(
           scripts={nextScripts}
           liveTerminalIds={LIVE_TERMINAL_IDS}
           hideLabels={options.hideLabels}
-          presentation={options.presentation}
+          presentation={options.presentation ?? "menu"}
         />
       </QueryClientProvider>
     );
@@ -442,8 +446,37 @@ describe("WorkspaceScriptsButton", () => {
     expect(trigger?.querySelector('[data-icon="ChevronDown"]')).toBeNull();
   });
 
+  it("opens the selected preview directly for one running script", async () => {
+    current = renderScripts(
+      [script({ scriptName: "dev", type: "service", lifecycle: "running", port: 57483 })],
+      {
+        presentation: "split",
+      },
+    );
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-testid="workspace-scripts-button"]')!);
+    });
+    expect(openServiceUrl).toHaveBeenCalledWith("http://localhost:57483", expect.any(Object));
+    expect(startWorkspaceScriptMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a single script directly without a menu", async () => {
+    current = renderScripts([script({ scriptName: "dev", lifecycle: "stopped" })], {
+      presentation: "split",
+    });
+    const trigger = document.querySelector('[data-testid="workspace-scripts-button"]')!;
+    expect(trigger.querySelector('[data-icon="ChevronDown"]')).toBeNull();
+    expect(document.querySelector('[data-testid="workspace-scripts-menu"]')).toBeNull();
+    await act(async () => {
+      fireEvent.click(trigger);
+    });
+    expect(startWorkspaceScriptMock).toHaveBeenCalledWith("workspace-1", "dev");
+  });
+
   it("keeps the trigger caret in split presentation", () => {
-    current = renderScripts([script({ scriptName: "dev" })]);
+    current = renderScripts([script({ scriptName: "dev" }), script({ scriptName: "build" })], {
+      presentation: "split",
+    });
 
     const trigger = document.querySelector('[data-testid="workspace-scripts-button"]');
     expect(trigger?.querySelector('[data-icon="ChevronDown"]')).not.toBeNull();

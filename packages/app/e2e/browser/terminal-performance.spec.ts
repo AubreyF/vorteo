@@ -15,6 +15,10 @@ const KEYSTROKE_P95_BUDGET_MS = 150;
 const RUN_MANUAL_TERMINAL_PERF = process.env.PASEO_TERMINAL_PERF_E2E === "1";
 const terminalPerfDescribe = RUN_MANUAL_TERMINAL_PERF ? test.describe : test.describe.skip;
 
+function hasOutputLine(text: string, expected: string): boolean {
+  return text.split(/\r?\n/).some((line) => line.trim() === expected);
+}
+
 terminalPerfDescribe("Terminal wire performance", () => {
   let harness: TerminalE2EHarness;
 
@@ -42,7 +46,9 @@ terminalPerfDescribe("Terminal wire performance", () => {
 
       await waitForTerminalContent(
         page,
-        (text) => text.includes(sentinel),
+        // The shell echoes the command before executing it. Only its standalone
+        // output line proves that the preceding bulk output reached the buffer.
+        (text) => hasOutputLine(text, sentinel),
         THROUGHPUT_BUDGET_MS + 15_000,
       );
 

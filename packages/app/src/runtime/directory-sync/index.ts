@@ -503,13 +503,18 @@ export class DirectorySync {
       const supportsDirectorySync = serverInfo?.features?.directorySync === true;
       if (supportsProjectList) {
         await this.fetchProjectSnapshot(client, source, transaction, supportsDirectorySync);
+      } else {
+        transaction.snapshot.projects.clear();
       }
+      // COMPAT(emptyProjectDirectory): added in v0.11.0, remove after 2027-04-06 once daemon floor advertises projectList.
+      // Legacy sequence responses omit emptyProjects, the only registry channel on those hosts.
+      const supportsWorkspaceDirectorySync = supportsDirectorySync && supportsProjectList;
       await this.fetchWorkspaceSnapshot(
         client,
         source,
         transaction,
         input?.subscribe === true,
-        supportsDirectorySync,
+        supportsWorkspaceDirectorySync,
       );
       if (!supportsProjectList) {
         this.buildLegacyProjectSnapshot(transaction.snapshot);

@@ -4,7 +4,11 @@ import { useSessionStore } from "@/stores/session-store";
 import { usePendingArchiveAgentIds } from "@/hooks/use-archive-agent";
 import { getAgentPresentationIndex } from "./workspace-root-policy";
 import { CountBadge } from "@/components/ui/count-badge";
-import { selectSubagentsForParent, selectProviderSubagentsForParent } from "./select";
+import {
+  isActiveSubagent,
+  selectSubagentsForParent,
+  selectProviderSubagentsForParent,
+} from "./select";
 import { refreshProviderSubagents, useProviderSubagentStore } from "./provider-store";
 
 export function WorkspaceSubagentCount({
@@ -41,11 +45,14 @@ export function WorkspaceSubagentCount({
     (state) => state.sessions[serverId]?.serverInfo?.features?.providerSubagentNesting === true,
   );
   const client = useSessionStore((state) => state.sessions[serverId]?.client);
-  // Match the cards: direct children, including finished agents until archived.
+  // The sidebar counts work in progress; finished children remain available in their cards.
   const managedCount = useSessionStore((state) =>
     parents.reduce(
       (sum, parentAgentId) =>
-        sum + selectSubagentsForParent(state, { serverId, parentAgentId }, pending).length,
+        sum +
+        selectSubagentsForParent(state, { serverId, parentAgentId }, pending).filter(
+          isActiveSubagent,
+        ).length,
       0,
     ),
   );
@@ -58,7 +65,7 @@ export function WorkspaceSubagentCount({
           { serverId, parentAgentId },
           supported,
           nestingSupported,
-        ).length,
+        ).filter(isActiveSubagent).length,
       0,
     ),
   );
@@ -71,7 +78,7 @@ export function WorkspaceSubagentCount({
   return count ? (
     <CountBadge
       label={`A${count}`}
-      accessibilityLabel={`${count} subagents`}
+      accessibilityLabel={`${count} active subagent${count === 1 ? "" : "s"}`}
       testID={`workspace-subagent-count-${serverId}-${workspaceId}`}
     />
   ) : null;

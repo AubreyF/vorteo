@@ -47,6 +47,9 @@ export interface SidebarWorkspaceEntry extends SidebarStatusWorkspacePlacement {
   // Prefills the rename input and signals whether a reset is available.
   title: string | null;
   pinnedAt?: string | null;
+  standing?: boolean;
+  factoryMembership?: WorkspaceDescriptor["factoryMembership"];
+  protected?: boolean;
   labels?: string[];
   // Checkout branch (null when not a git checkout or detached HEAD).
   currentBranch: string | null;
@@ -154,10 +157,14 @@ export function createSidebarWorkspaceEntry(input: {
   workspace: WorkspaceDescriptor;
   projectViewKey?: string;
   pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+  mergePending?: boolean;
   workspaceAgentActivity?: ReadonlyMap<string, WorkspaceAgentActivity>;
 }): SidebarWorkspaceEntry {
   const projectViewKey = input.projectViewKey ?? input.workspace.projectId;
   const effectiveStatus = deriveEffectiveWorkspaceStatus(input);
+  const membership = input.workspace.factoryMembership;
+  const matchesFactoryIdentity =
+    membership?.projectId === input.workspace.projectId && membership?.serverId === input.serverId;
   return {
     workspaceKey: `${input.serverId}:${input.workspace.id}`,
     serverId: input.serverId,
@@ -173,6 +180,9 @@ export function createSidebarWorkspaceEntry(input: {
     name: input.workspace.name,
     title: input.workspace.title ?? null,
     pinnedAt: input.workspace.pinnedAt,
+    standing: input.workspace.standing,
+    factoryMembership: matchesFactoryIdentity ? membership : undefined,
+    protected: input.workspace.protected,
     labels: input.workspace.labels ?? EMPTY_WORKSPACE_LABELS,
     currentBranch: normalizeCurrentBranch(input.workspace.gitRuntime?.currentBranch),
     statusBucket: effectiveStatus.status,
@@ -182,6 +192,7 @@ export function createSidebarWorkspaceEntry(input: {
     prHint: selectPrHintFromStatus(
       input.workspace.githubRuntime?.pullRequest,
       input.workspace.forge,
+      input.mergePending,
     ),
     archiveHasUncommittedChanges: input.workspace.gitRuntime?.isDirty ?? null,
     archiveUnpushedCommitCount: input.workspace.gitRuntime?.aheadOfOrigin ?? null,
@@ -266,6 +277,20 @@ export function deriveProjectStatusBucket(input: {
         placement.workspaceId,
         ...(placement.managedWorkspaceIds ?? []),
       ]);
+    }
+  }
+
+  const ownerKeys = new Set(
+    input.workspaces.map((placement) => `${placement.serverId}:${placement.workspaceId}`),
+  );
+  for (const [serverId, session] of Object.entries(input.sessions)) {
+    if (!session) continue;
+    for (const workspace of session.workspaces.values()) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (!owner || !ownerKeys.has(`${owner.serverId}:${owner.workspaceId}`)) continue;
+      const ids = workspaceIdsByServer.get(serverId) ?? [];
+      ids.push(workspace.id);
+      workspaceIdsByServer.set(serverId, ids);
     }
   }
 
@@ -360,11 +385,19 @@ export interface ManagedWorkspacePlacement {
   hasIndependentAgents: boolean;
 }
 
+function retainsNativeProject(workspace: WorkspaceDescriptor): boolean {
+  return Boolean(workspace.protected || workspace.standing || workspace.factoryMembership);
+}
+
 export function collectManagedWorkspacePlacements(input: {
   projects: readonly HostProjectListItem[];
   sessions: readonly SidebarHierarchySession[];
 }): ManagedWorkspacePlacement[] {
-  const available = new Set(input.projects.flatMap((project) => project.workspaceKeys));
+  const projectByWorkspace = new Map(
+    input.projects.flatMap((project) =>
+      project.workspaceKeys.map((key) => [key, project.viewKey] as const),
+    ),
+  );
   const placements: ManagedWorkspacePlacement[] = [];
   for (const session of input.sessions) {
     if (!session.hasHydratedAgents) continue;
@@ -379,7 +412,9 @@ export function collectManagedWorkspacePlacements(input: {
     }
     for (const workspace of session.workspaces.values()) {
       const workspaceKey = `${session.serverId}:${workspace.id}`;
-      if (!available.has(workspaceKey)) continue;
+      if (!projectByWorkspace.has(workspaceKey)) continue;
+      // Durable workspaces keep their project even when their agent has a supervisor.
+      if (retainsNativeProject(workspace)) continue;
       const agents = agentsByWorkspace.get(workspace.id);
       if (!agents?.length) continue;
       const owners = agents.map((agent) => presentations.get(agent.id));
@@ -390,7 +425,14 @@ export function collectManagedWorkspacePlacements(input: {
       // A followup in a managed worktree stays accessible without creating another project.
       if (hasIndependentAgents && workspace.workspaceKind !== "worktree") continue;
       const parentWorkspaceKey = `${session.serverId}:${ownerId}`;
-      if (!available.has(parentWorkspaceKey)) continue;
+      if (!projectByWorkspace.has(parentWorkspaceKey)) continue;
+      // An explicit move takes precedence over automatic worker grouping. Inherited
+      // membership still folds when the worker and its parent share a project.
+      if (
+        workspace.projectMembership &&
+        workspace.projectMembership.key !== projectByWorkspace.get(parentWorkspaceKey)
+      )
+        continue;
       placements.push({
         workspaceKey,
         serverId: session.serverId,
@@ -403,17 +445,9 @@ export function collectManagedWorkspacePlacements(input: {
   return placements;
 }
 
-export function hasWorkspaceScriptSurface(
-  workspace: Pick<WorkspaceDescriptor, "scripts">,
-): boolean {
-  return workspace.scripts.some((script) => script.lifecycle === "running" || !!script.terminalId);
-}
-
 export function buildSidebarWorkspacePlacementModel(input: {
   projects: readonly HostProjectListItem[];
   managedWorkspaces?: readonly ManagedWorkspacePlacement[];
-  terminalPresence?: ReadonlyMap<string, boolean>;
-  preservedWorkspaceKeys?: ReadonlySet<string>;
 }): SidebarWorkspacePlacementModel {
   let projects = buildSidebarProjectsFromHostProjects({ projects: input.projects });
   const managed = input.managedWorkspaces ?? [];
@@ -436,24 +470,16 @@ export function buildSidebarWorkspacePlacementModel(input: {
       const children = descendants.get(placement.parentWorkspaceKey) ?? [];
       children.push(placement.workspace.id);
       descendants.set(placement.parentWorkspaceKey, children);
-      const hasOtherSurface = input.preservedWorkspaceKeys?.has(placement.workspaceKey) === true;
-      const canFold =
-        !placement.hasIndependentAgents &&
-        input.terminalPresence?.get(placement.workspaceKey) === false &&
-        !hasWorkspaceScriptSurface(placement.workspace) &&
-        !placement.workspace.archivingAt &&
-        !hasOtherSurface;
-      if (!canFold && source.viewKey === parent.viewKey) continue;
+      // Worker ownership groups projects; it must not hide an active workspace.
+      if (source.viewKey === parent.viewKey) continue;
       projectedKeys.add(placement.workspaceKey);
-      if (!canFold) {
-        const rows = added.get(parent.viewKey) ?? [];
-        rows.push({
-          ...workspace,
-          projectViewKey: parent.viewKey,
-          projectName: parent.projectName,
-        });
-        added.set(parent.viewKey, rows);
-      }
+      const rows = added.get(parent.viewKey) ?? [];
+      rows.push({
+        ...workspace,
+        projectViewKey: parent.viewKey,
+        projectName: parent.projectName,
+      });
+      added.set(parent.viewKey, rows);
     }
     projects = projects.flatMap((project) => {
       const retained = project.workspaces.filter(
@@ -547,6 +573,7 @@ export function buildSidebarWorkspaceEntries(input: {
   sessions: SidebarWorkspaceSession[];
   pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
   previousEntries?: ReadonlyMap<string, SidebarWorkspaceEntry>;
+  isPrMergePending?: (serverId: string, cwd: string) => boolean;
 }): Map<string, SidebarWorkspaceEntry> {
   if (input.placements.length === 0 || input.sessions.length === 0) {
     return new Map();
@@ -554,6 +581,7 @@ export function buildSidebarWorkspaceEntries(input: {
 
   const sessionByServerId = new Map(input.sessions.map((session) => [session.serverId, session]));
   const entries = new Map<string, SidebarWorkspaceEntry>();
+  const environmentStatuses = indexEnvironmentStatuses(input);
 
   for (const placement of input.placements) {
     const session = sessionByServerId.get(placement.serverId);
@@ -569,6 +597,7 @@ export function buildSidebarWorkspaceEntries(input: {
       serverId: placement.serverId,
       workspace,
       projectViewKey: placement.projectViewKey,
+      mergePending: input.isPrMergePending?.(placement.serverId, workspace.workspaceDirectory),
       pendingCreateAttempts: input.pendingCreateAttempts,
       workspaceAgentActivity: session.workspaceAgentActivity,
     });
@@ -587,6 +616,7 @@ export function buildSidebarWorkspaceEntries(input: {
           }),
         );
     }
+    statuses.push(...(environmentStatuses.get(placement.workspaceKey) ?? []));
     const status = aggregateSidebarStateBuckets(statuses.map((value) => value.status));
     const winner = statuses.find((value) => value.status === status);
     entry.statusBucket = status;
@@ -620,6 +650,8 @@ function areSidebarWorkspaceEntriesEqual(
         leftHint.url === rightHint.url &&
         leftHint.number === rightHint.number &&
         leftHint.state === rightHint.state &&
+        leftHint.activity === rightHint.activity &&
+        leftHint.forge === rightHint.forge &&
         leftHint.checks === rightHint.checks &&
         leftHint.checksStatus === rightHint.checksStatus &&
         leftHint.reviewDecision === rightHint.reviewDecision)
@@ -814,4 +846,30 @@ export function deriveSidebarLoadingState(input: {
   const isLoading = input.isActive && hasRegisteredHosts && !allHydrated;
   const isInitialLoad = isLoading && !input.hasProjects;
   return { isLoading, isInitialLoad, isRevalidating: false };
+}
+
+function indexEnvironmentStatuses(input: {
+  sessions: SidebarWorkspaceSession[];
+  pendingCreateAttempts?: Record<string, PendingCreateAttempt>;
+}) {
+  const environmentStatuses = new Map<string, EffectiveWorkspaceStatus[]>();
+  for (const session of input.sessions) {
+    for (const workspace of session.workspaces.values()) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (!owner) continue;
+      const key = `${owner.serverId}:${owner.workspaceId}`;
+      const statuses = environmentStatuses.get(key) ?? [];
+      statuses.push(
+        deriveEffectiveWorkspaceStatus({
+          serverId: session.serverId,
+          workspace,
+          pendingCreateAttempts: input.pendingCreateAttempts,
+          workspaceAgentActivity: session.workspaceAgentActivity,
+        }),
+      );
+      environmentStatuses.set(key, statuses);
+    }
+  }
+
+  return environmentStatuses;
 }

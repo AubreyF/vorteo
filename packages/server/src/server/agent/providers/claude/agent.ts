@@ -1,9 +1,14 @@
 import { verifySkillSnapshot } from "../../../orchestration-skills/internal/policy.js";
-import { ClaudeLoginSession } from "./login.js";
+import { ClaudeSetupTokenLoginSession } from "./setup-token-login.js";
+import {
+  claudeSetupTokenStore,
+  readClaudeSetupToken,
+  claudeSetupTokenEnvironment,
+} from "./setup-token-runtime.js";
 import { requireClaudeAuthentication } from "./authentication.js";
 import { validateProviderOptions } from "../../provider-options.js";
 import type { ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { promises } from "node:fs";
 import path from "node:path";
@@ -1658,6 +1663,8 @@ export class ClaudeAgentClient implements AgentClient {
   }
 
   async openAccountLoginSession() {
+    if (process.env.VORTEO_INSTALLATION_CLIENT_CONFIG)
+      throw new Error("Connect Claude through the installation subscription controls.");
     const launch = await resolveProviderLaunch({
       commandConfig: this.runtimeSettings?.command,
       defaultBinary: "claude",
@@ -1667,11 +1674,13 @@ export class ClaudeAgentClient implements AgentClient {
       throw new Error("Install Claude Code on this host before signing in.");
     const env = createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings });
     const scope = claudeConfigDir(env);
-    return new ClaudeLoginSession({
+    await promises.mkdir(scope, { recursive: true, mode: 0o700 });
+    return new ClaudeSetupTokenLoginSession({
       executable: available.resolvedPath,
       args: launch.args,
       scope,
       runtimeSettings: this.runtimeSettings,
+      saveToken: (token, signal) => claudeSetupTokenStore(scope).write(token, signal),
     });
   }
 
@@ -1698,9 +1707,15 @@ export class ClaudeAgentClient implements AgentClient {
         defaultBinary: "claude",
       });
       const availability = await checkProviderLaunchAvailable(launch);
-      const auth = availability.available
-        ? await resolveClaudeAuth(launch, availability, this.runtimeSettings)
-        : null;
+      const setupToken = await readClaudeSetupToken(
+        createProviderEnv({ runtimeSettings: this.runtimeSettings }),
+      );
+      let auth: string | null = null;
+      if (setupToken)
+        auth =
+          "Installation subscription credential saved. Account email is not exposed by setup-token.";
+      else if (availability.available)
+        auth = await resolveClaudeAuth(launch, availability, this.runtimeSettings);
 
       return {
         diagnostic: formatProviderDiagnostic("Claude Code", [
@@ -2139,8 +2154,13 @@ class ClaudeAgentSession implements AgentSession {
   private lastRuntimeModel: string | null = null;
   private compacting = false;
   private compactionMarkerOpen = false;
+  private readonly pendingCompactionInspections = new Map<
+    string,
+    Extract<AgentTimelineItem, { type: "compaction" }>
+  >();
   private queryPumpPromise: Promise<void> | null = null;
   private queryRestartNeeded = false;
+  private queryCredentialDigest: string | null = null;
   private pendingInterruptAbort = false;
   private foregroundHasVisibleActivity = false;
   private activeTurnHasAssistantText = false;
@@ -3146,6 +3166,13 @@ class ClaudeAgentSession implements AgentSession {
   }
 
   private async ensureQuery(): Promise<Query> {
+    const setupToken = await readClaudeSetupToken(this.harnessEnvironment);
+    const credentialDigest = setupToken
+      ? createHash("sha256").update(setupToken.accessToken).digest("hex")
+      : null;
+    // Setup tokens are process-scoped. Renew by recreating the CLI while preserving its session ID.
+    if (this.query && credentialDigest !== this.queryCredentialDigest)
+      this.queryRestartNeeded = true;
     if (this.query && !this.queryRestartNeeded) {
       return this.query;
     }
@@ -3190,13 +3217,24 @@ class ClaudeAgentSession implements AgentSession {
 
     const input = createAsyncMessageInput<SDKUserMessage>();
     const options = await this.buildOptions();
+    const authEnv = setupToken
+      ? claudeSetupTokenEnvironment(setupToken, claudeConfigDir(this.harnessEnvironment))
+      : undefined;
+    if (authEnv) {
+      options.env = { ...options.env, ...authEnv };
+      if (typeof options.settings === "string")
+        throw new Error("Claude subscription connection requires inline runtime settings.");
+      options.settings = { ...options.settings, apiKeyHelper: "" };
+    }
     this.logger.debug({ options: summarizeClaudeOptionsForLog(options) }, "claude query");
     this.input = input;
+    this.queryCredentialDigest = credentialDigest;
     this.query = claudeQuery(
       { prompt: input.iterable, options },
       {
         runtimeSettings: this.runtimeSettings,
         launchEnv: this.launchEnv,
+        authEnv,
         queryFactory: this.queryFactory,
         onChildProcess: (child) => {
           this.childProcess = child;
@@ -4203,6 +4241,8 @@ class ClaudeAgentSession implements AgentSession {
         this.appendStreamEventEvents(message, events, options);
         break;
       case "result":
+        this.appendSavedCompactionInspections(events);
+        this.pendingCompactionInspections.clear();
         this.appendResultEvents(message, events);
         break;
       default:
@@ -4380,6 +4420,18 @@ class ClaudeAgentSession implements AgentSession {
         },
         provider: "claude",
       });
+      const boundary = events.at(-1);
+      if (boundary?.type === "timeline" && boundary.item.type === "compaction") {
+        boundary.item.compactionId = message.uuid;
+        boundary.item.inspection = {
+          summary: { type: "unavailable", reason: "not_exposed" },
+          ...(compactMetadata?.postTokens !== undefined
+            ? { postTokens: compactMetadata.postTokens }
+            : {}),
+        };
+        this.pendingCompactionInspections.set(message.uuid, boundary.item);
+      }
+      this.appendSavedCompactionInspections(events);
       events.push(this.contextUsage.buildCompactionUsageEvent(compactMetadata?.postTokens));
       return;
     }
@@ -4389,6 +4441,32 @@ class ClaudeAgentSession implements AgentSession {
     }
     if (message.subtype === "task_progress") {
       return;
+    }
+  }
+
+  private appendSavedCompactionInspections(events: AgentStreamEvent[]): void {
+    if (this.pendingCompactionInspections.size === 0 || !this.claudeSessionId) return;
+    const historyPath = this.resolveHistoryPath(this.claudeSessionId);
+    if (!historyPath || !fs.existsSync(historyPath)) return;
+    let summaries: Map<string, string>;
+    try {
+      summaries = readClaudeCompactionSummaries(fs.readFileSync(historyPath, "utf8"));
+    } catch (error) {
+      this.logger.warn({ err: error }, "Could not read saved compaction summaries");
+      return;
+    }
+    for (const [id, item] of this.pendingCompactionInspections) {
+      const text = summaries.get(id);
+      if (text === undefined) continue;
+      events.push({
+        type: "timeline",
+        provider: "claude",
+        item: {
+          ...item,
+          inspection: { ...item.inspection, summary: { type: "text", text } },
+        },
+      });
+      this.pendingCompactionInspections.delete(id);
     }
   }
 
@@ -4968,6 +5046,15 @@ class ClaudeAgentSession implements AgentSession {
     const timeline: PersistedTimelineEntry[] = [];
     for (const line of content.split(/\r?\n/)) {
       this.ingestPersistedHistoryLine(line, timeline, replay);
+    }
+
+    const summaries = readClaudeCompactionSummaries(content);
+    for (const entry of timeline) {
+      if (entry.item.type !== "compaction" || !entry.item.compactionId) continue;
+      const text = summaries.get(entry.item.compactionId);
+      if (text !== undefined) {
+        entry.item.inspection = { ...entry.item.inspection, summary: { type: "text", text } };
+      }
     }
 
     if (timeline.length > 0) {
@@ -6072,6 +6159,15 @@ function convertClaudeHistoryEntryPreamble(
           status: "completed",
           trigger: compactMetadata?.trigger === "manual" ? "manual" : "auto",
           preTokens: compactMetadata?.preTokens,
+          ...(typeof entry.uuid === "string" ? { compactionId: entry.uuid } : {}),
+          ...(compactMetadata?.postTokens !== undefined
+            ? {
+                inspection: {
+                  summary: { type: "unavailable", reason: "not_exposed" },
+                  postTokens: compactMetadata.postTokens,
+                },
+              }
+            : {}),
         },
       ],
     };
@@ -6485,4 +6581,30 @@ function readClaudeCommandLifecycle(message: unknown): ClaudeCommandLifecycle | 
     commandUuid: record.command_uuid,
     state: record.state as ClaudeCommandLifecycle["state"],
   };
+}
+
+/** Pair saved summaries with their own boundary, never with a later compaction. */
+export function readClaudeCompactionSummaries(content: string): Map<string, string> {
+  const summaries = new Map<string, string>();
+  let boundaryId: string | null = null;
+  for (const entry of parseClaudeHistoryRecords(content)) {
+    if (entry.isSidechain === true) continue;
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      boundaryId = typeof entry.uuid === "string" ? entry.uuid : null;
+      continue;
+    }
+    if (entry.isCompactSummary !== true || boundaryId === null) continue;
+    const message = toObjectRecord(entry.message);
+    const text = message?.content;
+    if (typeof text === "string") summaries.set(boundaryId, text);
+    else if (Array.isArray(text)) {
+      const parts = text.flatMap((part) => {
+        const block = toObjectRecord(part);
+        return block?.type === "text" && typeof block.text === "string" ? [block.text] : [];
+      });
+      if (parts.length > 0) summaries.set(boundaryId, parts.join("\n\n"));
+    }
+    boundaryId = null;
+  }
+  return summaries;
 }

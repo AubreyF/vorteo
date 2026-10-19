@@ -1,3 +1,4 @@
+import { useSidebarWidth } from "../sidebar-width";
 import { Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { DiffStat } from "@/components/diff-stat";
@@ -20,7 +21,8 @@ export function useSidebarWorkspaceTrailing(): SidebarWorkspaceTrailing {
   const {
     settings: { sidebarWorkspaceTrailing },
   } = useAppSettings();
-  return sidebarWorkspaceTrailing;
+  const width = useSidebarWidth();
+  return width < 300 ? "none" : sidebarWorkspaceTrailing;
 }
 
 /** Whether the slot has anything to draw for this workspace under the current preference. */

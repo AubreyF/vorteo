@@ -116,7 +116,7 @@ it("retries and clears an empty queue's persisted completion error", async () =>
   }
 });
 
-it.each(["queue pause", "task stop"] as const)(
+it.each(["queue pause", "lifecycle suspension"] as const)(
   "%s during native goal suspension preserves the correct continuation owner",
   async (action) => {
     const root = await mkdtemp(join(tmpdir(), "paseo-queue-goal-race-"));
@@ -154,8 +154,8 @@ it.each(["queue pause", "task stop"] as const)(
         hold = value;
       },
       read,
-      set: async (status: "active" | "paused") => {
-        if (status === "paused") {
+      set: async (status: "active" | "paused" | "blocked") => {
+        if (status === "blocked") {
           enteredPause();
           await pausePending;
         }
@@ -203,7 +203,7 @@ it.each(["queue pause", "task stop"] as const)(
         },
       });
       await pauseEntered;
-      if (action === "task stop") await service.pause("agent");
+      if (action === "lifecycle suspension") await service.pause("agent");
       else
         await service.mutate("agent", {
           kind: "pause",
@@ -215,7 +215,7 @@ it.each(["queue pause", "task stop"] as const)(
       await expect
         .poll(
           () =>
-            hold === undefined && goal.status === (action === "queue pause" ? "active" : "paused"),
+            hold === undefined && goal.status === (action === "queue pause" ? "active" : "blocked"),
         )
         .toBe(true);
       expect(starts).toBe(0);
@@ -272,6 +272,139 @@ it("allows goal continuation after restarting with a paused nonempty queue", asy
     await expect.poll(() => canResume).toBe(true);
     expect(starts).toBe(0);
     expect((await service.read("agent")).items).toHaveLength(1);
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("recovers held goals without a stored message queue after daemon replacement", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-held-goal-recovery-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  const recovered: string[] = [];
+  try {
+    await service.startDelivery({
+      recoveryAgentIds: async () => ["held-goal"],
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: () => null,
+      complete: async (id, eligible) => {
+        if (await eligible()) recovered.push(id);
+      },
+      failed: (error) => {
+        throw error;
+      },
+    });
+    await expect.poll(() => recovered).toEqual(["held-goal"]);
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("persists one restart continuation and respects a manually paused queue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-restart-continuation-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  try {
+    await service.queueRestartContinuation("thread", "restart");
+    await service.queueRestartContinuation("thread", "restart");
+    await service.pause("paused-thread");
+    await service.queueRestartContinuation("paused-thread", "restart");
+    service.close();
+    const recovered = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    expect((await recovered.read("thread")).items).toHaveLength(1);
+    expect((await recovered.read("paused-thread")).items).toHaveLength(0);
+    const attempted: string[] = [];
+    let held = true;
+    await recovered.startDelivery({
+      canStartWork: () => !held,
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: (id) => {
+        attempted.push(id);
+        return null;
+      },
+      failed: (error) => {
+        throw error;
+      },
+    });
+    expect(attempted).toEqual([]);
+    held = false;
+    recovered.wake("thread");
+    await expect.poll(() => attempted).toEqual(["thread"]);
+    recovered.close();
+  } finally {
+    service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.each(["pause", "enqueue", "close"] as const)(
+  "withdraws automatic review admission when %s arrives during preparation",
+  async (action) => {
+    const root = await mkdtemp(join(tmpdir(), "paseo-review-race-"));
+    const service = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    try {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const admission = service.withIdleQueue("agent", async (canStart) => {
+        expect(canStart()).toBe(true);
+        entered.resolve();
+        await release.promise;
+        return canStart();
+      });
+      await entered.promise;
+      let mutation: Promise<unknown>;
+      if (action === "pause") mutation = service.pause("agent");
+      else if (action === "enqueue")
+        mutation = service.mutate("agent", {
+          kind: "enqueue",
+          operationId: "owner-add",
+          messageId: "owner-message",
+          text: "Keep this owner message",
+          attachments: [],
+        });
+      else {
+        service.close();
+        mutation = Promise.resolve();
+      }
+      release.resolve();
+      expect(await admission).toBe(false);
+      await mutation;
+      expect(await service.withIdleQueue("agent", async () => "started")).toBe(null);
+      if (action === "enqueue") {
+        expect((await service.read("agent")).items).toMatchObject([
+          { id: "owner-message", text: "Keep this owner message" },
+        ]);
+      }
+    } finally {
+      service.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it("holds automatic review while an empty queue has an unresolved delivery error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-review-error-"));
+  const store = new MessageQueueStore(root);
+  const service = new MessageQueueService(store, new QueueAttachmentStore(root));
+  try {
+    await service.initialize();
+    await store.setDeliveryError("agent", "Delivery confirmation unresolved");
+    expect(await service.withIdleQueue("agent", async () => "started")).toBe(null);
+    expect((await service.read("agent")).deliveryError).toBe("Delivery confirmation unresolved");
   } finally {
     service.close();
     await rm(root, { recursive: true, force: true });

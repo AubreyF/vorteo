@@ -9,11 +9,30 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { z } from "zod";
 
-import { DaemonConfigStore, applyMutableProviderConfigToOverrides } from "./daemon-config-store.js";
-import { loadPersistedConfig } from "./persisted-config.js";
+import { ConfigWriterError } from "./config-writer.js";
+import {
+  DaemonConfigStore,
+  OriginAdmissionUnavailableError,
+  applyMutableProviderConfigToOverrides,
+} from "./daemon-config-store.js";
+import {
+  loadPersistedConfig,
+  editPersistedConfig,
+  readPersistedConfig,
+} from "./persisted-config.js";
 import type { PersistedConfig } from "./persisted-config.js";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
+
+function captureConfigFailure(operation: () => unknown): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected configuration operation to reject");
+}
 
 function reloadableConfig(
   persisted: PersistedConfig,
@@ -103,6 +122,298 @@ describe("DaemonConfigStore", () => {
     for (const dir of tempDirs) {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("origin inspection returns detached coherent lists without applying pending disk state", () => {
+    const fixture = originFixture({
+      disk: ["https://disk.example"],
+      active: ["https://active.example"],
+    });
+    const observation = fixture.store.inspectOriginAdmission();
+    expect(observation).toEqual({
+      state: "ready",
+      reason: null,
+      persistedOrigins: ["https://disk.example"],
+      activeOrigins: ["https://active.example"],
+    });
+    observation.persistedOrigins.push("https://caller.example");
+    observation.activeOrigins?.push("https://caller.example");
+    expect(readPersistedConfig(fixture.home).daemon?.cors?.allowedOrigins).toEqual([
+      "https://disk.example",
+    ]);
+    expect(fixture.store.get().cors?.allowedOrigins).toEqual(["https://active.example"]);
+    fixture.removeOwner();
+    expect(fixture.store.hasOriginAdmissionOwner()).toBe(false);
+    expect(fixture.store.inspectOriginAdmission()).toMatchObject({
+      state: "unavailable",
+      activeOrigins: ["https://active.example"],
+    });
+  });
+
+  test("origin admission preserves independent active and persisted settings", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-origin-admission-"));
+    tempDirs.push(home);
+    const persisted: PersistedConfig = {
+      version: 1,
+      daemon: {
+        cors: { allowedOrigins: ["https://disk.example"] },
+        appendSystemPrompt: "pending disk setting",
+      },
+    };
+    writeFileSync(path.join(home, "config.json"), JSON.stringify(persisted));
+    const initial = reloadableConfig(persisted);
+    initial.cors.allowedOrigins = ["https://active.example"];
+    initial.appendSystemPrompt = "active setting";
+    const store = new DaemonConfigStore(home, initial, undefined, {
+      reloadSource: {
+        resolve: (config) => ({ mutable: reloadableConfig(config), overrideControlledPaths: [] }),
+      },
+    });
+    let origins = [...initial.cors.allowedOrigins];
+    store.onFieldChange("cors.allowedOrigins", (value) => {
+      origins = z.array(z.string()).parse(value);
+    });
+    const result = store.admitOrigin({
+      origin: "https://preview.example:32785",
+      expectedPersistedOrigins: ["https://disk.example"],
+      expectedActiveOrigins: ["https://active.example"],
+    });
+    expect(result).toEqual({
+      addedToPersisted: true,
+      addedToActive: true,
+      persistedOrigins: ["https://disk.example", "https://preview.example:32785"],
+      activeOrigins: ["https://active.example", "https://preview.example:32785"],
+    });
+    expect(origins).toEqual(result.activeOrigins);
+    expect(store.get().appendSystemPrompt).toBe("active setting");
+    expect(readPersistedConfig(home).daemon?.appendSystemPrompt).toBe("pending disk setting");
+  });
+
+  function originFixture(options: { disk?: string[]; active?: string[]; override?: boolean } = {}) {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-origin-admission-"));
+    tempDirs.push(home);
+    const persisted: PersistedConfig = { daemon: { cors: { allowedOrigins: options.disk ?? [] } } };
+    writeFileSync(path.join(home, "config.json"), JSON.stringify(persisted));
+    const initial = reloadableConfig(persisted);
+    initial.cors.allowedOrigins = options.active ?? [];
+    const store = new DaemonConfigStore(home, initial, undefined, {
+      reloadSource: {
+        resolve: (config) => ({
+          mutable: reloadableConfig(config),
+          overrideControlledPaths: options.override ? ["daemon.cors.allowedOrigins"] : [],
+        }),
+      },
+    });
+    const removeOwner = store.onFieldChange("cors.allowedOrigins", () => {});
+    const input = {
+      origin: "https://preview.example:32785",
+      expectedPersistedOrigins: [...(options.disk ?? [])],
+      expectedActiveOrigins: [...(options.active ?? [])],
+    };
+    return { home, store, input, removeOwner };
+  }
+
+  test.each([
+    { disk: true, active: false },
+    { disk: false, active: true },
+    { disk: true, active: true },
+  ])("origin admission distinguishes existing sides: %j", ({ disk, active }) => {
+    const origin = "https://preview.example:32785";
+    const fixture = originFixture({ disk: disk ? [origin] : [], active: active ? [origin] : [] });
+    const result = fixture.store.admitOrigin(fixture.input);
+    expect(result.addedToPersisted).toBe(!disk);
+    expect(result.addedToActive).toBe(!active);
+    expect(result.persistedOrigins).toEqual([origin]);
+    expect(result.activeOrigins).toEqual([origin]);
+    result.activeOrigins.push("https://caller.example");
+    expect(fixture.store.get().cors.allowedOrigins).toEqual([origin]);
+  });
+
+  test.each([
+    "https://user:secret@example.com",
+    "https://example.com/",
+    "https://example.com?x=1",
+    "https://example.com#x",
+    "ftp://example.com",
+    " https://example.com",
+  ])("origin admission rejects noncanonical origin %s", (origin) => {
+    const { store, input, home } = originFixture();
+    expect(() => store.admitOrigin({ ...input, origin })).toThrow();
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([]);
+    expect(store.get().cors.allowedOrigins).toEqual([]);
+  });
+
+  test.each(["disk", "active"])("origin admission refuses changed %s preconditions", (side) => {
+    const { store, input, home } = originFixture();
+    if (side === "disk")
+      editPersistedConfig(home, "daemon.cors.allowedOrigins", { value: ["https://other.example"] });
+    else store.get().cors.allowedOrigins.push("https://other.example");
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toMatchObject({ code: "stale_input", writeAttempted: false });
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).not.toContain(input.origin);
+  });
+
+  test("origin admission requires the active owner and rejects launch overrides", () => {
+    const unowned = originFixture();
+    unowned.removeOwner();
+    expect(() => unowned.store.admitOrigin(unowned.input)).toThrow(OriginAdmissionUnavailableError);
+    const overridden = originFixture({ override: true });
+    expect(() => overridden.store.admitOrigin(overridden.input)).toThrow(
+      OriginAdmissionUnavailableError,
+    );
+  });
+
+  test("origin admission keeps persisted uncertainty after a field owner rejects", () => {
+    const { store, input, home } = originFixture();
+    const cause = new Error("field owner failed");
+    store.onFieldChange("cors.allowedOrigins", (value) => {
+      if (Array.isArray(value) && value.includes(input.origin)) throw cause;
+    });
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toBeInstanceOf(ConfigWriterError);
+    expect(failure).toMatchObject({ code: "uncertain", writeAttempted: true, cause });
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([input.origin]);
+    expect(store.get().cors.allowedOrigins).toEqual([]);
+  });
+
+  test("origin admission reports active-only failure without claiming a disk write", () => {
+    const origin = "https://preview.example:32785";
+    const { store, input, home } = originFixture({ disk: [origin] });
+    const cause = new Error("active owner refused");
+    store.onFieldChange("cors.allowedOrigins", (value) => {
+      if (Array.isArray(value) && value.includes(origin)) throw cause;
+    });
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toMatchObject({ code: "uncertain", writeAttempted: false, cause });
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([origin]);
+    expect(store.get().cors.allowedOrigins).toEqual([]);
+  });
+
+  test("origin admission excludes a competing supported editor during live apply", () => {
+    const { store, input, home } = originFixture();
+    let rejected: unknown;
+    store.onFieldChange("cors.allowedOrigins", () => {
+      try {
+        editPersistedConfig(home, "daemon.appendSystemPrompt", { value: "competing" });
+      } catch (error) {
+        rejected = error;
+      }
+    });
+    store.admitOrigin(input);
+    expect(rejected).toMatchObject({ code: "busy", writeAttempted: false });
+    expect(readPersistedConfig(home).daemon?.appendSystemPrompt).toBeUndefined();
+  });
+
+  test("origin admission detects an unfenced disk edit after persist without rollback", () => {
+    const { store, input, home } = originFixture();
+    store.onFieldChange("cors.allowedOrigins", () => {
+      writeFileSync(
+        path.join(home, "config.json"),
+        JSON.stringify({ daemon: { appendSystemPrompt: "unfenced" } }),
+      );
+    });
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toMatchObject({
+      code: "uncertain",
+      writeAttempted: true,
+      cause: { code: "stale_input" },
+    });
+    expect(readPersistedConfig(home).daemon?.appendSystemPrompt).toBe("unfenced");
+  });
+
+  test("origin admission rejects listener mutation against the detached postcondition", () => {
+    const { store, input, home } = originFixture();
+    store.onApply((next) => {
+      next.appendSystemPrompt = "unapproved listener change";
+      return () => {};
+    });
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toMatchObject({ code: "uncertain", writeAttempted: true });
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([input.origin]);
+  });
+
+  test.each([false, true])(
+    "origin admission refuses resolver owner removal even with same-function replacement=%s",
+    (replace) => {
+      const home = mkdtempSync(path.join(tmpdir(), "vorteo-origin-owner-"));
+      tempDirs.push(home);
+      const persisted: PersistedConfig = { daemon: { cors: { allowedOrigins: [] } } };
+      writeFileSync(path.join(home, "config.json"), JSON.stringify(persisted));
+      let removeOwner = () => {};
+      let ownerCalls = 0;
+      const handler = () => {
+        ownerCalls += 1;
+      };
+      const store = new DaemonConfigStore(home, reloadableConfig(persisted), undefined, {
+        reloadSource: {
+          resolve: (config) => {
+            removeOwner();
+            if (replace) store.onFieldChange("cors.allowedOrigins", handler);
+            return { mutable: reloadableConfig(config), overrideControlledPaths: [] };
+          },
+        },
+      });
+      removeOwner = store.onFieldChange("cors.allowedOrigins", handler);
+      expect(() =>
+        store.admitOrigin({
+          origin: "https://preview.example:32785",
+          expectedPersistedOrigins: [],
+          expectedActiveOrigins: [],
+        }),
+      ).toThrow(OriginAdmissionUnavailableError);
+      expect(ownerCalls).toBe(0);
+      expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([]);
+      expect(store.get().cors?.allowedOrigins).toEqual([]);
+    },
+  );
+
+  test("origin admission holds persisted owner loss before active dispatch", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-origin-owner-"));
+    tempDirs.push(home);
+    writeFileSync(
+      path.join(home, "config.json"),
+      JSON.stringify({ daemon: { cors: { allowedOrigins: [] } } }),
+    );
+    let removeOwner = () => {};
+    let ownerCalls = 0;
+    const logger = {
+      child: () => logger,
+      info: (...args: unknown[]) => {
+        for (const value of args)
+          if (typeof value === "string" && value.startsWith("Saved to ")) removeOwner();
+      },
+    };
+    const store = new DaemonConfigStore(home, reloadableConfig({}), logger, {
+      reloadSource: {
+        resolve: (config) => ({ mutable: reloadableConfig(config), overrideControlledPaths: [] }),
+      },
+    });
+    removeOwner = store.onFieldChange("cors.allowedOrigins", () => {
+      ownerCalls += 1;
+    });
+    const failure = captureConfigFailure(() =>
+      store.admitOrigin({
+        origin: "https://preview.example:32785",
+        expectedPersistedOrigins: [],
+        expectedActiveOrigins: [],
+      }),
+    );
+    expect(failure).toMatchObject({ code: "uncertain", writeAttempted: true });
+    expect(ownerCalls).toBe(0);
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([
+      "https://preview.example:32785",
+    ]);
+    expect(store.get().cors?.allowedOrigins).toEqual([]);
+  });
+
+  test("origin admission never returns success after field owner unregisters during apply", () => {
+    const { store, input, home, removeOwner } = originFixture();
+    store.onFieldChange("cors.allowedOrigins", () => {
+      removeOwner();
+    });
+    const failure = captureConfigFailure(() => store.admitOrigin(input));
+    expect(failure).toMatchObject({ code: "uncertain", writeAttempted: true });
+    expect(readPersistedConfig(home).daemon?.cors?.allowedOrigins).toEqual([input.origin]);
   });
 
   test("provider authority replaces portable fields durably without replacing local credentials", async () => {
@@ -709,17 +1020,42 @@ describe("DaemonConfigStore", () => {
       enableTerminalAgentHooks: false,
       appendSystemPrompt: "",
     });
+    function competingEdit() {
+      editPersistedConfig(paseoHome, "daemon.listen", { value: "127.0.0.1:9999" });
+    }
     store.onFieldChange("relay.enabled", (enabled) => {
       if (enabled === true) {
+        expect(competingEdit).toThrow("busy");
         throw new Error("Relay transport failed to start");
       }
     });
 
-    expect(() => store.patch({ relay: { enabled: true } })).toThrow(
-      "Relay transport failed to start",
-    );
+    expect(captureConfigFailure(() => store.patch({ relay: { enabled: true } }))).toMatchObject({
+      code: "uncertain",
+      writeAttempted: true,
+      cause: { message: "Relay transport failed to start" },
+    });
     expect(store.get().relay?.enabled).toBe(false);
     expect(loadPersistedConfig(paseoHome).daemon?.relay?.enabled).toBe(false);
+  });
+
+  test("does not restore a whole stale file after an unfenced writer intervenes in failed live apply", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "paseo-daemon-config-store-"));
+    tempDirs.push(home);
+    const store = new DaemonConfigStore(
+      home,
+      reloadableConfig({ daemon: { relay: { enabled: false } } }),
+    );
+    store.onApply(() => {
+      writeFileSync(
+        path.join(home, "config.json"),
+        JSON.stringify({ daemon: { listen: "127.0.0.1:9999" } }),
+      );
+      throw new Error("Live owner failed after external write");
+    });
+    expect(() => store.patch({ relay: { enabled: true } })).toThrow("stale_input");
+    expect(readPersistedConfig(home).daemon).toEqual({ listen: "127.0.0.1:9999" });
+    expect(store.get().relay?.enabled).toBe(false);
   });
 
   test("rolls back live owners when a later transactional owner fails", () => {
@@ -746,9 +1082,13 @@ describe("DaemonConfigStore", () => {
       throw new Error("Provider refresh failed");
     });
 
-    expect(() => store.patch({ browserTools: { enabled: true } })).toThrow(
-      "Provider refresh failed",
-    );
+    expect(
+      captureConfigFailure(() => store.patch({ browserTools: { enabled: true } })),
+    ).toMatchObject({
+      code: "uncertain",
+      writeAttempted: true,
+      cause: { message: "Provider refresh failed" },
+    });
     expect(browserToolsEnabled).toBe(false);
     expect(store.get().browserTools.enabled).toBe(false);
     expect(loadPersistedConfig(paseoHome).daemon?.browserTools?.enabled).toBeUndefined();

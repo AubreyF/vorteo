@@ -9,7 +9,13 @@ export function retainLastKnownUsage(
     ...next,
     providers: next.providers.map((usage) => {
       const known = previous?.providers.find((entry) => entry.providerId === usage.providerId);
-      if (known?.authRecovery && usage.status !== "available" && !usage.authRecovery) {
+      const setupToken = usage.details?.some((detail) => detail.id === "claude-setup-token");
+      if (
+        known?.authRecovery &&
+        usage.status !== "available" &&
+        !usage.authRecovery &&
+        !setupToken
+      ) {
         return {
           ...usage,
           authRecovery: known.authRecovery,

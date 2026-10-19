@@ -1,5 +1,22 @@
 # Private workspace previews
 
+On native Host, use the `helperCommand` returned by the native broker installer;
+it selects the pinned Host daemon home. The container helper continues to use
+the Dev daemon. Keep their registrations and receipts separate. Native services
+must bind `127.0.0.1` and consume the reserved origin. Interactive UI previews default to a live development server with isolated demo
+fixtures. For Vorteo, run `node /absolute/task/worktree/scripts/preview-dev.mjs`
+from the existing managed service. It consumes `PASEO_PORT` and
+`PASEO_PREVIEW_ORIGIN`, starts Expo with Fast Refresh, and uses the repository's
+Expo patch to bind loopback and validate HTTP and WebSocket origins. Apply the
+normal dependency patches first. Open Demo on the welcome page for simulated
+projects and tasks; no owner daemon connection is needed. Verify a source edit
+appears without a manual reload, revert that edit, and journal the review URL.
+Keep the live service available while work continues.
+
+Use `scripts/preview-static.mjs` with a sealed export for production validation
+or an explicitly requested fixed snapshot. Neither mode grants backend access
+or permission to restart agent daemons.
+
 The installed HTTPS broker is the approved exception for routine preview lifecycle requests. Agents may use the commands below for authorized local development work without per-service host approval. The host policy decides eligible workspaces and ports. This does not authorize unrelated work or external publishing.
 
 Use the existing workspace. Under the host's `registered` workspace policy, active registered local projects and worktrees with verified host paths need no individual grant. Under `approved-roots`, local workspaces must be inside an approved root and worktrees also need an exact workspace grant. Archived and symlinked workspace paths remain rejected, as do changes to previously pinned workspace paths. Registration never grants access to unmapped host paths. If an authorized preview is blocked by host policy, prepare a continuity prompt for Codex on the primary host to apply the policy update; do not ask the owner to run isolated diagnostics or pretend owner authorization is missing.
@@ -24,11 +41,11 @@ Bind loopback for Tailscale Serve. Preserve any explicitly approved private list
 
 HTTPS does not add application authentication, change tailnet access, or grant clipboard/microphone permission. Test the rendered application, not only HTTP health. Keep URLs, credentials, clipboard content and installation receipts out of public source or logs.
 
-The broker runs while the Mac is awake and the user session is available. It revalidates owned mappings but does not revive stopped, crashed, moved or reconfigured services. After a daemon restart, use explicit start for a broker-managed preview. Legacy preview restoration remains separate for services not adopted by the broker. Host startup cannot bypass FileVault or login. Agents cannot administer host recovery.
+The broker runs while the Mac is awake and the user session is available. Administrators can opt into restart recovery for previously verified previews whose workspace and service configuration remain unchanged. Recovery retains the HTTPS reservation and verifies the replacement managed listener. Explicit stops, same-daemon service exits, archived workspaces and configuration changes remain stopped. Without that policy, use explicit start after a daemon restart. Legacy preview restoration remains separate for services not adopted by the broker. Host startup cannot bypass FileVault or login. Agents cannot administer host recovery.
 
 ## Owner preview preference
 
-When the owner requests a local preview, provide a verified private Tailscale HTTPS URL in every project and worktree. The request authorizes the managed preview lifecycle without a separate approval question. A localhost-only URL does not fulfill the request. Keep Funnel disabled and preserve path, listener ownership, and origin checks. Host changes require a self-contained continuity prompt for Codex on the primary host, including completed preparation, validation, remaining work, existing authority, and acceptance checks.
+When the owner requests a local preview, provide a verified private Tailscale HTTPS URL in every project and worktree. The request authorizes the managed preview lifecycle without a separate approval question. A localhost-only URL does not fulfill the request. Keep Funnel disabled and preserve path, listener ownership, and origin checks. Before preparing a host continuity prompt, check available skills and clients. Use the installed `installation-maintenance` skill for supported Host or Dev daemon restart requests and status queries, retaining owner approval for each restart. Host policy changes and other operations without a supported tool route require a self-contained continuity prompt, including the concrete blocker, completed preparation, validation, remaining work, existing authority, and acceptance checks.
 
 ## Preview workspace reuse
 

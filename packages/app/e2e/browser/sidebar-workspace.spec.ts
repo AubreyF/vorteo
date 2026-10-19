@@ -594,3 +594,118 @@ test.describe("Half-screen desktop layout", () => {
     }
   });
 });
+
+test("new workspace stays in its intended project from the first visible row", async ({ page }) => {
+  const intended = await seedWorkspace({ repoPrefix: "intended-project-" });
+  const directory = await seedWorkspace({ repoPrefix: "host-directory-" });
+  let createdWorkspaceId: string | null = null;
+  try {
+    await gotoAppShell(page);
+    await expectSidebarWorkspaces(page, [intended.workspaceId, directory.workspaceId]);
+    await page.evaluate(() => {
+      const projects: Array<string | null> = [];
+      const observe = () => {
+        for (const row of document.querySelectorAll('[data-testid^="sidebar-workspace-row-"]')) {
+          if (!row.textContent?.includes("Atomic Host task")) continue;
+          projects.push(row.closest('[role="group"]')?.getAttribute("aria-label") ?? null);
+        }
+        document.documentElement.dataset.observedWorkspaceProjects = JSON.stringify(projects);
+      };
+      new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
+      observe();
+    });
+    const created = await directory.client.createWorkspace({
+      source: { kind: "directory", path: directory.repoPath },
+      projectMembership: { key: intended.projectKey, name: intended.projectDisplayName },
+      title: "Atomic Host task",
+    });
+    if (!created.workspace) throw new Error(created.error ?? "Missing workspace");
+    createdWorkspaceId = created.workspace.id;
+    const row = page.getByTestId(getWorkspaceRowTestId(created.workspace.id));
+    await expect(row).toBeVisible();
+    const expectedProject = intended.projectDisplayName;
+    await expect(
+      page
+        .getByRole("group", { name: expectedProject, exact: true })
+        .getByTestId(getWorkspaceRowTestId(created.workspace.id)),
+    ).toBeVisible();
+    const observed = await page.evaluate(() =>
+      JSON.parse(document.documentElement.dataset.observedWorkspaceProjects ?? "[]"),
+    );
+    expect(observed.length).toBeGreaterThan(0);
+    expect(new Set(observed)).toEqual(new Set([expectedProject]));
+  } finally {
+    if (createdWorkspaceId) await directory.client.archiveWorkspace(createdWorkspaceId);
+    await directory.cleanup();
+    await intended.cleanup();
+  }
+});
+
+test("workspace title and sidebar menus share every workspace action", async ({
+  page,
+}, testInfo) => {
+  const seeded = await seedWorkspace({ repoPrefix: "workspace-menu-parity-" });
+  try {
+    await gotoAppShell(page);
+    const row = await openWorkspaceFromSidebar(page, seeded.workspaceId);
+    await row.hover();
+    await page
+      .getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`)
+      .click();
+    const sidebarItems = page
+      .getByTestId(`sidebar-workspace-menu-content-${getServerId()}:${seeded.workspaceId}`)
+      .getByRole("menuitem");
+    const sidebarLabels = await sidebarItems.allTextContents();
+    expect(sidebarLabels.length).toBeGreaterThanOrEqual(8);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("workspace-header-menu-trigger").click();
+    const titleLabels = await page
+      .getByTestId("workspace-header-menu")
+      .getByRole("menuitem")
+      .allTextContents();
+    expect(titleLabels).toEqual(sidebarLabels);
+    await page.screenshot({
+      path: testInfo.outputPath("desktop-workspace-menu.png"),
+      animations: "disabled",
+    });
+    await page.getByTestId("workspace-header-pin").click();
+    await page.getByTestId("workspace-header-menu-trigger").click();
+    await expect(page.getByTestId("workspace-header-pin")).toHaveText("Unpin");
+    await page.keyboard.press("Escape");
+    await row.hover();
+    await page
+      .getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`)
+      .click();
+    await expect(
+      page.getByTestId(`sidebar-workspace-menu-pin-${getServerId()}:${seeded.workspaceId}`),
+    ).toHaveText("Unpin");
+    await page
+      .getByTestId(`sidebar-workspace-menu-import-agent-${getServerId()}:${seeded.workspaceId}`)
+      .click();
+    await expect(page.getByTestId("import-session-sheet")).toBeVisible();
+  } finally {
+    await seeded.cleanup();
+  }
+});
+
+test.describe("wide touch workspace menu", () => {
+  test.use({ hasTouch: true, viewport: { width: 1280, height: 900 } });
+  test("uses the title menu without revealing a sidebar row kebab", async ({ page }, testInfo) => {
+    const seeded = await seedWorkspace({ repoPrefix: "workspace-menu-tablet-" });
+    try {
+      await gotoAppShell(page);
+      const row = await openWorkspaceFromSidebar(page, seeded.workspaceId);
+      await row.hover();
+      await expect(row.locator('[data-testid^="sidebar-workspace-kebab-"]')).toHaveCount(0);
+      await page.getByTestId("workspace-header-menu-trigger").tap();
+      await expect(page.getByTestId("workspace-header-rename")).toBeVisible();
+      await expect(page.getByTestId("workspace-header-archive")).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath("wide-touch-workspace-menu.png"),
+        animations: "disabled",
+      });
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+});

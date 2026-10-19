@@ -199,7 +199,8 @@ export function resolveNewWorkspaceAutomaticServerId(
     return nextServerId;
   }
 
-  if (input.defaultExecutionServerId) return currentServerId;
+  const preferredServerId = knownServerId(serverIds, input.defaultExecutionServerId);
+  if (preferredServerId) return knownServerId(serverIds, input.routeServerId) ?? preferredServerId;
 
   if (
     isOnline(input.hostConnectionStatusByServerId, nextServerId) &&

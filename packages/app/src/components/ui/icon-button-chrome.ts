@@ -1,3 +1,4 @@
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
 import type { StyleProp, ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
@@ -75,7 +76,7 @@ const styles = StyleSheet.create((theme) => ({
       md: HEADER_CONTROL_HEIGHT,
     },
     padding: 0,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -86,7 +87,7 @@ const styles = StyleSheet.create((theme) => ({
     width: SMALL_ICON_BUTTON_SIZE,
     height: SMALL_ICON_BUTTON_SIZE,
     padding: 0,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -97,7 +98,7 @@ const styles = StyleSheet.create((theme) => ({
     width: COMPACT_SMALL_ICON_BUTTON_SIZE,
     height: COMPACT_SMALL_ICON_BUTTON_SIZE,
     padding: 0,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,

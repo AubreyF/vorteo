@@ -34,6 +34,20 @@ function checkoutKey(serverId: string, cwd: string): CheckoutKey {
   return `${serverId}::${cwd}`;
 }
 
+/** Only an in-flight PR merge counts, not auto-merge setup or a local branch merge. */
+export function isCheckoutPrMergePending(
+  statuses: Record<CheckoutKey, StatusMap>,
+  serverId: string,
+  cwd: string,
+): boolean {
+  const actions = statuses[checkoutKey(serverId, cwd)];
+  return (
+    actions?.["merge-pr-squash"] === "pending" ||
+    actions?.["merge-pr-merge"] === "pending" ||
+    actions?.["merge-pr-rebase"] === "pending"
+  );
+}
+
 function resolveClient(serverId: string) {
   const session = useSessionStore.getState().sessions[serverId];
   const client = session?.client ?? null;

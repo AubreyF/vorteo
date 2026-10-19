@@ -1,0 +1,249 @@
+import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
+import type { AgentJournalEntry } from "@getpaseo/protocol/agent-journal";
+import AsyncStorage from "@/storage/app-storage";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFetchQuery } from "@/data/query";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/contexts/toast-context";
+import {
+  journalViewKey,
+  latestJournalSequence,
+  parseClearedThrough,
+  visibleJournalEntries,
+} from "./view-state";
+import { useCallback, useMemo } from "react";
+import { Text, View } from "react-native";
+import { StyleSheet } from "react-native-unistyles";
+import { useShallow } from "zustand/shallow";
+import { useSessionStore } from "@/stores/session-store";
+import { TaskCard, TaskCardHeader, TaskCardAction } from "@/agent-stream/task-card";
+import { taskCardStyles } from "@/agent-stream/task-card-styles";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
+import { BrushCleaning, History } from "lucide-react-native";
+import { useVortonTouch } from "@/vorton-touch";
+import { useAppActivelyVisible } from "@/hooks/use-app-visible";
+import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useSeenEntries } from "./use-seen-entries";
+import { useVisibleEntries } from "./use-visible-entries";
+import { JournalRow } from "./row";
+import { CountBadge } from "@/components/ui/count-badge";
+
+export function JournalCard({ serverId, agentId }: { serverId: string; agentId: string }) {
+  const { supported, entries } = useSessionStore(
+    useShallow((state) => {
+      const session = state.sessions[serverId];
+      const agent = session?.agentDetails.get(agentId) ?? session?.agents.get(agentId);
+      return {
+        supported: session?.serverInfo?.features?.agentJournal === true,
+        entries: agent?.journal,
+      };
+    }),
+  );
+  if (!supported || !entries?.length) return null;
+  return (
+    <JournalContent
+      key={JSON.stringify([serverId, agentId])}
+      serverId={serverId}
+      agentId={agentId}
+      entries={entries}
+    />
+  );
+}
+
+function JournalContent({
+  serverId,
+  agentId,
+  entries,
+}: {
+  serverId: string;
+  agentId: string;
+  entries: AgentJournalEntry[];
+}) {
+  const [expanded, setExpanded] = useCardDisclosure("journal");
+  const toggle = useCallback(() => setExpanded((value) => !value), [setExpanded]);
+  const touch = useVortonTouch();
+  const buttonSize = touch ? "md" : "xs";
+  const storageKey = journalViewKey(serverId, agentId);
+  const queryKey = ["journal-view", storageKey];
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const cleared = useFetchQuery({
+    dataShape: "value",
+    staleTimeMs: 0,
+    queryKey,
+    queryFn: async () => parseClearedThrough(await AsyncStorage.getItem(storageKey)),
+  });
+  const changeView = useMutation({
+    mutationFn: async (view: { key: string; sequence: number }) => {
+      await AsyncStorage.setItem(view.key, String(view.sequence));
+      return view;
+    },
+    onSuccess: (view) => queryClient.setQueryData(["journal-view", view.key], view.sequence),
+    onError: () => toast.error("Could not save the journal view. Please try again."),
+  });
+  const { mutate } = changeView;
+  const showHistory = useCallback(
+    () => mutate({ key: storageKey, sequence: 0 }),
+    [mutate, storageKey],
+  );
+  const clearJournal = useCallback(
+    () => mutate({ key: storageKey, sequence: latestJournalSequence(entries) }),
+    [mutate, storageKey, entries],
+  );
+  const clearedThrough = cleared.data ?? 0;
+  const visibleEntries = visibleJournalEntries(entries, clearedThrough);
+  const count = visibleEntries.length;
+  const seenState = useSeenEntries(serverId, agentId);
+  const appVisible = useAppActivelyVisible();
+  const panelActive = useRetainedPanelActive();
+  const activelyViewed = appVisible && panelActive;
+  const trackingEnabled = expanded && activelyViewed && seenState.canTrack;
+  const unreadEntries = visibleEntries.filter((entry) => !seenState.seen.has(entry.id));
+  const unreadCount = unreadEntries.length;
+  const { timestamps, viewport } = useVisibleEntries({
+    enabled: trackingEnabled && unreadCount > 0,
+    entryIds: JSON.stringify(visibleEntries.map((entry) => entry.id)),
+    onSeen: seenState.markSeen,
+  });
+  const hiddenCount = entries.length - count;
+  const badge = useMemo(
+    () => <JournalCount count={count} unread={unreadCount} ready={seenState.ready} />,
+    [count, seenState.ready, unreadCount],
+  );
+  const notice = useMemo(
+    () => <JournalSeenError failed={seenState.failed} onRetry={seenState.retry} />,
+    [seenState.failed, seenState.retry],
+  );
+  return (
+    <TaskCard
+      flushBody
+      testID="agent-journal-card"
+      bodyVisible={expanded}
+      bodyRef={viewport}
+      notice={notice}
+    >
+      <TaskCardHeader>
+        <CardDisclosure
+          icon={HEADING_ICON}
+          title="Journal"
+          expanded={expanded}
+          onPress={toggle}
+          count={badge}
+          testID="agent-journal-toggle"
+        />
+        <JournalViewAction
+          count={count}
+          disabled={cleared.isPending || cleared.isError || changeView.isPending}
+          onClear={clearJournal}
+          onShowHistory={showHistory}
+        />
+      </TaskCardHeader>
+      {expanded && count === 0 ? (
+        <Text style={[styles.empty, taskCardStyles.proseInset]}>
+          Journal cleared on this device. New entries will appear here.
+        </Text>
+      ) : null}
+      {expanded ? (
+        <View>
+          {visibleEntries.map((entry, index) => (
+            <JournalRow
+              key={entry.id}
+              entry={entry}
+              first={index === 0}
+              last={index === count - 1}
+              ready={seenState.ready}
+              seen={seenState.seen.has(entry.id)}
+              timestamps={timestamps}
+              animate={activelyViewed}
+            />
+          ))}
+        </View>
+      ) : null}
+      {expanded && hiddenCount > 0 && count > 0 ? (
+        <Button
+          variant="ghost"
+          size={buttonSize}
+          disabled={changeView.isPending}
+          testID="journal-show-history"
+          onPress={showHistory}
+        >
+          Show history ({hiddenCount})
+        </Button>
+      ) : null}
+    </TaskCard>
+  );
+}
+
+function JournalSeenError({ failed, onRetry }: { failed: boolean; onRetry: () => void }) {
+  const touch = useVortonTouch();
+  if (!failed) return null;
+  return (
+    <View style={styles.readError}>
+      <Text style={[styles.empty, taskCardStyles.proseInset]}>
+        Could not save or load seen entries on this device.
+      </Text>
+      <Button variant="ghost" size={touch ? "md" : "xs"} onPress={onRetry}>
+        Retry
+      </Button>
+    </View>
+  );
+}
+
+function JournalViewAction({
+  count,
+  disabled,
+  onClear,
+  onShowHistory,
+}: {
+  count: number;
+  disabled: boolean;
+  onClear: () => void;
+  onShowHistory: () => void;
+}) {
+  return (
+    <TaskCardAction
+      disabled={disabled}
+      accessibilityLabel={count ? "Clear journal" : "Show history"}
+      accessibilityHint={
+        count
+          ? "Hides current journal entries on this device. Nothing is deleted; Show history restores them."
+          : "Restores journal entries hidden on this device."
+      }
+      iconOnly
+      leftIcon={count ? BrushCleaning : History}
+      testID={count ? "journal-clear" : "journal-show-history"}
+      onPress={count ? onClear : onShowHistory}
+    />
+  );
+}
+
+function JournalCount({ count, unread, ready }: { count: number; unread: number; ready: boolean }) {
+  const hasUnread = ready && unread > 0;
+  return (
+    <CountBadge
+      count={count}
+      label={ready ? `${count - unread} / ${count}` : String(count)}
+      accessibilityLabel={
+        ready ? `${count - unread} of ${count} journal entries read` : `${count} journal entries`
+      }
+      testID={hasUnread ? "journal-unread-count" : undefined}
+    />
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  readError: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
+  },
+  empty: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    padding: theme.spacing[2],
+  },
+}));
+
+const HEADING_ICON = <TaskCardIcon kind="journal" />;

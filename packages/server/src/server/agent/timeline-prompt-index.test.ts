@@ -51,4 +51,21 @@ describe("buildTimelinePromptIndex", () => {
     expect(result.prompts[0]?.preview).toHaveLength(120);
     expect(result.prompts[0]?.preview.endsWith("…")).toBe(true);
   });
+  it("retains explicit agent provenance without inferring it from message text", () => {
+    const rows: AgentTimelineRow[] = [
+      {
+        seq: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        item: { type: "user_message", text: "Review this change", origin: "agent" },
+      },
+      {
+        seq: 2,
+        timestamp: "2026-01-01T00:00:01.000Z",
+        item: { type: "user_message", text: "Agent says: review this change" },
+      },
+    ];
+    const { prompts } = buildTimelinePromptIndex("epoch-1", rows);
+    expect(prompts[0]).toMatchObject({ seq: 1, origin: "agent" });
+    expect(prompts[1]).not.toHaveProperty("origin");
+  });
 });

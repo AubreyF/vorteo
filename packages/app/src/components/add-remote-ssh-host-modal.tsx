@@ -1,6 +1,7 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Terminal } from "lucide-react-native";
 import { parseSshTransportUri } from "@getpaseo/protocol/ssh-transport";
@@ -13,7 +14,6 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { DaemonConnectionTestError } from "@/utils/test-daemon-connection";
 import { AdaptiveModalSheet, type SheetHeader } from "./adaptive-modal-sheet";
 
-const FLEX_ONE_STYLE = { flex: 1 } as const;
 const ThemedTerminal = withUnistyles(Terminal);
 
 const styles = StyleSheet.create((theme) => ({
@@ -118,12 +118,33 @@ export function AddRemoteSshHostModal({
   }, []);
   const handleSubmit = useCallback(() => void handleSave(), [handleSave]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button variant="secondary" onPress={handleCancel} disabled={isSaving}>
+          {t("pairing.remoteSsh.actions.cancel")}
+        </Button>
+        <Button
+          onPress={handleSubmit}
+          disabled={isSaving}
+          leftIcon={ThemedTerminal}
+          testID="remote-ssh-submit"
+        >
+          {isSaving
+            ? t("pairing.remoteSsh.actions.connecting")
+            : t("pairing.remoteSsh.actions.connect")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleCancel, isSaving, t, handleSubmit],
+  );
   return (
     <AdaptiveModalSheet
       header={header}
       visible={visible}
       onClose={handleClose}
       testID="add-remote-ssh-host-modal"
+      footer={modalFooter1}
     >
       <Text style={styles.helper}>{t("pairing.remoteSsh.helper")}</Text>
       <Field
@@ -146,27 +167,6 @@ export function AddRemoteSshHostModal({
           onSubmitEditing={handleSubmit}
         />
       </Field>
-      <View style={styles.actions}>
-        <Button
-          style={FLEX_ONE_STYLE}
-          variant="secondary"
-          onPress={handleCancel}
-          disabled={isSaving}
-        >
-          {t("pairing.remoteSsh.actions.cancel")}
-        </Button>
-        <Button
-          style={FLEX_ONE_STYLE}
-          onPress={handleSubmit}
-          disabled={isSaving}
-          leftIcon={ThemedTerminal}
-          testID="remote-ssh-submit"
-        >
-          {isSaving
-            ? t("pairing.remoteSsh.actions.connecting")
-            : t("pairing.remoteSsh.actions.connect")}
-        </Button>
-      </View>
     </AdaptiveModalSheet>
   );
 }

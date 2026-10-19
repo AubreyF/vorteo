@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { assertInstallationProviderLaunch } from "../../execution-installation/settings/provider-admission.js";
 import {
   readInstallationSettingsForLaunch,
@@ -75,6 +76,7 @@ export type EnsureWorkspaceForCreate = (
 export interface CreateAgentFromSessionInput {
   onCreated?: CreateAgentFromMcpInput["onCreated"];
   kind: "session";
+  origin?: AgentRunOptions["origin"];
   onAgentReady?: (agent: ManagedAgent) => Promise<void>;
   agentId?: string;
   config: AgentSessionConfig;
@@ -397,13 +399,12 @@ async function resolveSessionCreateAgent(
   };
   const prompt = buildAgentPrompt(trimmedPrompt ?? "", input.images, input.attachments);
   const hasPromptContent = Array.isArray(prompt) ? prompt.length > 0 : prompt.length > 0;
-  const clientMessageId = normalizeClientMessageId(input.clientMessageId);
+  const clientMessageId = input.origin
+    ? resolveClientMessageId(input.clientMessageId)
+    : normalizeClientMessageId(input.clientMessageId);
   const runOptions: AgentRunOptions | undefined =
     input.outputSchema || clientMessageId
-      ? {
-          ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
-          ...(clientMessageId ? { clientMessageId } : {}),
-        }
+      ? { outputSchema: input.outputSchema, clientMessageId, origin: input.origin }
       : undefined;
   const workspaceId = setupContinuation ? createdWorkspaceId : input.workspaceId;
 
@@ -569,6 +570,8 @@ async function resolveMcpCreateAgent(
       env: input.env,
     },
     prompt: trimmedPrompt ? trimmedPrompt : undefined,
+    // MCP provenance does not depend on having a parent agent.
+    runOptions: { origin: "agent", clientMessageId: randomUUID() },
     setupContinuation,
     createdWorktree,
     background: input.background,

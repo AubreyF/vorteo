@@ -382,6 +382,7 @@ export const fr: TranslationResources = {
       title: "Tâches",
       empty: "Aucune tâche pour l'instant.",
       tasksProgress: "{{completed}}/{{total}} tâches",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "{{count}} tâches créées",
         added: "Ajoutée",
@@ -390,6 +391,7 @@ export const fr: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Compactage...",
       auto: "Contexte automatiquement compacté",
       manual: "Contexte compacté manuellement",
@@ -662,7 +664,6 @@ export const fr: TranslationResources = {
         maximizePane: "Agrandir le volet",
         restorePane: "Restaurer le volet",
         closePane: "Fermer le volet",
-        exitFocusMode: "Quitter le mode concentration",
         splitRight: "Volet divisé à droite",
         splitDown: "Diviser le volet vers le bas",
         changes: "Modifications",
@@ -1039,6 +1040,8 @@ export const fr: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Brouillon",
           merged: "Fusionné",
           closed: "Fermé",
@@ -1869,6 +1872,7 @@ export const fr: TranslationResources = {
     backdrop: "Toile de fond du menu",
   },
   subagents: {
+    ...en.subagents,
     title: "Sous-agents",
     pillLabelOne: "1 sous-agent",
     pillLabelMany: "{{count}} sous-agents",
@@ -1881,7 +1885,7 @@ export const fr: TranslationResources = {
     detachTooltip: "Detacher le sous-agent",
     archiveAction: "Archiver{{label}}",
     archiveTooltip: "Sous-agent d'archivage",
-    archiveFinishedAction: "Archiver les sous-agents terminés",
+    archiveFinishedAction: "Retirer les terminés",
     archiveFinishedRetry: "Réessayer ({{failed}}/{{total}})",
   },
   panels: {
@@ -1909,6 +1913,7 @@ export const fr: TranslationResources = {
         cursor: "Ligne {{line}}, colonne {{column}}",
         preview: "Aperçu",
         source: "Source",
+        copyAll: "Tout copier",
         deletedTitle: "Fichier supprimé du disque",
         checkFailedTitle: "Impossible de vérifier le fichier sur le disque",
         preservedDescription: "La copie ouverte est conservée.",
@@ -2263,7 +2268,7 @@ export const fr: TranslationResources = {
         systemDefault: "Valeur par défaut du système",
         interfaceFont: "Police d'interface",
         interfaceFontHint:
-          "Utilisé dans toute l'application. Laisser vide pour la valeur par défaut du système",
+          "Utilisée dans toute l’application. Laissez vide pour utiliser la typographie du thème",
         interfaceFontAccessibility: "Famille de polices d'interface",
         interfaceSize: "Taille de l'interface",
         interfaceSizeHint: "Utilisée pour la navigation, les contrôles et les libellés",
@@ -2352,7 +2357,6 @@ export const fr: TranslationResources = {
         toggleRightSidebar: "Basculer le panneau latéral",
         toggleBothSidebars: "Basculer les deux barres latérales",
         toggleSettings: "Basculer les paramètres",
-        toggleFocusMode: "Basculer le mode de mise au point",
         cycleTheme: "Thème du cycle",
         focusMessageInput: "Saisie du message de focus",
         cycleAgentMode: "Parcourir les modes de l'agent",

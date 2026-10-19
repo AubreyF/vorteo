@@ -171,15 +171,31 @@ export function createRootLogger(
     mkdirSync(path.dirname(config.file.path), { recursive: true });
   }
 
-  const stream =
+  const destination = pino.destination({ dest: config.file?.path ?? 1, sync: false });
+  const prettify =
     config.console.format === "pretty"
-      ? pretty({
+      ? pretty.prettyFactory({
           colorize: true,
           singleLine: true,
           ignore: "pid,hostname",
-          destination: config.file?.path ?? 1,
         })
-      : pino.destination({ dest: config.file?.path ?? 1, sync: false });
+      : undefined;
+  const stream = prettify
+    ? {
+        write(line: string) {
+          let output: string;
+          try {
+            output = prettify(line);
+          } catch {
+            // Formatting must not discard an entry already serialized and redacted by Pino.
+            output = line;
+          }
+          destination.write(output);
+        },
+        flush: destination.flush.bind(destination),
+        flushSync: destination.flushSync.bind(destination),
+      }
+    : destination;
 
   const logger = pino(
     {

@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../support/fixtures";
-import { createIdleAgent } from "../support/helpers/archive-tab";
+import { createMockIdleAgent } from "../support/helpers/archive-tab";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { waitForWorkspaceTabsVisible } from "../support/helpers/workspace-tabs";
@@ -45,7 +45,7 @@ async function expectTwoRowAgentSummary(
 
   await expect(title).toBeVisible();
   await expect(id).toBeVisible();
-  await expect(tooltip.getByText("·", { exact: true })).toBeVisible();
+  await expect(tooltip.getByText("·", { exact: true }).first()).toBeVisible();
   await expect(activity).toBeVisible();
   expect((await title.boundingBox())?.y).toBeLessThan((await id.boundingBox())?.y ?? 0);
 }
@@ -60,7 +60,7 @@ test.describe("Workspace agent tab tooltip", () => {
         "Short first line",
         "followed by a much longer continuation that should be joined before the complete title is truncated to a useful tooltip length",
       ].join("\n");
-      const agent = await createIdleAgent(workspace.client, {
+      const agent = await createMockIdleAgent(workspace.client, {
         cwd: workspace.repoPath,
         workspaceId: workspace.workspaceId,
         title,

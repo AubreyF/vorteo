@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet as RNStyleSheet, View } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { RadarRing } from "@/components/ui/radar-ring";
 import type { SurfaceBackdrop } from "@/styles/surface-backdrop";
 import { getStatusDotColor } from "@/utils/status-dot-color";
 import {
@@ -13,6 +14,7 @@ import {
 import { STATUS_INDICATOR_FILLED_DOT_SIZE } from "@/utils/status-indicator-geometry";
 
 export interface StatusRingProps {
+  variant?: "agent" | "task";
   // The surface the ring is drawn on top of, named rather than resolved, because theme colours
   // are only legible inside `StyleSheet.create` — see docs/unistyles.md. The frame fills itself
   // with this so the ring reads as a hole punched in whatever it overlaps: the agent icon under a
@@ -21,22 +23,37 @@ export interface StatusRingProps {
   backdrop?: SurfaceBackdrop | null;
 }
 
-/**
- * The static half of the running indicator: the knockout, the track, and the centre dot. The
- * platform entry points supply the rotating quarter and own only how it is driven.
- *
- * The ring has no colour prop. It only ever means one thing — an agent is running — so it reads
- * that one colour out of the theme itself. Passing the colour in would materialise it at the call
- * site, outside anything Unistyles tracks, and leave the mark in the old theme until something
- * incidental re-rendered the row.
- */
-export function StatusRingFrame({ backdrop, children }: StatusRingProps & { children: ReactNode }) {
+/** Shared ring geometry; task activity uses a foreground outline without the agent dot. */
+export function StatusRingFrame({
+  backdrop,
+  variant = "agent",
+  children,
+}: StatusRingProps & { children: ReactNode }) {
   return (
-    <View style={[styles.frame, getBackdropStyle(backdrop)]}>
-      <View style={styles.track} />
+    <View
+      testID={variant === "task" ? "task-running-spinner" : "agent-running-spinner"}
+      style={[styles.frame, getBackdropStyle(backdrop)]}
+    >
       {children}
-      <View style={styles.centerDot} />
+      {variant === "agent" ? <View style={styles.centerDot} /> : null}
     </View>
+  );
+}
+
+const AgentRadar = withUnistyles(RadarRing, (theme) => ({
+  color: getStatusDotColor({ theme, bucket: "running" }) ?? theme.colors.foreground,
+}));
+const TaskRadar = withUnistyles(RadarRing, (theme) => ({ color: theme.colors.foreground }));
+
+export function StatusRingArc({ variant }: Pick<StatusRingProps, "variant">) {
+  const Ring = variant === "task" ? TaskRadar : AgentRadar;
+  return (
+    <Ring
+      size={STATUS_RING_SIZE}
+      strokeWidth={STATUS_RING_STROKE}
+      trackOpacity={STATUS_RING_TRACK_OPACITY}
+      headOpacity={variant === "task" ? 1 : STATUS_RING_HEAD_OPACITY}
+    />
   );
 }
 
@@ -59,10 +76,10 @@ function getBackdropStyle(backdrop: SurfaceBackdrop | null | undefined) {
   }
 }
 
-// The rotating quarter's geometry, deliberately plain React Native rather than Unistyles: on
+// The rotating sweep's geometry, deliberately plain React Native rather than Unistyles: on
 // native this style lands on a Reanimated `Animated.View`, and applying a theme-tracked style to
 // one crashes when the theme changes — Unistyles and Reanimated both mutate the same native node.
-// See docs/unistyles.md. The colour it needs lives on `styles.arc`, one level in, on a view
+// See docs/unistyles.md. The colour it needs lives on `StatusRingArc`, one level in, on a view
 // Reanimated never touches.
 export const rotatorStyles = RNStyleSheet.create({
   rotator: {
@@ -73,12 +90,6 @@ export const rotatorStyles = RNStyleSheet.create({
 });
 
 export const styles = StyleSheet.create((theme) => {
-  const circle = {
-    width: STATUS_RING_SIZE,
-    height: STATUS_RING_SIZE,
-    borderRadius: theme.borderRadius.full,
-    borderWidth: STATUS_RING_STROKE,
-  } as const;
   const runningColor = getStatusDotColor({ theme, bucket: "running" }) ?? undefined;
 
   return {
@@ -95,24 +106,6 @@ export const styles = StyleSheet.create((theme) => {
     backdropSurfaceSidebarHover: { backgroundColor: theme.colors.surfaceSidebarHover },
     backdropSurfaceSidebarSelected: { backgroundColor: theme.colors.surfaceSidebarSelected },
     backdropSurface2: { backgroundColor: theme.colors.surface2 },
-
-    // The closed ring the quarter runs on. Same colour rather than a grey so the indicator is one
-    // object at one hue; the opacity is what puts it behind the quarter instead of competing.
-    track: {
-      ...circle,
-      position: "absolute",
-      borderColor: runningColor,
-      opacity: STATUS_RING_TRACK_OPACITY,
-    },
-
-    // The moving quarter. Three sides transparent leaves the top border alone, which on a fully
-    // rounded box is a 90° arc — the edge that makes the rotation legible against the track.
-    arc: {
-      ...circle,
-      borderColor: "transparent",
-      borderTopColor: runningColor,
-      opacity: STATUS_RING_HEAD_OPACITY,
-    },
 
     centerDot: {
       width: STATUS_INDICATOR_FILLED_DOT_SIZE,

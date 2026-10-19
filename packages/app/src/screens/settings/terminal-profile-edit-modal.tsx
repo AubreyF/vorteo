@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -131,6 +132,33 @@ export function TerminalProfileEditModal({
   const nameError = fieldErrors.name;
   const commandError = fieldErrors.command;
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          variant="secondary"
+          style={styles.actionButton}
+          onPress={handleCancel}
+          disabled={isPending}
+          testID="terminal-profile-cancel-button"
+        >
+          {t("common.actions.cancel")}
+        </Button>
+        <Button
+          variant="default"
+          style={styles.actionButton}
+          onPress={handleSave}
+          disabled={isPending}
+          testID="terminal-profile-save-button"
+        >
+          {isPending
+            ? t("settings.host.terminalProfiles.saving")
+            : t("settings.host.terminalProfiles.save")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleCancel, isPending, t, handleSave],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
@@ -138,6 +166,7 @@ export function TerminalProfileEditModal({
       onClose={handleCancel}
       testID={testID}
       desktopMaxWidth={480}
+      footer={modalFooter1}
     >
       <View style={styles.body}>
         <Field
@@ -211,29 +240,6 @@ export function TerminalProfileEditModal({
             {submitError}
           </Text>
         ) : null}
-
-        <View style={styles.actions}>
-          <Button
-            variant="secondary"
-            style={styles.actionButton}
-            onPress={handleCancel}
-            disabled={isPending}
-            testID="terminal-profile-cancel-button"
-          >
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            variant="default"
-            style={styles.actionButton}
-            onPress={handleSave}
-            disabled={isPending}
-            testID="terminal-profile-save-button"
-          >
-            {isPending
-              ? t("settings.host.terminalProfiles.saving")
-              : t("settings.host.terminalProfiles.save")}
-          </Button>
-        </View>
       </View>
     </AdaptiveModalSheet>
   );
@@ -251,7 +257,7 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
   submitError: {
     color: theme.colors.palette.red[300],

@@ -27,6 +27,7 @@ const DOT_SIZE = 10;
 const SWATCH_SIZE = 20;
 
 export function workspaceLabelColorName(color: WorkspaceLabelColor): string {
+  if (color === "neutral") return "Neutral";
   return i18n.t(`workspaceLabels.colors.${color}`);
 }
 
@@ -41,7 +42,12 @@ export const WORKSPACE_LABEL_ICON_MAPPINGS: Record<
 > = Object.fromEntries(
   WORKSPACE_LABEL_COLORS.map((color) => [
     color,
-    (theme: Theme) => ({ color: identityForeground(color, theme.colorScheme) }),
+    (theme: Theme) => ({
+      color:
+        color === "neutral"
+          ? theme.colors.foregroundMuted
+          : identityForeground(color, theme.colorScheme),
+    }),
   ]),
 ) as Record<WorkspaceLabelColor, (theme: Theme) => { color: string }>;
 
@@ -62,11 +68,13 @@ export function WorkspaceLabelSwatchRow({
   value,
   onChange,
   disabled = false,
+  allowCustomColors = true,
   testID,
 }: {
   value: WorkspaceLabelColor | null;
   onChange: (color: WorkspaceLabelColor) => void;
   disabled?: boolean;
+  allowCustomColors?: boolean;
   testID?: string;
 }): ReactElement {
   return (
@@ -76,7 +84,7 @@ export function WorkspaceLabelSwatchRow({
           key={color}
           color={color}
           selected={color === value}
-          disabled={disabled}
+          disabled={disabled || (!allowCustomColors && color !== "neutral")}
           onChange={onChange}
         />
       ))}
@@ -106,7 +114,12 @@ function WorkspaceLabelSwatch({
       disabled={disabled}
       hitSlop={SWATCH_HIT_SLOP}
       onPress={select}
-      style={[styles.swatch, fillStyle(color), selected && styles.swatchSelected]}
+      style={[
+        styles.swatch,
+        fillStyle(color),
+        selected && styles.swatchSelected,
+        disabled && styles.disabled,
+      ]}
       testID={`workspace-label-swatch-${color}`}
     />
   );
@@ -138,10 +151,12 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: theme.borderWidth[2],
     borderColor: theme.colors.foreground,
   },
+  disabled: { opacity: 0.35 },
   // The one place a label color becomes a fill. Scheme-dependent, so it has to be a registered
   // style rather than a computed value: `identityForeground` needs the active scheme, and a
   // module-scope read would freeze on whichever theme happened to be up first.
   fillViolet: { backgroundColor: identityForeground("violet", theme.colorScheme) },
+  fillNeutral: { backgroundColor: theme.colors.foregroundMuted },
   fillSky: { backgroundColor: identityForeground("sky", theme.colorScheme) },
   fillEmerald: { backgroundColor: identityForeground("emerald", theme.colorScheme) },
   fillOrange: { backgroundColor: identityForeground("orange", theme.colorScheme) },
@@ -156,6 +171,8 @@ const styles = StyleSheet.create((theme) => ({
 // Read inside render, never into a module-scope table — see docs/unistyles.md.
 function fillStyle(color: WorkspaceLabelColor) {
   switch (color) {
+    case "neutral":
+      return styles.fillNeutral;
     case "violet":
       return styles.fillViolet;
     case "sky":

@@ -1,4 +1,4 @@
-import { isGoalContinuationEnabled, goalStatusLabel } from "./goal-presentation";
+import { isGoalContinuationEnabled, goalStatusLabel, goalQueueNotice } from "./goal-presentation";
 import { describe, expect, it } from "vitest";
 import type { AgentGoalState } from "@getpaseo/protocol/agent-goals";
 import { goalElapsedAt, formatGoalElapsed, goalQueryConfirmed } from "./goal-presentation";
@@ -19,6 +19,11 @@ const state: AgentGoalState = {
 };
 
 describe("goal elapsed time", () => {
+  it("uses minutes without seconds in narrow tiles", () => {
+    expect(formatGoalElapsed(45, true)).toBe("<1m");
+    expect(formatGoalElapsed(125, true)).toBe("2m");
+    expect(formatGoalElapsed(53640, true)).toBe("894m");
+  });
   it("includes native uncheckpointed time and local monotonic time", () => {
     expect(goalElapsedAt(state, true, 3)).toBe(10);
     expect(goalElapsedAt({ ...state, observedAt: new Date(15000).toISOString() }, true, 0)).toBe(
@@ -51,9 +56,90 @@ it("offers Pause for a queue-held goal and Resume for a manual pause", () => {
     goal: { ...state.goal!, status: "paused" as const },
     queueContinuationHeld: true,
   };
-  expect(goalStatusLabel(paused)).toBe("Goal waiting for queue");
+  expect(goalStatusLabel(paused)).toBe("Goal");
   expect(isGoalContinuationEnabled(paused)).toBe(true);
+  expect(goalStatusLabel({ ...paused, restartContinuationHeld: true })).toBe(
+    "Goal blocked by restart",
+  );
   const manual = { ...paused, queueContinuationHeld: false };
   expect(goalStatusLabel(manual)).toBe("Goal paused");
   expect(isGoalContinuationEnabled(manual)).toBe(false);
+});
+
+it("explains a held goal and distinguishes message failures from goal recovery", () => {
+  const held: AgentGoalState = {
+    ...state,
+    goal: { ...state.goal!, status: "paused" },
+    queueContinuationHeld: true,
+  };
+  const queue = { agentId: "thread", revision: 1, paused: false, items: [] };
+  expect(goalQueueNotice(held, queue)).toEqual({
+    status: "waiting for messages",
+    message: "Queued messages take priority. The goal will continue automatically afterward.",
+  });
+  expect(goalQueueNotice(held, { ...queue, deliveryError: "Provider unavailable" })).toEqual({
+    status: "needs attention",
+    message: "Message delivery stopped: Provider unavailable",
+    action: "messages",
+  });
+  const uncertain = {
+    id: "message",
+    revision: 1,
+    createdAt: "now",
+    text: "Review changes",
+    attachments: [],
+    delivery: {
+      status: "uncertain" as const,
+      attemptId: "attempt",
+      startedAt: "now",
+      reason: "Connection lost",
+    },
+  };
+  expect(goalQueueNotice(held, { ...queue, items: [uncertain] })).toEqual({
+    status: "needs attention",
+    message:
+      "Message delivery could not be confirmed: Connection lost. Review the queued message before retrying; it may already have been sent.",
+    action: "messages",
+  });
+  expect(
+    goalQueueNotice(held, {
+      ...queue,
+      items: [
+        {
+          ...uncertain,
+          delivery: {
+            status: "failed",
+            attemptId: "attempt",
+            reason: "Attachment missing",
+          },
+        },
+      ],
+    }),
+  ).toEqual({
+    status: "needs attention",
+    message: "Message delivery failed: Attachment missing",
+    action: "messages",
+  });
+  expect(goalQueueNotice(state, { ...queue, deliveryError: "Provider unavailable" })).toBeNull();
+  expect(goalQueueNotice(held, queue, "Queue subscription failed")).toEqual({
+    status: "needs attention",
+    message: "Queued messages could not be synchronized: Queue subscription failed",
+    action: "messages",
+  });
+  expect(
+    goalQueueNotice(state, {
+      ...queue,
+      deliveryError: "The goal state must be confirmed before queue delivery.",
+    }),
+  ).toEqual({
+    status: "needs attention",
+    message:
+      "Message delivery is blocked because the agent's goal state could not be verified. Review and save the goal to continue.",
+    action: "goal",
+  });
+  expect(goalQueueNotice({ status: "loading", goal: held.goal }, queue)).toBeNull();
+  expect(goalQueueNotice({ ...held, restartContinuationHeld: true }, queue)).toBeNull();
+  expect(goalStatusLabel({ ...held, restartContinuationHeld: true })).toBe(
+    "Goal blocked by restart",
+  );
 });

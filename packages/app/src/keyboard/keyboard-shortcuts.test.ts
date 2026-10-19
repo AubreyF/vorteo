@@ -1299,3 +1299,22 @@ describe("Mac alternate command palette shortcut", () => {
     ]);
   });
 });
+
+describe("retired focus mode shortcut", () => {
+  it.each([true, false])("does not capture the former shortcut on mac=%s", (isMac) => {
+    expectNoShortcutResolution({
+      event: { key: "f", code: "KeyF", shiftKey: true, metaKey: isMac, ctrlKey: !isMac },
+      context: { isMac },
+    });
+  });
+
+  it("ignores saved overrides for removed bindings", () => {
+    const bindings = buildEffectiveBindings({
+      "view-toggle-focus-cmd-shift-f-mac": "Cmd+Shift+J",
+      "view-toggle-focus-ctrl-shift-f-non-mac": "Ctrl+Shift+J",
+    });
+    expect(bindings.some((binding) => binding.action === ("view.toggle.focus" as string))).toBe(
+      false,
+    );
+  });
+});

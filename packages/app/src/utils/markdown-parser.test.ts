@@ -13,8 +13,6 @@ const REWRITTEN_BY_TYPOGRAPHER = [
   "(R)",
   "(tm)",
   "(TM)",
-  "(p)",
-  "(P)",
   "+-",
   "two dots .. here",
   "wait for it...",
@@ -35,6 +33,7 @@ describe("createMarkdownParser", () => {
     for (const source of REWRITTEN_BY_TYPOGRAPHER) {
       expect(parser.renderInline(source)).toBe(escapeHtml(source));
     }
+    expect(parser.renderInline("(p) (P)")).toBe("(p) (P)");
   });
 
   it("would fail if typographer were switched back on", () => {

@@ -27,7 +27,6 @@ interface ExplorerSidebarDockProps extends Pick<
   | "onReloadAgent"
   | "onRenameTab"
   | "onCreateNewTab"
-  | "onExitFocusMode"
 > {
   hoveredCloseTabKey: string | null;
   onCloseTabsToLeft: (tabId: string, tabs: WorkspaceTabDescriptor[]) => Promise<void> | void;
@@ -75,7 +74,6 @@ export function ExplorerSidebarDock({
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
-  onExitFocusMode,
   onReorderTabsInPane,
   buildPaneContentModel,
   headerAction,
@@ -142,8 +140,6 @@ export function ExplorerSidebarDock({
                 onCloseTabsToLeft={handleCloseTabsToLeft}
                 onCloseTabsToRight={handleCloseTabsToRight}
                 onCloseOtherTabs={handleCloseOtherTabs}
-                focusModeEnabled={false}
-                onExitFocusMode={onExitFocusMode}
                 externalDndContext
                 paneId={pane.id}
                 tabs={tabItems}

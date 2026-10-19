@@ -24,6 +24,7 @@ export interface QuotaGovernorReason {
     | "consumption_freeze"
     | "estimate_unavailable"
     | "estimated_hourly_limit"
+    | "prepaid_authorization_inactive"
     | "required_window_unavailable";
   bucketId?: string;
   windowId?: string;
@@ -93,6 +94,8 @@ export function evaluateQuotaGovernor(input: EvaluationInput): QuotaGovernorDeci
   };
   const unknown = (reason: QuotaGovernorReason) =>
     restrict(input.phase === "active" ? "freeze" : "hold", reason);
+  if (prepaidAuthorizationInactive(policy, input.nowMs))
+    unknown({ code: "prepaid_authorization_inactive" });
   evaluateAllowanceWindows(policy, observation, restrict, unknown);
   for (const limit of policy.consumptionLimits) {
     const meter = matchingMeter(observation.consumptionMeters, limit);
@@ -119,12 +122,24 @@ export function evaluateQuotaGovernor(input: EvaluationInput): QuotaGovernorDeci
   return decision;
 }
 
+function prepaidAuthorizationInactive(policy: QuotaGovernorPolicy, nowMs: number): boolean {
+  const prepaid = policy.prepaidAuthorization;
+  if (!prepaid) return false;
+  return nowMs < Date.parse(prepaid.startsAt) || nowMs >= Date.parse(prepaid.expiresAt);
+}
+
 function evaluateEstimate(
   policy: QuotaGovernorPolicy,
   observation: Extract<QuotaObservation, { status: "available" }>,
   nowMs: number,
 ): QuotaGovernorReason | null {
   if (!policy.estimatedHourly) return null;
+  const prepaid = policy.prepaidAuthorization;
+  const prepaidEstimate =
+    prepaid &&
+    prepaid.bucketId === policy.estimatedHourly.bucketId &&
+    prepaid.windowId === policy.estimatedHourly.windowId;
+  if (prepaidEstimate) return null;
   const estimate = observation.estimatedHourlyUsage;
   if (
     !estimate ||
@@ -156,6 +171,13 @@ function evaluateAllowanceWindows(
       continue;
     }
     windows.add(identity);
+    const prepaid = policy.prepaidAuthorization;
+    const prepaidWindow =
+      prepaid &&
+      window.bucketId === prepaid.bucketId &&
+      window.windowId === prepaid.windowId &&
+      window.durationMinutes === 10080;
+    if (prepaidWindow) continue;
     const remaining = 100 - window.usedPercent;
     const identityFields = { bucketId: window.bucketId, windowId: window.windowId };
     if (remaining <= policy.freezeFloorPercent)

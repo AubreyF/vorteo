@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { AlertTriangle, CheckCircle2, Info, XCircle, type LucideIcon } from "lucide-react-native";
 import { type ReactNode, useMemo } from "react";
 import { Text, View } from "react-native";
@@ -85,7 +86,7 @@ export function Alert({
       {hasBody ? (
         <View style={resolvedIcon ? sized.indent : null}>
           {belowLead}
-          {children ? <View style={styles.actions}>{children}</View> : null}
+          {children ? <ActionFooter style={styles.actions}>{children}</ActionFooter> : null}
         </View>
       ) : null}
     </View>

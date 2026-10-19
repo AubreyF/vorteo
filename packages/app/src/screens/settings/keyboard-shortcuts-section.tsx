@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View, Text, type PressableStateCallbackType } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
-import { MoreHorizontal, Pencil, Undo2, X } from "lucide-react-native";
+import { MoreVertical, Pencil, Undo2, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { settingsStyles } from "@/styles/settings";
@@ -37,7 +37,7 @@ import { getDesktopHost } from "@/desktop/host";
 
 const EMPTY_CAPTURED_COMBOS: string[] = [];
 
-const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedUndo2 = withUnistyles(Undo2);
 const ThemedX = withUnistyles(X);
@@ -197,7 +197,7 @@ function ShortcutActionsMenu({
         testID={`shortcut-actions-${row.id}`}
       >
         {({ hovered, open }) => (
-          <ThemedMoreHorizontal
+          <ThemedMoreVertical
             size={14}
             uniProps={hovered || open ? foregroundColorMapping : foregroundMutedColorMapping}
           />

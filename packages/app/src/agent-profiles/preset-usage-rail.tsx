@@ -8,6 +8,7 @@ import { quotaReading } from "@/provider-usage/quota-reading";
 import type { ProviderUsageView } from "@/provider-usage/types";
 import { ProviderResetControl } from "@/provider-usage/reset-control";
 import { providerConnectionAction } from "@/provider-usage/connection-action";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 
 function resetLabel(resetsAt: string | null | undefined): string {
@@ -40,10 +41,12 @@ export function PresetUsageRail({
 }) {
   const { window, usage, statusLabel } = quotaReading(view, providerId, now);
   const { config } = useDaemonConfig(serverId);
+  const { entries } = useProvidersSnapshot(serverId);
   const connectionAction = providerConnectionAction({
     providerId,
     providers: config?.providers,
     usage,
+    snapshot: entries?.find((entry) => entry.provider === providerId),
   });
   const critical = Boolean(window && window.remainingPct < 5);
   const showStatusBelow = Boolean(window && statusLabel);
@@ -100,7 +103,6 @@ export function PresetUsageRail({
           serverId={serverId}
           providerId={providerId}
           name={name}
-          critical={critical}
         />
       </UsageControlSlot>
     </>
@@ -125,7 +127,6 @@ function UsageControls({
   serverId,
   providerId,
   name,
-  critical,
 }: {
   connectionAction: ReturnType<typeof providerConnectionAction>;
   showConnectionActions: boolean;
@@ -133,7 +134,6 @@ function UsageControls({
   serverId: string | null;
   providerId: string;
   name: string;
-  critical: boolean;
 }) {
   if (connectionAction) {
     if (!showConnectionActions) return null;
@@ -151,7 +151,6 @@ function UsageControls({
       serverId={serverId}
       providerId={providerId}
       name={name}
-      critical={critical}
       compact
       preloaded
     />

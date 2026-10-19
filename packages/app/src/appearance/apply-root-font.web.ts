@@ -3,15 +3,17 @@
 // react-native-web stamps a hardcoded default font onto every text element, so a
 // plain `body { font-family }` never cascades in — the element already has its own
 // font. Instead we inject ONE rule that points all text at a CSS variable and set
-// that variable live. The selector is high-specificity (1,2,0) so it deterministically
+// that variable live. The selector has higher specificity so it deterministically
 // beats both RN-web's base font and Unistyles' generated classes (0,1,0) — no reliance
 // on stylesheet order. Code/diff/terminal surfaces carry `data-pmono` (and have their
 // subtree excluded via `:not([data-pmono] *)`) so they keep their monospace font.
 const STYLE_ID = "paseo-ui-font";
+// Keep body, display and code scopes disjoint so the body rule cannot override headings.
 const RULE =
-  ":is(#root, #overlay-root) *:not([data-pmono]):not([data-pmono] *){font-family:var(--paseo-ui-font);}";
+  ":is(#root, #overlay-root) *:not([data-pmono]):not([data-pmono] *):not([data-pdisplay]):not([data-pdisplay] *):not([data-ptheme]):not([data-ptheme] *){font-family:var(--paseo-ui-font);}" +
+  ":is(#root, #overlay-root) [data-pdisplay]:not([data-pmono]), :is(#root, #overlay-root) [data-pdisplay] *:not([data-pmono]):not([data-pmono] *){font-family:var(--paseo-display-font);}";
 
-export function applyRootUiFont(uiFontStack: string): void {
+export function applyRootUiFont(uiFontStack: string, displayFontStack = uiFontStack): void {
   if (typeof document === "undefined") return;
   // Strip anything that could break out of the CSS value; commas/quotes/spaces in a
   // font stack are fine.
@@ -22,6 +24,10 @@ export function applyRootUiFont(uiFontStack: string): void {
   if (value.length === 0) return;
 
   document.documentElement.style.setProperty("--paseo-ui-font", value);
+  document.documentElement.style.setProperty(
+    "--paseo-display-font",
+    displayFontStack.replace(/[<>{}();\r\n]/g, "").trim(),
+  );
 
   // The rule itself is static (references the variable); inject it once.
   let style = document.getElementById(STYLE_ID);

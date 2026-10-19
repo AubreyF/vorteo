@@ -1,4 +1,5 @@
 export const WORKSPACE_LABEL_COLORS = [
+  "neutral",
   "violet",
   "sky",
   "emerald",
@@ -16,6 +17,8 @@ export type WorkspaceLabelColor = (typeof WORKSPACE_LABEL_COLORS)[number];
 export interface WorkspaceLabelDefinition {
   name: string;
   color: WorkspaceLabelColor;
+  /** Missing on older catalogs, whose automatically assigned colors display as neutral. */
+  explicitColor?: boolean;
 }
 
 export function normalizeWorkspaceLabelName(name: string): string {

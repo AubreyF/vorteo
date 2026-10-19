@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { View, Text } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { formatPrTabLabel, PullRequestTabIcon } from "@/git/pull-request-panel";
+import { formatPrTabLabel } from "@/git/pull-request-panel";
 import {
   usePanelStore,
   selectIsCompactFileExplorerOpen,
@@ -40,13 +40,18 @@ import {
   SIDEBAR_RESIZE_FAIL_OFFSET,
 } from "@/components/sidebar-resize-handle-layout";
 import {
-  EXPLORER_TAB_RAIL_INSET,
   explorerSidebarCloseButtonLayout,
   resolveExplorerSidebarWidth,
 } from "@/components/explorer-sidebar-layout";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { mutedIconColorMapping } from "@/components/ui/icon-button-chrome";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { CardDisclosure } from "@/agent-stream/card-disclosure";
+import { CardColumn } from "@/agent-stream/columns/card-column";
+import { PortalHost } from "@gorhom/portal";
+import { floatingPanelStyles, FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 
 const ThemedX = withUnistyles(X);
 
@@ -89,7 +94,6 @@ export function CompactExplorerSidebar({
   isGit,
   onOpenFile,
 }: ExplorerSidebarProps) {
-  const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
   const isActive = useIsMobilePanelActive("file-explorer");
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
@@ -123,17 +127,10 @@ export function CompactExplorerSidebar({
       {
         paddingTop: insets.top + HEADER_TOP_PADDING_MOBILE,
         paddingBottom: usePanelKeyboardPadding ? 0 : insets.bottom,
-        backgroundColor: theme.colors.surfaceSidebar,
       },
       mobileKeyboardInsetStyle,
     ],
-    [
-      insets.bottom,
-      insets.top,
-      mobileKeyboardInsetStyle,
-      theme.colors.surfaceSidebar,
-      usePanelKeyboardPadding,
-    ],
+    [insets.bottom, insets.top, mobileKeyboardInsetStyle, usePanelKeyboardPadding],
   );
 
   return (
@@ -160,11 +157,13 @@ export function CompactExplorerSidebar({
 }
 
 interface NativeExplorerSidebarDockProps extends ExplorerSidebarProps {
+  cardHostName?: string;
   persistenceKey: string;
   containerWidth: number;
 }
 
 export function NativeExplorerSidebarDock({
+  cardHostName,
   serverId,
   workspaceId,
   workspaceRoot,
@@ -173,7 +172,6 @@ export function NativeExplorerSidebarDock({
   persistenceKey,
   containerWidth,
 }: NativeExplorerSidebarDockProps) {
-  const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
   const isOpen = usePanelStore(selectIsCompactFileExplorerOpen);
   const showMobileAgent = usePanelStore((state) => state.showMobileAgent);
@@ -233,21 +231,16 @@ export function NativeExplorerSidebarDock({
       {
         display: isOpen ? ("flex" as const) : ("none" as const),
         paddingTop: insets.top + HEADER_TOP_PADDING_MOBILE,
-        backgroundColor: theme.colors.surfaceSidebar,
       },
       animatedWidthStyle,
     ],
-    [animatedWidthStyle, insets.top, isOpen, theme.colors.surfaceSidebar],
-  );
-  const dockContentStyle = useMemo(
-    () => [styles.nativeDockContent, { borderLeftColor: theme.colors.border }],
-    [theme.colors.border],
+    [animatedWidthStyle, insets.top, isOpen],
   );
 
   return (
     <RetainedPanelActivity active={isOpen}>
       <Animated.View style={dockStyle} testID="native-explorer-sidebar-dock">
-        <View style={dockContentStyle}>
+        <View style={styles.nativeDockContent}>
           <SidebarResizeHandle
             edge="left"
             gesture={resizeGesture}
@@ -255,6 +248,7 @@ export function NativeExplorerSidebarDock({
             testID="native-explorer-sidebar-resize-handle"
           />
           <ExplorerSidebarContent
+            cardHostName={cardHostName}
             activeTab={explorerTab}
             onTabPress={handleTabPress}
             onClose={showMobileAgent}
@@ -271,39 +265,8 @@ export function NativeExplorerSidebarDock({
   );
 }
 
-interface ExplorerTabButtonProps {
-  tab: ExplorerTab;
-  active: boolean;
-  label?: string;
-  onTabPress: (tab: ExplorerTab) => void;
-  testID: string;
-  children?: React.ReactNode;
-}
-
-function ExplorerTabButton({
-  tab,
-  active,
-  label,
-  onTabPress,
-  testID,
-  children,
-}: ExplorerTabButtonProps) {
-  const isCompact = useIsCompactFormFactor();
-  const handlePress = useCallback(() => onTabPress(tab), [onTabPress, tab]);
-  const tabStyle = useMemo(
-    () => [styles.tab(isCompact), active && styles.tabActive],
-    [active, isCompact],
-  );
-  const tabTextStyle = useMemo(() => [styles.tabText, active && styles.tabTextActive], [active]);
-  return (
-    <Pressable testID={testID} style={tabStyle} onPress={handlePress}>
-      {children}
-      {label !== undefined ? <Text style={tabTextStyle}>{label}</Text> : null}
-    </Pressable>
-  );
-}
-
 interface SidebarContentProps {
+  cardHostName?: string;
   activeTab: ExplorerTab;
   onTabPress: (tab: ExplorerTab) => void;
   onClose: () => void;
@@ -316,6 +279,7 @@ interface SidebarContentProps {
 }
 
 function ExplorerSidebarContent({
+  cardHostName,
   activeTab,
   onTabPress,
   onClose,
@@ -326,7 +290,6 @@ function ExplorerSidebarContent({
   isOpen,
   onOpenFile,
 }: SidebarContentProps) {
-  const { theme } = useUnistyles();
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
   const closeButtonLayout = explorerSidebarCloseButtonLayout(isCompact);
@@ -339,13 +302,14 @@ function ExplorerSidebarContent({
     () => [styles.headerRightSection, { paddingRight: closeButtonLayout.trailingPadding }],
     [closeButtonLayout.trailingPadding],
   );
+  const [expanded, setExpanded] = useState<ReadonlySet<ExplorerTab>>(() => new Set([activeTab]));
   const { prPane, showPullRequest: showPrTab } = usePullRequestPanelAvailability({
     serverId,
     cwd: workspaceRoot,
     isGit,
-    requested: activeTab === "pr",
+    requested: activeTab === "pr" || expanded.has("pr"),
     enabled: isOpen,
-    timelineEnabled: activeTab === "pr",
+    timelineEnabled: isOpen && expanded.has("pr"),
   });
   const requestedTab: ExplorerTab =
     !isGit && (activeTab === "changes" || activeTab === "pr") ? "files" : activeTab;
@@ -362,46 +326,30 @@ function ExplorerSidebarContent({
     cap: availableTabs.length,
   });
 
+  useEffect(() => {
+    if (isOpen)
+      setExpanded((previous) =>
+        previous.has(resolvedTab) ? previous : new Set([...previous, resolvedTab]),
+      );
+  }, [isOpen, resolvedTab]);
+  const toggleCard = useCallback(
+    (tab: ExplorerTab) => {
+      setExpanded((previous) => {
+        const next = new Set(previous);
+        if (next.has(tab)) next.delete(tab);
+        else next.add(tab);
+        return next;
+      });
+      if (!expanded.has(tab)) onTabPress(tab);
+    },
+    [expanded, onTabPress],
+  );
+
   return (
-    <View style={styles.sidebarContent} pointerEvents="auto">
-      {/* Header with tabs and close button */}
+    <View style={[floatingPanelStyles.surface, styles.sidebarContent]} pointerEvents="auto">
       <WindowChromeSafeArea placement="inline" style={styles.header} testID="explorer-header">
         <TitlebarDragRegion />
-        <View style={styles.tabsContainer(isCompact)}>
-          {isGit && (
-            <ExplorerTabButton
-              tab="changes"
-              active={resolvedTab === "changes"}
-              label={t("workspace.tabs.explorerSidebar.changes")}
-              onTabPress={onTabPress}
-              testID="explorer-tab-changes"
-            />
-          )}
-          <ExplorerTabButton
-            tab="files"
-            active={resolvedTab === "files"}
-            label={t("workspace.tabs.explorerSidebar.files")}
-            onTabPress={onTabPress}
-            testID="explorer-tab-files"
-          />
-          {isGit && showPrTab && (
-            <ExplorerTabButton
-              tab="pr"
-              active={resolvedTab === "pr"}
-              label={prTabLabel}
-              onTabPress={onTabPress}
-              testID="explorer-tab-pr"
-            >
-              <PullRequestTabIcon
-                forge={prPane.forge}
-                size={13}
-                color={
-                  resolvedTab === "pr" ? theme.colors.foreground : theme.colors.foregroundMuted
-                }
-              />
-            </ExplorerTabButton>
-          )}
-        </View>
+        <Text style={styles.headerTitle}>Workspace views</Text>
         <View style={headerRightSectionStyle}>
           <ToolbarButton
             compact={isCompact}
@@ -416,42 +364,94 @@ function ExplorerSidebarContent({
           </ToolbarButton>
         </View>
       </WindowChromeSafeArea>
-
-      {/* Content based on active tab */}
       <View style={styles.contentArea} testID="explorer-content-area">
-        {mountedTabIds.has("changes") ? (
-          <RetainedPanel active={resolvedTab === "changes"}>
-            <ChangedFilesPane
-              serverId={serverId}
-              workspaceId={workspaceId}
-              workspaceRoot={workspaceRoot}
-              isOpen={isOpen}
-              onOpenFile={onOpenFile}
-            />
-          </RetainedPanel>
-        ) : null}
-        {mountedTabIds.has("files") ? (
-          <RetainedPanel active={resolvedTab === "files"}>
-            <FilesPane
-              serverId={serverId}
-              workspaceId={workspaceId}
-              workspaceRoot={workspaceRoot}
-              onOpenFile={onOpenFile}
-            />
-          </RetainedPanel>
-        ) : null}
-        {mountedTabIds.has("pr") ? (
-          <RetainedPanel active={resolvedTab === "pr"}>
-            <PrTabContent
-              serverId={serverId}
-              workspaceId={workspaceId}
-              cwd={workspaceRoot}
-              prPane={prPane}
-            />
-          </RetainedPanel>
-        ) : null}
+        <CardColumn>
+          {cardHostName ? <PortalHost name={cardHostName} /> : null}
+          <ExplorerViewCard
+            tab="files"
+            label={t("workspace.tabs.explorerSidebar.files")}
+            expanded={expanded.has("files")}
+            onToggle={toggleCard}
+          >
+            {mountedTabIds.has("files") ? (
+              <FilesPane
+                serverId={serverId}
+                workspaceId={workspaceId}
+                workspaceRoot={workspaceRoot}
+                onOpenFile={onOpenFile}
+              />
+            ) : null}
+          </ExplorerViewCard>
+          {isGit ? (
+            <ExplorerViewCard
+              tab="changes"
+              label={t("workspace.tabs.explorerSidebar.changes")}
+              expanded={expanded.has("changes")}
+              onToggle={toggleCard}
+            >
+              {mountedTabIds.has("changes") ? (
+                <ChangedFilesPane
+                  serverId={serverId}
+                  workspaceId={workspaceId}
+                  workspaceRoot={workspaceRoot}
+                  isOpen={isOpen && expanded.has("changes")}
+                  onOpenFile={onOpenFile}
+                />
+              ) : null}
+            </ExplorerViewCard>
+          ) : null}
+          {isGit && showPrTab ? (
+            <ExplorerViewCard
+              tab="pr"
+              label={prTabLabel}
+              expanded={expanded.has("pr")}
+              onToggle={toggleCard}
+            >
+              {mountedTabIds.has("pr") ? (
+                <PrTabContent
+                  serverId={serverId}
+                  workspaceId={workspaceId}
+                  cwd={workspaceRoot}
+                  prPane={prPane}
+                />
+              ) : null}
+            </ExplorerViewCard>
+          ) : null}
+          {cardHostName ? <PortalHost name={`${cardHostName}:queue`} /> : null}
+        </CardColumn>
       </View>
     </View>
+  );
+}
+
+function ExplorerViewCard({
+  tab,
+  label,
+  expanded,
+  onToggle,
+  children,
+}: {
+  tab: ExplorerTab;
+  label: string;
+  expanded: boolean;
+  onToggle: (tab: ExplorerTab) => void;
+  children: ReactNode;
+}) {
+  const toggle = useCallback(() => onToggle(tab), [onToggle, tab]);
+  const icon = useMemo(() => <TaskCardIcon kind={tab === "files" ? "files" : "changes"} />, [tab]);
+  return (
+    <TaskCard panelHeight={360} bodyVisible={expanded} testID={`compact-supporting-card-${tab}`}>
+      <TaskCardHeader>
+        <CardDisclosure
+          title={label}
+          expanded={expanded}
+          onPress={toggle}
+          testID={`explorer-tab-${tab}`}
+          icon={icon}
+        />
+      </TaskCardHeader>
+      <RetainedPanel active={expanded}>{children}</RetainedPanel>
+    </TaskCard>
   );
 }
 
@@ -514,9 +514,9 @@ const styles = StyleSheet.create((theme) => ({
     position: "relative",
     flex: 1,
     minHeight: 0,
-    borderLeftWidth: 1,
   },
   sidebarContent: {
+    margin: FLOATING_PANEL_INSET,
     flex: 1,
     minHeight: 0,
     overflow: "hidden",
@@ -533,34 +533,12 @@ const styles = StyleSheet.create((theme) => ({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  tabsContainer: (isCompact: boolean) => ({
-    flexDirection: "row",
-    gap: theme.spacing[1],
-    // With the tab's own horizontal padding this puts the label on the pane's
-    // leading rail, the same way the desktop tab rail does.
-    paddingLeft: isCompact ? EXPLORER_TAB_RAIL_INSET : theme.spacing[2],
-  }),
-  tab: (isCompact: boolean) => ({
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingVertical: theme.spacing[2],
-    paddingHorizontal: isCompact ? theme.spacing[2] : theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
-  }),
-  tabActive: {
-    backgroundColor: theme.colors.surfaceSidebarHover,
-  },
-  tabText: {
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.normal,
-    color: theme.colors.foregroundMuted,
-  },
-  tabTextActive: {
+  headerTitle: {
+    flex: 1,
+    paddingHorizontal: 12,
     color: theme.colors.foreground,
-  },
-  tabTextMuted: {
-    opacity: 0.8,
+    fontFamily: theme.fontFamily.display,
+    fontSize: theme.fontSize.base,
   },
   headerRightSection: {
     flexDirection: "row",
@@ -568,6 +546,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   contentArea: {
+    padding: FLOATING_PANEL_INSET,
     flex: 1,
     minHeight: 0,
   },

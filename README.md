@@ -5,11 +5,11 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect an unlimited number of Codex and Claude accounts, then balance tasks across all of them simultaneously. Keep work moving while tracking usage and reset windows for each connected profile. Drafts restore their saved account and workflow together. New drafts use a workflow from the selected account. Drag providers in Settings to set their order in the profile picker. Delete custom providers, including Antigravity and Muse Code, from the same list.
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
 
-<img width="600" alt="Animated demo of Vorteo account switching and profiles" src="https://github.com/user-attachments/assets/ae3f9872-f3d6-4efa-8f23-a032aa3133de" />
+<img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
-When an older Claude Code version hides newer models, Vorteo shows an update warning in provider settings and the account and model pickers. It lists the installed version, affected models and update instructions for the selected environment. Update the CLI and refresh the provider to clear the warning.
+For a configured Host and Dev installation, open its HTTPS address on your new device and enter the owner password on the welcome page. Vorteo connects both environments for you.
 
 ## Enhanced Security
 
@@ -19,41 +19,43 @@ When an older Claude Code version hides newer models, Vorteo shows an update war
 
 ## Power Tools to Manage Your Fleet
 
-- **Manage skills across environments.** Open **Settings > Skills** to inspect installed skills, instructions, ownership and hashes across environments. Shared provider paths appear once per environment, with each path available in Details. Preview pinned installations, provider discovery links, identical-copy consolidation, removal and restoration. Profiles can inherit defaults with exclusions, select specific skills or disable optional skills on supported providers. See the [skill library guide](docs/skill-library.md).
+- **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. The adjacent zoom slider scales the whole browser interface and remembers your preferred size. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
 
-- **Give Codex a goal.** Set an objective with an optional token budget. Follow progress, elapsed time and token usage from the goal bar, and pause or resume when you need to intervene.
+- **Keep your sidebar across devices.** Project and workspace order, expanded sections, grouping and filters follow you between connected devices. Offline edits sync after reconnection. Requires the updated Host daemon.
+
+- **Track a build across threads.** Each thread keeps its checklist beside the conversation when space allows, or below it in narrower layouts. The workspace flower combines task progress across its active threads, and planning instructions carry accepted checklist items into implementation. Updated daemons and clients also support agent tools and manual editing with dependencies and completion criteria. Blocked tasks explain their blocker, and eligible idle threads periodically check whether they can proceed. See [checklists and workspace progress](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
+- **Keep a decision journal.** Agents can record critical decisions and verified progress in a timestamped journal card. Entries are append-only and stay in their original order. Requires an updated daemon. See [thread journals](docs/vorteo-customizations.md#goals-queues-and-supervised-workers).
+
+- **Cross-device, server-managed message queuing.** Line up your task messages with files or images - then edit, reorder, pause, and send them from any connected device. The daemon in each environment will continue executing queued work even if your client is offline.
+
+<img width="400" alt="Server managed cross-device message queuing." src="https://github.com/user-attachments/assets/59dfdb03-e1ec-40d2-b66e-9683134e3811" />
+
+- **Reviewed updates and queued restarts.** On a configured installation, Dev agents can submit source for the Host or Dev daemon and return an exact approval link. Host updates also publish the shared interface. Plain restarts can wait for active work to finish with your browser closed. With a compatible coordinator, an owner-unlocked preference can approve routine Host and Dev updates and restarts through the same tracked controls. Coordinator and supervisor maintenance retain separate approval. Host-prepared Dev supervisor repairs use the same visible review and cancellation controls. Coordinator updates can include automatic restoration of the verified previous release if replacement fails or stalls. [Setup and limits](docs/execution-installation.md#reviewed-source-updates).
+
+<img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
+
+- **Put local workers to work.** Choose a worker account and profile on each supervisor, including accounts from another provider or Pi models on local or private endpoints. Set a finite concurrency limit or choose Uncapped on an updated installation, and follow each worker beneath its originating task, even when it uses a separate worktree. Provider and quota limits still apply.
+
+<img width="400" alt="Frontier delegation to local workers" src="https://github.com/user-attachments/assets/fb255faa-8e19-4f28-8ec8-55a8b253ed2a" />
+
+- **Inspect what survives compaction.** Expand a compaction marker to read, copy or export the saved summary and inspect available token counts. Providers that do not expose readable summaries say so. New summary capture requires the updated daemon; older saved events may have no summary.
+
+- **Give Codex a goal.** Set an objective with an optional token budget. Follow status, elapsed time and token usage, then pause or resume when you need to intervene. Vorteo also adds thread-scoped tools for agents to revise their own objective and resume authorized work, even when the provider’s native agent tools cannot edit or resume an existing goal. Goal editing requires the updated daemon and preserves usage, budgets and restart holds. Accounting updates do not invalidate an edit, while changed goal revisions require a fresh read.
 
 <img width="400" alt="Server authoritative goal direction for the Codex integration" src="https://github.com/user-attachments/assets/ed51f89f-077f-43c3-90b6-768ad8a4538d" />
 
-- **Line up the next steps.** Queue messages with files or images, then edit, reorder, pause or send them from another connected device. The host owns the queue and can keep delivering messages after you close the client. Pausing the queue leaves an active goal eligible to continue; stopping the task pauses both. Saved queues do not guarantee uninterrupted execution of an active turn during a host restart. Question, approval, plan, queue, goal and subagent cards share a subtle border, compact corners and consistent spacing above the message box and scroll with the conversation. Cards use compact, uniform top and bottom insets with a small heading-to-content gap. Card headings match the row height, including the Subagents accordion hover. Collapse the Subagents card using its heading; the count and Archive finished action stay visible. Messages waiting to synchronize use the same queue rows, with a muted orbit that fades in while waiting, then fades out before the grab handle fades in. Its tooltip says “Queued on this device.” Unsaved queue edits stay on the device across reloads, including newly added images. Save synchronizes text and attachment changes; Cancel leaves the shared message unchanged. Drag queued messages to reorder them; sidebar badges show queued messages, subagents and active goals.
+- **Factory project status and setup.** Inspect native project observations and setup availability in the Factory screen. Initial installation checks the selected host, project and visible revision, sends one correlated request, and holds uncertain outcomes for reconciliation. It requires a reconciled native owner; lifecycle actions remain unavailable. See [Factory](docs/factory.md).
 
-- **Put local workers to work.** Managed workers appear beneath their originating task and project. Independent follow-ups in a worker worktree stay accessible there, along with terminals and running scripts. Configure a Pi profile for a local or private OpenAI-compatible endpoint, then let a supervisor delegate work with a limit on concurrent workers.
+- **Enclaves for streamlined factory operations.** Workspaces with schedules or archive protection appear in Standing. Paused schedules keep their workspace there and show Paused. Protection and non-ended schedules both block archival until you remove them. Manage workspace schedules and custom labels from Tag As. Sidebar badges share compact padding with room above and below their text, and fade beneath the overlaid workspace menu using the current row background.
 
-- **Switch environment settings without losing your place.** Settings > Environments keeps environment tabs visible above the scrolling details and exceptions.
+<img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
-- **Keep projects in view.** Search sits at the left of the top sidebar toolbar, with its configured shortcuts in the tooltip. On Mac, Cmd+K and Opt+Space both open Search; Windows and Linux use Ctrl+K. The three-dot menu, History, Schedules, and Settings stay visible at the right, in that order. Usage stays out of the sidebar, and app preferences omit the Sidebar section. The settings Back button uses a compact ghost style with a hover background. The three-dot menu holds Add project, New workspace, View preferences, and Help and support. In View preferences → Show, turn Activity badges on or off to show or hide subagent counts, queued-message counts, and active-goal badges. On mobile, the Search icon keeps a full-height tap target. iPhone toolbars use the system safe area without extra clearance. Vorteo uses a fixed background hint to suppress the native top blur in iOS Home Screen apps. Shortcuts originally installed with a translucent status bar retain that setting after updates. Add a replacement from Safari and verify it before removing the old shortcut; see [Home Screen troubleshooting](docs/ios-home-screen.md).
+- **Run tasks in either environment within one workspace.** Choose Host or Dev container in a new task while retaining draft text and uploaded files. Task tabs identify their environment; mapped directories and remembered folder choices keep later tasks in the same visible workspace. Updated daemons are required.
 
-- **Seamlessly transition between phone, tablet, and desktop.** Choose an environment, account and saved profile in the profile switcher’s three desktop cards or collapsible mobile sections, numbered 1–3 with circled step markers. New workspace uses this switcher for Host and Dev container selection. Profile rows show their saved model and reasoning; choosing one keeps those settings together. Host appears first with its access risk explained; selections use rounded orange outlines and a light orange fill. Circled step numbers match their headings, and compact reset badges keep hover feedback within their visible borders. The closed chooser shows the selected profile and a compact usage ring; a full ring reads `100` to keep the label inside its border. Activate Profile appears after an initial selection, and Switch to Profile appears when changing the active environment, account or profile. The full-width arrow action matches the profile card’s rounded corners, slides below it and collapses completely when hidden. The chooser opens immediately while account usage and other data load inside it. Switching environments brings accounts in with a staggered fade, followed by a gentle profile sweep; reduced-motion settings skip these animations. Environment, account and profile tiles share a compact two-line layout and height, with visible hover feedback. Accounts use the same natural name order across environments, regardless of daemon registration order. The wider account column shows remaining usage at the upper right, with reset timing and compact reset buttons on the second line. Wide layouts show a two-column profile grid and indented permission and worker details. Mobile headings align labels and selected values across a common center split, with colons identifying each selection. Profile tiles use two columns when the sheet has room and one on narrow screens. Mobile profile management remains in Settings. Choose any environment’s profile to continue a chat in the same project. Projects can contain workspaces from different environments and repositories. The handoff keeps the project selected and resolves a working directory in the chosen environment. Visible touch controls and responsive task views keep task management within reach. Sidebar rows and actions expand into larger touch targets on touchscreens and in narrow windows. The workspace diff counter keeps a 44-pixel touch target in compact layouts. On desktop, hover a project or workspace row to reveal its three-dot menu.
+- **Let Host agents use a browser.** Enable the Host daemon's headless Chromium, or run `paseo browser host`, so Host agents can open pages, read them, click and take screenshots. It starts with an empty profile, never touches your logged-in browser state and blocks origins you deny, such as the protected interface. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).
 
-- **Move workspaces between projects.** Choose **Move to project** from a workspace’s menu, or drag it onto a project on web and desktop. All its chats move together, preserving their history, environment and working directory. Updated daemons are required.
-
-- **Read custom release notes.** Open **Settings → General → What's new** for Vorteo and Paseo notes in one timeline, newest first, with a shared Show more control. Vorteo version counters continue across upstream Paseo updates. Custom notes remain available when the upstream feed cannot be reached.
-
-- **Keep your place in long conversations.** Web and desktop timelines preserve the surrounding text while image sizes settle as you scroll through earlier messages.
-
-- **Track usage across coding tools.** Updated builds include Paseo's plugin usage sources and pinned usage windows alongside Vorteo's account and reserve controls.
-
-Host installation restarts validate the configured supervisor and persisted settings before dispatch. Failure details stay in Installation settings. Use the same complete release for the service and its validation entrypoint. See [restart and recovery](docs/execution-installation.md#restart-and-recovery).
-
-Installation controls sit directly in General settings. Maintenance tasks link directly to the exact request; opening the link never approves a restart. See the latest Host and Dev container restart states, review and approve requests inline, and expand history or shared workflows without opening a modal. Up and down chevrons show which installation sections are expanded or collapsed. Use the separate owner password generated by the host installer; owner access lasts seven days per browser and can be locked explicitly. Restart requests do not expire. A persistent sidebar banner shows requested and queued restarts, their reason and requester. Approve **Restart when idle** to wait for the listed active tasks to finish; the queue shows elapsed waiting time and can be cancelled before dispatch. It runs even with the browser closed. Completed and rejected requests stay in collapsed history. Each restart still requires approval, and saved daemon connections work while owner controls are locked. Owner session persistence supports Windows as well as POSIX hosts. The environment selector and profile dropdown use a green box for Dev container and an amber monitor with a key for Host access.
-
-- **Let Host agents use a browser.** Enable the Host daemon's headless browser, or run `paseo browser host`, to give Host agents a disposable Chromium for browser tools: open tabs, read pages, click and capture screenshots. It starts with an empty profile, blocks the origins you deny, such as the protected installation interface, and never shares your logged-in browser state. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).
-
-- **Download files you cannot preview.** Binary file previews offer a visible Download button, including files opened from chat links.
-
-Settings uses one navigation for the installation. Profiles are shared between Host and Dev container by default; exclude an environment in the profile editor when needed. Provider policy, instructions, metadata choices, terminal definitions, skills, plugins and browser-tool defaults are shared too. Use Environments for resource exceptions and local connections. Credentials, local paths and running work stay with their environment. Removing a local account connection retains its shared definition and other connections. Subagents appear under their originating task even when they execute in isolated worktrees.
-
-Vorteo has no alternate Paseo mode and does not install a separate Paseo application. Install and configure Paseo independently if you want to use it alongside Vorteo.
+See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feature inventory and the [Vorteo changelog](VORTEO_CHANGELOG.md) for changes by version.
 
 ## Install
 
@@ -76,7 +78,7 @@ Provider authentication happens afterward through the provider settings, which e
 
 Keep progress messages brief. If verification requires access only the user has, request that specific check and state what remains unverified.
 
-The installer builds locally, creates private storage and starts the container. Complete the Tailscale login, open the printed HTTPS address, and use the password in `$HOME/vorteo/.env`. Connect your provider accounts in the web interface. Vorteo mode is enabled by default on a fresh installation.
+The installer builds locally, creates private storage and starts the container. Complete the Tailscale login, open the printed HTTPS address, and use the password in `$HOME/vorteo/.env`. Connect your provider accounts in the web interface. Connect other devices through Tailscale using the environment address and existing application authentication. QR and pairing-link onboarding are retired.
 
 No registry account, host Node or separate host Tailscale installation is needed. Existing checkout? See [installation details](docker/multiplex/README.md).
 Keep personal files, Docker's socket and other users' homes outside the container mounts. See the [security boundaries](docs/container-tailscale.md).
@@ -99,6 +101,7 @@ Keep updates brief. Request only the specific user or administrator action neede
 
 ## Further Reading
 
+- [Vorteo customizations beyond upstream Paseo](docs/vorteo-customizations.md)
 - [Roadmap](docs/roadmap.md)
 - [Accounts and presets](docs/agent-presets.md)
 - [Development inside the container](docs/development.md)

@@ -1,3 +1,8 @@
+import {
+  resolveProviderType,
+  isSharedWorkflowProfile,
+  type ProviderAncestry,
+} from "@getpaseo/protocol/provider-preferences";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
 import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker";
@@ -16,9 +21,32 @@ export function accountPresets(input: {
   definitions: readonly AgentProfile[];
   entries: ProviderSnapshotEntry[] | undefined;
   query: string;
+  providers?: Readonly<Record<string, ProviderAncestry>>;
+  accountIndependent?: boolean;
 }): AccountPresets[] {
   const groups = new Map<string, AccountPresets>();
-  for (const row of input.rows) {
+  const rows = input.accountIndependent
+    ? (input.entries ?? [])
+        .filter((entry) => entry.enabled)
+        .flatMap((entry) => {
+          const type = resolveProviderType(entry.provider, input.providers ?? {});
+          return input.rows
+            .filter((row) =>
+              isSharedWorkflowProfile(row.id)
+                ? row.provider === type
+                : row.provider === entry.provider,
+            )
+            .map((row) =>
+              Object.assign({}, row, {
+                provider: entry.provider,
+                unavailable: entry.status !== "ready",
+                localEndpoint: entry.models?.find((model) => model.id === row.modelId)
+                  ?.localEndpoint,
+              }),
+            );
+        })
+    : input.rows;
+  for (const row of rows) {
     let group = groups.get(row.provider);
     if (!group) {
       group = {

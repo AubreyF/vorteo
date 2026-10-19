@@ -73,6 +73,62 @@ import { createWorkspaceProvisioningService } from "../session/workspace-provisi
 
 const REPO_CWD = resolvePath("/tmp/repo");
 
+it.each([false, true])(
+  "records canonical MCP follow-up identity without provider echoes (caller-scoped: %s)",
+  async (scoped) => {
+    const home = await mkdtemp(join(tmpdir(), "mcp-prompt-origin-"));
+    const logger = createTestLogger();
+    const storage = new AgentStorage(join(home, "agents"), logger);
+    const manager = new AgentManager({
+      clients: createTestAgentClients(),
+      registry: storage,
+      logger,
+    });
+    try {
+      const agent = await manager.createAgent({ provider: "codex", cwd: home }, undefined, {
+        workspaceId: "fixture-workspace",
+      });
+      const catalog = createPaseoToolCatalog({
+        agentManager: manager,
+        agentStorage: storage,
+        logger,
+        paseoHome: home,
+        ...(scoped ? { callerAgentId: agent.id } : {}),
+        providerSnapshotManager: createProviderSnapshotManagerStub().manager,
+      });
+      for (const prompt of ["machine instruction", "another machine instruction"]) {
+        const result = await catalog.executeTool("send_agent_prompt", {
+          agentId: agent.id,
+          prompt,
+          background: false,
+        });
+        expect(result.structuredContent).toMatchObject({ success: true });
+      }
+      const messages = manager.getTimeline(agent.id).filter((item) => item.type === "user_message");
+      expect(messages).toMatchObject([
+        { text: "machine instruction", origin: "agent", clientMessageId: expect.any(String) },
+        {
+          text: "another machine instruction",
+          origin: "agent",
+          clientMessageId: expect.any(String),
+        },
+      ]);
+      const ids = messages.map((item) => item.clientMessageId);
+      expect(ids.every((id) => z.uuid().safeParse(id).success)).toBe(true);
+      expect(new Set(ids).size).toBe(2);
+      expect(await new TaskOwnerEvidenceStore(home).list(agent.id)).toEqual([]);
+      expect(catalog.tools.has("read_task_owner_evidence")).toBe(scoped);
+      expect(manager.listAgents()).toHaveLength(1);
+    } finally {
+      manager.prepareForShutdown();
+      await Promise.all(manager.listAgents().map((agent) => manager.closeAgent(agent.id)));
+      await manager.flushForShutdown();
+      await storage.flush();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
 it("retrieves owner evidence through a task-bound tool without exposing another task", async () => {
   const logger = createTestLogger();
   const root = await mkdtemp(join(tmpdir(), "task-evidence-tool-"));
@@ -921,6 +977,85 @@ function createPaseoWorktreeForMcpTest(options: {
     return result;
   };
 }
+
+describe("thread checklist MCP tools", () => {
+  it("exposes object schemas, persists mutations, and refuses cross-thread arguments", async () => {
+    const logger = createTestLogger();
+    const workdir = await mkdtemp(join(tmpdir(), "mcp-checklist-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const agentManager = new AgentManager({
+      clients: createTestAgentClients(),
+      registry: storage,
+      logger,
+    });
+    const agent = await agentManager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage: storage,
+      callerAgentId: agent.id,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      logger,
+    });
+    const client = await connectInMemoryMcpClient(server);
+    try {
+      const { tools } = await client.listTools();
+      expect(tools.find((tool) => tool.name === "update_checklist")?.inputSchema.type).toBe(
+        "object",
+      );
+      const created = await client.callTool({
+        name: "update_checklist",
+        arguments: {
+          mutation: {
+            operation: "create",
+            id: "verify",
+            text: "Verify the card",
+            description: "Card updates without reloading",
+          },
+        },
+      });
+      expect(created.isError).not.toBe(true);
+      const blocked = await client.callTool({
+        name: "update_checklist",
+        arguments: { mutation: { operation: "update", id: "verify", status: "blocked" } },
+      });
+      expect(blocked.isError).not.toBe(true);
+      expect(agentManager.readChecklist(agent.id)[0]).toMatchObject({
+        status: "blocked",
+        completed: false,
+      });
+      const completed = await client.callTool({
+        name: "update_checklist",
+        arguments: { mutation: { operation: "update", id: "verify", status: "completed" } },
+      });
+      expect(completed.isError).not.toBe(true);
+      const read = await client.callTool({ name: "get_checklist", arguments: { id: "verify" } });
+      const task = {
+        id: "verify",
+        source: "vorteo",
+        text: "Verify the card",
+        description: "Card updates without reloading",
+        status: "completed",
+        completed: true,
+      };
+      expect(read.structuredContent).toEqual({ task, blocks: [] });
+      expect((await storage.get(agent.id))?.tasks).toEqual([task]);
+      const invalid = await client.callTool({
+        name: "update_checklist",
+        arguments: { agentId: "another-thread", mutation: { operation: "delete", id: "verify" } },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(agentManager.readChecklist(agent.id)).toEqual([task]);
+    } finally {
+      await client.close();
+      await server.close();
+      await agentManager.closeAgent(agent.id);
+      await agentManager.flush();
+      await rm(workdir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("browser MCP tools", () => {
   const logger = createTestLogger();
@@ -2881,14 +3016,19 @@ describe("create_agent MCP tool", () => {
         }),
       );
       const receivedProjects: Array<string | undefined> = [];
-      const child = (projectId: string | undefined) => {
+      const receivedMemberships: Array<PersistedWorkspaceRecord["projectMembership"]> = [];
+      const child = (
+        projectId: string | undefined,
+        projectMembership?: PersistedWorkspaceRecord["projectMembership"],
+      ) => {
         receivedProjects.push(projectId);
+        receivedMemberships.push(projectMembership);
         return {
           ...parent,
           workspaceId: "child-workspace",
           projectId: projectId ?? "unexpected-project",
           cwd: TARGET_CWD,
-          projectMembership: undefined,
+          projectMembership,
         };
       };
       const server = await createAgentMcpServer({
@@ -2902,7 +3042,8 @@ describe("create_agent MCP tool", () => {
             saved.push(workspace);
           },
         },
-        createDirectoryWorkspace: async (_cwd, _title, projectId) => child(projectId),
+        createDirectoryWorkspace: async (_cwd, _title, projectId, context) =>
+          child(projectId, context?.projectMembership),
         createPaseoWorktree: async (input) => ({
           worktree: { branchName: "worker", worktreePath: TARGET_CWD },
           intent: {
@@ -2910,7 +3051,7 @@ describe("create_agent MCP tool", () => {
             branchName: "worker",
             baseBranch: "main",
           },
-          workspace: child(input.projectId),
+          workspace: child(input.projectId, input.projectMembership),
           repoRoot: REPO_CWD,
           created: true,
         }),
@@ -2924,12 +3065,8 @@ describe("create_agent MCP tool", () => {
         projectId: "explicit-project",
       });
       expect(receivedProjects).toEqual(["parent-project", "explicit-project"]);
-      expect(saved).toHaveLength(1);
-      expect(saved[0]).toMatchObject({
-        workspaceId: "child-workspace",
-        cwd: TARGET_CWD,
-        projectMembership: { key: "logical-parent-project", name: "Parent project" },
-      });
+      expect(saved).toEqual([]);
+      expect(receivedMemberships).toEqual([parent.projectMembership, undefined]);
     },
   );
 
@@ -4274,6 +4411,11 @@ describe("send_agent_prompt MCP tool", () => {
 
     const response = await tool.handler(parsed.data as Record<string, unknown>);
 
+    expect(spies.agentManager.streamAgent).toHaveBeenCalledWith(
+      "child-agent",
+      "Follow up",
+      expect.objectContaining({ origin: "agent", clientMessageId: expect.any(String) }),
+    );
     expect(spies.agentManager.subscribe).toHaveBeenCalledTimes(1);
     expect(spies.agentManager.waitForAgentEvent).not.toHaveBeenCalled();
     expect(response.structuredContent.guidance).toBe(
@@ -5835,6 +5977,50 @@ describe("agent profile listing MCP tool", () => {
     const response = await tool.handler({});
 
     expect(response.structuredContent).toEqual({ profiles });
+  });
+
+  it("lists one shared profile instead of account and legacy copies", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const config = MutableDaemonConfigSchema.parse({
+      mcp: { injectIntoAgents: true },
+      providers: { one: { extends: "codex" }, two: { extends: "codex" } },
+      sharedProviderPreferences: {
+        version: 1,
+        revision: 1,
+        providers: {
+          codex: {
+            defaults: { model: "astra" },
+            preferredModels: [],
+            preferredThinkingOptions: [],
+            defaultWorkflowId: null,
+            workflows: [
+              { id: "review", name: "Review", provider: "codex", notes: "Inspect changes" },
+            ],
+          },
+        },
+        legacyProfiles: { old: { provider: "one", providerType: "codex", workflowId: "review" } },
+      },
+    });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerSnapshotManager: createOpenCodeManager().manager,
+      daemonConfigStore: { get: () => config },
+      logger,
+    });
+    const response = await registeredTool(server, "list_profiles").handler({});
+    expect(response.structuredContent).toMatchObject({
+      profiles: [
+        {
+          id: "shared-profile/codex/review",
+          provider: "codex",
+          name: "Review",
+          model: "astra",
+          notes: "Inspect changes",
+        },
+      ],
+    });
+    expect((response.structuredContent as { profiles: unknown[] }).profiles).toHaveLength(1);
   });
 
   it("returns an empty array when no profiles are configured", async () => {

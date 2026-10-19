@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { readValidatedJson } from "@/storage/validated-storage";
 import {
   FormPreferencesSchema,

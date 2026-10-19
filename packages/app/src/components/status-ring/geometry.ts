@@ -3,8 +3,8 @@ import { STATUS_INDICATOR_FILLED_DOT_SIZE } from "@/utils/status-indicator-geome
 // The running indicator is a status dot with a rotating ring around it, and the whole set of
 // numbers below is a budget rather than four independent choices. The centre matches every other
 // filled status circle; the gap and stroke grow outward from it without changing that shared size.
-export const STATUS_RING_GAP = 1.5;
-export const STATUS_RING_STROKE = 1.5;
+export const STATUS_RING_GAP = 1.75;
+export const STATUS_RING_STROKE = 1.25;
 // Derived outward from the dot, which means the dot is not a free variable: shrink it without
 // opening the gap by the same amount and the ring closes in behind it, the whole mark scales
 // down, and nothing about how the centre reads against the ring actually changes.
@@ -19,9 +19,9 @@ export const STATUS_RING_SIZE =
 export const STATUS_RING_HALO_INSET = 1;
 export const STATUS_RING_FRAME_SIZE = STATUS_RING_SIZE + STATUS_RING_HALO_INSET * 2;
 
-// The track and the quarter riding it are the same color and differ only here. The track is low
-// enough that the quarter is unmistakably the thing moving, high enough that the ring still reads
-// as a ring when the quarter is on the far side of it. The quarter is held off full so the centre
+// The track and the sweep riding it are the same color and differ only here. The track is low
+// enough that the sweep is unmistakably the thing moving, high enough that the ring still reads
+// as a ring when the sweep is on the far side of it. The sweep is held off full so the centre
 // dot stays the solid part of the mark — the ring is what the dot is doing, not a second dot.
 export const STATUS_RING_TRACK_OPACITY = 0.3;
 export const STATUS_RING_HEAD_OPACITY = 0.9;

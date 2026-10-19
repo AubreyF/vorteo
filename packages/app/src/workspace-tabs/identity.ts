@@ -1,7 +1,7 @@
 import { normalizeWorkspaceFileLocation, workspaceFileLocationsEqual } from "@/workspace/file-open";
 import type { WorkspaceDraftTabSetup, WorkspaceTabTarget } from "@/workspace-tabs/model";
 
-export function normalizeWorkspaceTabTarget(
+function normalizeWorkspaceTabContent(
   value: WorkspaceTabTarget | null | undefined,
 ): WorkspaceTabTarget | null {
   if (!value || typeof value !== "object" || typeof value.kind !== "string") {
@@ -96,10 +96,7 @@ export function normalizeWorkspaceDraftTabSetup(
   };
 }
 
-export function workspaceTabTargetsEqual(
-  left: WorkspaceTabTarget,
-  right: WorkspaceTabTarget,
-): boolean {
+function workspaceTabContentsEqual(left: WorkspaceTabTarget, right: WorkspaceTabTarget): boolean {
   if (left.kind !== right.kind) {
     return false;
   }
@@ -192,6 +189,10 @@ function recordsShallowEqual(
 }
 
 export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): string {
+  if (target.environment) {
+    const { environment, ...content } = target;
+    return `${environment.serverId}:${environment.workspaceId}:${buildDeterministicWorkspaceTabId(content)}`;
+  }
   if (target.kind === "new_tab") {
     throw new Error("New tabs do not have deterministic target identities");
   }
@@ -283,4 +284,25 @@ function trimOptionalString(value: string | null | undefined): string | null {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeWorkspaceTabTarget(
+  value: WorkspaceTabTarget | null | undefined,
+): WorkspaceTabTarget | null {
+  const target = normalizeWorkspaceTabContent(value);
+  if (!target || !value?.environment) return target;
+  const serverId = trimNonEmpty(value.environment.serverId);
+  const workspaceId = trimNonEmpty(value.environment.workspaceId);
+  if (!serverId || !workspaceId) return null;
+  return { ...target, environment: { serverId, workspaceId } };
+}
+
+export function workspaceTabTargetsEqual(
+  left: WorkspaceTabTarget,
+  right: WorkspaceTabTarget,
+): boolean {
+  const sameEnvironment =
+    left.environment?.serverId === right.environment?.serverId &&
+    left.environment?.workspaceId === right.environment?.workspaceId;
+  return sameEnvironment && workspaceTabContentsEqual(left, right);
 }

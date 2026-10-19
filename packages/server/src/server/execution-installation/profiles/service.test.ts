@@ -4,7 +4,12 @@ import { startProfileSynchronization } from "./runtime.js";
 import { resolveProfileLaunch } from "../../agent/create-agent/profile.js";
 import { sharedWorkflowProfileId } from "@getpaseo/protocol/provider-preferences";
 import { materializeSharedProfiles } from "@getpaseo/protocol/provider-preferences";
-import { importEnvironmentProfiles, projectEnvironmentProfiles } from "./migration.js";
+import {
+  importEnvironmentProfiles,
+  projectEnvironmentProfiles,
+  consolidateProfileDefinitions,
+  normalizeLegacyProfileValues,
+} from "./migration.js";
 import { expect, test } from "vitest";
 import {
   MutableDaemonConfigSchema,
@@ -22,6 +27,8 @@ import { validateProviderPreferences } from "../../agent/provider-preferences/va
 
 class Environment implements ProfileEnvironment {
   offline = false;
+  workerAccounts = false;
+  uncappedManagedWorkers = false;
   reads = 0;
   loseReply = false;
   config;
@@ -502,7 +509,7 @@ test("profile polling synchronizes immediately, repeats, and stops on cleanup", 
   }
 }, 15000);
 
-test("legacy reasoning choices become distinct canonical definitions without binding value overrides", async () => {
+test("distinct saved reasoning choices remain separate while legacy bindings retain historical values", async () => {
   const { host, service } = fixture();
   const profiles = [
     { id: "review", name: "Review", provider: "codex", model: "model-b", thinkingOptionId: "high" },
@@ -522,8 +529,8 @@ test("legacy reasoning choices become distinct canonical definitions without bin
   await service.synchronize();
   const bindings = host.config.sharedProviderPreferences?.legacyProfiles;
   expect(bindings?.review.workflowId).not.toBe(bindings?.careful.workflowId);
-  expect(bindings?.review).not.toHaveProperty("model");
-  expect(bindings?.careful).not.toHaveProperty("thinkingOptionId");
+  expect(bindings?.review.model).toBe("model-b");
+  expect(bindings?.careful.thinkingOptionId).toBe("medium");
   const review = resolveProfileLaunch(
     { provider: "codex", profileId: "review" },
     [],
@@ -670,11 +677,9 @@ test.each([
     expect(after.model).toBe(expectedModel);
     expect(before.thinkingOptionId).toBe(expectedThinking);
     expect(after.thinkingOptionId).toBe(expectedThinking);
-    expect(host.config.sharedProviderPreferences?.legacyProfiles.review).not.toHaveProperty(
-      "model",
-    );
-    expect(host.config.sharedProviderPreferences?.legacyProfiles.review).not.toHaveProperty(
-      "thinkingOptionId",
+    expect(host.config.sharedProviderPreferences?.legacyProfiles.review.model).toBe(model);
+    expect(host.config.sharedProviderPreferences?.legacyProfiles.review.thinkingOptionId).toBe(
+      thinking,
     );
   },
 );
@@ -878,7 +883,8 @@ test("deletion rejects a concrete shared launch alias even without a legacy prof
   const { host, service } = fixture();
   const preferences = host.config.sharedProviderPreferences;
   if (!preferences) throw new Error("missing preferences");
-  preferences.legacyProfiles.review.model = "legacy-model";
+  preferences.legacyProfiles = {};
+  host.config.agentProfiles = [];
   await service.synchronize();
   const snapshot = service.snapshot();
   const state = service.inspect();
@@ -1045,4 +1051,297 @@ test("legacy journal upgrade recovers worker account bindings from the original 
     container.config,
   );
   expect(moved.profileLaunch?.worker?.provider).toBe("devWorker");
+});
+
+test("legacy overrides stay compatibility records instead of creating account profiles", () => {
+  const { preferences } = planProviderPreferencesMigration({
+    profiles: [
+      {
+        id: "shared",
+        name: "Review",
+        provider: "codex",
+        model: "astra",
+        thinkingOptionId: "medium",
+      },
+    ],
+    providers: {},
+  });
+  preferences.legacyProfiles.old = {
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "shared",
+    model: "astra",
+    thinkingOptionId: "ultra",
+  };
+  const normalized = normalizeLegacyProfileValues(preferences);
+  expect(normalized.providers.codex.workflows).toEqual(preferences.providers.codex.workflows);
+  expect(normalized.legacyProfiles.old).toEqual(preferences.legacyProfiles.old);
+});
+
+test("consolidation merges exact duplicates while preserving aliases and different reasoning", () => {
+  const { preferences } = planProviderPreferencesMigration({
+    profiles: [
+      {
+        id: "shared",
+        name: "Review",
+        provider: "codex",
+        model: "astra",
+        thinkingOptionId: "medium",
+      },
+    ],
+    providers: {},
+  });
+  const workflow = preferences.providers.codex.workflows[0];
+  preferences.providers.codex.workflows.push(
+    { ...workflow, id: "account-copy" },
+    { ...workflow, id: "deep", thinkingOptionId: "ultra" },
+  );
+  preferences.legacyProfiles.old = {
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "account-copy",
+  };
+  const normalized = consolidateProfileDefinitions(preferences);
+  expect(normalized.providers.codex.workflows.map((item) => item.id)).toEqual(["shared", "deep"]);
+  expect(normalized.workflowAliases?.codex["account-copy"]).toBe("shared");
+  expect(normalized.legacyProfiles.old).toEqual({
+    provider: "account-two",
+    providerType: "codex",
+    workflowId: "shared",
+  });
+  expect(consolidateProfileDefinitions(normalized)).toEqual(normalized);
+  expect(preferences.providers.codex.workflows).toHaveLength(3);
+});
+
+test("existing installations consolidate once and keep old launch references usable", async () => {
+  const { container, host, journal, service } = fixture();
+  await service.synchronize();
+  const state = service.inspect()!;
+  const original = state.providers.codex.workflows[0];
+  state.providers.codex.workflows.push({ ...original, id: "account-copy" });
+  for (const source of Object.values(state.sources)) {
+    source.projection!.providers = structuredClone(state.providers);
+    source.projection!.legacyProfiles["old-copy"] = {
+      provider: "codex",
+      providerType: "codex",
+      workflowId: "account-copy",
+    };
+  }
+  journal.state = state;
+  const restarted = new InstallationProfiles(
+    journal,
+    [container, host],
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await restarted.synchronize();
+  const consolidated = restarted.inspect()!;
+  expect(consolidated.providers.codex.workflows).toHaveLength(
+    state.providers.codex.workflows.length - 1,
+  );
+  expect(consolidated.sources.host.projection!.workflowAliases?.codex["account-copy"]).toBe(
+    original.id,
+  );
+  const launch = resolveProfileLaunch(
+    { provider: "codex", profileId: "shared-workflow/codex/account-copy" },
+    [],
+    0,
+    host.config,
+  );
+  expect(launch.model).toBe(original.model ?? state.providers.codex.defaults.model);
+  const revision = consolidated.revision;
+  await restarted.synchronize();
+  expect(restarted.inspect()!.revision).toBe(revision);
+  expect(journal.backups).toBe(2);
+});
+
+test("explicit worker account survives coordinator save, reload and both environment projections", async () => {
+  const { service, host, container, journal } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = true;
+  host.config.providers = {
+    "worker-host": { extends: "codex", installationAccountId: "worker-account", enabled: true },
+  };
+  container.config.providers = {
+    "worker-dev": { extends: "codex", installationAccountId: "worker-account", enabled: true },
+  };
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows.push({
+    id: "explicit-worker",
+    name: "Explicit worker",
+    provider: "codex",
+    model: "worker-model",
+  });
+  providers.claude = {
+    defaults: {},
+    preferredModels: [],
+    preferredThinkingOptions: [],
+    defaultWorkflowId: "explicit-team",
+    workflows: [
+      {
+        id: "explicit-team",
+        name: "Explicit team",
+        provider: "claude",
+        model: "claude-model",
+        workerProfileId: "shared-profile/codex/explicit-worker",
+        workerAccount: "installation-account/worker-account",
+      },
+    ],
+  };
+  const saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.workerAccounts).toBe(true);
+  await service.synchronize();
+  const reloaded = new InstallationProfiles(
+    journal,
+    [host, container],
+    "00000000-0000-4000-8000-000000000001",
+  );
+  expect(reloaded.snapshot()?.providers.claude.workflows[0].workerAccount).toBe(
+    "installation-account/worker-account",
+  );
+  for (const [environment, account] of [
+    [host, "worker-host"],
+    [container, "worker-dev"],
+  ] as const) {
+    const launch = resolveProfileLaunch(
+      { provider: "claude", cwd: "/work", profileId: "shared-profile/claude/explicit-team" },
+      [],
+      0,
+      environment.config,
+    );
+    expect(launch.profileLaunch?.worker?.provider).toBe(account);
+    expect(launch.profileLaunch?.worker?.model).toBe("worker-model");
+  }
+});
+
+test("coordinator refuses a new explicit worker account until every environment supports it", async () => {
+  const { service, host, container } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = false;
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].workerAccount = "installation-account/new-worker";
+  await expect(
+    service.patch({ expectedRevision: snapshot.revision, providers }),
+  ).rejects.toBeInstanceOf(ProfileSharingConflict);
+  expect(service.snapshot()).toEqual(snapshot);
+});
+
+test("an explicit worker account cannot fall back to another account when unavailable", async () => {
+  const { service, host, container } = fixture();
+  host.workerAccounts = true;
+  container.workerAccounts = true;
+  host.config.providers = {
+    chosen: { extends: "codex", installationAccountId: "chosen-account", enabled: true },
+    other: { extends: "codex", enabled: true },
+  };
+  container.config.providers = {
+    chosen: { extends: "codex", installationAccountId: "chosen-account", enabled: true },
+  };
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows.push(
+    { id: "worker", name: "Worker", provider: "codex", model: "worker" },
+    {
+      id: "team",
+      name: "Team",
+      provider: "codex",
+      model: "supervisor",
+      workerProfileId: "shared-profile/codex/worker",
+      workerAccount: "installation-account/chosen-account",
+    },
+  );
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  await service.synchronize();
+  host.config.providers.chosen.enabled = false;
+  expect(() =>
+    resolveProfileLaunch(
+      { provider: "other", cwd: "/work", profileId: "shared-profile/codex/team" },
+      [],
+      0,
+      host.config,
+    ),
+  ).toThrow("worker account is unavailable");
+});
+
+test("requires every environment to support uncapped profiles before canonical save", async () => {
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  await service.synchronize();
+  const snapshot = service.snapshot()!;
+  const providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].uncappedWorkers = true;
+  await expect(service.patch({ expectedRevision: snapshot.revision, providers })).rejects.toThrow(
+    "uncapped",
+  );
+  expect(service.snapshot()!.providers).toEqual(snapshot.providers);
+  container.uncappedManagedWorkers = true;
+  const saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.uncappedManagedWorkers).toBe(true);
+  await service.synchronize();
+  expect(host.config.sharedProviderPreferences?.providers.codex.workflows[0].uncappedWorkers).toBe(
+    true,
+  );
+  expect(
+    container.config.sharedProviderPreferences?.providers.codex.workflows[0].uncappedWorkers,
+  ).toBe(true);
+});
+
+test("old editors cannot erase uncapped policy by omitting the new field", async () => {
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  container.uncappedManagedWorkers = true;
+  await service.synchronize();
+  let snapshot = service.snapshot()!;
+  let providers = structuredClone(snapshot.providers);
+  providers.codex.workflows[0].uncappedWorkers = true;
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  snapshot = service.snapshot()!;
+  providers = structuredClone(snapshot.providers);
+  delete providers.codex.workflows[0].uncappedWorkers;
+  providers.codex.workflows[0].name = "Renamed by old editor";
+  let saved = await service.patch({ expectedRevision: snapshot.revision, providers });
+  expect(saved.providers.codex.workflows[0].uncappedWorkers).toBe(true);
+  providers = structuredClone(saved.providers);
+  providers.codex.workflows[0].uncappedWorkers = false;
+  saved = await service.patch({ expectedRevision: saved.revision, providers });
+  expect(saved.providers.codex.workflows[0].uncappedWorkers).toBe(false);
+});
+
+test("defaults reset survives save and synchronization while existing teams retain their limits", async () => {
+  const { replaceProviderDefaults } =
+    await import("../../../../../app/src/agent-profiles/settings/shared-profile-edits.js");
+  const { host, container, service } = fixture();
+  host.uncappedManagedWorkers = true;
+  container.uncappedManagedWorkers = true;
+  await service.synchronize();
+  let snapshot = service.snapshot()!;
+  let providers = structuredClone(snapshot.providers);
+  providers.codex.defaults.uncappedWorkers = true;
+  providers.codex.workflows[0].uncappedWorkers = false;
+  providers.codex.workflows[0].maxWorkers = 4;
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  snapshot = service.snapshot()!;
+  providers = structuredClone(snapshot.providers);
+  providers.codex = replaceProviderDefaults(providers.codex, {
+    ...providers.codex.defaults,
+    model: "updated",
+  });
+  const expected = structuredClone(providers.codex);
+  await service.patch({ expectedRevision: snapshot.revision, providers });
+  await service.synchronize();
+  expect(service.snapshot()!.providers.codex).toEqual(expected);
+  expect(service.snapshot()!.providers.codex.defaults.uncappedWorkers).toBe(false);
+  expect(service.snapshot()!.providers.codex.defaults.maxWorkers).toBeUndefined();
+  expect(service.snapshot()!.providers.codex.workflows[0].uncappedWorkers).toBe(false);
+  expect(service.snapshot()!.providers.codex.workflows[0].maxWorkers).toBe(4);
+  expect(
+    service
+      .snapshot()!
+      .providers.codex.workflows.slice(1)
+      .every((w) => w.uncappedWorkers),
+  ).toBe(true);
 });

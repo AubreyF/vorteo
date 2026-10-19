@@ -380,6 +380,7 @@ export const ru: TranslationResources = {
       title: "Задачи",
       empty: "Задач пока нет.",
       tasksProgress: "Задачи: {{completed}}/{{total}}",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "Создано задач: {{count}}",
         added: "Добавлена",
@@ -388,6 +389,7 @@ export const ru: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Сжатие контекста...",
       auto: "Контекст сжат автоматически",
       manual: "Контекст сжат вручную",
@@ -662,7 +664,6 @@ export const ru: TranslationResources = {
         maximizePane: "Развернуть панель",
         restorePane: "Восстановить панель",
         closePane: "Закрыть панель",
-        exitFocusMode: "Выйти из режима фокусировки",
         splitRight: "Разделить панель справа",
         splitDown: "Разделить панель снизу",
         changes: "Изменения",
@@ -1024,6 +1025,8 @@ export const ru: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Черновик",
           merged: "Объединён",
           closed: "Закрыт",
@@ -1849,6 +1852,7 @@ export const ru: TranslationResources = {
     backdrop: "Фон меню",
   },
   subagents: {
+    ...en.subagents,
     title: "Субагенты",
     pillLabelOne: "1 субагент",
     pillLabelMany: "Субагентов: {{count}}",
@@ -1861,7 +1865,7 @@ export const ru: TranslationResources = {
     detachTooltip: "Отсоединить субагента",
     archiveAction: "Архивировать {{label}}",
     archiveTooltip: "Архивировать субагента",
-    archiveFinishedAction: "Архивировать завершенные субагенты",
+    archiveFinishedAction: "Убрать завершённые",
     archiveFinishedRetry: "Повторить ({{failed}}/{{total}})",
   },
   panels: {
@@ -1889,6 +1893,7 @@ export const ru: TranslationResources = {
         cursor: "Строка {{line}}, столбец {{column}}",
         preview: "Предпросмотр",
         source: "Исходный текст",
+        copyAll: "Копировать всё",
         deletedTitle: "Файл удалён с диска",
         checkFailedTitle: "Не удалось проверить файл на диске",
         preservedDescription: "Открытая копия сохранена в редакторе.",
@@ -2245,7 +2250,7 @@ export const ru: TranslationResources = {
         systemDefault: "Системный шрифт",
         interfaceFont: "Шрифт интерфейса",
         interfaceFontHint:
-          "Используется во всём приложении. Оставьте поле пустым, чтобы использовать системный шрифт.",
+          "Используется во всём приложении. Оставьте пустым, чтобы использовать шрифт темы",
         interfaceFontAccessibility: "Семейство интерфейсных шрифтов",
         interfaceSize: "Размер интерфейса",
         interfaceSizeHint: "Используется для навигации, элементов управления и подписей",
@@ -2334,7 +2339,6 @@ export const ru: TranslationResources = {
         toggleRightSidebar: "Переключить боковую панель",
         toggleBothSidebars: "Переключить обе боковые панели",
         toggleSettings: "Переключить настройки",
-        toggleFocusMode: "Переключить режим фокусировки",
         cycleTheme: "Переключить тему",
         focusMessageInput: "Перейти к полю ввода сообщения",
         cycleAgentMode: "Переключить режим агента",

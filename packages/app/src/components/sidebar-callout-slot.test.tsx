@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { theme } = vi.hoisted(() => ({
   theme: {
+    shadow: { md: {} },
     spacing: { 0: 0, 1: 4, 2: 8, 3: 12, 4: 16 },
     borderWidth: { 1: 1 },
     borderRadius: { md: 6 },
@@ -36,7 +37,10 @@ vi.mock("react-native-unistyles", () => ({
     create: (factory: unknown) =>
       typeof factory === "function" ? (factory as (t: typeof theme) => unknown)(theme) : factory,
   },
-  useUnistyles: () => ({ theme }),
+  withUnistyles:
+    (Component: React.ComponentType<Record<string, unknown>>) =>
+    ({ uniProps, ...props }: { uniProps?: (value: typeof theme) => Record<string, unknown> }) =>
+      React.createElement(Component, { ...props, ...uniProps?.(theme) }),
 }));
 
 vi.mock("lucide-react-native", () => {

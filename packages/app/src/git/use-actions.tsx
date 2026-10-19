@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, type ReactElement } from "react";
 import { Info } from "lucide-react-native";
 import { withUnistyles } from "react-native-unistyles";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@/storage/app-storage";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import type { Theme } from "@/styles/theme";
@@ -308,7 +308,8 @@ function useWorkspaceScreenArchiveController({
   return {
     ...controller,
     isArchiving: workspaceDescriptor?.archivingAt != null || isHidingWorkspace,
-    canArchive: canArchiveWorkspace(workspaceDescriptor, archiveRisk),
+    canArchive:
+      !controller.archiveProtected && canArchiveWorkspace(workspaceDescriptor, archiveRisk),
   };
 }
 
@@ -791,6 +792,7 @@ export function useGitActions({ serverId, cwd, icons }: UseGitActionsInput): Use
         },
         "archive-workspace": {
           disabled: !archiveController.canArchive || archiveController.isArchiving,
+          tooltip: archiveController.archiveBlockReason ?? undefined,
           status: archiveController.isArchiving ? "pending" : "idle",
           icon: icons.archive,
           handler: handleArchiveWorkspace,
@@ -837,6 +839,7 @@ export function useGitActions({ serverId, cwd, icons }: UseGitActionsInput): Use
     mergeStatus,
     mergeFromBaseStatus,
     archiveController.canArchive,
+    archiveController.archiveBlockReason,
     archiveController.isArchiving,
     handleCommit,
     handlePull,

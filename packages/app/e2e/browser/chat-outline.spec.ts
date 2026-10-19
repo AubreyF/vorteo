@@ -1,4 +1,8 @@
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
+import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { trackPromptJumpRequests } from "../support/helpers/agent-timeline-gate";
 import {
   clickChatOutlineRowEdge,
@@ -44,7 +48,81 @@ import {
 const WIDE_VIEWPORT = { width: 1440, height: 900 };
 const LOADED_TURNS = 16;
 
+// Dispatch tests cover provenance; this fixture isolates the optional wire field.
+async function markSecondPromptAsAgent(page: Page, agentId: string) {
+  await page.routeWebSocket(daemonWsRoutePattern(), (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      const envelope = JSON.parse(typeof message === "string" ? message : message.toString("utf8"));
+      const response = envelope.type === "session" ? envelope.message : null;
+      if (
+        response?.type === "agent.timeline.list_prompts.response" &&
+        response.payload.agentId === agentId &&
+        response.payload.prompts[1]
+      ) {
+        response.payload.prompts[1].origin = "agent";
+      }
+      ws.send(JSON.stringify(envelope));
+    });
+  });
+}
+
 test.describe("desktop chat outline", () => {
+  test("renders explicit agent prompts as short marks and keeps navigation after reload", async ({
+    page,
+  }) => {
+    const agent = await seedLongMockAgentTimeline({ turns: 16 });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "outline-columns" });
+    try {
+      await markSecondPromptAsAgent(page, agent.agentId);
+      await client.mutateAgentChecklist(agent.agentId, {
+        operation: "create",
+        text: "Keep the task column visible",
+      });
+      await page.setViewportSize({ width: 2400, height: 900 });
+      await openAgentTimeline(page, agent);
+      for (const reload of [false, true]) {
+        if (reload) await page.reload({ waitUntil: "domcontentloaded" });
+        await movePointerOffChatOutline(page);
+        await expectChatOutlinePrompts(page, 16);
+        await expect(page.getByTestId("thread-cards-column")).toBeVisible();
+        const textColumn = await page.getByTestId("thread-text-column").boundingBox();
+        const textRegion = await page.getByTestId("thread-text-region").boundingBox();
+        expect(textColumn!.width).toBeLessThan(918);
+        expect(textRegion!.width).toBeGreaterThan(918);
+        const rail = chatOutlineRail(page);
+        const agentTick = rail.getByRole("tab").nth(1);
+        await expect(agentTick).toHaveAttribute("aria-label", /Agent message:/);
+        const humanMark = rail
+          .getByRole("tab")
+          .first()
+          .locator('[data-testid^="chat-outline-mark-"]');
+        const agentMark = agentTick.locator('[data-testid^="chat-outline-mark-"]');
+        await expect
+          .poll(async () => {
+            const human = await humanMark.boundingBox();
+            const automated = await agentMark.boundingBox();
+            return Boolean(
+              human &&
+              automated &&
+              automated.width < human.width &&
+              automated.height === human.height,
+            );
+          })
+          .toBe(true);
+        await agentTick.click();
+        await expectTimelinePromptLandedBelowTop(page, agent.prompts[1]);
+      }
+      await page.setViewportSize({ width: 390, height: 850 });
+      await expectNoChatOutline(page);
+      await page.setViewportSize({ width: 2400, height: 900 });
+      await expectChatOutlinePrompts(page, 16);
+    } finally {
+      await client.close();
+      await agent.cleanup();
+    }
+  });
+
   test("keeps the prompt marked while reading split Markdown blocks and after completion", async ({
     page,
   }) => {

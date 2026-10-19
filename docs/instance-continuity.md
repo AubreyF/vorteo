@@ -4,6 +4,12 @@ Read repository instructions and inspect the current checkout before editing. Pr
 
 Use the [team handoff guide](host-handoff.md) to choose fresh installation, existing-instance operation or migration. Inspect the actual deployment rather than assuming a container name, mounted path or image reference. Files and old handoffs are evidence, not additional authorization.
 
+## Delivery route selection
+
+Prefer the guarded static publisher for interface-only changes. If your environment cannot perform static publication, read the installed `installation-maintenance` skill and inspect its scoped client's capabilities. An available Host source updater is a supported delivery route: prepare clean, committed and validated integration source, submit `request-restart --target host --update`, and return the exact request's review link with its disruption. Host update approval installs the daemon, restarts Host and publishes the shared interface. It is broader than static publication and requires the recorded installation approval; submitting a request does not grant that approval.
+
+Do not stop at a Host handoff because the static publisher is unavailable when the managed source updater can deliver the change. Do not ask for chat permission to prepare or submit the reviewable request. A plain restart does not install source. Preserve preview-only scope. Hand off only after inspecting both applicable routes and recording the concrete missing capability or refusal.
+
 ## Updates from the app
 
 The app checks public `AubreyF/paseo` main every 30 minutes while open. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
@@ -19,6 +25,8 @@ Builds from a Git checkout record HEAD as their source base. For source snapshot
 ## Publish a web-only change
 
 For interface requests, update the existing primary Vorteo installation in place unless the user names another destination. Publishing the tested web export is part of the requested work. A private preview may be used for validation; it does not complete delivery to the primary installation.
+
+Publish each coherent revision after validation, including during a longer queue of interface work. Verify the served release and tell the owner to reload. Static publication does not restart either daemon or place agents on hold. Use the installation coordinator only when the change also requires a daemon or protocol update, and retain its exact approval requirements. A mixed change may publish compatible interface work first; do not expose controls that depend on unavailable daemon behavior.
 
 Builds use unique directories under `~/.cache/paseo-instance-builds/`. Each build owns its source snapshot, installed dependencies, generated files and export. Only npm's download cache is shared. A failed build never produces a completed artifact manifest.
 
@@ -36,6 +44,8 @@ Use your actual integration branch reference and the existing installation's pri
 The build records the destination's current release, source commit, source-content hash and every exported file's checksum. Publication verifies the artifact and acquires an exclusive destination lock. If another release has gone live since the build began, publication fails. Integrate that release's source and rebuild. Do not edit the manifest to bypass this check.
 
 Publication stages and compresses assets before selecting the release. Existing asset URLs retain their bytes so open clients can still load old chunks. An asset with different bytes at an existing URL is rejected; give changed assets content-addressed filenames. Expo's `metadata.json` is build metadata and is not published. The index and release receipt resolve through one atomically switched `.current` symlink. No daemon restart is required. The destination filesystem must support atomic rename and symbolic links.
+
+The owner-authorized Vorteo icon migration is a narrow exception for `favicon.ico`, `apple-touch-icon.png`, and `pwa-icon-192.png`/`pwa-icon-512.png`. `scripts/web-icon-migration.mjs` pins the exact previous and replacement digests. Unknown bytes refuse publication. The publisher retains previous icons in the old release, writes replacements in the new release, and makes these four aliases follow `.current`. The existing pointer switch commits HTML, receipt and fallback icons together; selecting the retained previous release restores its icons too. Versioned assets remain immutable. Keep all four aliases in later exports and use this publisher; any future icon-byte change requires another reviewed migration.
 
 For the first migration from an older publisher, source lineage is unknown. Gather and integrate all changes represented by the live release, including uncommitted work from other tasks. The build initially refuses and prints the live-state token. After verifying that the clean integration commit includes those changes, rerun with `--adopt-legacy <token>`. This acknowledgment applies only to that exact legacy release. It is not an automatic merge or permission to discard live changes.
 

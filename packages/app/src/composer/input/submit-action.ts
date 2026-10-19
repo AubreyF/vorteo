@@ -47,8 +47,7 @@ export function resolveSubmitAction(input: {
   if (input.separateQueueAction) return { action: "send", queues: false } as const;
   if (!input.enabled) return { action: "default", queues: false } as const;
   if (input.modifier === "newline") return { action: "newline", queues: false } as const;
-  const alternate =
-    input.modifier === "alternate" && !input.isCompact && input.isAgentRunning && input.canQueue;
+  const alternate = input.modifier === "alternate" && !input.isCompact && input.canQueue;
   if (alternate) return { action: "alternate", queues: !input.defaultActionQueues } as const;
   return { action: "default", queues: input.defaultActionQueues && input.canQueue } as const;
 }

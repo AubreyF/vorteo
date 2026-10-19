@@ -322,3 +322,78 @@ test("observer failures are logged without failing creation", async () => {
     }),
   );
 });
+
+test("revised rejected agent draft retries its reserved identity without duplicating an agent", async () => {
+  const f = await fixture();
+  const ids: string[] = [];
+  const input: CreationInput = {
+    kind: "agent",
+    key: "retry-draft",
+    workspaceId: workspace.id,
+    request: { config: { provider: "unavailable" }, initialPrompt: "Original" },
+    hasAgent: true,
+    hasPrompt: true,
+    exists: async () => false,
+    readAgent: async () => null,
+    createAgent: async (id) => {
+      ids.push(id);
+      throw new Error("Launcher configuration missing");
+    },
+  };
+  const failed = await f.service.create(input);
+  expect(failed).toMatchObject({ phase: "failed", outcomeUnknown: false });
+  const updated: CreationInput = {
+    ...input,
+    request: {
+      config: { provider: "codex" },
+      initialPrompt: "Corrected",
+      attachments: ["retained"],
+    },
+    createAgent: async (id, _workspace, ready) => {
+      ids.push(id);
+      const created = { ...agent, id };
+      await ready(created);
+      return created;
+    },
+  };
+  const restored = new CreationService(f.directory, silentLogger);
+  const completed = await restored.create(updated);
+  expect(completed.phase).toBe("completed");
+  expect(ids).toEqual([failed.agentId, failed.agentId]);
+  expect(await restored.create(updated)).toEqual(completed);
+  expect(ids).toHaveLength(2);
+  await expect(
+    restored.create({ ...updated, request: { initialPrompt: "Another prompt" } }),
+  ).rejects.toThrow("agent_request_key_conflict");
+});
+
+test.each(["unknown", "resource-present", "different-workspace"])(
+  "changed failed agent request remains blocked when %s",
+  async (mode) => {
+    const f = await fixture();
+    let provisioned = false;
+    const input: CreationInput = {
+      kind: "agent",
+      key: "guarded-retry",
+      workspaceId: workspace.id,
+      request: { initialPrompt: "Original" },
+      hasAgent: true,
+      hasPrompt: true,
+      exists: async () => mode === "unknown" && provisioned,
+      readAgent: async () => null,
+      createAgent: async () => {
+        provisioned = true;
+        throw new Error("Failed startup");
+      },
+    };
+    await f.service.create(input);
+    await expect(
+      f.service.create({
+        ...input,
+        request: { initialPrompt: "Changed" },
+        workspaceId: mode === "different-workspace" ? "another-workspace" : workspace.id,
+        exists: async () => mode === "resource-present",
+      }),
+    ).rejects.toThrow("agent_request_key_conflict");
+  },
+);

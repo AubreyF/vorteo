@@ -452,6 +452,8 @@ export class QuotaGovernorStore {
         input.policy.account,
         await readLedger(path),
       );
+      if (input.policy.prepaidAuthorization && !accounting?.envelope?.prepaidAuthorization)
+        return { kind: "deferred", reason: "accounting_migration_required" } as const;
       const policy = accounting?.envelope
         ? combineQuotaPolicies(accounting.envelope, input.policy)
         : input.policy;
@@ -618,6 +620,8 @@ export class QuotaGovernorStore {
         "consumption_hold",
         "consumption_freeze",
         "estimated_hourly_limit",
+        // Expiry revokes new inference, not settlement of an already stopped execution.
+        "prepaid_authorization_inactive",
       ]);
       if (ledger.reservation.policy.estimatedHourly) expenditureReasons.add("estimate_unavailable");
       if (decision.reasons.some((reason) => !expenditureReasons.has(reason.code)))

@@ -1,3 +1,4 @@
+import type { CompactionInspection } from "./messages.js";
 import type { AgentAttachment, AgentProfileLaunch, ProviderCliUpdate } from "./messages.js";
 import type { QuotaReserveConfig, QuotaReserveLaunchPolicy } from "./quota-reserve.js";
 
@@ -357,6 +358,8 @@ export interface CompactionTimelineItem {
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
+  compactionId?: string;
+  inspection?: CompactionInspection;
 }
 
 export interface PluginTimelineItem {
@@ -372,8 +375,13 @@ export interface AgentTaskItem {
   text: string;
   completed: boolean;
   id?: string;
-  status?: "pending" | "in_progress" | "completed";
+  status?: "pending" | "in_progress" | "review" | "blocked" | "completed";
   activeForm?: string;
+  description?: string;
+  owner?: string;
+  blockedBy?: string[];
+  metadata?: Record<string, JsonValue>;
+  source?: "vorteo" | "provider";
 }
 
 export type AgentTimelineItem =
@@ -383,6 +391,8 @@ export type AgentTimelineItem =
       messageId?: string;
       clientMessageId?: string;
       intent?: "goal";
+      /** Set only by trusted agent dispatch, never inferred from prompt text. */
+      origin?: "agent";
       queue?: import("./message-queue.js").QueuePresentation;
     }
   | { type: "assistant_message"; text: string; messageId?: string }

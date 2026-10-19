@@ -13,7 +13,9 @@ async function closeMenuSheet(page: Page): Promise<void> {
   await expect(backdrop).not.toBeVisible({ timeout: 10_000 });
 }
 
-test("project and workspace kebabs open action sheets on compact layouts", async ({ page }) => {
+test("touch workspace rows have no kebab and the title menu contains workspace actions", async ({
+  page,
+}, testInfo) => {
   const seeded = await seedWorkspace({ repoPrefix: "sidebar-mobile-menu-sheet-" });
 
   try {
@@ -34,15 +36,65 @@ test("project and workspace kebabs open action sheets on compact layouts", async
     const workspaceRow = page.getByTestId(
       `sidebar-workspace-row-${getServerId()}:${seeded.workspaceId}`,
     );
-    await workspaceRow.hover();
-    await workspaceRow
-      .getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`)
-      .click();
+    await expect(
+      workspaceRow.getByTestId(`sidebar-workspace-kebab-${getServerId()}:${seeded.workspaceId}`),
+    ).toHaveCount(0);
+    const rowGeometry = await workspaceRow.evaluate((row) => {
+      const rail = row.querySelector('[data-testid="sidebar-trailing-rail"]')!;
+      const details = rail.lastElementChild!;
+      return { gap: rail.getBoundingClientRect().right - details.getBoundingClientRect().right };
+    });
+    expect(rowGeometry.gap).toBeLessThanOrEqual(1);
+    await workspaceRow.tap();
+    await page.getByTestId("workspace-header-menu-trigger").tap();
 
     await expect(page.getByRole("button", { name: "Bottom sheet backdrop" }).first()).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText("Workspace actions", { exact: true })).toBeVisible();
+    const rowInset = await page.getByTestId("workspace-header-copy-path").evaluate((row) => {
+      const menuPage = row.parentElement!;
+      return {
+        padding: getComputedStyle(menuPage).paddingLeft,
+        margin: getComputedStyle(row).marginLeft,
+      };
+    });
+    expect(rowInset.padding).toBe("8px");
+    expect(rowInset.margin).toBe("4px");
+    // A mounted item can still be clipped while the content-sized sheet opens.
+    await expect(page.getByTestId("workspace-header-copy-path")).toBeInViewport();
+    for (const action of [
+      "copy-path",
+      "copy-branch-name",
+      "rename",
+      "move-project",
+      "pin",
+      "labels",
+      "import-agent",
+      "archive",
+    ]) {
+      await expect(page.getByTestId(`workspace-header-${action}`)).toBeVisible();
+    }
+    await page.screenshot({
+      path: testInfo.outputPath("compact-menu.png"),
+      animations: "disabled",
+    });
+    await page.getByTestId("workspace-header-move-project").tap();
+    await expect(page.getByTestId("project-move-modal")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel", exact: true }).tap();
+    await page.getByTestId("workspace-header-menu-trigger").tap();
+    await page.getByTestId("workspace-header-rename").tap();
+    const input = page.getByTestId("workspace-header-rename-modal-input");
+    await input.fill("Touch workspace menu");
+    await page.getByTestId("workspace-header-rename-modal-submit").tap();
+    await expect(page.getByTestId("workspace-header-title")).toHaveText("Touch workspace menu");
+    await page.getByTestId("workspace-header-menu-trigger").tap();
+    await page.getByTestId("workspace-header-labels").tap();
+    await expect(page.getByTestId("workspace-label-picker-create")).toBeVisible();
+    await closeMenuSheet(page);
+    await page.getByTestId("workspace-header-menu-trigger").tap();
+    await page.getByTestId("workspace-header-archive").tap();
+    await expect(page).not.toHaveURL(new RegExp(`/workspace/${seeded.workspaceId}`));
   } finally {
     await seeded.cleanup();
   }

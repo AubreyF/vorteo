@@ -1,3 +1,4 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
 import { useMemo, type ReactNode } from "react";
 import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -12,6 +13,7 @@ interface SettingsSectionProps {
    */
   info?: ReactNode;
   trailing?: ReactNode;
+  status?: string | null;
   testID?: string;
   style?: StyleProp<ViewStyle>;
   /**
@@ -31,6 +33,7 @@ export function SettingsSection({
   title,
   info,
   trailing,
+  status,
   testID,
   style,
   flush,
@@ -43,9 +46,14 @@ export function SettingsSection({
   return (
     <View style={sectionStyle} testID={testID}>
       <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Text style={settingsStyles.sectionHeaderTitle}>{title}</Text>
-          {info ? (
+        <View style={[styles.titleRow, status !== undefined && styles.statusTitle]}>
+          <Text
+            style={[settingsStyles.sectionHeaderTitle, styles.title]}
+            numberOfLines={status !== undefined ? 1 : undefined}
+          >
+            {title}
+          </Text>
+          {info && status === undefined ? (
             <SettingsInfoTip
               title={title}
               info={info}
@@ -53,6 +61,14 @@ export function SettingsSection({
             />
           ) : null}
         </View>
+        {status !== undefined ? <CardHeaderStatus text={status} /> : null}
+        {info && status !== undefined ? (
+          <SettingsInfoTip
+            title={title}
+            info={info}
+            testID={testID ? `${testID}-info` : undefined}
+          />
+        ) : null}
         {trailing}
       </View>
       <View style={styles.content}>{children}</View>
@@ -74,6 +90,8 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
   },
+  statusTitle: { maxWidth: "65%", flexShrink: 1 },
+  title: { flexShrink: 1 },
   content: {
     gap: theme.spacing[3],
   },

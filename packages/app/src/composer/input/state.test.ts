@@ -224,6 +224,17 @@ describe("composer send behavior", () => {
     };
   }
 
+  it.each(["interrupt", "steer", "queue"] as const)(
+    "queues the alternate action on a stopped thread with preference %s",
+    (defaultSendBehavior) => {
+      const action = actions();
+      runAlternateSendAction({ ...action, defaultSendBehavior, isAgentRunning: false });
+      expect(action.calls).toEqual(["queue"]);
+      const ordinary = actions();
+      runDefaultSendAction({ ...ordinary, defaultSendBehavior, isAgentRunning: false });
+      expect(ordinary.calls).toEqual(["send"]);
+    },
+  );
   it("uses Enter to interrupt and Mod+Enter to queue when interrupt is selected", () => {
     const defaultAction = actions();
     runDefaultSendAction({

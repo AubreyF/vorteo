@@ -5,6 +5,7 @@ import { useHosts, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useSessionStore } from "@/stores/session-store";
 import { openHostOverview } from "@/navigation/settings-navigation";
+import { isDemoSession } from "@/demo/mode";
 
 export function useVortonCompatibilityCallout() {
   const params = useGlobalSearchParams<{ serverId?: string }>();
@@ -16,7 +17,10 @@ export function useVortonCompatibilityCallout() {
   const serverInfo = useSessionStore((state) => state.sessions[serverId]?.serverInfo);
   const callouts = useSidebarCallouts();
   const unsupported =
-    connected && serverInfo != null && serverInfo.features?.agentProfileLaunch !== true;
+    !isDemoSession() &&
+    connected &&
+    serverInfo != null &&
+    serverInfo.features?.agentProfileLaunch !== true;
 
   useEffect(() => {
     if (!unsupported) return;

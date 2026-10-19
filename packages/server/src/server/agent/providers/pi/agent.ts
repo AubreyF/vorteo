@@ -1,3 +1,4 @@
+import type { CompactionInspection } from "@getpaseo/protocol/messages";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -2221,14 +2222,7 @@ export class PiRpcAgentSession implements AgentSession {
         });
         return;
       case "compaction_end":
-        this.emitCompactionTimeline({
-          turnId,
-          item: {
-            type: "compaction",
-            status: "completed",
-            trigger: event.reason === "manual" ? "manual" : "auto",
-          },
-        });
+        this.emitCompactionTimeline({ turnId, item: piCompactionItem(event) });
         return;
       case "auto_retry_start":
         this.emit({
@@ -2823,4 +2817,30 @@ export class PiRpcAgentClient implements AgentClient {
       defaultBinary: PI_BINARY_COMMAND,
     });
   }
+}
+
+function piCompactionSummary(
+  event: Extract<PiAgentSessionEvent, { type: "compaction_end" }>,
+): CompactionInspection["summary"] {
+  if (event.aborted) return { type: "unavailable", reason: "aborted" };
+  if (event.errorMessage)
+    return { type: "unavailable", reason: "failed", error: event.errorMessage };
+  if (event.result) return { type: "text", text: event.result.summary };
+  return { type: "unavailable", reason: "not_exposed" };
+}
+
+function piCompactionItem(
+  event: Extract<PiAgentSessionEvent, { type: "compaction_end" }>,
+): Extract<Extract<AgentStreamEvent, { type: "timeline" }>["item"], { type: "compaction" }> {
+  return {
+    type: "compaction",
+    status: "completed",
+    trigger: event.reason === "manual" ? "manual" : "auto",
+    preTokens: event.result?.tokensBefore,
+    inspection: {
+      summary: piCompactionSummary(event),
+      firstKeptEntryId: event.result?.firstKeptEntryId,
+      estimatedPostTokens: event.result?.estimatedTokensAfter,
+    },
+  };
 }

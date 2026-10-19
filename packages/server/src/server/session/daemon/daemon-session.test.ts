@@ -7,11 +7,13 @@ import {
   DaemonSession,
   type DaemonRuntimeConfig,
   type DaemonSessionHost,
+  type DaemonSessionOptions,
 } from "./daemon-session.js";
 import type { DaemonWebSocketRuntimeDiagnosticSnapshot } from "./diagnostics.js";
 import type { ProviderAvailability } from "../../agent/agent-manager.js";
 import type { HubRelationshipManagement } from "../../hub/relationship-controller.js";
 import type { SessionOutboundMessage } from "../../messages.js";
+import { ConfigWriterError } from "../../config-writer.js";
 import type { DaemonConfigReloadResult } from "../../daemon-config-store.js";
 
 const tempDirs: string[] = [];
@@ -44,6 +46,7 @@ function makeSubsystem(overrides: {
   getWebSocketRuntimeMetrics?: () => DaemonWebSocketRuntimeDiagnosticSnapshot | null;
   hubRelationships?: HubRelationshipManagement;
   reloadConfig?: () => DaemonConfigReloadResult;
+  originAdmission?: DaemonSessionOptions["originAdmission"];
 }) {
   const emitted: SessionOutboundMessage[] = [];
   const restartIntents: Parameters<DaemonSessionHost["emitLifecycleIntent"]>[0][] = [];
@@ -65,6 +68,7 @@ function makeSubsystem(overrides: {
     listProviderAvailability: overrides.listProviderAvailability ?? (async () => []),
     getWebSocketRuntimeMetrics: overrides.getWebSocketRuntimeMetrics,
     hubRelationships: overrides.hubRelationships,
+    originAdmission: overrides.originAdmission,
     reloadConfig:
       overrides.reloadConfig ??
       (() => ({
@@ -78,6 +82,187 @@ function makeSubsystem(overrides: {
 }
 
 describe("DaemonSession", () => {
+  test("origin inspection is host-bound and never admits an origin", () => {
+    let inspections = 0;
+    let admissions = 0;
+    const { subsystem, emitted } = makeSubsystem({
+      serverId: "srv_expected",
+      originAdmission: {
+        inspectOriginAdmission: () => {
+          inspections += 1;
+          return {
+            state: "ready",
+            reason: null,
+            persistedOrigins: ["https://disk.example"],
+            activeOrigins: ["https://active.example"],
+          };
+        },
+        admitOrigin: () => {
+          admissions += 1;
+          throw new Error("Unexpected admission");
+        },
+      },
+    });
+    subsystem.handleOriginAdmissionInspectRequest({
+      type: "daemon.config.get_origin_admission.request",
+      requestId: "inspect1",
+      expectedServerId: "srv_other",
+    });
+    expect(inspections).toBe(0);
+    subsystem.handleOriginAdmissionInspectRequest({
+      type: "daemon.config.get_origin_admission.request",
+      requestId: "inspect2",
+      expectedServerId: "srv_expected",
+    });
+    expect(inspections).toBe(1);
+    expect(admissions).toBe(0);
+    expect(emitted[1]).toMatchObject({
+      type: "daemon.config.get_origin_admission.response",
+      payload: {
+        requestId: "inspect2",
+        serverId: "srv_expected",
+        state: "ready",
+        persistedOrigins: ["https://disk.example"],
+        activeOrigins: ["https://active.example"],
+      },
+    });
+  });
+
+  test("origin admission refuses an unexpected host before invoking the native operation", () => {
+    let admissions = 0;
+    const { subsystem, emitted } = makeSubsystem({
+      serverId: "srv_actual",
+      originAdmission: {
+        inspectOriginAdmission: () => ({
+          state: "ready",
+          reason: null,
+          persistedOrigins: [],
+          activeOrigins: [],
+        }),
+        admitOrigin: () => {
+          admissions += 1;
+          throw new Error("Unexpected admission");
+        },
+      },
+    });
+    subsystem.handleOriginAdmissionRequest({
+      type: "daemon.config.admit_origin.request",
+      requestId: "wrong-host",
+      expectedServerId: "srv_other",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    });
+    expect(admissions).toBe(0);
+    expect(emitted[0]).toMatchObject({
+      payload: {
+        serverId: "srv_actual",
+        state: "refused",
+        code: "host_mismatch",
+        writeAttempted: false,
+      },
+    });
+  });
+
+  test("origin admission returns one exact native result with captured correlation", () => {
+    let admissions = 0;
+    const { subsystem, emitted } = makeSubsystem({
+      serverId: "srv_expected",
+      originAdmission: {
+        inspectOriginAdmission: () => ({
+          state: "ready",
+          reason: null,
+          persistedOrigins: [],
+          activeOrigins: [],
+        }),
+        admitOrigin: (input) => {
+          admissions += 1;
+          return {
+            addedToPersisted: true,
+            addedToActive: false,
+            persistedOrigins: [input.origin],
+            activeOrigins: [input.origin],
+          };
+        },
+      },
+    });
+    subsystem.handleOriginAdmissionRequest({
+      type: "daemon.config.admit_origin.request",
+      requestId: "one-shot",
+      expectedServerId: "srv_expected",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: ["https://preview.example"],
+    });
+    expect(admissions).toBe(1);
+    expect(emitted[0]).toMatchObject({
+      payload: {
+        requestId: "one-shot",
+        serverId: "srv_expected",
+        state: "applied",
+        origin: "https://preview.example",
+        addedToPersisted: true,
+        addedToActive: false,
+      },
+    });
+  });
+
+  test.each([
+    new ConfigWriterError("busy", false),
+    new ConfigWriterError("stale_input", false),
+    new ConfigWriterError("uncertain", true),
+    new Error("private failure detail"),
+  ])(
+    "origin admission distinguishes refusal from uncertainty without leaking causes: %s",
+    (failure) => {
+      let admissions = 0;
+      const { subsystem, emitted } = makeSubsystem({
+        serverId: "srv_expected",
+        originAdmission: {
+          inspectOriginAdmission: () => ({
+            state: "ready",
+            reason: null,
+            persistedOrigins: [],
+            activeOrigins: [],
+          }),
+          admitOrigin: () => {
+            admissions += 1;
+            throw failure;
+          },
+        },
+      });
+      subsystem.handleOriginAdmissionRequest({
+        type: "daemon.config.admit_origin.request",
+        requestId: "failure",
+        expectedServerId: "srv_expected",
+        origin: "https://preview.example",
+        expectedPersistedOrigins: [],
+        expectedActiveOrigins: [],
+      });
+      const refusal = failure instanceof ConfigWriterError && !failure.writeAttempted;
+      expect(emitted[0]).toMatchObject({
+        payload: { requestId: "failure", state: refusal ? "refused" : "uncertain" },
+      });
+      expect(JSON.stringify(emitted)).not.toContain("private failure detail");
+      expect(admissions).toBe(1);
+    },
+  );
+
+  test("origin admission has no placeholder operation when its native port is absent", () => {
+    const { subsystem, emitted } = makeSubsystem({ serverId: "srv_expected" });
+    subsystem.handleOriginAdmissionRequest({
+      type: "daemon.config.admit_origin.request",
+      requestId: "absent",
+      expectedServerId: "srv_expected",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    });
+    expect(emitted[0]).toMatchObject({
+      payload: { state: "refused", code: "unavailable", writeAttempted: false },
+    });
+  });
+
   test("config reload returns the daemon-owned classification", () => {
     const { subsystem, emitted } = makeSubsystem({
       reloadConfig: () => ({
@@ -247,98 +432,38 @@ describe("DaemonSession", () => {
     ]);
   });
 
-  test("pairing offer is empty when relay is disabled", async () => {
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        getRelayConfig: () => ({
-          enabled: false,
-          endpoint: "relay.paseo.sh:443",
-          publicEndpoint: "relay.paseo.sh:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "p-1",
-    });
-
-    expect(emitted).toEqual([
-      {
-        type: "daemon.get_pairing_offer.response",
-        payload: { requestId: "p-1", url: "", qr: null, relayEnabled: false },
-      },
-    ]);
-  });
-
-  test("pairing offer mints a real connection URL when relay is enabled", async () => {
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        appBaseUrl: "https://app.example.test",
-        getRelayConfig: () => ({
-          enabled: true,
-          endpoint: "relay.example.test:443",
-          publicEndpoint: "relay.example.test:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "p-2",
-    });
-
-    expect(emitted).toHaveLength(1);
-    const message = emitted[0];
-    expect(message.type).toBe("daemon.get_pairing_offer.response");
-    if (message.type !== "daemon.get_pairing_offer.response") {
-      throw new Error("expected a pairing offer response");
-    }
-    expect(message.payload.requestId).toBe("p-2");
-    expect(message.payload.relayEnabled).toBe(true);
-    expect(message.payload.url.startsWith("https://app.example.test")).toBe(true);
-    expect(typeof message.payload.qr).toBe("string");
-  });
-
-  test("pairing offer reads relay state at request time", async () => {
-    let enabled = false;
-    const { subsystem, emitted } = makeSubsystem({
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        appBaseUrl: "https://app.example.test",
-        getRelayConfig: () => ({
-          enabled,
-          endpoint: "relay.example.test:443",
-          publicEndpoint: "relay.example.test:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "disabled",
-    });
-    enabled = true;
-    await subsystem.handleGetPairingOfferRequest({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "enabled",
-    });
-
-    const pairingResponses = emitted.filter(
-      (message) => message.type === "daemon.get_pairing_offer.response",
-    );
-    expect(pairingResponses[0]?.payload.relayEnabled).toBe(false);
-    expect(pairingResponses[1]?.payload.relayEnabled).toBe(true);
-    expect(pairingResponses[1]?.payload.url).toContain("#offer=");
-  });
+  test.each([false, true])(
+    "pairing is retired regardless of legacy relay state %s",
+    async (enabled) => {
+      const { subsystem, emitted } = makeSubsystem({
+        daemonRuntimeConfig: {
+          listen: "127.0.0.1:6767",
+          getRelayConfig: () => ({
+            enabled,
+            endpoint: "relay.example.test:443",
+            publicEndpoint: "relay.example.test:443",
+            useTls: true,
+            publicUseTls: true,
+          }),
+        },
+      });
+      await subsystem.handleGetPairingOfferRequest({
+        type: "daemon.get_pairing_offer.request",
+        requestId: "retired",
+      });
+      expect(emitted).toEqual([
+        {
+          type: "rpc_error",
+          payload: {
+            requestId: "retired",
+            requestType: "daemon.get_pairing_offer.request",
+            error:
+              "Device pairing has been retired. Connect through Tailscale using the environment address and existing authentication.",
+          },
+        },
+      ]);
+    },
+  );
 
   test("diagnostics includes a log tail and redacts connection secrets", async () => {
     const { subsystem, emitted, paseoHome } = makeSubsystem({

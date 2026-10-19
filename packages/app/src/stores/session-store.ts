@@ -70,6 +70,8 @@ export interface AgentRuntimeInfo {
 }
 
 export interface Agent {
+  tasks?: TodoEntry[];
+  journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
   profile?: { id: string; name: string };
   quotaPausedAt?: string;
@@ -109,6 +111,7 @@ export interface WorkspaceDescriptor {
   id: string;
   projectId: string;
   projectMembership?: WorkspaceDescriptorPayload["projectMembership"];
+  factoryMembership?: WorkspaceDescriptorPayload["factoryMembership"];
   projectDisplayName: string;
   projectCustomName?: string | null;
   projectCustomIconRevision?: string | null;
@@ -120,6 +123,8 @@ export interface WorkspaceDescriptor {
   name: string;
   title?: string | null;
   pinnedAt?: string | null;
+  standing?: boolean;
+  protected?: boolean;
   labels?: string[];
   status: WorkspaceDescriptorPayload["status"];
   statusEnteredAt: Date | null;
@@ -148,6 +153,7 @@ export function normalizeWorkspaceDescriptor(
     projectCustomIconRevision: payload.projectCustomIconRevision ?? null,
     projectRootPath: payload.projectRootPath,
     projectMembership: payload.projectMembership,
+    factoryMembership: payload.factoryMembership,
     // Canonicalize the workspace directory once, at the store boundary, so every
     // consumer can read workspace.workspaceDirectory directly. Empty means "no
     // usable directory" (older daemons may omit it; the wire field is optional).
@@ -158,6 +164,8 @@ export function normalizeWorkspaceDescriptor(
     name: payload.name,
     title: payload.title ?? null,
     pinnedAt: payload.pinnedAt ?? null,
+    standing: payload.standing ?? false,
+    protected: payload.protected ?? false,
     // COMPAT(workspaceLabels): old daemons omit assignments.
     labels: payload.labels ?? [],
     status: payload.status,

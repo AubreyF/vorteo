@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -128,12 +129,49 @@ export function AdaptiveRenameModal({
   const cancelTestID = testID ? `${testID}-cancel` : undefined;
   const sheetHeader = useMemo<SheetHeader>(() => ({ title }), [title]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.actions}>
+        <Button
+          variant="secondary"
+          size="sm"
+          style={styles.actionButton}
+          onPress={handleCancel}
+          disabled={isPending}
+          testID={cancelTestID}
+        >
+          {t("common.actions.cancel")}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          style={styles.actionButton}
+          onPress={handleSubmitVoid}
+          disabled={submitDisabled}
+          testID={submitTestID}
+        >
+          {isPending ? t("renameModal.saving") : (submitLabel ?? t("renameModal.rename"))}
+        </Button>
+      </ActionFooter>
+    ),
+    [
+      handleCancel,
+      isPending,
+      cancelTestID,
+      t,
+      handleSubmitVoid,
+      submitDisabled,
+      submitTestID,
+      submitLabel,
+    ],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
       onClose={handleCancel}
       header={sheetHeader}
       testID={testID}
+      footer={modalFooter1}
     >
       <View style={styles.body}>
         <AdaptiveTextInput
@@ -155,28 +193,6 @@ export function AdaptiveRenameModal({
           </Text>
         ) : null}
         {renderSuggestions?.(selectSuggestion, isPending)}
-        <View style={styles.actions}>
-          <Button
-            variant="secondary"
-            size="sm"
-            style={styles.actionButton}
-            onPress={handleCancel}
-            disabled={isPending}
-            testID={cancelTestID}
-          >
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            style={styles.actionButton}
-            onPress={handleSubmitVoid}
-            disabled={submitDisabled}
-            testID={submitTestID}
-          >
-            {isPending ? t("renameModal.saving") : (submitLabel ?? t("renameModal.rename"))}
-          </Button>
-        </View>
       </View>
     </AdaptiveModalSheet>
   );
@@ -207,6 +223,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
 }));

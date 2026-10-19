@@ -1,4 +1,17 @@
+import type { SidebarStateStore } from "./sidebar-state/store.js";
+import {
+  handleBootstrapReview,
+  handlePreclaimRecoveryReview,
+  handleClaimedRecoveryReview,
+  type BootstrapReviewService,
+} from "./execution-installation/coordinator-bootstrap-session.js";
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
+import {
+  assertWorkspaceNotFactoryManaged,
+  assertWorkspaceUnprotected,
+  factoryMembershipForDescriptor,
+  setWorkspaceLifecycle,
+} from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
 import {
   planProviderRemoval,
@@ -22,6 +35,7 @@ import type {
   SessionEventSubscription,
   UsageReportEntry,
   ProviderUsage,
+  WorkspaceRecoveryGuard,
 } from "@getpaseo/protocol/messages";
 import { relative } from "node:path";
 import { isAbsolute } from "node:path";
@@ -226,6 +240,7 @@ import {
 } from "./session/workspace-provisioning/workspace-provisioning-service.js";
 import {
   createWorkspaceRecoveryService,
+  unarchiveWorkspaceGuarded,
   type WorkspaceRecoveryService,
 } from "./session/workspace-recovery/workspace-recovery-service.js";
 import {
@@ -255,6 +270,7 @@ import type { ProviderUsageService } from "../services/quota-fetcher/service.js"
 import type { ProviderQuotaObservationService } from "../services/quota-fetcher/governor-service.js";
 import type { ProviderResetService } from "../services/quota-fetcher/reset-service.js";
 import {
+  activeWorkspaceRecords,
   resolveWorkspaceRootAgent,
   summarizeFetchWorkspacesEntries,
   workspaceIdsOnCheckout,
@@ -462,6 +478,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  coordinatorBootstrap?: BootstrapReviewService;
   messageQueue?: MessageQueueService;
   browserToolsBroker?: BrowserToolsBroker | null;
   clientId: string;
@@ -501,6 +518,7 @@ export interface SessionOptions {
   renameCurrentBranch?: typeof renameCurrentBranchDefault;
   workspaceGitService: WorkspaceGitService;
   workspaceAutoName: WorkspaceAutoName;
+  sidebarState?: SidebarStateStore;
   daemonConfigStore: DaemonConfigStore;
   pluginRuntime?: {
     before: import("./plugins/lifecycle/index.js").PluginLifecycle["before"];
@@ -738,6 +756,7 @@ export class Session {
   );
   private readonly browserToolsBroker: SessionOptions["browserToolsBroker"];
   private readonly clientId: string;
+  private readonly serverId: string | undefined;
   private readonly authorization: SessionAuthorization;
   private readonly ownerEvidence: TaskOwnerEvidenceStore;
   private readonly principalId: string | null | undefined;
@@ -776,6 +795,7 @@ export class Session {
   private readonly gitMutation: GitMutationService;
   private readonly workspaceProvisioning: WorkspaceProvisioningService;
   private readonly workspaceRecovery: WorkspaceRecoveryService;
+  private readonly sidebarState: SidebarStateStore | undefined;
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushNotifications: PushNotifications;
   private readonly pluginRuntime: SessionOptions["pluginRuntime"];
@@ -849,7 +869,11 @@ export class Session {
   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
+  private readonly coordinatorBootstrap: BootstrapReviewService | undefined;
+
   constructor(options: SessionOptions) {
+    this.sidebarState = options.sidebarState;
+    this.coordinatorBootstrap = options.coordinatorBootstrap;
     const {
       clientId,
       permissions,
@@ -914,6 +938,7 @@ export class Session {
     this.queueDownloadTokens = downloadTokenStore;
     this.browserToolsBroker = options.browserToolsBroker;
     this.clientId = clientId;
+    this.serverId = serverId;
     this.authorization = new SessionAuthorization(permissions);
     this.principalId = options.principalId;
     this.ownerEvidence = new TaskOwnerEvidenceStore(paseoHome);
@@ -975,6 +1000,7 @@ export class Session {
       logger: this.sessionLogger,
     });
     this.workspaceRecovery = createWorkspaceRecoveryService({
+      serverId,
       paseoHome: this.paseoHome,
       worktreesRoot: this.worktreesRoot,
       getWorkspace: (workspaceId) => this.workspaceRegistry.get(workspaceId),
@@ -983,6 +1009,8 @@ export class Session {
       unarchiveWorkspace: async (workspace) => {
         await this.workspaceProvisioning.ensureWorkspaceRecordUnarchived(workspace);
       },
+      unarchiveWorkspaceGuarded: (expected) =>
+        unarchiveWorkspaceGuarded(this.workspaceRegistry, expected),
     });
     this.checkoutSession = new CheckoutSession({
       host: {
@@ -1149,6 +1177,7 @@ export class Session {
       logger: this.sessionLogger,
       hubRelationships: options.hubRelationships,
       reloadConfig: () => daemonConfigStore.reload(),
+      originAdmission: daemonConfigStore,
     });
     this.hubExecutionController = options.hubExecutionAgents
       ? new HubExecutionController({
@@ -1201,6 +1230,7 @@ export class Session {
       archiveAgentForClose: (agentId) => this.archiveAgentForClose(agentId),
       findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
       listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+      listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
       archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
       emit: (message) => this.emit(message),
       emitAgentRemove: (agentId) => this.agentUpdates.removeAgent(agentId),
@@ -1248,7 +1278,7 @@ export class Session {
       logger: this.sessionLogger,
       projectRegistry: this.projectRegistry,
       workspaceRegistry: this.workspaceRegistry,
-      listAgentPayloads: () => this.listAgentPayloads(),
+      listAgentPayloads: () => this.listAgentPayloads({ includeUnavailablePersisted: true }),
       listProviderSubagentActivity: async () => this.agentManager.listProviderSubagentActivity(),
       listTerminalActivityContributions: () => this.listTerminalActivityContributions(),
       isProviderVisibleToClient: (provider) => this.isProviderVisibleToClient(provider),
@@ -2397,8 +2427,34 @@ export class Session {
     if (promise) await promise;
   }
 
+  private dispatchSidebarStateMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "sidebar.state.read.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.read().then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.read.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      case "sidebar.state.change.request": {
+        if (!this.sidebarState) throw new Error("Sidebar synchronization is unavailable");
+        return this.sidebarState.change(msg.change).then((snapshot) => {
+          return this.emit({
+            type: "sidebar.state.change.response",
+            payload: { requestId: msg.requestId, snapshot },
+          });
+        });
+      }
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchWorkspaceLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     return (
+      this.dispatchSidebarStateMessage(msg) ??
       this.dispatchWorkspaceStateMessage(msg) ??
       this.dispatchWorkspaceLabelMessage(msg) ??
       this.dispatchWorkspaceSetupMessage(msg) ??
@@ -2710,7 +2766,12 @@ export class Session {
       case "dictation_stream_cancel":
         return this.voiceSessions.handleMessage(msg);
       case "restart_server_request":
-        return this.handleRestartServerRequest(msg.requestId, msg.reason, msg.idleMode);
+        return this.handleRestartServerRequest(
+          msg.requestId,
+          msg.reason,
+          msg.idleMode,
+          msg.restartDrainId,
+        );
       case "shutdown_server_request":
         return this.handleShutdownServerRequest(msg.requestId);
       case "client_heartbeat":
@@ -2919,6 +2980,19 @@ export class Session {
     }
   }
 
+  private dispatchOriginAdmissionMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "daemon.config.get_origin_admission.request":
+        this.daemonSession.handleOriginAdmissionInspectRequest(msg);
+        return Promise.resolve();
+      case "daemon.config.admit_origin.request":
+        this.daemonSession.handleOriginAdmissionRequest(msg);
+        return Promise.resolve();
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentConfigMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "set_agent_mode_request":
@@ -2965,7 +3039,7 @@ export class Session {
       case "write_project_config_request":
         return this.projectConfigSession.handleWriteProjectConfigRequest(msg);
       default:
-        return this.dispatchAccountCreationMessage(msg);
+        return this.dispatchOriginAdmissionMessage(msg) ?? this.dispatchAccountCreationMessage(msg);
     }
   }
 
@@ -3077,6 +3151,8 @@ export class Session {
         return this.handleWorkspaceTitleSetRequest(msg.workspaceId, msg.title, msg.requestId);
       case "workspace.project.set.request":
         return this.handleWorkspaceProjectSetRequest(msg);
+      case "workspace.lifecycle.set.request":
+        return this.handleWorkspaceLifecycleSetRequest(msg);
       case "workspace.pin.set.request":
         return this.handleWorkspacePinSetRequest(msg.workspaceId, msg.pinned, msg.requestId);
       default:
@@ -3293,6 +3369,39 @@ export class Session {
     }
   }
 
+  private dispatchBootstrapMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "installation.claimed_recovery.list_requests.request":
+      case "installation.claimed_recovery.prepare.request":
+      case "installation.claimed_recovery.decide.request":
+        return handleClaimedRecoveryReview(msg, this.coordinatorBootstrap?.claimedRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
+      case "installation.bootstrap_recovery.list_requests.request":
+      case "installation.bootstrap_recovery.prepare.request":
+      case "installation.bootstrap_recovery.decide.request":
+        return handlePreclaimRecoveryReview(msg, this.coordinatorBootstrap?.preclaimRecovery).then(
+          (reply) => {
+            this.emit(reply);
+            return undefined;
+          },
+        );
+      case "installation.bootstrap.list_requests.request":
+      case "installation.bootstrap.prepare.request":
+      case "installation.bootstrap.decide.request":
+      case "installation.bootstrap.reconcile_automatic.request":
+        return handleBootstrapReview(msg, this.coordinatorBootstrap).then((reply) => {
+          this.emit(reply);
+          return undefined;
+        });
+      default:
+        return undefined;
+    }
+  }
+
   private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
     switch (msg.type) {
       case "agent.queue.attachment.get.request":
@@ -3301,6 +3410,9 @@ export class Session {
       case "agent.queue.mutate.request":
       case "agent.queue.subscribe.request":
         return this.handleMessageQueueRequest(msg);
+      case "agent.checklist.get.request":
+      case "agent.checklist.mutate.request":
+        return this.handleChecklistRequest(msg);
       case "agent.goal.get.request":
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
@@ -3321,6 +3433,8 @@ export class Session {
           payload: { requestId: msg.requestId },
         });
         return;
+      default:
+        return this.dispatchBootstrapMessage(msg);
     }
   }
 
@@ -3346,9 +3460,30 @@ export class Session {
   private async handleRestartServerRequest(
     requestId: string,
     reason?: string,
-    idleMode?: "inspect" | "restart",
+    idleMode?: "inspect" | "restart" | "drain" | "cancel-drain",
+    restartDrainId?: string,
   ): Promise<void> {
+    if (idleMode === "drain" || idleMode === "cancel-drain") {
+      if (!restartDrainId) throw new Error("Restart hold requires the approved request identity");
+      const accepted =
+        idleMode === "drain"
+          ? this.agentManager.beginRestartDrain(restartDrainId)
+          : this.agentManager.cancelRestartDrain(restartDrainId);
+      this.emit({
+        type: "status",
+        payload: {
+          status: "restart_requested",
+          requestId,
+          clientId: this.clientId,
+          accepted,
+          impact: this.agentManager.getRestartImpact(),
+        },
+      });
+      return;
+    }
     if (idleMode) {
+      if (idleMode === "restart" && this.agentManager.isRestartDraining())
+        await this.agentManager.checkpointRestartDrain();
       const impact = this.agentManager.getRestartImpact();
       const accepted = idleMode === "restart" && this.agentManager.prepareIdleRestart();
       if (!accepted) {
@@ -3857,6 +3992,14 @@ export class Session {
         .filter((workspace) => !workspace.archivedAt && !workspace.projectMembership)
         .map((workspace) => workspace.workspaceId);
 
+      // Preflight all children before stopping any work in a project removal.
+      for (const workspace of projectWorkspaces) {
+        assertWorkspaceNotFactoryManaged(workspace);
+        if (!workspace.archivedAt && !workspace.projectMembership) {
+          await this.agentManager.assertWorkspaceArchiveAllowed?.(workspace.workspaceId);
+          assertWorkspaceUnprotected(workspace);
+        }
+      }
       if (activeWorkspaceIds.length > 0) {
         this.markWorkspaceArchiving(activeWorkspaceIds, new Date().toISOString());
         await this.emitWorkspaceUpdatesForWorkspaceIds(activeWorkspaceIds);
@@ -4073,6 +4216,7 @@ export class Session {
     let error: string | null = null;
     try {
       const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
+        assertWorkspaceNotFactoryManaged(workspace);
         if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
         return {
           ...workspace,
@@ -4086,6 +4230,30 @@ export class Session {
     }
     this.emit({
       type: "workspace.project.set.response",
+      payload: {
+        requestId: msg.requestId,
+        workspaceId: msg.workspaceId,
+        accepted: error === null,
+        error,
+      },
+    });
+    if (error === null) await this.emitWorkspaceUpdatesForWorkspaceIds([msg.workspaceId]);
+  }
+
+  private async handleWorkspaceLifecycleSetRequest(
+    msg: Extract<SessionInboundMessage, { type: "workspace.lifecycle.set.request" }>,
+  ): Promise<void> {
+    let error: string | null = null;
+    try {
+      const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) =>
+        setWorkspaceLifecycle(workspace, msg),
+      );
+      if (!updated) error = "Workspace not found";
+    } catch (cause) {
+      error = getErrorMessageOr(cause, "Failed to update workspace");
+    }
+    this.emit({
+      type: "workspace.lifecycle.set.response",
       payload: {
         requestId: msg.requestId,
         workspaceId: msg.workspaceId,
@@ -4159,7 +4327,7 @@ export class Session {
     request: Extract<SessionInboundMessage, { type: "workspace.recovery.restore.request" }>,
   ): Promise<void> {
     try {
-      await this.restoreWorkspaceAndEmit(request.workspaceId);
+      await this.restoreWorkspaceAndEmit(request.workspaceId, request.guard);
       this.emit({
         type: "workspace.recovery.restore.response",
         payload: {
@@ -4678,7 +4846,7 @@ export class Session {
           onCreated: async ({ agentId: registeredAgentId }) => {
             createdAgentId = registeredAgentId;
             await recordCreated?.(registeredAgentId);
-            if (initialPrompt && !msg.callerAgentId) {
+            if (initialPrompt && !msg.callerAgentId && !msg.origin) {
               await this.ownerEvidence.record({
                 taskId: registeredAgentId,
                 principalId: this.principalId,
@@ -4692,6 +4860,7 @@ export class Session {
           worktreeName,
           initialPrompt,
           initialGoal: msg.initialGoal,
+          origin: msg.callerAgentId ? "agent" : msg.origin,
           clientMessageId,
           outputSchema,
           images,
@@ -5447,6 +5616,47 @@ export class Session {
     }
   }
 
+  private async handleChecklistRequest(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "agent.checklist.get.request" | "agent.checklist.mutate.request" }
+    >,
+  ): Promise<void> {
+    const type =
+      msg.type === "agent.checklist.get.request"
+        ? "agent.checklist.get.response"
+        : "agent.checklist.mutate.response";
+    try {
+      const load =
+        msg.type === "agent.checklist.get.request"
+          ? ensureAgentLoaded
+          : ensureUnarchivedAgentLoaded;
+      await load(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      const tasks =
+        msg.type === "agent.checklist.get.request"
+          ? this.agentManager.readChecklist(msg.agentId)
+          : await this.agentManager.mutateChecklist(msg.agentId, msg.mutation);
+      this.emit({
+        type,
+        payload: { agentId: msg.agentId, requestId: msg.requestId, tasks, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type,
+        payload: {
+          agentId: msg.agentId,
+          requestId: msg.requestId,
+          tasks: null,
+          error: error instanceof Error ? error.message : "Checklist operation failed",
+        },
+      });
+    }
+  }
+
   private async handleAgentGoalRequest(
     msg: Extract<
       SessionInboundMessage,
@@ -5738,6 +5948,7 @@ export class Session {
         agentStorage: this.agentStorage,
         findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
         listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+        listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
         archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
         emit: (message) => this.emit(message),
         emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
@@ -5932,16 +6143,16 @@ export class Session {
       this.workspaceRegistry.list(),
       this.projectRegistry.list(),
     ]);
-    const activeProjects = new Map(
-      persistedProjects
-        .filter((project) => !project.archivedAt)
-        .map((project) => [project.projectId, project] as const),
+    const projectsById = new Map(
+      persistedProjects.map((project) => [project.projectId, project] as const),
     );
     const placementsByWorkspaceId = new Map<string, ProjectPlacementPayload>();
 
-    const pairs = persistedWorkspaces.flatMap((workspace) => {
-      if (workspace.archivedAt) return [];
-      const project = activeProjects.get(workspace.projectId);
+    // Use the same membership policy as the workspace directory: moving a workspace
+    // preserves its backing project even when that original project is archived.
+    const activeWorkspaces = activeWorkspaceRecords(persistedWorkspaces, persistedProjects);
+    const pairs = activeWorkspaces.flatMap((workspace) => {
+      const project = projectsById.get(workspace.projectId);
       if (!project) return [];
       return [{ workspace, project }];
     });
@@ -6018,7 +6229,7 @@ export class Session {
     let agents = await this.listAgentPayloads({
       labels: filter?.labels,
       includeArchived: filter?.includeArchived,
-      includeUnavailablePersisted: request.type === "fetch_agent_history_request",
+      includeUnavailablePersisted: true,
     });
     const activePlacementsByWorkspaceId =
       scope === "active" ? await this.buildActiveProjectPlacementsByWorkspaceId() : null;
@@ -6148,6 +6359,7 @@ export class Session {
       id: workspace.workspaceId,
       projectId: workspace.projectId,
       projectMembership: workspace.projectMembership,
+      ...factoryMembershipForDescriptor({ workspace, serverId: this.serverId }),
       projectDisplayName: resolvedProjectRecord
         ? resolveProjectDisplayName(resolvedProjectRecord)
         : workspace.projectId,
@@ -6161,6 +6373,8 @@ export class Session {
       name: resolveWorkspaceDisplayName(workspace),
       title: workspace.title,
       pinnedAt: workspace.pinnedAt,
+      standing: workspace.standing === true,
+      protected: workspace.protected === true,
       ...(workspace.labels && workspace.labels.length > 0 ? { labels: workspace.labels } : {}),
       archivingAt: null,
       status: "done",
@@ -6237,6 +6451,7 @@ export class Session {
     return {
       id: result.workspace.workspaceId,
       projectId: result.workspace.projectId,
+      projectMembership: result.workspace.projectMembership,
       projectDisplayName: projectRecord
         ? resolveProjectDisplayName(projectRecord)
         : result.workspace.projectId,
@@ -6253,6 +6468,8 @@ export class Session {
       }),
       title: result.workspace.title,
       pinnedAt: result.workspace.pinnedAt,
+      standing: result.workspace.standing === true,
+      protected: result.workspace.protected === true,
       ...(result.workspace.labels && result.workspace.labels.length > 0
         ? { labels: result.workspace.labels }
         : {}),
@@ -6426,8 +6643,11 @@ export class Session {
     };
   }
 
-  private async restoreWorkspaceAndEmit(workspaceId: string): Promise<void> {
-    await this.workspaceRecovery.restore(workspaceId);
+  private async restoreWorkspaceAndEmit(
+    workspaceId: string,
+    guard?: WorkspaceRecoveryGuard,
+  ): Promise<void> {
+    await this.workspaceRecovery.restore(workspaceId, guard);
     const workspace = await this.workspaceRegistry.get(workspaceId);
     if (!workspace) {
       throw new Error(`Recovered workspace record not found: ${workspaceId}`);
@@ -6500,7 +6720,14 @@ export class Session {
         worktreeRoot: workspace.worktreeRoot,
         isPaseoOwnedWorktree: workspace.isPaseoOwnedWorktree,
         mainRepoRoot: workspace.mainRepoRoot,
+        protected: workspace.protected,
+        factoryMembership: workspace.factoryMembership,
       }));
+  }
+
+  private async listRetainedFactoryWorkspaceRefs(): Promise<ActiveWorkspaceRef[]> {
+    // Includes archived members. Their backing paths remain lifecycle-owned.
+    return (await this.workspaceRegistry.list()).filter((workspace) => workspace.factoryMembership);
   }
 
   private async archiveWorkspaceRecord(workspaceId: string, archivedAt?: string): Promise<void> {
@@ -7268,7 +7495,11 @@ export class Session {
       cwd,
       explicitTitle ?? promptTitle,
       request.source.projectId,
-      { expectsInitialAgent: Boolean(request.firstAgentContext), workspaceId },
+      {
+        expectsInitialAgent: Boolean(request.firstAgentContext),
+        workspaceId,
+        projectMembership: request.projectMembership,
+      },
     );
     await this.syncWorkspaceGitObserverForWorkspace(workspace);
     const descriptor = await this.describeWorkspaceRecord(workspace);
@@ -7322,6 +7553,7 @@ export class Session {
         cwd: sourceCwd,
         workspaceId,
         projectId: source.projectId,
+        projectMembership: request.projectMembership,
         worktreeSlug: source.worktreeSlug,
         action: source.action,
         refName: source.refName,
@@ -7948,6 +8180,7 @@ export class Session {
           findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
           getWorkspace: (workspaceId) => this.workspaceRegistry.get(workspaceId),
           listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+          listRetainedFactoryWorkspaces: () => this.listRetainedFactoryWorkspaceRefs(),
           archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
           emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
             this.emitWorkspaceUpdatesForWorkspaceIds(workspaceIds),
@@ -8240,18 +8473,24 @@ export class Session {
       : undefined;
 
     try {
-      const snapshot = await ensureAgentLoaded(msg.agentId, {
-        agentManager: this.agentManager,
-        agentStorage: this.agentStorage,
-        logger: this.sessionLogger,
-      });
-      const agentPayload = await this.buildAgentPayload(snapshot);
-
-      const fetchedControlTimeline = this.agentManager.fetchTimeline(msg.agentId, {
-        direction,
-        cursor,
-        limit: pageLimit,
-      });
+      const record = this.agentManager.getAgent(msg.agentId)
+        ? null
+        : await this.agentStorage.get(msg.agentId);
+      const registeredProviders = this.providerSnapshotManager.listRegisteredProviderIds();
+      const savedOnly = record && !isStoredAgentProviderAvailable(record, registeredProviders);
+      const agentPayload = savedOnly
+        ? this.buildStoredAgentPayload(record, new Set(registeredProviders))
+        : await this.buildAgentPayload(
+            await ensureAgentLoaded(msg.agentId, {
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              logger: this.sessionLogger,
+            }),
+          );
+      const fetchOptions = { direction, cursor, limit: pageLimit };
+      const fetchedControlTimeline = savedOnly
+        ? await this.agentManager.fetchSavedTimeline(msg.agentId, fetchOptions)
+        : this.agentManager.fetchTimeline(msg.agentId, fetchOptions);
       const selectedTimeline = {
         timeline: fetchedControlTimeline,
         entries: fetchedControlTimeline.rows,
@@ -8293,7 +8532,7 @@ export class Session {
             ...(msg.mergeWindow === true ? { mergeWindow: true } : {}),
             entries: entries.map((entry) => {
               const payloadEntry = {
-                provider: snapshot.provider,
+                provider: agentPayload.provider,
                 item: entry.item,
                 timestamp: entry.timestamp,
                 seqStart: entry.seqStart,
@@ -8687,13 +8926,17 @@ export class Session {
     try {
       const agentId = resolved.agentId;
 
-      await this.ownerEvidence.record({
-        taskId: agentId,
-        principalId: this.principalId,
-        clientId: this.clientId,
-        messageId: msg.messageId ?? msg.requestId,
-        text: msg.text,
-      });
+      const recordOwnerMessage = async () => {
+        if (!msg.origin) {
+          await this.ownerEvidence.record({
+            taskId: agentId,
+            principalId: this.principalId,
+            clientId: this.clientId,
+            messageId: msg.messageId ?? msg.requestId,
+            text: msg.text,
+          });
+        }
+      };
       const prompt = buildAgentPrompt(msg.text, msg.images, msg.attachments);
       this.sessionLogger.trace(
         {
@@ -8712,6 +8955,7 @@ export class Session {
           prompt,
           messageId: msg.messageId,
           activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+          runOptions: msg.origin ? { origin: msg.origin } : undefined,
           clearPendingPermissions: true,
           logger: this.sessionLogger,
         });
@@ -8727,13 +8971,19 @@ export class Session {
         await this.messageReceipts.send({
           agentId,
           messageId: msg.messageId,
-          request: { prompt, activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt" },
+          request: {
+            prompt,
+            activeTurnBehavior: msg.activeTurnBehavior ?? "interrupt",
+            ...(msg.origin ? { origin: msg.origin } : {}),
+          },
           prepare: async () => {
             await this.prepareAgentMessage(agentId, msg.text);
+            await recordOwnerMessage();
           },
           send,
         });
       } else {
+        await recordOwnerMessage();
         await send();
       }
 

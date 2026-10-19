@@ -381,6 +381,7 @@ export const es: TranslationResources = {
       title: "Tareas",
       empty: "Aún no hay tareas.",
       tasksProgress: "{{completed}}/{{total}} tareas",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "Se crearon {{count}} tareas",
         added: "Añadida",
@@ -389,6 +390,7 @@ export const es: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "Compactando...",
       auto: "Contexto compactado automáticamente",
       manual: "Contexto compactado manualmente",
@@ -662,7 +664,6 @@ export const es: TranslationResources = {
         maximizePane: "Maximizar panel",
         restorePane: "Restaurar panel",
         closePane: "Cerrar panel",
-        exitFocusMode: "Salir del modo de concentración",
         splitRight: "Panel dividido a la derecha",
         splitDown: "Dividir panel hacia abajo",
         changes: "Cambios",
@@ -1040,6 +1041,8 @@ export const es: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "Borrador",
           merged: "Fusionado",
           closed: "Cerrado",
@@ -1865,6 +1868,7 @@ export const es: TranslationResources = {
     backdrop: "Fondo del menú",
   },
   subagents: {
+    ...en.subagents,
     title: "Subagentes",
     pillLabelOne: "1 subagente",
     pillLabelMany: "{{count}} subagentes",
@@ -1877,7 +1881,7 @@ export const es: TranslationResources = {
     detachTooltip: "Separar subagente",
     archiveAction: "Archivo{{label}}",
     archiveTooltip: "Subagente de archivo",
-    archiveFinishedAction: "Archivar subagentes finalizados",
+    archiveFinishedAction: "Quitar finalizados",
     archiveFinishedRetry: "Reintentar ({{failed}}/{{total}})",
   },
   panels: {
@@ -1905,6 +1909,7 @@ export const es: TranslationResources = {
         cursor: "Línea {{line}}, columna {{column}}",
         preview: "Vista previa",
         source: "Código fuente",
+        copyAll: "Copiar todo",
         deletedTitle: "Archivo eliminado del disco",
         checkFailedTitle: "No se pudo comprobar el archivo en disco",
         preservedDescription: "La copia abierta se ha conservado.",
@@ -2259,7 +2264,7 @@ export const es: TranslationResources = {
         systemDefault: "Valor predeterminado del sistema",
         interfaceFont: "Fuente de interfaz",
         interfaceFontHint:
-          "Utilizado en toda la aplicación. Déjelo vacío para el valor predeterminado del sistema.",
+          "Se usa en toda la aplicación. Déjalo vacío para usar la tipografía del tema",
         interfaceFontAccessibility: "Familia de fuentes de interfaz",
         interfaceSize: "Tamaño de interfaz",
         interfaceSizeHint: "Se usa en la navegación, los controles y las etiquetas",
@@ -2348,7 +2353,6 @@ export const es: TranslationResources = {
         toggleRightSidebar: "Alternar panel lateral",
         toggleBothSidebars: "Alternar ambas barras laterales",
         toggleSettings: "Alternar configuración",
-        toggleFocusMode: "Alternar modo de enfoque",
         cycleTheme: "Tema del ciclo",
         focusMessageInput: "Entrada de mensaje de enfoque",
         cycleAgentMode: "Alternar modo del agente",

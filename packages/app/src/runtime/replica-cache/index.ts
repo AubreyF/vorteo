@@ -1,10 +1,14 @@
+import { AgentJournalEntrySchema } from "@getpaseo/protocol/agent-journal";
 import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
   AgentStatusSchema,
+  AgentTaskItemSchema,
+  CompactionInspectionSchema,
   AgentTimelineItemPayloadSchema,
   WorkspaceGitHubRuntimePayloadSchema,
   WorkspaceProjectMembershipSchema,
+  WorkspaceFactoryMembershipSchema,
 } from "@getpaseo/protocol/messages";
 import { AgentProviderSchema } from "@getpaseo/protocol/provider-manifest";
 import type { PluginTimelineData } from "@getpaseo/plugin";
@@ -101,7 +105,7 @@ const TodoEntrySchema = z.strictObject({
   text: z.string(),
   completed: z.boolean(),
   id: z.string().optional(),
-  status: z.enum(["pending", "in_progress", "completed"]).optional(),
+  status: z.enum(["pending", "in_progress", "review", "blocked", "completed"]).optional(),
   activeForm: z.string().optional(),
 });
 
@@ -155,6 +159,8 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
     status: z.enum(["loading", "completed"]),
     trigger: z.enum(["auto", "manual"]).optional(),
     preTokens: z.number().nonnegative().optional(),
+    compactionId: z.string().optional(),
+    inspection: CompactionInspectionSchema.optional(),
   }),
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -225,6 +231,8 @@ const StoredProjectPlacementSchema = z.strictObject({
 });
 
 const StoredAgentSnapshotSchema = z.strictObject({
+  tasks: z.array(AgentTaskItemSchema).optional(),
+  journal: z.array(AgentJournalEntrySchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
@@ -304,6 +312,10 @@ const StoredWorkspaceSchema = z.strictObject({
   id: z.string(),
   projectId: z.string(),
   projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+  factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
+  // Require lifecycle fields so older lossy rows invalidate only the workspace cursor.
+  standing: z.boolean(),
+  protected: z.boolean(),
   projectDisplayName: z.string(),
   projectCustomName: z.string().nullable(),
   projectCustomIconRevision: z.string().nullable(),
@@ -482,6 +494,8 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
+        ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+        ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
       };
     case "tool_call":
       if (item.payload.source !== "agent") return null;
@@ -573,6 +587,8 @@ function deserializeBuiltinTimelineItem(
         status: item.status,
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
+        ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
+        ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
       };
     case "tool_call": {
       const tool = item.item;
@@ -661,6 +677,8 @@ function serializeAgent(agent: Agent): StoredAgent {
     availableModes: [],
     pendingPermissions: [],
     goalState: cachedGoalState(agent.goalState),
+    tasks: agent.tasks,
+    journal: agent.journal,
     persistence: null,
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,
@@ -705,6 +723,9 @@ function serializeWorkspace(workspace: WorkspaceDescriptor): StoredWorkspace {
     id: workspace.id,
     projectId: workspace.projectId,
     projectMembership: workspace.projectMembership,
+    factoryMembership: workspace.factoryMembership,
+    standing: workspace.standing ?? false,
+    protected: workspace.protected ?? false,
     projectDisplayName: workspace.projectDisplayName,
     projectCustomName: workspace.projectCustomName ?? null,
     projectCustomIconRevision: workspace.projectCustomIconRevision ?? null,
@@ -1238,10 +1259,16 @@ export class ReplicaCache {
           await this.ensureStoredIndex();
           const changes = this.materializePendingChanges(pending);
           const { changes: boundedChanges, evicted } = await this.fitChangesToBudget(changes);
-          if (boundedChanges.upserts.length > 0 || boundedChanges.deletes.length > 0) {
-            await this.rowStore.apply(boundedChanges);
-            this.applyStoredChanges(boundedChanges);
+          // Unchanged refreshes still participate in eviction priority and bookkeeping.
+          // Deduplicate only the physical write after fitting the full logical changes.
+          const upserts = boundedChanges.upserts.filter((row) => {
+            const stored = this.storedRows.get(row.serverId)?.get(rowKey(row));
+            return stored?.payload !== row.payload;
+          });
+          if (upserts.length > 0 || boundedChanges.deletes.length > 0) {
+            await this.rowStore.apply({ upserts, deletes: boundedChanges.deletes });
           }
+          this.applyStoredChanges(boundedChanges);
           for (const serverId of pending.baselines) {
             if (!evicted.has(serverId)) this.invalidatedHosts.delete(serverId);
           }

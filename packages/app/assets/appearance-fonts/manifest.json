@@ -1,0 +1,265 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "revision": "bd8f81ddb5c74d5c8897b36ad88b440266245103",
+  "files": [
+    {
+      "file": "Barlow-Light.ttf",
+      "source": "ofl/barlow/Barlow-Light.ttf",
+      "sha256": "20b1375c0c6606701867bf34c7cc97f44087850567a36587d25abb9510b183cc",
+      "bytes": 103136
+    },
+    {
+      "file": "Barlow-Regular.ttf",
+      "source": "ofl/barlow/Barlow-Regular.ttf",
+      "sha256": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea",
+      "bytes": 104068
+    },
+    {
+      "file": "Barlow-Medium.ttf",
+      "source": "ofl/barlow/Barlow-Medium.ttf",
+      "sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4",
+      "bytes": 103536
+    },
+    {
+      "file": "Barlow-SemiBold.ttf",
+      "source": "ofl/barlow/Barlow-SemiBold.ttf",
+      "sha256": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5",
+      "bytes": 108348
+    },
+    {
+      "file": "Barlow-Bold.ttf",
+      "source": "ofl/barlow/Barlow-Bold.ttf",
+      "sha256": "84e6a4d61e7c3e21f3c50ea6a4f7e5303a3467864c038be6ea3759bab8d547f9",
+      "bytes": 108220
+    },
+    {
+      "file": "BarlowCondensed-Light.ttf",
+      "source": "ofl/barlowcondensed/BarlowCondensed-Light.ttf",
+      "sha256": "2c37e1e6b5feb71d38a42e6180d2e2f4ca1aad22cfecbd017430f3863deba67d",
+      "bytes": 101996
+    },
+    {
+      "file": "BarlowCondensed-Regular.ttf",
+      "source": "ofl/barlowcondensed/BarlowCondensed-Regular.ttf",
+      "sha256": "583cec5da3b84bc4dc7c9c72e2a565c94d34e431518b19d7e250b7830ad5f996",
+      "bytes": 102480
+    },
+    {
+      "file": "BarlowCondensed-Medium.ttf",
+      "source": "ofl/barlowcondensed/BarlowCondensed-Medium.ttf",
+      "sha256": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17",
+      "bytes": 103360
+    },
+    {
+      "file": "BarlowCondensed-SemiBold.ttf",
+      "source": "ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf",
+      "sha256": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9",
+      "bytes": 109428
+    },
+    {
+      "file": "BarlowCondensed-Bold.ttf",
+      "source": "ofl/barlowcondensed/BarlowCondensed-Bold.ttf",
+      "sha256": "e476562ec9c1e16cf16475895b511f08c804f438cc9a9f80a44ea50a0eeb5b65",
+      "bytes": 109912
+    },
+    {
+      "file": "Manrope[wght].ttf",
+      "source": "ofl/manrope/Manrope[wght].ttf",
+      "sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
+      "bytes": 164700
+    },
+    {
+      "file": "SpaceGrotesk[wght].ttf",
+      "source": "ofl/spacegrotesk/SpaceGrotesk[wght].ttf",
+      "sha256": "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72",
+      "bytes": 136676
+    },
+    {
+      "file": "barlow-OFL.txt",
+      "source": "ofl/barlow/OFL.txt",
+      "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "bytes": 4377
+    },
+    {
+      "file": "barlowcondensed-OFL.txt",
+      "source": "ofl/barlowcondensed/OFL.txt",
+      "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "bytes": 4377
+    },
+    {
+      "file": "manrope-OFL.txt",
+      "source": "ofl/manrope/OFL.txt",
+      "sha256": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
+      "bytes": 4387
+    },
+    {
+      "file": "spacegrotesk-OFL.txt",
+      "source": "ofl/spacegrotesk/OFL.txt",
+      "sha256": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+      "bytes": 4495
+    }
+  ],
+  "generator": "fonttools 4.60.1; static wght instances, explicit family/subfamily/PostScript names, timestamps retained",
+  "nativeFonts": [
+    {
+      "file": "Barlow-300.ttf",
+      "family": "Barlow",
+      "weight": 300,
+      "sourceFile": "Barlow-Light.ttf",
+      "sha256": "20b1375c0c6606701867bf34c7cc97f44087850567a36587d25abb9510b183cc",
+      "bytes": 103136
+    },
+    {
+      "file": "Barlow-400.ttf",
+      "family": "Barlow",
+      "weight": 400,
+      "sourceFile": "Barlow-Regular.ttf",
+      "sha256": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea",
+      "bytes": 104068
+    },
+    {
+      "file": "Barlow-500.ttf",
+      "family": "Barlow",
+      "weight": 500,
+      "sourceFile": "Barlow-Medium.ttf",
+      "sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4",
+      "bytes": 103536
+    },
+    {
+      "file": "Barlow-600.ttf",
+      "family": "Barlow",
+      "weight": 600,
+      "sourceFile": "Barlow-SemiBold.ttf",
+      "sha256": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5",
+      "bytes": 108348
+    },
+    {
+      "file": "Barlow-700.ttf",
+      "family": "Barlow",
+      "weight": 700,
+      "sourceFile": "Barlow-Bold.ttf",
+      "sha256": "84e6a4d61e7c3e21f3c50ea6a4f7e5303a3467864c038be6ea3759bab8d547f9",
+      "bytes": 108220
+    },
+    {
+      "file": "BarlowCondensed-300.ttf",
+      "family": "Barlow Condensed",
+      "weight": 300,
+      "sourceFile": "BarlowCondensed-Light.ttf",
+      "sha256": "2c37e1e6b5feb71d38a42e6180d2e2f4ca1aad22cfecbd017430f3863deba67d",
+      "bytes": 101996
+    },
+    {
+      "file": "BarlowCondensed-400.ttf",
+      "family": "Barlow Condensed",
+      "weight": 400,
+      "sourceFile": "BarlowCondensed-Regular.ttf",
+      "sha256": "583cec5da3b84bc4dc7c9c72e2a565c94d34e431518b19d7e250b7830ad5f996",
+      "bytes": 102480
+    },
+    {
+      "file": "BarlowCondensed-500.ttf",
+      "family": "Barlow Condensed",
+      "weight": 500,
+      "sourceFile": "BarlowCondensed-Medium.ttf",
+      "sha256": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17",
+      "bytes": 103360
+    },
+    {
+      "file": "BarlowCondensed-600.ttf",
+      "family": "Barlow Condensed",
+      "weight": 600,
+      "sourceFile": "BarlowCondensed-SemiBold.ttf",
+      "sha256": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9",
+      "bytes": 109428
+    },
+    {
+      "file": "BarlowCondensed-700.ttf",
+      "family": "Barlow Condensed",
+      "weight": 700,
+      "sourceFile": "BarlowCondensed-Bold.ttf",
+      "sha256": "e476562ec9c1e16cf16475895b511f08c804f438cc9a9f80a44ea50a0eeb5b65",
+      "bytes": 109912
+    },
+    {
+      "file": "Manrope-300.ttf",
+      "family": "Manrope",
+      "weight": 300,
+      "sourceFile": "Manrope[wght].ttf",
+      "sha256": "ba1fe1f509fa2a0dcd07609fbd1142285b01a9f1d89074ff984ac6b93f7c6232",
+      "bytes": 97344
+    },
+    {
+      "file": "Manrope-400.ttf",
+      "family": "Manrope",
+      "weight": 400,
+      "sourceFile": "Manrope[wght].ttf",
+      "sha256": "3f4f7a92d23f94c4fee994285c0cc3b3b57306648f344f3ee0f845861dbe79eb",
+      "bytes": 97452
+    },
+    {
+      "file": "Manrope-500.ttf",
+      "family": "Manrope",
+      "weight": 500,
+      "sourceFile": "Manrope[wght].ttf",
+      "sha256": "dc61e9ea49cb17f1a3ba6621852bb844d3795a01fd03fb0aa6713628d8db1881",
+      "bytes": 97528
+    },
+    {
+      "file": "Manrope-600.ttf",
+      "family": "Manrope",
+      "weight": 600,
+      "sourceFile": "Manrope[wght].ttf",
+      "sha256": "caa37f714d86345bdd541514245194a9622e881ecb81f988d4e251b5e094b062",
+      "bytes": 97576
+    },
+    {
+      "file": "Manrope-700.ttf",
+      "family": "Manrope",
+      "weight": 700,
+      "sourceFile": "Manrope[wght].ttf",
+      "sha256": "41ca4e33bc38a0db2042b8c8ebfd4b7c30005b138a4ea783013763b7f80a6d68",
+      "bytes": 97440
+    },
+    {
+      "file": "SpaceGrotesk-300.ttf",
+      "family": "Space Grotesk",
+      "weight": 300,
+      "sourceFile": "SpaceGrotesk[wght].ttf",
+      "sha256": "a3db714a7d1373b34106a8d8c6f0c77773d60c6bc251463c58b8888a4a5330b0",
+      "bytes": 88348
+    },
+    {
+      "file": "SpaceGrotesk-400.ttf",
+      "family": "Space Grotesk",
+      "weight": 400,
+      "sourceFile": "SpaceGrotesk[wght].ttf",
+      "sha256": "f6a8a5907ab81ab83a45fdb819dff145c5a48c1835fd3cb10f83c7e2e2910edf",
+      "bytes": 88320
+    },
+    {
+      "file": "SpaceGrotesk-500.ttf",
+      "family": "Space Grotesk",
+      "weight": 500,
+      "sourceFile": "SpaceGrotesk[wght].ttf",
+      "sha256": "36f0d080beabeab28b8dabd53b62f629ec890ea3d690194749a50f5dfd97ddfb",
+      "bytes": 88324
+    },
+    {
+      "file": "SpaceGrotesk-600.ttf",
+      "family": "Space Grotesk",
+      "weight": 600,
+      "sourceFile": "SpaceGrotesk[wght].ttf",
+      "sha256": "efeeff8ca93e78da94484ae1938074355022a910ca9ef60d185584bd80961989",
+      "bytes": 88236
+    },
+    {
+      "file": "SpaceGrotesk-700.ttf",
+      "family": "Space Grotesk",
+      "weight": 700,
+      "sourceFile": "SpaceGrotesk[wght].ttf",
+      "sha256": "ccf58243d1b2ab3334aa32230a0adf8c122c139d4ef45a2f5ca38be93dbd8b53",
+      "bytes": 88220
+    }
+  ]
+}

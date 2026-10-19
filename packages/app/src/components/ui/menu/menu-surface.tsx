@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronLeft } from "lucide-react-native";
@@ -227,8 +228,13 @@ function MenuPopoverSurface({
 
   // `hoverIntent: false` takes a page off the pointer entirely — it is not opened by resting on
   // its trigger, and while it is open nothing on this surface closes on a pointer leaving it.
+  const locked = openPages.some(({ page }) => page.hoverIntent === false);
+  useEffect(() => {
+    // A pointer leave may have queued a close before a click opened this page.
+    if (locked) surfaceValue.cancelHoverClose();
+  }, [locked, surfaceValue]);
+
   const hoverValue = useMemo<MenuSurfaceContextValue>(() => {
-    const locked = openPages.some(({ page }) => page.hoverIntent === false);
     return {
       ...surfaceValue,
       hoverOpen: (sub) => {
@@ -240,7 +246,7 @@ function MenuPopoverSurface({
         surfaceValue.hoverClose(depth);
       },
     };
-  }, [openPages, pages, surfaceValue]);
+  }, [locked, pages, surfaceValue]);
 
   return (
     <MenuSurfaceContext.Provider value={hoverValue}>

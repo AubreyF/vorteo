@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import { Button } from "@/components/ui/button";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { AlertTriangle } from "lucide-react-native";
@@ -30,7 +31,7 @@ export function FileConflictAlert({ state }: { state: FileConflictAlertState }) 
         {description ? <Text style={styles.description}>{description}</Text> : null}
       </View>
       {state.kind !== "deleted" ? (
-        <View style={styles.actions}>
+        <ActionFooter style={styles.actions}>
           {state.kind === "changed" && state.canOverwrite ? (
             <Button variant="outline" size="sm" onPress={state.onOverwrite}>
               {t("panels.file.editor.overwrite")}
@@ -46,7 +47,7 @@ export function FileConflictAlert({ state }: { state: FileConflictAlertState }) 
               {t("common.actions.retry")}
             </Button>
           ) : null}
-        </View>
+        </ActionFooter>
       ) : null}
     </View>
   );

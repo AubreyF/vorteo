@@ -14,8 +14,15 @@ export async function requestInstallationSettings(update?: InstallationSettingsU
     credentials: "same-origin",
     cache: "no-store",
     redirect: "error",
-    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(10000),
+    headers: { "Content-Type": "application/json", "X-Vorteo-Provider-Removal": "1" },
     body: JSON.stringify(update ?? {}),
+  }).catch((error: unknown) => {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
+      throw new Error(
+        "Could not confirm the settings operation within 10 seconds. It may have saved. Reload Settings to check before retrying.",
+      );
+    throw error;
   });
   if (response.status === 401)
     throw new OwnerAccessExpired("Unlock Installation controls in General settings to continue.");

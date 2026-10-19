@@ -1,4 +1,5 @@
-const LEGACY_DATABASE_NAME = "paseo-replica-cache";
+import { demoStorageName } from "@/demo/mode";
+const LEGACY_DATABASE_NAME = demoStorageName("paseo-replica-cache");
 
 export function clearLegacyReplicaCache(): Promise<void> {
   return new Promise((resolve, reject) => {

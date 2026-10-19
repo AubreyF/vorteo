@@ -56,19 +56,36 @@ function fixture(status: AgentGoal["status"] = "active") {
 }
 
 describe("queue goal ownership", () => {
+  it("recovers a legacy pause only with its matching durable receipt", async () => {
+    const { port, calls } = fixture("paused");
+    const current = await port.read();
+    await port.persist({ phase: "held", goal: current.goal! });
+    await resumeGoalAfterQueue(port);
+    expect(calls).toEqual(["active"]);
+    expect(port.hold()).toBeUndefined();
+  });
+
+  it("does not resume a manual pause that replaces a tracked block", async () => {
+    const { port, calls } = fixture();
+    await pauseGoalForQueue(port);
+    await port.set("paused");
+    await resumeGoalAfterQueue(port);
+    expect(calls).toEqual(["blocked", "paused"]);
+    expect(port.hold()).toBeUndefined();
+  });
   it("keeps Play enabled while messages drain without resuming native continuation early", async () => {
     const { port, calls } = fixture();
     await pauseGoalForQueue(port);
     const set = async () => port.set("active");
     for (let attempt = 0; attempt < 2; attempt++) {
       expect(await setGoalWithQueueOwnership({ status: "active" }, port, set)).toMatchObject({
-        goal: { status: "paused" },
+        goal: { status: "blocked" },
         queueContinuationHeld: true,
       });
     }
-    expect(calls).toEqual(["paused"]);
+    expect(calls).toEqual(["blocked"]);
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused", "active"]);
+    expect(calls).toEqual(["blocked", "active"]);
     expect(port.hold()).toBeUndefined();
   });
   it("honors an explicit Pause while the queue owns continuation", async () => {
@@ -77,22 +94,22 @@ describe("queue goal ownership", () => {
     await setGoalWithQueueOwnership({ status: "paused" }, port, () => port.set("paused"));
     await resumeGoalAfterQueue(port);
     expect(port.hold()).toBeUndefined();
-    expect(calls).toEqual(["paused", "paused"]);
+    expect(calls).toEqual(["blocked", "paused"]);
   });
   it("requires provider confirmation when Play resolves an ambiguous queue hold", async () => {
     const { port, calls } = fixture();
     await pauseGoalForQueue(port);
     await port.persist({ ...port.hold()!, phase: "pausing" });
     await setGoalWithQueueOwnership({ status: "active" }, port, () => port.set("active"));
-    expect(calls).toEqual(["paused", "active"]);
+    expect(calls).toEqual(["blocked", "active"]);
     expect(port.hold()).toBeUndefined();
   });
-  it("resumes only its own unchanged paused goal", async () => {
+  it("resumes only its own unchanged blocked goal", async () => {
     const { port, calls } = fixture();
     await pauseGoalForQueue(port);
     expect(port.hold()?.phase).toBe("held");
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused", "active"]);
+    expect(calls).toEqual(["blocked", "active"]);
     expect(port.hold()).toBeUndefined();
   });
   it("does not adopt an already paused goal", async () => {
@@ -106,7 +123,7 @@ describe("queue goal ownership", () => {
     await pauseGoalForQueue(port);
     edit();
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused"]);
+    expect(calls).toEqual(["blocked"]);
     expect(port.hold()).toBeUndefined();
   });
   it.each(["pausing", "resuming"] as const)("does not retry ambiguous %s RPCs", async (phase) => {
@@ -114,10 +131,10 @@ describe("queue goal ownership", () => {
     await pauseGoalForQueue(port);
     await port.persist({ ...port.hold()!, phase });
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused"]);
+    expect(calls).toEqual(["blocked"]);
     expect(port.hold()?.phase).toBe(phase);
   });
-  it("pauses again when stopped during resume", async () => {
+  it("blocks again when continuation stops during resume", async () => {
     const { port, calls, stop } = fixture();
     await pauseGoalForQueue(port);
     const set = port.set;
@@ -127,7 +144,7 @@ describe("queue goal ownership", () => {
       return result;
     };
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused", "active", "paused"]);
+    expect(calls).toEqual(["blocked", "active", "blocked"]);
     expect(port.hold()).toBeUndefined();
   });
   it("retains ambiguous resume intent instead of declaring completion", async () => {
@@ -168,7 +185,7 @@ describe("queue goal ownership", () => {
     };
     await pauseGoalForQueue(port);
     await resumeGoalAfterQueue(port);
-    expect(calls).toEqual(["paused"]);
+    expect(calls).toEqual(["blocked"]);
     expect(port.hold()).toBeUndefined();
   });
 });
@@ -177,7 +194,7 @@ it("projects queue-owned continuation and clears it after drain or explicit paus
   const { port } = fixture();
   await pauseGoalForQueue(port);
   const held = projectQueueGoalState(await port.read(), port.hold());
-  expect(held).toMatchObject({ goal: { status: "paused" }, queueContinuationHeld: true });
+  expect(held).toMatchObject({ goal: { status: "blocked" }, queueContinuationHeld: true });
   await resumeGoalAfterQueue(port);
   expect(projectQueueGoalState(await port.read(), port.hold())).toMatchObject({
     goal: { status: "active" },
@@ -220,12 +237,12 @@ it("retains continuation when new queued work arrives during native resume", asy
     return result;
   };
   await resumeGoalAfterQueue(port);
-  expect(calls).toEqual(["paused", "active", "paused"]);
+  expect(calls).toEqual(["blocked", "active", "blocked"]);
   expect(projectQueueGoalState(await port.read(), port.hold()).queueContinuationHeld).toBe(true);
   empty = true;
   port.set = set;
   await resumeGoalAfterQueue(port);
-  expect(calls).toEqual(["paused", "active", "paused", "active"]);
+  expect(calls).toEqual(["blocked", "active", "blocked", "active"]);
   expect(port.hold()).toBeUndefined();
 });
 
@@ -237,8 +254,8 @@ it("keeps a confirmed hold retryable when quota preflight blocks goal resume", a
   };
   await expect(resumeGoalAfterQueue(port)).rejects.toThrow("Quota reserve paused");
   expect(port.hold()?.phase).toBe("held");
-  expect(calls).toEqual(["paused"]);
+  expect(calls).toEqual(["blocked"]);
   port.prepareResume = async () => {};
   await resumeGoalAfterQueue(port);
-  expect(calls).toEqual(["paused", "active"]);
+  expect(calls).toEqual(["blocked", "active"]);
 });

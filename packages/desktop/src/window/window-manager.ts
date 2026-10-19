@@ -1,3 +1,4 @@
+import { handleDesktopCommand } from "../desktop-ipc.js";
 import {
   app,
   BrowserWindow,
@@ -5,7 +6,6 @@ import {
   type MenuItemConstructorOptions,
   type WebContents,
   clipboard,
-  ipcMain,
   nativeTheme,
   shell,
 } from "electron";
@@ -146,15 +146,15 @@ export function applyMacWindowControlsUpdate(input: {
 }
 
 export function registerWindowManager(input: { mode: DesktopWindowChromeMode }): void {
-  ipcMain.handle("paseo:window:minimize", (event) => {
+  handleDesktopCommand("paseo:window:minimize", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.handle("paseo:window:close", (event) => {
+  handleDesktopCommand("paseo:window:close", (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
-  ipcMain.handle("paseo:window:toggleMaximize", (event) => {
+  handleDesktopCommand("paseo:window:toggleMaximize", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     if (win.isMaximized()) {
@@ -164,21 +164,21 @@ export function registerWindowManager(input: { mode: DesktopWindowChromeMode }):
     }
   });
 
-  ipcMain.handle("paseo:window:isFullscreen", (event) => {
+  handleDesktopCommand("paseo:window:isFullscreen", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win?.isFullScreen() ?? false;
   });
 
-  ipcMain.handle("paseo:window:isMaximized", (event) => {
+  handleDesktopCommand("paseo:window:isMaximized", (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
   });
 
-  ipcMain.handle("paseo:window:setFullscreen", (event, fullscreen: unknown) => {
+  handleDesktopCommand("paseo:window:setFullscreen", (event, fullscreen: unknown) => {
     if (typeof fullscreen !== "boolean") return;
     BrowserWindow.fromWebContents(event.sender)?.setFullScreen(fullscreen);
   });
 
-  ipcMain.handle("paseo:window:setBadgeCount", (_event, count?: unknown) => {
+  handleDesktopCommand("paseo:window:setBadgeCount", (_event, count?: unknown) => {
     if (process.platform === "darwin" || process.platform === "linux") {
       const badgeCount = readBadgeCount(count);
       try {
@@ -193,7 +193,7 @@ export function registerWindowManager(input: { mode: DesktopWindowChromeMode }):
     }
   });
 
-  ipcMain.handle("paseo:window:updateChrome", (event, update?: unknown) => {
+  handleDesktopCommand("paseo:window:updateChrome", (event, update?: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
       return;
@@ -391,19 +391,5 @@ export function setupDefaultContextMenu(win: BrowserWindow): void {
   win.webContents.on("context-menu", (_event, params) => {
     const menu = Menu.buildFromTemplate(buildStandardContextMenuItems(win.webContents, params));
     menu.popup({ window: win });
-  });
-}
-
-/**
- * Prevent Electron from navigating to files dragged onto the window.
- * The renderer handles drag-drop via standard HTML5 APIs instead.
- */
-export function setupDragDropPrevention(win: BrowserWindow): void {
-  win.webContents.on("will-navigate", (event, url) => {
-    // Allow normal navigation (e.g. dev server hot-reload) but block file:// URLs
-    // that result from dropping files onto the window.
-    if (url.startsWith("file://")) {
-      event.preventDefault();
-    }
   });
 }

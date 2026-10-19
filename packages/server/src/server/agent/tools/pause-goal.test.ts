@@ -63,7 +63,16 @@ it("reasserts an existing pause through the manager so queue holds are released"
   expect(f.mutations).toEqual([{ threadId: "thread-1", status: "paused" }]);
 });
 
-it.each(["complete", "blocked", "budgetLimited", "usageLimited"] as const)(
+it("turns a blocked goal into a manual pause so recovery cannot resume it", async () => {
+  const f = fixture({ ...goal, status: "blocked" });
+  const result = await f.tool.handler({}, {});
+  expect(f.mutations).toEqual([{ threadId: "thread-1", status: "paused" }]);
+  expect(result.structuredContent).toMatchObject({
+    state: { status: "ready", goal: { ...goal, status: "paused" } },
+  });
+});
+
+it.each(["complete", "budgetLimited", "usageLimited"] as const)(
   "preserves a %s goal",
   async (status) => {
     const f = fixture({ ...goal, status });
@@ -99,16 +108,20 @@ it("rejects an unconfirmed read without mutating the goal", async () => {
   await expect(tool.handler({}, {})).rejects.toThrow("Could not confirm the current goal");
 });
 
-it("rejects a pause response that still reports active continuation", async () => {
-  const tool = createPauseGoalTool(
-    {
-      readAgentGoal: async () => ({ status: "ready", goal, observedAt: "now" }),
-      setAgentGoal: async () => ({ status: "ready", goal, observedAt: "now" }),
-    },
-    "caller-agent",
-  );
-  await expect(tool.handler({}, {})).rejects.toThrow("Goal pause could not be confirmed");
-});
+it.each(["active", "blocked"] as const)(
+  "rejects a pause response that still reports %s",
+  async (status) => {
+    const unchanged = { ...goal, status };
+    const tool = createPauseGoalTool(
+      {
+        readAgentGoal: async () => ({ status: "ready", goal: unchanged, observedAt: "now" }),
+        setAgentGoal: async () => ({ status: "ready", goal: unchanged, observedAt: "now" }),
+      },
+      "caller-agent",
+    );
+    await expect(tool.handler({}, {})).rejects.toThrow("Goal pause could not be confirmed");
+  },
+);
 
 it("does not accept a different agent or goal mutation through its input schema", () => {
   const { tool } = fixture();

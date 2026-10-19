@@ -452,46 +452,63 @@ it("shares captured files and images and delivers them after the original upload
   }
 }, 60_000);
 
-it("manual stop holds future queued messages until an explicit queue resume", async () => {
-  const received: string[] = [];
-  const daemon = await createTestPaseoDaemon({
-    agentClients: createTestAgentClients({
-      onStartTurn: (prompt) => {
-        if (typeof prompt === "string") received.push(prompt);
-      },
-    }),
-  });
-  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws`, appVersion: "0.7.2" });
-  try {
-    await client.connect();
-    const agent = await client.createAgent({
-      config: { provider: "codex", cwd: daemon.paseoHome, modeId: "bypassPermissions" },
+it.each([false, true])(
+  "manual stop preserves queue paused=%s",
+  async (paused) => {
+    const received: string[] = [];
+    const daemon = await createTestPaseoDaemon({
+      agentClients: createTestAgentClients({
+        onStartTurn: (prompt) => {
+          if (typeof prompt === "string") received.push(prompt);
+        },
+      }),
     });
-    await client.cancelAgent(agent.id);
-    const queued = await client.mutateMessageQueue(agent.id, {
-      kind: "enqueue",
-      operationId: "add",
-      messageId: "message",
-      text: "after manual stop",
-      attachments: [],
+    const client = new DaemonClient({
+      url: `ws://127.0.0.1:${daemon.port}/ws`,
+      appVersion: "0.7.2",
     });
-    expect(queued.snapshot?.paused).toBe(true);
-    expect(received).toEqual([]);
-    const snapshot = queued.snapshot;
-    if (!snapshot) throw new Error("Expected paused queue");
-    const resumed = await client.mutateMessageQueue(agent.id, {
-      kind: "pause",
-      operationId: "resume",
-      paused: false,
-      expectedRevision: snapshot.revision,
-    });
-    expect(resumed.error).toBeNull();
-    await expect.poll(() => received).toEqual(["after manual stop"]);
-  } finally {
-    await client.close();
-    await daemon.close();
-  }
-}, 60_000);
+    try {
+      await client.connect();
+      const agent = await client.createAgent({
+        config: { provider: "codex", cwd: daemon.paseoHome, modeId: "bypassPermissions" },
+      });
+      if (paused)
+        await client.mutateMessageQueue(agent.id, {
+          kind: "pause",
+          operationId: "owner-pause",
+          paused: true,
+          expectedRevision: 0,
+        });
+      await client.cancelAgent(agent.id);
+      const queued = await client.mutateMessageQueue(agent.id, {
+        kind: "enqueue",
+        operationId: "add",
+        messageId: "message",
+        text: "after manual stop",
+        attachments: [],
+      });
+      expect(queued.error).toBeNull();
+      expect(queued.snapshot?.paused).toBe(paused);
+      if (paused) {
+        expect(received).toEqual([]);
+        const snapshot = queued.snapshot;
+        if (!snapshot) throw new Error("Expected queued message");
+        const resumed = await client.mutateMessageQueue(agent.id, {
+          kind: "pause",
+          operationId: "resume",
+          paused: false,
+          expectedRevision: snapshot.revision,
+        });
+        expect(resumed.error).toBeNull();
+      }
+      await expect.poll(() => received).toEqual(["after manual stop"]);
+    } finally {
+      await client.close();
+      await daemon.close();
+    }
+  },
+  60_000,
+);
 
 it("continues ordered delivery after the originating client closes", async () => {
   let release!: () => void;

@@ -30,7 +30,15 @@ export function assertPluginCompatibility(input: PluginCompatibilityInput): void
     );
   }
   const stableCore = `${version.major}.${version.minor}.${version.patch}`;
-  if (satisfies(version, range) || satisfies(stableCore, range)) return;
+  // Inspect authored branches: semver generates prerelease upper bounds for
+  // stable caret, tilde and wildcard ranges. Those still allow stable-core matching.
+  const matchesStableBranch = range.split("||").some((branch) => {
+    const explicitPrerelease = /(?:^|[\s<>=~^])v?[0-9xX*]+(?:\.[0-9xX*]+){0,2}-[0-9A-Za-z-]/.test(
+      branch,
+    );
+    return !explicitPrerelease && satisfies(stableCore, branch);
+  });
+  if (satisfies(version, range) || matchesStableBranch) return;
   const action =
     input.requirements?.paseo === undefined
       ? "This plugin has no requirements.paseo and targets Vorteo before 0.8. Ask its author to migrate it: https://paseo.sh/docs/plugins/migration"

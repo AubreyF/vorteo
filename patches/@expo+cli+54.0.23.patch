@@ -1,0 +1,43 @@
+diff --git a/node_modules/@expo/cli/build/src/start/server/metro/runServer-fork.js b/node_modules/@expo/cli/build/src/start/server/metro/runServer-fork.js
+--- a/node_modules/@expo/cli/build/src/start/server/metro/runServer-fork.js
++++ b/node_modules/@expo/cli/build/src/start/server/metro/runServer-fork.js
+@@ -88,7 +88,27 @@
+     if (!mockServer) {
+         (0, _assert().default)(typeof middleware.use === 'function');
+     }
+-    const serverApp = middleware;
++    // Private managed previews must bind loopback and reject foreign HTTP/WS origins.
++    // Opt-in only: ordinary Expo development and production exports retain upstream behavior.
++    const previewOrigin = process.env.PASEO_LIVE_PREVIEW_ORIGIN;
++    const previewUrl = previewOrigin ? new URL(previewOrigin) : null;
++    if (previewUrl) {
++        if (previewUrl.protocol !== 'https:' || !previewUrl.hostname.endsWith('.ts.net') || previewUrl.origin !== previewOrigin) {
++            throw new Error('Managed private HTTPS origin required');
++        }
++        host = '127.0.0.1';
++    }
++    const allowedPreviewRequest = (request) => !previewUrl || (
++        [previewUrl.host, `127.0.0.1:${config.server.port}`].includes(request.headers.host) &&
++        (!request.headers.origin || request.headers.origin === previewOrigin)
++    );
++    const serverApp = (request, response) => {
++        if (!allowedPreviewRequest(request)) {
++            response.writeHead(403).end();
++            return;
++        }
++        middleware(request, response);
++    };
+     let httpServer;
+     if (secureServerOptions != null) {
+         httpServer = _https().default.createServer(secureServerOptions, serverApp);
+@@ -151,6 +171,10 @@
+                 })
+             });
+             httpServer.on('upgrade', (request, socket, head)=>{
++                if (!allowedPreviewRequest(request)) {
++                    socket.destroy();
++                    return;
++                }
+                 const { pathname } = (0, _url().parse)(request.url);
+                 if (pathname != null && websocketEndpoints[pathname]) {
+                     websocketEndpoints[pathname].handleUpgrade(request, socket, head, (ws)=>{

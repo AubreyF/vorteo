@@ -102,7 +102,7 @@ export function InstallationSettingsStatus({ children }: { children: ReactNode }
     ([, source]) => source.error === "account_binding_unavailable",
   );
   let pendingDescription = needsAccountBinding
-    ? "Shared settings are saved. An environment needs a unique enabled binding for the selected account before it can apply them."
+    ? "Shared settings are saved. An account is not yet available in every included environment. Account synchronization needs to finish."
     : "Shared settings are saved. Some environments are still waiting to apply them.";
   if (pending.some(([, source]) => source.error === "skill_removal_review_required")) {
     pendingDescription =

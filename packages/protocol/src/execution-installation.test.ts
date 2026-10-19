@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { validateExecutionInstallation } from "./execution-installation.js";
+import {
+  RestartRequestSchema,
+  SourceContributionSchema,
+  validateExecutionInstallation,
+} from "./execution-installation.js";
 
 const installation = {
   version: 1,
@@ -51,4 +55,32 @@ test("installation descriptors require distinct encrypted destinations and never
       ],
     }),
   ).toThrow("TLS");
+});
+
+test("owner approval requirements are optional durable request and contribution metadata", () => {
+  const request = { target: "host", reason: "Review explicitly" };
+  expect(RestartRequestSchema.parse(request)).not.toHaveProperty("requireOwnerApproval");
+  expect(RestartRequestSchema.parse({ ...request, requireOwnerApproval: true })).toMatchObject({
+    requireOwnerApproval: true,
+  });
+  expect(() => RestartRequestSchema.parse({ ...request, requireOwnerApproval: "true" })).toThrow();
+  const contribution = {
+    id: "3386c661-7e90-4e01-abf7-e7ca3b9fca00",
+    update: {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 1,
+    },
+    reason: "Review source",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    status: "queued",
+    detail: "Awaiting integration",
+    requireOwnerApproval: true,
+  };
+  expect(SourceContributionSchema.parse(contribution)).toMatchObject({
+    requestedBy: "host-agent",
+    requireOwnerApproval: true,
+  });
 });

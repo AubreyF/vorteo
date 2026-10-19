@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Keyboard, Pressable, Text, View } from "react-native";
-import type { DimensionValue, StyleProp, ViewStyle } from "react-native";
+import type { DimensionValue, StyleProp, ViewStyle, ScrollViewProps } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import {
@@ -33,6 +33,7 @@ import { isWeb } from "@/constants/platform";
 import { useKeyboardVisibility } from "@/hooks/use-keyboard-visibility";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdaptiveTextInput } from "@/components/adaptive-text-input";
+import { FixedActionFooterContext } from "@/components/ui/action-footer";
 export { AdaptiveTextInput, type AdaptiveTextInputProps } from "@/components/adaptive-text-input";
 
 // Horizontal indent token shared by the sheet header (title, back arrow,
@@ -103,8 +104,9 @@ const styles = StyleSheet.create((theme) => ({
     borderColor: theme.colors.surface2,
   },
   headerContainer: {
+    flexShrink: 0,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.surface2,
+    borderBottomColor: theme.colors.divider,
   },
   headerRow: {
     paddingHorizontal: theme.spacing[SHEET_HORIZONTAL_PADDING_SCALE],
@@ -167,7 +169,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: theme.colors.divider,
   },
   inlineTitle: {
     flex: 1,
@@ -220,18 +222,23 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 0,
   },
   footer: {
+    flexShrink: 0,
     paddingHorizontal: theme.spacing[SHEET_HORIZONTAL_PADDING_SCALE],
     paddingVertical: theme.spacing[3],
     borderTopWidth: 1,
-    borderTopColor: theme.colors.surface2,
+    borderTopColor: theme.colors.divider,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: theme.spacing[2],
   },
 }));
 
 const WEB_EXIT_DURATION_MS = 160;
+
+function sheetPartTestID(testID: string | undefined, part: string) {
+  return `${testID ?? "modal"}-${part}`;
+}
 
 function SheetBackground({ style }: BottomSheetBackgroundProps) {
   const { theme } = useUnistyles();
@@ -466,6 +473,7 @@ export interface AdaptiveModalSheetProps {
   desktopHeight?: DimensionValue;
   /** Whether the host supplies the scroll container. Caller-owned lists still share sheet gestures. */
   scrollable?: boolean;
+  onScroll?: ScrollViewProps["onScroll"];
   presentation?: "push" | "replace";
   /** Full body viewport below the header, including space beyond the content. */
   bodyStyle?: StyleProp<ViewStyle>;
@@ -490,6 +498,7 @@ export function AdaptiveModalSheet({
   desktopMaxWidth,
   desktopHeight,
   scrollable = true,
+  onScroll,
   presentation,
   contentStyle,
   bodyStyle,
@@ -520,8 +529,13 @@ export function AdaptiveModalSheet({
     [compactSafeAreaPadding.footerPaddingBottom],
   );
   const footerView = footer ? (
-    <View style={footerClearanceStyle}>
-      <View style={[styles.footer, footerContainerStyle]}>{footer}</View>
+    <View
+      style={[footerClearanceStyle, { flexShrink: 0 }]}
+      testID={sheetPartTestID(testID, "footer")}
+    >
+      <FixedActionFooterContext.Provider value={true}>
+        <View style={[styles.footer, footerContainerStyle]}>{footer}</View>
+      </FixedActionFooterContext.Provider>
     </View>
   ) : null;
   const handleIndicatorStyle = useMemo(
@@ -611,9 +625,12 @@ export function AdaptiveModalSheet({
         <View style={[styles.compactStaticContent, bodyStyle]}>
           {scrollable ? (
             <ScrollView
+              testID={sheetPartTestID(testID, "scroll")}
               style={styles.bottomSheetVisibleScroll}
               contentContainerStyle={SCROLL_CONTENT_GROW}
               keyboardShouldPersistTaps="handled"
+              onScroll={onScroll}
+              scrollEventThrottle={64}
               showsVerticalScrollIndicator={false}
             >
               <View style={[styles.contentGrow, bodyClearanceStyle]}>
@@ -667,9 +684,12 @@ export function AdaptiveModalSheet({
       <View style={[scrollable ? styles.desktopScrollContainer : desktopStaticStyle, bodyStyle]}>
         {scrollable ? (
           <ScrollView
+            testID={sheetPartTestID(testID, "scroll")}
             style={styles.desktopScroll}
             contentContainerStyle={SCROLL_CONTENT_GROW}
             keyboardShouldPersistTaps="handled"
+            onScroll={onScroll}
+            scrollEventThrottle={64}
             showsVerticalScrollIndicator
           >
             <SheetContent style={[styles.contentGrow, contentStyle]}>{children}</SheetContent>

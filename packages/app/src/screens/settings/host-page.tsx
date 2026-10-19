@@ -1,3 +1,5 @@
+import { CardHeaderStatus } from "@/components/ui/card-header-status";
+import { ActionFooter, ActionFooterLeading } from "@/components/ui/action-footer";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { readExecutionInstallation } from "@/execution-installation/policy";
@@ -5,7 +7,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpToLine,
-  ChevronRight,
   Globe,
   Monitor,
   Pencil,
@@ -17,7 +18,7 @@ import {
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Text, View } from "react-native";
 import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles";
 import type { TerminalProfile, MutableDaemonConfigPatch } from "@getpaseo/protocol/messages";
 import {
@@ -41,7 +42,6 @@ import { startDesktopDaemon, stopDesktopDaemon } from "@/desktop/daemon/desktop-
 import { LocalDaemonSection } from "@/desktop/components/desktop-updates-section";
 import { useDaemonStatus } from "@/desktop/hooks/use-daemon-status";
 import { useDesktopSettings } from "@/desktop/settings/desktop-settings";
-import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import {
@@ -263,18 +263,16 @@ export function HostConnectionsPage({ serverId }: { serverId: string }) {
   );
 }
 
+// COMPAT(retiredPairingSettings): added in v155, retain until saved pair-device links are unsupported.
 export function HostPairDevicePage({ serverId }: { serverId: string }) {
-  const { t } = useTranslation();
-  const host = useHostProfile(serverId);
-
-  if (!host) {
-    return <HostNotFound />;
-  }
-
   return (
-    <SettingsSection title={t("settings.host.pairDevices.title")}>
-      <PairDeviceRow serverId={serverId} />
-    </SettingsSection>
+    <View>
+      <Text style={settingsStyles.rowHint}>
+        Device pairing has been retired. Connect this device through Tailscale and use the existing
+        environment address and authentication.
+      </Text>
+      <HostConnectionsPage serverId={serverId} />
+    </View>
   );
 }
 
@@ -482,6 +480,32 @@ function ConnectionsSection({ host }: { host: HostProfile }) {
       .finally(() => setIsRemovingConnection(false));
   }, [pendingRemoveConnection, removeConnection, host.serverId, t]);
 
+  const modalFooter1 = useMemo(
+    () => (
+      <ActionFooter style={styles.confirmActions}>
+        <ActionFooterLeading>
+          <Button
+            variant="destructive"
+            size="sm"
+            onPress={handleConfirmRemove}
+            disabled={isRemovingConnection}
+            testID="remove-connection-confirm"
+          >
+            {t("settings.host.connections.removeAction")}
+          </Button>
+        </ActionFooterLeading>
+        <Button
+          variant="secondary"
+          size="sm"
+          onPress={handleCancelConfirm}
+          disabled={isRemovingConnection}
+        >
+          {t("common.actions.cancel")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleConfirmRemove, isRemovingConnection, t, handleCancelConfirm],
+  );
   return (
     <SettingsSection title={t("settings.host.connections.title")}>
       <View style={settingsStyles.card} testID="host-page-connections-card">
@@ -507,33 +531,13 @@ function ConnectionsSection({ host }: { host: HostProfile }) {
           visible
           onClose={handleCloseConfirm}
           testID="remove-connection-confirm-modal"
+          footer={modalFooter1}
         >
           <Text style={styles.confirmText}>
             {t("settings.host.connections.removeMessage", {
               name: pendingRemoveConnection.title,
             })}
           </Text>
-          <View style={styles.confirmActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleCancelConfirm}
-              disabled={isRemovingConnection}
-            >
-              {t("common.actions.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleConfirmRemove}
-              disabled={isRemovingConnection}
-              testID="remove-connection-confirm"
-            >
-              {t("settings.host.connections.removeAction")}
-            </Button>
-          </View>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>
@@ -931,13 +935,8 @@ function useSettingsMutation(serverId: string) {
   return { config, mutation };
 }
 
-function SettingsSaveStatus({ pending, error }: { pending: boolean; error: Error | null }) {
-  return (
-    <>
-      {pending ? <Text style={settingsStyles.rowHint}>Saving settings...</Text> : null}
-      {error ? <InlineAlert variant="error" description={error.message} /> : null}
-    </>
-  );
+function SettingsSaveStatus({ error }: { error: Error | null }) {
+  return error ? <InlineAlert variant="error" description={error.message} /> : null;
 }
 
 function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
@@ -958,9 +957,12 @@ function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-inject-mcp-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>
-            {t("settings.host.orchestration.enableTools.title")}
-          </Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              {t("settings.host.orchestration.enableTools.title")}
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             {t("settings.host.orchestration.enableTools.hint")}
           </Text>
@@ -972,7 +974,7 @@ function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
           accessibilityLabel={t("settings.host.orchestration.enableTools.accessibilityLabel")}
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -994,7 +996,12 @@ function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-auto-archive-merged-workspaces-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>Archive merged PR workspaces</Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              Archive merged PR workspaces
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             Automatically archive clean Vorteo workspaces after their pull request is merged
           </Text>
@@ -1007,7 +1014,7 @@ function AutoArchiveMergedWorkspacesCard({ serverId }: { serverId: string }) {
           testID="host-page-auto-archive-merged-workspaces-switch"
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -1029,7 +1036,12 @@ function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
     <View style={settingsStyles.card} testID="host-page-terminal-agent-hooks-card">
       <View style={settingsStyles.row}>
         <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>Enable terminal agent hooks</Text>
+          <View style={styles.savingHeader}>
+            <Text style={[settingsStyles.rowTitle, styles.savingTitle]} numberOfLines={1}>
+              Enable terminal agent hooks
+            </Text>
+            <CardHeaderStatus text={mutation.isPending ? "Saving..." : null} />
+          </View>
           <Text style={settingsStyles.rowHint}>
             Get notifications and status from terminal agents. This installs hooks in your agent
             config files.
@@ -1043,7 +1055,7 @@ function EnableTerminalAgentHooksCard({ serverId }: { serverId: string }) {
           testID="host-page-terminal-agent-hooks-switch"
         />
       </View>
-      <SettingsSaveStatus pending={mutation.isPending} error={mutation.error} />
+      <SettingsSaveStatus error={mutation.error} />
     </View>
   );
 }
@@ -1085,6 +1097,33 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
     setDraft(persistedPrompt);
   }, [persistedPrompt]);
 
+  const modalFooter2 = useMemo(
+    () => (
+      <ActionFooter style={styles.appendPromptActions}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={handleReset}
+          disabled={!hasChanges || isSaving}
+          testID="host-page-append-system-prompt-reset"
+        >
+          {t("settings.host.orchestration.systemPrompt.reset")}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onPress={handleSave}
+          disabled={!hasChanges || isSaving}
+          testID="host-page-append-system-prompt-save"
+        >
+          {isSaving
+            ? t("settings.host.orchestration.systemPrompt.saving")
+            : t("settings.host.orchestration.systemPrompt.save")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleReset, hasChanges, isSaving, t, handleSave],
+  );
   if (!isConnected) return null;
 
   return (
@@ -1121,6 +1160,7 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
           onClose={handleClose}
           testID="host-page-append-system-prompt-sheet"
           desktopMaxWidth={560}
+          footer={modalFooter2}
         >
           <SettingsTextAreaCard
             testID="host-page-append-system-prompt-input"
@@ -1130,65 +1170,10 @@ function AppendSystemPromptCard({ serverId }: { serverId: string }) {
             editable={!isSaving}
             placeholder={t("settings.host.orchestration.systemPrompt.placeholder")}
           />
-          <SettingsSaveStatus pending={isSaving} error={mutation.error} />
-          <View style={styles.appendPromptActions}>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={handleReset}
-              disabled={!hasChanges || isSaving}
-              testID="host-page-append-system-prompt-reset"
-            >
-              {t("settings.host.orchestration.systemPrompt.reset")}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onPress={handleSave}
-              disabled={!hasChanges || isSaving}
-              testID="host-page-append-system-prompt-save"
-            >
-              {isSaving
-                ? t("settings.host.orchestration.systemPrompt.saving")
-                : t("settings.host.orchestration.systemPrompt.save")}
-            </Button>
-          </View>
+          <SettingsSaveStatus error={mutation.error} />
         </AdaptiveModalSheet>
       ) : null}
     </>
-  );
-}
-
-function PairDeviceRow({ serverId }: { serverId: string }) {
-  const { t } = useTranslation();
-  const { theme } = useUnistyles();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const handleOpen = useCallback(() => setIsModalOpen(true), []);
-  const handleClose = useCallback(() => setIsModalOpen(false), []);
-
-  return (
-    <View style={settingsStyles.card}>
-      <Pressable
-        style={settingsStyles.row}
-        onPress={handleOpen}
-        accessibilityRole="button"
-        testID="host-page-pair-device-row"
-      >
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>{t("settings.host.pairDevices.rowTitle")}</Text>
-          <Text style={settingsStyles.rowHint}>{t("settings.host.pairDevices.rowHint")}</Text>
-        </View>
-        <ChevronRight size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />
-      </Pressable>
-
-      <PairDeviceModal
-        serverId={serverId}
-        visible={isModalOpen}
-        onClose={handleClose}
-        testID="host-page-pair-device-card"
-      />
-    </View>
   );
 }
 
@@ -1303,6 +1288,27 @@ function RemoveHostSection({
     [theme.iconSize.sm, theme.colors.destructive],
   );
 
+  const modalFooter3 = useMemo(
+    () => (
+      <ActionFooter style={styles.confirmActions}>
+        <ActionFooterLeading>
+          <Button
+            variant="destructive"
+            size="sm"
+            onPress={handleConfirmRemove}
+            disabled={isRemoving}
+            testID="remove-host-confirm"
+          >
+            {t("settings.host.connections.removeAction")}
+          </Button>
+        </ActionFooterLeading>
+        <Button variant="secondary" size="sm" onPress={handleCancel} disabled={isRemoving}>
+          {t("common.actions.cancel")}
+        </Button>
+      </ActionFooter>
+    ),
+    [handleConfirmRemove, isRemoving, t, handleCancel],
+  );
   return (
     <SettingsSection
       title={t("settings.host.daemon.dangerZone")}
@@ -1343,33 +1349,13 @@ function RemoveHostSection({
           visible
           onClose={handleCloseConfirm}
           testID="remove-host-confirm-modal"
+          footer={modalFooter3}
         >
           <Text style={styles.confirmText}>
             {stopsOwnedDaemon
               ? t("settings.host.daemon.remove.localConfirmMessage")
               : t("settings.host.daemon.remove.confirmMessage", { name: host.label })}
           </Text>
-          <View style={styles.confirmActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleCancel}
-              disabled={isRemoving}
-            >
-              {t("common.actions.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              style={FLEX_1_STYLE}
-              onPress={handleConfirmRemove}
-              disabled={isRemoving}
-              testID="remove-host-confirm"
-            >
-              {t("settings.host.connections.removeAction")}
-            </Button>
-          </View>
         </AdaptiveModalSheet>
       ) : null}
     </SettingsSection>
@@ -1768,6 +1754,8 @@ const terminalProfileStyles = StyleSheet.create((theme) => ({
 }));
 
 const styles = StyleSheet.create((theme) => ({
+  savingHeader: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  savingTitle: { maxWidth: "70%", flexShrink: 1 },
   updateFailure: {
     marginHorizontal: theme.spacing[4],
     marginBottom: theme.spacing[4],
@@ -1833,5 +1821,3 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
   },
 }));
-
-const FLEX_1_STYLE = { flex: 1 };

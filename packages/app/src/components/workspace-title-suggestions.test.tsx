@@ -17,6 +17,7 @@ vi.mock("@/runtime/host-runtime", () => ({
   }),
 }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("@/components/ui/loading-spinner", () => ({ LoadingSpinner: () => null }));
 vi.mock("@/components/adaptive-modal-sheet", async () => {
   const R = await import("react");
   const Input = R.forwardRef<
@@ -58,8 +59,21 @@ vi.mock("@/components/adaptive-modal-sheet", async () => {
     );
   });
   return {
-    AdaptiveModalSheet: ({ visible, children }: { visible: boolean; children: React.ReactNode }) =>
-      visible ? <div>{children}</div> : null,
+    AdaptiveModalSheet: ({
+      visible,
+      children,
+      footer,
+    }: {
+      visible: boolean;
+      children: React.ReactNode;
+      footer?: React.ReactNode;
+    }) =>
+      visible ? (
+        <div>
+          {children}
+          {footer}
+        </div>
+      ) : null,
     AdaptiveTextInput: Input,
   };
 });

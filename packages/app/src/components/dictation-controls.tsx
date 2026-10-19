@@ -220,19 +220,29 @@ export function DictationOverlay({
 
   const queueButton = useMemo(
     () =>
-      mobileComposer.enabled && onAcceptAndQueue ? (
+      onAcceptAndQueue ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Queue recorded message"
           disabled={actionsDisabled || isFailed}
           onPress={onAcceptAndQueue}
-          style={[overlayStyles.queueButton, actionsDisabled && overlayStyles.buttonDisabled]}
+          style={[
+            overlayStyles.actionButton,
+            OVERLAY_ACCEPT_BUTTON_BG,
+            touch && overlayStyles.touchSubmit,
+            touch && { transform: [{ translateX: -(OVERLAY_BUTTON_SIZE + theme.spacing[2]) }] },
+            mobileComposer.enabled && { bottom: mobileComposer.bottomPadding + 1 },
+            actionsDisabled && overlayStyles.buttonDisabled,
+          ]}
         >
           <ListPlus size={theme.iconSize.lg} color={theme.colors.accentForeground} />
         </Pressable>
       ) : null,
     [
       mobileComposer.enabled,
+      mobileComposer.bottomPadding,
+      touch,
+      theme.spacing,
       onAcceptAndQueue,
       actionsDisabled,
       isFailed,
@@ -254,7 +264,6 @@ export function DictationOverlay({
           style={[overlayStyles.mobileBackground, { backgroundColor: theme.colors.accent }]}
         />
       ) : null}
-      {queueButton}
       <Pressable
         onPress={handleCancel}
         disabled={actionsDisabled && !isFailed}
@@ -322,6 +331,7 @@ export function DictationOverlay({
                 strokeWidth={2.5}
               />
             </Pressable>
+            {queueButton}
             <Pressable
               onPress={onAcceptAndSend}
               accessibilityRole="button"
@@ -413,27 +423,15 @@ const overlayStyles = StyleSheet.create((theme) => ({
   touchContainer: { height: "100%", paddingHorizontal: 0, paddingVertical: 0 },
   mobileContainer: { backgroundColor: "transparent", borderRadius: 0 },
   mobileBackground: { position: "absolute", top: -9, bottom: -16, left: -16, right: -16 },
-  queueButton: {
-    position: "absolute",
-    bottom: 59,
-    right: 7,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.accent,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   touchCancel: {
     position: "absolute",
     left: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
-    bottom: { xs: theme.spacing[2] + 1, md: theme.spacing[4] + 1 },
+    bottom: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
   },
   touchSubmit: {
     position: "absolute",
     right: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
-    bottom: { xs: theme.spacing[2] + 1, md: theme.spacing[4] + 1 },
+    bottom: { xs: theme.spacing[3] + 1 - 6, md: theme.spacing[4] + 1 - 6 },
   },
   touchEdit: {
     position: "absolute",

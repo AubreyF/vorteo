@@ -47,6 +47,11 @@ state.
 This split is deliberate. The host layout must mount first so native local
 dynamic params exist before any nested workspace leaf is selected.
 
+The focused workspace route owns directory demand while its host is connected.
+Native drawers unmount when closed, so loading a workspace must not depend on
+opening the sidebar. Cached descriptors can paint immediately; the route still
+subscribes for current workspace data and releases its demand when inactive.
+
 ## Error Recovery
 
 The root error boundary lives above `ExpoRoot` in `src/root-app.tsx`. Reload

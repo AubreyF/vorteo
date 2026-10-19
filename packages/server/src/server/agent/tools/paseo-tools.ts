@@ -1,8 +1,6 @@
-import {
-  materializeSharedProfiles,
-  materializeLegacyProfiles,
-} from "@getpaseo/protocol/provider-preferences";
+import { sharedProfileDefinitions } from "@getpaseo/protocol/provider-preferences";
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TaskOwnerEvidenceStore } from "../../authorization/task-owner-evidence.js";
 import { ensureValidJson } from "../../json-utils.js";
@@ -104,7 +102,10 @@ import type {
 } from "./types.js";
 import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-config";
 import { isPaseoToolEnabled } from "../paseo-tool-policy.js";
+import { createThreadGoalTools } from "./thread-goal.js";
 import { createPauseGoalTool } from "./pause-goal.js";
+import { createJournalTools } from "../journal/tools.js";
+import { createChecklistTools } from "../task-checklist/tools.js";
 
 export interface PaseoToolHostDependencies {
   agentManager: AgentManager;
@@ -121,6 +122,7 @@ export interface PaseoToolHostDependencies {
   >;
   findWorkspaceIdForCwd?: ArchiveDependencies["findWorkspaceIdForCwd"];
   listActiveWorkspaces?: ArchiveDependencies["listActiveWorkspaces"];
+  listRetainedFactoryWorkspaces?: ArchiveDependencies["listRetainedFactoryWorkspaces"];
   archiveWorkspaceRecord?: ArchiveDependencies["archiveWorkspaceRecord"];
   emitWorkspaceUpdatesForWorkspaceIds?: ArchiveDependencies["emitWorkspaceUpdatesForWorkspaceIds"];
   workspaceRegistry?: Pick<WorkspaceRegistry, "get" | "list" | "upsert">;
@@ -129,6 +131,7 @@ export interface PaseoToolHostDependencies {
     cwd: string,
     title?: string | null,
     projectId?: string,
+    context?: { projectMembership?: PersistedWorkspaceRecord["projectMembership"] },
   ) => Promise<PersistedWorkspaceRecord>;
   workspaceScripts?: Pick<WorkspaceScriptsService, "list" | "launch" | "stop">;
   markWorkspaceArchiving?: ArchiveDependencies["markWorkspaceArchiving"];
@@ -1242,6 +1245,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   }
 
   if (callerAgentId) {
+    for (const tool of createJournalTools(agentManager, callerAgentId)) {
+      registerTool(tool.name, tool, tool.handler);
+    }
+    for (const tool of createChecklistTools(agentManager, callerAgentId)) {
+      registerTool(tool.name, tool, tool.handler);
+    }
+    for (const tool of createThreadGoalTools(agentManager, callerAgentId)) {
+      registerTool(tool.name, tool, tool.handler);
+    }
     const pauseGoal = createPauseGoalTool(agentManager, callerAgentId);
     registerTool(pauseGoal.name, pauseGoal, pauseGoal.handler);
   }
@@ -1362,7 +1374,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         if (!options.createDirectoryWorkspace) {
           throw new Error("Workspace provisioning is not configured");
         }
-        workspace = await options.createDirectoryWorkspace(cwd, title, ownerProjectId);
+        workspace = await options.createDirectoryWorkspace(cwd, title, ownerProjectId, {
+          projectMembership: inheritedMembership,
+        });
       } else {
         let cwd =
           path !== undefined || !projectId ? resolveScopedCwd(path, { required: true }) : null;
@@ -1390,6 +1404,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           {
             cwd,
             ...(ownerProjectId ? { projectId: ownerProjectId } : {}),
+            projectMembership: inheritedMembership,
             ...(worktreeSlug ? { worktreeSlug } : {}),
             ...worktreeTarget,
             ...(title ? { title } : {}),
@@ -1399,12 +1414,6 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           throw result.cause;
         }
         workspace = result.createdWorktree.workspace;
-      }
-
-      if (inheritedMembership) {
-        if (!options.workspaceRegistry) throw new Error("Workspace registry is not configured");
-        workspace = { ...workspace, projectMembership: inheritedMembership };
-        await options.workspaceRegistry.upsert(workspace);
       }
 
       return {
@@ -1991,6 +2000,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         agentId,
         prompt,
         sessionMode,
+        // MCP submissions are agent-mediated even without a caller thread.
+        messageId: randomUUID(),
+        runOptions: { origin: "agent" },
         logger: childLogger,
       });
 
@@ -3064,7 +3076,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         "List agent profiles: named provider/model/mode bundles a human configured for specific " +
         "kinds of work. Read each profile's `notes` to pick the one that fits the task you're " +
         "delegating. Launch with create_agent.profileId set to its id and provider set to " +
-        "its provider/model pair; copy modeId to settings.modeId when present. The preset " +
+        "a compatible account/model pair. Profile IDs are shared across accounts; choose the account separately using list_providers. The preset " +
         "must have an explicit model. The daemon resolves its instructions, reasoning, " +
         "features, and worker configuration. Supervisors must use their configured worker " +
         "preset. Returns an empty list if none are configured.",
@@ -3078,19 +3090,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const preferences = config?.sharedProviderPreferences;
       const profiles =
         config && preferences
-          ? [
-              ...materializeSharedProfiles({
-                preferences,
-                providers: config.providers,
-                providerIds: providerSnapshotManager
-                  .getSnapshot()
-                  .records.map(({ entry }) => entry.provider),
-              }),
-              ...materializeLegacyProfiles(preferences, config.providers),
-              ...(config.agentProfiles ?? []).filter(
-                (profile) => !preferences.legacyProfiles[profile.id],
-              ),
-            ]
+          ? sharedProfileDefinitions(preferences, config.providers)
           : (config?.agentProfiles ?? []);
       return {
         content: [],
@@ -3355,6 +3355,7 @@ function archiveWorktreeDependencies(
     agentStorage: context.agentStorage,
     findWorkspaceIdForCwd: options.findWorkspaceIdForCwd,
     listActiveWorkspaces: options.listActiveWorkspaces,
+    listRetainedFactoryWorkspaces: options.listRetainedFactoryWorkspaces,
     archiveWorkspaceRecord: options.archiveWorkspaceRecord,
     emitWorkspaceUpdatesForWorkspaceIds: options.emitWorkspaceUpdatesForWorkspaceIds,
     markWorkspaceArchiving: options.markWorkspaceArchiving,

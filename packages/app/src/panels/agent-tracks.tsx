@@ -1,10 +1,12 @@
+import { CardColumnAccessory } from "@/agent-stream/columns/card-column";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useSubagentsForParent, useArchiveFinishedSubagents } from "@/subagents";
 import { useHasPluginComposerPills } from "@/plugins";
-import { memo, useCallback, type ReactElement } from "react";
+import { memo, useCallback, useMemo, type ReactElement } from "react";
 
-import { AgentTaskList } from "@/composer/task-list";
+import { ChecklistCard } from "@/task-checklist/card";
+import { JournalCard } from "@/journal/card";
 
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
@@ -104,29 +106,10 @@ export const AgentTracks = memo(function AgentTracks({
     [canSplit, isCompact, openInSidePane, openTab, tabId, workspaceKey],
   );
 
-  if (
-    !hasAgentTracks({
-      subagentRows,
-      tasks,
-      archiveFinishedStatus,
-      hasPluginComposerPills,
-    })
-  ) {
-    return null;
-  }
-
   return (
     <>
-      {hasPluginComposerPills ? (
-        <View style={styles.pills} testID="agent-history-plugin-pills">
-          <PluginComposerPills
-            serverId={serverId}
-            workspaceId={workspaceId}
-            agentId={agentId}
-            compact={isCompact}
-          />
-        </View>
-      ) : null}
+      <ChecklistCard serverId={serverId} agentId={agentId} tasks={tasks} />
+      <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
       <SubagentsTrack
         inline
         serverId={serverId}
@@ -138,7 +121,18 @@ export const AgentTracks = memo(function AgentTracks({
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
-      <AgentTaskList inline tasks={tasks} />
+      {hasPluginComposerPills ? (
+        <CardColumnAccessory>
+          <View style={styles.pills} testID="agent-history-plugin-pills">
+            <PluginComposerPills
+              serverId={serverId}
+              workspaceId={workspaceId}
+              agentId={agentId}
+              compact={isCompact}
+            />
+          </View>
+        </CardColumnAccessory>
+      ) : null}
     </>
   );
 });
@@ -174,11 +168,22 @@ export function AgentHistoryTracks({
   cwd: string;
 }) {
   const subagentRows = useSubagentsForParent({ serverId, parentAgentId: agentId });
-  const tasks = useSessionStore((state) => state.sessions[serverId]?.agentTasks.get(agentId));
+  const tasks = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    // The daemon snapshot includes the latest checklist even outside the loaded timeline window.
+    if (session?.serverInfo?.features?.agentTaskSnapshots)
+      return session.agents.get(agentId)?.tasks;
+    // COMPAT (2026-10): older daemons expose checklists only through loaded timeline events.
+    return session?.agentTasks.get(agentId);
+  });
+  const managedRows = useMemo(
+    () => subagentRows.filter((row) => row.kind === "paseo"),
+    [subagentRows],
+  );
   const archive = useArchiveFinishedSubagents({
     serverId,
     parentAgentId: agentId,
-    rows: subagentRows,
+    rows: managedRows,
   });
   const hasPluginComposerPills = useHasPluginComposerPills(serverId, workspaceId, agentId);
   return (

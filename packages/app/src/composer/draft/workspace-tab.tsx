@@ -1,6 +1,10 @@
+import { transferTaskAttachments } from "@/task-environments/attachments";
+import { getHostRuntimeStore } from "@/runtime/host-runtime";
+import { useTaskEnvironment } from "@/task-environments/use-task-environment";
+import { TaskEnvironmentSelection } from "@/task-environments/selection";
+import type { WorkspaceEnvironmentReference } from "@/task-environments/workspaces";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
-import { useMobileComposerLayout } from "@/composer/mobile-layout";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
@@ -45,7 +49,7 @@ import {
 } from "@/attachments/workspace-attachments-store";
 import type { UserMessageImageAttachment } from "@/types/stream";
 import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
-import { isWeb } from "@/constants/platform";
+import { isWeb, isNative } from "@/constants/platform";
 import {
   buildWorkspaceTabPersistenceKey,
   type WorkspaceDraftTabSetup,
@@ -297,16 +301,6 @@ function buildDraftInitialValues(input: {
   };
 }
 
-function resolveDraftWorkingDirectory(input: {
-  workspaceDirectory: string | null;
-  initialSetup: WorkspaceDraftTabSetup | null;
-}): string | null {
-  if (input.initialSetup) {
-    return input.initialSetup.cwd;
-  }
-  return input.workspaceDirectory;
-}
-
 interface WorkspaceDraftAgentTabProps {
   serverId: string;
   workspaceId: string;
@@ -314,7 +308,7 @@ interface WorkspaceDraftAgentTabProps {
   draftId: string;
   initialSetup?: WorkspaceDraftTabSetup;
   isPaneFocused: boolean;
-  onCreated: (snapshot: AgentSnapshotPayload) => void;
+  onCreated: (snapshot: AgentSnapshotPayload, environment: WorkspaceEnvironmentReference) => void;
   onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => void;
   onOpenImportSheet?: () => void;
 }
@@ -342,18 +336,21 @@ export function WorkspaceDraftAgentTab({
 }: WorkspaceDraftAgentTabProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const mobileComposer = useMobileComposerLayout();
-  const client = useHostRuntimeClient(serverId);
+
   const workspaceFields = useWorkspaceFields(serverId, workspaceId, (w) => ({
     workspaceDirectory: w.workspaceDirectory,
     id: w.id,
   }));
   const workspaceDirectory = workspaceFields?.workspaceDirectory || null;
+  const initialDirectory = useMemo(
+    () => initialSetup?.cwd ?? workspaceDirectory ?? "",
+    [initialSetup, workspaceDirectory],
+  );
+  const environment = useTaskEnvironment(initialDirectory);
+  const executionServerId = environment.state.serverId;
+  const client = useHostRuntimeClient(executionServerId);
   const draftSetup = initialSetup ?? null;
-  const draftWorkingDirectory = resolveDraftWorkingDirectory({
-    workspaceDirectory,
-    initialSetup: draftSetup,
-  });
+  const draftWorkingDirectory = environment.state.directory;
   const draftInitialValues = buildDraftInitialValues({
     initialSetup: draftSetup,
   });
@@ -369,7 +366,7 @@ export function WorkspaceDraftAgentTab({
   const draftInput = useAgentInputDraft({
     draftKey: draftStoreKey,
     composer: {
-      initialServerId: serverId,
+      initialServerId: executionServerId,
       initialValues: draftInitialValues,
       initialFeatureValues: draftSetup?.featureValues,
       isVisible: true,
@@ -475,6 +472,16 @@ export function WorkspaceDraftAgentTab({
         allowsEmptyAutoSubmit,
         attachments,
       });
+      if (environment.state.status !== "ready")
+        return "Choose the workspace folder in the selected environment before starting.";
+      if (
+        executionServerId !== serverId &&
+        draftInput.attachments.some(
+          (attachment) =>
+            attachment.kind === "plugin_resource" || attachment.kind === "workspace_file",
+        )
+      )
+        return "Workspace file references and plugin attachments belong to the original environment. Remove those attachments or switch back before starting. Images and uploaded files can transfer.";
       return validateDraftSubmission({
         text,
         allowsEmptyAutoSubmit: allowsEmptyDraftText,
@@ -494,7 +501,7 @@ export function WorkspaceDraftAgentTab({
     buildDraftAgent: (attempt) =>
       buildDraftAgentSnapshot({
         attempt,
-        serverId,
+        serverId: executionServerId,
         tabId,
         workspaceDirectory: draftWorkingDirectory,
         autoSubmitConfig,
@@ -506,16 +513,32 @@ export function WorkspaceDraftAgentTab({
         const result = await pendingAutoSubmit.agentCreation.result;
         return { agentId: result.id, result };
       }
+      const destination = await environment.model.prepare();
+      let destinationAttachments = attachments;
+      if (
+        executionServerId !== serverId &&
+        client &&
+        attachments?.some((attachment) => attachment.type === "uploaded_file")
+      ) {
+        const sourceClient = getHostRuntimeStore().getClient(serverId);
+        if (!sourceClient)
+          throw new Error("Reconnect to the original environment to transfer attachments.");
+        destinationAttachments = await transferTaskAttachments({
+          attachments,
+          source: sourceClient,
+          destination: client,
+        });
+      }
       return submitDraftCreateRequest({
         draftId,
         attempt,
         text,
         images,
-        attachments,
+        attachments: destinationAttachments,
         cwd,
         client,
         workspaceDirectory: draftWorkingDirectory,
-        workspaceId: workspaceFields?.id ?? null,
+        workspaceId: destination.workspaceId,
         autoSubmitConfig,
         composerState,
         hostDisconnectedMessage: t("workspace.terminal.hostDisconnected"),
@@ -526,7 +549,10 @@ export function WorkspaceDraftAgentTab({
       clearDraftInput("sent");
       clearWorkspaceAttachments({ scopeKey: draftAttachmentScopeKey });
       useWorkspaceDraftSubmissionStore.getState().clearDraftSetup({ draftId });
-      onCreated(result);
+      onCreated(result, {
+        serverId: executionServerId,
+        workspaceId: result.workspaceId ?? workspaceId,
+      });
     },
   });
   const turnPresentation = useMemo(
@@ -537,7 +563,7 @@ export function WorkspaceDraftAgentTab({
     sourceId: `draft:${serverId}:${tabId}`,
     enabled: isPaneFocused && !isSubmitting,
     controls: {
-      serverId,
+      serverId: executionServerId,
       ownerKey: tabId,
       provider: draftProvider,
       providerDefinitions: draftProviderDefinitions,
@@ -622,24 +648,28 @@ export function WorkspaceDraftAgentTab({
   }, []);
 
   const inputAreaWrapperStyle = useMemo(
-    () => [
-      animatedStaticStyles.inputAreaWrapper,
-      { paddingBottom: mobileComposer.enabled ? 0 : insets.bottom },
-    ],
-    [insets.bottom, mobileComposer.enabled],
+    () => [animatedStaticStyles.inputAreaWrapper, { paddingBottom: isNative ? insets.bottom : 0 }],
+    [insets.bottom],
   );
 
   const handleDropdownCloseFocus = useCallback(() => {
     focusInputRef.current?.();
   }, []);
   const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
+  const selectEnvironment = useCallback(
+    (destinationServerId: string) => {
+      void environment.model.select(destinationServerId);
+    },
+    [environment.model],
+  );
   const composerAgentControls = useMemo(
     () => ({
       ...composerState.agentControls,
       onDropdownClose: handleDropdownCloseFocus,
+      onSelectEnvironment: selectEnvironment,
       disabled: isSubmitting,
     }),
-    [composerState.agentControls, handleDropdownCloseFocus, isSubmitting],
+    [composerState.agentControls, handleDropdownCloseFocus, isSubmitting, selectEnvironment],
   );
   const dockContent = (
     <View style={styles.contentContainer}>
@@ -647,7 +677,7 @@ export function WorkspaceDraftAgentTab({
         <View style={styles.streamContainer}>
           <AgentStreamView
             agentId={tabId}
-            serverId={serverId}
+            serverId={executionServerId}
             context={draftAgent}
             streamItems={submittedStreamItems}
             pendingMessageSubmissions={pendingMessageSubmissions}
@@ -659,6 +689,12 @@ export function WorkspaceDraftAgentTab({
       ) : (
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.configScrollContent}>
           <View style={styles.configSection}>
+            <TaskEnvironmentSelection
+              model={environment.model}
+              state={environment.state}
+              disabled={isSubmitting}
+              canChooseFolder={executionServerId !== serverId}
+            />
             {formErrorMessage ? (
               <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>{formErrorMessage}</Text>
@@ -764,6 +800,9 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: theme.spacing[6],
   },
   configSection: {
+    width: "100%",
+    maxWidth: theme.contentMaxWidth,
+    alignSelf: "center",
     gap: theme.spacing[3],
   },
   importPillRow: {

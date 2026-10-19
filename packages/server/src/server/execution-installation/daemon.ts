@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { filterArchivedRestartErrors } from "./restart-impact.js";
+import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
+import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 import { WebSocket } from "ws";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
@@ -11,11 +14,129 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
 import type { RestartExecutor } from "./restarts.js";
+import type { CoordinatorBootstrapPreparation } from "@getpaseo/protocol/coordinator-bootstrap";
+import { coordinatorAutomaticAuthority, signCoordinatorSubmission } from "./daemon-automation.js";
+import {
+  BootstrapRequestConflict,
+  type BootstrapReconciliationLedger,
+} from "./coordinator-bootstrap.js";
 
 const execFileAsync = promisify(execFile);
 
 // Status includes provider availability probes, which can exceed three seconds.
 const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+
+interface CoordinatorSubmission {
+  config: InstallationConfig;
+  input: CoordinatorBootstrapPreparation;
+  requester: "host-agent" | "container-agent";
+  requireOwnerApproval: boolean;
+}
+
+type CoordinatorSubmissionClient = Pick<DaemonClient, "prepareCoordinatorBootstrap" | "close">;
+type CoordinatorCapabilityClient = Pick<DaemonClient, "getLastServerInfoMessage" | "close">;
+
+export async function inspectInstallationCoordinator(
+  config: InstallationConfig,
+  connect: () => Promise<CoordinatorCapabilityClient> = () =>
+    connectInstallationDaemon(config, "host"),
+) {
+  try {
+    const client = await connect();
+    try {
+      const features = client.getLastServerInfoMessage()?.features;
+      const available = features?.coordinatorBootstrapReview === true;
+      const automaticAvailable =
+        available &&
+        features.coordinatorBootstrapAuthenticatedSubmission === true &&
+        features.coordinatorBootstrapAutomaticReconciliation === true &&
+        features.coordinatorBootstrapAutomaticStatus === true &&
+        features.coordinatorBootstrapBootRecovery === true &&
+        features.coordinatorBootstrapCompatibleRecovery === true &&
+        features.coordinatorBootstrapRecoveryBootPlan === true;
+      return { available, automaticAvailable };
+    } finally {
+      await client.close();
+    }
+  } catch {
+    return { available: false, automaticAvailable: false };
+  }
+}
+
+type CoordinatorReconciliationClient = Pick<
+  DaemonClient,
+  "reconcileAutomaticCoordinatorBootstrap" | "close"
+>;
+
+export async function reconcileInstallationCoordinator(
+  config: InstallationConfig,
+  ledger: BootstrapReconciliationLedger,
+  connect: () => Promise<CoordinatorReconciliationClient> = () =>
+    connectInstallationDaemon(config, "host"),
+): Promise<void> {
+  for (const request of ledger.list()) {
+    const automatic =
+      request.status === "pending" ? request.automaticSubmission : request.automaticApproval;
+    if (
+      !automatic ||
+      request.status === "canceled" ||
+      request.execution ||
+      request.automaticDispatch
+    )
+      continue;
+    const reserved = ledger.reserveAutomaticReconciliation({
+      id: request.id,
+      revision: request.revision,
+      planSha256: request.planSha256,
+    });
+    if (!reserved) continue;
+    try {
+      const client = await connect();
+      try {
+        await client.reconcileAutomaticCoordinatorBootstrap(reserved.id);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      // A changed phase or native launch receipt makes this a no-op. Otherwise
+      // persist bounded backoff even when the transport outcome was lost.
+      ledger.finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    }
+    return;
+  }
+}
+
+/** The requester comes from scoped HTTP authentication, never the submitted body. */
+export async function submitInstallationCoordinator(
+  submission: CoordinatorSubmission,
+  connect: () => Promise<CoordinatorSubmissionClient> = () =>
+    connectInstallationDaemon(submission.config, "host"),
+) {
+  const { config, input, requester, requireOwnerApproval } = submission;
+  const automatic =
+    requester === "host-agent" &&
+    !requireOwnerApproval &&
+    coordinatorAutomaticAuthority(config) !== null;
+  const submissionProof = automatic ? signCoordinatorSubmission(config, input) : undefined;
+  const client = await connect();
+  try {
+    const requests = await client.prepareCoordinatorBootstrap(input, { submissionProof });
+    const request = requests.find((item) => item.id === input.id);
+    if (!request) throw new BootstrapRequestConflict("Coordinator preparation is unconfirmed");
+    const approvalUrl = new URL("/settings/general", config.public.origin);
+    approvalUrl.searchParams.set("installation", "1");
+    approvalUrl.searchParams.set("bootstrap", request.id);
+    // Scoped clients receive a receipt, never private authority or another request.
+    return {
+      id: request.id,
+      revision: request.revision,
+      status: request.status,
+      approvalUrl: approvalUrl.toString(),
+    };
+  } finally {
+    await client.close();
+  }
+}
 
 export async function connectInstallationDaemon(
   config: InstallationConfig,
@@ -171,6 +292,66 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
     return reportRestartTimeout(config, target);
   }
   return {
+    factoryRuntimePlan: () => factoryRuntimePlanDigest(config.container.factoryRuntimeAdoption),
+    async adoptFactoryRuntime(job) {
+      const plan = config.container.factoryRuntimeAdoption;
+      const environment = config.public.environments.find((entry) => entry.kind === "container");
+      if (!plan || !environment || job.factoryRuntimePlanSha256 !== factoryRuntimePlanDigest(plan))
+        throw new Error("Factory adoption plan is unavailable or changed");
+      const before = await connectInstallationDaemon(config, "container");
+      let previousPid: number;
+      try {
+        previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await before.close();
+      }
+      const phase = { plan, job, serverId: environment.serverId, previousPid };
+      await runFactoryRuntimePhase({ ...phase, phase: "stage", replacementPid: null });
+      // This is the existing tracked restart executor, after exact adoption approval.
+      // Once staging starts, failure retains this request; it never requeues or rolls state back.
+      await restart("container-daemon", false);
+      const after = await connectInstallationDaemon(config, "container");
+      let replacementPid: number;
+      try {
+        replacementPid = (await after.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await after.close();
+      }
+      if (replacementPid === previousPid)
+        throw new Error("Factory adoption did not replace the worker; inspect retained selection");
+      await runFactoryRuntimePhase({ ...phase, phase: "verify", replacementPid });
+      return `Factory startup adoption verified on replacement Dev worker ${replacementPid}.`;
+    },
+    supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
+    async restartSupervisor(job) {
+      const plan = config.container.supervisorMaintenance;
+      if (!plan || job.target !== "container-daemon" || job.supervisorPlanSha256 !== plan.sha256)
+        throw new Error("Supervisor maintenance plan is unavailable or changed");
+      const before = await connectInstallationDaemon(config, "container");
+      let previousPid: number;
+      try {
+        previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      } finally {
+        await before.close();
+      }
+      await runSupervisorMaintenance(plan, job);
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        await delay(1000);
+        let client: DaemonClient | null = null;
+        try {
+          client = await connectInstallationDaemon(config, "container");
+          const status = await client.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS });
+          if (status.pid !== previousPid)
+            return `Dev supervisor maintenance completed; replacement worker ${status.pid} and environment identity verified`;
+        } catch {
+          /* The worker may still be starting; never dispatch again. */
+        } finally {
+          await client?.close();
+        }
+      }
+      return reportRestartTimeout(config, "container-daemon");
+    },
     async inspect(target): Promise<RestartImpact> {
       const client = await connectInstallationDaemon(
         config,
@@ -184,11 +365,18 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
             idleMode: "inspect",
           });
           if (!response.impact) throw new Error("Daemon did not return restart impact");
+          const agents = await filterArchivedRestartErrors(
+            response.impact.agents,
+            async (id) => (await client.fetchAgent(id))?.agent,
+          );
           return {
             target,
             checkedAt: new Date().toISOString(),
             ...response.impact,
+            agents,
             idleRestartSupported,
+            gracefulRestartSupported:
+              client.getLastServerInfoMessage()?.features?.gracefulRestart === true,
             error: null,
           };
         }
@@ -219,6 +407,40 @@ export function createInstallationRestartExecutor(config: InstallationConfig): R
           idleRestartSupported,
           error: null,
         };
+      } finally {
+        await client.close();
+      }
+    },
+    async holdCurrentTurns(target, requestId) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "drain",
+          restartDrainId: requestId,
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment could not establish the restart hold");
+      } finally {
+        await client.close();
+      }
+    },
+    async releaseCurrentTurns(target, requestId) {
+      const client = await connectInstallationDaemon(
+        config,
+        target === "host" ? "host" : "container",
+      );
+      try {
+        const result = await client.restartServer(undefined, undefined, {
+          timeout: 5000,
+          idleMode: "cancel-drain",
+          restartDrainId: requestId,
+        });
+        if (result.accepted !== true)
+          throw new Error("Environment is still releasing the restart hold");
       } finally {
         await client.close();
       }

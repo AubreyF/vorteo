@@ -18,6 +18,7 @@ export interface WorkspaceStructureProject {
   iconWorkingDir: string;
   hosts: WorkspaceStructureHostPlacement[];
   workspaceKeys: string[];
+  membership?: { key: string; name: string };
 }
 
 export interface WorkspaceStructure {
@@ -38,6 +39,7 @@ interface ProjectDraft {
   projectKind: WorkspaceDescriptor["projectKind"];
   iconWorkingDir: string;
   hosts: Map<string, WorkspaceStructureHostPlacement>;
+  membership?: { key: string; name: string };
   workspaces: Array<{ workspaceId: string; workspaceName: string; workspaceKey: string }>;
 }
 
@@ -45,12 +47,16 @@ interface ProjectDraft {
 export function buildWorkspaceStructureProjects(input: {
   sessions: WorkspaceStructureSession[];
 }): WorkspaceStructureProject[] {
+  const sessions = input.sessions.map((session) => ({
+    ...session,
+    workspaces: Array.from(session.workspaces),
+  }));
   const byProject = new Map<string, ProjectDraft>();
   const projectEntries: Array<{ serverId: string; project: ProjectDescriptor }> = [];
   const keyCountsByServer = new Map<string, Map<string, number>>();
   const viewKeyByServerProjectId = new Map<string, Map<string, string>>();
 
-  for (const session of input.sessions) {
+  for (const session of sessions) {
     for (const project of session.projects) {
       projectEntries.push({ serverId: session.serverId, project });
       const sharedKey = project.projectKey ?? null;
@@ -79,8 +85,21 @@ export function buildWorkspaceStructureProjects(input: {
     );
   }
 
-  for (const session of input.sessions) {
+  const workspaceKeys = new Set(
+    sessions.flatMap((session) =>
+      Array.from(session.workspaces)
+        .filter((workspace) => !workspace.projectMembership?.environmentOwner)
+        .map((workspace) => `${session.serverId}:${workspace.id}`),
+    ),
+  );
+  const memberPlacements = new Map<
+    string,
+    Map<string, Map<string, WorkspaceStructureHostPlacement>>
+  >();
+  for (const session of sessions) {
     for (const workspace of session.workspaces) {
+      const owner = workspace.projectMembership?.environmentOwner;
+      if (owner && workspaceKeys.has(`${owner.serverId}:${owner.workspaceId}`)) continue;
       const membership = workspace.projectMembership;
       const viewKey =
         membership?.key ?? viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);
@@ -97,13 +116,24 @@ export function buildWorkspaceStructureProjects(input: {
           workspaces: [],
         });
       }
-      byProject.get(viewKey)?.workspaces.push({
+      const draft = byProject.get(viewKey);
+      collectMemberPlacement({
+        byProject,
+        viewKeyByServerProjectId,
+        memberPlacements,
+        viewKey,
+        serverId: session.serverId,
+        workspace,
+      });
+      draft?.workspaces.push({
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         workspaceKey: `${session.serverId}:${workspace.id}`,
       });
     }
   }
+
+  attachMemberPlacements(byProject, memberPlacements);
 
   return Array.from(byProject.values())
     .map((draft) => ({
@@ -113,6 +143,7 @@ export function buildWorkspaceStructureProjects(input: {
       projectKind: draft.projectKind,
       iconWorkingDir: draft.iconWorkingDir,
       hosts: Array.from(draft.hosts.values()),
+      membership: draft.membership,
       workspaceKeys: draft.workspaces
         .sort(compareWorkspaceStructureItems)
         .map((workspace) => workspace.workspaceKey),
@@ -124,6 +155,47 @@ export function buildWorkspaceStructureProjects(input: {
           sensitivity: "base",
         }) || left.viewKey.localeCompare(right.viewKey),
     );
+}
+
+interface MemberPlacementInput {
+  byProject: Map<string, ProjectDraft>;
+  viewKeyByServerProjectId: Map<string, Map<string, string>>;
+  memberPlacements: Map<string, Map<string, Map<string, WorkspaceStructureHostPlacement>>>;
+  viewKey: string;
+  serverId: string;
+  workspace: WorkspaceDescriptor;
+}
+
+function collectMemberPlacement(input: MemberPlacementInput) {
+  const { byProject, viewKeyByServerProjectId, memberPlacements, viewKey, serverId, workspace } =
+    input;
+  const draft = byProject.get(viewKey);
+  const membership = workspace.projectMembership;
+  if (!membership || !draft) return;
+  draft.membership = { key: membership.key, name: membership.name };
+  const nativeKey = viewKeyByServerProjectId.get(serverId)?.get(workspace.projectId);
+  const placement = nativeKey ? byProject.get(nativeKey)?.hosts.get(serverId) : undefined;
+  if (!placement) return;
+  const hosts = getOrCreate(memberPlacements, viewKey, () => new Map());
+  const placements = getOrCreate(hosts, serverId, () => new Map());
+  placements.set(placement.projectId, placement);
+}
+
+function attachMemberPlacements(
+  byProject: Map<string, ProjectDraft>,
+  memberPlacements: MemberPlacementInput["memberPlacements"],
+) {
+  // Logical membership does not erase native execution placement. Infer only an
+  // unambiguous, hydrated placement; never choose between same-host checkouts.
+  for (const [viewKey, hosts] of memberPlacements) {
+    const draft = byProject.get(viewKey)!;
+    for (const [serverId, placements] of hosts) {
+      if (draft.hosts.has(serverId) || placements.size !== 1) continue;
+      const placement = placements.values().next().value!;
+      draft.hosts.set(serverId, placement);
+      if (!draft.iconWorkingDir) draft.iconWorkingDir = placement.iconWorkingDir;
+    }
+  }
 }
 
 export function createProjectViewKey(

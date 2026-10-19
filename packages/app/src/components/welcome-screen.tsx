@@ -3,36 +3,34 @@ import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import {
-  QrCode,
-  Link2,
-  ClipboardPaste,
-  ExternalLink,
-  Settings,
-  Terminal,
-} from "lucide-react-native";
+import { Link2, ExternalLink, Settings, Plus, Play } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostProfile } from "@/types/host-connection";
 import { getHostRuntimeStore, isHostRuntimeConnected, useHosts } from "@/runtime/host-runtime";
 import { AddHostModal } from "./add-host-modal";
-import { AddRemoteSshHostModal } from "./add-remote-ssh-host-modal";
-import { PairLinkModal } from "./pair-link-modal";
+import { AdaptiveModalSheet } from "./adaptive-modal-sheet";
+import { enterDemo } from "@/demo/mode";
+import { WelcomeRain } from "./welcome-rain";
 import { Button } from "@/components/ui/button";
 import { resolveAppVersion } from "@/utils/app-version";
 import { formatVersionWithPrefix } from "@/desktop/updates/desktop-updates";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { VorteoLogo } from "@/components/icons/paseo-logo";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { isFdroidBuild } from "@/constants/build-profile";
-import { isWeb, isNative } from "@/constants/platform";
-import { isElectronRuntime } from "@/desktop/host";
+import { InstallationWelcome } from "@/execution-installation/panel";
+import { readExecutionInstallation } from "@/execution-installation/policy";
+import { isNative } from "@/constants/platform";
+const CONNECT_HEADER = { title: "Connect to Host" };
+const SETUP_HEADER = { title: "Create New installation" };
+const INSTALL_COMMAND =
+  'git clone https://github.com/AubreyF/vorteo.git "$HOME/vorteo-source" &&\n  bash "$HOME/vorteo-source/docker/multiplex/install.sh" "$HOME/vorteo"';
 
 interface WelcomeAction {
-  key: "scan-qr" | "direct-connection" | "remote-ssh" | "paste-pairing-link";
+  key: "new-installation" | "direct-connection" | "demo";
   label: string;
   testID: string;
   primary: boolean;
-  icon: typeof QrCode;
+  icon: typeof Link2;
   onPress: () => void;
 }
 
@@ -69,6 +67,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   copyBlock: {
     alignItems: "center",
+    maxWidth: 420,
     gap: theme.spacing[2],
     marginBottom: theme.spacing[12],
   },
@@ -174,8 +173,9 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
   const appVersion = resolveAppVersion();
   const appVersionText = formatVersionWithPrefix(appVersion);
   const [isDirectOpen, setIsDirectOpen] = useState(false);
-  const [isRemoteSshOpen, setIsRemoteSshOpen] = useState(false);
-  const [isPasteLinkOpen, setIsPasteLinkOpen] = useState(false);
+  const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const installation = readExecutionInstallation();
   const hosts = useHosts();
   const anyOnlineServerId = useAnyHostOnline(hosts.map((h) => h.serverId));
 
@@ -198,13 +198,15 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
 
   const handleOpenDirect = useCallback(() => setIsDirectOpen(true), []);
   const handleCloseDirect = useCallback(() => setIsDirectOpen(false), []);
-  const handleOpenRemoteSsh = useCallback(() => setIsRemoteSshOpen(true), []);
-  const handleCloseRemoteSsh = useCallback(() => setIsRemoteSshOpen(false), []);
-  const handleOpenPasteLink = useCallback(() => setIsPasteLinkOpen(true), []);
-  const handleClosePasteLink = useCallback(() => setIsPasteLinkOpen(false), []);
-  const handleScanQr = useCallback(() => {
-    router.push("/pair-scan?source=onboarding");
-  }, [router]);
+  const handleOpenSetup = useCallback(() => setIsSetupOpen(true), []);
+  const handleCloseSetup = useCallback(() => setIsSetupOpen(false), []);
+  const handleDemo = useCallback(() => {
+    try {
+      enterDemo();
+    } catch (error) {
+      setDemoError(error instanceof Error ? error.message : "Could not open the demo.");
+    }
+  }, []);
 
   const handleHostSaved = useCallback(
     ({ profile }: { profile: HostProfile; serverId: string }) => {
@@ -214,63 +216,32 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
     [onHostAdded, finishOnboarding],
   );
 
-  const actions: WelcomeAction[] =
-    isWeb || isFdroidBuild
-      ? [
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: true,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ]
-      : [
-          {
-            key: "scan-qr",
-            label: t("pairing.connectionMethods.scanQr.title"),
-            testID: "welcome-scan-qr",
-            primary: true,
-            icon: QrCode,
-            onPress: handleScanQr,
-          },
-          {
-            key: "direct-connection",
-            label: t("pairing.connectionMethods.direct.title"),
-            testID: "welcome-direct-connection",
-            primary: false,
-            icon: Link2,
-            onPress: handleOpenDirect,
-          },
-          {
-            key: "paste-pairing-link",
-            label: t("pairing.connectionMethods.pasteLink.title"),
-            testID: "welcome-paste-pairing-link",
-            primary: false,
-            icon: ClipboardPaste,
-            onPress: handleOpenPasteLink,
-          },
-        ];
-
-  if (isElectronRuntime()) {
-    actions.splice(1, 0, {
-      key: "remote-ssh",
-      label: t("pairing.connectionMethods.remoteSsh.title"),
-      testID: "welcome-remote-ssh",
+  const actions: WelcomeAction[] = [
+    {
+      key: "new-installation",
+      label: "Create New installation",
+      testID: "welcome-create-installation",
+      primary: true,
+      icon: Plus,
+      onPress: handleOpenSetup,
+    },
+    {
+      key: "direct-connection",
+      label: "Connect to Host",
+      testID: "welcome-direct-connection",
       primary: false,
-      icon: Terminal,
-      onPress: handleOpenRemoteSsh,
-    });
-  }
+      icon: Link2,
+      onPress: handleOpenDirect,
+    },
+    {
+      key: "demo",
+      label: "Demo",
+      testID: "welcome-demo",
+      primary: false,
+      icon: Play,
+      onPress: handleDemo,
+    },
+  ];
 
   const scrollContentContainerStyle = useMemo(
     () => [styles.container, { paddingBottom: theme.spacing[6] + insets.bottom }],
@@ -279,17 +250,23 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
 
   return (
     <View style={styles.root}>
+      <WelcomeRain />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={scrollContentContainerStyle}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         testID="welcome-screen"
       >
         <View style={styles.content}>
           <VorteoLogo size={96} />
           <View style={styles.copyBlock}>
-            <Text style={styles.title}>{t("onboarding.title")}</Text>
-            <Text style={styles.subtitle}>{t("onboarding.subtitle")}</Text>
+            <Text style={styles.title}>
+              {installation ? "Welcome to Vorteo" : t("onboarding.title")}
+            </Text>
+            <Text style={styles.subtitle}>
+              Create an installation, connect to your Host, or explore the demo.
+            </Text>
             {isNative ? (
               <Pressable style={styles.setupLink} onPress={handleOpenPaseoSite}>
                 <Text style={styles.setupLinkText}>paseo.sh</Text>
@@ -302,6 +279,11 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
             {actions.map((action) => (
               <WelcomeActionButton key={action.key} action={action} />
             ))}
+            {demoError ? (
+              <Text accessibilityRole="alert" style={styles.subtitle}>
+                {demoError}
+              </Text>
+            ) : null}
           </View>
 
           <Button
@@ -317,23 +299,40 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
         </View>
         <Text style={styles.versionLabel}>{appVersionText}</Text>
 
-        <AddHostModal
-          visible={isDirectOpen}
-          onClose={handleCloseDirect}
-          onSaved={handleHostSaved}
-        />
-
-        <AddRemoteSshHostModal
-          visible={isRemoteSshOpen}
-          onClose={handleCloseRemoteSsh}
-          onSaved={handleHostSaved}
-        />
-
-        <PairLinkModal
-          visible={isPasteLinkOpen}
-          onClose={handleClosePasteLink}
-          onSaved={handleHostSaved}
-        />
+        {installation ? (
+          <AdaptiveModalSheet
+            visible={isDirectOpen}
+            onClose={handleCloseDirect}
+            header={CONNECT_HEADER}
+            testID="installation-connect-modal"
+          >
+            {isDirectOpen ? <InstallationWelcome /> : null}
+          </AdaptiveModalSheet>
+        ) : (
+          <AddHostModal
+            visible={isDirectOpen}
+            onClose={handleCloseDirect}
+            onSaved={handleHostSaved}
+          />
+        )}
+        <AdaptiveModalSheet
+          visible={isSetupOpen}
+          onClose={handleCloseSetup}
+          header={SETUP_HEADER}
+          testID="create-installation-modal"
+        >
+          <Text style={styles.subtitle}>
+            Run this command on the computer that will host your installation, or give it to your
+            agent. The installer prepares the Dev container and prints your private address and
+            password location.
+          </Text>
+          <Text selectable style={styles.subtitle} testID="installation-command">
+            {INSTALL_COMMAND}
+          </Text>
+          <Text style={styles.subtitle}>
+            When setup finishes, open the printed address and choose Connect to Host.
+          </Text>
+        </AdaptiveModalSheet>
       </ScrollView>
     </View>
   );
@@ -355,7 +354,12 @@ function WelcomeActionButton({ action }: WelcomeActionButtonProps) {
     [action.primary],
   );
   return (
-    <Pressable style={buttonStyle} onPress={action.onPress} testID={action.testID}>
+    <Pressable
+      accessibilityRole="button"
+      style={buttonStyle}
+      onPress={action.onPress}
+      testID={action.testID}
+    >
       <Icon
         size={18}
         color={action.primary ? theme.colors.accentForeground : theme.colors.foreground}

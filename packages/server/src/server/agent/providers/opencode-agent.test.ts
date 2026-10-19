@@ -644,7 +644,7 @@ describe("OpenCodeAgentClient adapter smoke tests", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  test("manual compact hides the generated summary text", async () => {
+  test("manual compact saves the generated summary on its marker", async () => {
     const cwd = tmpCwd();
     const runtime = new TestOpenCodeHarness();
     const openCodeClient = new TestOpenCodeClient();
@@ -667,7 +667,13 @@ describe("OpenCodeAgentClient adapter smoke tests", () => {
     expect(turn.allTimelineItems).toEqual([
       { type: "user_message", text: "/compact", messageId: "msg_compact_user" },
       { type: "compaction", status: "loading", trigger: "manual" },
-      { type: "compaction", status: "completed" },
+      {
+        type: "compaction",
+        status: "completed",
+        inspection: {
+          summary: { type: "text", text: "## Goal\n- Preserve context while continuing the task." },
+        },
+      },
     ]);
     expect(openCodeClient.calls.sessionSummarize).toEqual([
       expect.objectContaining({
@@ -4297,7 +4303,14 @@ describe("OpenCode persisted sessions", () => {
     ]);
 
     expect(timeline).toEqual([
-      { type: "compaction", status: "completed", trigger: "auto" },
+      {
+        type: "compaction",
+        status: "completed",
+        trigger: "auto",
+        inspection: {
+          summary: { type: "text", text: "## Goal\n- Preserve context while continuing the task." },
+        },
+      },
       { type: "user_message", text: "/create-pr", messageId: "msg_user_after_compaction" },
     ]);
   });

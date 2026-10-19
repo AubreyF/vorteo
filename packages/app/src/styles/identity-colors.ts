@@ -26,8 +26,10 @@ export const IDENTITY_COLOR_NAMES = [
 ] as const;
 
 export type IdentityColorName = (typeof IDENTITY_COLOR_NAMES)[number];
+type IdentityPaintName = IdentityColorName | "neutral";
 
-const IDENTITY_COLORS: Record<IdentityColorName, string> = {
+const IDENTITY_COLORS: Record<IdentityPaintName, string> = {
+  neutral: "#808080",
   violet: "#7a6aa8",
   sky: "#3d7ea6",
   emerald: "#388068",
@@ -40,7 +42,7 @@ const IDENTITY_COLORS: Record<IdentityColorName, string> = {
   blue: "#5179b0",
 };
 
-export function identityColor(name: IdentityColorName): string {
+export function identityColor(name: IdentityPaintName): string {
   return IDENTITY_COLORS[name];
 }
 
@@ -57,7 +59,8 @@ export function identityColor(name: IdentityColorName): string {
 // lightness the louder one wins an argument it should not be having — the fill table's
 // L=0.571 against status dark's L=0.700 is exactly why a passing check used to shout over a
 // host name. Anything that changes the status band has to change this one with it.
-const IDENTITY_FOREGROUND_LIGHT: Record<IdentityColorName, string> = {
+const IDENTITY_FOREGROUND_LIGHT: Record<IdentityPaintName, string> = {
+  neutral: "#666666",
   // L=0.50, chroma 60% of gamut max — 5.3:1 to 5.8:1 on the light sidebar
   violet: "#6d49b5",
   sky: "#3d6985",
@@ -71,7 +74,8 @@ const IDENTITY_FOREGROUND_LIGHT: Record<IdentityColorName, string> = {
   blue: "#39649e",
 };
 
-const IDENTITY_FOREGROUND_DARK: Record<IdentityColorName, string> = {
+const IDENTITY_FOREGROUND_DARK: Record<IdentityPaintName, string> = {
+  neutral: "#aaaaaa",
   // L=0.70, chroma 55% of gamut max — 6.3:1 to 7.2:1 on the dark sidebar
   violet: "#a392d5",
   sky: "#6aa6ce",
@@ -85,12 +89,12 @@ const IDENTITY_FOREGROUND_DARK: Record<IdentityColorName, string> = {
   blue: "#7ba1d5",
 };
 
-export function identityForeground(name: IdentityColorName, colorScheme: "light" | "dark"): string {
+export function identityForeground(name: IdentityPaintName, colorScheme: "light" | "dark"): string {
   return colorScheme === "light" ? IDENTITY_FOREGROUND_LIGHT[name] : IDENTITY_FOREGROUND_DARK[name];
 }
 
 /** The same hue at 10% alpha, for fills that sit behind text of the full-strength color. */
-export function identityTint(name: IdentityColorName): string {
+export function identityTint(name: IdentityPaintName): string {
   return `${IDENTITY_COLORS[name]}1a`;
 }
 

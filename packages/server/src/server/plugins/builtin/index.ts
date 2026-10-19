@@ -8,6 +8,7 @@ export const builtinPlugins = [
   "codex-usage-source",
   "copilot-usage-source",
   "cursor-usage-source",
+  "factory",
   "grok-usage-source",
   "kimi-usage-source",
   "minimax-usage-source",

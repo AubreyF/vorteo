@@ -381,6 +381,7 @@ export const ja: TranslationResources = {
       title: "タスク",
       empty: "タスクがまだありません。",
       tasksProgress: "{{completed}}/{{total}}タスク",
+      activeCount: en.message.todo.activeCount,
       activity: {
         created: "{{count}}件のタスクを作成",
         added: "追加",
@@ -389,6 +390,7 @@ export const ja: TranslationResources = {
       },
     },
     compaction: {
+      ...en.message.compaction,
       loading: "コンテキストを圧縮中...",
       auto: "コンテキストが自動的に圧縮されました",
       manual: "コンテキストが手動で圧縮されました",
@@ -662,7 +664,6 @@ export const ja: TranslationResources = {
         maximizePane: "ペインを最大化",
         restorePane: "ペインを元に戻す",
         closePane: "ペインを閉じる",
-        exitFocusMode: "フォーカスモードを終了",
         splitRight: "右にペインを分割",
         splitDown: "下にペインを分割",
         changes: "変更",
@@ -1020,6 +1021,8 @@ export const ja: TranslationResources = {
           },
         },
         states: {
+          awaitingMerge: en.workspace.git.pr.states.awaitingMerge,
+          merging: en.workspace.git.pr.states.merging,
           draft: "ドラフト",
           merged: "マージ済み",
           closed: "クローズ済み",
@@ -1836,6 +1839,7 @@ export const ja: TranslationResources = {
     backdrop: "メニューの背景",
   },
   subagents: {
+    ...en.subagents,
     title: "サブエージェント",
     pillLabelOne: "サブエージェント 1 件",
     pillLabelMany: "サブエージェント {{count}} 件",
@@ -1848,7 +1852,7 @@ export const ja: TranslationResources = {
     detachTooltip: "サブエージェントを切り離す",
     archiveAction: "{{label}}をアーカイブ",
     archiveTooltip: "サブエージェントをアーカイブ",
-    archiveFinishedAction: "完了したサブエージェントをアーカイブ",
+    archiveFinishedAction: "完了済みを片付ける",
     archiveFinishedRetry: "再試行 ({{failed}}/{{total}})",
   },
   panels: {
@@ -1876,6 +1880,7 @@ export const ja: TranslationResources = {
         cursor: "{{line}} 行、{{column}} 列",
         preview: "プレビュー",
         source: "ソース",
+        copyAll: "すべてコピー",
         deletedTitle: "ファイルはディスク上から削除されました",
         checkFailedTitle: "ディスク上のファイルを確認できませんでした",
         preservedDescription: "開いているコピーは保持されています。",
@@ -2224,8 +2229,7 @@ export const ja: TranslationResources = {
         title: "フォント",
         systemDefault: "システムデフォルト",
         interfaceFont: "インターフェースフォント",
-        interfaceFontHint:
-          "アプリ全体で使用されます。システムデフォルトにするには空のままにしてください",
+        interfaceFontHint: "アプリ全体で使用します。空欄にするとテーマのフォントを使用します",
         interfaceFontAccessibility: "インターフェースフォントファミリー",
         interfaceSize: "インターフェースサイズ",
         interfaceSizeHint: "ナビゲーション、コントロール、ラベルに使用されます",
@@ -2314,7 +2318,6 @@ export const ja: TranslationResources = {
         toggleRightSidebar: "サイドパネルを切り替え",
         toggleBothSidebars: "両方のサイドバーを切り替え",
         toggleSettings: "設定を切り替え",
-        toggleFocusMode: "フォーカスモードを切り替え",
         cycleTheme: "テーマを順に切り替え",
         focusMessageInput: "メッセージ入力にフォーカス",
         cycleAgentMode: "エージェントモードを順に切り替え",

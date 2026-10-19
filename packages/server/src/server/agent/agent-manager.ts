@@ -1,3 +1,18 @@
+import {
+  blockedReviewDue,
+  hasReviewableBlockedWork,
+  BLOCKED_REVIEW_PROMPT,
+} from "./task-checklist/blocked-review.js";
+import { JournalError } from "./journal/model.js";
+import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
+import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
+import {
+  mergeProviderChecklistEvent,
+  mergeProviderChecklist,
+  managedChecklist,
+  type ChecklistMutation,
+} from "./task-checklist/model.js";
+import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
 import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import {
@@ -23,6 +38,8 @@ import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
 import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
 import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { managedWorkerLimit } from "./worker-limit.js";
 import { countRunningWorkers } from "./worker-activity.js";
 import { basename, resolve } from "node:path";
 import { stat } from "node:fs/promises";
@@ -362,6 +379,7 @@ export interface CreateAgentOptions {
 export interface AgentManagerOptions {
   getSharedProviderConfig?: () => MutableDaemonConfig;
   installationSettingsReader?: InstallationSettingsReader;
+  assertWorkspaceArchiveAllowed?: (workspaceId: string) => Promise<void>;
   pluginLifecycle?: PluginLifecycle;
   clients?: ProviderClientMap;
   providerDefinitions?: ProviderEnabledMap;
@@ -443,9 +461,12 @@ interface HandleStreamEventOptions {
 }
 
 interface ManagedAgentBase {
+  journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
+  tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
+  blockedGoalReviewNeeded?: boolean;
   id: string;
   provider: AgentProvider;
   cwd: string;
@@ -1175,25 +1196,39 @@ export class AgentManager {
   private onAgentAttention?: AgentAttentionCallback;
   private onAgentArchived?: AgentArchivedCallback;
   private onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
-  private messageQueueControl: Pick<
-    MessageQueueService,
-    | "pause"
-    | "acceptedHistory"
-    | "recordProviderMessageId"
-    | "reconcileHistory"
-    | "suppressHistoryRestoration"
-  > | null = null;
+  private messageQueueControl:
+    | (Pick<
+        MessageQueueService,
+        | "pause"
+        | "wake"
+        | "acceptedHistory"
+        | "recordProviderMessageId"
+        | "reconcileHistory"
+        | "suppressHistoryRestoration"
+        | "queueRestartContinuation"
+      > &
+        Partial<Pick<MessageQueueService, "withIdleQueue">>)
+    | null = null;
   private readonly queueGoalMutationTails = new Map<string, Promise<void>>();
   private logger: Logger;
   private readonly rescueTimeouts: Required<AgentManagerRescueTimeouts>;
   private readonly beforeSteerUnavailableFallback?: AgentManagerOptions["beforeSteerUnavailableFallback"];
   private acceptingAgentRegistrations = true;
+  private restartDrainId: string | null = null;
+  private readonly cancelledRestartDrains = new Set<string>();
+  private readonly restartDrainTasks = new Map<string, Promise<void>>();
+  private readonly restartDrainPrepared = new Set<string>();
+  private readonly restartDrainWarnings = new Set<string>();
+  private readonly restartDrainErrors = new Map<string, string>();
   private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
   private readonly installationSettingsReader?: InstallationSettingsReader;
+
+  readonly assertWorkspaceArchiveAllowed?: AgentManagerOptions["assertWorkspaceArchiveAllowed"];
 
   constructor(options: AgentManagerOptions) {
     this.getSharedProviderConfig = options.getSharedProviderConfig;
     this.installationSettingsReader = options.installationSettingsReader;
+    this.assertWorkspaceArchiveAllowed = options.assertWorkspaceArchiveAllowed;
     this.now = options.now ?? Date.now;
     this.idFactory = options.idFactory ?? (() => randomUUID());
     this.registry = options.registry;
@@ -1308,6 +1343,7 @@ export class AgentManager {
     const open = client?.openQuotaGovernedSession;
     if (
       !this.acceptingAgentRegistrations ||
+      this.isRestartDraining() ||
       this.providerEnabled.get(provider) === false ||
       !client ||
       !open
@@ -1318,6 +1354,7 @@ export class AgentManager {
     const assertCurrent = () => {
       if (
         !this.acceptingAgentRegistrations ||
+        this.isRestartDraining() ||
         this.providerEnabled.get(provider) === false ||
         this.clients.get(provider) !== client ||
         this.governedClientGenerations.get(provider) !== generation
@@ -1392,13 +1429,88 @@ export class AgentManager {
     control: Pick<
       MessageQueueService,
       | "pause"
+      | "wake"
       | "acceptedHistory"
       | "recordProviderMessageId"
       | "reconcileHistory"
       | "suppressHistoryRestoration"
-    >,
+      | "queueRestartContinuation"
+    > &
+      Partial<Pick<MessageQueueService, "withIdleQueue">>,
   ): void {
     this.messageQueueControl = control;
+  }
+
+  /** Review one existing idle thread; never steer, replace, or resume a goal implicitly. */
+  async startBlockedTaskReview(
+    agentId: string,
+    canContinue: () => boolean,
+  ): Promise<AsyncGenerator<AgentStreamEvent> | null> {
+    const registry = this.registry;
+    const queue = this.messageQueueControl;
+    if (!registry || !queue?.withIdleQueue) return null;
+    return this.runForegroundMutation(agentId, (foregroundAllowsStart) =>
+      this.withQueueGoalMutation(agentId, async (goalAllowsStart) => {
+        const agent = this.agents.get(agentId);
+        if (!agent || !agent.session || agent.lifecycle !== "idle") return null;
+        const threadEligible = () => {
+          const record = registry.getLoadedRecord(agentId);
+          if (!record || !hasReviewableBlockedWork(record)) return false;
+          if (!foregroundAllowsStart() || !goalAllowsStart()) return false;
+          if (!canContinue() || !this.acceptingAgentRegistrations || this.isRestartDraining())
+            return false;
+          if (
+            this.agents.get(agentId) !== agent ||
+            agent.lifecycle !== "idle" ||
+            agent.queueGoalHold
+          )
+            return false;
+          if (agent.activeTurnId || agent.pendingPermissions.size || this.runs.hasRun(agentId))
+            return false;
+          if (agent.config.quotaPausedAt || agent.owner || this.controllerSessions.has(agentId))
+            return false;
+          return true;
+        };
+        const eligible = () => {
+          if (!threadEligible()) return false;
+          const state = agent.session.goals?.state;
+          if (!state) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
+          if (
+            state.status !== "ready" ||
+            state.queueContinuationHeld ||
+            state.restartContinuationHeld
+          )
+            return false;
+          const goal = state.goal;
+          if (!goal) {
+            const record = registry.getLoadedRecord(agentId);
+            return (record?.tasks ?? []).some(
+              (task) => !task.completed && task.status === "blocked",
+            );
+          }
+          if (goal.status !== "blocked") return false;
+          return goal.tokenBudget === null || goal.tokensUsed < goal.tokenBudget;
+        };
+        if (!threadEligible()) return null;
+        if (agent.session.goals) await this.readAgentGoal(agentId);
+        const record = registry.getLoadedRecord(agentId);
+        if (!eligible() || !record || !blockedReviewDue(record, this.now())) return null;
+        return queue.withIdleQueue!(agentId, async (queueAllowsStart) => {
+          if (!eligible() || !queueAllowsStart()) return null;
+          if (!(await registry.claimBlockedReview(agentId, this.now()))) return null;
+          if (!eligible() || !queueAllowsStart()) return null;
+          // No await between the last admission check and synchronous run reservation.
+          return this.streamAgent(agentId, BLOCKED_REVIEW_PROMPT, {
+            origin: "agent",
+          });
+        });
+      }),
+    );
   }
 
   startQueuedMessage(
@@ -1406,6 +1518,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     item: QueueItem,
   ): AsyncGenerator<AgentStreamEvent> | null {
+    if (this.isRestartDraining()) return null;
     const agent = this.getAgent(agentId);
     const stored = this.registry?.getLoadedRecord(agentId);
     if (!agent || stored?.archivedAt || agent.lifecycle !== "idle") return null;
@@ -1432,7 +1545,7 @@ export class AgentManager {
     canStart: () => boolean,
   ): Promise<AsyncGenerator<AgentStreamEvent> | null> {
     return this.runForegroundMutation(agentId, async () => {
-      if (!canStart()) return null;
+      if (this.isRestartDraining() || !canStart()) return null;
       const agent = this.requireAgent(agentId);
       if (!item.sendNow || agent.activeTurnId !== item.sendNow.expectedTurnId)
         throw new Error("The active turn changed. Review the task before sending now.");
@@ -1458,6 +1571,106 @@ export class AgentManager {
     this.mcpBaseUrl = url;
   }
 
+  isRestartDraining(): boolean {
+    return this.restartDrainId !== null;
+  }
+
+  beginRestartDrain(requestId: string): boolean {
+    if (this.cancelledRestartDrains.has(requestId)) return false;
+    if (this.restartDrainId && this.restartDrainId !== requestId) return false;
+    this.restartDrainId = requestId;
+    for (const agent of this.agents.values()) {
+      const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
+      if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
+        continue;
+      if (
+        agent.lifecycle === "initializing" ||
+        this.restartDrainTasks.has(agent.id) ||
+        (this.restartDrainPrepared.has(agent.id) &&
+          agent.session.goals?.state.goal?.status !== "active")
+      )
+        continue;
+      this.restartDrainPrepared.add(agent.id);
+      const task = this.prepareAgentForRestart(agent.id, requestId)
+        .catch((error: unknown) => {
+          this.restartDrainErrors.set(
+            agent.id,
+            error instanceof Error ? error.message : "Could not prepare task for restart",
+          );
+        })
+        .finally(() => this.restartDrainTasks.delete(agent.id));
+      this.restartDrainTasks.set(agent.id, task);
+    }
+    return true;
+  }
+
+  private async prepareAgentForRestart(agentId: string, requestId: string): Promise<void> {
+    const agent = this.requireSessionAgent(agentId);
+    const turnId = agent.activeForegroundTurnId ?? agent.activeTurnId;
+    const turnKey = `${agentId}:${turnId}`;
+    const notify = this.hasInFlightRun(agentId) && !this.restartDrainWarnings.has(turnKey);
+    const warning =
+      "The owner approved a restart after current turns finish. Finish your current small step, save your work and a brief continuation note, then end this turn. Do not start new work.";
+    if (notify) {
+      this.restartDrainWarnings.add(turnKey);
+      await this.appendTimelineItem(agentId, {
+        type: "notification",
+        level: "warning",
+        message: warning,
+      });
+    }
+    if (agent.session.goals)
+      await this.pauseGoalForQueuedMessages(
+        agentId,
+        () => this.restartDrainId === requestId,
+        "restart",
+      );
+    if (!notify || this.restartDrainId !== requestId || !this.hasInFlightRun(agentId)) return;
+    if ((agent.activeForegroundTurnId ?? agent.activeTurnId) !== turnId) return;
+    // Steering never replaces or interrupts a turn. Unsupported providers finish normally.
+    let steered = false;
+    try {
+      await this.steerAgentRun(agentId, warning, {
+        clientMessageId: `restart-warning-${requestId}-${agentId}`,
+      });
+      steered = true;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId },
+        "Restart warning could not reach the provider; waiting for its current turn",
+      );
+      await this.appendTimelineItem(agentId, {
+        type: "notification",
+        level: "warning",
+        message:
+          "The provider could not receive the restart warning. Its current turn will finish normally before restart.",
+      });
+    }
+    if (steered && this.restartDrainId === requestId && !agent.session.goals?.state.goal)
+      await this.messageQueueControl?.queueRestartContinuation(agentId, requestId);
+    // Steering may change provider goal state. Confirm the hold again before declaring readiness.
+    if (agent.session.goals)
+      await this.pauseGoalForQueuedMessages(
+        agentId,
+        () => this.restartDrainId === requestId,
+        "restart",
+      );
+  }
+
+  cancelRestartDrain(requestId: string): boolean {
+    this.cancelledRestartDrains.add(requestId);
+    if (this.restartDrainId !== requestId) return true;
+    // Let outstanding goal pauses settle before releasing the barrier so cancellation
+    // cannot strand a late pause or resume a goal during another hold.
+    if (this.restartDrainTasks.size) return false;
+    this.restartDrainId = null;
+    this.restartDrainPrepared.clear();
+    this.restartDrainWarnings.clear();
+    this.restartDrainErrors.clear();
+    for (const agent of this.agents.values()) this.messageQueueControl?.wake(agent.id);
+    return true;
+  }
+
   getRestartImpact() {
     const managed = Array.from(this.agents.values());
     const agents = managed
@@ -1477,7 +1690,20 @@ export class AgentManager {
           });
       }
     }
-    return { agents, pendingStarts: this.agentRegistrationTasks.size };
+    for (const [id, error] of this.restartDrainErrors) {
+      const existing = agents.find((agent) => agent.id === id);
+      if (existing) existing.status = error;
+      else agents.push({ id, title: this.agents.get(id)?.config.title || id, status: error });
+    }
+    return {
+      agents,
+      pendingStarts: this.agentRegistrationTasks.size + this.restartDrainTasks.size,
+    };
+  }
+
+  async checkpointRestartDrain(): Promise<void> {
+    await this.flushForShutdown();
+    for (const agent of this.agents.values()) await this.persistSnapshot(agent);
   }
 
   prepareIdleRestart(): boolean {
@@ -1886,6 +2112,15 @@ export class AgentManager {
     return this.timelineStore.fetch(id, options);
   }
 
+  async fetchSavedTimeline(
+    id: string,
+    options?: AgentTimelineFetchOptions,
+  ): Promise<AgentTimelineFetchResult> {
+    // Reading committed history must not require starting its original provider.
+    if (!this.durableTimelineStore) throw new Error("Saved timeline storage is unavailable");
+    return this.durableTimelineStore.fetchCommitted(id, options);
+  }
+
   listProviderSubagents(parentAgentId: string): ProviderSubagentDescriptor[] {
     this.requirePublicAgent(parentAgentId);
     return this.providerSubagents.list(parentAgentId);
@@ -1936,7 +2171,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (pending + running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && pending + running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before creating another.",
         );
@@ -2585,7 +2821,14 @@ export class AgentManager {
     }
   }
 
+  async assertAgentArchiveAllowed(agentId: string): Promise<void> {
+    const agent = this.getAgent(agentId) ?? (await this.registry?.get(agentId));
+    if (agent?.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
+  }
+
   async archiveAgent(agentId: string): Promise<{ archivedAt: string }> {
+    const agent = this.requireAgent(agentId);
+    if (agent.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
     await this.messageQueueControl?.pause(agentId);
     return this.runLifecycleMutation(agentId, () => this.archiveAgentUnlocked(agentId));
   }
@@ -2595,6 +2838,7 @@ export class AgentManager {
     requestedArchivedAt?: string,
   ): Promise<{ archivedAt: string }> {
     const agent = this.requireAgent(agentId);
+    if (agent.workspaceId) await this.assertWorkspaceArchiveAllowed?.(agent.workspaceId);
     await this.assertControllerSettled(agent);
     if (!this.registry) {
       throw new Error("Agent storage is not configured");
@@ -2777,6 +3021,7 @@ export class AgentManager {
     if (!agent.session.goals) throw new Error("This provider does not support goals");
     const state = await agent.session.goals.read();
     await this.drainSessionEvents(agentId);
+    this.observeGoalState(agent, agent.session.goals.state);
     return projectQueueGoalState(state, agent.queueGoalHold);
   }
 
@@ -2785,6 +3030,10 @@ export class AgentManager {
     input: import("@getpaseo/protocol/agent-goals").AgentGoalSetInput,
     options?: { clientMessageId?: string; recordSubmission?: boolean },
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
+    const activates =
+      input.status === "active" || (input.objective !== undefined && input.status === undefined);
+    if (this.isRestartDraining() && activates)
+      throw new Error("Goal continuation is held until the installation restart finishes.");
     return this.withQueueGoalMutation(agentId, () =>
       setGoalWithQueueOwnership(
         input,
@@ -2803,6 +3052,8 @@ export class AgentManager {
       input.status === "active" ||
       (input.objective !== undefined && input.status === undefined)
     ) {
+      if (this.isRestartDraining())
+        throw new Error("Goal continuation is held until the installation restart finishes.");
       await this.prepareQuotaReserveAdmission(agentId);
     }
     const agent = this.requireSessionAgent(agentId);
@@ -2824,6 +3075,25 @@ export class AgentManager {
     return state;
   }
 
+  async editOwnGoal(
+    agentId: string,
+    edit: ThreadGoalEdit,
+  ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
+    if (this.isRestartDraining())
+      throw new Error("Goal editing is held until the installation restart finishes");
+    return this.withQueueGoalMutation(agentId, () =>
+      editThreadGoal({
+        edit,
+        read: () => this.readAgentGoal(agentId),
+        set: (change) => {
+          if (this.isRestartDraining())
+            throw new Error("Goal editing is held until the installation restart finishes");
+          return this.setAgentGoalUnlocked(agentId, change);
+        },
+      }),
+    );
+  }
+
   async clearAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
@@ -2837,10 +3107,15 @@ export class AgentManager {
     });
   }
 
-  private async withQueueGoalMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async withQueueGoalMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.queueGoalMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.queueGoalMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
@@ -2893,9 +3168,16 @@ export class AgentManager {
     };
   }
 
-  async pauseGoalForQueuedMessages(agentId: string, canPause: () => boolean): Promise<void> {
+  async pauseGoalForQueuedMessages(
+    agentId: string,
+    canPause: () => boolean,
+    reason?: "restart",
+  ): Promise<void> {
     await this.withQueueGoalMutation(agentId, () =>
-      pauseGoalForQueue(this.queueGoalPort(agentId, async () => false, canPause)),
+      pauseGoalForQueue(
+        this.queueGoalPort(agentId, async () => false, canPause),
+        reason,
+      ),
     );
   }
 
@@ -2904,6 +3186,7 @@ export class AgentManager {
     queueIsEmpty: () => Promise<boolean>,
     canContinueGoal: () => boolean = () => true,
   ): Promise<void> {
+    if (this.isRestartDraining()) return;
     await this.withQueueGoalMutation(agentId, () =>
       resumeGoalAfterQueue(
         this.queueGoalPort(
@@ -2911,6 +3194,7 @@ export class AgentManager {
           async () => {
             const agent = this.requireAgent(agentId);
             return (
+              !this.isRestartDraining() &&
               canContinueGoal() &&
               agent.lifecycle === "idle" &&
               !this.hasInFlightRun(agentId) &&
@@ -2918,8 +3202,8 @@ export class AgentManager {
               (await queueIsEmpty())
             );
           },
-          canContinueGoal,
-          async () => canContinueGoal() && (await queueIsEmpty()),
+          () => !this.isRestartDraining() && canContinueGoal(),
+          async () => !this.isRestartDraining() && canContinueGoal() && (await queueIsEmpty()),
         ),
       ),
     );
@@ -3161,6 +3445,8 @@ export class AgentManager {
   }
 
   async archiveSnapshot(agentId: string, archivedAt: string): Promise<StoredAgentRecord> {
+    const record = await this.requireRegistry().get(agentId);
+    if (record?.workspaceId) await this.assertWorkspaceArchiveAllowed?.(record.workspaceId);
     await this.messageQueueControl?.pause(agentId);
     return this.runLifecycleMutation(agentId, () =>
       this.archiveSnapshotUnlocked(agentId, archivedAt),
@@ -3186,6 +3472,7 @@ export class AgentManager {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    if (record.workspaceId) await this.assertWorkspaceArchiveAllowed?.(record.workspaceId);
     const nextRecord = await this.persistArchivedRecord(record, { archivedAt });
 
     await this.syncNativeArchiveState(record.provider, record.persistence, "archive");
@@ -3197,6 +3484,62 @@ export class AgentManager {
     await this.cascadeArchiveChildren(agentId);
 
     return nextRecord;
+  }
+
+  /**
+   * Retained-owner recovery only. The caller fences native parent, custody and
+   * release admission; archive state alone cannot establish those permissions.
+   */
+  async unarchiveRetainedSnapshot(input: {
+    expected: StoredAgentRecord;
+    assertCurrent(): void;
+  }): Promise<StoredAgentRecord> {
+    const expected = structuredClone(input.expected);
+    const assertCurrent = input.assertCurrent;
+    return this.runLifecycleMutation(expected.id, async () => {
+      const registry = this.requireRegistry();
+      const assertRetained = () => {
+        assertCurrent();
+        if (this.agents.has(expected.id))
+          throw new Error("Retained recovery refuses a loaded agent runtime.");
+      };
+      assertRetained();
+      const current = await registry.get(expected.id);
+      assertRetained();
+      if (
+        !current?.archivedAt ||
+        !isDeepStrictEqual(current, expected) ||
+        current.lastStatus === "running" ||
+        current.lastStatus === "initializing" ||
+        current.owner?.kind === "daemon" ||
+        current.config?.controllerExecutionId ||
+        !current.persistence ||
+        !current.persistence.sessionId ||
+        current.persistence.provider !== current.provider ||
+        !this.clients.has(current.provider)
+      )
+        throw new Error("Retained agent identity or recovery action changed.");
+      const client = this.clients.get(current.provider);
+      const restoreNative = client?.unarchiveNativeSession;
+      if (!client || typeof restoreNative !== "function")
+        throw new Error("Retained agent provider does not support native archive restoration.");
+      const assertNative = () => {
+        assertRetained();
+        if (
+          this.clients.get(current.provider) !== client ||
+          client.unarchiveNativeSession !== restoreNative
+        )
+          throw new Error("Retained agent native restoration provider changed.");
+      };
+      // This changes native archive state only, without acquiring a session writer.
+      // Failure after this point can leave the native archive restored. Do not retry.
+      assertNative();
+      await restoreNative.call(client, current.persistence);
+      assertNative();
+      const restored = await registry.clearRetainedArchive(expected, assertNative);
+      assertNative();
+      return restored;
+    });
   }
 
   async unarchiveSnapshot(
@@ -3350,6 +3693,7 @@ export class AgentManager {
    * broadcast like normal timeline events.
    */
   tryRunOutOfBand(agentId: string, prompt: AgentPromptInput, options?: AgentRunOptions): boolean {
+    this.assertAcceptingAgentRegistrations();
     this.assertQuotaNotPaused(agentId);
     const agent = this.requireSessionAgent(agentId);
     const handler = agent.session.tryHandleOutOfBand?.(prompt);
@@ -3359,6 +3703,7 @@ export class AgentManager {
     if (options?.clientMessageId) {
       this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, {
         intent: handler.intent,
+        origin: options.origin,
       });
       this.emitState(agent);
     }
@@ -3414,7 +3759,41 @@ export class AgentManager {
       },
     );
     await this.persistSnapshot(agent);
+    if (item.type === "todo") this.emitState(agent, { persist: false });
     return { seq: row.seq, epoch: this.timelineStore.getEpoch(agentId) };
+  }
+
+  async readJournal(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-journal").AgentJournalEntry[]> {
+    const record = await this.requireRegistry().get(agentId);
+    if (!record) throw new JournalError("not_found", "Thread not found.");
+    return structuredClone(record.journal ?? []);
+  }
+
+  async appendJournal(
+    agentId: string,
+    input: import("@getpaseo/protocol/agent-journal").AppendJournalInput,
+  ) {
+    const agent = this.requireAgent(agentId);
+    const entry = await this.requireRegistry().appendJournal(agentId, input);
+    agent.journal = await this.readJournal(agentId);
+    this.emitState(agent, { persist: false });
+    return entry;
+  }
+
+  readChecklist(agentId: string): AgentTaskItem[] {
+    return structuredClone(this.requireAgent(agentId).tasks ?? []);
+  }
+
+  async mutateChecklist(agentId: string, mutation: ChecklistMutation): Promise<AgentTaskItem[]> {
+    const agent = this.requireAgent(agentId);
+    const committed = await this.requireRegistry().mutateChecklist(agentId, mutation);
+    const items = mergeProviderChecklist(agent.tasks ?? [], committed);
+    this.touchUpdatedAt(agent);
+    this.recordAndDispatchTimelineItem(agentId, { type: "todo", items }, agent.provider);
+    this.emitState(agent, { persist: false });
+    return this.readChecklist(agentId);
   }
 
   async emitLiveTimelineItem(agentId: string, item: AgentTimelineItem): Promise<void> {
@@ -3484,7 +3863,8 @@ export class AgentManager {
           agent.labels[PARENT_AGENT_ID_LABEL] === parent.id &&
           (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id)),
       ).length;
-      if (running >= (parent.config.profileLaunch.profile.maxWorkers ?? 2)) {
+      const limit = managedWorkerLimit(parent.config.profileLaunch.profile);
+      if (limit !== null && running >= limit) {
         throw new Error(
           "Worker limit reached. Wait for a worker to finish before starting another.",
         );
@@ -3565,6 +3945,7 @@ export class AgentManager {
         this.recordSubmittedPrompt(agent, prompt, options.clientMessageId, {
           messageId: options.clientMessageId,
           intent: options.intent,
+          origin: options.origin,
           queuedMessage: options.queuedMessage,
           turnId,
           providerMessageId:
@@ -3688,6 +4069,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentRunOptions,
   ): Promise<AsyncGenerator<AgentStreamEvent>> {
+    this.assertAcceptingAgentRegistrations();
     const snapshot = this.requireAgent(agentId);
     this.assertQuotaNotPaused(agentId);
     if (
@@ -3739,6 +4121,7 @@ export class AgentManager {
           options?.clientMessageId,
           expectedTurnId,
           options?.intent,
+          options?.origin,
         );
       }
       return admission;
@@ -3756,6 +4139,7 @@ export class AgentManager {
     prompt: AgentPromptInput,
     options?: AgentSteerOptions,
   ): Promise<ActiveTurnSteerDispatchResult> {
+    this.assertAcceptingAgentRegistrations();
     const agent = this.requireSessionAgent(agentId);
     const expectedTurnId = agent.activeForegroundTurnId ?? agent.activeTurnId;
     if (!expectedTurnId) {
@@ -3775,6 +4159,7 @@ export class AgentManager {
               options?.clientMessageId,
               expectedTurnId,
               options?.intent,
+              options?.origin,
             );
           }
           return admission;
@@ -3834,10 +4219,15 @@ export class AgentManager {
     });
   }
 
-  private async runForegroundMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+  private async runForegroundMutation<T>(
+    agentId: string,
+    operation: (isLatest: () => boolean) => Promise<T>,
+  ): Promise<T> {
     const previous = this.foregroundMutationTails.get(agentId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(operation);
-    const tail = run.then(
+    const run: Promise<T> = previous
+      .catch(() => undefined)
+      .then(() => operation(() => this.foregroundMutationTails.get(agentId) === tail));
+    const tail: Promise<void> = run.then(
       () => undefined,
       () => undefined,
     );
@@ -3881,6 +4271,7 @@ export class AgentManager {
     clientMessageId: string | undefined,
     expectedTurnId: string,
     intent?: "goal",
+    origin?: "agent",
   ): Promise<void> {
     if (!clientMessageId) {
       return;
@@ -3889,6 +4280,7 @@ export class AgentManager {
       messageId: clientMessageId,
       turnId: expectedTurnId,
       intent,
+      origin,
     });
     this.emitState(agent);
   }
@@ -4059,11 +4451,12 @@ export class AgentManager {
     }
     if (options?.reason === "manual") {
       try {
-        await this.messageQueueControl?.pause(agentId);
+        // Revoke automatic goal resumption without changing queue delivery.
+        await this.releaseQueueGoalHold(agentId);
         await this.pauseGoalForManualStop(agentId);
       } catch (error) {
-        // Queue persistence and goal confirmation failures must not prevent
-        // the user's stop from reaching the current provider turn.
+        // Goal confirmation failures must not prevent the user's stop from
+        // reaching the current provider turn.
         if (this.hasInFlightRun(agentId)) {
           await this.runForegroundMutation(agentId, () => this.cancelAgentRunNow(agentId));
         }
@@ -4084,7 +4477,7 @@ export class AgentManager {
       const current = await this.readAgentGoal(agentId);
       if (current.status !== "ready")
         throw new Error("The goal state could not be confirmed while stopping the task.");
-      if (current.goal?.status !== "active") return;
+      if (current.goal?.status !== "active" && current.goal?.status !== "blocked") return;
       const paused = await this.setAgentGoalUnlocked(
         agentId,
         { status: "paused" },
@@ -4561,7 +4954,16 @@ export class AgentManager {
 
   private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
     const record = await this.registry?.get(managed.id);
+    managed.tasks = record?.tasks;
+    managed.journal = record?.journal;
+    const managedTasks = managed.tasks?.filter((task) => task.source === "vorteo") ?? [];
+    for (const item of this.timelineStore.getItems(managed.id)) {
+      if (item.type === "todo") {
+        managed.tasks = [...item.items.filter((task) => task.source !== "vorteo"), ...managedTasks];
+      }
+    }
     managed.goalSubmissions = record?.goalSubmissions;
+    managed.blockedGoalReviewNeeded = record?.blockedGoalReviewNeeded;
     managed.queueGoalHold = record?.queueGoalHold;
   }
 
@@ -4596,7 +4998,7 @@ export class AgentManager {
   ): Promise<ManagedAgent> {
     let registered = false;
     try {
-      this.assertAcceptingAgentRegistrations();
+      if (!this.acceptingAgentRegistrations) throw new AgentManagerShuttingDownError();
       const resolvedAgentId = validateAgentId(agentId, "registerSession");
       if (this.agents.has(resolvedAgentId)) {
         throw new Error(`Agent with id ${resolvedAgentId} already exists`);
@@ -4633,7 +5035,7 @@ export class AgentManager {
         }
       }
 
-      this.assertAcceptingAgentRegistrations();
+      if (!this.acceptingAgentRegistrations) throw new AgentManagerShuttingDownError();
       this.restoreLatestQuotaReserve(resolvedAgentId, managed.config);
       this.agents.set(resolvedAgentId, managed);
       registered = true;
@@ -4683,6 +5085,10 @@ export class AgentManager {
   }
 
   private assertAcceptingAgentRegistrations(): void {
+    if (this.restartDrainId)
+      throw new Error(
+        "A restart is waiting for current turns to finish. New work is held until restart or cancellation.",
+      );
     if (!this.acceptingAgentRegistrations) {
       throw new AgentManagerShuttingDownError();
     }
@@ -4968,13 +5374,35 @@ export class AgentManager {
     }
   }
 
+  private observeGoalState(
+    agent: ManagedAgent,
+    state: import("@getpaseo/protocol/agent-goals").AgentGoalState,
+  ): void {
+    agent.goalState = state;
+    const needed =
+      state.status === "ready" ? state.goal?.status === "blocked" : agent.blockedGoalReviewNeeded;
+    const changed = needed !== agent.blockedGoalReviewNeeded;
+    agent.blockedGoalReviewNeeded = needed;
+    // Persist status transitions, not every usage notification. Loading and
+    // errors retain discovery without authorizing a review or native resume.
+    if (changed && needed !== undefined && this.registry) {
+      const write = this.registry.updateBlockedGoalReview(agent.id, needed).catch((err) => {
+        this.logger.error(
+          { err, agentId: agent.id },
+          "Could not retain blocked goal review discovery",
+        );
+      });
+      this.trackBackgroundTask(write);
+    }
+    this.emitState(agent, { persist: false });
+  }
+
   private async dispatchSessionEvent(
     agent: ActiveManagedAgent,
     event: AgentStreamEvent,
   ): Promise<void> {
     if (event.type === "goal_changed") {
-      agent.goalState = event.state;
-      this.emitState(agent, { persist: false });
+      this.observeGoalState(agent, event.state);
       return;
     }
     if (event.type === "provider_subagent") {
@@ -5201,7 +5629,9 @@ export class AgentManager {
         this.dispatch({ type: "provider_subagent", event: update });
       }
     }
+    agent.tasks = managedChecklist(agent.tasks);
     for (const event of historyEvents) {
+      event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
       const row = this.recordTimeline(
         agent.id,
         event.item,
@@ -5275,7 +5705,9 @@ export class AgentManager {
         this.dispatch(managerEvent);
       }
     }
+    agent.tasks = managedChecklist(agent.tasks);
     for (const event of historyEvents) {
+      event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
       const row = this.recordTimeline(
         agent.id,
         event.item,
@@ -5292,6 +5724,7 @@ export class AgentManager {
       }
     }
     agent.historyPrimed = true;
+    if (agent.lifecycle !== "initializing") this.emitState(agent);
 
     if (typeof broadcast !== "function" || !broadcast()) {
       return;
@@ -5483,9 +5916,8 @@ export class AgentManager {
         this.onStreamThreadStarted(agent);
         return undefined;
       case "goal_changed":
-        agent.goalState = event.state;
+        this.observeGoalState(agent, event.state);
         flags.shouldDispatchEvent = false;
-        this.emitState(agent, { persist: false });
         return undefined;
       case "usage_updated":
         agent.lastUsage = event.usage;
@@ -5591,6 +6023,8 @@ export class AgentManager {
   }): Promise<void> {
     const { agent, event, options, flags } = params;
 
+    event.item = mergeProviderChecklistEvent(event.item, agent.tasks);
+
     if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
       flags.shouldDispatchEvent = false;
       flags.shouldNotifyWaiters = false;
@@ -5619,6 +6053,7 @@ export class AgentManager {
     }
 
     this.recordAndDispatchTimelineItem(agent.id, event.item, event.provider, event.turnId);
+    if (event.item.type === "todo") this.emitState(agent);
     if (event.item.type === "user_message") {
       agent.lastUserMessageAt = new Date();
       this.emitState(agent);
@@ -5885,13 +6320,14 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     prompt: AgentPromptInput,
     clientMessageId: string,
-    options?: {
+    options: {
       messageId?: string;
       providerMessageId?: string;
       turnId?: string;
       intent?: "goal";
+      origin?: "agent";
       queuedMessage?: QueueItem;
-    },
+    } = {},
   ): void {
     if (this.timelineStore.getSubmittedUserMessage(agent.id, clientMessageId)) {
       return;
@@ -5900,8 +6336,8 @@ export class AgentManager {
     agent.lastUserMessageAt = new Date();
     const item: AgentTimelineItem = {
       type: "user_message",
-      text: options?.queuedMessage ? options.queuedMessage.text : submittedPromptText(prompt),
-      ...(options?.queuedMessage
+      text: options.queuedMessage ? options.queuedMessage.text : submittedPromptText(prompt),
+      ...(options.queuedMessage
         ? {
             queue: {
               attachments: options.queuedMessage.attachments,
@@ -5909,14 +6345,15 @@ export class AgentManager {
             },
           }
         : {}),
-      ...(options?.intent ? { intent: options.intent } : {}),
+      ...(options.intent ? { intent: options.intent } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
       clientMessageId,
-      ...(options?.messageId ? { messageId: options.messageId } : {}),
+      ...(options.messageId ? { messageId: options.messageId } : {}),
     };
-    if (options?.queuedMessage && options.providerMessageId) {
+    if (options.queuedMessage && options.providerMessageId) {
       this.persistQueuedPromptIdentity(agent.id, clientMessageId, options.providerMessageId);
     }
-    if (options?.intent === "goal") {
+    if (options.intent === "goal") {
       agent.goalSubmissions = [
         ...(agent.goalSubmissions ?? []),
         {
@@ -5930,7 +6367,7 @@ export class AgentManager {
       ];
       this.enqueueBackgroundPersist(agent);
     }
-    this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options?.turnId, options);
+    this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options.turnId, options);
   }
 
   private reconcileSubmittedPromptEcho(
@@ -6041,6 +6478,10 @@ export class AgentManager {
     }
     item = limitAgentTimelineItemContent(item);
     const row = this.timelineStore.append(agentId, item, options);
+    if (item.type === "todo") {
+      const agent = this.agents.get(agentId);
+      if (agent) agent.tasks = item.items;
+    }
     this.enqueueDurableTimelineAppend(agentId, row);
     return row;
   }
@@ -6429,7 +6870,10 @@ export class AgentManager {
   }
 
   private applyDaemonAppendSystemPrompt(config: AgentSessionConfig): AgentSessionConfig {
-    const daemonAppendSystemPrompt = this.appendSystemPrompt.trim();
+    const daemonAppendSystemPrompt = composeSystemPromptParts(
+      config.internal ? undefined : TASK_CHECKLIST_GUIDANCE,
+      this.appendSystemPrompt,
+    );
     const next = { ...config };
     delete next.daemonAppendSystemPrompt;
 

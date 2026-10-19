@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import React, { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -163,7 +164,7 @@ function ResetBrowse(props: ResetDialogProps) {
   );
 }
 
-function ResetActions(props: ResetDialogProps) {
+export function ResetDialogActions(props: ResetDialogProps) {
   const { flow } = props;
   const reviewing = flow.stage === "review";
   const result = flow.stage === "result";
@@ -174,7 +175,7 @@ function ResetActions(props: ResetDialogProps) {
   if (flow.busy) action = reviewing ? "Applying reset…" : "Preparing reset…";
   const canRepair = result && Boolean(flow.result?.refreshError);
   return (
-    <View style={styles.actions}>
+    <ActionFooter style={styles.actions}>
       {reviewing ? (
         <Button
           variant="ghost"
@@ -227,7 +228,7 @@ function ResetActions(props: ResetDialogProps) {
           Retry result recovery
         </Button>
       ) : null}
-    </View>
+    </ActionFooter>
   );
 }
 
@@ -252,7 +253,6 @@ export function ResetDialogContent(props: ResetDialogProps) {
           {flow.notice}
         </Text>
       ) : null}
-      <ResetActions {...props} />
     </View>
   );
 }

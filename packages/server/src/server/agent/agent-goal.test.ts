@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { AgentGoal, AgentGoalSetInput, AgentGoalState } from "@getpaseo/protocol/agent-goals";
-import { setAgentGoalWithContext } from "./agent-goal.js";
+import { editThreadGoal, ThreadGoalEditSchema, setAgentGoalWithContext } from "./agent-goal.js";
 
 function fixture() {
   let goal: AgentGoal | null = {
@@ -37,17 +37,17 @@ function fixture() {
   };
 }
 
-it("delivers context while paused before enabling native continuation", async () => {
+it("delivers context while blocked before enabling native continuation", async () => {
   const f = fixture();
   await setAgentGoalWithContext({
     manager: f.manager,
     agentId: "agent",
     goal: { objective: "Work" },
     sendContext: async () => {
-      expect(f.state().goal?.status).toBe("paused");
+      expect(f.state().goal?.status).toBe("blocked");
     },
   });
-  expect(f.writes).toEqual([{ objective: "Work", status: "paused" }, { status: "active" }]);
+  expect(f.writes).toEqual([{ objective: "Work", status: "blocked" }, { status: "active" }]);
 });
 
 it("does not reactivate a goal completed during the context turn", async () => {
@@ -61,6 +61,46 @@ it("does not reactivate a goal completed during the context turn", async () => {
     },
   });
   expect(result.goal?.status).toBe("complete");
+  expect(f.writes).toHaveLength(1);
+});
+
+it("preserves a manual pause while context is being delivered", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work" },
+    sendContext: async () => {
+      f.change({ ...f.state().goal!, status: "paused" });
+    },
+  });
+  expect(result.goal?.status).toBe("paused");
+  expect(f.writes).toEqual([{ objective: "Work", status: "blocked" }]);
+});
+
+it("preserves an explicitly paused submission after its context arrives", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work", status: "paused" },
+    sendContext: async () => {},
+  });
+  expect(result.goal?.status).toBe("paused");
+  expect(f.writes).toEqual([{ objective: "Work", status: "paused" }]);
+});
+
+it("does not clear a new blocker reported during context delivery", async () => {
+  const f = fixture();
+  const result = await setAgentGoalWithContext({
+    manager: f.manager,
+    agentId: "agent",
+    goal: { objective: "Work" },
+    sendContext: async () => {
+      f.change({ ...f.state().goal!, status: "blocked", updatedAt: 2 });
+    },
+  });
+  expect(result.goal?.status).toBe("blocked");
   expect(f.writes).toHaveLength(1);
 });
 
@@ -79,7 +119,7 @@ it("does not resume a replacement or cleared goal", async () => {
   expect(f.writes).toHaveLength(1);
 });
 
-it("leaves continuation paused if context delivery fails", async () => {
+it("leaves continuation blocked if context delivery fails", async () => {
   const f = fixture();
   await expect(
     setAgentGoalWithContext({
@@ -91,5 +131,171 @@ it("leaves continuation paused if context delivery fails", async () => {
       },
     }),
   ).rejects.toThrow("attachment rejected");
-  expect(f.state().goal?.status).toBe("paused");
+  expect(f.state().goal?.status).toBe("blocked");
+});
+
+it("edits an existing objective without resuming a paused goal or resetting usage", async () => {
+  const f = fixture();
+  const goal = f.state().goal!;
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = goal;
+  const edited = await editThreadGoal({
+    edit: {
+      expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+      objective: "Finish accepted migration",
+    },
+    read: async () => f.state(),
+    set: (input) => f.manager.setAgentGoal("agent", input),
+  });
+  expect(edited.goal).toEqual({ ...goal, objective: "Finish accepted migration" });
+  expect(f.writes).toEqual([{ objective: "Finish accepted migration", status: "paused" }]);
+});
+
+it("resumes a blocked goal without replacing it", async () => {
+  const f = fixture();
+  f.change({ ...f.state().goal!, status: "blocked", tokensUsed: 800 });
+  const goal = f.state().goal!;
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = goal;
+  const edited = await editThreadGoal({
+    edit: {
+      expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+      status: "active",
+    },
+    read: async () => f.state(),
+    set: (input) => f.manager.setAgentGoal("agent", input),
+  });
+  expect(edited.goal).toEqual({ ...goal, status: "active" });
+});
+
+it("rejects a stale goal edit after an owner pause", async () => {
+  const f = fixture();
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+  f.change({ ...f.state().goal!, updatedAt: updatedAt + 1 });
+  await expect(
+    editThreadGoal({
+      edit: {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        status: "active",
+      },
+      read: async () => f.state(),
+      set: (input) => f.manager.setAgentGoal("agent", input),
+    }),
+  ).rejects.toThrow("goal changed");
+  expect(f.writes).toEqual([]);
+});
+
+it.each(["budgetLimited", "usageLimited", "complete"] as const)(
+  "does not resume %s goals",
+  async (status) => {
+    const f = fixture();
+    f.change({ ...f.state().goal!, status });
+    const { threadId, objective, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+    await expect(
+      editThreadGoal({
+        edit: {
+          expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+          status: "active",
+        },
+        read: async () => f.state(),
+        set: (input) => f.manager.setAgentGoal("agent", input),
+      }),
+    ).rejects.toThrow("cannot be resumed");
+    expect(f.writes).toEqual([]);
+  },
+);
+
+it.each(["queueContinuationHeld", "restartContinuationHeld"] as const)(
+  "preserves %s ownership",
+  async (held) => {
+    const f = fixture();
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+    await expect(
+      editThreadGoal({
+        edit: {
+          expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+          objective: "Changed",
+        },
+        read: async () => ({ ...f.state(), [held]: true }),
+        set: (input) => f.manager.setAgentGoal("agent", input),
+      }),
+    ).rejects.toThrow("held");
+    expect(f.writes).toEqual([]);
+  },
+);
+
+it("does not accept agent selection or budget changes through goal editing", () => {
+  const f = fixture();
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+  const input = {
+    expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+    objective: "Changed",
+  };
+  expect(ThreadGoalEditSchema.safeParse(input).success).toBe(true);
+  expect(ThreadGoalEditSchema.safeParse({ ...input, agentId: "other" }).success).toBe(false);
+  expect(ThreadGoalEditSchema.safeParse({ ...input, tokenBudget: null }).success).toBe(false);
+});
+
+it("cannot clear a budget limit indirectly through paused status", async () => {
+  const f = fixture();
+  f.change({ ...f.state().goal!, status: "budgetLimited" });
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+  await expect(
+    editThreadGoal({
+      edit: {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        status: "paused",
+      },
+      read: async () => f.state(),
+      set: (input) => f.manager.setAgentGoal("agent", input),
+    }),
+  ).rejects.toThrow("cannot be resumed");
+  expect(f.writes).toEqual([]);
+});
+
+it.each(["queueContinuationHeld", "restartContinuationHeld"] as const)(
+  "retains %s with a matching edit revision",
+  async (hold) => {
+    const f = fixture();
+    const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+    await expect(
+      editThreadGoal({
+        edit: {
+          expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+          expectedRevision: "revision",
+          status: "active",
+        },
+        read: async () => ({
+          ...f.state(),
+          status: "ready",
+          observedAt: new Date().toISOString(),
+          editRevision: "revision",
+          [hold]: true,
+        }),
+        set: (change) => f.manager.setAgentGoal("agent", change),
+      }),
+    ).rejects.toThrow("held");
+    expect(f.writes).toEqual([]);
+  },
+);
+
+it("still compares goal content when a revision is supplied", async () => {
+  const f = fixture();
+  const { threadId, objective, status, createdAt, updatedAt, tokenBudget } = f.state().goal!;
+  f.change({ ...f.state().goal!, objective: "Owner changed this" });
+  await expect(
+    editThreadGoal({
+      edit: {
+        expectedGoal: { threadId, objective, status, createdAt, updatedAt, tokenBudget },
+        expectedRevision: "revision",
+        status: "active",
+      },
+      read: async () => ({
+        ...f.state(),
+        status: "ready",
+        observedAt: new Date().toISOString(),
+        editRevision: "revision",
+      }),
+      set: (change) => f.manager.setAgentGoal("agent", change),
+    }),
+  ).rejects.toThrow("goal changed");
+  expect(f.writes).toEqual([]);
 });

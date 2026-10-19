@@ -32,6 +32,58 @@ function clientWith(iconResult: typeof icon | null) {
 }
 
 describe("ProjectIconCache", () => {
+  it("finishes startup when optional cache storage never settles", async () => {
+    const storage: ProjectIconCacheStorage = {
+      getItem: () => new Promise(() => {}),
+      setItem: async () => {
+        throw new Error("Restore must not write storage");
+      },
+    };
+    const cache = new ProjectIconCache(storage);
+    await cache.restore();
+    expect(cache.query(target, true, () => null, false)).not.toHaveProperty("initialData");
+  }, 4000);
+
+  it("ignores a late cache read without overwriting fresh icons or deleting storage", async () => {
+    const original = JSON.stringify({
+      version: 1,
+      entries: [
+        {
+          serverId: target.serverId,
+          projectId: target.projectId,
+          revision: target.iconRevision,
+          icon: null,
+        },
+      ],
+    });
+    let completeRead: (value: string) => void = () => {};
+    const storage: ProjectIconCacheStorage = {
+      getItem: () =>
+        new Promise<string>((resolve) => {
+          completeRead = resolve;
+        }),
+      setItem: async () => {},
+    };
+    const cache = new ProjectIconCache(storage);
+    cache.setHosts([target.serverId]);
+    await cache.restore();
+    await cache.query(target, true, () => clientWith(icon), true).queryFn();
+    completeRead(original);
+    await Promise.resolve();
+    expect(cache.query(target, true, () => null, false).initialData).toEqual(icon);
+    await cache.flush();
+  }, 4000);
+
+  it("continues startup when storage rejects", async () => {
+    const cache = new ProjectIconCache({
+      getItem: async () => {
+        throw new Error("Storage unavailable");
+      },
+      setItem: async () => {},
+    });
+    await expect(cache.restore()).resolves.toBeUndefined();
+  });
+
   it("uses the shared target revision in its query key", () => {
     const cache = new ProjectIconCache(new MemoryStorage());
 

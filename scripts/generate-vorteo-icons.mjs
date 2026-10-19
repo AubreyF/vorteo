@@ -79,6 +79,13 @@ png(white, `${publicDir}/vorteo-favicon-${hash}.png`, 256, "#52535b");
 for (const size of [192, 512])
   png(white, `${publicDir}/vorteo-icon-${size}-${hash}.png`, size, "#52535b");
 png(white, `${publicDir}/vorteo-apple-touch-${hash}.png`, 180, "#52535b");
+// Fixed fallback URLs are reviewed publisher aliases, not immutable versioned assets.
+fs.copyFileSync(`${publicDir}/vorteo-apple-touch-${hash}.png`, `${publicDir}/apple-touch-icon.png`);
+for (const size of [192, 512])
+  fs.copyFileSync(
+    `${publicDir}/vorteo-icon-${size}-${hash}.png`,
+    `${publicDir}/pwa-icon-${size}.png`,
+  );
 const oldManifest = fs
   .readdirSync(publicDir)
   .find((name) => name.startsWith("manifest-") && name.endsWith(".json"));
@@ -166,4 +173,5 @@ magick(
   "icon:auto-resize=48,32,16",
   "packages/website/public/favicon.ico",
 );
+fs.copyFileSync("packages/website/public/favicon.ico", `${publicDir}/favicon.ico`);
 console.log(`Generated centered Vorteo icons: ${hash}`);

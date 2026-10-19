@@ -322,7 +322,7 @@ Use **Settings > Providers > Add provider**, search for **Codex**, and select **
 
 Deleting a connection removes its exclusively owned, app-managed account directory and saved credentials. The confirmation identifies shared credentials or external CLI credentials that will remain. Archive the provider's open tasks and cancel active sign-in before deletion. This flow requires `providerCredentialRemoval` on the host.
 
-Select the account in a preset's **Provider** field. Creating an account inside the editor selects it without saving the preset. Connect remains available in the editor, provider list, and quick preset switcher when usage is unavailable. Unavailable usage alone does not prove rejected credentials. Account creation requires a host advertising `codexAccountCreation`; sign-in uses `providerAccountLogin`.
+Select the account in a preset's **Provider** field. Creating an account inside the editor selects it without saving the preset. Connect remains available in the editor, provider list, and quick preset switcher when usage is unavailable and authentication has not been verified. For Claude, a ready account snapshot means its configured CLI passed `claude auth status` using that account's environment. That result hides Connect even when usage cannot read credentials stored in macOS Keychain. Explicit authentication rejection still offers Reconnect. This does not read or copy Keychain secrets, merge accounts, or establish a connection in another environment. Unavailable usage remains unavailable; it does not prove rejected credentials or available quota. Account creation requires a host advertising `codexAccountCreation`; sign-in uses `providerAccountLogin`.
 
 Example: two different Anthropic accounts as separate profiles:
 

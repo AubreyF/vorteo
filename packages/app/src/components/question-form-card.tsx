@@ -1,9 +1,12 @@
-import { taskCardStyles } from "@/agent-stream/task-card-styles";
+import { tabShape } from "@/styles/tab-shape";
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
+import { ActionFooter } from "@/components/ui/action-footer";
+import { TaskCardIcon } from "@/agent-stream/task-card-icon";
+import { TaskCard, TaskCardHeader, TaskCardTitle } from "@/agent-stream/task-card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useState, useCallback, useMemo, useRef, type RefObject } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
 import { Check, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import type { PendingPermission } from "@/types/shared";
@@ -84,7 +87,9 @@ function QuestionOptionRow({
   const optionLabelStyle = useMemo(
     () => [
       styles.optionLabel,
-      { color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isSelected ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isSelected, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -187,7 +192,9 @@ function QuestionNavButton({
   const textStyle = useMemo(
     () => [
       styles.questionNavText,
-      { color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted },
+      {
+        color: isActive ? theme.colors.foreground : theme.colors.foregroundMuted,
+      },
     ],
     [isActive, theme.colors.foreground, theme.colors.foregroundMuted],
   );
@@ -295,7 +302,13 @@ function QuestionOtherInput({
           color: theme.colors.foreground,
           backgroundColor: theme.colors.surface2,
         },
-        IS_WEB ? { outlineStyle: "none", outlineWidth: 0, outlineColor: "transparent" } : null,
+        IS_WEB
+          ? {
+              outlineStyle: "none",
+              outlineWidth: 0,
+              outlineColor: "transparent",
+            }
+          : null,
       ] as const,
     [
       value.length,
@@ -325,7 +338,6 @@ function QuestionOtherInput({
 export function QuestionFormCard({ permission, onRespond, isResponding }: QuestionFormCardProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const isMobile = useIsCompactFormFactor();
   const questions = useMemo(
     () => parseQuestionFormQuestions(permission.request.input),
     [permission.request.input],
@@ -502,10 +514,6 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         : {},
     [activeQuestion],
   );
-  const actionsContainerStyle = useMemo(
-    () => [styles.actionsContainer, !isMobile && styles.actionsContainerDesktop],
-    [isMobile],
-  );
   const dismissActionTextStyle = useMemo(
     () => [styles.actionText, { color: theme.colors.foregroundMuted }],
     [theme.colors.foregroundMuted],
@@ -526,10 +534,11 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
   const showTextInput = activeQuestion ? questionShowsTextInput(activeQuestion) : false;
 
   return (
-    <View
-      style={[taskCardStyles.surface, taskCardStyles.contentInsets]}
-      testID="question-form-card"
-    >
+    <TaskCard testID="question-form-card" scrollBody={false}>
+      <TaskCardHeader>
+        <TaskCardIcon kind="question" />
+        <TaskCardTitle>Questions</TaskCardTitle>
+      </TaskCardHeader>
       <QuestionNav
         questions={questions}
         activeIndex={resolvedActiveQuestionIndex}
@@ -537,11 +546,9 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         isResponding={isResponding}
         onSelect={handleSelectQuestion}
       />
-      <View style={styles.questionHeader}>
-        <Text testID="question-form-current-question" style={questionTextStyle}>
-          {activeQuestion?.question}
-        </Text>
-      </View>
+      <Text testID="question-form-current-question" style={questionTextStyle}>
+        {activeQuestion?.question}
+      </Text>
 
       {activeQuestion ? (
         <View key={activeQuestion.question} style={styles.questionBlock}>
@@ -580,7 +587,7 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
         </View>
       ) : null}
 
-      <View style={actionsContainerStyle}>
+      <ActionFooter style={styles.actionsContainer}>
         <Pressable
           style={dismissButtonStyle}
           onPress={handleDeny}
@@ -616,25 +623,17 @@ export function QuestionFormCard({ permission, onRespond, isResponding }: Questi
             </View>
           )}
         </Pressable>
-      </View>
-    </View>
+      </ActionFooter>
+    </TaskCard>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
   questionBlock: {
+    marginTop: theme.spacing[3],
     gap: theme.spacing[2],
-  },
-  questionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingBottom: theme.spacing[1],
-    flex: 1,
   },
   questionText: {
-    flex: 1,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     lineHeight: 22,
@@ -647,7 +646,6 @@ const styles = StyleSheet.create((theme) => ({
     flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing[1],
-    paddingHorizontal: theme.spacing[3],
   },
   questionNavButton: {
     flexDirection: "row",
@@ -656,7 +654,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 28,
     paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[1],
-    borderRadius: theme.borderRadius.md,
+    ...tabShape(theme),
     borderWidth: theme.borderWidth[1],
   },
   questionNavText: {
@@ -664,9 +662,9 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.normal,
   },
   optionItem: {
+    paddingHorizontal: theme.spacing[3],
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
   },
@@ -712,24 +710,26 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 999,
   },
   otherInput: {
+    paddingHorizontal: theme.spacing[3],
     borderWidth: 1,
     borderRadius: theme.borderRadius.lg,
-    paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[3],
     fontSize: theme.fontSize.base,
   },
   actionsContainer: {
+    paddingBottom: theme.spacing[3],
     gap: theme.spacing[2],
-  },
-  actionsContainerDesktop: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
     alignItems: "center",
   },
   actionButton: {
+    minHeight: CONTROL_HEIGHTS.field,
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.full,
     alignItems: "center",
     borderWidth: theme.borderWidth[1],
   },

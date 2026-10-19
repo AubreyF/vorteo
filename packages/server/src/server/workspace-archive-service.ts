@@ -1,3 +1,4 @@
+import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
 import { resolve } from "node:path";
 
 import type { Logger } from "pino";
@@ -24,7 +25,14 @@ import { WorkspaceAutomationBlockedError } from "./workspace-automation-gate.js"
 
 export type ActiveWorkspaceRef = Pick<
   PersistedWorkspaceRecord,
-  "workspaceId" | "cwd" | "kind" | "worktreeRoot" | "isPaseoOwnedWorktree" | "mainRepoRoot"
+  | "workspaceId"
+  | "cwd"
+  | "kind"
+  | "worktreeRoot"
+  | "isPaseoOwnedWorktree"
+  | "mainRepoRoot"
+  | "protected"
+  | "factoryMembership"
 >;
 
 export interface ArchiveDependencies {
@@ -33,7 +41,10 @@ export interface ArchiveDependencies {
   paseoWorktreesBaseRoot?: string;
   github: ForgeService;
   workspaceGitService: Pick<WorkspaceGitService, "getSnapshot">;
-  agentManager: Pick<AgentManager, "listAgents" | "getAgent" | "archiveAgent" | "archiveSnapshot">;
+  agentManager: Pick<
+    AgentManager,
+    "listAgents" | "getAgent" | "archiveAgent" | "archiveSnapshot" | "assertWorkspaceArchiveAllowed"
+  >;
   agentStorage: Pick<AgentStorage, "listByWorkspace">;
   // Resolves the worktree at a path to its workspaceId for archive-by-path. The
   // path uniquely identifies a worktree workspace; this is a directory lookup for
@@ -45,6 +56,8 @@ export interface ArchiveDependencies {
   // break a same-cwd tie in favor of the worktree-kind record when archiving by
   // path (no explicit workspaceId).
   listActiveWorkspaces: () => Promise<ActiveWorkspaceRef[]>;
+  // Native retained membership protects backing paths even after archival.
+  listRetainedFactoryWorkspaces?: () => Promise<ActiveWorkspaceRef[]>;
   archiveWorkspaceRecord: (workspaceId: string) => Promise<void>;
   emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds: Iterable<string>) => Promise<void>;
   markWorkspaceArchiving: (workspaceIds: Iterable<string>, archivingAt: string) => void;
@@ -207,9 +220,13 @@ async function resolveArchiveTarget(
       );
       return { backing: null, teardownTargets: [], setupWorkspaceIds: [], workspaceIds: [] };
     }
+    await dependencies.agentManager.assertWorkspaceArchiveAllowed?.(workspaceId);
+    assertWorkspaceUnprotected(record);
     const isArchived = "archivedAt" in record && Boolean(record.archivedAt);
+    const backing = await resolveWorkspaceBackingDirectory(record, dependencies);
+    await assertBackingNotFactoryManaged(dependencies, backing);
     return {
-      backing: await resolveWorkspaceBackingDirectory(record, dependencies),
+      backing,
       teardownTargets: isArchived ? [] : [{ workspaceId, cwd: record.cwd }],
       setupWorkspaceIds: [workspaceId],
       workspaceIds: isArchived ? [] : [workspaceId],
@@ -217,6 +234,7 @@ async function resolveArchiveTarget(
   }
 
   const backing = await resolveBackingDirectory(scope.targetPath, dependencies);
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const matchesBackingDirectory = createRealpathAwarePathMatcher(backing.path);
   const targetWorkspaces = (
     await Promise.all(
@@ -226,6 +244,10 @@ async function resolveArchiveTarget(
       }),
     )
   ).filter((workspace): workspace is ActiveWorkspaceRef => workspace !== null);
+  for (const workspace of targetWorkspaces) {
+    await dependencies.agentManager.assertWorkspaceArchiveAllowed?.(workspace.workspaceId);
+    assertWorkspaceUnprotected(workspace);
+  }
   const persistedMainRepoRoot = targetWorkspaces.find(
     (workspace) => workspace.mainRepoRoot,
   )?.mainRepoRoot;
@@ -244,6 +266,19 @@ async function resolveArchiveTarget(
     setupWorkspaceIds: targetWorkspaces.map((workspace) => workspace.workspaceId),
     workspaceIds: targetWorkspaces.map((workspace) => workspace.workspaceId),
   };
+}
+
+// Retained members are ownership holds, never ordinary archive targets.
+async function assertBackingNotFactoryManaged(
+  dependencies: ArchiveDependencies,
+  backing: BackingDirectory,
+): Promise<void> {
+  const matchesBacking = createRealpathAwarePathMatcher(backing.path);
+  for (const workspace of (await dependencies.listRetainedFactoryWorkspaces?.()) ?? []) {
+    if (!workspace.factoryMembership) continue;
+    const retainedBacking = await resolveWorkspaceBackingDirectory(workspace, dependencies);
+    if (matchesBacking(retainedBacking.path)) assertWorkspaceUnprotected(workspace);
+  }
 }
 
 async function stopWorkspaceSetups(
@@ -358,6 +393,7 @@ async function maybeRemoveDirectory(
     return false;
   }
 
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const archivedWorkspaceIdSet = new Set(archivedWorkspaceIds);
   const teardownTargets = target.teardownTargets.filter(
     (teardownTarget) =>
@@ -387,6 +423,7 @@ async function maybeRemoveDirectory(
     throw error;
   }
 
+  await assertBackingNotFactoryManaged(dependencies, backing);
   const remainingActive = await dependencies.listActiveWorkspaces();
   if (
     !(await isDirectoryUnreferenced(

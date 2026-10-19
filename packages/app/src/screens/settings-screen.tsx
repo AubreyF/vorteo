@@ -1,6 +1,10 @@
+import { InstallationRestartBanner } from "@/execution-installation/panel";
+import { ActionFooter } from "@/components/ui/action-footer";
+import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
+
 import { EnvironmentsSettingsPage } from "./settings/environments-page";
 import { SkillLibraryContent } from "@/agent-skills/library";
-import { InstallationControls, InstallationRestartBanner } from "@/execution-installation/panel";
+import { InstallationControls } from "@/execution-installation/panel";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
 import { usePanelStore } from "@/stores/panel-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,11 +13,11 @@ import {
   Alert,
   Pressable,
   ScrollView,
-  useWindowDimensions,
   Text,
   View,
   type PressableStateCallbackType,
 } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,7 +43,6 @@ import {
   FolderGit2,
   SquareTerminal,
   Code2,
-  Smartphone,
   Sparkles,
   Blocks,
   BookOpen,
@@ -73,7 +76,6 @@ import { PageLayout } from "@/components/page-layout";
 import { AddHostMethodModal } from "@/components/add-host-method-modal";
 import { AddHostModal } from "@/components/add-host-modal";
 import { AddRemoteSshHostModal } from "@/components/add-remote-ssh-host-modal";
-import { PairLinkModal } from "@/components/pair-link-modal";
 import { KeyboardShortcutsSection } from "@/screens/settings/keyboard-shortcuts-section";
 import { EditorSection } from "@/screens/settings/editor-section";
 import { Button } from "@/components/ui/button";
@@ -95,6 +97,7 @@ import { useVortonUpdate } from "@/vorton-updates/use-update";
 import { openChangelog } from "@/changelog";
 import { useAppDiagnosticStore } from "@/diagnostics/store";
 import { settingsStyles } from "@/styles/settings";
+import { floatingPanelStyles, FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import { THINKING_TONE_NATIVE_PCM_BASE64 } from "@/utils/thinking-tone.native-pcm";
 import { useVoiceAudioEngineOptional } from "@/contexts/voice-context";
 import {
@@ -155,6 +158,9 @@ interface SidebarSectionItem {
 
 const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
   { id: "general", labelKey: "settings.sections.general", icon: Settings },
+  { id: "environments", labelKey: "settings.hostSections.host", icon: Server },
+  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
+  { id: "profiles", labelKey: "settings.host.agentProfiles.sectionTitle", icon: Bot },
   {
     id: "appearance",
     labelKey: "settings.sections.appearance",
@@ -223,7 +229,6 @@ const SIDEBAR_SECTION_ITEMS: SidebarSectionItem[] = [
     Content: SkillLibraryContent,
   },
   { id: "diagnostics", labelKey: "settings.sections.diagnostics", icon: Stethoscope },
-  { id: "profiles", labelKey: "settings.host.agentProfiles.sectionTitle", icon: Bot },
 ];
 
 function isSectionAvailable(item: SidebarSectionItem, isDesktopApp: boolean): boolean {
@@ -239,13 +244,12 @@ interface HostSectionItem {
 
 const HOST_SECTION_ITEMS: HostSectionItem[] = [
   { id: "host", labelKey: "settings.hostSections.host", icon: Server },
+  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
   { id: "projects", labelKey: "settings.hostSections.projects", icon: FolderGit2 },
   { id: "connections", labelKey: "settings.hostSections.connections", icon: Network },
-  { id: "pair-device", labelKey: "openProject.tiles.pairDevice.title", icon: Smartphone },
   { id: "agents", labelKey: "settings.hostSections.agents", icon: Bot },
   { id: "metadata", labelKey: "settings.hostSections.metadata", icon: Sparkles },
   { id: "workspaces", labelKey: "settings.hostSections.workspaces", icon: FolderGit2 },
-  { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
   { id: "usage", labelKey: "settings.hostSections.usage", icon: Gauge },
   { id: "terminals", labelKey: "settings.hostSections.terminals", icon: SquareTerminal },
   { id: "plugins", labelKey: "settings.hostSections.plugins", icon: Blocks },
@@ -726,7 +730,7 @@ function DesktopAppUpdateRow() {
           ) : null}
           {errorMessage ? <Text style={styles.aboutErrorText}>{errorMessage}</Text> : null}
         </View>
-        <View style={styles.aboutUpdateActions}>
+        <ActionFooter style={styles.aboutUpdateActions}>
           <Button
             variant="outline"
             size="sm"
@@ -743,7 +747,7 @@ function DesktopAppUpdateRow() {
           >
             {getUpdateButtonLabel(t, isInstalling, readyUpdateVersion)}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     </>
   );
@@ -828,7 +832,13 @@ function SettingsSidebar({
   const hasHosts = hosts.length > 0;
   const enableBuiltInDaemonOption = useEnableBuiltInDaemonOption();
   const isDesktopApp = isElectronRuntime();
-  const items = SIDEBAR_SECTION_ITEMS.filter((item) => isSectionAvailable(item, isDesktopApp));
+  const items = SIDEBAR_SECTION_ITEMS.filter((item) => {
+    const requiresHost = item.id === "environments" || item.id === "providers";
+    return isSectionAvailable(item, isDesktopApp) && (!requiresHost || hasHosts);
+  });
+  const hostItems = HOST_SECTION_ITEMS.filter(
+    (item) => item.id !== "host" && item.id !== "providers",
+  );
   const insets = useSafeAreaInsets();
   const isDesktop = layout === "desktop";
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
@@ -839,8 +849,10 @@ function SettingsSidebar({
   });
   const outerContainerStyle = useMemo(
     () => [
+      floatingPanelStyles.surface,
+      sidebarStyles.floatingContainer,
       isDesktop ? sidebarStyles.desktopContainer : sidebarStyles.mobileContainer,
-      isDesktop && { width: visibleSidebarWidth },
+      isDesktop && { width: visibleSidebarWidth - FLOATING_PANEL_INSET * 2 },
     ],
     [isDesktop, visibleSidebarWidth],
   );
@@ -855,22 +867,24 @@ function SettingsSidebar({
   if (view.kind === "plugin") selectedHostSection = "plugins";
 
   const sidebarBody = (
-    <>
-      <View style={sidebarStyles.list}>
-        {items.map((item) => (
-          <SidebarSectionButton
-            key={item.id}
-            itemId={item.id}
-            label={t(item.labelKey)}
-            icon={item.icon}
-            isSelected={selectedSectionId === item.id}
-            onSelect={onSelectSection}
-          />
-        ))}
-      </View>
+    <View style={sidebarStyles.list}>
+      {items.map((item) => (
+        <SidebarSectionButton
+          key={item.id}
+          itemId={item.id}
+          label={item.id === "environments" ? "Environments" : t(item.labelKey)}
+          icon={item.icon}
+          isSelected={
+            selectedSectionId === item.id ||
+            selectedHostSection === item.id ||
+            (item.id === "environments" && selectedHostSection === "host")
+          }
+          onSelect={onSelectSection}
+        />
+      ))}
       {hasHosts ? (
-        <View style={sidebarStyles.list}>
-          {HOST_SECTION_ITEMS.map((item) => (
+        <View>
+          {hostItems.map((item) => (
             <SidebarSectionButton
               key={item.id}
               itemId={item.id === "host" ? "environments" : item.id}
@@ -886,7 +900,7 @@ function SettingsSidebar({
           ))}
         </View>
       ) : (
-        <View style={sidebarStyles.list}>
+        <View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("settings.addHost")}
@@ -923,7 +937,7 @@ function SettingsSidebar({
           ) : null}
         </View>
       )}
-    </>
+    </View>
   );
 
   return (
@@ -958,7 +972,7 @@ function SettingsSidebar({
           >
             {sidebarBody}
           </ScrollView>
-          <InstallationRestartBanner />
+          <InstallationRestartBanner placement="sidebar" />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${appVersionText}, ${t("settings.sections.general")}`}
@@ -1000,7 +1014,6 @@ export default function SettingsScreen({
   const [isAddHostMethodVisible, setIsAddHostMethodVisible] = useState(false);
   const [isDirectHostVisible, setIsDirectHostVisible] = useState(false);
   const [isRemoteSshVisible, setIsRemoteSshVisible] = useState(false);
-  const [isPasteLinkVisible, setIsPasteLinkVisible] = useState(false);
   const [isPlaybackTestRunning, setIsPlaybackTestRunning] = useState(false);
   const [playbackTestResult, setPlaybackTestResult] = useState<string | null>(null);
   const lastOpenedAddHostIntentRef = useRef<string | null>(null);
@@ -1057,13 +1070,11 @@ export default function SettingsScreen({
     setIsAddHostMethodVisible(false);
     setIsDirectHostVisible(false);
     setIsRemoteSshVisible(false);
-    setIsPasteLinkVisible(false);
   }, []);
 
   const goBackToAddConnectionMethods = useCallback(() => {
     setIsDirectHostVisible(false);
     setIsRemoteSshVisible(false);
-    setIsPasteLinkVisible(false);
     setIsAddHostMethodVisible(true);
   }, []);
 
@@ -1089,11 +1100,6 @@ export default function SettingsScreen({
     setIsRemoteSshVisible(true);
   }, []);
 
-  const handleSelectPasteLink = useCallback(() => {
-    setIsAddHostMethodVisible(false);
-    setIsPasteLinkVisible(true);
-  }, []);
-
   const handleHostAdded = useCallback(
     ({ serverId }: { serverId: string }) => {
       const target = buildSettingsHostSectionRoute(serverId, "connections");
@@ -1117,14 +1123,6 @@ export default function SettingsScreen({
     },
     [isCompactLayout, router],
   );
-
-  const handleScanQr = useCallback(() => {
-    closeAddConnectionFlow();
-    router.push({
-      pathname: "/pair-scan",
-      params: { source: "settings" },
-    });
-  }, [closeAddConnectionFlow, router]);
 
   const handleHostRemoved = useCallback(() => {
     const fallback = buildSettingsSectionRoute("general");
@@ -1204,6 +1202,7 @@ export default function SettingsScreen({
             <>
               {installationRequested ? <InstallationControls requestId={restartRequestId} /> : null}
               <GeneralSection settings={settings} handleLanguageChange={handleLanguageChange} />
+              <WorkspaceDefaultsSection />
               <SendingSection />
               <AboutSection
                 showInstallation={!installationRequested}
@@ -1260,8 +1259,6 @@ export default function SettingsScreen({
         onClose={closeAddConnectionFlow}
         onDirectConnection={handleSelectDirectConnection}
         onRemoteSsh={handleSelectRemoteSsh}
-        onPasteLink={handleSelectPasteLink}
-        onScanQr={handleScanQr}
       />
       <AddHostModal
         visible={isDirectHostVisible}
@@ -1271,12 +1268,6 @@ export default function SettingsScreen({
       />
       <AddRemoteSshHostModal
         visible={isRemoteSshVisible}
-        onClose={closeAddConnectionFlow}
-        onCancel={goBackToAddConnectionMethods}
-        onSaved={handleHostAdded}
-      />
-      <PairLinkModal
-        visible={isPasteLinkVisible}
         onClose={closeAddConnectionFlow}
         onCancel={goBackToAddConnectionMethods}
         onSaved={handleHostAdded}
@@ -1299,7 +1290,6 @@ export default function SettingsScreen({
             layout="mobile"
           />
         </ScrollView>
-        <InstallationRestartBanner />
         {addHostModals}
       </View>
     );
@@ -1309,7 +1299,6 @@ export default function SettingsScreen({
     return (
       <View style={styles.container}>
         {detailPage}
-        <InstallationRestartBanner />
         {addHostModals}
       </View>
     );
@@ -1407,11 +1396,12 @@ const desktopStyles = StyleSheet.create({
 });
 
 const sidebarStyles = StyleSheet.create((theme) => ({
+  floatingContainer: {
+    margin: FLOATING_PANEL_INSET,
+    overflow: "hidden",
+  },
   desktopContainer: {
     width: SETTINGS_DESKTOP_SIDEBAR_WIDTH,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceSidebar,
   },
   scrollBody: {
     flex: 1,

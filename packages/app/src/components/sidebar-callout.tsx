@@ -1,8 +1,18 @@
 import { X } from "lucide-react-native";
-import { useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useMemo, type ReactNode } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import type { Theme } from "@/styles/theme";
 import { useTranslation } from "react-i18next";
+
+const DismissIcon = withUnistyles(X);
+const normalIcon = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const hoveredIcon = (theme: Theme) => ({ color: theme.colors.foreground });
+
+const FloatingCalloutContext = createContext(false);
+export function FloatingCalloutPresentation({ children }: { children: ReactNode }) {
+  return <FloatingCalloutContext.Provider value={true}>{children}</FloatingCalloutContext.Provider>;
+}
 
 export type SidebarCalloutActionVariant = "primary" | "secondary";
 
@@ -21,6 +31,7 @@ export interface SidebarCalloutProps {
   description?: ReactNode;
   icon?: ReactNode;
   variant?: SidebarCalloutVariant;
+  showTopBorder?: boolean;
   actions?: readonly SidebarCalloutAction[];
   onDismiss?: () => void;
   testID?: string;
@@ -35,24 +46,30 @@ export function SidebarCallout({
   description,
   icon,
   variant = "default",
+  showTopBorder = true,
   actions,
   onDismiss,
   testID,
 }: SidebarCalloutProps) {
   const { t } = useTranslation();
-  const { theme } = useUnistyles();
+  const floating = useContext(FloatingCalloutContext);
   const visibleActions = (actions ?? []).slice(0, 2);
   const hasHeader = title != null || icon != null;
-  const hasDescription = description != null && description !== "";
 
   const containerStyle = useMemo(
-    () => [styles.container, variant === "error" ? styles.containerError : null],
-    [variant],
+    () => [
+      styles.container,
+      variant === "error" ? styles.containerError : null,
+      !showTopBorder ? styles.withoutTopBorder : null,
+      floating ? styles.floatingContainer : null,
+      floating && variant === "error" ? styles.floatingError : null,
+    ],
+    [variant, showTopBorder, floating],
   );
 
   return (
     <View style={containerStyle} testID={testID} accessibilityRole="alert">
-      <View style={styles.body}>
+      <View style={[styles.body, floating && styles.floatingBody]}>
         {hasHeader || onDismiss ? (
           <View style={styles.topRow}>
             {hasHeader ? (
@@ -69,41 +86,60 @@ export function SidebarCallout({
               <Pressable
                 onPress={onDismiss}
                 hitSlop={8}
-                style={styles.dismissButton}
+                style={[styles.dismissButton, floating && styles.floatingDismissButton]}
                 testID={testID ? `${testID}-dismiss` : undefined}
                 accessibilityLabel={t("sidebarCallout.dismiss")}
                 accessibilityRole="button"
               >
                 {({ hovered }) => (
-                  <X
-                    size={14}
-                    color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-                  />
+                  <DismissIcon size={14} uniProps={hovered ? hoveredIcon : normalIcon} />
                 )}
               </Pressable>
             ) : null}
           </View>
         ) : null}
 
-        {hasDescription && typeof description === "string" ? (
-          <SidebarCalloutDescriptionText>{description}</SidebarCalloutDescriptionText>
-        ) : null}
-        {hasDescription && typeof description !== "string" ? (
-          <View style={styles.descriptionSlot}>{description}</View>
-        ) : null}
-
-        {visibleActions.length > 0 ? (
-          <View style={styles.actionRow} testID={testID ? `${testID}-actions` : undefined}>
-            {visibleActions.map((action, index) => (
-              <SidebarCalloutActionButton
-                key={action.label}
-                action={action}
-                testID={action.testID ?? (testID ? `${testID}-action-${index}` : undefined)}
-              />
-            ))}
-          </View>
-        ) : null}
+        <CalloutContent description={description} actions={visibleActions} testID={testID} />
       </View>
+    </View>
+  );
+}
+
+function CalloutContent({
+  description,
+  actions,
+  testID,
+}: Pick<SidebarCalloutProps, "description" | "testID"> & {
+  actions: readonly SidebarCalloutAction[];
+}) {
+  const floating = useContext(FloatingCalloutContext);
+  const hasDescription = description != null && description !== "";
+  const inlineAction = floating && typeof description === "string" && actions.length === 1;
+  return (
+    <View style={inlineAction ? styles.inlineContent : styles.body}>
+      {hasDescription && typeof description === "string" ? (
+        <View style={inlineAction && styles.inlineDescription}>
+          <SidebarCalloutDescriptionText>{description}</SidebarCalloutDescriptionText>
+        </View>
+      ) : null}
+      {hasDescription && typeof description !== "string" ? (
+        <View style={styles.descriptionSlot}>{description}</View>
+      ) : null}
+
+      {actions.length > 0 ? (
+        <View
+          style={[styles.actionRow, inlineAction && styles.inlineActions]}
+          testID={testID ? `${testID}-actions` : undefined}
+        >
+          {actions.map((action, index) => (
+            <SidebarCalloutActionButton
+              key={action.label}
+              action={action}
+              testID={action.testID ?? (testID ? `${testID}-action-${index}` : undefined)}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -145,13 +181,28 @@ function SidebarCalloutActionButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  floatingContainer: {
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.borderAccent,
+    borderRadius: 12,
+    marginBottom: 8,
+    ...theme.shadow.md,
+  },
+  floatingError: { borderColor: theme.colors.destructive },
   container: {
+    flexShrink: 0,
     width: "100%",
-    paddingVertical: theme.spacing[3],
+    paddingVertical: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],
     borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
+    borderTopColor: theme.colors.divider,
     gap: theme.spacing[2],
+  },
+  withoutTopBorder: {
+    borderTopWidth: 0,
   },
   containerError: {
     borderTopColor: theme.colors.destructive,
@@ -162,9 +213,19 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  floatingDismissButton: { width: 32, height: 32 },
   body: {
     gap: theme.spacing[2],
   },
+  floatingBody: { gap: theme.spacing[1] },
+  inlineContent: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  inlineDescription: { flexGrow: 1, flexShrink: 1, flexBasis: 120 },
+  inlineActions: { marginLeft: "auto" },
   topRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -197,11 +258,15 @@ const styles = StyleSheet.create((theme) => ({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: theme.spacing[2],
-    marginTop: theme.spacing[2],
+    justifyContent: "flex-end",
+    alignItems: "center",
   },
   actionButton: {
-    flex: 1,
+    minHeight: 44,
+    maxWidth: "100%",
+    flexShrink: 0,
     paddingVertical: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     borderRadius: theme.borderRadius.md,

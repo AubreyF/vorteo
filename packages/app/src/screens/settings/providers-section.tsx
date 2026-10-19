@@ -378,6 +378,20 @@ function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
   );
 }
 
+function useProviderOrder(serverId: string) {
+  const { patchConfig } = useDaemonConfig(serverId);
+  const reorder = useMutation({
+    mutationFn: async (ordered: ProviderEntry[]) => {
+      const providers = Object.fromEntries(
+        ordered.map((entry, order) => [entry.provider, { order }]),
+      );
+      const result = await patchConfig({ providers });
+      if (!result) throw new Error("Reconnect to the host and try again.");
+    },
+  });
+  return { reorder, status: reorder.isPending ? "Saving provider order..." : null };
+}
+
 export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSectionProps) {
   const { view } = useProviderUsage(serverId, { enabled: true });
   const usageByProvider = useMemo(
@@ -421,6 +435,7 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
     retry: false,
   });
   const { patchConfig } = useDaemonConfig(serverId);
+  const { reorder, status: reorderStatus } = useProviderOrder(serverId);
   const openProviderSettings = useProviderSettingsStore((state) => state.open);
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null);
   const [removingProviderId, setRemovingProviderId] = useState<string | null>(null);
@@ -508,6 +523,7 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
       {!runtimeOnly ? (
         <SettingsSection
           title={t("settings.providers.title")}
+          status={reorderStatus}
           testID="host-page-providers-card"
           style={styles.sectionSpacing}
         >
@@ -523,6 +539,7 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
           ) : null}
           {hasServer && isConnected && !isLoading && providerDefinitions.length > 0 ? (
             <ProviderList
+              reorder={reorder}
               serverId={serverId}
               entries={entries ?? []}
               usageByProvider={usageByProvider}
@@ -566,6 +583,7 @@ interface ProviderListProps extends Pick<
   ProviderRowProps,
   "serverId" | "onPress" | "onToggleEnabled" | "onRemove" | "onRename"
 > {
+  reorder: ReturnType<typeof useMutation<void, Error, ProviderEntry[]>>;
   entries: ProviderEntry[];
   usageByProvider: Map<string, ProviderUsage>;
   pendingProviderId: string | null;
@@ -574,6 +592,7 @@ interface ProviderListProps extends Pick<
 }
 
 function ProviderList({
+  reorder,
   serverId,
   entries,
   usageByProvider,
@@ -587,20 +606,10 @@ function ProviderList({
 }: ProviderListProps) {
   const supportsProviderOrdering = useHostFeature(serverId, "providerOrdering");
   const canReorder = supportsProviderOrdering;
-  const { patchConfig } = useDaemonConfig(serverId);
-  const reorder = useMutation({
-    mutationFn: async (ordered: ProviderEntry[]) => {
-      const providers = Object.fromEntries(
-        ordered.map((entry, order) => [entry.provider, { order }]),
-      );
-      const result = await patchConfig({ providers });
-      if (!result) throw new Error("Reconnect to the host and try again.");
-    },
-  });
-  const { mutate: saveOrder } = reorder;
+  const { mutateAsync: saveOrder } = reorder;
   const reorderProviders = useCallback(
     (ordered: ProviderEntry[]) => {
-      saveOrder(ordered);
+      return saveOrder(ordered);
     },
     [saveOrder],
   );
@@ -650,7 +659,7 @@ function ProviderList({
     <View style={settingsStyles.card}>
       {canReorder ? (
         <DraggableList
-          data={reorder.isPending ? reorder.variables : entries}
+          data={entries}
           keyExtractor={providerKey}
           renderItem={renderProvider}
           onDragEnd={reorderProviders}
@@ -661,7 +670,6 @@ function ProviderList({
       ) : (
         entries.map((item, index) => renderProvider({ item, index, drag: noop, isActive: false }))
       )}
-      {reorder.isPending ? <Text style={styles.statusLabel}>Saving provider order…</Text> : null}
       {reorder.isError ? (
         <Text accessibilityRole="alert" style={styles.errorText}>
           {reorder.error.message}

@@ -5,7 +5,8 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2023", "DOM"],
     "paths": {
-      "@server/*": ["./src/*"]
+      "@server/*": ["./src/*"],
+      "@getpaseo/server/factory-ownership": ["./src/server/factory/ownership.ts"]
     },
     "skipLibCheck": true,
     "resolveJsonModule": true,

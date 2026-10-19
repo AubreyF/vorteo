@@ -2945,6 +2945,39 @@ describe("PiRpcAgentClient", () => {
     ]);
   });
 
+  test("captures Pi's exact automatic compaction result and marks estimates", async () => {
+    const { pi, session } = await createSession();
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    pi.latestSession().emit({
+      type: "compaction_end",
+      reason: "threshold",
+      result: {
+        summary: "  Original summary\n",
+        firstKeptEntryId: "kept-1",
+        tokensBefore: 12000,
+        estimatedTokensAfter: 1500,
+      },
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "timeline",
+        item: {
+          type: "compaction",
+          status: "completed",
+          trigger: "auto",
+          preTokens: 12000,
+          inspection: {
+            summary: { type: "text", text: "  Original summary\n" },
+            firstKeptEntryId: "kept-1",
+            estimatedPostTokens: 1500,
+          },
+        },
+      }),
+    );
+    await session.close();
+  });
+
   test("executes Pi compact through RPC instead of prompt text", async () => {
     const { pi, session } = await createSession();
     const fakeSession = pi.latestSession();
@@ -2965,7 +2998,12 @@ describe("PiRpcAgentClient", () => {
       {
         type: "timeline",
         provider: "pi",
-        item: { type: "compaction", status: "completed", trigger: "manual" },
+        item: {
+          type: "compaction",
+          status: "completed",
+          trigger: "manual",
+          inspection: { summary: { type: "unavailable", reason: "not_exposed" } },
+        },
       },
     ]);
   });

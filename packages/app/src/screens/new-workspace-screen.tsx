@@ -1,9 +1,10 @@
+import { useNewWorkspaceProjectDirectory } from "./new-workspace/project-directory";
+import { useAppSettings } from "@/hooks/use-settings";
+import { transferTaskAttachments } from "@/task-environments/attachments";
 import {
   readExecutionInstallation,
   installationDefaultServerId,
-  findInstallationEnvironment,
 } from "@/execution-installation/policy";
-import { confirmDialog } from "@/utils/confirm-dialog";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardTranslateView } from "@/keyboard/shift";
@@ -40,6 +41,8 @@ import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarMenuToggle } from "@/components/headers/menu-header";
+import { isNative } from "@/constants/platform";
+import { ScreenTitle } from "@/components/headers/screen-title";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useToast } from "@/contexts/toast-context";
@@ -318,6 +321,7 @@ function ProjectPickerTrigger({
   iconDataUri,
   iconColor,
   iconSize,
+  heading,
 }: {
   pickerAnchorRef: React.RefObject<View | null>;
   onPress: () => void;
@@ -329,6 +333,7 @@ function ProjectPickerTrigger({
   iconDataUri: string | null;
   iconColor: string;
   iconSize: number;
+  heading?: string;
 }) {
   const placeholderLabel = projectIconPlaceholderLabelFromDisplayName(label);
   const placeholderInitial = placeholderLabel.charAt(0).toUpperCase() || "?";
@@ -345,22 +350,29 @@ function ProjectPickerTrigger({
           accessibilityRole="button"
           accessibilityLabel="Workspace project"
         >
-          <View style={styles.badgeIconBox}>
-            {projectViewKey ? (
-              <ProjectIconView
-                iconDataUri={iconDataUri}
-                initial={placeholderInitial}
-                projectViewKey={projectViewKey}
-                size={ICON_SIZE.md}
-                textStyle={styles.projectIconFallbackText}
-              />
-            ) : (
-              <Folder size={iconSize} color={iconColor} />
-            )}
+          <View style={heading ? styles.compactHeadingText : styles.projectLabelRow}>
+            {heading ? (
+              <ScreenTitle testID="new-workspace-header-title">{heading}</ScreenTitle>
+            ) : null}
+            <View style={styles.projectLabelRow}>
+              <View style={styles.badgeIconBox}>
+                {projectViewKey ? (
+                  <ProjectIconView
+                    iconDataUri={iconDataUri}
+                    initial={placeholderInitial}
+                    projectViewKey={projectViewKey}
+                    size={ICON_SIZE.md}
+                    textStyle={styles.projectIconFallbackText}
+                  />
+                ) : (
+                  <Folder size={iconSize} color={iconColor} />
+                )}
+              </View>
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {label}
+              </Text>
+            </View>
           </View>
-          <Text style={styles.badgeText} numberOfLines={1}>
-            {label}
-          </Text>
         </ComboboxTrigger>
       </TooltipTrigger>
       <TooltipContent side="top" align="center" offset={8}>
@@ -828,13 +840,17 @@ async function createMultiplicityWorkspace(input: {
   createFailedMessage: string;
 }): Promise<WorkspaceCreationResult> {
   const projectId = getHostProjectId(input.project, input.serverId);
-  if (!projectId) throw new Error("Project is not available on the selected host");
+  const membership =
+    input.project.membership ??
+    (!projectId ? { key: input.project.viewKey, name: input.project.projectName } : null);
+
   const isWorktree = input.isolation === "worktree";
   const firstAgentContext = buildFirstAgentContext({
     prompt: input.prompt,
     attachments: input.attachments,
   });
   const payload = await input.client.createWorkspace({
+    ...(membership ? { projectMembership: membership } : {}),
     idempotencyKey: input.idempotencyKey,
     agent: input.agent,
     onEvent: input.onEvent,
@@ -842,14 +858,14 @@ async function createMultiplicityWorkspace(input: {
       ? {
           kind: "worktree",
           cwd: input.sourceDirectory,
-          projectId,
+          ...(projectId ? { projectId } : {}),
           worktreeSlug: input.worktreeSlug,
           ...input.checkoutRequest,
         }
       : {
           kind: "directory",
           path: input.sourceDirectory,
-          projectId,
+          ...(projectId ? { projectId } : {}),
         },
     ...(firstAgentContext ? { firstAgentContext } : {}),
   });
@@ -952,10 +968,48 @@ function runCreateChatAgent(input: CreateChatAgentInput): Promise<SubmitOutcome>
   return submission;
 }
 
+async function transferNewWorkspaceFiles(
+  attachments: ComposerAttachment[],
+  serverId: string,
+  destination: DaemonClient,
+) {
+  const result: ComposerAttachment[] = [];
+  for (const attachment of attachments) {
+    if (
+      attachment.kind !== "file" ||
+      !attachment.sourceServerId ||
+      attachment.sourceServerId === serverId
+    ) {
+      result.push(attachment);
+      continue;
+    }
+    const source = getHostRuntimeStore().getClient(attachment.sourceServerId);
+    if (!source)
+      throw new Error(
+        `Reconnect to the original environment to transfer ${attachment.attachment.fileName}.`,
+      );
+    const transferred = await transferTaskAttachments({
+      attachments: [attachment.attachment],
+      source,
+      destination,
+    });
+    const file = transferred?.[0];
+    if (!file || file.type !== "uploaded_file")
+      throw new Error("The uploaded file could not be transferred.");
+    result.push({ ...attachment, attachment: file, sourceServerId: serverId });
+  }
+  return result;
+}
+
 async function createWorkspaceChatAgent(input: CreateChatAgentInput): Promise<SubmitOutcome> {
   const { payload, composerState, ensureWorkspace, serverId, clearDraft } = input;
   const clearConsumedDraft = captureWorkspaceDraftCleanup(input);
-  const { text, attachments, cwd } = payload;
+  const { text, cwd } = payload;
+  const attachments = await transferNewWorkspaceFiles(
+    payload.attachments,
+    serverId,
+    input.resolveClient(),
+  );
   if (!composerState) {
     throw new Error(input.labels.composerStateRequired);
   }
@@ -1194,11 +1248,15 @@ function useNewWorkspaceHostSelector(input: {
   hostConnectionStatusByServerId: ReadonlyMap<string, HostRuntimeConnectionStatus>;
   workspaceMultiplicityByServerId: ReadonlyMap<string, boolean>;
 }) {
+  const { settings } = useAppSettings();
+  const preferredServerId =
+    settings.workspaceDefaults.environment ??
+    installationDefaultServerId(readExecutionInstallation());
   const routeServerId = input.initialServerId.trim();
   const defaultServerId = useMemo(
     () =>
       resolveNewWorkspaceInitialServerId({
-        defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+        defaultExecutionServerId: preferredServerId,
         allServerIds: input.allServerIds,
         routeServerId: input.initialServerId,
         lastActiveProject: input.lastActiveProject,
@@ -1207,6 +1265,7 @@ function useNewWorkspaceHostSelector(input: {
         workspaceMultiplicityByServerId: input.workspaceMultiplicityByServerId,
       }),
     [
+      preferredServerId,
       input.allServerIds,
       input.hostConnectionStatusByServerId,
       input.initialServerId,
@@ -1230,7 +1289,7 @@ function useNewWorkspaceHostSelector(input: {
       const nextServerId =
         current.routeServerId === routeServerId
           ? resolveNewWorkspaceAutomaticServerId({
-              defaultExecutionServerId: installationDefaultServerId(readExecutionInstallation()),
+              defaultExecutionServerId: preferredServerId,
               allServerIds: input.allServerIds,
               routeServerId: input.initialServerId,
               lastActiveProject: input.lastActiveProject,
@@ -1249,6 +1308,7 @@ function useNewWorkspaceHostSelector(input: {
       return { routeServerId, serverId: nextServerId };
     });
   }, [
+    preferredServerId,
     defaultServerId,
     input.allServerIds,
     input.hostConnectionStatusByServerId,
@@ -1441,7 +1501,7 @@ interface NewWorkspaceFormStackInput {
   };
 }
 
-function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactElement {
+function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const { isCompact, isPending, project, isolation, base, launch } = input;
@@ -1470,7 +1530,8 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
         pickerAnchorRef={project.anchorRef}
         onPress={project.open}
         disabled={isPending}
-        badgePressableStyle={badgePressableStyle}
+        badgePressableStyle={isCompact ? styles.compactProjectTrigger : badgePressableStyle}
+        heading={isCompact ? t("newWorkspace.title") : undefined}
         label={project.triggerLabel}
         tooltipLabel={t("newWorkspace.tooltips.project")}
         projectViewKey={project.selectedProject?.viewKey ?? null}
@@ -1571,15 +1632,11 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
     />
   );
 
-  return isCompact ? (
+  const fields = isCompact ? (
     <View testID="new-workspace-ref-picker-row" style={styles.formStack} pointerEvents="box-none">
-      <FormRow>{projectControl}</FormRow>
       {isolationControl ? <FormRow>{isolationControl}</FormRow> : null}
       {baseControl ? <FormRow>{baseControl}</FormRow> : null}
       <FormRow>{launchControl}</FormRow>
-      {/* Keep fixed stack height without separating the visible controls. */}
-      {isolationControl ? null : <View style={styles.baseSpacer} pointerEvents="none" />}
-      {baseControl ? null : <View style={styles.baseSpacer} pointerEvents="none" />}
     </View>
   ) : (
     <View
@@ -1594,6 +1651,7 @@ function useNewWorkspaceFormStack(input: NewWorkspaceFormStackInput): ReactEleme
       {launchControl}
     </View>
   );
+  return { fields, projectControl };
 }
 
 export function NewWorkspaceScreen({
@@ -1903,21 +1961,30 @@ export function NewWorkspaceScreen({
   );
 
   const handleSelectWorkspaceHost = useCallback(
-    async (id: string) => {
-      const environment = findInstallationEnvironment(readExecutionInstallation(), id);
-      if (environment?.kind === "host" && id !== selectedServerId) {
-        const approved = await confirmDialog({
-          title: "Run on the host?",
-          message:
-            "Agents and terminals here have full access to your host account, including its files and credentials.",
-          confirmLabel: "Use host",
-        });
-        if (!approved) return;
+    (id: string) => {
+      if (
+        id !== selectedServerId &&
+        chatDraft.attachments.some(
+          (attachment) =>
+            attachment.kind === "workspace_file" || attachment.kind === "plugin_resource",
+        )
+      ) {
+        setErrorMessage(
+          "Remove workspace file references and plugin attachments before changing environments. The draft stays here.",
+        );
+        return;
       }
+      chatDraft.setAttachments((current) =>
+        current.map((attachment) =>
+          attachment.kind === "file"
+            ? { ...attachment, sourceServerId: attachment.sourceServerId ?? selectedServerId }
+            : attachment,
+        ),
+      );
       handleSelectHost(id);
       clearPickerSelectionForTargetChange(selectedServerId, id);
     },
-    [clearPickerSelectionForTargetChange, handleSelectHost, selectedServerId],
+    [clearPickerSelectionForTargetChange, handleSelectHost, selectedServerId, chatDraft],
   );
 
   const handleAddProject = useCallback(() => {
@@ -2016,6 +2083,8 @@ export function NewWorkspaceScreen({
     setProjectPickerOpen(nextOpen);
   }, []);
 
+  const projectDirectory = useNewWorkspaceProjectDirectory();
+  const resolveProjectDirectory = projectDirectory.resolve;
   const ensureWorkspace = useCallback(
     async (input: {
       cwd: string;
@@ -2031,17 +2100,17 @@ export function NewWorkspaceScreen({
       if (!selectedProject) {
         throw new Error("Choose a project");
       }
-      if (!selectedSourceDirectory) {
-        throw new Error("Choose a host for this project");
-      }
       const connectedClient = withConnectedClient();
+      const sourceDirectory =
+        selectedSourceDirectory ??
+        (await resolveProjectDirectory(selectedProject, connectedClient));
       const createsWorktree = !supportsWorkspaceMultiplicity || effectiveIsolation === "worktree";
       const checkoutStatusForCreate = createsWorktree
         ? await ensureCheckoutStatus({
             queryClient,
             client: connectedClient,
             serverId: selectedServerId,
-            cwd: selectedSourceDirectory,
+            cwd: sourceDirectory,
           })
         : null;
       const checkoutRequest = checkoutStatusForCreate
@@ -2055,12 +2124,15 @@ export function NewWorkspaceScreen({
         client: connectedClient,
         isolation: createsWorktree ? "worktree" : "local",
         project: selectedProject,
-        sourceDirectory: selectedSourceDirectory,
+        sourceDirectory,
         checkoutRequest,
         withInitialAgent: input.withInitialAgent,
         prompt: input.prompt,
         attachments: input.attachments,
-        agent: input.agent,
+        agent:
+          input.agent?.config && !selectedSourceDirectory
+            ? { ...input.agent, config: { ...input.agent.config, cwd: sourceDirectory } }
+            : input.agent,
         onEvent: input.onEvent,
         mergeWorkspaces,
         serverId: selectedServerId,
@@ -2070,6 +2142,7 @@ export function NewWorkspaceScreen({
       return normalizedWorkspace;
     },
     [
+      resolveProjectDirectory,
       creationIdentity,
       creationResult,
       effectiveIsolation,
@@ -2281,10 +2354,11 @@ export function NewWorkspaceScreen({
         ? {
             ...composerState.agentControls,
             project: selectedProject,
+            onSelectEnvironment: handleSelectWorkspaceHost,
             disabled: isPending,
           }
         : undefined,
-    [composerState, isPending, selectedProject],
+    [composerState, isPending, selectedProject, handleSelectWorkspaceHost],
   );
 
   const pickerEmptyText =
@@ -2292,7 +2366,7 @@ export function NewWorkspaceScreen({
       ? t("newWorkspace.refPicker.searching")
       : t("newWorkspace.refPicker.noMatchingRefs");
 
-  const formStack = useNewWorkspaceFormStack({
+  const { fields: formStack, projectControl } = useNewWorkspaceFormStack({
     isCompact,
     isPending,
     project: {
@@ -2354,7 +2428,10 @@ export function NewWorkspaceScreen({
     },
   });
 
-  const screenHeaderLeft = useMemo(() => <SidebarMenuToggle />, []);
+  const screenHeaderLeft = useMemo(
+    () => <NewWorkspaceHeaderLeft isCompact={isCompact} projectControl={projectControl} />,
+    [isCompact, projectControl],
+  );
   const importSession = useImportSession({ serverId: selectedServerId });
 
   const composer = isTerminalLaunch ? (
@@ -2434,7 +2511,23 @@ export function NewWorkspaceScreen({
         </NewWorkspaceLayout>
       </View>
       {importSession.sheet}
+      {projectDirectory.sheet}
     </FileDropZone>
+  );
+}
+
+function NewWorkspaceHeaderLeft({
+  isCompact,
+  projectControl,
+}: {
+  isCompact: boolean;
+  projectControl: ReactNode;
+}) {
+  return (
+    <>
+      <SidebarMenuToggle />
+      {isCompact ? <View style={styles.compactHeading}>{projectControl}</View> : null}
+    </>
   );
 }
 
@@ -2457,9 +2550,11 @@ function NewWorkspaceLayout({
   const setupFields = (
     <>
       {isCompact ? <View style={styles.compactTopActions}>{importSessionButton}</View> : null}
-      <View style={styles.composerTitleContainer} pointerEvents="none">
-        <Text style={styles.composerTitle}>{title}</Text>
-      </View>
+      {!isCompact ? (
+        <View style={styles.composerTitleContainer} pointerEvents="none">
+          <Text style={styles.composerTitle}>{title}</Text>
+        </View>
+      ) : null}
       {formStack}
     </>
   );
@@ -2470,11 +2565,11 @@ function NewWorkspaceLayout({
         styles.content,
         styles.vortonContent,
         isCompact
-          ? [styles.contentCompact, { paddingBottom: insets.bottom }]
+          ? [styles.contentCompact, { paddingBottom: isNative ? insets.bottom : 0 }]
           : styles.contentCentered,
       ]}
     >
-      <KeyboardTranslateView style={styles.centered}>
+      <KeyboardTranslateView style={[styles.centered, isCompact && styles.centeredCompact]}>
         {setupFields}
         {children}
       </KeyboardTranslateView>
@@ -2483,6 +2578,21 @@ function NewWorkspaceLayout({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  compactHeading: { flex: 1, minWidth: 0 },
+  compactHeadingText: { flexShrink: 1, minWidth: 0 },
+  projectLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  compactProjectTrigger: {
+    height: 52,
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.full,
+  },
+  centeredCompact: { flex: 1, minHeight: 0, justifyContent: "flex-end" },
   centered: { width: "100%", maxWidth: theme.contentMaxWidth },
   container: {
     flex: 1,
@@ -2492,6 +2602,7 @@ const styles = StyleSheet.create((theme) => ({
   content: {
     position: "relative",
     flex: 1,
+    minHeight: 0,
   },
   vortonContent: { alignItems: "center" },
   contentCentered: {
@@ -2499,10 +2610,8 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: HEADER_INNER_HEIGHT + theme.spacing[6],
   },
   contentCompact: { justifyContent: "flex-end" },
-  // Takes the free space above the setup fields, so its button sits at the top of the screen.
-  // The inset puts the ghost button's icon on the setup rows' icon rail.
+  // Align the import action with the setup controls without reserving blank rows.
   compactTopActions: {
-    flex: 1,
     paddingHorizontal: theme.spacing[3],
   },
   composerTitleContainer: {
@@ -2521,7 +2630,9 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 20,
   },
   formStack: {
-    marginBottom: theme.spacing[8],
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: theme.spacing[3],
     gap: theme.spacing[2],
   },
   formStackDesktop: {
@@ -2549,9 +2660,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     paddingLeft: theme.spacing[4],
     gap: theme.spacing[1],
-  },
-  baseSpacer: {
-    height: BADGE_HEIGHT,
   },
   // Pushes the launch control to the trailing edge of the desktop meta row,
   // next to project/host/branch. The row's own right inset (formStackDesktop)

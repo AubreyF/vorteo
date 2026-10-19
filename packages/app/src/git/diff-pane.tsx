@@ -23,7 +23,7 @@ import {
   ListChevronsDownUp,
   ListChevronsUpDown,
   Maximize,
-  MoreHorizontal,
+  MoreVertical,
   Pilcrow,
   RotateCw,
   WrapText,
@@ -206,7 +206,7 @@ const ThemedListChevronsUpDown = withUnistyles(ListChevronsUpDown);
 const ThemedMaximize = withUnistyles(Maximize);
 const noopStateChange = () => {};
 const ThemedChevronDown = withUnistyles(ChevronDown);
-const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
+const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const DIFF_OPTIONS_WHITESPACE_ICON = (
   <ThemedPilcrow size={14} uniProps={foregroundMutedIconColorMapping} />
@@ -921,7 +921,7 @@ function ChangesOptionsMenu({ mode, compact }: { mode: ChangesOptionsMenuMode; c
         compact={compact}
         testID="changes-options-menu"
       >
-        <ThemedMoreHorizontal
+        <ThemedMoreVertical
           size={paneContentToolbarIconSize(compact)}
           uniProps={extraMutedIconColorMapping}
         />

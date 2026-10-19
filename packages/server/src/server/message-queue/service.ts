@@ -10,6 +10,9 @@ type QueueListener = (snapshot: QueueSnapshot) => void;
 export class MessageQueueService {
   private readonly listeners = new Map<string, Set<QueueListener>>();
   private readonly queuedAgents = new Set<string>();
+  private closed = false;
+  private readonly automaticAdmissionEpoch = new Map<string, number>();
+  private readonly automaticAdmissionBusy = new Map<string, number>();
   private initialization: Promise<void> | null = null;
   private delivery: QueueDeliveryWorker | null = null;
   private deliveryPort: Omit<QueueDeliveryPort, "changed"> | null = null;
@@ -27,7 +30,23 @@ export class MessageQueueService {
       ...port,
       changed: (snapshot) => this.publish(snapshot),
     });
-    for (const agentId of await this.store.listAgentIds()) void this.delivery.wake(agentId);
+    const stored = await this.store.listAgentIds();
+    const held = (await port.recoveryAgentIds?.()) ?? [];
+    for (const agentId of new Set([...stored, ...held])) void this.delivery.wake(agentId);
+  }
+
+  async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {
+    const snapshot = await this.read(agentId);
+    // Existing queued work already supplies continuation. User-paused queues stay paused.
+    if (snapshot.paused || snapshot.items.length) return;
+    const id = `restart-${requestId}-${agentId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text: "The installation restart hold has ended. Continue the work you saved for this restart, following the owner's latest instructions.",
+    });
   }
 
   wake(agentId: string): void {
@@ -36,10 +55,15 @@ export class MessageQueueService {
   }
 
   close(): void {
+    this.closed = true;
     this.delivery?.close();
   }
 
   async pause(agentId: string): Promise<void> {
+    return this.trackQueueMutation(agentId, () => this.pauseQueued(agentId));
+  }
+
+  private async pauseQueued(agentId: string): Promise<void> {
     this.delivery?.halt(agentId);
     this.stopGenerations.set(agentId, (this.stopGenerations.get(agentId) ?? 0) + 1);
     await this.deliveryPort?.abandonGoal?.(agentId);
@@ -100,7 +124,46 @@ export class MessageQueueService {
     return { attachment, ...location };
   }
 
+  private async trackQueueMutation<T>(agentId: string, operation: () => Promise<T>): Promise<T> {
+    this.automaticAdmissionEpoch.set(agentId, (this.automaticAdmissionEpoch.get(agentId) ?? 0) + 1);
+    this.automaticAdmissionBusy.set(agentId, (this.automaticAdmissionBusy.get(agentId) ?? 0) + 1);
+    try {
+      return await operation();
+    } finally {
+      const remaining = (this.automaticAdmissionBusy.get(agentId) ?? 1) - 1;
+      if (remaining) this.automaticAdmissionBusy.set(agentId, remaining);
+      else this.automaticAdmissionBusy.delete(agentId);
+    }
+  }
+
+  async withIdleQueue<T>(
+    agentId: string,
+    operation: (canStart: () => boolean) => Promise<T>,
+  ): Promise<T | null> {
+    const epoch = this.automaticAdmissionEpoch.get(agentId) ?? 0;
+    const canStart = () =>
+      !this.closed &&
+      !this.automaticAdmissionBusy.has(agentId) &&
+      epoch === (this.automaticAdmissionEpoch.get(agentId) ?? 0);
+    await this.initialize();
+    if (!canStart()) return null;
+    return this.store.withIdleQueue(agentId, async () => {
+      if (!canStart()) return null;
+      return operation(canStart);
+    });
+  }
+
   async mutate(
+    agentId: string,
+    operation: QueueOperation,
+    beforeCommit?: () => Promise<void>,
+  ): Promise<QueueSnapshot> {
+    return this.trackQueueMutation(agentId, () =>
+      this.mutateQueued(agentId, operation, beforeCommit),
+    );
+  }
+
+  private async mutateQueued(
     agentId: string,
     operation: QueueOperation,
     beforeCommit?: () => Promise<void>,

@@ -370,3 +370,44 @@ it("keeps goal completion errors visible even when the message queue is empty", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("restart admission holds queued work without marking it failed or manually paused", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-restart-admission-"));
+  try {
+    const store = new MessageQueueStore(root);
+    await store.mutate("agent", {
+      kind: "enqueue",
+      operationId: "enqueue",
+      messageId: "message",
+      text: "Continue",
+      attachments: [],
+    });
+    let open = false;
+    let starts = 0;
+    const worker = new QueueDeliveryWorker(store, {
+      canStartWork: () => open,
+      prepare: async () => true,
+      load: async (item) => item.text,
+      start: () =>
+        (async function* () {
+          starts++;
+          yield { type: "turn_started", provider: "codex", turnId: "turn" } as const;
+        })(),
+      changed() {},
+      failed(error) {
+        throw error;
+      },
+    });
+    await worker.wake("agent");
+    expect(starts).toBe(0);
+    expect((await store.read("agent")).items[0]?.delivery.status).toBe("queued");
+    expect((await store.read("agent")).paused).toBe(false);
+    open = true;
+    await worker.wake("agent");
+    expect(starts).toBe(1);
+    expect((await store.read("agent")).items).toHaveLength(0);
+    worker.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

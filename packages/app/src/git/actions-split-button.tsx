@@ -1,3 +1,7 @@
+import { FLOATING_PANEL_RADIUS } from "@/styles/floating-panel";
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { useVortonTouch } from "@/vorton-touch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useCallback, useMemo } from "react";
 import { View, Text, Pressable, type PressableStateCallbackType } from "react-native";
@@ -42,13 +46,16 @@ function GitActionMenuItem({
   showSeparator,
   closeOnSelect,
 }: GitActionMenuItemProps) {
+  const compact = useIsCompactFormFactor();
+  const touch = useVortonTouch();
+  const showHint = compact || touch;
   const handleSelect = useCallback(() => onSelect(action), [onSelect, action]);
   const trailing = useMemo(
     () =>
-      action.id === "archive-workspace" && archiveShortcutKeys ? (
+      action.id === "archive-workspace" && !action.disabled && archiveShortcutKeys ? (
         <Shortcut chord={archiveShortcutKeys} />
       ) : undefined,
-    [action.id, archiveShortcutKeys],
+    [action.id, action.disabled, archiveShortcutKeys],
   );
   return (
     <View>
@@ -62,6 +69,8 @@ function GitActionMenuItem({
         leading={action.icon}
         trailing={trailing}
         disabled={action.disabled}
+        tooltip={action.tooltip}
+        description={showHint ? action.tooltip : undefined}
         muted={Boolean(action.unavailableMessage)}
         status={action.status}
         pendingLabel={action.pendingLabel}
@@ -180,10 +189,10 @@ export function GitActionsSplitButton({
     return null;
   }
 
-  return (
-    <View style={styles.row}>
-      {gitActions.primary ? (
-        <View style={styles.splitButton}>
+  const primaryButton = gitActions.primary ? (
+    <Tooltip enabledOnDesktop={Boolean(gitActions.primary.tooltip)} enabledOnMobile={false}>
+      <TooltipTrigger asChild>
+        <View>
           <Pressable
             testID="changes-primary-cta"
             style={primaryPressableStyle}
@@ -209,6 +218,19 @@ export function GitActionsSplitButton({
               </View>
             )}
           </Pressable>
+        </View>
+      </TooltipTrigger>
+      <TooltipContent>
+        <Text style={styles.tooltipText}>{gitActions.primary.tooltip}</Text>
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+
+  return (
+    <View style={styles.row}>
+      {gitActions.primary ? (
+        <View style={styles.splitButton}>
+          {primaryButton}
           {gitActions.secondary.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -269,6 +291,7 @@ export function GitActionsSplitButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  tooltipText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -276,22 +299,18 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
   },
   splitButton: {
-    height: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    height: 40,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
     overflow: "hidden",
   },
   splitButtonPrimary: {
-    paddingHorizontal: {
-      xs: theme.spacing[3],
-      md: theme.spacing[2],
-    },
+    minHeight: 40,
+    borderRadius: FLOATING_PANEL_RADIUS,
+    flexShrink: 0,
+    paddingHorizontal: theme.spacing[3],
     justifyContent: "center",
     position: "relative",
   },
@@ -308,9 +327,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     gap: theme.spacing[1],
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   splitButtonPrimaryDisabled: {
     opacity: 0.6,
@@ -334,14 +351,10 @@ const styles = StyleSheet.create((theme) => ({
     transform: [{ scale: 0.8 }],
   },
   splitButtonCaret: {
-    width: {
-      xs: buttonControlHeight.xs,
-      md: HEADER_CONTROL_HEIGHT,
-    },
+    width: 40,
     alignItems: "center",
     justifyContent: "center",
-    borderLeftWidth: theme.borderWidth[1],
-    borderLeftColor: theme.colors.borderAccent,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   iconButton: {
     width: {
@@ -354,7 +367,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: theme.borderRadius.md,
+    borderRadius: FLOATING_PANEL_RADIUS,
   },
   overflowMenuButton: {
     marginRight: -theme.spacing[2],

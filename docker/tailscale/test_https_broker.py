@@ -4,11 +4,95 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import uuid
-from https_broker import Broker, Runtime, atomic, safe_read, validate
+from https_broker import Broker, Runtime, NativeRuntime, atomic, safe_read, validate
+
+
+class NativeWorkspacePolicyTests(unittest.TestCase):
+    def test_retained_tailnet_connection_does_not_block_owned_restart(self):
+        runtime = NativeRuntime({'nodeId': 'node', 'hostname': 'test.ts.net'})
+        runtime.ts = lambda args: json.dumps({'Self': {'ID': 'node', 'DNSName': 'test.ts.net.', 'TailscaleIPs': ['100.64.0.1']}})
+        row = 'tcp4 0 0 100.64.0.1.32768 100.64.0.2.50000 ESTABLISHED'
+        runtime.command = lambda args: row
+        with patch('https_broker.socket.socket') as socket:
+            socket.return_value.__enter__.return_value.bind.side_effect = OSError('occupied')
+            with self.assertRaises(subprocess.SubprocessError):
+                runtime.free(32768)
+            runtime.free(32768, retained=True)
+            for blocked in ('tcp4 0 0 *.32768 *.* LISTEN',
+                            'tcp4 0 0 127.0.0.1.32768 127.0.0.1.50000 ESTABLISHED'):
+                row = blocked
+                with self.assertRaises(subprocess.SubprocessError):
+                    runtime.free(32768, retained=True)
+            row = 'tcp4 0 0 100.64.0.1.32768 100.64.0.2.50000 ESTABLISHED\ntcp4 0 0 *.32768 *.* LISTEN'
+            with self.assertRaises(subprocess.SubprocessError):
+                runtime.free(32768, retained=True)
+
+    def test_native_listener_rejects_wildcard_and_other_terminal(self):
+        runtime = NativeRuntime({})
+        runtime.command = lambda args: 'p123\nn*:40001\n'
+        with self.assertRaisesRegex(ValueError, 'loopback listener'):
+            runtime.listener_pid(40001)
+        runtime.command = lambda args: 'p123\nn127.0.0.1:40001\n' if args[0].endswith('lsof') else 'node PASEO_TERMINAL_ID=another'
+        runtime.process_identity = lambda pid: {'pid': pid, 'parent': 1, 'birth': '1:2'}
+        runtime.terminal_environment = lambda pid: 'another'
+        with self.assertRaisesRegex(ValueError, 'managed terminal'):
+            runtime.listener_identity(40001, 'terminal_expected')
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS process ownership probe')
+    def test_real_native_listener_identity(self):
+        # Disposable HTTP fixture only; never start or stop an installed daemon.
+        runtime = NativeRuntime({})
+        code = 'import socket,time; s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(); print(s.getsockname()[1],flush=True); time.sleep(30)'
+        process = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, text=True,
+                                   env={**os.environ, 'PASEO_TERMINAL_ID': 'terminal_fixture'})
+        try:
+            port = int(process.stdout.readline())
+            identity = runtime.listener_identity(port, 'terminal_fixture')
+            self.assertTrue(identity.startswith(str(process.pid) + ':'))
+            self.assertEqual(runtime.listener_identity(port, 'terminal_fixture'), identity)
+            with self.assertRaisesRegex(ValueError, 'managed terminal'):
+                runtime.listener_identity(port, 'terminal_other')
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            process.stdout.close()
+
+    def test_registered_native_workspace_uses_real_host_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'paseo.json').write_text(json.dumps({'scripts': {
+                'preview': {'type': 'service', 'command': 'npm run dev', 'port': 40001}}}))
+            runtime = NativeRuntime({'workspacePolicy': 'registered'})
+            workspace = {'workspaceId': 'wks_native', 'cwd': str(root), 'isolation': 'local'}
+            runtime.cli = lambda args: [workspace] if args == ['workspace', 'ls'] else [
+                {'scriptName': 'preview', 'type': 'service'}]
+            self.assertEqual(runtime.current('wks_native', 'preview')['cwd'], str(root))
+            self.assertEqual(runtime.registered_ports(), {40001})
+            workspace['archivedAt'] = '2026-10-11'
+            with self.assertRaisesRegex(ValueError, 'archived'):
+                runtime.current('wks_native', 'preview')
+            del workspace['archivedAt']
+            alias = root / 'alias'
+            alias.symlink_to(root, target_is_directory=True)
+            workspace['cwd'] = str(alias)
+            with self.assertRaises(OSError):
+                runtime.current('wks_native', 'preview')
+
+
+class DaemonIdentityTests(unittest.TestCase):
+    def test_managed_and_legacy_process_identity(self):
+        # Execute the broker's Linux probe against isolated procfs fixtures on any host.
+        result = subprocess.run(
+            ['node', '--test', str(Path(__file__).with_name('https-broker-identity.test.cjs'))],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class WorkspacePolicyTests(unittest.TestCase):
@@ -134,6 +218,8 @@ class Fake:
         self.starts = 0
         self.free_calls = []
         self.fail_verify = False
+        self.daemon = 'boot:100:1'
+    def daemon_identity(self): return self.daemon
     def preflight(self): pass
     def registered_ports(self): return {33487,39000}
     def current(self, w, s):
@@ -142,12 +228,13 @@ class Fake:
     def publication(self):
         if any(self.config.get('AllowFunnel', {}).values()): raise ValueError('Unexpected Funnel')
         return copy.deepcopy(self.config)
-    def free(self, p): self.free_calls.append(p)
+    def free(self, p, retained=False): self.free_calls.append(p)
     def backend_ready(self, p): pass
     def listener_identity(self, p, terminal): return terminal
     def lifecycle(self, op, e):
         self.entry['lifecycle'] = 'running' if op == 'start' else 'stopped'
         if op == 'start': self.starts += 1; self.entry['terminalId'] = str(self.starts)
+        return copy.deepcopy(self.entry)
     def set_mapping(self, p, b):
         self.sets += 1
         self.config['TCP'][str(p)] = {'HTTPS': True}
@@ -230,6 +317,25 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):self.b.handle(self.request())
         self.assertEqual(self.runtime.sets,0)
 
+    def test_high_ephemeral_backend_keeps_frontend_reservation(self):
+        for port in (60999, 61000, 61983, 65535):
+            with self.subTest(port=port):
+                self.runtime.entry['port'] = port
+                result = self.b.handle(self.request('restart'))
+                self.assertEqual(result['status'], 'ready')
+                self.assertEqual(result['backendPort'], port)
+                self.assertEqual(result['frontendPort'], 44444)
+                route = self.runtime.config['Web']['test.example.ts.net:44444']
+                self.assertEqual(route['Handlers']['/']['Proxy'], f'http://127.0.0.1:{port}')
+
+    def test_invalid_and_frontend_backend_ports_stay_rejected(self):
+        for port in (None, True, '61983', 32767, 65536, 44444):
+            with self.subTest(port=port):
+                self.runtime.entry['port'] = port
+                with self.assertRaisesRegex(ValueError, 'Backend allocation'):
+                    self.b.handle(self.request('restart', preferredPort=44444))
+                self.assertEqual(self.runtime.sets, 0)
+
     def test_concurrent_consumer_lock_and_multiple_starts(self):
         import fcntl
         r1=self.request();r2=self.request()
@@ -249,6 +355,162 @@ class Tests(unittest.TestCase):
     def test_recovery_adopts_same_process_without_new_mapping(self):
         self.b.handle(self.request());Broker(self.c,self.runtime).reconcile()
         self.assertEqual(self.runtime.sets,1);self.assertEqual(self.runtime.starts,0)
+
+    def test_opted_in_preview_recovers_after_daemon_restart(self):
+        self.c['restoreAfterRestart'] = True
+        before = self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry.update(lifecycle='stopped', terminalId=None, port=33488)
+        Broker(self.c, self.runtime).reconcile()
+        entry = safe_read(self.b.ledger_path)['entries']['wks_test.preview']
+        self.assertEqual(entry['status'], 'ready')
+        self.assertEqual(entry['frontend'], before['frontendPort'])
+        self.assertEqual(entry['backend'], 33488)
+        self.assertEqual(self.runtime.starts, 1)
+        self.assertEqual(self.runtime.config['Web']['test.example.ts.net:44443']['Handlers']['/']['Proxy'], 'http://127.0.0.1:39000')
+
+    def test_explicit_stop_stays_stopped_across_restart(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.b.handle(self.request('stop'))
+        self.runtime.daemon = 'new-boot:100:1'
+        Broker(self.c, self.runtime).reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+        self.assertEqual(safe_read(self.b.ledger_path)['entries']['wks_test.preview']['desired'], 'stopped')
+        self.assertNotIn('44444', self.runtime.config['TCP'])
+
+    def test_stopped_service_in_same_daemon_is_not_revived(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.entry['lifecycle'] = 'stopped'
+        self.b.reconcile()
+        self.runtime.daemon = 'boot:200:2'
+        self.b.reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+
+    def prepare_recovery(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry['lifecycle'] = 'stopped'
+
+    def assert_recovery_rejected(self):
+        self.b.reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+        self.assertNotIn('44444', self.runtime.config['TCP'])
+        self.assertEqual(self.b.ledger['entries']['wks_test.preview']['desired'], 'stopped')
+
+    def test_archived_workspace_is_not_recovered(self):
+        self.prepare_recovery()
+        def archived(w, s): raise ValueError('Unknown, archived or unsupported workspace')
+        self.runtime.current = archived
+        self.assert_recovery_rejected()
+
+    def test_moved_workspace_is_not_recovered(self):
+        self.prepare_recovery()
+        self.runtime.entry['cwd'] = '/different'
+        self.assert_recovery_rejected()
+
+    def test_reconfigured_service_is_not_recovered(self):
+        self.prepare_recovery()
+        self.runtime.entry['fingerprint'] = 'different'
+        self.assert_recovery_rejected()
+
+    def test_running_replacement_after_restart_is_not_adopted(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry['terminalId'] = 'unrecognized'
+        self.b.reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+        self.assertNotIn('44444', self.runtime.config['TCP'])
+
+    def test_recovery_retries_are_bounded_and_persist_across_broker_runs(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry['lifecycle'] = 'stopped'
+        calls = []
+        def unavailable(op, entry):
+            calls.append(op)
+            raise subprocess.TimeoutExpired('start', 12)
+        self.runtime.lifecycle = unavailable
+        self.b.reconcile()
+        self.assertEqual(calls, ['start'])
+        Broker(self.c, self.runtime).reconcile()
+        self.assertEqual(calls, ['start'])
+        for attempt in range(1, 3):
+            broker = Broker(self.c, self.runtime)
+            broker.ledger['entries']['wks_test.preview']['recovery']['retryAt'] = 0
+            broker.save()
+            broker.reconcile()
+            self.assertEqual(len(calls), attempt + 1)
+            Broker(self.c, self.runtime).reconcile()
+            self.assertEqual(len(calls), attempt + 1)
+        self.assertNotIn('44444', self.runtime.config['TCP'])
+        self.assertEqual(safe_read(self.b.ledger_path)['entries']['wks_test.preview']['status'], 'pending')
+
+    def test_slow_start_verification_does_not_launch_twice(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry.update(lifecycle='stopped', port=33488)
+        self.runtime.fail_verify = True
+        self.b.reconcile()
+        self.runtime.fail_verify = False
+        Broker(self.c, self.runtime).reconcile()
+        self.assertEqual(self.runtime.starts, 1)
+        entry = safe_read(self.b.ledger_path)['entries']['wks_test.preview']
+        self.assertEqual(entry['status'], 'ready')
+        self.assertEqual(entry['daemon'], self.runtime.daemon)
+        self.assertNotIn('recovery', entry)
+
+    def test_legacy_stopped_reservation_is_not_revived_when_enabling_recovery(self):
+        self.b.handle(self.request())
+        self.c['restoreAfterRestart'] = True
+        self.runtime.entry['lifecycle'] = 'stopped'
+        self.b.reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+
+    def test_restart_recovery_preserves_foreign_route_conflict(self):
+        self.c['restoreAfterRestart'] = True
+        self.b.handle(self.request())
+        self.runtime.daemon = 'boot:200:2'
+        self.runtime.entry['lifecycle'] = 'stopped'
+        self.runtime.config['Web']['test.example.ts.net:44444']['Handlers']['/']['Proxy'] = 'http://127.0.0.1:55555'
+        before = copy.deepcopy(self.runtime.config)
+        self.b.reconcile()
+        self.assertEqual(self.runtime.starts, 0)
+        self.assertEqual(self.runtime.config, before)
+
+    def test_stop_queued_during_restart_wins_over_recovery(self):
+        self.prepare_recovery()
+        stop = self.request('stop')
+        atomic(Path(self.c['channel']) / 'inbox' / (stop['id'] + '.json'), stop)
+        self.b.run()
+        self.assertEqual(self.runtime.starts, 0)
+        self.assertEqual(self.b.ledger['entries']['wks_test.preview']['desired'], 'stopped')
+
+    def test_recovery_does_not_adopt_start_with_lost_acknowledgement(self):
+        self.prepare_recovery()
+        start = self.runtime.lifecycle
+        def lost_response(op, entry):
+            start(op, entry)
+            raise subprocess.TimeoutExpired('start', 12)
+        self.runtime.lifecycle = lost_response
+        self.b.reconcile()
+        Broker(self.c, self.runtime).reconcile()
+        self.assertEqual(self.runtime.starts, 1)
+        self.assertNotIn('44444', self.runtime.config['TCP'])
+        self.assertEqual(safe_read(self.b.ledger_path)['entries']['wks_test.preview']['desired'], 'stopped')
+
+    def test_daemon_change_during_verification_never_returns_ready(self):
+        self.c['restoreAfterRestart'] = True
+        identities = iter(['boot:100:1', 'boot:200:2'])
+        self.runtime.daemon_identity = lambda: next(identities)
+        with self.assertRaisesRegex(RuntimeError, 'Daemon changed during verification'):
+            self.b.handle(self.request())
+        self.assertNotIn('44444', self.runtime.config['TCP'])
 
     def test_two_queued_services_receive_distinct_stable_ports(self):
         original=self.runtime.current

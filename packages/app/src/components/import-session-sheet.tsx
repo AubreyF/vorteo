@@ -1,3 +1,4 @@
+import { ActionFooter } from "@/components/ui/action-footer";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, type PressableStateCallbackType, Text, View } from "react-native";
 import { keepPreviousData, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
@@ -727,6 +728,22 @@ export function ImportSessionSheet({
   const showFilter = filterProviders.length > 1;
   const showLoadMore = hasMoreSessions(queries, pageLimit);
 
+  const modalFooter1 = useMemo(
+    () =>
+      showLoadMore ? (
+        <ActionFooter style={styles.footer}>
+          <Button
+            variant="ghost"
+            onPress={handleLoadMore}
+            disabled={isRefreshing}
+            testID="import-session-load-more"
+          >
+            {t("importSession.actions.loadMore")}
+          </Button>
+        </ActionFooter>
+      ) : undefined,
+    [showLoadMore, handleLoadMore, isRefreshing, t],
+  );
   return (
     <AdaptiveModalSheet
       visible={visible}
@@ -735,6 +752,7 @@ export function ImportSessionSheet({
       testID="import-session-sheet"
       desktopMaxWidth={560}
       snapPoints={IMPORT_SHEET_SNAP_POINTS}
+      footer={modalFooter1}
     >
       {showFilter ? (
         <View ref={filterAnchorRef} collapsable={false} style={styles.filterTriggerWrap}>
@@ -790,18 +808,6 @@ export function ImportSessionSheet({
           resolveFolder={resolveFolder}
           onImportSession={handleImportSession}
         />
-      ) : null}
-      {showLoadMore ? (
-        <View style={styles.footer}>
-          <Button
-            variant="ghost"
-            onPress={handleLoadMore}
-            disabled={isRefreshing}
-            testID="import-session-load-more"
-          >
-            {t("importSession.actions.loadMore")}
-          </Button>
-        </View>
       ) : null}
       {showEmptyState ? <SheetEmptyState title={emptyStateTitle} /> : null}
     </AdaptiveModalSheet>

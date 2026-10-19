@@ -1,0 +1,32 @@
+diff --git a/node_modules/expo-dev-launcher/ios/ReactDelegateHandler/ExpoDevLauncherAppDelegateSubscriber.swift b/node_modules/expo-dev-launcher/ios/ReactDelegateHandler/ExpoDevLauncherAppDelegateSubscriber.swift
+index e7c1d244b..304a6fad9 100644
+--- a/node_modules/expo-dev-launcher/ios/ReactDelegateHandler/ExpoDevLauncherAppDelegateSubscriber.swift
++++ b/node_modules/expo-dev-launcher/ios/ReactDelegateHandler/ExpoDevLauncherAppDelegateSubscriber.swift
+@@ -3,9 +3,26 @@
+ import ExpoModulesCore
+ 
+ public class ExpoDevLauncherAppDelegateSubscriber: ExpoAppDelegateSubscriber {
++  private var sceneReadyObserver: NSObjectProtocol?
++
+   public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+     guard let window = UIApplication.shared.delegate?.window ?? UIApplication.shared.windows.filter { $0.isKeyWindow }.first else {
+-      fatalError("Cannot find the keyWindow. Make sure to call `window.makeKeyAndVisible()`.")
++      // Vorteo creates React in its single window scene, after application launch.
++      // Keep other Expo launch subscribers on time, including background-only launches.
++      guard Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil else {
++        fatalError("Cannot find the keyWindow. Make sure to call `window.makeKeyAndVisible()`.")
++      }
++      sceneReadyObserver = NotificationCenter.default.addObserver(
++        forName: Notification.Name("VorteoReactSceneReady"), object: nil, queue: .main
++      ) { [weak self] notification in
++        guard let self, let window = notification.object as? UIWindow else { return }
++        if let observer = self.sceneReadyObserver {
++          NotificationCenter.default.removeObserver(observer)
++          self.sceneReadyObserver = nil
++        }
++        EXDevLauncherController.sharedInstance().autoSetupStart(window)
++      }
++      return false
+     }
+     EXDevLauncherController.sharedInstance().autoSetupStart(window)
+     return false

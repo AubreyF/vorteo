@@ -305,6 +305,7 @@ interface ScheduleWorkspaceCreateInput {
 }
 
 export interface ScheduleServiceOptions {
+  canStartWork?: () => boolean;
   quotaRunner?: {
     /** Resolve the durable attempt before retrying. Resume retains the same attempt identity. */
     reconcilePreparation?(schedule: StoredSchedule): Promise<"clear" | "resume" | "held">;
@@ -397,6 +398,7 @@ interface PreparedScheduleAttempt {
 }
 
 export class ScheduleService {
+  private readonly canStartWork: () => boolean;
   private readonly quotaRunner: ScheduleServiceOptions["quotaRunner"];
   private readonly store: ScheduleStore;
   private readonly logger: Logger;
@@ -420,6 +422,7 @@ export class ScheduleService {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: ScheduleServiceOptions) {
+    this.canStartWork = options.canStartWork ?? (() => true);
     this.quotaRunner = options.quotaRunner;
     this.logger = options.logger.child({ module: "schedule-service" });
     this.store = new ScheduleStore(join(options.paseoHome, "schedules"), this.logger);
@@ -756,9 +759,11 @@ export class ScheduleService {
   }
 
   async tick(): Promise<void> {
+    if (!this.canStartWork()) return;
     const now = this.now();
     const schedules = await this.store.list();
     for (const schedule of schedules) {
+      if (!this.canStartWork()) return;
       if (schedule.status !== "active" || !schedule.nextRunAt) {
         continue;
       }
@@ -919,6 +924,10 @@ export class ScheduleService {
     options?: { manual?: boolean },
   ): Promise<void> {
     const manual = options?.manual === true;
+    if (!this.canStartWork()) {
+      if (manual) throw new Error("New scheduled work is held for restart.");
+      return;
+    }
     await this.beginScheduleRun(schedule);
     const custody = new SchedulePreparationCustody();
     let failure: { error: unknown } | undefined;
@@ -1004,6 +1013,10 @@ export class ScheduleService {
     executionBinding,
     custody,
   }: PreparedScheduleAttempt): Promise<void> {
+    if (!this.canStartWork()) {
+      custody.freeze("restart_pending");
+      return;
+    }
     const runId = resumeRunId ?? randomUUID();
     const runningRun: ScheduleRun = {
       id: runId,

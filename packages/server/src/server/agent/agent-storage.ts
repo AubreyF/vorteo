@@ -1,6 +1,23 @@
+import { blockedReviewDue } from "./task-checklist/blocked-review.js";
+import {
+  AgentJournalEntrySchema,
+  AppendJournalSchema,
+  type AgentJournalEntry,
+  type AppendJournalInput,
+} from "@getpaseo/protocol/agent-journal";
+import { JournalError } from "./journal/model.js";
+import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
+import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
+import {
+  mutateChecklist,
+  mergeProviderChecklist,
+  ChecklistError,
+  type ChecklistMutation,
+} from "./task-checklist/model.js";
 import { SkillSnapshotSchema } from "@getpaseo/protocol/skill-library";
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { Logger } from "pino";
 import { QueueGoalHoldSchema, type QueueGoalHold } from "../message-queue/goal-hold.js";
@@ -65,7 +82,11 @@ export const GoalSubmissionSchema = z.object({
 export type GoalSubmission = z.infer<typeof GoalSubmissionSchema>;
 
 const STORED_AGENT_SCHEMA = z.object({
+  journal: z.array(AgentJournalEntrySchema).optional(),
+  tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
+  // Discovery hint only. Admission always re-reads the native goal.
+  blockedGoalReviewNeeded: z.boolean().optional(),
   queueGoalHold: QueueGoalHoldSchema.optional(),
   id: z.string(),
   provider: z.string(),
@@ -74,6 +95,7 @@ const STORED_AGENT_SCHEMA = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   lastActivityAt: z.string().optional(),
+  lastBlockedReviewAt: z.string().datetime().optional(),
   lastUserMessageAt: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
   labels: z.record(z.string(), z.string()).default({}),
@@ -206,6 +228,27 @@ export class AgentStorage {
     );
   }
 
+  /** Exact-record mutation for reconciled recovery, not an execution permit. */
+  async clearRetainedArchive(
+    expected: StoredAgentRecord,
+    assertCurrent: () => void,
+  ): Promise<StoredAgentRecord> {
+    const captured = structuredClone(expected);
+    await this.load();
+    let committed: StoredAgentRecord | null = null;
+    await this.queueRecordMutation(captured.id, (current) => {
+      assertCurrent();
+      if (!current?.archivedAt || !isDeepStrictEqual(current, captured))
+        throw new Error("Retained agent changed before archive-state recovery.");
+      committed = { ...current, archivedAt: null, updatedAt: new Date().toISOString() };
+      return committed;
+    });
+    if (!committed) throw new Error("Retained agent is being deleted.");
+    // A failed post-write assertion is a partial result, never a safe retry.
+    assertCurrent();
+    return structuredClone(committed);
+  }
+
   async updateQuotaReserve(
     agentId: string,
     update: (current: QuotaReserveConfig) => QuotaReserveConfig,
@@ -226,9 +269,94 @@ export class AgentStorage {
     return this.queueRecordMutation(record.id, () => record);
   }
 
+  async claimBlockedReview(agentId: string, now: number): Promise<boolean> {
+    await this.load();
+    let claimed = false;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || !blockedReviewDue(record, now)) return null;
+        claimed = true;
+        return { ...record, lastBlockedReviewAt: new Date(now).toISOString() };
+      },
+      { blockedReviewWrite: true },
+    );
+    return claimed;
+  }
+
+  async updateBlockedGoalReview(agentId: string, needed: boolean): Promise<void> {
+    await this.load();
+    await this.queueRecordMutation(
+      agentId,
+      (record) => (record ? { ...record, blockedGoalReviewNeeded: needed } : null),
+      { goalReviewWrite: true },
+    );
+  }
+
+  async appendJournal(agentId: string, input: AppendJournalInput): Promise<AgentJournalEntry> {
+    const { entryId, text, machineContext } = AppendJournalSchema.parse(input);
+    await this.load();
+    let committed: AgentJournalEntry | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new JournalError("not_found", "Only an active thread can append to its journal.");
+        const entries = record.journal ?? [];
+        const previous = entries.find((entry) => entry.id === entryId);
+        if (previous) {
+          if (previous.text !== text || previous.machineContext !== machineContext)
+            throw new JournalError(
+              "conflict",
+              "This entry ID was already used for different text or machine context. Journal entries cannot be edited.",
+            );
+          committed = previous;
+          return null;
+        }
+        committed = {
+          id: entryId,
+          sequence: entries.length + 1,
+          timestamp: new Date().toISOString(),
+          text,
+          ...(machineContext === undefined ? {} : { machineContext }),
+        };
+        return { ...record, journal: [...entries, committed] };
+      },
+      { journalWrite: true },
+    );
+    if (committed === null)
+      throw new JournalError(
+        "not_found",
+        "The thread was deleted before the journal entry could be saved.",
+      );
+    return structuredClone(committed);
+  }
+
+  async mutateChecklist(agentId: string, mutation: ChecklistMutation): Promise<AgentTaskItem[]> {
+    await this.load();
+    let committed: AgentTaskItem[] | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new ChecklistError("not_found", "Only an active thread can edit its checklist.");
+        committed = mutateChecklist(record.tasks ?? [], mutation);
+        return { ...record, tasks: committed, updatedAt: new Date().toISOString() };
+      },
+      { checklistWrite: true },
+    );
+    if (committed === null)
+      throw new ChecklistError(
+        "not_found",
+        "The thread was deleted before the checklist could be saved.",
+      );
+    return committed;
+  }
+
   private queueRecordMutation(
     agentId: string,
     mutate: (existing: StoredAgentRecord | null) => StoredAgentRecord | null,
+    options: RecordMutationOptions = {},
   ): Promise<void> {
     const prev = this.pendingWrites.get(agentId) ?? Promise.resolve();
     const next = prev.then(async () => {
@@ -239,6 +367,7 @@ export class AgentStorage {
       const existing = this.cache.get(agentId) ?? null;
       const record = mutate(existing);
       if (!record) return undefined;
+      preserveOwnedRecordFields({ record, existing, options });
       // Loading sessions and metadata writers can hold snapshots from before
       // a reserve transition. All writes preserve the newest durable revision.
       const reserve = existing?.config?.quotaReserve;
@@ -528,4 +657,37 @@ function projectDirNameFromCwd(cwd: string): string {
     return sanitizedRoot || "root";
   }
   return prefix + withoutRoot.replace(/[\\/]+/g, "-");
+}
+
+/** Background snapshots preserve the checklist's latest committed mutation. */
+function preserveManagedChecklist(
+  record: StoredAgentRecord,
+  existing: StoredAgentRecord | null,
+): void {
+  if (!existing) return;
+  if (record.tasks === undefined && existing.tasks === undefined) return;
+  record.tasks = mergeProviderChecklist(record.tasks ?? [], existing.tasks ?? []);
+}
+
+interface RecordMutationOptions {
+  goalReviewWrite?: boolean;
+  checklistWrite?: boolean;
+  journalWrite?: boolean;
+  blockedReviewWrite?: boolean;
+}
+
+interface OwnedRecordFields {
+  record: StoredAgentRecord;
+  existing: StoredAgentRecord | null;
+  options: RecordMutationOptions;
+}
+
+// Snapshot writers cannot rewrite state owned by dedicated serialized mutations.
+function preserveOwnedRecordFields({ record, existing, options }: OwnedRecordFields): void {
+  if (!options.goalReviewWrite && existing)
+    record.blockedGoalReviewNeeded = existing.blockedGoalReviewNeeded;
+  if (!options.journalWrite && existing) record.journal = existing.journal;
+  if (!options.checklistWrite) preserveManagedChecklist(record, existing);
+  if (!options.blockedReviewWrite && existing)
+    record.lastBlockedReviewAt = existing.lastBlockedReviewAt;
 }

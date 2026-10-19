@@ -52,12 +52,14 @@ vi.mock("@/components/adaptive-modal-sheet", async () => {
     visible,
     title,
     children,
+    footer,
     onClose,
     testID,
   }: {
     visible: boolean;
     title: string;
     children: React.ReactNode;
+    footer?: React.ReactNode;
     onClose: () => void;
     testID?: string;
   }) => {
@@ -75,6 +77,7 @@ vi.mock("@/components/adaptive-modal-sheet", async () => {
         "Close",
       ),
       children,
+      footer,
     );
   };
   const AdaptiveTextInput = ReactModule.forwardRef<HTMLInputElement, Record<string, unknown>>(

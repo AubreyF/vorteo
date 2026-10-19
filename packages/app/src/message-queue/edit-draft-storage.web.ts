@@ -1,3 +1,4 @@
+import { demoStorageName } from "@/demo/mode";
 import {
   QueueEditDraftSchema,
   type QueueEditDraft,
@@ -5,7 +6,7 @@ import {
 } from "./edit-draft";
 
 export function createQueueEditDraftStorage(
-  name = "paseo-queue-edit-drafts",
+  name = demoStorageName("paseo-queue-edit-drafts"),
 ): QueueEditDraftStorage {
   async function transaction<T>(
     mode: IDBTransactionMode,

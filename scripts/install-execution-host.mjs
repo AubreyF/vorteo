@@ -1,5 +1,14 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import {
+  createPublicationBinding,
+  publicationBindingPath,
+  readPublicationBinding,
+  readLiveState,
+  retainPublicationSource,
+  verifyPublicationSource,
+} from "./instance-web-artifact.mjs";
 import { promisify, parseArgs } from "node:util";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import {
@@ -579,6 +588,268 @@ async function installationStatus(record) {
   );
 }
 
+export function assertContainerProfileLauncher({ expected, supervisor, worker }) {
+  if (supervisor !== expected || worker !== expected) {
+    throw new Error(
+      "The Dev supervisor and worker must inherit VORTEO_INSTALLATION_CLIENT_CONFIG from the owned launcher before bootstrap. Repair the launcher and obtain approval for a supervisor restart.",
+    );
+  }
+}
+
+/** Bind static publication to the existing protected source configuration; no activation. */
+export async function configureWebSource(planFile) {
+  const input = JSON.parse(readFileSync(planFile, "utf8"));
+  if (!path.isAbsolute(input.configFile) || !path.isAbsolute(input.docker))
+    throw new Error("Use absolute protected config and trusted Host Docker executable paths");
+  const configFile = await fs.realpath(input.configFile);
+  const original = await fs.readFile(configFile, "utf8");
+  const config = JSON.parse(original);
+  const settings = config.sourceUpdates;
+  if (!settings)
+    throw new Error("Host source updates must have a prepared protected configuration");
+  const binding = await createPublicationBinding({
+    destination: settings.webDirectory,
+    sourceRepository: settings.sourceRepository,
+    integrationRef: settings.integrationRef,
+  });
+  if ((await fs.realpath(config.webDistDir)) !== binding.webDirectory)
+    throw new Error("Configured interface and source update publication directories disagree");
+  const bindingFile = publicationBindingPath(binding.webDirectory);
+  const parent = path.dirname(bindingFile);
+  const mountRoots = await writableBindRoots(input.docker);
+  assertProtectedPaths(
+    [
+      configFile,
+      binding.webDirectory,
+      parent,
+      binding.sourceRepository,
+      binding.gitDirectory,
+      binding.commonDirectory,
+    ],
+    mountRoots,
+  );
+  for (const file of [configFile, parent]) {
+    const stat = await fs.stat(file);
+    if (stat.mode & 0o022 || stat.uid !== process.getuid())
+      throw new Error("Publication config and binding parent must be protected and Host-owned");
+  }
+  const lock = path.join(binding.webDirectory, ".publish-lock");
+  await fs.mkdir(lock); // Share the publisher lock, including during first binding.
+  const temporary = `${bindingFile}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(
+      path.join(lock, "owner.json"),
+      JSON.stringify({
+        pid: process.pid,
+        host: os.hostname(),
+        startedAt: new Date().toISOString(),
+        operation: "bind-source",
+      }),
+    );
+    const previous = await readPublicationBinding(binding.webDirectory);
+    if (previous && Object.keys(binding).some((key) => previous[key] !== binding[key]))
+      throw new Error("Conflicting protected publication binding; explicit migration required");
+    const live = await readLiveState(binding.webDirectory);
+    if (!live.release?.sourceCommit || live.release.integrationRef !== binding.integrationRef)
+      throw new Error("Adopt and verify the current interface source before binding publication");
+    await verifyPublicationSource({
+      repository: input.repository,
+      sourceCommit: live.release.sourceCommit,
+      requireComplete: true,
+    });
+    await retainPublicationSource({
+      binding,
+      repository: input.repository,
+      sourceCommit: live.release.sourceCommit,
+    });
+    if ((await fs.readFile(configFile, "utf8")) !== original)
+      throw new Error("Protected source configuration changed during publication setup");
+    if (!previous) {
+      const file = await fs.open(temporary, "wx", 0o600);
+      try {
+        await file.writeFile(JSON.stringify(binding, null, 2) + "\n");
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      await fs.link(temporary, bindingFile); // Add only; never overwrite an existing binding.
+    }
+    // Matching retries also reconcile uncertain persistence after an earlier link or sync failure.
+    const directory = await fs.open(parent, "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+    return { bindingFile, sourceCommit: live.release.sourceCommit };
+  } finally {
+    await fs.rm(temporary, { force: true });
+    await fs.rm(lock, { recursive: true, force: true });
+  }
+}
+
+/** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
+export async function configureContainerUpdates(planFile) {
+  const input = JSON.parse(readFileSync(planFile, "utf8"));
+  const configFile = path.resolve(input.configFile);
+  const originalConfig = readFileSync(configFile, "utf8");
+  const config = JSON.parse(originalConfig);
+  const root = path.dirname(configFile);
+  const serverDir = path.join(
+    sourceRoot,
+    "packages/server/dist/server/server/execution-installation",
+  );
+  const { ContainerSourceUpdatesSchema } = await import(
+    pathToFileURL(path.join(serverDir, "config.js"))
+  );
+  const { connectInstallationDaemon } = await import(
+    pathToFileURL(path.join(serverDir, "daemon.js"))
+  );
+  if (!/^[a-f0-9]{40}$/.test(input.revision))
+    throw new Error("Use the verified installed Dev source commit");
+  if (!path.isAbsolute(input.docker))
+    throw new Error("Use the trusted Host Docker executable's absolute path");
+  const containers = JSON.parse(await run(input.docker, ["inspect", input.containerName]));
+  if (containers.length !== 1 || !containers[0].State.Running)
+    throw new Error("Configured Dev container must be running");
+  const settings = ContainerSourceUpdatesSchema.parse({
+    sourceRepository: input.sourceRepository,
+    integrationRef: input.integrationRef,
+    toolingDirectory: path.join(root, "container-update-tools"),
+    receiptFile: path.join(config.stateDir, "container-source.json"),
+    docker: input.docker,
+    containerId: containers[0].Id,
+    user: input.user,
+    node: input.node,
+    home: input.home,
+    releaseRoot: input.releaseRoot,
+    currentReleaseLink: input.currentReleaseLink,
+  });
+  assertProtectedPaths(
+    [configFile, settings.sourceRepository, settings.toolingDirectory, settings.receiptFile],
+    await writableBindRoots(settings.docker),
+  );
+  const helper = readFileSync(
+    path.join(sourceRoot, "scripts/installation-container-runtime.mjs"),
+    "utf8",
+  );
+  const inContainer = async (operation) =>
+    JSON.parse(
+      await run(settings.docker, [
+        "exec",
+        "--user",
+        settings.user,
+        settings.containerId,
+        settings.node,
+        "--input-type=module",
+        "--eval",
+        helper,
+        JSON.stringify({ ...operation, settings }),
+      ]),
+    );
+  const selected = await inContainer({ action: "inspect" });
+  if (selected.sourceCommit !== input.revision)
+    throw new Error("Installed Dev release differs from the reviewed bootstrap plan");
+  const object = await run("git", ["cat-file", "-t", selected.sourceCommit], {
+    cwd: settings.sourceRepository,
+  });
+  if (object !== "commit")
+    throw new Error("Protected source repository lacks the installed Dev commit");
+  const client = await connectInstallationDaemon(config, "container");
+  try {
+    const { pid } = await client.getDaemonStatus({ timeout: 30_000 });
+    await inContainer({
+      action: "verify",
+      pid,
+      release: selected.release,
+      update: { sourceCommit: selected.sourceCommit },
+    });
+    const profileLauncher = JSON.parse(
+      await run(settings.docker, [
+        "exec",
+        "--user",
+        settings.user,
+        settings.containerId,
+        settings.node,
+        "--input-type=module",
+        "--eval",
+        `import fs from 'node:fs';import path from 'node:path';import os from 'node:os';
+const marker=JSON.parse(fs.readFileSync(path.join(process.argv[1],'managed-supervisor.json'),'utf8'));
+const read=pid=>fs.readFileSync('/proc/'+pid+'/environ','utf8').split('\\0').find(value=>value.startsWith('VORTEO_INSTALLATION_CLIENT_CONFIG='))?.slice('VORTEO_INSTALLATION_CLIENT_CONFIG='.length)??null;
+console.log(JSON.stringify({expected:path.join(os.homedir(),'.local/share/vorteo-installation-client/client.json'),supervisor:read(marker.pid),worker:read(process.argv[2])}));`,
+        settings.home,
+        String(pid),
+      ]),
+    );
+    assertContainerProfileLauncher(profileLauncher);
+  } finally {
+    await client.close();
+  }
+  // Finish every check before installing configuration. Preserve exact previous bytes for rollback.
+  if (readFileSync(configFile, "utf8") !== originalConfig)
+    throw new Error(
+      "Installation configuration changed during bootstrap; reconcile before retrying",
+    );
+  const backup = `${configFile}.${randomUUID()}.before-dev-updates`;
+  privateWrite(backup, readFileSync(configFile));
+  privateWrite(path.join(settings.toolingDirectory, "installation-container-runtime.mjs"), helper);
+  json(settings.receiptFile, { sourceCommit: selected.sourceCommit, release: selected.release });
+  json(configFile, { ...config, containerSourceUpdates: settings });
+  // Refresh request-only tooling in the already paired guest. Never copy Host credentials.
+  const guestHome = await run(settings.docker, [
+    "exec",
+    "--user",
+    settings.user,
+    settings.containerId,
+    settings.node,
+    "-p",
+    "require('os').homedir()",
+  ]);
+  const guestDir = path.join(guestHome, ".local/share/vorteo-installation-client");
+  const skill = readFileSync(
+    path.join(sourceRoot, "scripts/installation-skills/installation-maintenance/SKILL.md"),
+    "utf8",
+  )
+    .replaceAll(
+      "INSTALLATION_SETTINGS_URL",
+      `${config.public.origin}/settings/general?installation=1`,
+    )
+    .replaceAll(
+      "INSTALLATION_CLIENT_COMMAND",
+      `${shellQuote(settings.node)} ${shellQuote(path.join(guestDir, "installation-agent.mjs"))} --config ${shellQuote(path.join(guestDir, "client.json"))}`,
+    );
+  const guestFiles = [
+    [
+      path.join(guestDir, "installation-agent.mjs"),
+      readFileSync(path.join(sourceRoot, "scripts/installation-agent.mjs"), "utf8"),
+    ],
+    ...[".agents", ".claude", ".codex"].map((directory) => [
+      path.join(guestHome, directory, "skills/installation-maintenance/SKILL.md"),
+      skill,
+    ]),
+  ];
+  await run(settings.docker, [
+    "exec",
+    "--user",
+    settings.user,
+    settings.containerId,
+    settings.node,
+    "-e",
+    "const fs=require('fs'),path=require('path'); for(const [file,content] of JSON.parse(process.argv[1])) { fs.mkdirSync(path.dirname(file),{recursive:true}); const next=file+'.next'; fs.writeFileSync(next,content,{mode:0o600}); fs.renameSync(next,file); }",
+    JSON.stringify(guestFiles),
+  ]);
+  process.stdout.write(
+    JSON.stringify({
+      configured: true,
+      configFile,
+      backup,
+      target: "container-daemon",
+      coordinatorReloadRequired: true,
+      restarted: false,
+    }) + "\n",
+  );
+}
+
 async function stopOwnedServices(record) {
   for (const service of [record.coordinatorService, record.hostService]) {
     let registered = false;
@@ -655,9 +926,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
     options: { plan: { type: "string" }, root: { type: "string" } },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
+  else if (positionals[0] === "configure-web-source" && values.plan)
+    process.stdout.write(JSON.stringify(await configureWebSource(values.plan)) + "\n");
+  else if (positionals[0] === "configure-dev-updates" && values.plan)
+    await configureContainerUpdates(values.plan);
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install --plan <private-plan.json> or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json> or status/remove --root <installation-root>",
     );
 }

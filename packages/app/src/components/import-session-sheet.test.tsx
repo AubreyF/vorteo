@@ -144,6 +144,7 @@ vi.mock("@/components/adaptive-modal-sheet", () => ({
     header,
     children,
     testID,
+    footer,
   }: {
     visible: boolean;
     header?: {
@@ -154,6 +155,7 @@ vi.mock("@/components/adaptive-modal-sheet", () => ({
     };
     children: ReactNode;
     testID?: string;
+    footer?: ReactNode;
   }) =>
     visible ? (
       <section data-testid={testID}>
@@ -162,6 +164,7 @@ vi.mock("@/components/adaptive-modal-sheet", () => ({
         {header?.actions}
         {header?.search ? <SheetSearchInput search={header.search} /> : null}
         {children}
+        {footer}
       </section>
     ) : null,
 }));

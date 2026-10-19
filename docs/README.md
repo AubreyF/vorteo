@@ -4,6 +4,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 
 | Doc                                                                   | What's in it                                                                                                                   |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [Vorteo customizations](vorteo-customizations.md)                     | Cumulative fork features, limitations and comparison with integrated Paseo                                                     |
 | [docs/roadmap.md](roadmap.md)                                         | Planned fork work, separate from shipped capabilities                                                                          |
 | [Execution environment plans](plans/execution-environments/README.md) | Proposed two-day unified host/container installation and separately scoped future projects                                     |
 | [docs/product.md](product.md)                                         | What Vorteo is, who it's for, where it's going                                                                                 |
@@ -24,6 +25,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | [docs/forge-providers.md](forge-providers.md)                         | Adding a git forge: registry/manifest, drop-in checklist, self-host/GHES, the two facts tiers                                  |
 | [docs/custom-providers.md](custom-providers.md)                       | Custom provider config: Z.AI, Alibaba/Qwen, ACP agents, profiles, custom binaries                                              |
 | [docs/plugins.md](plugins.md)                                         | Local plugin manifest, directory source config, RPCs, native surfaces, and attachment sources                                  |
+| [Bundled Factory](factory.md)                                         | Read-only observer candidate, controller adoption, native lifecycle and installation boundaries                                |
 | [docs/service-proxy.md](service-proxy.md)                             | Service proxy: exposing workspace scripts at public URLs, DNS setup, reverse proxy config                                      |
 | [docs/development.md](development.md)                                 | Dev server, build sync gotchas, CLI reference, agent state, Playwright MCP                                                     |
 | [docs/rpc-namespacing.md](rpc-namespacing.md)                         | WebSocket RPC naming convention — dotted namespaces and `.request`/`.response` pairs                                           |
@@ -59,3 +61,9 @@ Use this index to find the document that owns your task. Read relevant subjects 
 Host and container setup, trust boundaries, restart requests and removal: [Host and container execution](execution-installation.md).
 
 - [Skill library](skill-library.md): inventory, ownership, reviewed changes, and profile selection.
+
+Factory worker retention and deferred configurable cleanup: [Factory follow-on updates](factory-future-updates.md).
+
+- [Managed preview monitor replacement](preview-monitor-maintenance.md): exact review, retained bytes and uncertain-outcome handling.
+
+- [Nova integration](nova-integration.md): private bridge source, operation and event contracts, and live acceptance requirements.

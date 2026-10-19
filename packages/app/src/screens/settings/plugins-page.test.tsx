@@ -42,10 +42,12 @@ vi.mock("@/components/adaptive-modal-sheet", async () => {
     AdaptiveModalSheet: ({
       header,
       children,
+      footer,
       onClose,
     }: {
       header: { title: string; actions?: React.ReactNode };
       children: React.ReactNode;
+      footer?: React.ReactNode;
       onClose(): void;
     }) =>
       ReactModule.createElement(
@@ -55,6 +57,7 @@ vi.mock("@/components/adaptive-modal-sheet", async () => {
         header.actions,
         ReactModule.createElement("button", { type: "button", onClick: onClose }, "Close"),
         children,
+        footer,
       ),
   };
 });

@@ -30,6 +30,9 @@ export {
   loadPersistedConfig,
   readPersistedConfig,
   savePersistedConfig,
+  mutatePersistedConfig,
+  withPersistedConfigWriter,
+  type PersistedConfigWriter,
   getPersistedConfigValue,
   editPersistedConfig,
   type PersistedConfig,
@@ -568,8 +571,7 @@ export function resolveConfigFromPersisted(
   const resolvedOptions = options ?? {};
   const env = configurationEnvironment(resolvedOptions.env ?? process.env);
   const cli = resolvedOptions.cli;
-  const relayEnabledFallback =
-    resolvedOptions.relayEnabledFallback ?? persisted.daemon?.relay?.enabled === undefined;
+  const relayEnabledFallback = resolvedOptions.relayEnabledFallback ?? false;
 
   const listen = resolveListenAddress(env, cli, persisted);
   const {

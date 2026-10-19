@@ -5,6 +5,7 @@ import { Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useFetchQuery } from "@/data/query";
 import { messageQueueKey, readSharedQueue } from "@/message-queue/runtime";
+import { floatingControlSurface } from "@/styles/floating-control";
 import { Button } from "@/components/ui/button";
 
 export function JumpToLatest({
@@ -81,10 +82,7 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
     gap: theme.spacing[2],
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
-    ...theme.shadow.sm,
+    ...floatingControlSurface(theme),
   },
   pill: { borderRadius: theme.borderRadius.full, paddingHorizontal: theme.spacing[3] },
   label: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },

@@ -14,6 +14,47 @@ export function BrowserDataSection() {
   const toast = useToast();
   const clearInFlightRef = useRef(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetPermissions = useCallback(async () => {
+    if (clearInFlightRef.current) return;
+    clearInFlightRef.current = true;
+    setIsResetting(true);
+    try {
+      if (
+        !(await confirmDialog({
+          title: t("settings.general.browserData.resetTitle", {
+            defaultValue: "Reset site permissions?",
+          }),
+          message: t("settings.general.browserData.resetMessage", {
+            defaultValue:
+              "Saved allow and block decisions will be removed and browser tabs will reload. Cookies and sign-ins will stay.",
+          }),
+          confirmLabel: t("settings.general.browserData.reset", {
+            defaultValue: "Reset permissions",
+          }),
+          cancelLabel: t("common.actions.cancel"),
+        }))
+      )
+        return;
+      const reset = getDesktopHost()?.browser?.resetPermissions;
+      if (!reset) throw new Error("Browser permission controls are unavailable");
+      await reset();
+      toast.show(
+        t("settings.general.browserData.resetSuccess", { defaultValue: "Site permissions reset." }),
+        { variant: "success" },
+      );
+    } catch {
+      toast.error(
+        t("settings.general.browserData.resetError", {
+          defaultValue: "Couldn't reset site permissions.",
+        }),
+      );
+    } finally {
+      clearInFlightRef.current = false;
+      setIsResetting(false);
+    }
+  }, [t, toast]);
 
   const handleClear = useCallback(async () => {
     if (clearInFlightRef.current) {
@@ -68,12 +109,38 @@ export function BrowserDataSection() {
             variant="outline"
             size="sm"
             loading={isClearing}
-            disabled={isClearing}
+            disabled={isClearing || isResetting}
             onPress={handleClear}
           >
             {clearButtonLabel}
           </Button>
         </View>
+        {getDesktopHost()?.browser?.resetPermissions ? (
+          <View style={settingsStyles.row}>
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>
+                {t("settings.general.browserData.permissions", {
+                  defaultValue: "Site permissions",
+                })}
+              </Text>
+              <Text style={settingsStyles.rowHint}>
+                {t("settings.general.browserData.permissionsHint", {
+                  defaultValue:
+                    "Sites ask before using your camera, microphone, location or notifications. Remembering a choice is optional.",
+                })}
+              </Text>
+            </View>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={isResetting}
+              disabled={isClearing || isResetting}
+              onPress={handleResetPermissions}
+            >
+              {t("settings.general.browserData.reset", { defaultValue: "Reset permissions" })}
+            </Button>
+          </View>
+        ) : null}
       </View>
     </SettingsSection>
   );

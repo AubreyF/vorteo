@@ -1,0 +1,4044 @@
+import {
+  DaemonAutomation,
+  coordinatorAutomaticAuthority,
+  signCoordinatorSubmission,
+  verifyCoordinatorSubmission,
+} from "./daemon-automation.js";
+import {
+  submitInstallationCoordinator,
+  reconcileInstallationCoordinator,
+  inspectInstallationCoordinator,
+} from "./daemon.js";
+import { afterEach, expect, test, vi } from "vitest";
+import { z } from "zod";
+import {
+  chmodSync,
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID, createHash } from "node:crypto";
+import { hashSync } from "bcryptjs";
+import {
+  CoordinatorBootstrapRequestSchema,
+  CoordinatorBootstrapReconcileAutomaticRequestSchema,
+  CoordinatorBootstrapListResponseSchema,
+  CoordinatorBootstrapPlanSchema,
+  type CoordinatorBootstrapPlan,
+  type CoordinatorBootstrapRequest,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import { handleBootstrapReview } from "./coordinator-bootstrap-session.js";
+import {
+  CoordinatorBootstrapRequests,
+  coordinatorPlanDigest,
+  coordinatorAutomaticStatus,
+  openBootstrapRequests,
+  assertFrozenCoordinatorIdle,
+} from "./coordinator-bootstrap.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { InstallationRestarts } from "./restarts.js";
+import {
+  loadedCoordinatorPid,
+  isStoppedBootstrapCandidate,
+  verifyBootstrapReplacement,
+  verifyBootstrapServiceIdentity,
+  verifyLoadedBootstrapService,
+  verifyBootstrapLaunchers,
+} from "./coordinator-bootstrap-service.js";
+
+import {
+  executeCoordinatorBootstrap,
+  type BootstrapExecutorOperations,
+} from "./coordinator-bootstrap-executor.js";
+
+import {
+  loadCoordinatorStartupFence,
+  coordinatorStartupAdmission,
+  coordinatorStartupReleased,
+} from "./coordinator-bootstrap-startup.js";
+
+import { recoverAbandonedBootstrap } from "./coordinator-bootstrap-watchdog.js";
+
+import { preserveBootstrapState, verifyBootstrapState } from "./coordinator-bootstrap-state.js";
+import { createBootstrapNativeLifecycle } from "./coordinator-bootstrap-native.js";
+
+import {
+  bootstrapRecoveryLauncher,
+  registerBootstrapRecovery,
+  removeCompletedBootstrapRecovery,
+  verifyBootstrapRecoveryLauncher,
+} from "./coordinator-bootstrap-boot-recovery.js";
+
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+const ownerPassword = "fixture-installation-owner";
+const ownerHash = hashSync(ownerPassword, 4);
+
+test("frozen handoff refuses active jobs, preparations, unresolved holds and children", () => {
+  const pending = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "host",
+    reason: "fixture",
+    requestedBy: "host-agent",
+    createdAt: "2026-10-08T00:00:00.000Z",
+    expiresAt: "2026-10-09T00:00:00.000Z",
+    status: "pending",
+    detail: "fixture",
+  };
+  expect(() => assertFrozenCoordinatorIdle([pending], [])).not.toThrow();
+  expect(() => assertFrozenCoordinatorIdle([pending], [123])).toThrow("children");
+  expect(() => assertFrozenCoordinatorIdle([pending], undefined)).toThrow();
+  expect(() => assertFrozenCoordinatorIdle([pending, pending], [])).toThrow("duplicate");
+  for (const change of [
+    { status: "approved" },
+    { status: "running" },
+    { sourceBatch: { status: "preparing", contributions: [] } },
+    { status: "failed", finishCurrentTurns: true },
+    { status: "rejected", finishCurrentTurns: true, holdReleased: false },
+    { status: "succeeded", finishCurrentTurns: true },
+  ])
+    expect(() => assertFrozenCoordinatorIdle([{ ...pending, ...change }], [])).toThrow(
+      "unresolved",
+    );
+  expect(() =>
+    assertFrozenCoordinatorIdle(
+      [{ ...pending, status: "failed", finishCurrentTurns: true, holdReleased: true }],
+      [],
+    ),
+  ).not.toThrow();
+  expect(() => assertFrozenCoordinatorIdle([{ ...pending, status: "unknown" }], [])).toThrow();
+  expect(() => assertFrozenCoordinatorIdle(null, [])).toThrow();
+});
+
+test("bootstrap launchers preserve environment and lifetime settings with exact approved arguments", () => {
+  const { plan } = fixture();
+  const configurationFile = "/protected/active-config.json";
+  const current = {
+    Label: plan.service.split("/").slice(2).join("/"),
+    ProgramArguments: [plan.previous.node.path, plan.previous.entrypoint.path, configurationFile],
+    EnvironmentVariables: { PATH: "/usr/bin:/bin", PRESERVED: "fixture-value" },
+    KeepAlive: true,
+    RunAtLoad: true,
+  };
+  const candidate = {
+    ...current,
+    ProgramArguments: [
+      plan.candidate.node.path,
+      plan.candidate.entrypoint.path,
+      plan.candidate.configuration.path,
+    ],
+  };
+  const input = { plan, configurationFile, current, previous: structuredClone(current), candidate };
+  expect(() => verifyBootstrapLaunchers(input)).not.toThrow();
+  for (const change of [
+    { EnvironmentVariables: { PATH: "/unapproved" } },
+    { KeepAlive: false },
+    { Program: "/unapproved/executable" },
+    { Label: "another-service" },
+    { ProgramArguments: [...candidate.ProgramArguments, "--unapproved"] },
+  ])
+    expect(() =>
+      verifyBootstrapLaunchers({ ...input, candidate: { ...candidate, ...change } }),
+    ).toThrow("unapproved service settings");
+  expect(() =>
+    verifyBootstrapLaunchers({ ...input, previous: { ...current, RunAtLoad: false } }),
+  ).toThrow("no longer matches");
+});
+
+test("loaded coordinator PID parsing rejects nested, foreign and incomplete records", () => {
+  const service = "gui/501/local.vorteo.fixture.installation";
+  expect(loadedCoordinatorPid(service, `${service} = {\n\tpid = 123\n}`)).toBe(123);
+  for (const output of [
+    `other = {\n\tpid = 123\n}`,
+    `${service} = {\n\t\tpid = 123\n}`,
+    `${service} = {\n\tpid = 123\n\tpid = 124\n}`,
+    `${service} = {\n\tpid = 123\n`,
+  ])
+    expect(() => loadedCoordinatorPid(service, output)).toThrow();
+});
+
+test("loaded coordinator identity binds kernel birth, owner, parent and exact launch arguments", async () => {
+  const { plan } = fixture();
+  const configurationFile = "/protected/config.json";
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([plan.previous.node.path, plan.previous.entrypoint.path, configurationFile]),
+    )
+    .digest("hex");
+  plan.expectedProcess = {
+    pid: 123,
+    bootId: randomUUID(),
+    startIdentity: "1234:5678",
+    argumentsSha256: digest,
+  };
+  const observation = {
+    ...plan.expectedProcess,
+    uid: 501,
+    parentPid: 1,
+    executable: plan.previous.node.path,
+  };
+  const input = {
+    plan,
+    configurationFile,
+    hostUid: 501,
+    launchctlOutput: `${plan.service} = {\n\tpid = 123\n}`,
+    process: observation,
+  };
+  expect(() => verifyBootstrapServiceIdentity(input)).not.toThrow();
+  for (const change of [
+    { pid: 124 },
+    { bootId: randomUUID() },
+    { startIdentity: "1234:5679" },
+    { uid: 502 },
+    { parentPid: 99 },
+    { executable: "/other/node" },
+    { argumentsSha256: "f".repeat(64) },
+  ])
+    expect(() =>
+      verifyBootstrapServiceIdentity({ ...input, process: { ...observation, ...change } }),
+    ).toThrow();
+  expect(() =>
+    verifyBootstrapServiceIdentity({ ...input, configurationFile: "/other/config.json" }),
+  ).toThrow("prepared launcher");
+  expect(() =>
+    verifyBootstrapServiceIdentity({
+      ...input,
+      launchctlOutput: `${plan.service} = {\n\tpid = 124\n}`,
+    }),
+  ).toThrow("changed since preparation");
+  for (const changedServiceRead of [0, 1, 2, 3]) {
+    let reads = 0;
+    let processReads = 0;
+    const verification = verifyLoadedBootstrapService({
+      ...input,
+      reader: {
+        async readService(service) {
+          expect(service).toBe(plan.service);
+          reads++;
+          const pid = reads === changedServiceRead ? 124 : 123;
+          return `${service} = {\n\tpid = ${pid}\n}`;
+        },
+        async inspectProcess(pid) {
+          expect(pid).toBe(123);
+          processReads++;
+          return observation;
+        },
+      },
+    });
+    if (changedServiceRead === 0) {
+      await expect(verification).resolves.toBeUndefined();
+      expect(processReads).toBe(2);
+      expect(reads).toBe(3);
+    } else {
+      await expect(verification).rejects.toThrow("PID changed");
+      expect(processReads).toBe(changedServiceRead - 1);
+    }
+  }
+  let inspections = 0;
+  await expect(
+    verifyLoadedBootstrapService({
+      ...input,
+      reader: {
+        async readService() {
+          return input.launchctlOutput;
+        },
+        async inspectProcess() {
+          inspections++;
+          if (inspections === 2) return { ...observation, startIdentity: "1234:5679" };
+          return observation;
+        },
+      },
+    }),
+  ).rejects.toThrow("changed since preparation");
+});
+
+function fixture() {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "coordinator-bootstrap-")));
+  roots.push(root);
+  const identity = { path: "/protected/file", sha256: "a".repeat(64) };
+  const release = {
+    sourceCommit: "b".repeat(40),
+    directory: "/protected/release",
+    artifactSha256: "c".repeat(64),
+    node: identity,
+    entrypoint: identity,
+    configuration: identity,
+    launcher: identity,
+  };
+  const plan: CoordinatorBootstrapPlan = {
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: randomUUID(),
+    service: "gui/501/local.vorteo.fixture.installation",
+    expectedProcess: {
+      pid: 123,
+      bootId: "fixture-boot",
+      startIdentity: "fixture-start",
+      argumentsSha256: "d".repeat(64),
+    },
+    previous: release,
+    candidate: { ...release, sourceCommit: "e".repeat(40) },
+    state: {
+      directory: "/protected/state",
+      restartJournal: "/protected/state/restarts.json",
+      ownerSessions: "/protected/state/owners.json",
+    },
+    hostRequestsAfter: null,
+  };
+  let binding = {
+    environment: "host",
+    installationId: plan.installationId,
+    service: plan.service,
+    ownerPasswordHash: ownerHash,
+  };
+  let verify = async (_plan: CoordinatorBootstrapPlan) => {};
+  const journal = new FileBootstrapRequestJournal(root);
+  const service = () =>
+    new CoordinatorBootstrapRequests(
+      journal,
+      () => binding,
+      (value) => verify(value),
+    );
+  return {
+    root,
+    plan,
+    journal,
+    service,
+    binding,
+    setBinding: (value: typeof binding) => {
+      binding = value;
+    },
+    setVerify: (value: typeof verify) => {
+      verify = value;
+    },
+    prepare: () =>
+      service().prepare({ id: randomUUID(), reason: "Install reviewed coordinator", plan }),
+  };
+}
+
+test("bootstrap preparation stays pending and exact owner approval survives reopening without storing credentials", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  expect(f.service().list()).toEqual([pending]);
+  expect(pending.status).toBe("pending");
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  expect(approved.status).toBe("approved");
+  expect(approved.revision).not.toBe(pending.revision);
+  expect(f.service().list()).toEqual([approved]);
+  const stored = readFileSync(path.join(f.root, "coordinator-bootstrap.json"), "utf8");
+  expect(stored).not.toContain(ownerPassword);
+  expect(stored).not.toContain(ownerHash);
+  expect(statSync(path.join(f.root, "coordinator-bootstrap.json")).mode & 0o777).toBe(0o600);
+});
+
+test("Dev bindings and owner role labels cannot substitute for installation-owner authentication", async () => {
+  const f = fixture();
+  f.setBinding({ ...f.binding, environment: "container" });
+  expect(() => f.service()).toThrow();
+  f.setBinding(f.binding);
+  const pending = await f.prepare();
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve",
+  };
+  for (const credential of ["", "host-agent-token", "container-agent-token", "owner"])
+    await expect(f.service().decide(input, credential)).rejects.toThrow(
+      "owner authentication required",
+    );
+  await expect(
+    f.service().decide({ ...input, principalId: "owner" }, ownerPassword),
+  ).rejects.toThrow();
+  expect(f.service().list()[0]?.status).toBe("pending");
+  f.setBinding({ ...f.binding, ownerPasswordHash: "" });
+  expect(() => f.service()).toThrow();
+});
+
+test("preparation is idempotent and rejects another open request or changed request identity", async () => {
+  const f = fixture();
+  const input = { id: randomUUID(), reason: "Prepared", plan: f.plan };
+  const first = await f.service().prepare(input);
+  expect(await f.service().prepare(input)).toEqual(first);
+  await expect(f.service().prepare({ ...input, reason: "Different" })).rejects.toThrow(
+    "different prepared work",
+  );
+  await expect(f.prepare()).rejects.toThrow("already open");
+  expect(f.service().list()).toEqual([first]);
+});
+
+test.each(["succeeded", "resumed", "rolled_back"] as const)(
+  "a %s bootstrap retains history and permits a new pending review",
+  async (stage) => {
+    const f = fixture();
+    const first = await f.prepare();
+    const completed = {
+      ...first,
+      status: "approved" as const,
+      execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+    };
+    f.journal.replace([first], [completed]);
+    let verified = false;
+    f.setVerify(async () => {
+      verified = true;
+    });
+    const next = await f.prepare();
+    expect(verified).toBe(true);
+    expect(next.status).toBe("pending");
+    expect(next.execution).toBeUndefined();
+    expect(f.service().list()).toEqual([completed, next]);
+    await expect(f.prepare()).rejects.toThrow("already open");
+  },
+);
+
+test("successful recovery closes only its exact failed ancestry for later maintenance", async () => {
+  const f = fixture();
+  const first = await f.prepare();
+  const failed = {
+    ...first,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([first], [failed]);
+  const plan = {
+    ...f.plan,
+    recoveredFrom: {
+      id: failed.id,
+      revision: failed.revision,
+      planSha256: failed.planSha256,
+      generation: failed.execution.generation,
+    },
+  };
+  const pending = await f.service().prepare({ id: randomUUID(), reason: "Recovery", plan });
+  const completed = {
+    ...pending,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([failed, pending], [failed, completed]);
+  expect(openBootstrapRequests([failed, completed])).toEqual([]);
+  const next = await f.prepare();
+  expect(f.service().list()).toEqual([failed, completed, next]);
+  const active = {
+    ...next,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: next.plan.candidate.node.path,
+    entrypoint: next.plan.candidate.entrypoint.path,
+    configuration: next.plan.candidate.configuration.path,
+  };
+  expect(coordinatorStartupAdmission([failed, completed, active], identity)).toEqual({
+    kind: "fenced",
+    request: active,
+  });
+  expect(coordinatorStartupReleased([failed, completed, active], identity, active)).toBe(false);
+  const finished = { ...active, execution: { ...active.execution, stage: "succeeded" as const } };
+  expect(coordinatorStartupReleased([failed, completed, finished], identity, active)).toBe(true);
+  // A separate unresolved failure must still fence the next review.
+  const unrelated = { ...failed, id: randomUUID() };
+  expect(openBootstrapRequests([failed, completed, unrelated])).toEqual([unrelated]);
+  f.journal.replace([failed, completed, next], [failed, completed, unrelated]);
+  await expect(f.prepare()).rejects.toThrow("already open");
+  expect(() =>
+    coordinatorStartupAdmission([failed, completed, unrelated, active], identity),
+  ).toThrow("Multiple bootstrap");
+  // A terminal label cannot cover a changed recovery generation.
+  const stale = {
+    ...completed,
+    plan: { ...completed.plan, recoveredFrom: { ...plan.recoveredFrom, generation: randomUUID() } },
+  };
+  stale.planSha256 = coordinatorPlanDigest(stale.plan);
+  expect(() => openBootstrapRequests([failed, stale])).toThrow("history changed");
+  f.journal.replace([failed, completed, unrelated], [failed, stale]);
+  await expect(f.prepare()).rejects.toThrow("history changed");
+});
+
+test("approval rechecks artifacts and rejects stale revision or installation selection", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve",
+  };
+  await expect(
+    f.service().decide({ ...input, revision: randomUUID() }, ownerPassword),
+  ).rejects.toThrow("changed");
+  f.setVerify(async () => {
+    throw new Error("Prepared bytes changed");
+  });
+  await expect(f.service().decide(input, ownerPassword)).rejects.toThrow("Prepared bytes changed");
+  f.setBinding({ ...f.binding, installationId: randomUUID() });
+  await expect(f.service().decide(input, ownerPassword)).rejects.toThrow("does not match");
+  expect(f.journal.read()[0]?.status).toBe("pending");
+});
+
+test("cancellation wins while asynchronous approval validation is outstanding", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  f.setVerify(async () => {
+    entered();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  });
+  const input = { id: pending.id, revision: pending.revision, planSha256: pending.planSha256 };
+  const approval = f.service().decide({ ...input, decision: "approve" }, ownerPassword);
+  await started;
+  const canceled = await f.service().decide({ ...input, decision: "cancel" }, ownerPassword);
+  release();
+  await expect(approval).rejects.toThrow("changed");
+  expect(f.service().list()).toEqual([canceled]);
+  expect(canceled.status).toBe("canceled");
+});
+
+test.each([null, { node: "/private/node", script: "/private/adopt.mjs", sha256: "d".repeat(64) }])(
+  "bootstrap Factory configuration preserves legacy review and requires explicit support (%j)",
+  async (configuration) => {
+    const f = fixture();
+    const service = f.service();
+    const request = await service.prepare({
+      id: randomUUID(),
+      reason: "Reviewed startup configuration",
+      plan: { ...f.plan, factoryRuntimeAdoptionConfiguration: configuration },
+    });
+    const list = {
+      type: "installation.bootstrap.list_requests.request" as const,
+      requestId: "legacy",
+    };
+    const legacy = await handleBootstrapReview(list, service);
+    const legacySchema = CoordinatorBootstrapRequestSchema.extend({
+      plan: CoordinatorBootstrapPlanSchema.omit({ factoryRuntimeAdoptionConfiguration: true }),
+    });
+    expect(legacySchema.safeParse(request).success).toBe(false);
+    const projected = legacy.payload.requests![0]!;
+    expect(legacySchema.safeParse(projected).success).toBe(true);
+    expect(projected.reason).toContain("Reload");
+    expect(projected.planSha256).toBe(request.planSha256);
+    const current = await handleBootstrapReview({ ...list, factoryRuntimeAdoption: true }, service);
+    expect(current.payload.requests![0]!.plan.factoryRuntimeAdoptionConfiguration).toEqual(
+      configuration,
+    );
+    const decision = {
+      type: "installation.bootstrap.decide.request" as const,
+      requestId: "approval",
+      ownerPassword,
+      input: {
+        id: request.id,
+        revision: request.revision,
+        planSha256: request.planSha256,
+        decision: "approve" as const,
+      },
+    };
+    const refused = await handleBootstrapReview(decision, service);
+    expect(refused.payload.error).toContain("Reload");
+    expect(service.list()[0]!.status).toBe("pending");
+    const approved = await handleBootstrapReview(
+      { ...decision, factoryRuntimeAdoption: true },
+      service,
+    );
+    expect(approved.payload.error).toBeNull();
+    expect(approved.payload.requests![0]!.status).toBe("approved");
+    const retained = service.list()[0]!;
+    const cancelled = await handleBootstrapReview(
+      {
+        ...decision,
+        input: { ...decision.input, revision: retained.revision, decision: "cancel" },
+      },
+      service,
+    );
+    expect(cancelled.payload.error).toBeNull();
+    expect(cancelled.payload.requests![0]!.status).toBe("canceled");
+    expect(legacySchema.safeParse(cancelled.payload.requests![0]).success).toBe(true);
+  },
+);
+
+test("plan digest ignores object key order but binds replacement and policy changes", () => {
+  const f = fixture();
+  expect(coordinatorPlanDigest(Object.fromEntries(Object.entries(f.plan).toReversed()))).toBe(
+    coordinatorPlanDigest(f.plan),
+  );
+  expect(
+    coordinatorPlanDigest({ ...f.plan, hostRequestsAfter: new Date(0).toISOString() }),
+  ).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(
+    coordinatorPlanDigest({
+      ...f.plan,
+      candidate: { ...f.plan.candidate, artifactSha256: "f".repeat(64) },
+    }),
+  ).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(coordinatorPlanDigest({ ...f.plan, nativeHelperConfiguration: null })).not.toBe(
+    coordinatorPlanDigest(f.plan),
+  );
+  const helper = {
+    home: "/private/host",
+    docker: "/usr/local/bin/docker",
+    socket: "/private/docker.sock",
+    containerId: "a".repeat(64),
+  };
+  const adoption = {
+    node: "/private/host/node",
+    script: "/private/host/adopt.mjs",
+    sha256: "d".repeat(64),
+  };
+  const adoptionDigest = coordinatorPlanDigest({
+    ...f.plan,
+    factoryRuntimeAdoptionConfiguration: adoption,
+  });
+  expect(adoptionDigest).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(coordinatorPlanDigest({ ...f.plan, factoryRuntimeAdoptionConfiguration: null })).not.toBe(
+    adoptionDigest,
+  );
+  expect(
+    coordinatorPlanDigest({
+      ...f.plan,
+      factoryRuntimeAdoptionConfiguration: { ...adoption, sha256: "e".repeat(64) },
+    }),
+  ).not.toBe(adoptionDigest);
+  const enabled = coordinatorPlanDigest({ ...f.plan, nativeHelperConfiguration: helper });
+  expect(enabled).not.toBe(coordinatorPlanDigest(f.plan));
+  expect(
+    coordinatorPlanDigest({
+      ...f.plan,
+      nativeHelperConfiguration: { ...helper, containerId: "b".repeat(64) },
+    }),
+  ).not.toBe(enabled);
+  expect(() => coordinatorPlanDigest({ ...f.plan, command: "arbitrary shell" })).toThrow();
+});
+
+test("journal refuses symlink substitution and preserves an existing writer lock", async () => {
+  const f = fixture();
+  await f.prepare();
+  const link = path.join(f.root, "alias");
+  symlinkSync(f.root, link);
+  expect(() => new FileBootstrapRequestJournal(link)).toThrow("canonical directory");
+  writeFileSync(path.join(f.root, "coordinator-bootstrap.lock"), "other owner", { mode: 0o600 });
+  const pending = f.service().list()[0]!;
+  await expect(
+    f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "cancel",
+      },
+      ownerPassword,
+    ),
+  ).rejects.toThrow("storage is busy");
+  expect(readFileSync(path.join(f.root, "coordinator-bootstrap.lock"), "utf8")).toBe("other owner");
+  expect(f.service().list()[0]?.status).toBe("pending");
+});
+
+test("owner credential rotation during artifact verification invalidates approval", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  f.setVerify(async () => {
+    f.setBinding({ ...f.binding, ownerPasswordHash: hashSync("replacement-owner", 4) });
+  });
+  await expect(
+    f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    ),
+  ).rejects.toThrow("authentication changed");
+  expect(f.journal.read()[0]?.status).toBe("pending");
+});
+
+test("approved bootstrap can be canceled without accepting damaged replacement bytes", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  f.setVerify(async () => {
+    throw new Error("Candidate no longer available");
+  });
+  const canceled = await f.service().decide(
+    {
+      id: approved.id,
+      revision: approved.revision,
+      planSha256: approved.planSha256,
+      decision: "cancel",
+    },
+    ownerPassword,
+  );
+  expect(canceled.status).toBe("canceled");
+  await expect(
+    f.service().decide(
+      {
+        id: canceled.id,
+        revision: canceled.revision,
+        planSha256: canceled.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    ),
+  ).rejects.toThrow("already been decided");
+});
+
+test("two asynchronous preparations cannot publish competing bootstrap requests", async () => {
+  const f = fixture();
+  const waiting: Array<() => void> = [];
+  f.setVerify(
+    () =>
+      new Promise<void>((resolve) => {
+        waiting.push(resolve);
+      }),
+  );
+  const first = f.prepare();
+  const second = f.prepare();
+  expect(waiting).toHaveLength(2);
+  waiting[0]!();
+  const saved = await first;
+  waiting[1]!();
+  await expect(second).rejects.toThrow("changed");
+  expect(f.service().list()).toEqual([saved]);
+});
+
+test("stored plan alteration and journal file symlinks are refused", async () => {
+  const f = fixture();
+  await f.prepare();
+  const file = path.join(f.root, "coordinator-bootstrap.json");
+  const value = JSON.parse(readFileSync(file, "utf8"));
+  value.requests[0].plan.candidate.sourceCommit = "f".repeat(40);
+  writeFileSync(file, JSON.stringify(value));
+  expect(() => f.service().list()).toThrow("digest check");
+  const target = path.join(f.root, "other.json");
+  writeFileSync(target, JSON.stringify(value), { mode: 0o600 });
+  rmSync(file);
+  symlinkSync(target, file);
+  expect(() => f.journal.read()).toThrow();
+  expect(readFileSync(target, "utf8")).toBe(JSON.stringify(value));
+});
+
+test("dispatch claims exact approval once and preserves its generation across reopen", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  await expect(
+    f.service().claimDispatch({
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+    }),
+  ).rejects.toThrow("approval required");
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const results = await Promise.allSettled([
+    f.service().claimDispatch(identity),
+    f.service().claimDispatch(identity),
+  ]);
+  expect(results.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+  const claimed = f.service().list()[0]!;
+  expect(claimed.execution?.stage).toBe("claimed");
+  await expect(f.service().claimDispatch(identity)).rejects.toThrow("approval required");
+  await expect(
+    f.service().decide(
+      {
+        id: claimed.id,
+        revision: claimed.revision,
+        planSha256: claimed.planSha256,
+        decision: "cancel",
+      },
+      ownerPassword,
+    ),
+  ).rejects.toThrow("already claimed");
+  const progress = {
+    id: claimed.id,
+    revision: claimed.revision,
+    planSha256: claimed.planSha256,
+    generation: claimed.execution!.generation,
+  };
+  expect(() =>
+    f.service().advanceDispatch({ ...progress, generation: randomUUID() }, "freeze_pending"),
+  ).toThrow("ownership changed");
+  expect(() => f.service().advanceDispatch(progress, "succeeded")).toThrow("Invalid");
+  const freezing = f.service().advanceDispatch(progress, "freeze_pending");
+  expect(f.service().list()[0]).toEqual(freezing);
+  expect(() => f.service().advanceDispatch(progress, "freeze_pending")).toThrow(
+    "ownership changed",
+  );
+  const uncertain = f
+    .service()
+    .advanceDispatch({ ...progress, revision: freezing.revision }, "recovery_required");
+  expect(() =>
+    f.service().advanceDispatch({ ...progress, revision: uncertain.revision }, "freeze_pending"),
+  ).toThrow("Invalid");
+});
+
+test("cancellation during dispatch validation wins without a stored claim", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  let release!: () => void;
+  const validation = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.setVerify(() => validation);
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const claim = f.service().claimDispatch(identity);
+  await f.service().decide({ ...identity, decision: "cancel" }, ownerPassword);
+  release();
+  await expect(claim).rejects.toThrow("request changed");
+  expect(f.service().list()[0]).toMatchObject({ status: "canceled" });
+  expect(f.service().list()[0]?.execution).toBeUndefined();
+});
+
+test("bootstrap executor persists intent before each operation and never replays a completed claim", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const calls: string[] = [];
+  const observe = async (name: string, stage: string) => {
+    expect(f.service().list()[0]?.execution?.stage).toBe(stage);
+    calls.push(name);
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    armWatchdog: () => observe("watchdog", "claimed"),
+    freeze: () => observe("freeze", "freeze_pending"),
+    inspectFrozen: async () => {
+      await observe("inspect", "freeze_pending");
+      return { restartJournal: [], childPids: [] };
+    },
+    preserveTransfer: () => observe("preserve", "frozen"),
+    unload: () => observe("unload", "unload_pending"),
+    select: () => observe("select", "selection_pending"),
+    start: () => observe("start", "start_pending"),
+    verifyReplacement: () => observe("verify", "verifying"),
+    releaseReplacement: () => observe("release", "verifying"),
+    resumePrevious: async () => {
+      throw new Error("Unexpected resume");
+    },
+  };
+  const identity = {
+    id: approved.id,
+    revision: approved.revision,
+    planSha256: approved.planSha256,
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), identity, operations);
+  expect(result.execution?.stage).toBe("succeeded");
+  expect(calls).toEqual([
+    "watchdog",
+    "freeze",
+    "inspect",
+    "preserve",
+    "unload",
+    "select",
+    "start",
+    "verify",
+    "release",
+  ]);
+  await expect(executeCoordinatorBootstrap(f.service(), identity, operations)).rejects.toThrow(
+    "undispatched",
+  );
+  expect(calls).toHaveLength(9);
+});
+
+test.each([
+  "freeze",
+  "inspectFrozen",
+  "preserveTransfer",
+  "unload",
+  "select",
+  "start",
+  "verifyReplacement",
+  "releaseReplacement",
+] as const)(
+  "bootstrap executor contains failure at %s without retrying the side effect",
+  async (failure) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const calls: string[] = [];
+    const failures: string[] = [];
+    const call = async (name: string) => {
+      calls.push(name);
+      if (name === failure) throw new Error("private diagnostic must not escape");
+    };
+    const operations: BootstrapExecutorOperations = {
+      recordFailure: async (_request, diagnostic) => {
+        failures.push(JSON.stringify(diagnostic));
+      },
+      withOwnership: async (_request, operation) => operation(),
+      armWatchdog: () => call("armWatchdog"),
+      freeze: () => call("freeze"),
+      inspectFrozen: async () => {
+        await call("inspectFrozen");
+        return { restartJournal: [], childPids: [] };
+      },
+      preserveTransfer: () => call("preserveTransfer"),
+      unload: () => call("unload"),
+      select: () => call("select"),
+      start: () => call("start"),
+      verifyReplacement: () => call("verifyReplacement"),
+      releaseReplacement: () => call("releaseReplacement"),
+      resumePrevious: () => call("resumePrevious"),
+    };
+    const result = await executeCoordinatorBootstrap(
+      f.service(),
+      { id: approved.id, revision: approved.revision, planSha256: approved.planSha256 },
+      operations,
+    );
+    const canResume = ["freeze", "inspectFrozen", "preserveTransfer"].includes(failure);
+    expect(result.execution?.stage).toBe(canResume ? "resumed" : "recovery_required");
+    const order = [
+      "armWatchdog",
+      "freeze",
+      "inspectFrozen",
+      "preserveTransfer",
+      "unload",
+      "select",
+      "start",
+      "verifyReplacement",
+      "releaseReplacement",
+    ];
+    expect(calls).toEqual([
+      ...order.slice(0, order.indexOf(failure) + 1),
+      ...(canResume ? ["resumePrevious"] : []),
+    ]);
+    expect(JSON.stringify(f.service().list())).not.toContain("private diagnostic");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).not.toContain("private diagnostic");
+    expect(failures[0]).toContain("operation");
+  },
+);
+
+test.each([false, true])(
+  "busy bootstrap resumes only the old process and records resume failure: %s",
+  async (resumeFails) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const calls: string[] = [];
+    const forbidden = async () => {
+      calls.push("forbidden");
+      throw new Error("Unexpected transfer");
+    };
+    const operations: BootstrapExecutorOperations = {
+      withOwnership: async (_request, operation) => operation(),
+      armWatchdog: async () => {
+        calls.push("watchdog");
+      },
+      freeze: async () => {
+        calls.push("freeze");
+      },
+      inspectFrozen: async () => ({ restartJournal: [], childPids: [123] }),
+      preserveTransfer: forbidden,
+      unload: forbidden,
+      select: forbidden,
+      start: forbidden,
+      verifyReplacement: forbidden,
+      releaseReplacement: forbidden,
+      resumePrevious: async () => {
+        calls.push("resume");
+        if (resumeFails) throw new Error("Identity changed");
+      },
+    };
+    const result = await executeCoordinatorBootstrap(
+      f.service(),
+      { id: approved.id, revision: approved.revision, planSha256: approved.planSha256 },
+      operations,
+    );
+    expect(result.execution?.stage).toBe(resumeFails ? "recovery_required" : "resumed");
+    expect(calls).toEqual(["watchdog", "freeze", "resume"]);
+  },
+);
+
+test("replacement startup remains fenced until its exact generation succeeds", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  expect(coordinatorStartupAdmission([pending], identity)).toEqual({ kind: "ordinary" });
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  expect(coordinatorStartupAdmission([record], identity)).toEqual({
+    kind: "fenced",
+    request: record,
+  });
+  expect(coordinatorStartupReleased([record], identity, record)).toBe(false);
+  const success = { ...record, execution: { ...record.execution, stage: "succeeded" as const } };
+  expect(coordinatorStartupReleased([success], identity, record)).toBe(true);
+  expect(() => coordinatorStartupReleased([], identity, record)).toThrow("ownership changed");
+  expect(() =>
+    coordinatorStartupReleased(
+      [{ ...success, execution: { ...success.execution, generation: randomUUID() } }],
+      identity,
+      record,
+    ),
+  ).toThrow("ownership changed");
+  for (const field of ["node", "entrypoint", "configuration", "stateDirectory"] as const)
+    expect(() =>
+      coordinatorStartupAdmission([record], { ...identity, [field]: "/wrong" }),
+    ).toThrow();
+  expect(() =>
+    coordinatorStartupAdmission([record], { ...identity, installationId: randomUUID() }),
+  ).toThrow();
+  expect(() =>
+    coordinatorStartupAdmission([{ ...record, planSha256: "0".repeat(64) }], identity),
+  ).toThrow();
+  expect(() => coordinatorStartupAdmission([record, record], identity)).toThrow("Duplicate");
+  expect(() =>
+    coordinatorStartupAdmission([record, { ...record, id: randomUUID() }], identity),
+  ).toThrow("Multiple");
+  expect(() =>
+    coordinatorStartupAdmission([{ ...record, status: "canceled" }], identity),
+  ).toThrow();
+  for (const stage of [
+    "claimed",
+    "freeze_pending",
+    "frozen",
+    "unload_pending",
+    "unloaded",
+    "selection_pending",
+    "selected",
+    "resume_pending",
+    "recovery_required",
+  ])
+    expect(() =>
+      coordinatorStartupAdmission(
+        [{ ...record, execution: { ...record.execution, stage } }],
+        identity,
+      ),
+    ).toThrow("recovery");
+});
+
+test("native startup fence reloads its durable generation and refuses deleted or replaced records", async () => {
+  const f = fixture();
+  f.plan.state.directory = f.root;
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.root,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "started" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  const fence = loadCoordinatorStartupFence(identity);
+  expect(fence?.generation).toBe(record.execution.generation);
+  expect(fence?.released()).toBe(false);
+  f.journal.replace([record], []);
+  expect(() => fence?.released()).toThrow("ownership changed");
+  const success = { ...record, execution: { ...record.execution, stage: "succeeded" as const } };
+  f.journal.replace([], [success]);
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(identity)).toBeUndefined();
+});
+
+test.each([
+  "claimed",
+  "freeze_pending",
+  "frozen",
+  "resume_pending",
+  "unload_pending",
+  "unloaded",
+  "selection_pending",
+  "selected",
+  "start_pending",
+  "started",
+  "verifying",
+  "succeeded",
+  "resumed",
+  "recovery_required",
+] as const)("watchdog crash recovery at %s never resumes after transfer intent", async (stage) => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+  };
+  f.journal.replace([approved], [record]);
+  const calls: string[] = [];
+  const result = await recoverAbandonedBootstrap(
+    f.service(),
+    { id: record.id, generation: record.execution.generation },
+    {
+      withOwnership: async (operation) => {
+        calls.push("exclusive");
+        return operation();
+      },
+      verifyExecutorExited: async () => {
+        calls.push("exited");
+      },
+      resumePrevious: async () => {
+        expect(f.service().list()[0]?.execution?.stage).toBe("resume_pending");
+        calls.push("resume");
+      },
+    },
+  );
+  const resumable = ["freeze_pending", "frozen", "resume_pending"].includes(stage);
+  const terminal = ["succeeded", "resumed", "recovery_required"].includes(stage);
+  let expectedStage: string = "recovery_required";
+  if (terminal) expectedStage = stage;
+  if (resumable) expectedStage = "resumed";
+  expect(result.execution?.stage).toBe(expectedStage);
+  expect(calls).toEqual(["exclusive", "exited", ...(resumable ? ["resume"] : [])]);
+});
+
+test("watchdog refuses uncertain executor death and changed ownership before any resume", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  const expected = { id: record.id, generation: record.execution.generation };
+  let resumes = 0;
+  const operations = {
+    withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+    verifyExecutorExited: async () => {
+      throw new Error("Observation unavailable");
+    },
+    resumePrevious: async () => {
+      resumes++;
+    },
+  };
+  await expect(recoverAbandonedBootstrap(f.service(), expected, operations)).rejects.toThrow(
+    "Observation unavailable",
+  );
+  expect(f.service().list()).toEqual([record]);
+  await expect(
+    recoverAbandonedBootstrap(
+      f.service(),
+      { ...expected, generation: randomUUID() },
+      { ...operations, verifyExecutorExited: async () => {} },
+    ),
+  ).rejects.toThrow("ownership changed");
+  expect(resumes).toBe(0);
+  const result = await recoverAbandonedBootstrap(f.service(), expected, {
+    ...operations,
+    verifyExecutorExited: async () => {},
+    resumePrevious: async () => {
+      throw new Error("Old process identity changed");
+    },
+  });
+  expect(result.execution?.stage).toBe("recovery_required");
+  expect(resumes).toBe(0);
+});
+
+test.runIf(process.platform === "darwin").each([
+  ["freeze", "freeze_pending", ["kill", "SIGSTOP"]],
+  ["resumePrevious", "resume_pending", ["kill", "SIGCONT"]],
+  ["unload", "unload_pending", ["bootout"]],
+] as const)(
+  "native %s binds exact dispatch and verifies process observations",
+  async (operation, stage, args) => {
+    const f = fixture();
+    f.plan.state = {
+      directory: f.root,
+      restartJournal: path.join(f.root, "restart-jobs.json"),
+      ownerSessions: path.join(f.root, "owner-sessions.json"),
+    };
+    const configurationFile = "/protected/config.json";
+    f.plan.expectedProcess.bootId = randomUUID();
+    f.plan.expectedProcess.startIdentity = "123:456";
+    f.plan.expectedProcess.argumentsSha256 = createHash("sha256")
+      .update(
+        JSON.stringify([
+          f.plan.previous.node.path,
+          f.plan.previous.entrypoint.path,
+          configurationFile,
+        ]),
+      )
+      .digest("hex");
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: { generation: randomUUID(), stage, updatedAt: new Date().toISOString() },
+    };
+    f.journal.replace([approved], [record]);
+    const identity = {
+      ...f.plan.expectedProcess,
+      parentPid: 1,
+      uid: process.getuid!(),
+      executable: f.plan.previous.node.path,
+    };
+    const calls: string[][] = [];
+    const observations: string[] = [];
+    let owned = true;
+    const reader = {
+      readService: async () => `${f.plan.service} = {\n\tpid = ${identity.pid}\n}`,
+      inspectProcess: async () => identity,
+      inspectStoppedProcess: async () => ({ ...identity, stopped: true as const, childPids: [] }),
+      inspectRunningProcess: async () => ({ ...identity, stopped: false as const }),
+      verifyProcessExited: async () => {
+        observations.push("exited");
+      },
+      verifyServiceAbsent: async () => {
+        observations.push("absent");
+      },
+    };
+    const actions = createBootstrapNativeLifecycle(
+      {
+        requests: f.service(),
+        reader,
+        configurationFile,
+        launcherFile: "/protected/selected.plist",
+        writableMountRoots: async () => [],
+        readHealth: async () => {
+          throw new Error("Unexpected fixture health read");
+        },
+        requireOwnership: async () => {
+          if (!owned) throw new Error("Ownership lost");
+        },
+      },
+      {
+        run: async (command) => {
+          calls.push([...command]);
+        },
+      },
+    );
+    await preserveBootstrapState({
+      request: { ...record, execution: { ...record.execution, stage: "frozen" } },
+      writableMountRoots: [],
+      childPids: [],
+    });
+    await actions[operation](record);
+    expect(calls).toEqual([[...args, f.plan.service]]);
+    expect(observations).toEqual(operation === "unload" ? ["exited", "absent"] : []);
+    owned = false;
+    await expect(actions[operation](record)).rejects.toThrow("Ownership lost");
+    expect(calls).toHaveLength(1);
+    owned = true;
+    await expect(actions[operation]({ ...record, revision: randomUUID() })).rejects.toThrow(
+      "exact dispatch",
+    );
+    expect(calls).toHaveLength(1);
+  },
+);
+
+test("replacement readiness binds fenced health to exact native candidate and stable process", async () => {
+  const { plan } = fixture();
+  const generation = randomUUID();
+  plan.expectedProcess.bootId = randomUUID();
+  const candidate = {
+    pid: plan.expectedProcess.pid + 1,
+    parentPid: 1,
+    uid: 501,
+    bootId: plan.expectedProcess.bootId,
+    startIdentity: "9999:123",
+    executable: plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(
+        JSON.stringify([
+          plan.candidate.node.path,
+          plan.candidate.entrypoint.path,
+          plan.candidate.configuration.path,
+        ]),
+      )
+      .digest("hex"),
+  };
+  const health = {
+    installationId: plan.installationId,
+    bootstrap: { generation, pid: candidate.pid, fenced: true },
+  };
+  const reader = {
+    readService: async () => `${plan.service} = {\n\tpid = ${candidate.pid}\n}`,
+    inspectProcess: async () => candidate,
+  };
+  const input = { plan, generation, hostUid: 501, reader, readHealth: async () => health };
+  await expect(verifyBootstrapReplacement(input)).resolves.toBeUndefined();
+  for (const change of [
+    { uid: 502 },
+    { parentPid: 2 },
+    { bootId: randomUUID() },
+    { executable: "/unapproved/node" },
+    { argumentsSha256: "0".repeat(64) },
+    { pid: candidate.pid + 1 },
+  ]) {
+    await expect(
+      verifyBootstrapReplacement({
+        ...input,
+        reader: { ...reader, inspectProcess: async () => ({ ...candidate, ...change }) },
+      }),
+    ).rejects.toThrow("approved candidate");
+  }
+  for (const change of [{ generation: randomUUID() }, { fenced: false }]) {
+    await expect(
+      verifyBootstrapReplacement({
+        ...input,
+        readHealth: async () => ({ ...health, bootstrap: { ...health.bootstrap, ...change } }),
+      }),
+    ).rejects.toThrow();
+  }
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({ ...health, installationId: randomUUID() }),
+    }),
+  ).rejects.toThrow();
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({
+        ...health,
+        bootstrap: { ...health.bootstrap, pid: candidate.pid + 1 },
+      }),
+    }),
+  ).rejects.toThrow("another process");
+  let observations = 0;
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        inspectProcess: async () => ({
+          ...candidate,
+          startIdentity: String(++observations) + ":123",
+        }),
+      },
+    }),
+  ).rejects.toThrow("changed during readiness");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        readService: async () => `${plan.service} = {\n\tpid = ${plan.expectedProcess.pid}\n}`,
+      },
+    }),
+  ).rejects.toThrow("previous PID");
+});
+
+test("bootstrap state preservation retains sessions and detects changed or missing journal without restoration", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const pending = await f.prepare();
+  const request = {
+    ...pending,
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const sessions = JSON.stringify([{ hash: "private-session-hash", expiresAt: 9999999999999 }]);
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  writeFileSync(f.plan.state.ownerSessions, sessions, { mode: 0o600 });
+  const context = { request, writableMountRoots: [], childPids: [] };
+  await preserveBootstrapState(context);
+  await verifyBootstrapState(context);
+  expect(readFileSync(f.plan.state.ownerSessions, "utf8")).toBe(sessions);
+  const receipt = readFileSync(
+    path.join(f.root, `coordinator-transfer-${request.execution.generation}.json`),
+    "utf8",
+  );
+  expect(receipt).not.toContain("private-session-hash");
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  writeFileSync(f.plan.state.restartJournal, "[ ]", { mode: 0o600 });
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+  expect(readFileSync(f.plan.state.restartJournal, "utf8")).toBe("[ ]");
+  writeFileSync(f.plan.state.restartJournal, "[]", { mode: 0o600 });
+  rmSync(f.plan.state.ownerSessions);
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+});
+
+test("bootstrap state preservation refuses active children and permits an absent initial session store", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const request = {
+    ...(await f.prepare()),
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const context = { request, writableMountRoots: [], childPids: [456] };
+  await expect(preserveBootstrapState(context)).rejects.toThrow("children");
+  await preserveBootstrapState({ ...context, childPids: [] });
+  await verifyBootstrapState(context);
+  writeFileSync(f.plan.state.ownerSessions, "[]", { mode: 0o600 });
+  await expect(verifyBootstrapState(context)).rejects.toThrow("no longer matches");
+});
+
+test("bootstrap state refuses exposed sessions and substituted state files", async () => {
+  const f = fixture();
+  f.plan.state = {
+    directory: f.root,
+    restartJournal: path.join(f.root, "restart-jobs.json"),
+    ownerSessions: path.join(f.root, "owner-sessions.json"),
+  };
+  const request = {
+    ...(await f.prepare()),
+    execution: {
+      generation: randomUUID(),
+      stage: "frozen" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const context = { request, writableMountRoots: [], childPids: [] };
+  writeFileSync(f.plan.state.ownerSessions, "[]", { mode: 0o644 });
+  await expect(preserveBootstrapState(context)).rejects.toThrow("private owned file");
+  chmodSync(f.plan.state.ownerSessions, 0o600);
+  writeFileSync(f.plan.state.ownerSessions, "{}");
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  rmSync(f.plan.state.ownerSessions);
+  const target = path.join(f.root, "substitute.json");
+  writeFileSync(target, "[]", { mode: 0o600 });
+  symlinkSync(target, f.plan.state.ownerSessions);
+  await expect(preserveBootstrapState(context)).rejects.toThrow();
+  expect(readFileSync(target, "utf8")).toBe("[]");
+});
+
+test.each([false, true])(
+  "approved automatic recovery restores once and never replays the update (failure=%s)",
+  async (fail) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "selection_pending" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [record]);
+    let restores = 0;
+    const operations = {
+      withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+      verifyExecutorExited: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Not a resume");
+      },
+      restorePrevious: async () => {
+        restores++;
+        expect(f.service().list()[0]?.execution?.stage).toBe("rollback_pending");
+        expect(f.service().list()[0]?.execution?.rollbackAttemptedAt).toBeTruthy();
+        if (fail) throw new Error("Readiness failed");
+      },
+    };
+    const expected = { id: record.id, generation: record.execution.generation };
+    const result = await recoverAbandonedBootstrap(f.service(), expected, operations);
+    expect(result.execution?.stage).toBe(fail ? "recovery_required" : "rolled_back");
+    expect(result.planSha256).toBe(approved.planSha256);
+    await recoverAbandonedBootstrap(f.service(), expected, operations);
+    expect(restores).toBe(1);
+  },
+);
+
+test("automatic rollback cannot be added to an existing approval", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  expect(() =>
+    f.service().advanceDispatch(
+      {
+        id: record.id,
+        revision: record.revision,
+        planSha256: record.planSha256,
+        generation: record.execution.generation,
+      },
+      "rollback_pending",
+    ),
+  ).toThrow("unused exact plan approval");
+  const altered = {
+    ...record,
+    plan: { ...record.plan, automaticRecovery: "restore-previous" as const },
+  };
+  f.journal.replace([record], [altered]);
+  expect(() => f.service().list()).toThrow("digest");
+});
+
+test("rollback startup accepts only the previous launch arguments, including its active config path", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-previous";
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.plan.state.directory,
+    node: f.plan.previous.node.path,
+    entrypoint: f.plan.previous.entrypoint.path,
+    configuration: "/protected/active-config.json",
+  };
+  f.plan.expectedProcess.argumentsSha256 = createHash("sha256")
+    .update(JSON.stringify([identity.node, identity.entrypoint, identity.configuration]))
+    .digest("hex");
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "rollback_pending" as const,
+      updatedAt: new Date().toISOString(),
+      rollbackAttemptedAt: new Date().toISOString(),
+    },
+  };
+  expect(coordinatorStartupAdmission([record], identity)).toEqual({ kind: "ordinary" });
+  expect(() =>
+    coordinatorStartupAdmission([record], { ...identity, configuration: "/other/config.json" }),
+  ).toThrow();
+});
+
+test("a fresh review after restoration preserves the failed receipt and rejects stale recovery references", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const failed = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "recovery_required" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [failed]);
+  const recoveredFrom = {
+    id: failed.id,
+    revision: failed.revision,
+    planSha256: failed.planSha256,
+    generation: failed.execution.generation,
+  };
+  const nextPlan = { ...f.plan, recoveredFrom, automaticRecovery: "restore-previous" as const };
+  await expect(
+    f.service().prepare({
+      id: randomUUID(),
+      plan: { ...nextPlan, recoveredFrom: { ...recoveredFrom, revision: randomUUID() } },
+      reason: "Fresh review",
+    }),
+  ).rejects.toThrow("history changed");
+  await expect(
+    f.service().prepare({
+      id: randomUUID(),
+      plan: { ...nextPlan, previous: { ...nextPlan.previous, sourceCommit: "f".repeat(40) } },
+      reason: "Fresh review",
+    }),
+  ).rejects.toThrow("restored release");
+  const next = await f
+    .service()
+    .prepare({ id: randomUUID(), plan: nextPlan, reason: "Fresh review" });
+  expect(next.status).toBe("pending");
+  expect(next.execution).toBeUndefined();
+  expect(f.service().list()[0]).toEqual(failed);
+  const decided = await f
+    .service()
+    .decide(
+      { id: next.id, revision: next.revision, planSha256: next.planSha256, decision: "approve" },
+      ownerPassword,
+    );
+  const started = {
+    ...decided,
+    execution: {
+      generation: randomUUID(),
+      stage: "start_pending" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  const candidate = started.plan.candidate;
+  expect(
+    coordinatorStartupAdmission([failed, started], {
+      installationId: f.plan.installationId,
+      stateDirectory: f.plan.state.directory,
+      node: candidate.node.path,
+      entrypoint: candidate.entrypoint.path,
+      configuration: candidate.configuration.path,
+    }).kind,
+  ).toBe("fenced");
+});
+
+test("stopped candidate recovery verifies loaded arguments and refuses unrelated jobs", () => {
+  const { plan } = fixture();
+  const output = `${plan.service} = {\n\tprogram = ${plan.candidate.node.path}\n\targuments = {\n\t\t${plan.candidate.node.path}\n\t\t${plan.candidate.entrypoint.path}\n\t\t${plan.candidate.configuration.path}\n\t}\n}`;
+  expect(isStoppedBootstrapCandidate(plan, output)).toBe(true);
+  expect(isStoppedBootstrapCandidate(plan, output.replace("\n}", "\n\tpid = 456\n}"))).toBe(false);
+  expect(() =>
+    isStoppedBootstrapCandidate(
+      plan,
+      output.replace("\tprogram = /protected/file", "\tprogram = /other"),
+    ),
+  ).toThrow("Stopped coordinator");
+  expect(() =>
+    isStoppedBootstrapCandidate(plan, output.replace("\t\t/protected/file", "\t\t/other")),
+  ).toThrow("Stopped coordinator");
+  expect(() =>
+    isStoppedBootstrapCandidate(plan, output.replace(plan.service, "gui/501/other")),
+  ).toThrow("service identity");
+});
+
+test("concurrent exact approvals share verification and commit only once", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const service = f.service();
+  let checks = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.setVerify(async () => {
+    checks++;
+    await gate;
+  });
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve" as const,
+  };
+  const attempts = [service.decide(input, ownerPassword), service.decide(input, ownerPassword)];
+  const outcomes = Promise.allSettled(attempts);
+  await expect.poll(() => checks).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(checks).toBe(1);
+  release();
+  const results = await outcomes;
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(service.list()[0]?.status).toBe("approved");
+});
+
+test("failed approval verification is never reused by a later attempt", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const service = f.service();
+  let checks = 0;
+  f.setVerify(async () => {
+    checks++;
+    if (checks === 1) throw new Error("fixture changed bytes");
+  });
+  const input = {
+    id: pending.id,
+    revision: pending.revision,
+    planSha256: pending.planSha256,
+    decision: "approve" as const,
+  };
+  await expect(service.decide(input, ownerPassword)).rejects.toThrow("fixture changed bytes");
+  expect(service.list()[0]?.status).toBe("pending");
+  await expect(service.decide(input, ownerPassword)).resolves.toMatchObject({ status: "approved" });
+  expect(checks).toBe(2);
+});
+
+function pickDecision(request: CoordinatorBootstrapRequest) {
+  return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
+}
+
+test("reviewed claim fencing preserves approval and prevents stale promotion", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const recovery = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "e".repeat(64),
+  };
+  const fenced = f.journal.fenceUnpromotedClaim(claimed, recovery);
+  expect(fenced).toEqual({
+    ...claimed,
+    revision: fenced.revision,
+    execution: {
+      ...claimed.execution,
+      stage: "recovery_required",
+      updatedAt: fenced.execution?.updatedAt,
+    },
+  });
+  expect(fenced.revision).not.toBe(claimed.revision);
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(() => f.journal.promote(claimed)).toThrow("Exact protected bootstrap claim");
+  expect(f.journal.fenceUnpromotedClaim(claimed, recovery)).toEqual(fenced);
+  const record = JSON.parse(
+    readFileSync(path.join(f.root, `coordinator-claim-fence-${recovery.generation}.json`), "utf8"),
+  );
+  expect(record).toEqual({ version: 1, recovery, original: claimed, fenced });
+  expect(() =>
+    f.journal.fenceUnpromotedClaim(claimed, { ...recovery, revision: randomUUID() }),
+  ).toThrow("recovery binding");
+  expect(f.journal.read()).toEqual([fenced]);
+});
+
+async function claimFenceFixture() {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const recovery = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "e".repeat(64),
+  };
+  return {
+    ...f,
+    claimed,
+    recovery,
+    evidence: path.join(f.root, `coordinator-claim-fence-${recovery.generation}.json`),
+    pendingFile: path.join(f.root, "coordinator-bootstrap-pending.json"),
+  };
+}
+
+test("bootstrap promotion refuses an installation already executing in the shared state", async () => {
+  const f = await claimFenceFixture();
+  const lifecycleFile = path.join(f.root, "restart-jobs.json");
+  let attempts = 0;
+  const queue = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) => writeFileSync(lifecycleFile, JSON.stringify(jobs), { mode: 0o600 }),
+    },
+    {
+      restart: async () => {
+        attempts++;
+        expect(() => f.journal.promote(f.claimed)).toThrow("unresolved installation work");
+        expect(f.journal.readPromoted()).toEqual([]);
+        return "Disposable replacement verified";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  queue.decide(pending.id, pending.revision, "approve");
+  await queue.drain();
+  expect(attempts).toBe(1);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses new daemon work during a coordinator claim", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    {
+      restart: async () => {
+        effects.push("restart");
+        return "ready";
+      },
+    },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  expect(() => queue.decide(pending.id, pending.revision, "approve")).toThrow(
+    "Coordinator recovery must finish",
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  expect(queue.list()[0]?.status).toBe("pending");
+  queue.decide(pending.id, pending.revision, "reject");
+  expect(queue.list()[0]?.status).toBe("rejected");
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("shared admission refuses a coordinator claim until queued daemon work is canceled", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    { restart: async () => "ready", restartWhenIdle: async () => "ready" },
+  );
+  const pending = queue.request({ target: "host", reason: "Disposable restart" }, "owner");
+  const queued = queue.decide(pending.id, pending.revision, "approve-when-idle");
+  const bootstrap = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(bootstrap), decision: "approve" }, ownerPassword);
+  await expect(f.service().claimDispatch(pickDecision(approved))).rejects.toThrow(
+    "unresolved installation work",
+  );
+  expect(f.journal.read()).toEqual([approved]);
+  queue.decide(queued.id, queued.revision, "cancel");
+  await expect(f.service().claimDispatch(pickDecision(approved))).resolves.toMatchObject({
+    execution: { stage: "claimed" },
+  });
+});
+
+test("shared admission preserves cancellation and hold release for legacy overlapping work", async () => {
+  const f = await claimFenceFixture();
+  const effects: string[] = [];
+  const executor = {
+    restart: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    restartWhenIdle: async () => {
+      effects.push("restart");
+      return "ready";
+    },
+    holdCurrentTurns: async () => {
+      effects.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      effects.push("release");
+    },
+    inspect: async () => ({
+      target: "host" as const,
+      agents: [],
+      pendingStarts: 0,
+      checkedAt: new Date().toISOString(),
+      idleRestartSupported: true,
+      gracefulRestartSupported: true,
+    }),
+  };
+  const legacy = new InstallationRestarts(
+    {
+      read: () => [],
+      write: (jobs) =>
+        writeFileSync(path.join(f.root, "restart-jobs.json"), JSON.stringify(jobs), {
+          mode: 0o600,
+        }),
+    },
+    executor,
+  );
+  const pending = legacy.request({ target: "host", reason: "Retained queued restart" }, "owner");
+  const approved = legacy.decide(pending.id, pending.revision, "finish-current-turns");
+  const queue = new InstallationRestarts(
+    {
+      read: () => f.journal.readLifecycle(),
+      write: (jobs) => f.journal.writeLifecycle(jobs),
+      admissionAvailable: () => f.journal.lifecycleAdmissionAvailable(),
+    },
+    executor,
+  );
+  await queue.drain();
+  expect(effects).toEqual([]);
+  queue.decide(approved.id, approved.revision, "cancel");
+  await queue.drain();
+  await queue.drain();
+  expect(effects).toEqual(["release"]);
+  expect(queue.list()[0]).toMatchObject({ status: "rejected", holdReleased: true });
+  expect(f.journal.read()).toEqual([f.claimed]);
+});
+
+test("lifecycle admission uses the bootstrap writer lock and reopens without losing requests", async () => {
+  const f = fixture();
+  f.journal.writeLifecycle([]);
+  const file = path.join(f.root, "restart-jobs.json");
+  const before = readFileSync(file);
+  f.journal.withRecoveryTransaction(() => {
+    expect(() => f.journal.writeLifecycle([])).toThrow("storage is busy");
+  });
+  expect(readFileSync(file)).toEqual(before);
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.lifecycleAdmissionAvailable()).toBe(true);
+  reopened.writeLifecycle([]);
+  expect(reopened.readLifecycle()).toEqual([]);
+});
+
+test.each(["complete", "intent"])(
+  "reviewed claim fencing refuses %s promotion without altering history",
+  async (stage) => {
+    const f = await claimFenceFixture();
+    f.journal.promote(f.claimed);
+    if (stage === "intent") rmSync(path.join(f.root, "coordinator-bootstrap.json"));
+    const before = readFileSync(f.pendingFile);
+    expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow(
+      "promotion already started",
+    );
+    expect(readFileSync(f.pendingFile)).toEqual(before);
+    expect(() => readFileSync(f.evidence)).toThrow();
+  },
+);
+
+test("reviewed claim fencing reconciles retention before an interrupted pending write", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  const fenced = f.journal.fenceUnpromotedClaim(f.claimed, f.recovery);
+  // Reproduce the durable files left by a crash between the two atomic writes.
+  writeFileSync(f.pendingFile, before);
+  const reopened = new FileBootstrapRequestJournal(f.root);
+  expect(reopened.fenceUnpromotedClaim(f.claimed, f.recovery)).toEqual(fenced);
+  expect(reopened.read()).toEqual([fenced]);
+  expect(() => reopened.promote(f.claimed)).toThrow("Exact protected bootstrap claim");
+});
+
+test.each(["revision", "generation", "stage", "plan"])(
+  "reviewed claim fencing rejects changed original %s",
+  async (field) => {
+    const f = await claimFenceFixture();
+    const changed = structuredClone(f.claimed);
+    if (field === "revision") changed.revision = randomUUID();
+    if (field === "generation") changed.execution!.generation = randomUUID();
+    if (field === "stage") changed.execution!.stage = "recovery_required";
+    if (field === "plan") changed.plan.candidate.sourceCommit = "f".repeat(40);
+    const before = readFileSync(f.pendingFile);
+    expect(() => f.journal.fenceUnpromotedClaim(changed, f.recovery)).toThrow();
+    expect(readFileSync(f.pendingFile)).toEqual(before);
+    expect(() => readFileSync(f.evidence)).toThrow();
+  },
+);
+
+test("reviewed claim fencing rejects altered retained history before changing the claim", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  f.journal.fenceUnpromotedClaim(f.claimed, f.recovery);
+  writeFileSync(f.pendingFile, before);
+  const record = JSON.parse(readFileSync(f.evidence, "utf8"));
+  record.fenced.execution.generation = randomUUID();
+  writeFileSync(f.evidence, JSON.stringify(record));
+  expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow(
+    "Retained claim fence changed",
+  );
+  expect(readFileSync(f.pendingFile)).toEqual(before);
+});
+
+test("reviewed claim fencing refuses unsafe evidence storage before changing the claim", async () => {
+  const f = await claimFenceFixture();
+  const before = readFileSync(f.pendingFile);
+  const target = path.join(f.root, "unrelated");
+  writeFileSync(target, "preserve", { mode: 0o600 });
+  symlinkSync(target, f.evidence);
+  expect(() => f.journal.fenceUnpromotedClaim(f.claimed, f.recovery)).toThrow();
+  expect(readFileSync(f.pendingFile)).toEqual(before);
+  expect(readFileSync(target, "utf8")).toBe("preserve");
+});
+
+test("compatible recovery keeps review and claim out of legacy startup until protected promotion", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  expect(f.journal.readPromoted()).toEqual([]);
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  expect(f.journal.readPromoted()).toEqual([]);
+  f.service().promoteDispatch(claimed);
+  expect(f.journal.readPromoted()).toEqual([claimed]);
+  const advanced = f
+    .service()
+    .advanceDispatch(
+      { ...pickDecision(claimed), generation: claimed.execution!.generation },
+      "freeze_pending",
+    );
+  expect(f.journal.read()).toEqual([advanced]);
+  expect(() => f.service().promoteDispatch(claimed)).toThrow("ownership changed");
+  expect(() => f.journal.replace([claimed], [claimed])).toThrow("changed");
+});
+
+test.each(["reason", "decisionAt", "revision", "generation"])(
+  "promotion refuses changed pre-claim evidence: %s",
+  async (field) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-compatible";
+    f.plan.compatibleRecovery = f.plan.candidate;
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const claimed = await f.service().claimDispatch(pickDecision(approved));
+    f.service().promoteDispatch(claimed);
+    const file = path.join(f.root, "coordinator-bootstrap-pending.json");
+    const sidecar = JSON.parse(readFileSync(file, "utf8"));
+    if (field === "generation") sidecar.requests[0].execution.generation = randomUUID();
+    else
+      sidecar.requests[0][field] =
+        field === "decisionAt" ? new Date(0).toISOString() : randomUUID();
+    writeFileSync(file, JSON.stringify(sidecar));
+    expect(() => f.service().list()).toThrow("source changed");
+  },
+);
+
+test("promotion intent without main commit requires reconciliation and cannot be canceled", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const file = path.join(f.root, "coordinator-bootstrap-pending.json");
+  writeFileSync(file, JSON.stringify({ version: 1, requests: [claimed], promotions: [claimed] }));
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(() =>
+    f
+      .service()
+      .advanceDispatch(
+        { ...pickDecision(claimed), generation: claimed.execution!.generation },
+        "recovery_required",
+      ),
+  ).toThrow("reconciliation");
+  await expect(
+    f.service().decide({ ...pickDecision(claimed), decision: "cancel" }, ownerPassword),
+  ).rejects.toThrow("claimed");
+  f.service().promoteDispatch(claimed);
+  expect(f.journal.readPromoted()).toEqual([claimed]);
+});
+
+test.each(["claimed", "freeze_pending", "frozen"] as const)(
+  "compatible watchdog never records resumed after promotion at %s",
+  async (stage) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-compatible";
+    f.plan.compatibleRecovery = f.plan.candidate;
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    let record = await f.service().claimDispatch(pickDecision(approved));
+    f.service().promoteDispatch(record);
+    if (stage !== "claimed")
+      record = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(record), generation: record.execution!.generation },
+          "freeze_pending",
+        );
+    if (stage === "frozen")
+      record = f
+        .service()
+        .advanceDispatch(
+          { ...pickDecision(record), generation: record.execution!.generation },
+          "frozen",
+        );
+    const effects: string[] = [];
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      { id: record.id, generation: record.execution!.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {
+          effects.push("exit verified");
+        },
+        resumePrevious: async () => {
+          effects.push("resume");
+        },
+        restorePrevious: async () => {
+          effects.push("compatible restoration");
+        },
+      },
+    );
+    expect(effects).toEqual(["exit verified", "compatible restoration"]);
+    expect(result.execution!.stage).toBe("rolled_back");
+  },
+);
+
+test("compatible executor promotes only after watchdog readiness and leaves early failure unresolved", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const effects: string[] = [];
+  const unexpected = async () => {
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), {
+    withOwnership: async (_request, operation) => {
+      effects.push("ownership");
+      return operation();
+    },
+    armWatchdog: async () => {
+      expect(f.journal.readPromoted()).toEqual([]);
+      effects.push("watchdog ready");
+    },
+    freeze: async (request) => {
+      expect(f.journal.readPromoted()[0]!.id).toBe(request.id);
+      effects.push("freeze");
+      throw new Error("freeze uncertain");
+    },
+    inspectFrozen: async () => {
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  });
+  expect(effects).toEqual(["ownership", "watchdog ready", "freeze"]);
+  expect(result.execution!.stage).toBe("recovery_required");
+});
+
+test("ownership failure after claim records recovery without promotion or lifecycle effects", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const effects: string[] = [];
+  const unexpected = async () => {
+    effects.push("unexpected lifecycle effect");
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async () => {
+      throw new Error("private ownership diagnostic");
+    },
+    armWatchdog: unexpected,
+    freeze: unexpected,
+    inspectFrozen: async () => {
+      effects.push("unexpected inspection");
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations);
+  expect(result.execution?.stage).toBe("recovery_required");
+  expect(result.status).toBe("approved");
+  expect(result.planSha256).toBe(approved.planSha256);
+  expect(result.decisionAt).toBe(approved.decisionAt);
+  expect(f.service().list()).toEqual([result]);
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(effects).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain("private ownership diagnostic");
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow("undispatched");
+});
+
+test("reviewed claim fencing stops an already running executor before coordinator effects", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  let fenced: CoordinatorBootstrapRequest | undefined;
+  const unexpected = vi.fn(async () => {
+    throw new Error("Unexpected native effect");
+  });
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    // Model recovery winning while the old runner awaits its last pre-promotion step.
+    armWatchdog: async (claimed) => {
+      fenced = f.journal.fenceUnpromotedClaim(claimed, {
+        id: randomUUID(),
+        revision: randomUUID(),
+        generation: randomUUID(),
+        planSha256: "e".repeat(64),
+      });
+    },
+    freeze: unexpected,
+    inspectFrozen: unexpected,
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow();
+  expect(unexpected).not.toHaveBeenCalled();
+  expect(f.journal.readPromoted()).toEqual([]);
+  expect(f.journal.read()).toEqual([fenced]);
+  expect(fenced?.execution?.stage).toBe("recovery_required");
+});
+
+test("legacy clients cannot approve a hidden compatible recovery executable", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  const projected = legacy.payload.requests![0]!;
+  expect(projected.plan.compatibleRecovery).toBeUndefined();
+  expect(projected.plan.automaticRecovery).toBeUndefined();
+  expect(projected.planSha256).toBe(pending.planSha256);
+  const decision = {
+    type: "installation.bootstrap.decide.request" as const,
+    requestId: "decision",
+    ownerPassword,
+    input: { ...pickDecision(pending), decision: "approve" as const },
+  };
+  expect((await handleBootstrapReview(decision, f.service())).payload.error).toContain("Reload");
+  expect(f.service().list()[0]!.status).toBe("pending");
+  expect(
+    (await handleBootstrapReview({ ...decision, compatibleRecovery: true }, f.service())).payload
+      .error,
+  ).toBeNull();
+});
+
+function monitorBootstrapFixture(change: "enable" | "remove") {
+  const f = fixture();
+  const file = { path: "/protected/file", sha256: "a".repeat(64) };
+  f.plan.previewMonitorConfiguration =
+    change === "remove"
+      ? null
+      : {
+          docker: "/protected/docker",
+          socket: "/protected/docker.sock",
+          containerId: "b".repeat(64),
+          home: "/home/paseo",
+          worker: file,
+          recovery: { node: file, journal: file, queue: file },
+        };
+  return f;
+}
+
+test.each(["enable", "remove"] as const)(
+  "old strict bootstrap list parses hidden monitor %s without altering approval digest",
+  async (change) => {
+    const f = monitorBootstrapFixture(change);
+    const pending = await f.prepare();
+    const oldRequest = CoordinatorBootstrapRequestSchema.extend({
+      plan: CoordinatorBootstrapPlanSchema.omit({ previewMonitorConfiguration: true }),
+    });
+    const oldResponse = CoordinatorBootstrapListResponseSchema.extend({
+      payload: CoordinatorBootstrapListResponseSchema.shape.payload.extend({
+        requests: z.array(oldRequest).nullable(),
+      }),
+    });
+    expect(() => oldRequest.parse(pending)).toThrow();
+    const legacy = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "old",
+      },
+      f.service(),
+    );
+    expect(() => oldResponse.parse(legacy)).not.toThrow();
+    const projected = legacy.payload.requests![0]!;
+    expect(projected.plan).not.toHaveProperty("previewMonitorConfiguration");
+    expect(projected.planSha256).toBe(pending.planSha256);
+    expect(projected.revision).toBe(pending.revision);
+    expect(projected.reason).toContain("Cancellation remains available");
+    expect(f.service().list()).toEqual([pending]);
+    const supported = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "new",
+        previewMonitor: true,
+      },
+      f.service(),
+    );
+    expect(supported.payload.requests).toEqual([pending]);
+  },
+);
+
+test.each(["enable", "remove"] as const)(
+  "legacy approval of hidden monitor %s is refused before service.decide",
+  async (change) => {
+    const f = monitorBootstrapFixture(change);
+    const pending = await f.prepare();
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const reply = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "approve",
+        ownerPassword,
+        input: { ...pickDecision(pending), decision: "approve" },
+      },
+      service,
+    );
+    expect(reply.payload.error).toContain("preview monitor configuration");
+    expect(decide).not.toHaveBeenCalled();
+    expect(service.list()).toEqual([pending]);
+  },
+);
+
+test.each([
+  ["enable", "approve", "approved"],
+  ["enable", "cancel", "canceled"],
+  ["remove", "approve", "approved"],
+  ["remove", "cancel", "canceled"],
+] as const)("supported monitor %s permits exact %s", async (change, action, status) => {
+  const f = monitorBootstrapFixture(change);
+  const pending = await f.prepare();
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const input = { ...pickDecision(pending), decision: action };
+  const reply = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      previewMonitor: true,
+      input,
+    },
+    service,
+  );
+  expect(reply.payload.error).toBeNull();
+  expect(decide).toHaveBeenCalledExactlyOnceWith(input, ownerPassword);
+  expect(reply.payload.requests![0]!.status).toBe(status);
+  expect(reply.payload.requests![0]!.plan).toEqual(pending.plan);
+  expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
+});
+
+test.each(["enable", "remove"] as const)(
+  "legacy monitor %s cancellation stays available",
+  async (change) => {
+    const f = monitorBootstrapFixture(change);
+    const pending = await f.prepare();
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const input = { ...pickDecision(pending), decision: "cancel" as const };
+    const reply = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "cancel",
+        ownerPassword,
+        input,
+      },
+      service,
+    );
+    expect(reply.payload.error).toBeNull();
+    expect(decide).toHaveBeenCalledExactlyOnceWith(input, ownerPassword);
+    expect(reply.payload.requests![0]!.status).toBe("canceled");
+    expect(reply.payload.requests![0]!.plan).not.toHaveProperty("previewMonitorConfiguration");
+    expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
+  },
+);
+
+test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
+  const f = fixture();
+  const original = coordinatorPlanDigest(f.plan);
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: false }),
+  ).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: null }),
+  ).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, sourceUpdateTooling: "/other/tools" }),
+  ).toThrow();
+  f.plan.sourceUpdateTooling = true;
+  expect(coordinatorPlanDigest(f.plan)).not.toBe(original);
+  const input = { id: randomUUID(), reason: "Select reviewed source tooling", plan: f.plan };
+  const pending = await f.service().prepare(input);
+  expect(pending.status).toBe("pending");
+  expect(f.service().list()).toEqual([pending]);
+  expect(await f.service().prepare(input)).toEqual(pending);
+  await expect(
+    f.service().prepare({ ...input, plan: { ...f.plan, sourceUpdateTooling: undefined } }),
+  ).rejects.toThrow("different prepared work");
+});
+
+test("source tooling legacy projection parses strictly and blocks hidden approval before decision", async () => {
+  const f = fixture();
+  f.plan.sourceUpdateTooling = true;
+  const pending = await f.prepare();
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const legacyRequest = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ sourceUpdateTooling: true }),
+  });
+  const legacyResponse = CoordinatorBootstrapListResponseSchema.extend({
+    payload: CoordinatorBootstrapListResponseSchema.shape.payload.extend({
+      requests: z.array(legacyRequest).nullable(),
+    }),
+  });
+  expect(() => legacyRequest.parse(pending)).toThrow();
+  const reply = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "legacy" },
+    service,
+  );
+  expect(() => legacyResponse.parse(reply)).not.toThrow();
+  const projected = reply.payload.requests![0]!;
+  expect(projected.plan).not.toHaveProperty("sourceUpdateTooling");
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.revision).toBe(pending.revision);
+  expect(projected.reason).toContain("Cancellation remains available");
+  const hidden = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "hidden",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(hidden.payload.error).toContain("source update tooling");
+  expect(decide).not.toHaveBeenCalled();
+  expect(service.list()).toEqual([pending]);
+});
+
+test.each(["approve", "cancel"] as const)(
+  "source tooling permits exact supported %s and durable recovery",
+  async (action) => {
+    const f = fixture();
+    f.plan.sourceUpdateTooling = true;
+    const pending = await f.prepare();
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const input = { ...pickDecision(pending), decision: action };
+    const reply = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "supported",
+        ownerPassword,
+        sourceUpdateTooling: true,
+        input,
+      },
+      service,
+    );
+    expect(reply.payload.error).toBeNull();
+    expect(decide).toHaveBeenCalledExactlyOnceWith(input, ownerPassword);
+    const recorded = reply.payload.requests![0]!;
+    expect(recorded.status).toBe(action === "approve" ? "approved" : "canceled");
+    expect(recorded.plan).toEqual(pending.plan);
+    expect(recorded.planSha256).toBe(pending.planSha256);
+    expect(f.service().list()).toEqual([recorded]);
+  },
+);
+
+test("source tooling legacy cancellation preserves the exact hidden plan", async () => {
+  const f = fixture();
+  f.plan.sourceUpdateTooling = true;
+  const pending = await f.prepare();
+  const service = f.service();
+  const reply = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "cancel",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "cancel" },
+    },
+    service,
+  );
+  expect(reply.payload.error).toBeNull();
+  expect(reply.payload.requests![0]!.status).toBe("canceled");
+  expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
+  expect(service.list()[0]!.plan).toEqual(pending.plan);
+});
+
+async function pendingRecoveryStartupFixture() {
+  const f = fixture();
+  f.plan.state.directory = f.root;
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const failed = f.journal.fenceUnpromotedClaim(claimed, {
+    id: randomUUID(),
+    revision: randomUUID(),
+    generation: randomUUID(),
+    planSha256: "f".repeat(64),
+  });
+  const next = await f.service().prepare({
+    id: randomUUID(),
+    reason: "Reviewed successor",
+    plan: {
+      ...f.plan,
+      recoveredFrom: {
+        id: failed.id,
+        revision: failed.revision,
+        generation: failed.execution!.generation,
+        planSha256: failed.planSha256,
+      },
+    },
+  });
+  const decided = await f
+    .service()
+    .decide({ ...pickDecision(next), decision: "approve" }, ownerPassword);
+  const successor = await f.service().claimDispatch(pickDecision(decided));
+  f.journal.promote(successor);
+  const started = {
+    ...successor,
+    execution: { ...successor.execution!, stage: "start_pending" as const },
+  };
+  const records = f.journal.read();
+  f.journal.replace(
+    records,
+    records.map((r) => (r.id === started.id ? started : r)),
+  );
+  const identity = {
+    installationId: f.plan.installationId,
+    stateDirectory: f.root,
+    node: f.plan.candidate.node.path,
+    entrypoint: f.plan.candidate.entrypoint.path,
+    configuration: f.plan.candidate.configuration.path,
+  };
+  return { ...f, failed, started, identity };
+}
+
+test("startup retains exact pending recovery ancestry without granting unrelated pending claims authority", async () => {
+  const f = await pendingRecoveryStartupFixture();
+  const records = f.journal.read();
+  const unrelated = {
+    ...f.failed,
+    id: randomUUID(),
+    revision: randomUUID(),
+    execution: { ...f.failed.execution!, generation: randomUUID(), stage: "claimed" as const },
+  };
+  f.journal.replace(records, [...records, unrelated]);
+  const paths = ["coordinator-bootstrap.json", "coordinator-bootstrap-pending.json"].map((n) =>
+    path.join(f.root, n),
+  );
+  const before = paths.map((p) => readFileSync(p));
+  expect(f.journal.readPromoted().map((r) => r.id)).toEqual([f.started.id]);
+  const fence = loadCoordinatorStartupFence(f.identity);
+  expect(fence?.generation).toBe(f.started.execution.generation);
+  expect(fence?.released()).toBe(false);
+  expect(paths.map((p) => readFileSync(p))).toEqual(before);
+  const current = f.journal.read();
+  const completed = {
+    ...f.started,
+    execution: { ...f.started.execution, stage: "succeeded" as const },
+  };
+  f.journal.replace(
+    current,
+    current.map((r) => (r.id === f.started.id ? completed : r)),
+  );
+  expect(fence?.released()).toBe(true);
+  expect(loadCoordinatorStartupFence(f.identity)).toBeUndefined();
+  expect(f.journal.readPromoted().map((r) => r.id)).toEqual([f.started.id]);
+});
+
+test.each(["missing", "revision", "generation", "plan"])(
+  "startup refuses changed pending recovery ancestry: %s",
+  async (change) => {
+    const f = await pendingRecoveryStartupFixture();
+    const records = f.journal.read();
+    const changed = structuredClone(f.failed);
+    if (change === "revision") changed.revision = randomUUID();
+    if (change === "generation") changed.execution!.generation = randomUUID();
+    if (change === "plan") changed.planSha256 = "0".repeat(64);
+    f.journal.replace(
+      records,
+      records.flatMap((r) => {
+        if (r.id !== f.failed.id) return [r];
+        return change === "missing" ? [] : [changed];
+      }),
+    );
+    expect(() => loadCoordinatorStartupFence(f.identity)).toThrow(
+      "Recovered coordinator history changed",
+    );
+  },
+);
+
+test.each([true, false])(
+  "watchdog reconciles completed replacement without replaying effects: %s",
+  async (healthy) => {
+    const f = fixture();
+    const pending = await f.prepare();
+    const approved = await f.service().decide(
+      {
+        id: pending.id,
+        revision: pending.revision,
+        planSha256: pending.planSha256,
+        decision: "approve",
+      },
+      ownerPassword,
+    );
+    const record = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "verifying" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [record]);
+    const calls: string[] = [];
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {
+          calls.push("exit");
+        },
+        verifyReplacement: async (request) => {
+          expect(request.execution?.stage).toBe("verifying");
+          calls.push("verify");
+          if (!healthy) throw new Error("candidate unavailable");
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("rollback not authorized");
+        },
+      },
+    );
+    expect(result.execution?.stage).toBe(healthy ? "succeeded" : "recovery_required");
+    expect(calls).toEqual(["exit", "verify"]);
+  },
+);
+
+test("watchdog cannot release a replacement after dispatch ownership changes during observation", async () => {
+  const f = fixture();
+  const pending = await f.prepare();
+  const approved = await f.service().decide(
+    {
+      id: pending.id,
+      revision: pending.revision,
+      planSha256: pending.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  const record = {
+    ...approved,
+    execution: {
+      generation: randomUUID(),
+      stage: "verifying" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  f.journal.replace([approved], [record]);
+  await expect(
+    recoverAbandonedBootstrap(
+      f.service(),
+      {
+        id: record.id,
+        generation: record.execution.generation,
+      },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyReplacement: async () => {
+          f.journal.replace([record], [{ ...record, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("must not resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("must not restore");
+        },
+      },
+    ),
+  ).rejects.toThrow("ownership changed");
+  expect(f.service().list()[0].execution?.stage).toBe("verifying");
+});
+
+function bootRecoveryFixture() {
+  const f = fixture();
+  const id = randomUUID();
+  const service = `${f.plan.service}-recovery-${id}`;
+  const identity = (file: string) => ({ path: file, sha256: "a".repeat(64) });
+  f.plan.bootRecovery = {
+    requestId: id,
+    service,
+    launcher: identity("/protected/prepared-recovery.plist"),
+    installedLauncher: `/Users/fixture/Library/LaunchAgents/${service.split("/")[2]}.plist`,
+    setup: identity("/protected/recovery-setup.json"),
+    ownerLauncher: identity(`${f.plan.candidate.directory}/scripts/run-coordinator-owner.py`),
+    node: f.plan.candidate.node,
+    entrypoint: identity(
+      `${f.plan.candidate.directory}/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js`,
+    ),
+  };
+  return { ...f, id };
+}
+
+test("startup recovery binds its request and all startup settings to the reviewed candidate", async () => {
+  const f = bootRecoveryFixture();
+  const launcher = bootstrapRecoveryLauncher(f.plan);
+  const input = { plan: f.plan, hostUid: 501, hostHome: "/Users/fixture", launcher };
+  expect(() => verifyBootstrapRecoveryLauncher(input)).not.toThrow();
+  for (const altered of [
+    { ...launcher, KeepAlive: true },
+    { ...launcher, RunAtLoad: false },
+    { ...launcher, EnvironmentVariables: { NODE_OPTIONS: "--require /other/code" } },
+    { ...launcher, ProgramArguments: [...launcher.ProgramArguments, "automatic-recovery"] },
+    { ...launcher, Label: "unrelated" },
+  ])
+    expect(() => verifyBootstrapRecoveryLauncher({ ...input, launcher: altered })).toThrow(
+      "startup settings",
+    );
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostUid: 502 })).toThrow("Host account");
+  expect(() => verifyBootstrapRecoveryLauncher({ ...input, hostHome: "/Users/other" })).toThrow(
+    "Host account",
+  );
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  expect(pending.plan.bootRecovery?.requestId).toBe(f.id);
+  await expect(f.prepare()).rejects.toThrow("exact maintenance request");
+});
+
+test("startup recovery refuses unrelated executables and startup destinations", () => {
+  const f = bootRecoveryFixture();
+  const original = f.plan.bootRecovery!;
+  for (const change of [
+    { node: { ...original.node, path: "/other/node" } },
+    { entrypoint: { ...original.entrypoint, path: "/other/runner.js" } },
+    { ownerLauncher: { ...original.ownerLauncher, path: "/other/owner.py" } },
+    { installedLauncher: "/Library/LaunchDaemons/unrelated.plist" },
+    { service: `${f.plan.service}-recovery-${randomUUID()}` },
+    { launcher: { ...original.launcher, path: original.installedLauncher } },
+  ]) {
+    const plan = { ...f.plan, bootRecovery: { ...original, ...change } };
+    expect(() =>
+      verifyBootstrapRecoveryLauncher({
+        plan,
+        hostUid: 501,
+        hostHome: "/Users/fixture",
+        launcher: bootstrapRecoveryLauncher(plan),
+      }),
+    ).toThrow();
+  }
+});
+
+test("strict legacy readers can cancel but cannot approve hidden startup recovery", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const service = f.service();
+  const reply = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "legacy" },
+    service,
+  );
+  const legacyRequest = CoordinatorBootstrapRequestSchema.extend({
+    plan: CoordinatorBootstrapPlanSchema.omit({ bootRecovery: true }),
+  });
+  expect(() => legacyRequest.parse(pending)).toThrow();
+  const projected = legacyRequest.parse(reply.payload.requests![0]);
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.revision).toBe(pending.revision);
+  const hidden = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "hidden",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(hidden.payload.error).toContain("startup recovery");
+  expect(service.list()[0]?.status).toBe("pending");
+  const canceled = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "cancel",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "cancel" },
+    },
+    service,
+  );
+  expect(canceled.payload.error).toBeNull();
+  expect(service.list()[0]?.status).toBe("canceled");
+});
+
+test("startup recovery must be armed before a coordinator can be frozen", async () => {
+  const f = bootRecoveryFixture();
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const calls: string[] = [];
+  const unexpected = async () => {
+    throw new Error("Unexpected lifecycle effect");
+  };
+  const operations: BootstrapExecutorOperations = {
+    withOwnership: async (_request, operation) => operation(),
+    armWatchdog: async () => {
+      calls.push("watchdog");
+    },
+    freeze: unexpected,
+    inspectFrozen: async () => {
+      throw new Error("Unexpected inspection");
+    },
+    preserveTransfer: unexpected,
+    unload: unexpected,
+    select: unexpected,
+    start: unexpected,
+    verifyReplacement: unexpected,
+    releaseReplacement: unexpected,
+    resumePrevious: unexpected,
+  };
+  await expect(
+    executeCoordinatorBootstrap(f.service(), pickDecision(approved), operations),
+  ).rejects.toThrow("cannot arm");
+  expect(f.service().list()[0]?.execution).toBeUndefined();
+  expect(calls).toEqual([]);
+  const result = await executeCoordinatorBootstrap(f.service(), pickDecision(approved), {
+    ...operations,
+    armBootRecovery: async (claimed) => {
+      expect(claimed.execution?.stage).toBe("claimed");
+      calls.push("startup recovery");
+      throw new Error("Startup service registration failed");
+    },
+  });
+  expect(calls).toEqual(["watchdog", "startup recovery"]);
+  expect(result.execution?.stage).toBe("recovery_required");
+});
+
+test("replacement after reboot accepts a recycled PID only with approved boot recovery and exact fenced health", async () => {
+  const { plan } = bootRecoveryFixture();
+  const generation = randomUUID();
+  const recoveryBootId = randomUUID();
+  const candidate = {
+    pid: plan.expectedProcess.pid,
+    parentPid: 1,
+    uid: 501,
+    bootId: recoveryBootId,
+    startIdentity: "9999:123",
+    executable: plan.candidate.node.path,
+    argumentsSha256: createHash("sha256")
+      .update(
+        JSON.stringify([
+          plan.candidate.node.path,
+          plan.candidate.entrypoint.path,
+          plan.candidate.configuration.path,
+        ]),
+      )
+      .digest("hex"),
+  };
+  const health = {
+    installationId: plan.installationId,
+    bootstrap: { generation, pid: candidate.pid, fenced: true },
+  };
+  const reader = {
+    readService: async () => `${plan.service} = {\n\tpid = ${candidate.pid}\n}`,
+    inspectProcess: async () => candidate,
+  };
+  const input = {
+    plan,
+    generation,
+    recoveryBootId,
+    hostUid: 501,
+    reader,
+    readHealth: async () => health,
+  };
+  await expect(verifyBootstrapReplacement(input)).resolves.toBeUndefined();
+  await expect(verifyBootstrapReplacement({ ...input, recoveryBootId: undefined })).rejects.toThrow(
+    "previous PID",
+  );
+  await expect(
+    verifyBootstrapReplacement({ ...input, recoveryBootId: plan.expectedProcess.bootId }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({ ...input, plan: { ...plan, bootRecovery: undefined } }),
+  ).rejects.toThrow("distinct verified boot");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      reader: {
+        ...reader,
+        inspectProcess: async () => ({ ...candidate, bootId: randomUUID() }),
+      },
+    }),
+  ).rejects.toThrow("approved candidate");
+  await expect(
+    verifyBootstrapReplacement({
+      ...input,
+      readHealth: async () => ({ ...health, bootstrap: { ...health.bootstrap, fenced: false } }),
+    }),
+  ).rejects.toThrow();
+});
+
+test.each([true, false])(
+  "startup watchdog never resumes a pre-reboot PID and preserves one rollback budget: %s",
+  async (authorized) => {
+    const f = bootRecoveryFixture();
+    if (authorized) f.plan.automaticRecovery = "restore-previous";
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "frozen" as const,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let restores = 0;
+    const operations = {
+      withOwnership: async <T>(operation: () => Promise<T>) => operation(),
+      verifyExecutorExited: async () => {},
+      verifyBootChanged: async () => {},
+      resumePrevious: async () => {
+        throw new Error("Must never signal a recycled PID");
+      },
+      restorePrevious: async () => {
+        restores++;
+        throw new Error("Uncertain rollback outcome");
+      },
+    };
+    const ownership = { id: request.id, generation: request.execution.generation };
+    const first = await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(first.execution?.stage).toBe("recovery_required");
+    expect(restores).toBe(authorized ? 1 : 0);
+    await recoverAbandonedBootstrap(f.service(), ownership, operations);
+    expect(restores).toBe(authorized ? 1 : 0);
+  },
+);
+
+test.each([true, false])(
+  "startup registration persists exact bytes and never repeats an uncertain native effect: %s",
+  async (succeeds) => {
+    const f = bootRecoveryFixture();
+    const bytes = Buffer.from("prepared fixture launcher");
+    const source = path.join(f.root, "prepared.plist");
+    writeFileSync(source, bytes, { mode: 0o600 });
+    f.plan.state.directory = f.root;
+    f.plan.bootRecovery!.launcher = {
+      path: source,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+    f.plan.bootRecovery!.installedLauncher = path.join(f.root, "selected.plist");
+    const pending = await f
+      .service()
+      .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = await f.service().claimDispatch(pickDecision(approved));
+    let registrations = 0;
+    let verified = 0;
+    const input = {
+      request,
+      writableMountRoots: [],
+      requireClaim: async () => {
+        expect(f.service().list()[0]).toEqual(request);
+      },
+      verifyServiceAbsent: async () => {},
+      register: async (domain: string, launcher: string) => {
+        registrations++;
+        expect(domain).toBe("gui/501");
+        expect(readFileSync(launcher)).toEqual(bytes);
+        expect(
+          JSON.parse(
+            readFileSync(
+              path.join(
+                f.root,
+                `coordinator-boot-registration-${request.execution!.generation}.json`,
+              ),
+              "utf8",
+            ),
+          ),
+        ).toMatchObject({
+          requestId: request.id,
+          planSha256: request.planSha256,
+          generation: request.execution!.generation,
+        });
+        if (!succeeds) throw new Error("Native registration result lost");
+      },
+      verifyRegistered: async () => {
+        verified++;
+      },
+    };
+    const verifyArtifacts = async () => {};
+    if (succeeds) await registerBootstrapRecovery(input, verifyArtifacts);
+    else
+      await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow(
+        "result lost",
+      );
+    expect(registrations).toBe(1);
+    expect(verified).toBe(succeeds ? 1 : 0);
+    await expect(registerBootstrapRecovery(input, verifyArtifacts)).rejects.toThrow();
+    expect(registrations).toBe(1);
+    expect(statSync(f.plan.bootRecovery!.installedLauncher).nlink).toBe(1);
+  },
+);
+
+test("startup cleanup keeps unresolved and altered launchers and removes only exact completed work", async () => {
+  const f = bootRecoveryFixture();
+  const bytes = Buffer.from("approved startup launcher");
+  const selected = path.join(f.root, "selected.plist");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  f.plan.bootRecovery!.installedLauncher = selected;
+  f.plan.bootRecovery!.launcher.sha256 = createHash("sha256").update(bytes).digest("hex");
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const input = { request: pending, writableMountRoots: [], requireTerminal: async () => {} };
+  await expect(removeCompletedBootstrapRecovery(input)).rejects.toThrow("remains necessary");
+  const completed = {
+    ...pending,
+    status: "approved" as const,
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded" as const,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  writeFileSync(selected, "unrelated replacement", { mode: 0o600 });
+  await expect(removeCompletedBootstrapRecovery({ ...input, request: completed })).rejects.toThrow(
+    "digest changed",
+  );
+  expect(readFileSync(selected, "utf8")).toBe("unrelated replacement");
+  writeFileSync(selected, bytes, { mode: 0o600 });
+  await removeCompletedBootstrapRecovery({ ...input, request: completed });
+  expect(() => readFileSync(selected)).toThrow();
+  await expect(
+    removeCompletedBootstrapRecovery({ ...input, request: completed }),
+  ).resolves.toBeUndefined();
+});
+
+test.each(["rollback_pending", "recovery_required"] as const)(
+  "watchdog recognizes a completed rollback from %s without another effect",
+  async (stage) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage,
+        updatedAt: new Date().toISOString(),
+        rollbackAttemptedAt: new Date().toISOString(),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const result = await recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async (current) => {
+          expect(current).toEqual(request);
+          observations++;
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+        restorePrevious: async () => {
+          throw new Error("Rollback must not run again");
+        },
+      },
+    );
+    expect(observations).toBe(1);
+    expect(result.execution?.stage).toBe("rolled_back");
+    expect(result.execution?.rollbackAttemptedAt).toBe(request.execution.rollbackAttemptedAt);
+  },
+);
+
+test.each(["unhealthy", "changed ownership", "no attempt"])(
+  "rollback reconciliation does not invent success: %s",
+  async (failure) => {
+    const f = fixture();
+    f.plan.automaticRecovery = "restore-previous";
+    const pending = await f.prepare();
+    const approved = await f
+      .service()
+      .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+    const request = {
+      ...approved,
+      execution: {
+        generation: randomUUID(),
+        stage: "recovery_required" as const,
+        updatedAt: new Date().toISOString(),
+        ...(failure !== "no attempt" ? { rollbackAttemptedAt: new Date().toISOString() } : {}),
+      },
+    };
+    f.journal.replace([approved], [request]);
+    let observations = 0;
+    const recovery = recoverAbandonedBootstrap(
+      f.service(),
+      { id: request.id, generation: request.execution.generation },
+      {
+        withOwnership: async (operation) => operation(),
+        verifyExecutorExited: async () => {},
+        verifyRollback: async () => {
+          observations++;
+          if (failure === "unhealthy") throw new Error("Recovery identity does not match");
+          f.journal.replace([request], [{ ...request, revision: randomUUID() }]);
+        },
+        resumePrevious: async () => {
+          throw new Error("Unexpected resume");
+        },
+      },
+    );
+    if (failure === "changed ownership")
+      await expect(recovery).rejects.toThrow("ownership changed");
+    else expect((await recovery).execution?.stage).toBe("recovery_required");
+    expect(observations).toBe(failure === "no attempt" ? 0 : 1);
+  },
+);
+
+function automaticCoordinatorFixture() {
+  const f = bootRecoveryFixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.previous;
+  let now = Date.parse("2026-10-15T00:00:01Z");
+  let authority: { credentialBinding: string; policyActivatedAt: string } | null = {
+    credentialBinding: "b".repeat(64),
+    policyActivatedAt: "2026-10-15T00:00:00Z",
+  };
+  let verify = async () => {};
+  const service = () =>
+    new CoordinatorBootstrapRequests(
+      f.journal,
+      () => f.binding,
+      () => verify(),
+      () => now,
+      () => authority,
+    );
+  const prepare = () =>
+    service().prepare({ id: f.id, reason: "Automatic coordinator fixture", plan: f.plan });
+  return {
+    ...f,
+    service,
+    prepare,
+    submit: () =>
+      service().prepareAutomatic(
+        { id: f.id, reason: "Automatic coordinator fixture", plan: f.plan },
+        {
+          credentialBinding: "b".repeat(64),
+          policyActivatedAt: "2026-10-15T00:00:00Z",
+        },
+      ),
+    advance: (milliseconds = 30_000) => {
+      now += milliseconds;
+    },
+    disable: () => {
+      authority = null;
+    },
+    rotate: () => {
+      authority = { ...authority!, credentialBinding: "c".repeat(64) };
+    },
+    setVerify: (value: typeof verify) => {
+      verify = value;
+    },
+  };
+}
+
+test("automatic coordinator status distinguishes checks, cancellation and uncertain launch without private authority", async () => {
+  const f = automaticCoordinatorFixture();
+  const now = Date.parse("2026-10-15T00:00:01Z");
+  const pending = await f.submit();
+  expect(coordinatorAutomaticStatus(pending, now)).toEqual({
+    authorization: "host-policy",
+    state: "waiting",
+    observedAt: new Date(now).toISOString(),
+  });
+  const checking = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  expect(coordinatorAutomaticStatus(checking, now)).toMatchObject({
+    state: "checking",
+    attempt: 1,
+  });
+  f.service().finishAutomaticReconciliation(checking.id, checking.automaticCheck);
+  const retrying = f.service().list()[0]!;
+  expect(coordinatorAutomaticStatus(retrying, now)).toMatchObject({
+    state: "retry-wait",
+    attempt: 1,
+  });
+  expect(
+    coordinatorAutomaticStatus(
+      { ...retrying, automaticCheck: { ...retrying.automaticCheck!, attempt: 3 } },
+      now,
+    ),
+  ).toMatchObject({ state: "review-required", attempt: 3 });
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(retrying));
+  expect(coordinatorAutomaticStatus(approved, now)).toMatchObject({
+    state: "cancellation-window",
+    dispatchAfter: approved.automaticApproval!.dispatchAfter,
+  });
+  f.advance();
+  expect(coordinatorAutomaticStatus(approved, now + 30_000)).toMatchObject({
+    state: "dispatch-ready",
+  });
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(coordinatorAutomaticStatus(reserved, now + 30_000)).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  const message = {
+    type: "installation.bootstrap.list_requests.request" as const,
+    requestId: "status",
+  };
+  const legacy = await handleBootstrapReview(message, f.service());
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticStatus");
+  const modern = await handleBootstrapReview({ ...message, automaticStatus: true }, f.service());
+  expect(modern.payload.requests?.[0]?.automaticStatus).toMatchObject({
+    state: "launch-unconfirmed",
+  });
+  expect(JSON.stringify(modern)).not.toContain("credentialBinding");
+  expect(modern.payload.requests?.[0]).not.toHaveProperty("automaticCheck");
+  expect(CoordinatorBootstrapRequestSchema.parse(legacy.payload.requests?.[0]).id).toBe(pending.id);
+});
+
+test("coordinator reconciliation budgets survive reopening and delayed responses", async () => {
+  const f = automaticCoordinatorFixture();
+  let request = await f.submit();
+  expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+  for (const attempt of [1, 2, 3]) {
+    const reserved = f
+      .service()
+      .reserveAutomaticReconciliation(automaticCoordinatorIdentity(request));
+    if (!reserved) throw new Error("Missing reconciliation reservation");
+    expect(reserved.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "running",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(reserved)).not.toThrow();
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(reserved)),
+    ).toBeNull();
+    f.service().finishAutomaticReconciliation(reserved.id, reserved.automaticCheck);
+    request = f.service().list()[0]!;
+    expect(request.automaticCheck).toMatchObject({
+      phase: "approval",
+      attempt,
+      outcome: "unconfirmed",
+    });
+    expect(() => f.service().requireAutomaticReconciliation(request)).toThrow("bounded");
+    expect(
+      f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+    ).toBeNull();
+    f.advance(60_000);
+  }
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(request)),
+  ).toBeNull();
+});
+
+test("a crashed reconciliation retains its budget and cannot overwrite approval or launch", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.submit();
+  const first = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(pending))!;
+  f.advance(16 * 60_000);
+  expect(() => f.service().requireAutomaticReconciliation(first)).toThrow("bounded");
+  const second = f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(first))!;
+  expect(second.automaticCheck?.attempt).toBe(2);
+  f.service().finishAutomaticReconciliation(first.id, first.automaticCheck);
+  expect(f.service().list()).toEqual([second]);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(second));
+  f.service().finishAutomaticReconciliation(second.id, second.automaticCheck);
+  expect(f.service().list()).toEqual([approved]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved)),
+  ).toBeNull();
+  f.advance();
+  const dispatch = f
+    .service()
+    .reserveAutomaticReconciliation(automaticCoordinatorIdentity(approved))!;
+  expect(dispatch.automaticCheck).toMatchObject({ phase: "dispatch", attempt: 1 });
+  expect(dispatch.automaticApproval?.requestRevision).toBe(dispatch.revision);
+  const launched = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(dispatch));
+  f.service().finishAutomaticReconciliation(dispatch.id, dispatch.automaticCheck);
+  expect(f.service().list()).toEqual([launched]);
+  expect(
+    f.service().reserveAutomaticReconciliation(automaticCoordinatorIdentity(launched)),
+  ).toBeNull();
+});
+
+test("concurrent coordinator ticks share durable admission and retain failed connection attempts", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const connected = Promise.withResolvers<never>();
+  const connect = vi.fn(() => connected.promise);
+  const first = reconcileInstallationCoordinator(config, f.service(), connect);
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  connected.reject(new Error("Fixture disconnected"));
+  await expect(first).rejects.toThrow("Fixture disconnected");
+  expect(f.service().list()[0]?.automaticCheck).toMatchObject({
+    attempt: 1,
+    outcome: "unconfirmed",
+  });
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+});
+
+test("coordinator ticks advance approval and dispatch once without consuming the cancellation interval", async () => {
+  const f = automaticCoordinatorFixture();
+  await f.submit();
+  const { config } = coordinatorSubmissionFixture();
+  const approve = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [await f.service().approveAutomatic(automaticCoordinatorIdentity(request))];
+  });
+  const close = vi.fn(async () => {});
+  const connect = vi.fn(async () => ({ reconcileAutomaticCoordinatorBootstrap: approve, close }));
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  const approved = f.service().list()[0]!;
+  expect(approved.status).toBe("approved");
+  await reconcileInstallationCoordinator(config, f.service(), connect);
+  expect(connect).toHaveBeenCalledOnce();
+  f.advance();
+  const dispatch = vi.fn(async () => {
+    const request = f.service().list()[0]!;
+    f.service().requireAutomaticReconciliation(request);
+    return [f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(request))];
+  });
+  const dispatchConnection = vi.fn(async () => ({
+    reconcileAutomaticCoordinatorBootstrap: dispatch,
+    close,
+  }));
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  await reconcileInstallationCoordinator(config, f.service(), dispatchConnection);
+  expect(dispatchConnection).toHaveBeenCalledOnce();
+  expect(dispatch).toHaveBeenCalledExactlyOnceWith(approved.id);
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(f.service().list()[0]?.automaticDispatch?.approvedRevision).not.toBeUndefined();
+});
+
+test("coordinator automation requires protected Host provenance and waits before exact dispatch", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  expect(await f.submit()).toEqual(submitted);
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "not yet eligible",
+  );
+  const visible = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "review",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticApproval");
+  expect(visible.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  f.advance();
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  const claimed = await f.service().claimDispatch(automaticCoordinatorIdentity(reserved));
+  expect(claimed.execution?.stage).toBe("claimed");
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(claimed);
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow();
+});
+
+test.each(["pending", "approved", "validation", "claim"])(
+  "coordinator permission revocation fences the %s boundary",
+  async (boundary) => {
+    const f = automaticCoordinatorFixture();
+    const submitted = await f.submit();
+    if (boundary === "validation") {
+      f.setVerify(async () => {
+        f.disable();
+        f.service().revokeAutomatic();
+      });
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("revoked");
+    } else if (boundary === "pending") {
+      f.disable();
+      f.service().revokeAutomatic();
+      await expect(
+        f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+      ).rejects.toThrow("pending");
+    } else {
+      const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+      f.advance();
+      if (boundary === "claim")
+        f.setVerify(async () => {
+          f.disable();
+          f.service().revokeAutomatic();
+        });
+      else {
+        f.rotate();
+        f.service().revokeAutomatic();
+      }
+      await expect(
+        f.service().claimDispatch(automaticCoordinatorIdentity(approved)),
+      ).rejects.toThrow();
+    }
+    expect(f.service().list()[0]).toMatchObject({ status: "canceled" });
+    expect(f.service().list()[0]).not.toHaveProperty("execution");
+  },
+);
+
+test("manual coordinator approval remains exact when automatic permission is revoked", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().decide(
+    {
+      id: submitted.id,
+      revision: submitted.revision,
+      planSha256: submitted.planSha256,
+      decision: "approve",
+    },
+    ownerPassword,
+  );
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toEqual(approved);
+  expect(approved).not.toHaveProperty("automaticApproval");
+  expect(
+    (await f.service().claimDispatch(automaticCoordinatorIdentity(approved))).execution?.stage,
+  ).toBe("claimed");
+});
+
+function automaticCoordinatorIdentity(request: CoordinatorBootstrapRequest) {
+  return { id: request.id, revision: request.revision, planSha256: request.planSha256 };
+}
+
+test.each(["no-startup", "configuration", "other-service", "tooling"])(
+  "automatic coordinator authority refuses %s changes",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    if (change === "no-startup") delete f.plan.bootRecovery;
+    if (change === "configuration")
+      f.plan.candidate = {
+        ...f.plan.candidate,
+        configuration: { ...f.plan.candidate.configuration, sha256: "f".repeat(64) },
+      };
+    if (change === "other-service") f.plan.nativeHelperConfiguration = null;
+    if (change === "tooling") f.plan.sourceUpdateTooling = true;
+    const submitted = await f.submit();
+    await expect(
+      f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+    ).rejects.toThrow();
+    expect(f.service().list()[0].status).toBe("pending");
+    expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+  },
+);
+
+test("generic coordinator preparation cannot inject provenance or grant old requests automatically", async () => {
+  const f = automaticCoordinatorFixture();
+  await expect(
+    f.service().prepare({
+      id: f.id,
+      reason: "Forged provenance",
+      plan: f.plan,
+      automaticSubmission: {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:00Z",
+        submittedAt: "2026-10-15T00:00:01Z",
+      },
+    }),
+  ).rejects.toThrow();
+  const pending = await f.prepare();
+  const later = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    () => Date.parse("2026-10-15T00:00:30Z"),
+    () => ({ credentialBinding: "b".repeat(64), policyActivatedAt: "2026-10-15T00:00:20Z" }),
+  );
+  await expect(
+    later.prepareAutomatic(
+      { id: f.id, reason: pending.reason, plan: f.plan },
+      {
+        credentialBinding: "b".repeat(64),
+        policyActivatedAt: "2026-10-15T00:00:20Z",
+      },
+    ),
+  ).rejects.toThrow("cannot acquire automatic authority");
+  expect(later.list()[0]).toEqual(pending);
+});
+
+test("owner cancellation wins over in-flight automatic coordinator validation", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  f.setVerify(async () => {
+    await f
+      .service()
+      .decide({ ...automaticCoordinatorIdentity(submitted), decision: "cancel" }, ownerPassword);
+  });
+  await expect(
+    f.service().approveAutomatic(automaticCoordinatorIdentity(submitted)),
+  ).rejects.toThrow();
+  expect(f.service().list()[0].status).toBe("canceled");
+  expect(f.service().list()[0]).not.toHaveProperty("automaticApproval");
+});
+
+test("automatic coordinator launch reservation survives lost replies and permits cancellation", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("not yet eligible");
+  f.advance();
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(approved))).rejects.toThrow(
+    "reserve its native launch",
+  );
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  expect(reserved.automaticDispatch?.approvedRevision).toBe(approved.revision);
+  expect(reserved).not.toHaveProperty("execution");
+  const legacy = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.list_requests.request",
+      requestId: "legacy-reservation",
+      bootRecovery: true,
+      compatibleRecovery: true,
+    },
+    f.service(),
+  );
+  expect(legacy.payload.error).toBeNull();
+  expect(legacy.payload.requests?.[0]).not.toHaveProperty("automaticDispatch");
+
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved)),
+  ).toThrow("already changed or reserved");
+  expect(() =>
+    f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(reserved)),
+  ).toThrow("already changed or reserved");
+  const canceled = await f
+    .service()
+    .decide({ ...automaticCoordinatorIdentity(reserved), decision: "cancel" }, ownerPassword);
+  expect(canceled.status).toBe("canceled");
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("coordinator revocation after launch reservation prevents the native claim", async () => {
+  const f = automaticCoordinatorFixture();
+  const submitted = await f.submit();
+  const approved = await f.service().approveAutomatic(automaticCoordinatorIdentity(submitted));
+  f.advance();
+  const reserved = f.service().reserveAutomaticDispatch(automaticCoordinatorIdentity(approved));
+  f.disable();
+  f.service().revokeAutomatic();
+  expect(f.service().list()[0]).toMatchObject({
+    status: "canceled",
+    automaticDispatch: reserved.automaticDispatch,
+  });
+  await expect(f.service().claimDispatch(automaticCoordinatorIdentity(reserved))).rejects.toThrow();
+});
+
+test("automatic coordinator RPC cannot mint provenance and refuses unavailable services", async () => {
+  const f = automaticCoordinatorFixture();
+  const pending = await f.prepare();
+  const message = CoordinatorBootstrapReconcileAutomaticRequestSchema.parse({
+    type: "installation.bootstrap.reconcile_automatic.request",
+    requestId: "reconcile",
+    id: pending.id,
+    bootRecovery: true,
+    compatibleRecovery: true,
+  });
+  expect(
+    CoordinatorBootstrapReconcileAutomaticRequestSchema.safeParse({
+      ...message,
+      credentialBinding: "b".repeat(64),
+    }).success,
+  ).toBe(false);
+  const unavailable = await handleBootstrapReview(message, f.service());
+  expect(unavailable.payload.error).toContain("unavailable");
+  const requests = f.service();
+  const service = Object.assign(requests, {
+    automatic: {
+      reconcile: async (id: string) => {
+        const current = requests.list().find((item) => item.id === id)!;
+        return requests.approveAutomatic(automaticCoordinatorIdentity(current));
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(message, service);
+  expect(forged.payload.error).toContain("missing or revoked");
+  expect(requests.list()[0].status).toBe("pending");
+  await expect(f.submit()).rejects.toThrow("cannot acquire automatic authority");
+  expect(requests.list()[0]).toEqual(pending);
+});
+
+test.each(["disable", "rotate"] as const)(
+  "automatic preparation rejects %s during native validation without a partial request",
+  async (change) => {
+    const f = automaticCoordinatorFixture();
+    f.setVerify(async () => {
+      f[change]();
+    });
+    await expect(f.submit()).rejects.toThrow("permission required");
+    expect(f.service().list()).toEqual([]);
+  },
+);
+
+function coordinatorSubmissionFixture() {
+  const f = fixture();
+  const config: Parameters<typeof submitInstallationCoordinator>[0]["config"] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+    listenPort: 6766,
+    webDistDir: f.root,
+    host: {
+      endpoint: "127.0.0.1:6768",
+      password: "fixture-host",
+      launchdService: "gui/501/local.vorteo.fixture.host",
+    },
+    container: { endpoint: "127.0.0.1:6769", password: "fixture-dev" },
+  };
+  const input = { id: randomUUID(), reason: "Scoped coordinator preparation", plan: f.plan };
+  const preference = new DaemonAutomation(f.root, false);
+  return { f, config, input, preference };
+}
+
+test("scoped Host submission sends an exact proof and returns only its review receipt", async () => {
+  const { f, config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const pending = await f.service().prepare(input);
+  const prepare = vi.fn(async () => [pending]);
+  const close = vi.fn(async () => {});
+  const receipt = await submitInstallationCoordinator(
+    { config, input, requester: "host-agent", requireOwnerApproval: false },
+    async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+  );
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+  expect(receipt).toEqual({
+    id: pending.id,
+    revision: pending.revision,
+    status: "pending",
+    approvalUrl: `https://fixture.example.test/settings/general?installation=1&bootstrap=${pending.id}`,
+  });
+});
+
+test.each([
+  { requester: "container-agent", requireOwnerApproval: false, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: true, enabled: true },
+  { requester: "host-agent", requireOwnerApproval: false, enabled: false },
+] as const)(
+  "coordinator submission preserves manual review: %j",
+  async ({ requester, requireOwnerApproval, enabled }) => {
+    const { f, config, input, preference } = coordinatorSubmissionFixture();
+    preference.change({ expectedRevision: null, service: "coordinator", enabled });
+    const pending = await f.service().prepare(input);
+    const prepare = vi.fn(async () => [pending]);
+    const close = vi.fn(async () => {});
+    await submitInstallationCoordinator(
+      { config, input, requester, requireOwnerApproval },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    );
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(input, { submissionProof: undefined });
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
+
+test("unsupported authenticated coordinator submission closes without retrying as manual", async () => {
+  const { config, input, preference } = coordinatorSubmissionFixture();
+  preference.change({ expectedRevision: null, service: "coordinator", enabled: true });
+  const prepare = vi.fn(async () => {
+    throw new Error("Host capability unavailable");
+  });
+  const close = vi.fn(async () => {});
+  await expect(
+    submitInstallationCoordinator(
+      { config, input, requester: "host-agent", requireOwnerApproval: false },
+      async () => ({ prepareCoordinatorBootstrap: prepare, close }),
+    ),
+  ).rejects.toThrow("Host capability unavailable");
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(input, {
+    submissionProof: signCoordinatorSubmission(config, input),
+  });
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test("scoped coordinator proof binds the exact preparation, policy and credentials", () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  const input = { id: randomUUID(), reason: "Exact authenticated preparation", plan: f.plan };
+  expect(() => signCoordinatorSubmission(config, input)).toThrow("disabled");
+  const preference = new DaemonAutomation(f.root, false);
+  const enabled = preference.change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const proof = signCoordinatorSubmission(config, input);
+  expect(verifyCoordinatorSubmission(config, input, proof)).toEqual(
+    coordinatorAutomaticAuthority(config),
+  );
+  expect(signCoordinatorSubmission(config, input)).toEqual(proof);
+  for (const changed of [
+    { ...input, id: randomUUID() },
+    { ...input, reason: "Different reason" },
+    {
+      ...input,
+      plan: { ...input.plan, candidate: { ...input.plan.candidate, sourceCommit: "f".repeat(40) } },
+    },
+  ])
+    expect(() => verifyCoordinatorSubmission(config, changed, proof)).toThrow();
+  for (const key of ["hostAgentTokenHash", "containerAgentTokenHash", "ownerPasswordHash"] as const)
+    expect(() =>
+      verifyCoordinatorSubmission({ ...config, [key]: "c".repeat(64) }, input, proof),
+    ).toThrow("Exact scoped Host");
+  expect(() =>
+    verifyCoordinatorSubmission(config, input, { ...proof, signature: "0".repeat(64) }),
+  ).toThrow("Exact scoped Host");
+  preference.change({ expectedRevision: enabled.revision, service: "coordinator", enabled: false });
+  expect(() => verifyCoordinatorSubmission(config, input, proof)).toThrow("disabled");
+});
+
+test("same-millisecond permission reactivation retains a distinct epoch across reopening", () => {
+  const f = fixture();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-15T00:00:00Z"));
+  try {
+    const preference = new DaemonAutomation(f.root, false);
+    const first = preference.change({
+      expectedRevision: null,
+      service: "coordinator",
+      enabled: true,
+    });
+    const disabled = preference.change({
+      expectedRevision: first.revision,
+      service: "coordinator",
+      enabled: false,
+    });
+    const enabled = new DaemonAutomation(f.root, false).change({
+      expectedRevision: disabled.revision,
+      service: "coordinator",
+      enabled: true,
+    });
+    expect(Date.parse(enabled.services!.coordinator!)).toBeGreaterThan(
+      Date.parse(first.services!.coordinator!),
+    );
+    expect(enabled.services!.host).toBe(first.services!.host);
+    expect(preference.read()).not.toHaveProperty("changedAt");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("authenticated preparation RPC validates proof before atomically recording provenance", async () => {
+  const f = fixture();
+  const config: Parameters<typeof signCoordinatorSubmission>[0] = {
+    stateDir: f.root,
+    public: {
+      version: 1,
+      installationId: f.plan.installationId,
+      origin: "https://fixture.example.test",
+      environments: [],
+    },
+    hostAgentTokenHash: "a".repeat(64),
+    containerAgentTokenHash: "b".repeat(64),
+    ownerPasswordHash: ownerHash,
+  };
+  new DaemonAutomation(f.root, false).change({
+    expectedRevision: null,
+    service: "coordinator",
+    enabled: true,
+  });
+  const input = { id: randomUUID(), reason: "Scoped preparation", plan: f.plan };
+  const proof = signCoordinatorSubmission(config, input);
+  const requests = new CoordinatorBootstrapRequests(
+    f.journal,
+    () => f.binding,
+    async () => {},
+    Date.now,
+    () => coordinatorAutomaticAuthority(config),
+  );
+  const message = {
+    type: "installation.bootstrap.prepare.request" as const,
+    requestId: "authenticated-preparation",
+    input,
+    submissionProof: proof,
+  };
+  expect((await handleBootstrapReview(message, requests)).payload.error).toContain("unavailable");
+  expect(requests.list()).toEqual([]);
+  const service = Object.assign(requests, {
+    automatic: {
+      prepare: async (value: typeof input, supplied: typeof proof) =>
+        requests.prepareAutomatic(value, verifyCoordinatorSubmission(config, value, supplied)),
+      reconcile: async () => {
+        throw new Error("No dispatch from preparation");
+      },
+    },
+  });
+  const forged = await handleBootstrapReview(
+    { ...message, submissionProof: { ...proof, signature: "0".repeat(64) } },
+    service,
+  );
+  expect(forged.payload.error).toContain("Exact scoped Host");
+  expect(requests.list()).toEqual([]);
+  const prepared = await handleBootstrapReview(message, service);
+  expect(prepared.payload.error).toBeNull();
+  expect(prepared.payload.requests?.[0].status).toBe("pending");
+  expect(prepared.payload.requests?.[0]).not.toHaveProperty("automaticSubmission");
+  const retained = requests.list()[0];
+  expect(retained.automaticSubmission).toMatchObject(coordinatorAutomaticAuthority(config)!);
+  expect(retained).not.toHaveProperty("execution");
+  expect((await handleBootstrapReview(message, service)).payload.error).toBeNull();
+  expect(requests.list()).toEqual([retained]);
+});
+
+test.each(["ready", "legacy", "missing-review", "offline"] as const)(
+  "coordinator readiness uses connected Host features and closes its probe (%s)",
+  async (mode) => {
+    const { config } = coordinatorSubmissionFixture();
+    const close = vi.fn(async () => {});
+    const result = await inspectInstallationCoordinator(config, async () => {
+      if (mode === "offline") throw new Error("PRIVATE CONNECTION DETAIL");
+      return {
+        close,
+        getLastServerInfoMessage: () => ({
+          status: "server_info",
+          serverId: "host-id",
+          hostname: null,
+          version: null,
+          features: {
+            coordinatorBootstrapReview: mode !== "missing-review",
+            coordinatorBootstrapAuthenticatedSubmission: mode === "ready",
+            coordinatorBootstrapAutomaticReconciliation: mode === "ready",
+            coordinatorBootstrapAutomaticStatus: mode === "ready",
+            coordinatorBootstrapBootRecovery: mode === "ready",
+            coordinatorBootstrapCompatibleRecovery: mode === "ready",
+            coordinatorBootstrapRecoveryBootPlan: mode === "ready",
+          },
+        }),
+      };
+    });
+    expect(result.available).toBe(mode === "ready" || mode === "legacy");
+    expect(result.automaticAvailable).toBe(mode === "ready");
+    expect(close).toHaveBeenCalledTimes(mode === "offline" ? 0 : 1);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE CONNECTION DETAIL");
+  },
+);

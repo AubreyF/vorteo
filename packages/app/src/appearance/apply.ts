@@ -11,6 +11,14 @@ import { applyRootUiFont } from "./apply-root-font";
 
 const ALL_THEME_KEYS = Object.keys(REGISTERED_THEMES) as (keyof typeof REGISTERED_THEMES)[];
 
+function equalValues(left: object, right: object): boolean {
+  const keys = Object.keys(right);
+  return (
+    Object.keys(left).length === keys.length &&
+    keys.every((key) => Object.is(Reflect.get(left, key), Reflect.get(right, key)))
+  );
+}
+
 export interface AppearanceInput {
   uiFontFamily: string; // "" -> default stack
   monoFontFamily: string; // "" -> default stack
@@ -61,7 +69,7 @@ function scaleFontSize(
  * `...t` first.
  */
 export function applyAppearance(input: AppearanceInput): void {
-  const ui = input.uiFontFamily.trim() || DEFAULT_UI_FONT_STACK;
+  const uiOverride = input.uiFontFamily.trim();
   const mono = input.monoFontFamily.trim() || DEFAULT_MONO_FONT_STACK;
   const diffLineHeight = Math.round(input.codeFontSize * 1.5); // couple to code size
   const activeTheme = UnistylesRuntime.themeName;
@@ -73,13 +81,32 @@ export function applyAppearance(input: AppearanceInput): void {
     : ALL_THEME_KEYS;
 
   for (const key of themeKeys) {
+    const current = UnistylesRuntime.getTheme(key);
+    const authored = REGISTERED_THEMES[key].fontFamily;
+    const fontFamily = {
+      ui: uiOverride || authored.ui,
+      display: uiOverride || authored.display,
+      mono,
+    };
+    const fontSize = scaleFontSize(input.uiBaseFontSize, input.contentFontSize, input.codeFontSize);
+    // Even an unchanged updateTheme emits subscriptions and rebuilds web CSS.
+    // Compare the live theme, rather than cached inputs, so plugin replacements
+    // still receive the user's typography and syntax preferences.
+    if (
+      equalValues(current.fontFamily, fontFamily) &&
+      equalValues(current.fontSize, fontSize) &&
+      current.lineHeight.diff === diffLineHeight &&
+      current.contentMaxWidth === input.contentMaxWidth &&
+      equalValues(
+        current.colors.syntax,
+        resolveSyntaxColors(input.syntaxTheme, current.colorScheme),
+      )
+    ) {
+      continue;
+    }
     UnistylesRuntime.updateTheme(key, (t) => {
-      const fontFamily = { ui, mono };
-      const fontSize = scaleFontSize(
-        input.uiBaseFontSize,
-        input.contentFontSize,
-        input.codeFontSize,
-      );
+      // Read authored defaults, not the previously patched runtime theme, so
+      // clearing a custom family restores this theme's own typography.
       const lineHeight = { ...t.lineHeight, diff: diffLineHeight };
       if (t.colorScheme === "light") {
         return {
@@ -104,5 +131,9 @@ export function applyAppearance(input: AppearanceInput): void {
 
   // Web: apply the UI font app-wide (RN-web stamps a default font on every text
   // element, so it can't be done through the theme alone). No-op on native.
-  applyRootUiFont(ui);
+  const authored = REGISTERED_THEMES[activeTheme ?? "dark"].fontFamily;
+  applyRootUiFont(
+    uiOverride || authored.ui || DEFAULT_UI_FONT_STACK,
+    uiOverride || authored.display,
+  );
 }

@@ -1,3 +1,10 @@
+import { ActionFooter } from "@/components/ui/action-footer";
+import { useHostFeature } from "@/runtime/host-features";
+import { useInstallationProfiles } from "@/execution-installation/profiles";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import { workerChoices, workerAccountProfiles } from "./worker-choices";
 import { ProfileSkillPolicy } from "@/agent-skills/profile-policy";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
@@ -43,7 +50,12 @@ export interface AgentProfileEditModalProps {
   mode: "create" | "edit";
   profile?: AgentProfile;
   seed?: AgentProfileSeed;
-  sharedScope?: { providerType: string; kind: "defaults" | "workflow" };
+  sharedScope?: {
+    providerType: string;
+    providerLabel?: string;
+    catalogLabel?: string;
+    kind: "defaults" | "workflow";
+  };
   onClose: () => void;
   onSave: (value: AgentProfileValue) => Promise<void>;
 }
@@ -53,6 +65,11 @@ export interface AgentProfileEditModalProps {
  * id as soon as one exists, and none of them offer an "unset" row.
  */
 const UNSET_VALUE = "";
+
+function usesSharedCatalog(scope: AgentProfileEditModalProps["sharedScope"]): boolean {
+  if (!scope) return false;
+  return readExecutionInstallation() !== null;
+}
 
 function openKey(props: AgentProfileEditModalProps): string {
   if (props.mode === "edit") {
@@ -139,11 +156,15 @@ interface ProfileLaunchFieldsProps {
   controlSize: FieldControlSize;
   defaults?: boolean;
 }
-const WORKER_LIMIT_OPTIONS = [1, 2, 3, 4, 6, 8].map((count) => ({
-  id: String(count),
-  value: count,
-  label: String(count),
-}));
+const WORKER_LIMIT_OPTIONS: SelectFieldOption<number | "uncapped">[] = [1, 2, 3, 4, 6, 8].map(
+  (count) => ({
+    id: String(count),
+    value: count,
+    label: String(count),
+  }),
+);
+
+const UNCAPPED_WORKER_OPTION = { id: "uncapped", value: "uncapped" as const, label: "Uncapped" };
 
 function ProfileLaunchFields({
   defaults,
@@ -153,25 +174,9 @@ function ProfileLaunchFields({
   state,
   controlSize,
 }: ProfileLaunchFieldsProps) {
-  const { profiles, legacyProfiles, supportsLaunch } = useAgentProfiles(serverId);
-  const workerOptions = useMemo(
-    () => [
-      { id: "none", value: "", label: "No workers" },
-      ...[
-        ...(profiles ?? []),
-        ...legacyProfiles.filter(
-          (entry) =>
-            entry.id === state.workerProfileId &&
-            !profiles?.some((candidate) => candidate.id === entry.id),
-        ),
-      ]
-        .filter((entry) => entry.id !== profile?.id && !entry.workerProfileId)
-        .map((entry) => ({ id: entry.id, value: entry.id, label: entry.name })),
-    ],
-    [profiles, legacyProfiles, profile?.id, state.workerProfileId],
-  );
-  const selectedLimit =
-    WORKER_LIMIT_OPTIONS.find((entry) => entry.value === state.maxWorkers) ?? null;
+  const { supportsLaunch } = useAgentProfiles(serverId);
+  const { config } = useDaemonConfig(serverId);
+  const providerType = resolveProviderType(state.provider, config?.providers ?? {});
   if (!supportsLaunch) return null;
   return (
     <>
@@ -189,6 +194,7 @@ function ProfileLaunchFields({
       ) : null}
       <ProfileSkillPolicy
         serverId={serverId}
+        providerType={providerType}
         value={state.skillPolicy}
         onChange={model.setSkillPolicy}
       />
@@ -208,20 +214,140 @@ function ProfileLaunchFields({
           testID="agent-profile-instructions-input"
         />
       </Field>
+      {!defaults ? (
+        <ProfileWorkerFields
+          serverId={serverId}
+          profile={profile}
+          model={model}
+          state={state}
+          controlSize={controlSize}
+        />
+      ) : (
+        <Text style={styles.sharedScope}>
+          Configure workers on individual profiles. Existing teams keep their worker settings when
+          you save these defaults.
+        </Text>
+      )}
+    </>
+  );
+}
+
+function ProfileWorkerFields({
+  serverId,
+  profile,
+  model,
+  state,
+  controlSize,
+}: ProfileLaunchFieldsProps) {
+  const { profiles, legacyProfiles } = useAgentProfiles(serverId);
+  const explicitAccounts = useHostFeature(serverId, "explicitWorkerAccounts");
+  const uncapped = useHostFeature(serverId, "uncappedManagedWorkers");
+  const shared = useInstallationProfiles();
+  const { config } = useDaemonConfig(serverId);
+  const { entries, isLoading } = useProvidersSnapshot(serverId);
+  const workers = workerChoices({
+    profiles: workerAccountProfiles(
+      config,
+      entries ?? [],
+      profiles ?? [],
+      legacyProfiles,
+      state.workerProfileId,
+    ),
+    entries: entries ?? [],
+    providers: config?.providers ?? {},
+    supervisor: { id: profile?.id ?? "", provider: state.provider },
+    selectedWorkerId: state.workerProfileId,
+    originalWorkerId: profile?.workerProfileId,
+    accountId: state.workerAccountId,
+    environment: readExecutionInstallation()?.environments.find(
+      (entry) => entry.serverId === serverId,
+    )?.kind,
+  });
+  if (!explicitAccounts || (shared.installation && shared.data?.workerAccounts !== true)) {
+    return (
+      <Field
+        label="Workers"
+        hint="Update the installation to edit worker accounts. Saved teams are retained."
+      >
+        <Text style={styles.sharedScope}>
+          {state.workerProfileId
+            ? `${workers.accountDisplay.label}: ${workers.profileDisplay.label}`
+            : "No workers"}
+        </Text>
+      </Field>
+    );
+  }
+  return (
+    <WorkerControls
+      state={state}
+      model={model}
+      controlSize={controlSize}
+      isLoading={isLoading}
+      workers={workers}
+      uncappedSupported={
+        uncapped && (!shared.installation || shared.data?.uncappedManagedWorkers === true)
+      }
+    />
+  );
+}
+
+function WorkerControls({
+  state,
+  model,
+  controlSize,
+  isLoading,
+  workers,
+  uncappedSupported,
+}: {
+  state: AgentProfileFormState;
+  model: AgentProfileFormModel;
+  controlSize: FieldControlSize;
+  isLoading: boolean;
+  workers: ReturnType<typeof workerChoices>;
+  uncappedSupported: boolean;
+}) {
+  const limits = useMemo(
+    () =>
+      uncappedSupported ? [...WORKER_LIMIT_OPTIONS, UNCAPPED_WORKER_OPTION] : WORKER_LIMIT_OPTIONS,
+    [uncappedSupported],
+  );
+  const finiteLimit = limits.find((entry) => entry.value === state.maxWorkers) ?? null;
+  const selectedLimit = state.maxWorkers === "uncapped" ? UNCAPPED_WORKER_OPTION : finiteLimit;
+  return (
+    <>
       <SelectField
-        label="Worker preset"
-        value={state.workerProfileId}
-        selectedDisplay={
-          workerOptions.find((entry) => entry.value === state.workerProfileId) ?? null
-        }
+        label="Worker account"
+        hint="Workers use their own account and profile. You can choose a different provider."
+        value={workers.accountId}
+        selectedDisplay={workers.accountDisplay}
+        options={workers.accountOptions}
+        onChange={model.setWorkerAccount}
         placeholder="No workers"
-        emptyText="Create a worker preset first"
-        options={workerOptions}
-        onChange={model.setWorkerProfileId}
+        emptyText="No eligible worker accounts"
         disabled={state.isSubmitting}
+        loading={isLoading}
         size={controlSize}
-        testID="agent-profile-worker-field"
+        testID="agent-profile-worker-account-field"
       />
+      {workers.accountId || state.workerProfileId ? (
+        <SelectField
+          label="Worker profile"
+          value={workers.selectedWorkerId || null}
+          selectedDisplay={state.workerProfileId ? workers.profileDisplay : null}
+          options={workers.profiles}
+          onChange={model.setWorkerProfileId}
+          placeholder="Choose a worker profile"
+          emptyText="Create a profile with an explicit model and no workers for this account."
+          hint={
+            !isLoading && workers.unavailable
+              ? "The saved worker is unavailable in this environment. Choose another profile or No workers."
+              : undefined
+          }
+          disabled={state.isSubmitting}
+          size={controlSize}
+          testID="agent-profile-worker-field"
+        />
+      ) : null}
       {state.workerProfileId ? (
         <SelectField
           label="Maximum concurrent workers"
@@ -229,7 +355,12 @@ function ProfileLaunchFields({
           selectedDisplay={selectedLimit}
           placeholder="2"
           emptyText="No limits available"
-          options={WORKER_LIMIT_OPTIONS}
+          options={limits}
+          hint={
+            uncappedSupported
+              ? "Uncapped removes only the profile count limit. Provider and quota limits still apply."
+              : "Update every installation environment to enable Uncapped."
+          }
           onChange={model.setMaxWorkers}
           disabled={state.isSubmitting}
           size={controlSize}
@@ -256,7 +387,14 @@ function ProfileProviderFields({
 }) {
   const { t } = useTranslation();
   return sharedScope ? (
-    <Text style={styles.sharedScope}>Applies to all {sharedScope.providerType} accounts</Text>
+    <View>
+      <Text style={styles.sharedScope}>
+        Applies to all {sharedScope.providerLabel ?? sharedScope.providerType} accounts
+      </Text>
+      {sharedScope.catalogLabel ? (
+        <Text style={styles.sharedScope}>Available options from {sharedScope.catalogLabel}.</Text>
+      ) : null}
+    </View>
   ) : (
     <>
       <SelectField
@@ -356,21 +494,24 @@ function OpenAgentProfileEditModal({
 }: AgentProfileEditModalProps & { onDismiss: () => void }): ReactElement {
   const { t } = useTranslation();
   const controlSize: FieldControlSize = useIsCompactFormFactor() ? "md" : "sm";
+  const sharedCatalog = usesSharedCatalog(sharedScope);
   const snapshot = useMemo(
-    () => ({ mode, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
-    [mode, profile, seed],
+    () => ({ mode, sharedCatalog, ...(profile ? { profile } : {}), ...(seed ? { seed } : {}) }),
+    [mode, profile, seed, sharedCatalog],
   );
   const model = useAgentProfileFormModel(snapshot);
   const state = useAgentProfileFormState(model);
-  useAgentProfileFormCatalog({ serverId, model });
+  useAgentProfileFormCatalog({ serverId, model, sharedScope });
   useAgentProfileFormFeatures({ serverId, model, state });
 
   const editingDefaults = sharedScope?.kind === "defaults";
   const sheetHeader = useMemo<SheetHeader>(
     () => ({
-      title: editingDefaults ? "Edit provider defaults" : t(profileTitleKey(mode)),
+      title: editingDefaults
+        ? `Edit ${sharedScope?.providerLabel ?? sharedScope?.providerType} defaults`
+        : t(profileTitleKey(mode)),
     }),
-    [editingDefaults, mode, t],
+    [editingDefaults, sharedScope?.providerLabel, sharedScope?.providerType, mode, t],
   );
 
   const providerOptions = useMemo(
@@ -442,7 +583,7 @@ function OpenAgentProfileEditModal({
             {state.submitError}
           </Text>
         ) : null}
-        <View style={[styles.actions, styles.fixedActions]} testID="agent-profile-actions">
+        <ActionFooter style={[styles.actions, styles.fixedActions]} testID="agent-profile-actions">
           <Button
             variant="secondary"
             style={styles.actionButton}
@@ -463,7 +604,7 @@ function OpenAgentProfileEditModal({
               ? t("settings.host.agentProfiles.saving")
               : t("settings.host.agentProfiles.save")}
           </Button>
-        </View>
+        </ActionFooter>
       </View>
     ),
     [state.submitError, state.isSubmitting, state.canSubmit, handleCancel, handleSavePress, t],
@@ -502,6 +643,7 @@ function OpenAgentProfileEditModal({
         {state.disclosure.showModelField ? (
           <SelectField
             label={t("settings.host.agentProfiles.modelLabel")}
+            hint={state.compatibilityWarnings.join(" ")}
             value={state.modelId || UNSET_VALUE}
             selectedDisplay={state.modelDisplay}
             options={modelOptions}
@@ -776,6 +918,6 @@ const styles = StyleSheet.create((theme) => ({
     marginTop: 0,
   },
   actionButton: {
-    flex: 1,
+    flexShrink: 0,
   },
 }));

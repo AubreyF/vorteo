@@ -1,3 +1,13 @@
+import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
+import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
+import { realpathSync } from "node:fs";
+import { createNativeHelperExecutor } from "./native-helper-executor.js";
+import {
+  inspectBootstrapWritableMountRoots,
+  createBootstrapReconciliationLedger,
+} from "./coordinator-bootstrap-host.js";
+import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
+import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
 import { readInstallationConfig } from "./config.js";
@@ -9,18 +19,78 @@ const configFile = process.argv[2];
 if (!configFile) throw new Error("Usage: installation-entrypoint <private-config-file>");
 const config = readInstallationConfig(configFile);
 const logger = pino({ name: "vorteo-installation" });
+const startupFence = loadCoordinatorStartupFence({
+  installationId: config.public.installationId,
+  stateDirectory: config.stateDir,
+  node: realpathSync(process.execPath),
+  entrypoint: realpathSync(process.argv[1]!),
+  configuration: realpathSync(configFile),
+});
+// This installation entrypoint uses its release CLI, independent of daemon worker markers.
+initializePackagedClaudeCli(true);
+const executor = createInstallationRestartExecutor(config);
+if (config.nativeHelper) {
+  if (process.platform !== "darwin")
+    throw new Error("Native helper maintenance requires macOS Host");
+  const helper = config.nativeHelper;
+  Object.assign(
+    executor,
+    createNativeHelperExecutor({
+      home: helper.home,
+      installationId: config.public.installationId,
+      writableMountRoots: () => inspectBootstrapWritableMountRoots(helper),
+    }),
+  );
+}
+if (config.previewMonitor)
+  Object.assign(
+    executor,
+    createPreviewMonitorExecutor({
+      installationId: config.public.installationId,
+      configuration: config.previewMonitor,
+      writableMountRoots: () => inspectBootstrapWritableMountRoots(config.previewMonitor!),
+    }),
+  );
 const profiles = createInstallationProfiles(config);
-const stopProfileSynchronization = startProfileSynchronization(profiles, logger);
 const settings = createInstallationSettings(config);
-const stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
+let stopProfileSynchronization: (() => void) | undefined;
+let stopSettingsReconciliation: (() => void) | undefined;
+let synchronizing = false;
+function activateSynchronization() {
+  if (synchronizing || (startupFence && !startupFence.released())) return;
+  stopProfileSynchronization = startProfileSynchronization(profiles, logger);
+  stopSettingsReconciliation = startSettingsReconciliation(settings, logger);
+  synchronizing = true;
+}
+activateSynchronization();
+const claudeSetup = createClaudeSetupRuntime(config, settings);
+const host = config.public.environments.find((environment) => environment.kind === "host");
+if (!host) throw new Error("Installation Host identity is missing");
+const coordinatorRequests = createBootstrapReconciliationLedger(configFile, host.serverId);
+const claudeSetupTimer = setInterval(() => {
+  if (!synchronizing) return;
+  void claudeSetup
+    .reconcile()
+    .catch(() => logger.warn("Claude subscription synchronization is pending"));
+}, 5000);
+claudeSetupTimer.unref();
 const app = createInstallationServer(
   config,
-  createInstallationRestartExecutor(config),
+  executor,
   logger,
   profiles,
   settings,
+  undefined,
+  claudeSetup,
+  startupFence,
+  coordinatorRequests,
 );
 const restartTimer = setInterval(() => {
+  try {
+    activateSynchronization();
+  } catch {
+    logger.warn("Coordinator synchronization remains fenced for recovery");
+  }
   void app.drainRestarts();
 }, 2000);
 restartTimer.unref();
@@ -34,7 +104,9 @@ server.on("error", (error) => {
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
-    stopProfileSynchronization();
-    stopSettingsReconciliation();
+    clearInterval(claudeSetupTimer);
+    void claudeSetup.dispose();
+    stopProfileSynchronization?.();
+    stopSettingsReconciliation?.();
     server.close();
   });

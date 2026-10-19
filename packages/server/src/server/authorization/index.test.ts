@@ -35,6 +35,92 @@ function outboundMessage(type: SessionOutboundMessage["type"]): SessionOutboundM
 }
 
 describe("SessionAuthorization", () => {
+  test("automatic coordinator reconciliation requires daemon management", () => {
+    const inbound = inboundMessage("installation.bootstrap.reconcile_automatic.request");
+    const outbound = outboundMessage("installation.bootstrap.reconcile_automatic.response");
+    for (const permission of [
+      "daemon.read",
+      "workspace.write",
+      "hub.execute",
+      "automation.manage",
+    ] as const) {
+      const denied = new SessionAuthorization([permission]);
+      expect(denied.allowsInbound(inbound)).toBe(false);
+      expect(denied.allowsOutbound(outbound)).toBe(false);
+    }
+    const manager = new SessionAuthorization(["daemon.manage"]);
+    expect(manager.allowsInbound(inbound)).toBe(true);
+    expect(manager.allowsOutbound(outbound)).toBe(true);
+  });
+
+  test("claimed recovery requests and replies require daemon management", () => {
+    for (const permission of [
+      "daemon.read",
+      "workspace.write",
+      "hub.execute",
+      "automation.manage",
+    ] as const) {
+      const denied = new SessionAuthorization([permission]);
+      const manager = new SessionAuthorization(["daemon.manage"]);
+      for (const type of [
+        "installation.claimed_recovery.list_requests.request",
+        "installation.claimed_recovery.prepare.request",
+        "installation.claimed_recovery.decide.request",
+      ] as const) {
+        expect(denied.allowsInbound(inboundMessage(type))).toBe(false);
+        expect(manager.allowsInbound(inboundMessage(type))).toBe(true);
+      }
+      for (const type of [
+        "installation.claimed_recovery.list_requests.response",
+        "installation.claimed_recovery.prepare.response",
+        "installation.claimed_recovery.decide.response",
+      ] as const) {
+        expect(denied.allowsOutbound(outboundMessage(type))).toBe(false);
+        expect(manager.allowsOutbound(outboundMessage(type))).toBe(true);
+      }
+    }
+  });
+
+  test("origin inspection is read-only while admission requires daemon management", () => {
+    const inspect: SessionInboundMessage = {
+      type: "daemon.config.get_origin_admission.request",
+      requestId: "inspect",
+      expectedServerId: "srv_expected",
+    };
+    const admit: SessionInboundMessage = {
+      type: "daemon.config.admit_origin.request",
+      requestId: "admit",
+      expectedServerId: "srv_expected",
+      origin: "https://preview.example",
+      expectedPersistedOrigins: [],
+      expectedActiveOrigins: [],
+    };
+    const applied: SessionOutboundMessage = {
+      type: "daemon.config.admit_origin.response",
+      payload: {
+        requestId: "admit",
+        serverId: "srv_expected",
+        observedAt: "2026-10-09T00:00:00Z",
+        state: "applied",
+        origin: "https://preview.example",
+        addedToPersisted: true,
+        addedToActive: true,
+        persistedOrigins: ["https://preview.example"],
+        activeOrigins: ["https://preview.example"],
+      },
+    };
+    const reader = new SessionAuthorization(["daemon.read"]);
+    const manager = new SessionAuthorization(["daemon.manage"]);
+    const workspaceWriter = new SessionAuthorization(["workspace.write"]);
+    expect(reader.allowsInbound(inspect)).toBe(true);
+    expect(reader.allowsInbound(admit)).toBe(false);
+    expect(reader.allowsOutbound(applied)).toBe(false);
+    expect(manager.allowsInbound(admit)).toBe(true);
+    expect(manager.allowsOutbound(applied)).toBe(true);
+    expect(workspaceWriter.allowsInbound(inspect)).toBe(false);
+    expect(workspaceWriter.allowsInbound(admit)).toBe(false);
+  });
+
   test("quota observation requires provider read authority in both directions", () => {
     for (const permission of ["workspace.write", "automation.manage", "hub.execute"] as const) {
       const authorization = new SessionAuthorization([permission]);

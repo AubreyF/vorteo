@@ -1,0 +1,10 @@
+{
+  "allowedOrigins": ["https://chatgpt.com", "https://platform.openai.com"],
+  "tabs": [],
+  "destinations": [
+    { "id": "chatgpt", "url": "https://chatgpt.com/" },
+    { "id": "platform", "url": "https://platform.openai.com/" }
+  ],
+  "allowedText": ["Plugins", "Settings", "Create", "Save", "Continue", "Name", "Connect"],
+  "actions": ["read", "select", "navigate", "click", "fill", "choose"]
+}

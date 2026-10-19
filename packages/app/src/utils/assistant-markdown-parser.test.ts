@@ -166,4 +166,21 @@ describe("createAssistantMarkdownParser", () => {
 
     expect(parser.render("[x](javascript:alert(1))")).not.toContain("href");
   });
+
+  it("keeps document state separate when parsers are reused across messages", () => {
+    const complete = createAssistantMarkdownParser();
+    const streaming = createAssistantMarkdownParser({ streaming: true });
+    for (const parser of [complete, streaming]) {
+      expect(parser.render("[docs][ref]\n\n[ref]: https://example.com")).toContain(
+        'href="https://example.com"',
+      );
+      expect(parser.render("[docs][ref]")).not.toContain("href");
+      expect(parser.render("[bad](javascript:alert(1))")).not.toContain("href");
+      expect(parser.render("Visit https://example.org")).toContain('href="https://example.org"');
+    }
+    expect(streaming.renderInline("**unfinished")).toBe("<strong>unfinished</strong>");
+    expect(complete.renderInline("**unfinished")).toBe("**unfinished");
+    expect(streaming.renderInline("plain")).toBe("plain");
+    expect(complete.renderInline("plain")).toBe("plain");
+  });
 });

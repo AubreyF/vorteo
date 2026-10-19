@@ -3,6 +3,7 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { queryClient as appQueryClient } from "@/data/query-client";
 import { useSessionStore } from "@/stores/session-store";
 import {
+  isCheckoutPrMergePending,
   __resetCheckoutGitActionsStoreForTests,
   useCheckoutGitActionsStore,
 } from "@/git/actions-store";
@@ -302,5 +303,31 @@ describe("checkout-git-actions-store", () => {
         .getState()
         .getStatus({ serverId, cwd, actionId: "enable-pr-auto-merge-merge" }),
     ).toBe("idle");
+  });
+});
+
+describe("PR merge pending selection", () => {
+  it.each(["squash", "merge", "rebase"])("scopes %s merges to the checkout and host", (method) => {
+    const statuses = { "host::/repo": { [`merge-pr-${method}`]: "pending" as const } };
+    expect(isCheckoutPrMergePending(statuses, "host", "/repo")).toBe(true);
+    expect(isCheckoutPrMergePending(statuses, "other", "/repo")).toBe(false);
+    expect(isCheckoutPrMergePending(statuses, "host", "/other")).toBe(false);
+  });
+
+  it("ignores auto-merge setup, local merges, and completed requests", () => {
+    expect(
+      isCheckoutPrMergePending(
+        {
+          "host::/repo": {
+            "enable-pr-auto-merge-squash": "pending",
+            "merge-branch": "pending",
+            "merge-pr-squash": "success",
+            "merge-pr-merge": "idle",
+          },
+        },
+        "host",
+        "/repo",
+      ),
+    ).toBe(false);
   });
 });
