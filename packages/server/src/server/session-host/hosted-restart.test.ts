@@ -497,6 +497,55 @@ test("a session keeps reattaching past its window while the host process lives",
   expect(providers).toHaveLength(1);
 });
 
+test("a permission answer to a live but silent host fails after the window and can be retried", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  worker.routing.reattach = {
+    windowMs: 150,
+    aliveWindowMs: 60_000,
+    initialDelayMs: 20,
+    maxDelayMs: 50,
+  };
+  const agent = await runningAgent(worker, workdir);
+  const provider = providers[0]!;
+  const answer = provider.requestPermission("perm-1");
+  await expect
+    .poll(() => [...(worker.manager.getAgent(agent.id)?.pendingPermissions.keys() ?? [])])
+    .toEqual(["perm-1"]);
+  await settled(worker, paths, agent.id);
+  worker.setUnreachable(true);
+
+  // The caller hears back within the window instead of waiting out the longer alive window, and
+  // nothing reloads the session: the turn keeps running in the host.
+  await expect(
+    worker.manager.respondToPermission(agent.id, "perm-1", { behavior: "allow" }),
+  ).rejects.toThrow(/not answering yet/);
+  expect(worker.local).toEqual([]);
+  expect(provider.closed).toBe(false);
+
+  worker.setUnreachable(false);
+  await expect
+    .poll(
+      () =>
+        worker.manager
+          .respondToPermission(agent.id, "perm-1", { behavior: "allow" })
+          .then(() => true)
+          .catch(() => false),
+      { timeout: 5_000 },
+    )
+    .toBe(true);
+  expect(await answer).toEqual({ behavior: "allow" });
+  provider.complete();
+  await expect.poll(() => worker.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(worker.continued).toEqual([]);
+  expect(providers).toHaveLength(1);
+});
+
 test("a host process that stays alive but silent is given up once the longer window ends", async () => {
   const home = scratch("hosted-restart-");
   const paths = sessionHostPaths(home);

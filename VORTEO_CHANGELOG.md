@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.705 - 2026-10-19
+
+### Fixes
+
+- A permission answer, steer or other call to a hosted session whose host is alive but silent now fails after the one-minute reattach window with a message that the call can be retried, instead of waiting up to five minutes. The session is not reloaded, so the turn keeps running in the host and the call succeeds once the host answers again.
+- The session host replaces its watchdog thread if the thread ends, backing off while replacements keep ending, so a host that later stalls is still killed and replaced rather than running unguarded.
+
+### Validation
+
+- Eighty-two focused session host tests pass with one opt-in skip. New tests cover a permission answer retried after a silent host returns and a hang killed by a replaced watchdog thread; both fail without their change.
+
 ## 0.11.0-beta.3.vorteo.704 - 2026-10-19
 
 ### Added

@@ -178,7 +178,15 @@ export interface SessionHostWatchdog {
   armDeadline(at: number): void;
   /** The host is listening, so probing starts. */
   markListening(): void;
+  /** Ends the current watchdog thread the way a crash would. For tests: a new thread starts. */
+  stopThreadForTest(): Promise<void>;
 }
+
+/** A replacement for a watchdog thread that ended starts after this, doubling while it keeps ending. */
+const THREAD_RESTART_INITIAL_MS = 1_000;
+const THREAD_RESTART_MAX_MS = 30_000;
+/** A thread that ran at least this long before it ended resets the restart backoff. */
+const THREAD_RESTART_RESET_MS = 60_000;
 
 export const DEFAULT_HANG_TIMEOUT_MS = 30_000;
 
@@ -215,23 +223,41 @@ export function startSessionHostWatchdog(options: SessionHostWatchdogOptions): S
     Atomics.store(slots, 0, BigInt(Date.now()));
   };
   beat();
-  const thread = new Worker(WATCHDOG_SOURCE, {
-    eval: true,
-    // Never inherit loader or module-type flags such as tsx; the source is plain CommonJS.
-    execArgv: [],
-    workerData: {
-      shared,
-      logPath: options.logPath,
-      hangTimeoutMs,
-      pollMs: options.pollMs ?? 500,
-      protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
-      probeRelease: SELF_PROBE_RELEASE,
-      probe,
-    },
-  });
-  // An unhandled worker error event would crash the host and every session in it.
-  thread.on("error", (error) => options.onError?.(error));
-  thread.unref();
+  let thread: Worker | null = null;
+  let restartDelayMs = THREAD_RESTART_INITIAL_MS;
+  function startThread(): void {
+    const startedAt = Date.now();
+    const current = new Worker(WATCHDOG_SOURCE, {
+      eval: true,
+      // Never inherit loader or module-type flags such as tsx; the source is plain CommonJS.
+      execArgv: [],
+      workerData: {
+        shared,
+        logPath: options.logPath,
+        hangTimeoutMs,
+        pollMs: options.pollMs ?? 500,
+        protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
+        probeRelease: SELF_PROBE_RELEASE,
+        probe,
+      },
+    });
+    // An unhandled worker error event would crash the host and every session in it.
+    current.on("error", (error) => options.onError?.(error));
+    // Without its watchdog a host that later stalls is never replaced, and every worker waits out
+    // its longest reattach window. So a thread that ends for any reason is replaced, backing off
+    // while replacements keep ending. Killing the host here would be wrong: it is healthy now.
+    current.on("exit", () => {
+      if (thread !== current) return;
+      if (Date.now() - startedAt >= THREAD_RESTART_RESET_MS)
+        restartDelayMs = THREAD_RESTART_INITIAL_MS;
+      options.onError?.(new Error("The session host watchdog thread ended; starting another."));
+      setTimeout(startThread, restartDelayMs).unref();
+      restartDelayMs = Math.min(restartDelayMs * 2, THREAD_RESTART_MAX_MS);
+    });
+    current.unref();
+    thread = current;
+  }
+  startThread();
   setInterval(beat, heartbeatMs).unref();
   return {
     armDeadline(at) {
@@ -244,6 +270,9 @@ export function startSessionHostWatchdog(options: SessionHostWatchdogOptions): S
     },
     markListening() {
       Atomics.store(slots, 2, 1n);
+    },
+    async stopThreadForTest() {
+      await thread?.terminate();
     },
   };
 }

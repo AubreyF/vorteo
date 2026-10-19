@@ -111,6 +111,20 @@ test("kills a child whose main thread blocks", async () => {
   expect(record).toMatchObject({ reason: "hang", module: "session-host-watchdog" });
 }, 20_000);
 
+test("replaces a watchdog thread that ended, so a later hang is still killed", async () => {
+  // The replacement starts about a second after the thread ends; block only after that.
+  const outcome = await runChild(
+    "void watchdog.stopThreadForTest().then(() => setTimeout(() => {\n" +
+      "  const until = Date.now() + 10_000;\n" +
+      "  while (Date.now() < until) {}\n" +
+      "  process.exit(3);\n" +
+      "}, 1_500));",
+  );
+  expect(outcome.signal).toBe("SIGKILL");
+  expect(outcome.elapsedMs).toBeLessThan(1_500 + HANG_TIMEOUT_MS + KILL_MARGIN_MS);
+  expect(JSON.parse(outcome.log.trim())).toMatchObject({ reason: "hang" });
+}, 30_000);
+
 test("leaves a healthy child alone and never keeps it alive", async () => {
   // Busy but responsive for three hang timeouts, then nothing left to do.
   const outcome = await runChild(

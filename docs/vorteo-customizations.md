@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): calls to a hosted session whose host is alive but silent now fail after the one-minute reattach window with a retryable error while the turn keeps running, and the session host replaces a watchdog thread that ends. Eighty-two focused tests pass; the setting stays off and README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-19): added an opt-in end-to-end test of durable sessions with the real supervisor, worker and launchd-managed session host in an isolated test installation. A hosted turn survives a killed worker, a supervisor restart and a release upgrade with every chunk shown once, and a killed host falls back to exactly one continuation. All four scenarios pass; the real-Claude variant has not run, the setting stays off, and README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-19): merged the reviewed restart orphan fix into the durable sessions branch. The session host is unaffected: listen reclaim only signals daemon worker processes holding the daemon's TCP port, and the worker watchdog only kills its own process. Worker shutdown names a step for detaching hosted sessions before closing agents. Durable sessions behavior is unchanged and the setting stays off; README overview and onboarding are unchanged.

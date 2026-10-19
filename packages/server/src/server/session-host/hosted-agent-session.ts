@@ -68,6 +68,18 @@ export class HostedSessionUnavailableError extends Error {
   }
 }
 
+/**
+ * The host still runs the session but has not answered within the reattach window. The caller can
+ * try again: the turn keeps running in the host, and this session reattaches when it answers.
+ * Deliberately not a stale-session error, whose reload would close the turn it waits to save.
+ */
+export class HostedSessionReconnectingError extends Error {
+  constructor() {
+    super("The session host is not answering yet. The running turn continues; try again shortly.");
+    this.name = "HostedSessionReconnectingError";
+  }
+}
+
 export class HostedSessionResultError extends Error {
   constructor(readonly method: string) {
     super(`The session host returned an invalid result for ${method}.`);
@@ -575,11 +587,11 @@ export class HostedAgentSession implements AgentSession {
   private async invoke<M extends SessionHostMethod>(
     call: CallOf<M>,
   ): Promise<SessionCallResult<M>> {
-    if (this.recovery) await this.recovery;
+    if (this.recovery) await this.waitForRecovery();
     const status = this.status;
     // A lost session is stale: the prompt path reloads the agent and retries on a fresh session.
-    if (status === "lost" || status === "reattaching")
-      throw new StaleProviderSessionError(this.snapshot.id ?? "hosted");
+    if (status === "lost") throw new StaleProviderSessionError(this.snapshot.id ?? "hosted");
+    if (status === "reattaching") throw new HostedSessionReconnectingError();
     if (status !== "attached") throw new HostedSessionUnavailableError(status);
     const value = await this.channel.call(call);
     const result = parseCallResult(call.method as M, value);
@@ -797,6 +809,26 @@ export class HostedAgentSession implements AgentSession {
         );
       }
       return;
+    }
+  }
+
+  /**
+   * Waits for a reattach in progress, but no longer than the reattach window. A live host can keep
+   * a session reattaching for minutes; a caller such as a permission answer gets an answer sooner.
+   */
+  private async waitForRecovery(): Promise<void> {
+    const recovery = this.recovery;
+    if (!recovery) return;
+    const windowMs = (this.options.reattachPolicy ?? DEFAULT_REATTACH_POLICY).windowMs;
+    let timer: NodeJS.Timeout | undefined;
+    const elapsed = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, windowMs);
+      timer.unref();
+    });
+    try {
+      await Promise.race([recovery, elapsed]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
