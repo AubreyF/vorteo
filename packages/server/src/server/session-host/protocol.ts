@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { SessionCallSchema } from "./session-contract.js";
+
+export type { SessionHostCall } from "./session-contract.js";
 
 /** Bumped on any incompatible frame change. A worker never attaches across versions. */
 export const SESSION_HOST_PROTOCOL_VERSION = 1;
@@ -65,26 +68,6 @@ export const HelloRequestSchema = z
   .strict();
 export type HelloRequest = z.infer<typeof HelloRequestSchema>;
 
-const SessionCallSchema = z.discriminatedUnion("method", [
-  z.object({ method: z.literal("startTurn"), prompt: z.string() }).strict(),
-  z.object({ method: z.literal("interrupt") }).strict(),
-  z
-    .object({
-      method: z.literal("respondToPermission"),
-      permissionId: IdSchema,
-      response: JsonSchema,
-    })
-    .strict(),
-  z.object({ method: z.literal("close") }).strict(),
-]);
-export type SessionHostCall = z.infer<typeof SessionCallSchema>;
-
-export const StartTurnResultSchema = z.object({ turnId: IdSchema }).strict();
-export type StartTurnResult = z.infer<typeof StartTurnResultSchema>;
-
-/** Every call other than startTurn answers null. */
-export const EmptyResultSchema = z.null();
-
 /** Frames a worker sends after a successful hello. */
 export const SessionHostRequestSchema = z.discriminatedUnion("type", [
   z
@@ -101,7 +84,8 @@ export const SessionHostRequestSchema = z.discriminatedUnion("type", [
       type: z.literal("attach"),
       requestId: IdSchema,
       sessionId: IdSchema,
-      afterSeq: SeqSchema,
+      /** Replays every retained event after this seq. Null attaches at the newest event. */
+      afterSeq: SeqSchema.nullable(),
     })
     .strict(),
   z
@@ -145,7 +129,8 @@ export const AttachResultSchema = z
   .object({
     provider: IdSchema,
     lastSeq: SeqSchema,
-    pendingPermissions: z.array(JsonSchema),
+    /** Provider state as of lastSeq, which the worker mirrors. */
+    snapshot: JsonSchema,
   })
   .strict();
 export type AttachResult = z.infer<typeof AttachResultSchema>;

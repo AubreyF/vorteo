@@ -152,6 +152,11 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
+import { createSessionHostConnector } from "./session-host/connector.js";
+import type { HostedSessionRouting } from "./session-host/hosted-agent-client.js";
+import { sessionHostPaths } from "./session-host/host-files.js";
+import { readDurableSessionsSettings } from "./session-host/settings.js";
+import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import {
@@ -1024,10 +1029,13 @@ export async function createPaseoDaemon(
     isDirectory: async (target) => (await stat(target).catch(() => null))?.isDirectory() ?? false,
     logger,
   });
+  const { connector: sessionHostConnector, routing: sessionHostRouting } =
+    createDurableSessionsRouting({ paseoHome: config.paseoHome, logger, release: daemonVersion });
   const agentProviderRuntime = await createAgentProviderRuntime({
     paseoHome: config.paseoHome,
     logger,
     snapshotManager: {
+      sessionHost: sessionHostRouting,
       refreshTimeoutMs: config.providerCatalogRefreshTimeoutMs,
       runtimeSettings: config.agentProviderSettings,
       providerOverrides: config.providerOverrides,
@@ -2057,6 +2065,7 @@ export async function createPaseoDaemon(
       await pluginRuntime.stopAllPlugins().catch(() => undefined);
       await serviceProxy.stopStandalone().catch(() => undefined);
       await agentProviderRuntime.shutdown().catch(() => undefined);
+      sessionHostConnector.close();
       if (mainStarted) {
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
@@ -2114,6 +2123,8 @@ export async function createPaseoDaemon(
     detachAgentStoragePersistence();
     await agentStorage.flush().catch(() => undefined);
     await agentProviderRuntime.shutdown();
+    // Closing the connection never waits on the host and leaves its sessions running.
+    sessionHostConnector.close();
     await pluginRuntime.stopAllPlugins();
     terminalManager.killAll();
     await speechService.stop();
@@ -2179,4 +2190,32 @@ async function closeAllAgents(logger: Logger, agentManager: AgentManager): Promi
       }
     }),
   );
+}
+
+/**
+ * Durable sessions run eligible Claude sessions in the session host when their setting file
+ * enables them. The connection is made lazily, so a disabled setting costs nothing, and a worker
+ * never waits on an absent host: such sessions simply run in the worker.
+ */
+function createDurableSessionsRouting(input: {
+  paseoHome: string;
+  logger: Logger;
+  release: string;
+}): { connector: SessionHostConnector; routing: HostedSessionRouting } {
+  const setting = readDurableSessionsSettings(input.paseoHome);
+  if (setting.problem)
+    input.logger.warn({ problem: setting.problem }, "Durable sessions setting ignored");
+  const connector = createSessionHostConnector({
+    paths: sessionHostPaths(input.paseoHome),
+    logger: input.logger.child({ module: "session-host" }),
+    release: input.release,
+  });
+  return {
+    connector,
+    routing: {
+      connector,
+      isEnabled: () => readDurableSessionsSettings(input.paseoHome).enabled,
+      logger: input.logger,
+    },
+  };
 }

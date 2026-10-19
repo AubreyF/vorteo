@@ -6,9 +6,7 @@ import {
   AttachResultSchema,
   MAX_FRAME_BYTES,
   SESSION_HOST_PROTOCOL_VERSION,
-  EmptyResultSchema,
   SessionHostReplySchema,
-  StartTurnResultSchema,
   type AttachResult,
   type HelloRequest,
   type HostIdentity,
@@ -42,10 +40,8 @@ export interface HostedSession {
    */
   onDetached(listener: (reason: HostedSessionDetachReason) => void): void;
   acknowledge(seq: number): void;
-  startTurn(prompt: string): Promise<{ turnId: string }>;
-  interrupt(): Promise<void>;
-  respondToPermission(permissionId: string, response: JsonValue): Promise<void>;
-  close(): Promise<void>;
+  /** Sends one session call. The caller checks the result against the method's contract. */
+  call(call: SessionHostCall): Promise<JsonValue>;
 }
 
 export type HostedSessionDetachReason = "fenced" | "disconnected" | "gap";
@@ -53,8 +49,11 @@ export type HostedSessionDetachReason = "fenced" | "disconnected" | "gap";
 export interface SessionHostClient {
   /** The host run this connection authenticated to. */
   readonly host: HostIdentity;
+  /** True once the connection has ended. */
+  readonly closed: boolean;
   open(input: { sessionId: string; provider: string; config: JsonValue }): Promise<HostedSession>;
-  attach(input: { sessionId: string; afterSeq: number }): Promise<HostedSession>;
+  /** afterSeq null attaches at the newest event, without replay. */
+  attach(input: { sessionId: string; afterSeq: number | null }): Promise<HostedSession>;
   /** Called once when the connection ends for any reason. */
   onClose(listener: (error: SessionHostClientError) => void): void;
   close(): void;
@@ -91,7 +90,12 @@ export async function connectSessionHost(
   const socket = net.createConnection(options.socketPath);
   const pending = new Map<
     string,
-    { resolve: (value: JsonValue) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: JsonValue) => void;
+      reject: (error: Error) => void;
+      /** Runs when the result frame is read, before any later frame. */
+      onResult?: (value: JsonValue) => void;
+    }
   >();
   const channels = new Map<string, SessionChannel>();
   const closeListeners: ((error: SessionHostClientError) => void)[] = [];
@@ -107,9 +111,10 @@ export async function connectSessionHost(
     greeted = null;
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
+    // Connection listeners run first, so sessions that reattach never reuse this connection.
+    for (const listener of closeListeners.splice(0)) listener(error);
     for (const channel of channels.values()) detachChannel(channel, "disconnected");
     channels.clear();
-    for (const listener of closeListeners.splice(0)) listener(error);
   }
 
   function handleFrame(line: string): void {
@@ -152,10 +157,13 @@ export async function connectSessionHost(
         if (channel) detachChannel(channel, "fenced");
         return;
       }
-      case "result":
-        pending.get(reply.requestId)?.resolve(reply.value);
+      case "result": {
+        const waiter = pending.get(reply.requestId);
         pending.delete(reply.requestId);
+        waiter?.onResult?.(reply.value);
+        waiter?.resolve(reply.value);
         return;
+      }
       case "error": {
         const error = new SessionHostClientError(reply.code, reply.message);
         // The host follows a connection-level error by closing the socket.
@@ -199,11 +207,14 @@ export async function connectSessionHost(
     socket.write(`${JSON.stringify(request)}\n`);
   }
 
-  function call(frame: (requestId: string) => SessionHostRequest): Promise<JsonValue> {
+  function call(
+    frame: (requestId: string) => SessionHostRequest,
+    onResult?: (value: JsonValue) => void,
+  ): Promise<JsonValue> {
     if (closeError) return Promise.reject(closeError);
     const requestId = randomUUID();
     return new Promise((resolve, reject) => {
-      pending.set(requestId, { resolve, reject });
+      pending.set(requestId, { resolve, reject, onResult });
       send(frame(requestId));
     });
   }
@@ -231,8 +242,6 @@ export async function connectSessionHost(
   });
 
   function hosted(sessionId: string, channel: SessionChannel, attach: AttachResult): HostedSession {
-    const callHost = (hostCall: SessionHostCall) =>
-      call((requestId) => ({ type: "call", requestId, sessionId, call: hostCall }));
     return {
       sessionId,
       attach,
@@ -253,23 +262,16 @@ export async function connectSessionHost(
         if (closeError || channels.get(sessionId) !== channel) return;
         send({ type: "ack", sessionId, seq });
       },
-      async startTurn(prompt) {
-        const result = StartTurnResultSchema.safeParse(
-          await callHost({ method: "startTurn", prompt }),
-        );
-        if (!result.success)
-          throw new SessionHostClientError("invalid_frame", "Session host returned no valid turn.");
-        return result.data;
-      },
-      async interrupt() {
-        expectEmpty(await callHost({ method: "interrupt" }));
-      },
-      async respondToPermission(permissionId, response) {
-        expectEmpty(await callHost({ method: "respondToPermission", permissionId, response }));
-      },
-      async close() {
-        expectEmpty(await callHost({ method: "close" }));
-        if (channels.get(sessionId) === channel) channels.delete(sessionId);
+      async call(hostCall) {
+        const value = await call((requestId) => ({
+          type: "call",
+          requestId,
+          sessionId,
+          call: hostCall,
+        }));
+        if (hostCall.method === "close" && channels.get(sessionId) === channel)
+          channels.delete(sessionId);
+        return value;
       },
     };
   }
@@ -277,7 +279,7 @@ export async function connectSessionHost(
   /** The channel exists before the request so same-tick replay is buffered, not dropped. */
   async function bind(
     sessionId: string,
-    afterSeq: number,
+    afterSeq: number | null,
     frame: (requestId: string) => SessionHostRequest,
   ): Promise<HostedSession> {
     if (channels.has(sessionId))
@@ -287,11 +289,18 @@ export async function connectSessionHost(
       buffered: [],
       detached: [],
       detachedReason: null,
-      lastSeq: afterSeq,
+      lastSeq: afterSeq ?? 0,
     };
     channels.set(sessionId, channel);
     try {
-      const attach = AttachResultSchema.parse(await call(frame));
+      const attach = AttachResultSchema.parse(
+        await call(frame, (value) => {
+          // Attaching at the newest event replays nothing; live events continue from lastSeq.
+          if (afterSeq !== null) return;
+          const parsed = AttachResultSchema.safeParse(value);
+          if (parsed.success) channel.lastSeq = parsed.data.lastSeq;
+        }),
+      );
       return hosted(sessionId, channel, attach);
     } catch (error) {
       if (channels.get(sessionId) === channel) channels.delete(sessionId);
@@ -301,6 +310,9 @@ export async function connectSessionHost(
 
   return {
     host,
+    get closed() {
+      return closeError !== null;
+    },
     open: ({ sessionId, provider, config }) =>
       bind(sessionId, 0, (requestId) => ({ type: "open", requestId, sessionId, provider, config })),
     attach: ({ sessionId, afterSeq }) =>
@@ -317,14 +329,6 @@ export async function connectSessionHost(
     close: () =>
       terminate(new SessionHostClientError("disconnected", "Session host connection closed.")),
   };
-}
-
-function expectEmpty(value: JsonValue): void {
-  if (!EmptyResultSchema.safeParse(value).success)
-    throw new SessionHostClientError(
-      "invalid_frame",
-      "Session host returned an unexpected result.",
-    );
 }
 
 function parseLine(line: string): unknown {

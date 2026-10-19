@@ -17,7 +17,6 @@ import {
   MAX_HELLO_FRAME_BYTES,
   SESSION_HOST_PROTOCOL_VERSION,
   SessionHostRequestSchema,
-  StartTurnResultSchema,
   type AttachResult,
   type DroppedEvent,
   type HostIdentity,
@@ -26,16 +25,17 @@ import {
   type SessionHostReply,
   type SessionHostRequest,
 } from "./protocol.js";
+import { parseCallResult } from "./session-contract.js";
 
 /**
- * The provider-facing surface a hosted session exposes. A later phase adapts
- * AgentSession to this port inside the host process; the worker only sees JSON.
+ * The provider-facing surface of one hosted session. createAgentSessionPort adapts an
+ * AgentSession to it inside the host process; the worker only ever sees JSON.
  */
 export interface HostedSessionPort {
-  startTurn(prompt: string): Promise<{ turnId: string }>;
-  interrupt(): Promise<void>;
-  respondToPermission(permissionId: string, response: JsonValue): Promise<void>;
-  pendingPermissions(): JsonValue[];
+  /** Performs one validated call other than close; the host checks the result's shape. */
+  call(call: Exclude<SessionHostCall, { method: "close" }>): Promise<JsonValue>;
+  /** Provider state returned with every attach, as of the newest recorded event. */
+  snapshot(): JsonValue;
   subscribe(listener: (event: JsonValue) => void): () => void;
   close(): Promise<void>;
 }
@@ -218,6 +218,11 @@ function errorMessage(error: unknown): string {
     : message;
 }
 
+/** JSON.stringify drops Error fields; keep a provider error's name and message. */
+function preserveErrors(_key: string, value: unknown): unknown {
+  return value instanceof Error ? { name: value.name, message: value.message } : value;
+}
+
 function dropped(reason: DroppedEvent["reason"], bytes?: number): string {
   const marker: DroppedEvent = { type: "session_host_event_dropped", reason, bytes };
   return JSON.stringify(marker);
@@ -275,7 +280,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
   function record(state: HostedSessionState, sessionId: string, event: JsonValue): void {
     let json: string | undefined;
     try {
-      json = JSON.stringify(event);
+      json = JSON.stringify(event, preserveErrors);
     } catch {
       json = undefined;
     }
@@ -339,18 +344,24 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       sessionId: request.sessionId,
       provider: request.provider,
     });
-    return attachTo(connection, request.sessionId, 0);
+    return attachTo(connection, request.sessionId, 0).result;
   }
 
   /**
    * Validates the replay range and builds the attach result. The caller sends the result and
    * then calls completeAttach in the same tick, so replay precedes every live event.
    */
-  function attachTo(connection: Connection, sessionId: string, afterSeq: number): AttachResult {
+  function attachTo(
+    connection: Connection,
+    sessionId: string,
+    requestedAfterSeq: number | null,
+  ): { result: AttachResult; afterSeq: number } {
     const state = requireSession(sessionId);
     const lastSeq = state.nextSeq - 1;
+    // Null attaches at the newest event: no replay, so nothing missed can be refused.
+    const afterSeq = requestedAfterSeq ?? lastSeq;
     const replayFloor = Math.max(state.truncatedThrough, state.acknowledgedThrough);
-    if (afterSeq < replayFloor || afterSeq > lastSeq) {
+    if (requestedAfterSeq !== null && (afterSeq < replayFloor || afterSeq > lastSeq)) {
       audit({
         event: "attach_refused",
         connectionId: connection.id,
@@ -365,9 +376,8 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       );
     }
     return {
-      provider: state.provider,
-      lastSeq,
-      pendingPermissions: state.port.pendingPermissions(),
+      result: { provider: state.provider, lastSeq, snapshot: state.port.snapshot() },
+      afterSeq,
     };
   }
 
@@ -414,18 +424,13 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       throw new HostError("not_attached", "Attach to this session before driving it.");
     }
     if (state.closing) throw new HostError("failed", "This session is closing.");
+    if (request.method !== "close") {
+      const checked = parseCallResult(request.method, await state.port.call(request));
+      if (!checked.success)
+        throw new HostError("failed", `The provider returned an invalid ${request.method} result.`);
+      return checked.data as JsonValue;
+    }
     switch (request.method) {
-      case "startTurn": {
-        const result = StartTurnResultSchema.safeParse(await state.port.startTurn(request.prompt));
-        if (!result.success) throw new HostError("failed", "The provider returned no valid turn.");
-        return result.data;
-      }
-      case "interrupt":
-        await state.port.interrupt();
-        return null;
-      case "respondToPermission":
-        await state.port.respondToPermission(request.permissionId, request.response);
-        return null;
       case "close":
         // Events emitted while closing, such as a canceled turn, are still recorded. A failed
         // close leaves the session hosted so the provider process is never orphaned.
@@ -593,9 +598,9 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
           acknowledge(connection, request.sessionId, request.seq);
           return;
         case "attach": {
-          let result: AttachResult;
+          let attached: { result: AttachResult; afterSeq: number };
           try {
-            result = attachTo(connection, request.sessionId, request.afterSeq);
+            attached = attachTo(connection, request.sessionId, request.afterSeq);
           } catch (error) {
             if (error instanceof HostError && error.code === "not_found")
               audit({
@@ -607,8 +612,8 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
             fail(request.requestId, error);
             return;
           }
-          connection.send({ type: "result", requestId: request.requestId, value: result });
-          completeAttach(connection, request.sessionId, request.afterSeq);
+          connection.send({ type: "result", requestId: request.requestId, value: attached.result });
+          completeAttach(connection, request.sessionId, attached.afterSeq);
           return;
         }
         case "open":

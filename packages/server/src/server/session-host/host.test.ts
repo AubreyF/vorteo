@@ -51,19 +51,24 @@ function controllableSession() {
     for (const listener of listeners) listener(event);
   }
   const port: HostedSessionPort = {
-    async startTurn(prompt) {
-      emit({ type: "turn_started", prompt });
-      return { turnId: "turn-1" };
+    async call(call) {
+      switch (call.method) {
+        case "startTurn":
+          emit({ type: "turn_started", prompt: call.prompt });
+          return { turnId: "turn-1" };
+        case "interrupt":
+          counts.interrupted += 1;
+          return null;
+        case "respondToPermission":
+          permissions.delete(call.requestId);
+          answers.push([call.requestId, call.response]);
+          emit({ type: "permission_resolved", permissionId: call.requestId });
+          return null;
+        default:
+          throw new Error(`Unexpected ${call.method}`);
+      }
     },
-    async interrupt() {
-      counts.interrupted += 1;
-    },
-    async respondToPermission(permissionId, response) {
-      permissions.delete(permissionId);
-      answers.push([permissionId, response]);
-      emit({ type: "permission_resolved", permissionId });
-    },
-    pendingPermissions: () => [...permissions.values()],
+    snapshot: () => ({ pendingPermissions: [...permissions.values()] }),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -176,7 +181,9 @@ test("a running turn survives its worker; the next worker replays what it missed
   const first = await worker(socketPath);
   const hostedByFirst = await first.open({ sessionId: "agent-1", provider: "fake", config: {} });
   const firstSeen = record(hostedByFirst);
-  expect(await hostedByFirst.startTurn("long task")).toEqual({ turnId: "turn-1" });
+  expect(await hostedByFirst.call({ method: "startTurn", prompt: "long task" })).toEqual({
+    turnId: "turn-1",
+  });
   provider.emit({ type: "text", text: "part 1" });
   await expect.poll(() => firstSeen.seqs).toEqual([1, 2]);
   hostedByFirst.acknowledge(2);
@@ -189,9 +196,9 @@ test("a running turn survives its worker; the next worker replays what it missed
 
   const second = await worker(socketPath);
   const hostedBySecond = await second.attach({ sessionId: "agent-1", afterSeq: 2 });
-  expect(hostedBySecond.attach.pendingPermissions).toEqual([
-    { permissionId: "perm-1", tool: "Bash", command: "npm test" },
-  ]);
+  expect(hostedBySecond.attach.snapshot).toEqual({
+    pendingPermissions: [{ permissionId: "perm-1", tool: "Bash", command: "npm test" }],
+  });
   const secondSeen = record(hostedBySecond);
   expect(secondSeen.seqs).toEqual([3, 4]);
   expect(secondSeen.events[1]).toEqual({
@@ -199,7 +206,11 @@ test("a running turn survives its worker; the next worker replays what it missed
     text: "part 2 while no worker is attached",
   });
 
-  await hostedBySecond.respondToPermission("perm-1", { behavior: "allow" });
+  await hostedBySecond.call({
+    method: "respondToPermission",
+    requestId: "perm-1",
+    response: { behavior: "allow" },
+  });
   provider.emit({ type: "turn_completed", turnId: "turn-1" });
   await expect.poll(() => secondSeen.seqs).toEqual([3, 4, 5, 6]);
   expect(provider.answers).toEqual([["perm-1", { behavior: "allow" }]]);
@@ -217,7 +228,9 @@ test("a newer attachment fences the previous worker so two workers never drive o
   const currentSession = await current.attach({ sessionId: "agent-1", afterSeq: 0 });
   const currentSeen = record(currentSession);
   await expect.poll(() => detachReasons).toEqual(["fenced"]);
-  await expect(staleSession.startTurn("duplicate")).rejects.toMatchObject({
+  await expect(
+    staleSession.call({ method: "startTurn", prompt: "duplicate" }),
+  ).rejects.toMatchObject({
     code: "not_attached",
   });
   expect(provider.counts.interrupted).toBe(0);
@@ -446,10 +459,10 @@ test("a failed close keeps the session hosted so it can be retried", async () =>
   const { socketPath } = await hostWith(provider, { openSession: async () => port });
   const client = await worker(socketPath);
   const session = await client.open({ sessionId: "agent-1", provider: "fake", config: {} });
-  await expect(session.close()).rejects.toThrow("provider still exiting");
+  await expect(session.call({ method: "close" })).rejects.toThrow("provider still exiting");
   const again = await worker(socketPath);
   const reattached = await again.attach({ sessionId: "agent-1", afterSeq: 0 });
-  await reattached.close();
+  await reattached.call({ method: "close" });
   expect(provider.counts.closed).toBe(1);
   await expect(again.attach({ sessionId: "agent-1", afterSeq: 0 })).rejects.toMatchObject({
     code: "not_found",
@@ -458,14 +471,16 @@ test("a failed close keeps the session hosted so it can be retried", async () =>
 
 test("a provider result that breaks the call contract is refused", async () => {
   const provider = controllableSession();
-  const port = {
+  const port: HostedSessionPort = {
     ...provider.port,
-    startTurn: async () => ({ turnId: 42 }) as unknown as { turnId: string },
+    call: async () => ({ turnId: 42 }),
   };
   const { socketPath } = await hostWith(provider, { openSession: async () => port });
   const client = await worker(socketPath);
   const session = await client.open({ sessionId: "agent-1", provider: "fake", config: {} });
-  await expect(session.startTurn("go")).rejects.toMatchObject({ code: "failed" });
+  await expect(session.call({ method: "startTurn", prompt: "go" })).rejects.toMatchObject({
+    code: "failed",
+  });
 });
 
 test("the host directory and token are private, and every host start rotates the token", async () => {
@@ -580,7 +595,7 @@ test("a session that skips a seq detaches alone; the connection's other sessions
           write({
             type: "result",
             requestId: frame.requestId,
-            value: { provider: "fake", lastSeq: 0, pendingPermissions: [] },
+            value: { provider: "fake", lastSeq: 0, snapshot: null },
           });
           const seqs = sessionId === "skipping" ? [1, 3] : [1, 2];
           for (const seq of seqs) write({ type: "event", sessionId, seq, event: { seq } });

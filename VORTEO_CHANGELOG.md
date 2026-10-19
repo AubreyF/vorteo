@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Added
+
+- Run Claude agent sessions in the durable session host, behind a setting that is off by default. When `$PASEO_HOME/durable-sessions.json` contains `{"enabled": true}` and the host answers, new and resumed Claude sessions run in the host and the worker drives them through a proxy. The proxy mirrors what the agent manager reads synchronously (session id, persistence, pending permissions and features), applies each state change before the event that caused it, pages saved history, and forwards turns, steering, interrupts, permission answers, modes, model, thinking, features, commands and rewind. A dropped connection reattaches without failing the turn.
+- Command discovery, internal, non-persistent, history-only and quota-governed sessions stay in the worker, and so does every session when the host is unavailable. A session the host still runs is never started a second time.
+
+### Maintenance
+
+- The setting lives outside config.json because config.json is parsed strictly: an unknown key would stop an older release from starting after a rollback.
+- The session host protocol carries the full session call contract with a result schema per method. Attach results include a provider state snapshot, and a worker can attach at the newest event. Provider errors keep their name and message when serialized, and a closed connection is forgotten before its sessions reattach.
+- Not yet useful to enable: workers do not reattach hosted sessions at startup, the host has no launchd service, and restart readiness does not skip hosted sessions.
+
+### Validation
+
+- Thirty-five focused tests pass: the session host protocol suite, hosted Claude sessions with a controllable fake provider (state mirroring, permissions, history paging, reconnects, host loss, eligibility, the setting) and a fake Claude agent driven end to end through the agent manager with the setting on and off.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-19
 
 ### Maintenance
