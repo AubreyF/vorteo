@@ -377,6 +377,7 @@ export const ar: TranslationResources = {
       empty: "لا توجد مهام حتى الآن.",
       tasksProgress: "{{completed}}/{{total}} مهام",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "تم إنشاء {{count}} مهام",
         added: "أُضيفت",

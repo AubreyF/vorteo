@@ -65,7 +65,7 @@ const styles = StyleSheet.create(() => ({
 /** Progress scrolls with the conversation, immediately before queued messages and goals. */
 function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
   const { t } = useTranslation();
-  const { completed, active, total } = checklistProgress(tasks);
+  const { completed, active, blocked, credit, total } = checklistProgress(tasks);
   const [expanded, setExpanded] = useState(true);
   const countBadge = useMemo(
     () => (
@@ -78,8 +78,16 @@ function TaskProgressCard({ tasks }: { tasks: TodoEntry[] }) {
     [completed, total, t],
   );
   const headingIcon = useMemo(
-    () => <ChecklistProgressFlower completed={completed} active={active} total={total} />,
-    [completed, active, total],
+    () => (
+      <ChecklistProgressFlower
+        completed={completed}
+        active={active}
+        blocked={blocked}
+        credit={credit}
+        total={total}
+      />
+    ),
+    [completed, active, blocked, credit, total],
   );
   const toggle = useCallback(() => setExpanded((value) => !value), []);
   return (

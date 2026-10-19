@@ -2032,6 +2032,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
+        workspaceProjectPlacement: true,
         workspaceCreateProjectMembership: true,
         workspaceTaskEnvironments: true,
         idleRestart: true,
@@ -2085,6 +2086,7 @@ export class VoiceAssistantWebSocketServer {
         checklistBlockedStatus: true,
         sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
+        checklistProgress: true,
         agentJournal: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,

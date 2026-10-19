@@ -1,5 +1,9 @@
-import { taskPetals } from "@/task-checklist/flower";
-import { workspaceChecklistProgress, checklistProgress } from "@/task-checklist/progress";
+import { petalFills, taskPetals } from "@/task-checklist/flower";
+import {
+  checklistPercent,
+  checklistProgress,
+  workspaceChecklistProgress,
+} from "@/task-checklist/progress";
 import { describe, expect, it } from "vitest";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import { aggregateProjectTasks } from "./project-task-summary";
@@ -108,14 +112,16 @@ describe("workspace checklist completion", () => {
       },
       { id: "pending", workspaceId: "w", tasks: [{ text: "Excluded", completed: true }] },
     ];
-    expect(workspaceChecklistProgress(agents, "w", new Set(["pending"]))).toEqual({
+    expect(workspaceChecklistProgress(agents, "w", new Set(["pending"]))).toMatchObject({
       active: 0,
       completed: 1,
       total: 4,
     });
   });
   it("counts status-only completion and preserves an empty checklist", () => {
-    expect(checklistProgress([{ text: "Done", completed: false, status: "completed" }])).toEqual({
+    expect(
+      checklistProgress([{ text: "Done", completed: false, status: "completed" }]),
+    ).toMatchObject({
       active: 0,
       completed: 1,
       total: 1,
@@ -123,15 +129,27 @@ describe("workspace checklist completion", () => {
     expect(checklistProgress([{ text: "Waiting", completed: false, status: "blocked" }])).toEqual({
       completed: 0,
       active: 0,
+      blocked: 1,
+      credit: 0,
       total: 1,
     });
-    expect(checklistProgress([{ text: "Approval", completed: false, status: "review" }])).toEqual({
+    expect(
+      checklistProgress([{ text: "Approval", completed: false, status: "review" }]),
+    ).toMatchObject({
       completed: 0,
       active: 0,
       total: 1,
     });
-    expect(checklistProgress([])).toEqual({ completed: 0, active: 0, total: 0 });
-    expect(workspaceChecklistProgress([{ id: "new", workspaceId: "w" }], "w", new Set())).toEqual({
+    expect(checklistProgress([])).toEqual({
+      completed: 0,
+      active: 0,
+      blocked: 0,
+      credit: 0,
+      total: 0,
+    });
+    expect(
+      workspaceChecklistProgress([{ id: "new", workspaceId: "w" }], "w", new Set()),
+    ).toMatchObject({
       active: 0,
       completed: 0,
       total: 0,
@@ -147,7 +165,7 @@ describe("task flower progress", () => {
       { text: "Done", completed: true, status: "in_progress" },
       { text: "Pending", completed: false },
     ]);
-    expect(progress).toEqual({ completed: 1, active: 2, total: 4 });
+    expect(progress).toEqual({ completed: 1, active: 2, blocked: 0, credit: 1, total: 4 });
     expect(taskPetals(progress)).toEqual(["completed", "active", "active", "pending"]);
   });
   it("renders no empty petals and one petal for a single task", () => {
@@ -184,5 +202,49 @@ describe("task flower progress", () => {
         Array(12).fill("completed"),
       );
     }
+  });
+});
+
+describe("partial task progress", () => {
+  it("adds partial credit from unfinished items and keeps blocked work counted", () => {
+    const progress = checklistProgress([
+      { text: "Done", completed: true, status: "completed" },
+      { text: "Halfway", completed: false, status: "in_progress", progress: 50 },
+      { text: "Stalled", completed: false, status: "blocked", progress: 40 },
+      { text: "Not started", completed: false },
+    ]);
+    expect(progress).toEqual({ completed: 1, active: 1, blocked: 1, credit: 1.9, total: 4 });
+    expect(checklistPercent(progress)).toBe(48);
+  });
+
+  it("sums items across threads rather than averaging thread percentages", () => {
+    const agents = [
+      {
+        id: "a",
+        workspaceId: "w",
+        tasks: Array.from({ length: 5 }, (_, index) => ({
+          text: `A${index}`,
+          completed: index < 3,
+          ...(index === 3 ? { progress: 60 } : {}),
+        })),
+      },
+      {
+        id: "b",
+        workspaceId: "w",
+        tasks: [
+          { text: "B done", completed: true },
+          { text: "B blocked", completed: false, status: "blocked" as const, progress: 40 },
+          { text: "B pending", completed: false },
+        ],
+      },
+    ];
+    const progress = workspaceChecklistProgress(agents, "w", new Set());
+    expect(progress.credit).toBeCloseTo(5);
+    expect(checklistPercent(progress)).toBe(63);
+  });
+
+  it("fills petals partway up to the credit", () => {
+    expect(petalFills({ credit: 1.5, total: 3 })).toEqual([1, 0.5, 0]);
+    expect(petalFills({ credit: 12, total: 24 })).toEqual([1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]);
   });
 });

@@ -41,7 +41,8 @@ import {
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { router, usePathname, type Href } from "expo-router";
+import { router, usePathname } from "expo-router";
+import { useSidebarNewWorkspaceRoute } from "@/hooks/use-sidebar-new-workspace-route";
 import {
   navigateToWorkspace,
   useActiveWorkspaceSelection,
@@ -70,7 +71,6 @@ import { buildPluginSurfaceRoute } from "@/plugins/routes";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
-  buildNewWorkspaceRoute,
   buildProjectSettingsRoute,
   parseHostWorkspaceRouteFromPathname,
 } from "@/utils/host-routes";
@@ -898,17 +898,12 @@ function NewWorkspaceGhostRow({
 }) {
   const density = useSidebarRowDensity();
   const { t } = useTranslation();
-  const handlePress = useCallback(() => {
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
-        serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
+  const handlePress = useSidebarNewWorkspaceRoute({
+    project,
+    displayName,
+    target: worktreeTarget,
+    onBeforeNavigate: onWorkspacePress,
+  });
   const rowStyle = useCallback(
     ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.newWorkspaceGhostRow,
@@ -1007,20 +1002,12 @@ function ProjectHeaderRow({
   const localDaemonServerId = useLocalDaemonServerId();
   const projectPath = resolveSidebarProjectLocalPath(project, localDaemonServerId);
   const settingsTarget = project.hosts[0] ?? null;
-  const handleBeginWorkspaceSetup = useCallback(() => {
-    if (!worktreeTarget) {
-      return;
-    }
-    onWorkspacePress?.();
-    router.navigate(
-      buildNewWorkspaceRoute({
-        serverId: worktreeTarget.serverId,
-        sourceDirectory: worktreeTarget.iconWorkingDir,
-        displayName,
-        projectId: worktreeTarget.projectId,
-      }) as Href,
-    );
-  }, [displayName, onWorkspacePress, worktreeTarget]);
+  const handleBeginWorkspaceSetup = useSidebarNewWorkspaceRoute({
+    project,
+    displayName,
+    target: worktreeTarget,
+    onBeforeNavigate: onWorkspacePress,
+  });
   const interaction = useLongPressDragInteraction({
     drag,
     menuController,

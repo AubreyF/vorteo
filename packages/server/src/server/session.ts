@@ -4267,11 +4267,22 @@ export class Session {
   ): Promise<void> {
     let error: string | null = null;
     try {
+      // Moving the local project with the group keeps a group from spanning several local
+      // projects on one host, which would leave it without a usable folder for new workspaces.
+      if (msg.projectId !== undefined) {
+        const target = await this.projectRegistry.get(msg.projectId);
+        if (!target) throw new Error("That project no longer exists on this host.");
+        if (target.archivedAt) throw new Error("Restore that project before moving work into it.");
+      }
       const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
         assertWorkspaceNotFactoryManaged(workspace);
         if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
+        if (msg.projectId !== undefined && workspace.kind === "worktree") {
+          throw new Error("Worktrees stay with their repository's project.");
+        }
         return {
           ...workspace,
+          ...(msg.projectId !== undefined ? { projectId: msg.projectId } : {}),
           projectMembership: msg.membership,
           updatedAt: new Date().toISOString(),
         };

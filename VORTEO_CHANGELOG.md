@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.689 - 2026-10-18
+
+### Added
+
+- Checklist items can carry acceptance checks and a 0 to 100 progress value. Passed checks decide progress; estimates round to 5 points and stay at or below 90 until the item is completed.
+- Task rows show a muted percentage for partly done work, marked as an estimate when no checks exist, and the details sheet shows a progress bar with each check.
+- Workspace progress adds partial credit per item across threads. Petals fill partway, and the tooltip and screen-reader text use the credit-based percentage with a blocked count.
+- Agent checklist instructions explain checks first, capped estimates and milestone updates.
+- Moving a workspace into a group also moves its local project when the group has exactly one on that host. Worktrees stay with their repository; older daemons keep the group-only move.
+
+### Fixes
+
+- A sidebar row's plus opens New workspace with that row selected, beside the active workspace when it belongs to the row.
+- New workspace keeps a remembered shared group instead of resolving it to another project that shares its local folder, and borrows that workspace's folder when the group has none of its own on this host.
+- New workspace falls back to your last manual project choice and otherwise asks, instead of selecting the first project in the list.
+- Cards below the conversation, including Messages, and turn footers follow a resized text column instead of the default content width.
+- Sidebar project rows no longer re-render when the active workspace changes, and project selection no longer re-renders repeatedly when no project is selected.
+
 ## 0.11.0-beta.3.vorteo.688 - 2026-10-18
 
 ### Fixes

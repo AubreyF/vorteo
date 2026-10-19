@@ -1211,6 +1211,9 @@ export const WorkspaceProjectSetRequestSchema = z.object({
   type: z.literal("workspace.project.set.request"),
   workspaceId: z.string(),
   membership: WorkspaceProjectMembershipSchema.nullable(),
+  // COMPAT(workspaceProjectPlacement): send only when advertised; older daemons move the group only.
+  /** The group's single local project on this host, moved along with the group. */
+  projectId: z.string().min(1).optional(),
   requestId: z.string(),
 });
 
@@ -3945,6 +3948,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceMultiplicity: z.boolean().optional(),
         // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.124; retain the gate for older daemons.
         workspaceProjectMembership: z.boolean().optional(),
+        // COMPAT(workspaceProjectPlacement): added October 2026; gate until the daemon floor includes it.
+        workspaceProjectPlacement: z.boolean().optional(),
         // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
         workspaceCreateProjectMembership: z.boolean().optional(),
         // COMPAT(workspaceTaskEnvironments): gate bindings on daemons that persist them.
@@ -4019,6 +4024,8 @@ export const ServerInfoStatusPayloadSchema = z
         checklistBlockedStatus: z.boolean().optional(),
         sidebarState: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
+        // COMPAT(checklistProgress): added October 2026; send progress and checks only when advertised.
+        checklistProgress: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),

@@ -377,6 +377,7 @@ export const zhCN: TranslationResources = {
       empty: "还没有任务。",
       tasksProgress: "{{completed}}/{{total}} 项任务",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "已创建 {{count}} 项任务",
         added: "已添加",
