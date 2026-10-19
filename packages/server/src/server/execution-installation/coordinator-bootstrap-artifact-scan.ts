@@ -34,6 +34,33 @@ const CHUNK_BYTES = 1024 * 1024;
 
 export class ArtifactScanConflict extends Error {}
 
+// Workers inherit the parent's execArgv. Options that describe a main script's
+// string input either make Node refuse to start a worker (--input-type, as in
+// the bounded `--input-type=module --eval` verification children) or mean
+// nothing to it (--eval, --print). Each takes a value, inline or as the next
+// argument. --experimental-default-type is gone from current Node; older
+// runtimes applied it to module type detection, so it is removed as well.
+const MAIN_INPUT_OPTIONS = new Set([
+  "--input-type",
+  "--eval",
+  "-e",
+  "--print",
+  "-p",
+  "--experimental-default-type",
+]);
+
+export function workerExecArgv(parent: readonly string[] = process.execArgv): string[] {
+  const kept: string[] = [];
+  for (let index = 0; index < parent.length; index++) {
+    const option = parent[index];
+    const separator = option.indexOf("=");
+    const name = separator === -1 ? option : option.slice(0, separator);
+    if (!MAIN_INPUT_OPTIONS.has(name)) kept.push(option);
+    else if (separator === -1) index++;
+  }
+  return kept;
+}
+
 export function identity(stat: BigIntStats): string {
   return [
     stat.dev,
@@ -226,7 +253,10 @@ function runArtifactWorker<T>(
   accept: (message: unknown) => T,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: request });
+    const worker = new Worker(new URL(import.meta.url), {
+      workerData: request,
+      execArgv: workerExecArgv(),
+    });
     let settled = false;
     const settle = (complete: () => void) => {
       if (settled) return;
@@ -412,8 +442,11 @@ function digestFiles(
       else resolve(digests);
     };
     for (let index = 0; index < readers; index++) {
+      // Inside the scan worker, execArgv is already the filtered set; filtering
+      // again keeps readers safe however the scan worker itself was started.
       const worker = new Worker(new URL(import.meta.url), {
         workerData: { role: DIGEST_ROLE, deadline } satisfies z.infer<typeof DigestRequestSchema>,
+        execArgv: workerExecArgv(),
       });
       workers.push(worker);
       let batch: readonly PendingFile[] = [];

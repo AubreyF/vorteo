@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   link,
@@ -19,6 +20,7 @@ import {
   inspectBootstrapArtifact,
   withBootstrapArtifactReuse,
 } from "./coordinator-bootstrap-artifact.js";
+import { workerExecArgv } from "./coordinator-bootstrap-artifact-scan.js";
 import { inspectLegacyBootstrapArtifact } from "./test-utils/legacy-artifact-digest.js";
 
 vi.mock("node:worker_threads", async (importOriginal) => {
@@ -289,3 +291,74 @@ test("a reused proof is re-asserted before it satisfies a later caller", async (
     }),
   ).rejects.toThrow("changed during verification");
 });
+
+test("workers drop main-input options in inline and separate forms", () => {
+  expect(
+    workerExecArgv([
+      "--input-type=module",
+      "--eval",
+      "await main()",
+      "--max-old-space-size=4096",
+      "--input-type",
+      "commonjs",
+      "-e",
+      "x",
+      "--print",
+      "y",
+      "-p",
+      "z",
+      "--experimental-default-type=module",
+      "--conditions",
+      "development",
+      "--permission",
+    ]),
+  ).toEqual(["--max-old-space-size=4096", "--conditions", "development", "--permission"]);
+});
+
+const scanModule = new URL("./coordinator-bootstrap-artifact-scan.ts", import.meta.url).href;
+
+/** Mirrors the bounded verification children (retained renewal and plan
+ * verification): module input through --eval, stdin payload, reduced
+ * environment and a stdout handshake bound to the payload digest. */
+function digestInChild(directory: string, inputType: readonly string[]) {
+  const payload = JSON.stringify({ directory });
+  const source = `
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { scanArtifactTree } from ${JSON.stringify(scanModule)};
+const bytes = readFileSync(0);
+const input = JSON.parse(bytes.toString("utf8"));
+const scan = await scanArtifactTree(input.directory, { maxFiles: Infinity, maxBytes: Infinity, deadline: Infinity });
+process.stdout.write("verified:" + createHash("sha256").update(bytes).digest("hex") + "\\n" + scan.sha256);
+`;
+  const child = spawnSync(process.execPath, [...inputType, "--eval", source], {
+    input: payload,
+    env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  const [handshake, digest] = child.stdout.split("\n");
+  return {
+    status: child.status,
+    stderr: child.stderr,
+    handshake,
+    expectedHandshake: `verified:${createHash("sha256").update(payload).digest("hex")}`,
+    digest,
+  };
+}
+
+test.each([
+  ["inline", ["--input-type=module"]],
+  ["separate", ["--input-type", "module"]],
+])(
+  "a full digest with parallel readers runs inside a %s --input-type=module --eval child",
+  async (_form, inputType) => {
+    const release = await richTree();
+    const expected = (await inspectLegacyBootstrapArtifact(release)).sha256;
+    const result = digestInChild(release, inputType);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.handshake).toBe(result.expectedHandshake);
+    expect(result.digest).toBe(expected);
+  },
+);

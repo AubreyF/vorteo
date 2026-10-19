@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.695 - 2026-10-18
+
+### Fixes
+
+- Start release scan and reader workers without the parent's main-input options. Bounded verification children run as `--input-type=module --eval`, and workers inheriting `--input-type` failed at once, so the executor's retained-renewal check refused every coordinator dispatch in 0.3 s. `--eval`, `--print` and `--experimental-default-type` are dropped as well, in inline and separate forms.
+
+### Validation
+
+- Regression tests run a full digest with parallel readers inside `--input-type=module --eval` children, in both forms, using the retained-renewal launcher's flags, reduced environment and stdout handshake. They fail without the fix. The real retained-renewal child, run from this build against the live renewal file, now passes (exit 0 in 9.5 s, where v695 exited 1 in 0.35 s).
+
 ## 0.11.0-beta.3.vorteo.694 - 2026-10-18
 
 Adds the Host renewal context refresh to the vorteo.693 integration. Its branch numbered its entries vorteo.692 and vorteo.693 independently; neither was installed, so they are kept here verbatim under this version.
