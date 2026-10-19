@@ -671,6 +671,14 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
         case "ack":
           acknowledge(connection, request.sessionId, request.seq);
           return;
+        case "release": {
+          const state = sessions.get(request.sessionId);
+          if (state?.attached === connection) {
+            state.attached = null;
+            audit({ event: "released", connectionId, sessionId: request.sessionId });
+          }
+          return;
+        }
         case "history":
         case "list":
           answer(request.requestId, () =>

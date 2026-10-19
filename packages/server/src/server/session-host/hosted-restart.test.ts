@@ -20,7 +20,7 @@ import { rotateSessionHostToken, sessionHostPaths, type SessionHostPaths } from 
 import { startSessionHost, type SessionHost } from "./host.js";
 import { createProviderSessionFactory } from "./provider-sessions.js";
 
-const logger = pino({ level: "silent" });
+const logger = pino({ level: process.env.DEBUG_HOSTED ? "debug" : "silent" });
 const cleanups: (() => Promise<void> | void)[] = [];
 
 afterEach(async () => {
@@ -74,6 +74,8 @@ async function startHost(paths: SessionHostPaths, sessions: ControlledSession[])
 
 interface Worker {
   manager: AgentManager;
+  /** Continuations the fallback queued, by agent. */
+  continued: string[];
   storage: AgentStorage;
   applied: AppliedSeqStore;
   routing: Parameters<typeof planHostedStartup>[0]["routing"];
@@ -84,7 +86,11 @@ interface Worker {
 }
 
 /** One daemon worker over a shared home, the way consecutive workers share PASEO_HOME. */
-function startWorker(home: string, paths: SessionHostPaths): Worker {
+function startWorker(
+  home: string,
+  paths: SessionHostPaths,
+  settings: { enabled?: boolean } = {},
+): Worker {
   const storage = new AgentStorage(join(home, "agents"), logger);
   const real = createSessionHostConnector({ paths, logger, retryAfterMs: 0 });
   let dead = false;
@@ -96,9 +102,9 @@ function startWorker(home: string, paths: SessionHostPaths): Worker {
   };
   cleanups.push(() => real.close());
   const applied = createAppliedSeqStore(paths);
-  const routing = {
+  const routing: Parameters<typeof planHostedStartup>[0]["routing"] = {
     connector,
-    isEnabled: () => true,
+    isEnabled: () => settings.enabled ?? true,
     logger,
     // A dead worker must not give the turn up while the test runs; its timers never hold exit.
     reattach: { windowMs: 120_000, initialDelayMs: 50, maxDelayMs: 200 },
@@ -108,8 +114,26 @@ function startWorker(home: string, paths: SessionHostPaths): Worker {
   const local: ControlledSession[] = [];
   const claude = createHostedAgentClient({ inner: controlledClient(local), routing });
   const manager = new AgentManager({ clients: { claude }, registry: storage, logger });
+  // The parts of the message queue the restart and loss paths use.
+  const continued: string[] = [];
+  manager.setMessageQueueControl({
+    pause: async () => {},
+    wake: () => {},
+    acceptedHistory: async () => [],
+    recordProviderMessageId: async () => {},
+    reconcileHistory: async () => {},
+    suppressHistoryRestoration: () => {},
+    queueRestartContinuation: async () => {},
+    queueHostedSessionContinuation: async (agentId) => {
+      continued.push(agentId);
+    },
+  } as unknown as Parameters<AgentManager["setMessageQueueControl"]>[0]);
+  routing.onSessionLost = (agentId) => {
+    void manager.continueAfterHostedSessionLoss(agentId);
+  };
   return {
     manager,
+    continued,
     storage,
     applied,
     routing,
@@ -293,4 +317,115 @@ test("sessions of a host that restarted are reported lost so the fallback can re
   const plan = await planHostedStartup({ routing: second.routing, agents: second.storage, logger });
   expect(plan).toMatchObject({ adopted: [], lost: [agent.id], hostReachable: true });
   expect(await second.applied.read(agent.id)).toBeNull();
+});
+
+test("a graceful restart leaves the hosted turn running: no wrap-up request, detach, then takeover", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const first = startWorker(home, paths);
+  const agent = await runningAgent(first, workdir);
+  const provider = providers[0]!;
+  provider.text("working");
+  await expect.poll(() => assistantText(first.manager.getTimeline(agent.id))).toBe("working");
+
+  // The restart drain neither counts nor steers a durably hosted turn.
+  expect(first.manager.getRestartImpact().agents).toEqual([]);
+  expect(first.manager.beginRestartDrain("restart-1")).toBe(true);
+  expect(first.manager.getTimeline(agent.id).some((item) => item.type === "notification")).toBe(
+    false,
+  );
+
+  // Shutdown detaches instead of closing; the provider keeps running.
+  await settled(first, paths, agent.id);
+  expect(await first.manager.detachDurableSessions()).toBe(1);
+  await first.manager.closeAgent(agent.id);
+  expect(provider.closed).toBe(false);
+  first.crash();
+
+  provider.text(" through the restart");
+  const second = await restart(home, paths);
+  await expect
+    .poll(() => assistantText(second.manager.getTimeline(agent.id)))
+    .toBe("working through the restart");
+  provider.complete();
+  await expect.poll(() => second.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(second.continued).toEqual([]);
+  expect(providers).toHaveLength(1);
+});
+
+test("loading an agent the host still runs takes it over even without startup planning", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const first = startWorker(home, paths);
+  const agent = await runningAgent(first, workdir);
+  providers[0]!.text("before");
+  await settled(first, paths, agent.id);
+  first.crash();
+
+  const second = startWorker(home, paths);
+  await ensureAgentLoaded(agent.id, {
+    agentManager: second.manager,
+    agentStorage: second.storage,
+    logger,
+  });
+  await expect.poll(() => assistantText(second.manager.getTimeline(agent.id))).toBe("before");
+  expect(second.manager.getAgent(agent.id)?.lifecycle).toBe("running");
+  providers[0]!.complete();
+  await expect.poll(() => second.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(providers).toHaveLength(1);
+  expect(second.local).toEqual([]);
+
+  // The fenced first worker closing its stale view must not delete the record its successor uses.
+  await first.manager.closeAgent(agent.id).catch(() => {});
+  expect(await second.applied.read(agent.id)).not.toBeNull();
+});
+
+test("with the setting turned off, an agent whose session the host still runs is taken over", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const first = startWorker(home, paths);
+  const agent = await runningAgent(first, workdir);
+  await settled(first, paths, agent.id);
+  first.crash();
+
+  const second = startWorker(home, paths, { enabled: false });
+  await ensureAgentLoaded(agent.id, {
+    agentManager: second.manager,
+    agentStorage: second.storage,
+    logger,
+  });
+  expect(second.local).toEqual([]);
+  expect(providers).toHaveLength(1);
+  expect(second.manager.getAgent(agent.id)?.lifecycle).toBe("running");
+});
+
+test("when the host dies mid-turn the agent continues from a queued continuation", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  const host = await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  worker.routing.reattach = { windowMs: 300, initialDelayMs: 20, maxDelayMs: 50 };
+  const agent = await runningAgent(worker, workdir);
+  await host.close();
+
+  await expect.poll(() => worker.continued, { timeout: 5_000 }).toEqual([agent.id]);
+  // The fallback reopened the agent on a fresh session in the worker, since no host answers.
+  await expect.poll(() => worker.local.length, { timeout: 5_000 }).toBe(1);
+  expect(worker.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(worker.manager.getTimeline(agent.id).some((item) => item.type === "error")).toBe(false);
 });

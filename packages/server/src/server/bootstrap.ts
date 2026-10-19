@@ -1608,6 +1608,23 @@ export async function createPaseoDaemon(
   });
   const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
   quotaReservePolling.start();
+  // Hosted sessions still running a turn are attached and registered for adoption before any
+  // service can load their agents (the scheduler included), so nobody starts a second provider.
+  const hostedPlan = await planHostedStartup({
+    routing: sessionHostRouting,
+    agents: agentStorage,
+    logger,
+  }).catch((error: unknown) => {
+    logger.warn(
+      { err: error, adoptions: sessionHostRouting.adoptions.size },
+      "Hosted session startup planning failed; registered sessions load on demand",
+    );
+    return null;
+  });
+  // A hosted session that ends with its host continues the way a restart would.
+  sessionHostRouting.onSessionLost = (agentId) => {
+    void agentManager.continueAfterHostedSessionLoss(agentId);
+  };
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -1863,17 +1880,6 @@ export async function createPaseoDaemon(
         );
       }
 
-      // Hosted sessions still running a turn are attached and registered for adoption before any
-      // client can load their agents, so nobody starts a second provider for them.
-      const hostedPlan = await planHostedStartup({
-        routing: sessionHostRouting,
-        agents: agentStorage,
-        logger,
-      }).catch((error: unknown) => {
-        logger.warn({ err: error }, "Hosted session startup planning failed");
-        return null;
-      });
-
       // Start main HTTP server
       await new Promise<void>((resolve, reject) => {
         const onError = (err: Error) => {
@@ -2066,6 +2072,19 @@ export async function createPaseoDaemon(
           { closed: hostedPlan.closed.length, lost: hostedPlan.lost },
           "Hosted sessions reconciled at startup",
         );
+      // A session that ended with its host while its turn was running continues like a restart.
+      for (const agentId of hostedPlan?.lost ?? []) {
+        void agentStorage
+          .get(agentId)
+          .then((record) =>
+            record?.lastStatus === "running" && !record.archivedAt
+              ? agentManager.continueAfterHostedSessionLoss(agentId)
+              : undefined,
+          )
+          .catch((error: unknown) =>
+            logger.warn({ err: error, agentId }, "Could not continue a lost hosted session"),
+          );
+      }
 
       // Start speech service after listening so synchronous Sherpa native
       // model loading doesn't block the server from accepting connections.
@@ -2145,6 +2164,12 @@ export async function createPaseoDaemon(
     workspaceReconciliation.dispose();
     scriptHealthMonitor.stop();
     await quotaReservePolling.stop();
+    // Durably hosted turns keep running in the session host; the next worker takes them over.
+    await withTimeout({
+      promise: agentManager.detachDurableSessions(),
+      timeoutMs: AGENT_CLOSE_TIMEOUT_MS,
+      label: "detach hosted sessions",
+    }).catch((error) => logger.warn({ err: error }, "Hosted sessions did not detach in time"));
     await closeAllAgents(logger, agentManager);
     await withTimeout({
       promise: pluginRuntime.drainEvents(),

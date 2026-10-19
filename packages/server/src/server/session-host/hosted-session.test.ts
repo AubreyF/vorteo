@@ -15,7 +15,8 @@ import {
   ControlledSession,
 } from "../test-utils/controlled-provider-session.js";
 import { createSessionHostConnector, type SessionHostConnector } from "./connector.js";
-import { createHostedAgentClient, HostedSessionConflictError } from "./hosted-agent-client.js";
+import { StaleProviderSessionError } from "../agent/stale-provider-session-error.js";
+import { createHostedAgentClient } from "./hosted-agent-client.js";
 import { HostedAgentSession, HostedSessionUnavailableError } from "./hosted-agent-session.js";
 import { rotateSessionHostToken, sessionHostPaths } from "./host-files.js";
 import { startSessionHost, type SessionHost, type SessionHostLimits } from "./host.js";
@@ -65,6 +66,8 @@ interface HostedFixture {
   local: ControlledSession[];
   launchSeen: (AgentLaunchContext | undefined)[];
   setEnabled(enabled: boolean): void;
+  /** Agents whose hosted session ended with its host. */
+  lost: string[];
   /** The next n connection attempts return null, as when the host is slow to answer. */
   failConnects(count: number): void;
   socketPath: string;
@@ -129,6 +132,7 @@ async function hostedFixture(
     close: () => real.close(),
   };
   const { client: inner, local } = localClient();
+  const lost: string[] = [];
   let enabled = true;
   const client = createHostedAgentClient({
     inner,
@@ -138,10 +142,12 @@ async function hostedFixture(
       isEnabled: () => enabled,
       logger,
       reattach: { windowMs: 1_500, initialDelayMs: 20, maxDelayMs: 200 },
+      onSessionLost: (agentId) => lost.push(agentId),
     },
   });
   return {
     home,
+    lost,
     socketPath: paths.socketPath,
     token,
     failConnects(count) {
@@ -234,13 +240,26 @@ test("an unavailable host leaves the session in the worker", async () => {
   expect(fixture.local).toHaveLength(1);
 });
 
-test("a session the host still runs is never started a second time", async () => {
+test("opening a session the host still runs takes it over instead of starting another", async () => {
   const fixture = await hostedFixture();
-  await fixture.client.createSession(config, { agentId: "agent-1" });
-  await expect(fixture.client.createSession(config, { agentId: "agent-1" })).rejects.toBeInstanceOf(
-    HostedSessionConflictError,
-  );
+  const first = await fixture.client.createSession(config, { agentId: "agent-1" });
+  // A second worker, as after a restart, on its own connection to the same host.
+  const otherConnector = createSessionHostConnector({
+    paths: sessionHostPaths(fixture.home),
+    logger,
+    retryAfterMs: 0,
+  });
+  cleanups.push(() => otherConnector.close());
+  const otherWorker = createHostedAgentClient({
+    inner: localClient().client,
+    routing: { connector: otherConnector, isEnabled: () => true, logger },
+  });
+  const second = await otherWorker.createSession(config, { agentId: "agent-1" });
+  expect(second).toBeInstanceOf(HostedAgentSession);
+  expect(fixture.hosted).toHaveLength(1);
   expect(fixture.local).toEqual([]);
+  await expect.poll(() => (first as HostedAgentSession).hostedStatus).toBe("fenced");
+  expect((second as HostedAgentSession).isDurablyHosted()).toBe(true);
 });
 
 test("a dropped connection reattaches and the turn keeps going without a failure", async () => {
@@ -266,7 +285,7 @@ test("a dropped connection reattaches and the turn keeps going without a failure
   ).toEqual(["before", "while reconnecting", "after"]);
 });
 
-test("losing the host fails the running turn once and refuses later calls", async () => {
+test("losing the host cancels the turn once, hands off to the fallback and goes stale", async () => {
   const fixture = await hostedFixture();
   const session = await fixture.client.createSession(config, { agentId: "agent-1" });
   const events = collect(session);
@@ -276,13 +295,13 @@ test("losing the host fails the running turn once and refuses later calls", asyn
   // The worker keeps trying for its reattach window before it gives the turn up.
   await expect
     .poll(() => events.at(-1), { timeout: 5_000 })
-    .toMatchObject({
-      type: "turn_failed",
-      code: "session_host_lost",
-      turnId: "turn-1",
-    });
-  expect(events.filter((event) => event.type === "turn_failed")).toHaveLength(1);
-  await expect(session.startTurn("again")).rejects.toBeInstanceOf(HostedSessionUnavailableError);
+    .toMatchObject({ type: "turn_canceled", turnId: "turn-1" });
+  expect(events.filter((event) => event.type === "turn_canceled")).toHaveLength(1);
+  expect(events.map((event) => event.type)).not.toContain("turn_failed");
+  expect(fixture.lost).toEqual(["agent-1"]);
+  // A stale session makes the prompt path reopen the agent on a fresh session.
+  await expect(session.startTurn("again")).rejects.toBeInstanceOf(StaleProviderSessionError);
+  expect(session.isDurablyHosted?.()).toBe(false);
   await session.interrupt();
   await session.close();
 });

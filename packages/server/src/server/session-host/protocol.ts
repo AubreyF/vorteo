@@ -113,6 +113,8 @@ export const SessionHostRequestSchema = z.discriminatedUnion("type", [
     .strict(),
   /** Every hosted session, so a starting worker can decide which ones to attach. */
   z.object({ type: z.literal("list"), requestId: IdSchema }).strict(),
+  /** The worker lets go of a session it attached but will not drive; the session keeps running. */
+  z.object({ type: z.literal("release"), sessionId: IdSchema }).strict(),
 ]);
 export type SessionHostRequest = z.infer<typeof SessionHostRequestSchema>;
 

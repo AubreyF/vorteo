@@ -22,6 +22,9 @@ import type {
   SteerResult,
 } from "../agent/agent-sdk-types.js";
 import { runProviderTurn } from "../agent/providers/provider-runner.js";
+import type { AgentMetadata, AgentSessionConfig } from "../agent/agent-sdk-types.js";
+import { stripInternalPaseoMcpServer } from "../agent/runtime-mcp-config.js";
+import { StaleProviderSessionError } from "../agent/stale-provider-session-error.js";
 import type { AppliedSeqStore } from "./applied-store.js";
 import type { HostedSession, HostedSessionDetachReason } from "./client.js";
 import { DroppedEventSchema } from "./protocol.js";
@@ -40,13 +43,16 @@ import {
 const ACK_INTERVAL_MS = 250;
 /** Events held for a manager that has not subscribed yet, such as replay right after attach. */
 const MAX_HELD_EVENTS = 10_000;
+/** An adopted session whose history is never read still delivers its live events after this. */
+const REBUILD_RELEASE_MS = 30_000;
 
-export type HostedSessionUnavailableReason = "fenced" | "lost" | "closed";
+export type HostedSessionUnavailableReason = "fenced" | "lost" | "closed" | "detached";
 
 const UNAVAILABLE_MESSAGES: Record<HostedSessionUnavailableReason, string> = {
   fenced: "Another worker now drives this session.",
   lost: "The session host no longer runs this session.",
   closed: "This session is closed.",
+  detached: "This worker released the session for the next worker.",
 };
 
 export class HostedSessionUnavailableError extends Error {
@@ -120,6 +126,8 @@ export interface HostedAgentSessionOptions {
    * until that history has been read, so no row appears twice.
    */
   rebuild?: { throughSeq: number; lossy: boolean };
+  /** Called once when the host no longer runs the session, so the agent can continue elsewhere. */
+  onLost?(): void;
   logger: Logger;
 }
 
@@ -183,6 +191,8 @@ export class HostedAgentSession implements AgentSession {
   private wakeRecovery: (() => void) | null = null;
   /** An interrupt asked for while reattaching, sent once the session is attached again. */
   private interruptPending = false;
+  private persistenceSource: AgentPersistenceHandle | null = null;
+  private persistenceView: AgentPersistenceHandle | null = null;
 
   constructor(private readonly options: HostedAgentSessionOptions) {
     this.provider = options.provider;
@@ -195,6 +205,14 @@ export class HostedAgentSession implements AgentSession {
     this.appliedSeq = options.rebuild?.throughSeq ?? 0;
     this.ackedSeq = this.appliedSeq;
     this.bind(options.channel);
+    if (this.liveHeld) {
+      const release = setTimeout(() => {
+        if (!this.liveHeld) return;
+        this.options.logger.warn("Hosted history was not read in time; delivering live events");
+        this.releaseLive();
+      }, REBUILD_RELEASE_MS);
+      release.unref();
+    }
   }
 
   get id(): string | null {
@@ -215,7 +233,39 @@ export class HostedAgentSession implements AgentSession {
   }
 
   describePersistence(): AgentPersistenceHandle | null {
-    return this.snapshot.persistence as AgentPersistenceHandle | null;
+    const handle = this.snapshot.persistence as AgentPersistenceHandle | null;
+    if (handle !== this.persistenceSource) {
+      this.persistenceSource = handle;
+      // The injected tool server carries the host's bearer token, which outlives this worker.
+      // Resume injects it again, so persisted handles never need it.
+      this.persistenceView = handle?.metadata
+        ? {
+            ...handle,
+            metadata: stripInternalPaseoMcpServer(
+              handle.metadata as unknown as AgentSessionConfig,
+            ) as unknown as AgentMetadata,
+          }
+        : handle;
+    }
+    return this.persistenceView;
+  }
+
+  isDurablyHosted(): boolean {
+    return this.status === "attached";
+  }
+
+  /**
+   * Worker shutdown: record what was applied, then let go without closing the host session, so
+   * the provider keeps running and the next worker takes it over.
+   */
+  async detach(): Promise<void> {
+    if (this.status === "closed" || this.status === "detached") return;
+    await this.flushAck();
+    this.status = "detached";
+    this.wakeRecovery?.();
+    this.unsubscribeChannel();
+    this.subscribers.clear();
+    this.held = [];
   }
 
   usageSession(): AgentUsageSession | null {
@@ -237,9 +287,14 @@ export class HostedAgentSession implements AgentSession {
     };
   }
 
+  /** The manager committed the rebuilt history rows, so held live events go after them. */
+  historyApplied(): void {
+    this.releaseLive();
+  }
+
   /**
-   * Lets held live events through. Reading the rebuilt history does this; the startup path also
-   * calls it when loading an adopted agent finished or failed, so events are never held forever.
+   * Lets held live events through. historyApplied does this; the startup path also calls it when
+   * loading an adopted agent finished or failed, so events are never held forever.
    */
   releaseLive(): void {
     if (!this.liveHeld) return;
@@ -282,8 +337,8 @@ export class HostedAgentSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    // A lost or closed session has nothing left to interrupt.
-    if (this.status === "lost" || this.status === "closed" || this.status === "fenced") return;
+    // A lost, closed or released session has nothing left to interrupt here.
+    if (this.status !== "attached" && this.status !== "reattaching") return;
     if (this.status === "reattaching") {
       // Do not hold a stop button for the whole reconnect window; deliver it on reattach.
       this.interruptPending = true;
@@ -357,12 +412,16 @@ export class HostedAgentSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    if (this.status === "closed") return;
+    if (this.status === "closed" || this.status === "detached") return;
     const attached = this.status === "attached";
     try {
       // While reattaching, the recovery closes the host session if it gets an attachment back.
-      if (attached) await this.invoke({ method: "close" });
-      await this.forgetApplied();
+      // Only a close that reached the host may forget the applied record: a fenced worker would
+      // otherwise delete the record its successor just wrote for the same agent.
+      if (attached) {
+        await this.invoke({ method: "close" });
+        await this.forgetApplied();
+      }
     } catch (error) {
       this.options.logger.warn(
         { err: error },
@@ -388,9 +447,9 @@ export class HostedAgentSession implements AgentSession {
       if (this.options.rebuild) yield* this.readLoggedHistory(this.options.rebuild);
       complete = true;
     } finally {
-      // A failed read can be retried; the manager collects history before it appends rows.
+      // A failed read can be retried; the manager collects history before it appends rows, and
+      // signals historyApplied once they are committed, which releases the held live events.
       if (!complete) this.historyRead = false;
-      this.releaseLive();
     }
   }
 
@@ -463,7 +522,9 @@ export class HostedAgentSession implements AgentSession {
   ): Promise<SessionCallResult<M>> {
     if (this.recovery) await this.recovery;
     const status = this.status;
-    if (status === "reattaching") throw new HostedSessionUnavailableError("lost");
+    // A lost session is stale: the prompt path reloads the agent and retries on a fresh session.
+    if (status === "lost" || status === "reattaching")
+      throw new StaleProviderSessionError(this.snapshot.id ?? "hosted");
     if (status !== "attached") throw new HostedSessionUnavailableError(status);
     const value = await this.channel.call(call);
     const result = parseCallResult(call.method as M, value);
@@ -706,15 +767,22 @@ export class HostedAgentSession implements AgentSession {
     if (turnId) this.emit({ ...event, turnId }, null);
   }
 
-  /** The provider process died with its host. The turn cannot continue in this session. */
+  /**
+   * The provider process ended with its host. Like a restart, the turn is canceled here and the
+   * agent continues from a queued continuation on a fresh session. The applied record stays: the
+   * next worker's startup reconciles it with what the host runs.
+   */
   private markLost(): void {
-    // The applied record stays: the next worker's startup reconciles it with what the host runs.
     this.status = "lost";
     this.releaseTurn({
-      type: "turn_failed",
+      type: "turn_canceled",
       provider: this.provider,
-      error: "The session host stopped, so this turn could not continue.",
-      code: "session_host_lost",
+      reason: "The session host stopped. This task continues from a queued continuation.",
     });
+    try {
+      this.options.onLost?.();
+    } catch (error) {
+      this.options.logger.warn({ err: error }, "Hosted session loss handler threw");
+    }
   }
 }

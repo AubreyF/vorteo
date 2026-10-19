@@ -53,6 +53,8 @@ export interface HostedSession {
   call(call: SessionHostCall): Promise<JsonValue>;
   /** Retained events in (afterSeq, throughSeq], one page at a time. Needs the attachment. */
   history(input: { afterSeq: number; throughSeq: number }): Promise<LoggedHistoryPage>;
+  /** Lets go of the attachment without closing the session; this handle stops receiving. */
+  release(): void;
 }
 
 export type HostedSessionDetachReason = "fenced" | "disconnected" | "gap";
@@ -287,6 +289,11 @@ export async function connectSessionHost(
         if (hostCall.method === "close" && channels.get(sessionId) === channel)
           channels.delete(sessionId);
         return value;
+      },
+      release() {
+        if (channels.get(sessionId) !== channel) return;
+        channels.delete(sessionId);
+        if (!closeError) send({ type: "release", sessionId });
       },
       async history({ afterSeq, throughSeq }) {
         const value = await call((requestId) => ({

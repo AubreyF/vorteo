@@ -103,6 +103,12 @@ export async function planHostedStartup(input: {
   return plan;
 }
 
+/** The agent no longer exists or names a provider this worker cannot run. */
+function isDefinitiveLoadFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /^Agent not found:|references unavailable provider|^Agent is archived:/.test(message);
+}
+
 /**
  * Second half, once the worker accepts clients: load each adopted agent, which rebuilds its
  * timeline from the host and then lets its held live events through. Loading also happens on
@@ -125,10 +131,12 @@ export async function loadAdoptedAgents(input: {
         previous?.(session);
       };
     }
+    let failure: unknown = null;
     try {
       await input.loadAgent(agentId);
       attached += 1;
     } catch (error) {
+      failure = error;
       input.logger.warn({ err: error, agentId }, "Could not load an adopted hosted agent");
     } finally {
       // Loading normally releases held events after the rebuilt history; never leave them held.
@@ -136,7 +144,15 @@ export async function loadAdoptedAgents(input: {
       const unused = input.routing.adoptions.get(agentId);
       if (unused) {
         input.routing.adoptions.delete(agentId);
-        await unused.channel.call({ method: "close" }).catch(() => {});
+        if (failure !== null && isDefinitiveLoadFailure(failure)) {
+          // Nobody can ever drive this session again, so stop its provider.
+          await unused.channel.call({ method: "close" }).catch(() => {});
+          await input.routing.applied.remove(agentId).catch(() => {});
+        } else {
+          // A transient failure: keep the turn running. A later load takes the session over.
+          unused.channel.release();
+          input.logger.warn({ agentId }, "Left a hosted session running for a later load");
+        }
       }
     }
   }

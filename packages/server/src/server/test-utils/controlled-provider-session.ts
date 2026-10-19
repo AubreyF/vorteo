@@ -138,8 +138,14 @@ export class ControlledSession implements AgentSession {
   }
 
   describePersistence(): AgentPersistenceHandle | null {
+    // Like the Claude adapter, the handle's metadata carries the session config.
     return this.sessionId
-      ? { provider: "claude", sessionId: this.sessionId, nativeHandle: this.sessionId }
+      ? {
+          provider: "claude",
+          sessionId: this.sessionId,
+          nativeHandle: this.sessionId,
+          metadata: { ...this.config },
+        }
       : null;
   }
 

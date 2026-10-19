@@ -4,6 +4,28 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.700 - 2026-10-19
+
+### Added
+
+- Restarts no longer interrupt durably hosted Claude turns. The restart drain does not count, steer or interrupt attached hosted sessions and queues no continuation for them; worker shutdown detaches them instead of closing them, and the next worker takes them over mid-turn.
+- If the session host itself stops mid-turn, the worker cancels the turn, reopens the agent on a fresh session (hosted again when a host answers, otherwise in the worker) and queues a continuation message, as a restart would. Agents whose sessions vanished with a restarted host continue the same way when the next worker starts.
+
+### Fixes
+
+- Takeover planning now runs before the scheduler or any other service can load agents. Loading an agent whose session the host still runs takes it over instead of failing, even after the setting is turned off, so two providers never run one conversation. A transient load failure releases the session for a later load; only a missing agent or unavailable provider closes it.
+- Held live events are released only after the agent manager has committed the rebuilt history, fixing a race that could show live rows before history rows.
+- A worker that was replaced no longer deletes its successor's applied record when it closes, and persisted handles of hosted sessions no longer carry the tool server's bearer token.
+
+### Maintenance
+
+- Sessions gain optional runtime members for durable hosting, detaching and history commitment, forwarded by the provider registry. The session host protocol gains a release request. Restart readiness logs hosted sessions attached as n/n at startup.
+- Still missing: the session host's own service process and launchd job, so the setting stays off.
+
+### Validation
+
+- Eight restart tests pass, covering a graceful restart through the drain and detach, a worker crash, takeover without startup planning, a running session after the setting is turned off, a host that dies mid-turn, a permission across the restart, idle sessions closed at startup and lost sessions. Together with the session host, manager, queue and registry suites, 443 tests pass.
+
 ## 0.11.0-beta.3.vorteo.699 - 2026-10-19
 
 ### Added

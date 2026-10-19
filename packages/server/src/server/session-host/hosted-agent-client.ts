@@ -34,6 +34,8 @@ export interface HostedSessionRouting {
   applied?: AppliedSeqStore;
   /** Sessions attached at startup and waiting for their agent to load. */
   adoptions?: Map<string, HostedAdoption>;
+  /** Called when the host no longer runs an agent's session, so the agent continues elsewhere. */
+  onSessionLost?(agentId: string): void;
 }
 
 /**
@@ -47,13 +49,6 @@ export interface HostedAdoption {
   lossy: boolean;
   /** Receives the adopted session, so startup can release its held events. */
   onAdopted?(session: HostedAgentSession): void;
-}
-
-export class HostedSessionConflictError extends Error {
-  constructor(readonly agentId: string) {
-    super("This agent's session is still running in the session host.");
-    this.name = "HostedSessionConflictError";
-  }
 }
 
 interface EligibilityInput {
@@ -142,8 +137,64 @@ export function createHostedAgentClient(input: {
         ? { store: routing.applied, agentId: params.agentId, hostId: params.hostId }
         : undefined,
       rebuild: params.rebuild,
+      onLost: () => routing.onSessionLost?.(params.agentId),
       logger,
     });
+  }
+
+  /**
+   * Attaches to a session the host already runs for this agent and rebuilds it like a startup
+   * takeover. Null when the host does not run it after all.
+   */
+  async function attachExisting(params: {
+    client: SessionHostClient;
+    agentId: string;
+    model: string | undefined;
+    launchEnv: Record<string, string> | undefined;
+  }): Promise<HostedAgentSession | null> {
+    const { client, agentId } = params;
+    const record = await routing.applied?.read(agentId);
+    const afterSeq = record && record.hostId === client.host.id ? record.lastAppliedSeq : 0;
+    let channel: HostedSession;
+    let throughSeq = afterSeq;
+    let lossy = false;
+    try {
+      channel = await client.attach({ sessionId: agentId, afterSeq });
+    } catch (error) {
+      if (!(error instanceof SessionHostClientError)) throw error;
+      if (error.code === "not_found") return null;
+      if (error.code !== "replay_unavailable") throw error;
+      channel = await client.attach({ sessionId: agentId, afterSeq: null });
+      throughSeq = channel.attach.lastSeq;
+      lossy = true;
+    }
+    logger.info({ agentId, throughSeq }, "Took over a running hosted session on demand");
+    return hostedSession({
+      channel,
+      agentId,
+      hostId: client.host.id,
+      model: params.model,
+      launchEnv: params.launchEnv,
+      rebuild: { throughSeq, lossy },
+    });
+  }
+
+  /**
+   * An agent with an applied record may still have its session in the host, even after the
+   * setting was turned off. Starting it in the worker would run two providers on one
+   * conversation, so the host is asked first; a record the host no longer backs is dropped.
+   */
+  async function remnant(
+    agentId: string | undefined,
+    model: string | undefined,
+    launchEnv: Record<string, string> | undefined,
+  ): Promise<HostedAgentSession | null> {
+    if (!agentId || !routing.applied || !(await routing.applied.read(agentId))) return null;
+    const client = await routing.connector.connect({ force: true });
+    if (!client) return null;
+    const session = await attachExisting({ client, agentId, model, launchEnv });
+    if (!session) await routing.applied.remove(agentId);
+    return session;
   }
 
   /** Hosted providers outlive this worker, so their tool server uses the host's token. */
@@ -159,12 +210,15 @@ export function createHostedAgentClient(input: {
     };
   }
 
-  async function open(params: {
-    request: HostedOpenRequest;
-    agentId: string;
-    config: AgentSessionConfig;
-    launchContext: AgentLaunchContext;
-  }): Promise<AgentSession | null> {
+  async function open(
+    params: {
+      request: HostedOpenRequest;
+      agentId: string;
+      config: AgentSessionConfig;
+      launchContext: AgentLaunchContext;
+    },
+    retried = false,
+  ): Promise<AgentSession | null> {
     const client: SessionHostClient | null = await routing.connector.connect();
     if (!client) return null;
     let channel: HostedSession;
@@ -175,9 +229,18 @@ export function createHostedAgentClient(input: {
         config: withHostToken(params.request, client.mcpToken) as unknown as JsonValue,
       });
     } catch (error) {
-      // Never start a second provider process for a session the host still runs.
-      if (error instanceof SessionHostClientError && error.code === "conflict")
-        throw new HostedSessionConflictError(params.agentId);
+      // The host already runs this agent's session: take it over rather than start another.
+      if (error instanceof SessionHostClientError && error.code === "conflict") {
+        const existing = await attachExisting({
+          client,
+          agentId: params.agentId,
+          model: params.config.model,
+          launchEnv: params.launchContext.env,
+        });
+        if (existing) return existing;
+        // It ended between the open and the attach: open once more, never loop.
+        return retried ? null : open(params, true);
+      }
       logger.warn(
         { err: error, agentId: params.agentId },
         "The session host could not open a session; it runs in the worker",
@@ -243,6 +306,8 @@ export function createHostedAgentClient(input: {
       });
       if (hosted) return hosted;
     }
+    const existing = await remnant(launchContext?.agentId, config.model, launchContext?.env);
+    if (existing) return existing;
     return inner.createSession(config, launchContext, options);
   }
 
@@ -276,6 +341,10 @@ export function createHostedAgentClient(input: {
         },
       });
       if (hosted) return hosted;
+    }
+    if (options?.purpose !== "history") {
+      const existing = await remnant(launchContext?.agentId, config.model, launchContext?.env);
+      if (existing) return existing;
     }
     return inner.resumeSession(handle, overrides, launchContext, options);
   }
