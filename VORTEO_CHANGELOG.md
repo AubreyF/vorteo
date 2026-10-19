@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.692 - 2026-10-18
+
+### Fixes
+
+- Re-derive the Host's coordinator renewal context after a coordinator request completes, or when the selected configuration changes, instead of refusing later requests until the Host restarts. Derivation reuses the unchanged initialization with every custody and identity check. Concurrent operations wait for one derivation. An operation already running still refuses a context change that happens while it runs.
+
+### Validation
+
+- Tests cover preparing and approving request B after request A completes without a Host restart, a refused mid-operation change followed by re-derivation, single-flight concurrency, an unavailable derivation retried by the next operation, status-read refresh, and which history changes trigger re-derivation.
+
 ## 0.11.0-beta.3.vorteo.691 - 2026-10-18
 
 ### Fixes

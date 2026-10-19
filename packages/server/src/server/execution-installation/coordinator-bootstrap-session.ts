@@ -49,6 +49,9 @@ export type BootstrapReviewService = Pick<
   available?: boolean;
   unavailableReason?: string;
   subscribeAvailability?(listener: () => void): () => void;
+  /** True once coordinator history or the selected configuration changed since
+   * this service derived its renewal context. */
+  renewalContextChanged?(): boolean;
   preclaimRecovery?: PreclaimRecoveryReviewService;
   claimedRecovery?: ClaimedRecoveryReviewService;
 };
