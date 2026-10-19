@@ -64,9 +64,19 @@ function stringEntry(key: string, value: string, indent: string): string {
 }
 
 /**
+ * launchd's SIGKILL after a stop request. It must come after the host's own shutdown deadline,
+ * which already bounds provider close, so launchd never cuts a graceful stop short.
+ */
+export const SESSION_HOST_EXIT_TIMEOUT_SECONDS = 30;
+
+/**
  * The launchd job for one session host. KeepAlive restarts the host after any exit, including
  * the deliberate exit at idle for an upgrade; ThrottleInterval bounds a crash loop. The job
  * depends on nothing else: no daemon port, supervisor or worker.
+ *
+ * The entrypoint path must resolve to the installed release at every start, for example through
+ * the installation's current release link. A fixed release path would restart the old code after
+ * each upgrade exit.
  *
  * Deliberately absent: ProcessType, because Background throttles CPU and I/O for every Claude
  * tool run, matching the Host daemon job, which sets none; and Umask, because Claude and its
@@ -96,6 +106,7 @@ export function renderSessionHostPlist(input: SessionHostPlistInput): string {
     `\t<key>RunAtLoad</key>\n\t<true/>\n` +
     `\t<key>KeepAlive</key>\n\t<true/>\n` +
     `\t<key>ThrottleInterval</key>\n\t<integer>5</integer>\n` +
+    `\t<key>ExitTimeOut</key>\n\t<integer>${SESSION_HOST_EXIT_TIMEOUT_SECONDS}</integer>\n` +
     `</dict>\n</plist>\n`
   );
 }

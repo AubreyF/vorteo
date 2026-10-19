@@ -95,12 +95,19 @@ export class HostedReattachPendingError extends Error {
  */
 export interface HostedReattachPolicy {
   windowMs: number;
+  /**
+   * While the host process is still alive, reattaching continues past windowMs up to this long.
+   * A live host either answers again or its watchdog kills it, so giving up sooner would start a
+   * second provider beside one that may still run.
+   */
+  aliveWindowMs?: number;
   initialDelayMs: number;
   maxDelayMs: number;
 }
 
 export const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
   windowMs: 60_000,
+  aliveWindowMs: 300_000,
   initialDelayMs: 250,
   maxDelayMs: 5_000,
 };
@@ -116,6 +123,8 @@ export interface HostedAgentSessionOptions {
    */
   reattach(afterSeq: number): Promise<HostedReattachment | null>;
   reattachPolicy?: HostedReattachPolicy;
+  /** Whether the host process still runs, answering or not. Absent means it is assumed gone. */
+  hostAlive?(): Promise<boolean>;
   /**
    * Usage plugins read the provider environment synchronously. The worker builds it from the
    * same settings it sent to the host, so credentials never travel back from the host.
@@ -745,7 +754,9 @@ export class HostedAgentSession implements AgentSession {
 
   private async recover(afterSeq: number): Promise<void> {
     const policy = this.options.reattachPolicy ?? DEFAULT_REATTACH_POLICY;
-    const deadline = Date.now() + policy.windowMs;
+    const started = Date.now();
+    const deadline = started + policy.windowMs;
+    const aliveDeadline = started + Math.max(policy.windowMs, policy.aliveWindowMs ?? 0);
     let delay = policy.initialDelayMs;
     for (;;) {
       let next: HostedReattachment | null;
@@ -753,7 +764,8 @@ export class HostedAgentSession implements AgentSession {
         next = await this.options.reattach(afterSeq);
       } catch (error) {
         if (this.isFinished()) return;
-        if (Date.now() + delay > deadline) {
+        if (Date.now() + delay > deadline && !(await this.hostMayAnswer(aliveDeadline, delay))) {
+          if (this.isFinished()) return;
           this.options.logger.warn({ err: error }, "The session host did not answer in time");
           this.markLost();
           return;
@@ -785,6 +797,16 @@ export class HostedAgentSession implements AgentSession {
         );
       }
       return;
+    }
+  }
+
+  /** Past the reattach window, a host process that still runs earns more time, up to a cap. */
+  private async hostMayAnswer(aliveDeadline: number, delay: number): Promise<boolean> {
+    if (Date.now() + delay > aliveDeadline || !this.options.hostAlive) return false;
+    try {
+      return await this.options.hostAlive();
+    } catch {
+      return false;
     }
   }
 

@@ -148,6 +148,9 @@ async function lockIsStale(lockPath: string, socketPath: string): Promise<boolea
  * answer is stalled rather than gone, and its watchdog replaces it, so a worker waits for it
  * instead of starting a second provider on the same conversation. A reused process id reads as
  * alive, which only makes the caller wait out its bound.
+ *
+ * A killed host never removes its lock. That is deliberate: the dead pid left behind is what tells
+ * workers the host is gone, and the next host takes the stale lock over.
  */
 export async function sessionHostProcessAlive(socketPath: string): Promise<boolean> {
   const content = await readFile(`${socketPath}.lock`, "utf8").catch(() => null);

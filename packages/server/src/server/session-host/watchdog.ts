@@ -9,8 +9,8 @@ import { SELF_PROBE_RELEASE, SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js
  * Besides the heartbeat, it probes the host the way a worker reaches it: read the token file,
  * connect to the socket and complete a hello. A host that answers no hello cannot be reattached,
  * whatever the cause (a deleted socket file, a replaced token, exhausted connection slots or a
- * stalled main thread), so it is killed and launchd starts a working one well inside the
- * worker's reattach window.
+ * stalled main thread), so it is killed and launchd starts a working one. Workers keep
+ * reattaching while the host process lives, so a session is never given up beside a live host.
  *
  * Plain CommonJS so it runs unchanged from source and from the built package.
  */
@@ -183,6 +183,14 @@ export interface SessionHostWatchdog {
 export const DEFAULT_HANG_TIMEOUT_MS = 30_000;
 
 /**
+ * Much longer than the hang timeout on purpose. Heavy load alone can delay a hello reply, but not
+ * a heartbeat for 30 s, and a false kill ends every hosted turn at once. The faults only the probe
+ * catches (a deleted socket, a replaced token, exhausted connection slots) can wait this long,
+ * because workers keep reattaching while the host process lives.
+ */
+export const DEFAULT_PROBE_FAILURE_WINDOW_MS = 90_000;
+
+/**
  * Starts the off-thread watchdog. The main thread stores a timestamp about every second; a
  * blocked main thread stops storing it, and the watchdog kills the process so launchd can start
  * a healthy host. Neither the thread nor the heartbeat keeps a finished process alive.
@@ -197,7 +205,7 @@ export function startSessionHostWatchdog(options: SessionHostWatchdogOptions): S
     tokenPath: options.probe.tokenPath,
     intervalMs: options.probe.intervalMs ?? 5_000,
     timeoutMs: options.probe.timeoutMs ?? 4_000,
-    failureWindowMs: options.probe.failureWindowMs ?? 30_000,
+    failureWindowMs: options.probe.failureWindowMs ?? DEFAULT_PROBE_FAILURE_WINDOW_MS,
     minFailures: options.probe.minFailures ?? 3,
   };
   // Slots: last heartbeat, shutdown deadline, listening flag.

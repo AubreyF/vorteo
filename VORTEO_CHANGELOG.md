@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.702 - 2026-10-19
+
+### Fixes
+
+- A hosted session keeps reattaching past its one-minute window for up to five minutes while the session host process is still alive, instead of giving up its turn beside a host that may still run it. A host that is gone still ends the wait at once.
+- The session host watchdog now tolerates 90 seconds of failed hello probes before it kills the host, so heavy machine load alone cannot end every hosted turn at once. A main thread blocked for 30 seconds is still killed.
+- The session host launchd job waits 30 seconds after a stop request before launchd kills it, longer than the host's own 20-second shutdown deadline.
+
+### Maintenance
+
+- Documented that a killed host's lock is left behind on purpose, since its dead process id tells workers the host is gone, and that the job's entrypoint must resolve to the installed release at every start.
+
+### Validation
+
+- Thirty-eight focused restart, launchd, watchdog and hosted session tests pass, with the opt-in launchd round trip skipped. New restart tests cover a session waiting past its window for a live host and one given up after the longer window; the first fails without the change.
+
 ## 0.11.0-beta.3.vorteo.701 - 2026-10-19
 
 ### Added

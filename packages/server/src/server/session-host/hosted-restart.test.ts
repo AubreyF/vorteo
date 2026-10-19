@@ -460,6 +460,63 @@ test("when the host dies mid-turn the agent continues from a queued continuation
   expect(await worker.applied.read(agent.id)).toBeNull();
 });
 
+test("a session keeps reattaching past its window while the host process lives", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  worker.routing.reattach = {
+    windowMs: 100,
+    aliveWindowMs: 60_000,
+    initialDelayMs: 20,
+    maxDelayMs: 50,
+  };
+  const agent = await runningAgent(worker, workdir);
+  const provider = providers[0]!;
+  provider.text("before");
+  await settled(worker, paths, agent.id);
+  worker.setUnreachable(true);
+  provider.text(" while unreachable");
+
+  // Well past the reattach window, the host still runs, so the turn is not given up.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(worker.continued).toEqual([]);
+  expect(worker.local).toEqual([]);
+  expect(worker.manager.getAgent(agent.id)?.lifecycle).toBe("running");
+
+  worker.setUnreachable(false);
+  await expect
+    .poll(() => assistantText(worker.manager.getTimeline(agent.id)), { timeout: 5_000 })
+    .toBe("before while unreachable");
+  provider.complete();
+  await expect.poll(() => worker.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(worker.continued).toEqual([]);
+  expect(providers).toHaveLength(1);
+});
+
+test("a host process that stays alive but silent is given up once the longer window ends", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  worker.routing.reattach = {
+    windowMs: 100,
+    aliveWindowMs: 400,
+    initialDelayMs: 20,
+    maxDelayMs: 50,
+  };
+  const agent = await runningAgent(worker, workdir);
+  worker.setUnreachable(true);
+
+  await expect.poll(() => worker.continued, { timeout: 5_000 }).toEqual([agent.id]);
+});
+
 test("a host that dies during a restart drain queues the continuation without reopening the agent", async () => {
   const home = scratch("hosted-restart-");
   const paths = sessionHostPaths(home);

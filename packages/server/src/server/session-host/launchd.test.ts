@@ -14,10 +14,11 @@ import {
   LaunchdLabelError,
   printJob,
   renderSessionHostPlist,
+  SESSION_HOST_EXIT_TIMEOUT_SECONDS,
   type CommandRunner,
   type SessionHostPlistInput,
 } from "./launchd.js";
-import { SESSION_HOST_TEST_CLIENT_MODULE_ENV } from "./service.js";
+import { DEFAULT_SHUTDOWN_DEADLINE_MS, SESSION_HOST_TEST_CLIENT_MODULE_ENV } from "./service.js";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const uid = process.getuid!();
@@ -136,7 +137,10 @@ test.skipIf(process.platform !== "darwin")(
       RunAtLoad: true,
       KeepAlive: true,
       ThrottleInterval: 5,
+      ExitTimeOut: SESSION_HOST_EXIT_TIMEOUT_SECONDS,
     });
+    // launchd's SIGKILL must never land before the host's own bounded shutdown completes.
+    expect(SESSION_HOST_EXIT_TIMEOUT_SECONDS * 1_000).toBeGreaterThan(DEFAULT_SHUTDOWN_DEADLINE_MS);
     // Each would harm the providers the host runs: Background throttles every tool run, and a
     // Umask would make every file they create private.
     expect(parsed).not.toHaveProperty("ProcessType");

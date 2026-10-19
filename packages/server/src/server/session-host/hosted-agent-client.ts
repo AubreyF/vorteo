@@ -143,6 +143,7 @@ export function createHostedAgentClient(input: {
       channel: params.channel,
       reattach: reattacher(params.agentId),
       reattachPolicy: routing.reattach,
+      hostAlive: () => routing.connector.hostAlive(),
       usage: {
         model: params.model,
         env: createProviderEnv({
@@ -199,8 +200,10 @@ export function createHostedAgentClient(input: {
 
   /**
    * Connects before a decision that would otherwise start the provider in the worker. A host that
-   * is alive but slow gets the reattach window to answer, since its watchdog replaces a host that
-   * cannot; a host that is gone answers null at once.
+   * is alive but slow gets the reattach window to answer; a host that is gone answers null at once.
+   * Unlike a running session, a load does not wait out the longer alive window: the caller sees an
+   * error after the reattach window and can try again, and a continuation retried in the meantime
+   * repeats the wait until the watchdog has replaced the host.
    */
   async function connectWhileHostLives(agentId: string): Promise<SessionHostClient | null> {
     const policy = routing.reattach ?? DEFAULT_REATTACH_POLICY;
