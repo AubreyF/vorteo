@@ -68,13 +68,41 @@ export interface HostedReattachment {
   lossy: boolean;
 }
 
+/** The host could not be reached or did not finish the attach yet; trying again may succeed. */
+export class HostedReattachPendingError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "HostedReattachPendingError";
+  }
+}
+
+/**
+ * How long a dropped session keeps trying to reattach before it is treated as lost. A slow or
+ * briefly saturated host must not fail a turn its provider is still running.
+ */
+export interface HostedReattachPolicy {
+  windowMs: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
+  windowMs: 60_000,
+  initialDelayMs: 250,
+  maxDelayMs: 5_000,
+};
+
 export interface HostedAgentSessionOptions {
   /** The provider the host runs, before any registry relabeling. */
   provider: string;
   capabilities: AgentCapabilityFlags;
   channel: HostedSession;
-  /** Attaches again from afterSeq. Null when the host or the session is gone. */
+  /**
+   * Attaches again from afterSeq. Null when the host no longer runs the session; a
+   * HostedReattachPendingError when it might still answer.
+   */
   reattach(afterSeq: number): Promise<HostedReattachment | null>;
+  reattachPolicy?: HostedReattachPolicy;
   /**
    * Usage plugins read the provider environment synchronously. The worker builds it from the
    * same settings it sent to the host, so credentials never travel back from the host.
@@ -118,6 +146,12 @@ export class HostedAgentSession implements AgentSession {
   private readonly usageSessionKey = randomUUID();
   private pendingAck: number | null = null;
   private ackTimer: NodeJS.Timeout | null = null;
+  /** One lossy notice per attachment, however many events it lost. */
+  private lossyNoticeShown = false;
+  /** Set when the held buffer overflowed, so its flush starts with a lossy notice. */
+  private heldOverflowed = false;
+  /** Wakes a reattach backoff early, for close(). */
+  private wakeRecovery: (() => void) | null = null;
 
   constructor(private readonly options: HostedAgentSessionOptions) {
     this.provider = options.provider;
@@ -164,6 +198,7 @@ export class HostedAgentSession implements AgentSession {
     this.subscribers.add(callback);
     const held = this.held;
     this.held = null;
+    if (this.heldOverflowed) this.deliverLossyNotice();
     for (const event of held ?? []) this.deliver(event);
     return () => {
       this.subscribers.delete(callback);
@@ -276,13 +311,14 @@ export class HostedAgentSession implements AgentSession {
 
   async close(): Promise<void> {
     if (this.status === "closed") return;
-    const wasAttached = this.status === "attached" || this.status === "reattaching";
-    if (this.recovery) await this.recovery;
+    const attached = this.status === "attached";
     try {
-      if (wasAttached && this.status === "attached") await this.invoke({ method: "close" });
+      // While reattaching, the recovery closes the host session if it gets an attachment back.
+      if (attached) await this.invoke({ method: "close" });
     } finally {
-      this.status = "closed";
       this.flushAck();
+      this.status = "closed";
+      this.wakeRecovery?.();
       this.unsubscribeChannel();
       this.subscribers.clear();
     }
@@ -323,6 +359,7 @@ export class HostedAgentSession implements AgentSession {
   private bind(channel: HostedSession): void {
     this.unsubscribeChannel();
     this.channel = channel;
+    this.lossyNoticeShown = false;
     this.unsubscribeChannel = channel.subscribe((value, seq) => this.accept(value, seq));
     channel.onDetached((reason) => this.handleDetached(channel, reason));
   }
@@ -353,7 +390,10 @@ export class HostedAgentSession implements AgentSession {
   private deliver(event: AgentStreamEvent): void {
     if (this.held) {
       this.held.push(event);
-      if (this.held.length > MAX_HELD_EVENTS) this.held.shift();
+      if (this.held.length > MAX_HELD_EVENTS) {
+        this.held.shift();
+        this.heldOverflowed = true;
+      }
       return;
     }
     for (const subscriber of this.subscribers) {
@@ -366,6 +406,8 @@ export class HostedAgentSession implements AgentSession {
   }
 
   private deliverLossyNotice(): void {
+    if (this.lossyNoticeShown) return;
+    this.lossyNoticeShown = true;
     this.deliver({
       type: "timeline",
       provider: this.provider,
@@ -396,6 +438,13 @@ export class HostedAgentSession implements AgentSession {
     if (channel !== this.channel || this.status === "closed") return;
     if (reason === "fenced") {
       this.status = "fenced";
+      // A newer worker drives the provider now. Settle this worker's view of the turn without
+      // touching the provider, so nothing here waits on a turn it can no longer see.
+      this.releaseTurn({
+        type: "turn_canceled",
+        provider: this.provider,
+        reason: "Another worker took over this session.",
+      });
       return;
     }
     this.status = "reattaching";
@@ -405,39 +454,77 @@ export class HostedAgentSession implements AgentSession {
   }
 
   private async recover(afterSeq: number): Promise<void> {
-    let next: HostedReattachment | null = null;
-    try {
-      next = await this.options.reattach(afterSeq);
-    } catch (error) {
-      this.options.logger.warn({ err: error }, "Reattaching a hosted session failed");
-    }
-    if (this.status === "closed") {
-      next?.channel.call({ method: "close" }).catch(() => {});
+    const policy = this.options.reattachPolicy ?? DEFAULT_REATTACH_POLICY;
+    const deadline = Date.now() + policy.windowMs;
+    let delay = policy.initialDelayMs;
+    for (;;) {
+      let next: HostedReattachment | null;
+      try {
+        next = await this.options.reattach(afterSeq);
+      } catch (error) {
+        if (this.isClosed()) return;
+        if (Date.now() + delay > deadline) {
+          this.options.logger.warn({ err: error }, "The session host did not answer in time");
+          this.markLost();
+          return;
+        }
+        await this.backoff(delay);
+        if (this.isClosed()) return;
+        delay = Math.min(delay * 2, policy.maxDelayMs);
+        continue;
+      }
+      if (this.isClosed()) {
+        next?.channel.call({ method: "close" }).catch(() => {});
+        return;
+      }
+      if (!next) {
+        this.markLost();
+        return;
+      }
+      this.snapshot = HostedSessionSnapshotSchema.parse(next.channel.attach.snapshot);
+      this.snapshotSeq = next.channel.attach.lastSeq;
+      this.status = "attached";
+      this.bind(next.channel);
+      if (next.lossy) this.deliverLossyNotice();
       return;
     }
-    if (!next) {
-      this.markLost();
-      return;
-    }
-    this.snapshot = HostedSessionSnapshotSchema.parse(next.channel.attach.snapshot);
-    this.snapshotSeq = next.channel.attach.lastSeq;
-    this.status = "attached";
-    if (next.lossy) this.deliverLossyNotice();
-    this.bind(next.channel);
+  }
+
+  /** Read through a method: close() can change the status while recovery awaits. */
+  private isClosed(): boolean {
+    return this.status === "closed";
+  }
+
+  private backoff(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(done, ms);
+      function done(): void {
+        clearTimeout(timer);
+        resolve();
+      }
+      this.wakeRecovery = done;
+    }).finally(() => {
+      this.wakeRecovery = null;
+    });
+  }
+
+  /** Ends this worker's view of the running turn and clears what it can no longer answer. */
+  private releaseTurn(
+    event: Extract<AgentStreamEvent, { type: "turn_failed" | "turn_canceled" }>,
+  ): void {
+    const turnId = this.snapshot.activeTurnId;
+    this.snapshot = { ...this.snapshot, pendingPermissions: [], activeTurnId: null };
+    if (turnId) this.deliver({ ...event, turnId });
   }
 
   /** The provider process died with its host. The turn cannot continue in this session. */
   private markLost(): void {
     this.status = "lost";
-    const turnId = this.snapshot.activeTurnId;
-    this.snapshot = { ...this.snapshot, pendingPermissions: [], activeTurnId: null };
-    if (turnId)
-      this.deliver({
-        type: "turn_failed",
-        provider: this.provider,
-        error: "The session host stopped, so this turn could not continue.",
-        code: "session_host_lost",
-        turnId,
-      });
+    this.releaseTurn({
+      type: "turn_failed",
+      provider: this.provider,
+      error: "The session host stopped, so this turn could not continue.",
+      code: "session_host_lost",
+    });
   }
 }

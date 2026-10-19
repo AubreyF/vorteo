@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): hosted sessions now keep reattaching for up to a minute after a dropped connection instead of failing the turn, a session fenced by a newer worker settles its own turn view, and undeliverable events produce one notice per attachment. Thirty-eight focused tests pass; the setting stays off and README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-19): Claude agent sessions can run in the durable session host behind a setting file that is off by default. The worker drives them through a proxy that mirrors synchronous state, preserves event order and reattaches after a dropped connection. Thirty-five focused tests pass. Startup reattach, the launchd service and restart integration are still missing, so the setting is not useful yet; README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-19): hardened the durable session host for phase 1. Frames are size-capped and validated in both directions, slow, silent or misbehaving peers are dropped, acknowledgements are fenced to the current worker, retention is bounded per session and per host, and the host directory, socket, token and lock are private, with a fresh token per host start and an audit log without secrets. Twenty-four focused tests pass. Nothing is wired into the daemon, supervisor or launchd yet; README overview and onboarding are unchanged.

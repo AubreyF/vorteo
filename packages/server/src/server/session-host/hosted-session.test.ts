@@ -23,7 +23,8 @@ import { createSessionHostConnector, type SessionHostConnector } from "./connect
 import { createHostedAgentClient, HostedSessionConflictError } from "./hosted-agent-client.js";
 import { HostedAgentSession, HostedSessionUnavailableError } from "./hosted-agent-session.js";
 import { rotateSessionHostToken, sessionHostPaths } from "./host-files.js";
-import { startSessionHost, type SessionHost } from "./host.js";
+import { startSessionHost, type SessionHost, type SessionHostLimits } from "./host.js";
+import { connectSessionHost } from "./client.js";
 import { createProviderSessionFactory } from "./provider-sessions.js";
 import { durableSessionsSettingsPath, readDurableSessionsSettings } from "./settings.js";
 
@@ -211,9 +212,15 @@ interface HostedFixture {
   local: ControlledSession[];
   launchSeen: (AgentLaunchContext | undefined)[];
   setEnabled(enabled: boolean): void;
+  /** The next n connection attempts return null, as when the host is slow to answer. */
+  failConnects(count: number): void;
+  socketPath: string;
+  token: string;
 }
 
-async function hostedFixture(input: { history?: AgentStreamEvent[] } = {}): Promise<HostedFixture> {
+async function hostedFixture(
+  input: { history?: AgentStreamEvent[]; limits?: Partial<SessionHostLimits> } = {},
+): Promise<HostedFixture> {
   const home = mkdtempSync(join(tmpdir(), "hosted-"));
   cleanups.push(() => rmSync(home, { recursive: true, force: true }));
   const paths = sessionHostPaths(home);
@@ -223,6 +230,7 @@ async function hostedFixture(input: { history?: AgentStreamEvent[] } = {}): Prom
   const host = await startSessionHost({
     socketPath: paths.socketPath,
     token,
+    limits: input.limits,
     openSession: createProviderSessionFactory({
       logger,
       createClient: () => ({
@@ -252,17 +260,39 @@ async function hostedFixture(input: { history?: AgentStreamEvent[] } = {}): Prom
     }),
   });
   cleanups.push(() => host.close());
-  const connector = createSessionHostConnector({ paths, logger, retryAfterMs: 0 });
-  cleanups.push(() => connector.close());
+  const real = createSessionHostConnector({ paths, logger, retryAfterMs: 0 });
+  cleanups.push(() => real.close());
+  let failing = 0;
+  const connector: SessionHostConnector = {
+    async connect(options) {
+      if (failing > 0) {
+        failing -= 1;
+        return null;
+      }
+      return real.connect(options);
+    },
+    current: () => real.current(),
+    close: () => real.close(),
+  };
   const { client: inner, local } = localClient();
   let enabled = true;
   const client = createHostedAgentClient({
     inner,
     runtimeSettings: { env: { CLAUDE_CONFIG_DIR: "/accounts/one" } },
-    routing: { connector, isEnabled: () => enabled, logger },
+    routing: {
+      connector,
+      isEnabled: () => enabled,
+      logger,
+      reattach: { windowMs: 1_500, initialDelayMs: 20, maxDelayMs: 200 },
+    },
   });
   return {
     home,
+    socketPath: paths.socketPath,
+    token,
+    failConnects(count) {
+      failing = count;
+    },
     host,
     hosted,
     connector,
@@ -389,13 +419,15 @@ test("losing the host fails the running turn once and refuses later calls", asyn
   await session.startTurn("long task");
   await expect.poll(() => events.length).toBe(2);
   await fixture.host.close();
+  // The worker keeps trying for its reattach window before it gives the turn up.
   await expect
-    .poll(() => events.at(-1))
+    .poll(() => events.at(-1), { timeout: 5_000 })
     .toMatchObject({
       type: "turn_failed",
       code: "session_host_lost",
       turnId: "turn-1",
     });
+  expect(events.filter((event) => event.type === "turn_failed")).toHaveLength(1);
   await expect(session.startTurn("again")).rejects.toBeInstanceOf(HostedSessionUnavailableError);
   await session.interrupt();
   await session.close();
@@ -452,4 +484,65 @@ test("the durable sessions setting is off unless its file enables it", () => {
   expect(readDurableSessionsSettings(home)).toMatchObject({ enabled: false });
   writeFileSync(durableSessionsSettingsPath(home), "{not json");
   expect(readDurableSessionsSettings(home)).toMatchObject({ enabled: false });
+});
+
+test("a reconnect that fails at first keeps trying and the turn still completes", async () => {
+  const fixture = await hostedFixture();
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  const provider = fixture.hosted[0]!;
+  const events = collect(session);
+  await session.startTurn("long task");
+  provider.text("before");
+  await expect.poll(() => events.length).toBe(3);
+
+  // The host is slow to answer twice, as under heavy load, then accepts the reattach.
+  fixture.failConnects(2);
+  fixture.connector.current()?.close();
+  provider.text("during the outage");
+  provider.complete();
+  await expect.poll(() => events.at(-1)?.type).toBe("turn_completed");
+  expect(events.map((event) => event.type)).not.toContain("turn_failed");
+  expect(
+    events.flatMap((event) =>
+      event.type === "timeline" && event.item.type === "assistant_message" ? [event.item.text] : [],
+    ),
+  ).toEqual(["before", "during the outage"]);
+});
+
+test("a fenced session settles its turn without touching the provider", async () => {
+  const fixture = await hostedFixture();
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  const provider = fixture.hosted[0]!;
+  const events = collect(session);
+  await session.startTurn("long task");
+  await expect.poll(() => events.length).toBe(2);
+
+  const newer = await connectSessionHost({ socketPath: fixture.socketPath, token: fixture.token });
+  cleanups.push(() => newer.close());
+  await newer.attach({ sessionId: "agent-1", afterSeq: null });
+  await expect
+    .poll(() => events.at(-1))
+    .toMatchObject({
+      type: "turn_canceled",
+      reason: "Another worker took over this session.",
+      turnId: "turn-1",
+    });
+  await expect(session.startTurn("again")).rejects.toBeInstanceOf(HostedSessionUnavailableError);
+  expect(provider.calls).toEqual(["startTurn:long task"]);
+});
+
+test("events the host could not deliver produce one notice per attachment", async () => {
+  const fixture = await hostedFixture({ limits: { maxFrameBytes: 16 * 1024 } });
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  const provider = fixture.hosted[0]!;
+  const events = collect(session);
+  await session.startTurn("long task");
+  provider.text("x".repeat(32 * 1024));
+  provider.text("y".repeat(32 * 1024));
+  provider.text("after");
+  await expect.poll(() => events.at(-1)).toMatchObject({ item: { text: "after" } });
+  const notices = events.filter(
+    (event) => event.type === "timeline" && event.item.type === "notification",
+  );
+  expect(notices).toHaveLength(1);
 });

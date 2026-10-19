@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- A hosted session whose connection drops keeps trying to reattach for up to a minute with backoff, skipping the connector's retry pause, instead of failing the turn after one attempt. Only a host that no longer runs the session ends the turn; a slow or saturated host does not.
+- A session fenced by a newer worker cancels its own view of the running turn, so nothing in the old worker waits on a turn it can no longer see. The provider is not touched.
+- Undeliverable or unreadable events and an overflowing pre-subscriber buffer produce one notice per attachment instead of one per event. An event type unknown to an older worker is skipped with that notice rather than failing the session.
+
+### Validation
+
+- Thirty-eight focused tests pass, adding a reconnect whose first attempts fail while the turn still completes, a fenced session settling its turn, and one notice for several undeliverable events.
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-19
 
 ### Added

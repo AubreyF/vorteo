@@ -8,8 +8,12 @@ import {
 import { readSessionHostToken, type SessionHostPaths } from "./host-files.js";
 
 export interface SessionHostConnector {
-  /** The live connection, connecting first when needed. Null when no usable host answers. */
-  connect(): Promise<SessionHostClient | null>;
+  /**
+   * The live connection, connecting first when needed. Null when no usable host answers. After a
+   * failure, plain callers get null without a new attempt for a while; force skips that wait, for
+   * sessions that are already hosted and must reattach.
+   */
+  connect(options?: { force?: boolean }): Promise<SessionHostClient | null>;
   /** The live connection, without connecting. */
   current(): SessionHostClient | null;
   close(): void;
@@ -81,12 +85,13 @@ export function createSessionHostConnector(
   }
 
   return {
-    async connect() {
+    async connect(connectOptions) {
       if (closed) return null;
       if (client?.closed) client = null;
       if (client) return client;
       if (attempt) return attempt;
-      if (lastFailureAt !== null && now() - lastFailureAt < retryAfterMs) return null;
+      if (!connectOptions?.force && lastFailureAt !== null && now() - lastFailureAt < retryAfterMs)
+        return null;
       attempt = open().finally(() => {
         attempt = null;
       });

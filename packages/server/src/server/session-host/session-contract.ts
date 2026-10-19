@@ -201,7 +201,9 @@ const TurnIdSchema = z.string().max(500).optional();
 
 /**
  * Structural checks for provider stream events. The original value is forwarded when it passes,
- * so fields this release does not know survive unchanged.
+ * so fields this release does not know survive unchanged. An event type this release does not
+ * know, as when a worker is rolled back behind its host, is skipped with one lossy notice per
+ * attachment instead of failing the session.
  */
 export const HostedStreamEventSchema = z.discriminatedUnion("type", [
   z.looseObject({ type: z.literal("goal_changed"), provider: ProviderSchema, state: JsonSchema }),

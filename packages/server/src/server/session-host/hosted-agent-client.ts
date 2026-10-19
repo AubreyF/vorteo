@@ -12,7 +12,12 @@ import { createProviderEnv } from "../agent/provider-launch-config.js";
 import type { ProviderRuntimeSettings } from "../agent/provider-launch-config.js";
 import { SessionHostClientError, type HostedSession, type SessionHostClient } from "./client.js";
 import type { SessionHostConnector } from "./connector.js";
-import { HostedAgentSession, type HostedReattachment } from "./hosted-agent-session.js";
+import {
+  HostedAgentSession,
+  HostedReattachPendingError,
+  type HostedReattachment,
+  type HostedReattachPolicy,
+} from "./hosted-agent-session.js";
 import type { HostedOpenRequest } from "./session-contract.js";
 
 /** What a provider client needs to route eligible sessions through the session host. */
@@ -21,6 +26,8 @@ export interface HostedSessionRouting {
   /** Read for every new session, so the setting can be turned off without a restart. */
   isEnabled(): boolean;
   logger: Logger;
+  /** How long and how often a hosted session keeps trying to reattach. Defaults suit production. */
+  reattach?: HostedReattachPolicy;
 }
 
 export class HostedSessionConflictError extends Error {
@@ -69,16 +76,21 @@ export function createHostedAgentClient(input: {
   const { inner, routing } = input;
   const logger = routing.logger.child({ module: "session-host", provider: inner.provider });
 
+  /**
+   * Null means the host no longer runs the session. Anything short of that, such as a host that is
+   * slow to answer or at its connection limit, throws HostedReattachPendingError so the session
+   * tries again instead of failing a turn the provider is still running.
+   */
   function reattacher(agentId: string) {
     return async (afterSeq: number): Promise<HostedReattachment | null> => {
-      const client = await routing.connector.connect();
-      if (!client) return null;
+      const client = await routing.connector.connect({ force: true });
+      if (!client) throw new HostedReattachPendingError("The session host is not answering yet.");
       try {
         return { channel: await client.attach({ sessionId: agentId, afterSeq }), lossy: false };
       } catch (error) {
-        if (!(error instanceof SessionHostClientError)) throw error;
-        if (error.code === "not_found") return null;
-        if (error.code !== "replay_unavailable") throw error;
+        if (error instanceof SessionHostClientError && error.code === "not_found") return null;
+        if (!(error instanceof SessionHostClientError) || error.code !== "replay_unavailable")
+          throw new HostedReattachPendingError("Reattaching did not finish.", { cause: error });
       }
       // Keep the turn running and mark what was missed rather than ending the session.
       return { channel: await client.attach({ sessionId: agentId, afterSeq: null }), lossy: true };
@@ -116,6 +128,7 @@ export function createHostedAgentClient(input: {
       capabilities: inner.capabilities,
       channel,
       reattach: reattacher(params.agentId),
+      reattachPolicy: routing.reattach,
       usage: {
         model: params.config.model,
         env: createProviderEnv({
