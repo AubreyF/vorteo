@@ -1,7 +1,7 @@
 import { reserveEnrolledBootstrapLaunch } from "./coordinator-bootstrap-maintenance-dispatch.js";
 import { verifyCoordinatorSubmission } from "./daemon-automation.js";
 import { createHash } from "node:crypto";
-import { lstatSync, constants, realpathSync, readdirSync } from "node:fs";
+import { lstatSync, constants, readFileSync, realpathSync, readdirSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { z } from "zod";
 import { spawn } from "node:child_process";
@@ -18,7 +18,8 @@ import {
   CoordinatorBootstrapDecisionSchema,
   type CoordinatorBootstrapRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
-import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { BootstrapRequestConflict, isCompletedBootstrap } from "./coordinator-bootstrap.js";
+import { BootstrapRenewalContextChanged } from "./coordinator-bootstrap-errors.js";
 import type {
   BootstrapReviewService,
   PreclaimRecoveryReviewService,
@@ -1274,8 +1275,17 @@ export async function createConfiguredBootstrapReview(
   }
   const { createManagedClaimedRecoveryReview } =
     await import("./coordinator-bootstrap-claimed-launch.js");
+  const createOrdinary = async () => {
+    const service = await createSafeManagedBootstrapReview(setup, daemonId);
+    return (
+      service &&
+      refreshBootstrapReviewOnRenewalChange(service, () =>
+        createSafeManagedBootstrapReview(setup, daemonId),
+      )
+    );
+  };
   const [ordinary, recovery, claimed] = await Promise.all([
-    createSafeManagedBootstrapReview(setup, daemonId),
+    createOrdinary(),
     createManagedPreclaimRecoveryReview(setup, daemonId).then(
       (service) => service,
       () => undefined,
@@ -1288,9 +1298,7 @@ export async function createConfiguredBootstrapReview(
   if (ordinary && recovery) ordinary.preclaimRecovery = recovery;
   if (ordinary && claimed) ordinary.claimedRecovery = claimed;
   return ordinary && claimed
-    ? refreshBootstrapReviewAfterClaimedRecovery(ordinary, claimed, () =>
-        createSafeManagedBootstrapReview(setup, daemonId),
-      )
+    ? refreshBootstrapReviewAfterClaimedRecovery(ordinary, claimed, createOrdinary)
     : ordinary;
 }
 
@@ -1304,6 +1312,7 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
 ): BootstrapReviewService {
   let current = initial;
   let pending = false;
+  let unfollow: (() => void) | undefined;
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) {
@@ -1314,6 +1323,12 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
       }
     }
   };
+  // Forward the current service's availability; a replaced one is released.
+  const follow = (service: BootstrapReviewService) => {
+    unfollow?.();
+    unfollow = service.subscribeAvailability?.(notify);
+  };
+  follow(initial);
   const ready = () => {
     if (pending || current.available === false || current.unavailableReason)
       throw new BootstrapRequestConflict(
@@ -1338,7 +1353,10 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
           .then(initialize)
           .then(
             (result) => {
-              if (result) current = result;
+              if (result) {
+                current = result;
+                follow(result);
+              }
               return undefined;
             },
             () => undefined,
@@ -1448,7 +1466,7 @@ export async function createManagedBootstrapReview(
           throw new BootstrapRequestConflict("Bootstrap launch setup changed");
         if (setup.renewal) {
           if (!isDeepStrictEqual(await reconstruct(), setup))
-            throw new BootstrapRequestConflict(
+            throw new BootstrapRenewalContextChanged(
               "Host renewal context changed; prepare a fresh review",
             );
           await verifyRetainedRenewal(setup);
@@ -1481,17 +1499,177 @@ export async function createManagedBootstrapReview(
           }
         : undefined,
     );
-    return createDispatchingBootstrapReview({
-      setup,
-      setupFile,
-      requests,
-      verifySetup,
-      automatic: {
-        configurationFile: setup.renewal?.configuration.path ?? admission.configurationFile,
-        uid,
+    const configurationFile = setup.renewal?.configuration.path ?? admission.configurationFile;
+    const derivedContext = renewalContextFingerprint(requests.list(), configurationFile);
+    return {
+      ...createDispatchingBootstrapReview({
+        setup,
+        setupFile,
+        requests,
+        verifySetup,
+        automatic: { configurationFile, uid },
+      }),
+      renewalContext: {
+        derived: derivedContext,
+        current: () => renewalContextFingerprint(requests.list(), configurationFile),
       },
-    });
+    };
   });
+}
+
+/** Changes when a coordinator request newly completes or the selected
+ * configuration's bytes change: the inputs a renewal derivation pins. New
+ * pending or in-flight requests leave it unchanged. */
+export function renewalContextFingerprint(
+  records: readonly Pick<CoordinatorBootstrapRequest, "id" | "status" | "execution">[],
+  configurationFile: string,
+): string {
+  const completed = records
+    .flatMap((record) =>
+      isCompletedBootstrap(record) && record.execution
+        ? [`${record.id}:${record.execution.generation}:${record.execution.stage}`]
+        : [],
+    )
+    .sort();
+  return createHash("sha256")
+    .update(JSON.stringify([completed, configurationDigest(configurationFile)]))
+    .digest("hex");
+}
+
+function configurationDigest(file: string): string | null {
+  try {
+    return createHash("sha256").update(readFileSync(file)).digest("hex");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** Coordinator operations change the history a renewal context is derived from.
+ * Before the next operation, derive it again through the unchanged
+ * initialization, with every custody and identity check, rather than refusing
+ * until the Host restarts. An operation already running keeps its own context
+ * and still refuses a change that happens while it runs. */
+export function refreshBootstrapReviewOnRenewalChange(
+  initial: BootstrapReviewService,
+  initialize: () => Promise<BootstrapReviewService | undefined>,
+): BootstrapReviewService {
+  let current = initial;
+  // The latest usable derivation still reads history after a failed attempt.
+  let probe = initial.renewalContext;
+  let stale = false;
+  // Context fingerprint when the latest derivation failed, if it did.
+  let failedContext: string | undefined;
+  let refreshing: Promise<void> | undefined;
+  let unfollow: (() => void) | undefined;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        /* One client cannot suppress other notifications. */
+      }
+    }
+  };
+  const follow = (service: BootstrapReviewService) => {
+    unfollow?.();
+    unfollow = service.subscribeAvailability?.(notify);
+  };
+  follow(initial);
+  const unusable = (service: BootstrapReviewService) =>
+    service.available === false || service.unavailableReason !== undefined;
+  // Status reads retry a failed derivation only after the context moves again,
+  // so polling cannot chain full derivations; explicit operations always retry.
+  const needsRefresh = (operation: boolean) => {
+    if (failedContext !== undefined)
+      return operation || (probe !== undefined && probe.current() !== failedContext);
+    if (stale) return true;
+    return current.renewalContext !== undefined
+      ? current.renewalContext.current() !== current.renewalContext.derived
+      : false;
+  };
+  // Single flight: concurrent operations wait for one derivation, then use it.
+  const refresh = () => {
+    refreshing ??= (async () => {
+      notify();
+      const attempted = probe?.current();
+      try {
+        const next = await initialize();
+        if (next) {
+          // An unavailable result stays current so its reason remains visible.
+          current = next;
+          follow(next);
+        }
+        const failed = next === undefined || unusable(next);
+        stale = failed;
+        failedContext = failed ? (attempted ?? "") : undefined;
+        if (!failed && next.renewalContext) probe = next.renewalContext;
+      } finally {
+        refreshing = undefined;
+        notify();
+      }
+    })();
+    return refreshing;
+  };
+  const fresh = async () => {
+    if (refreshing) await refreshing;
+    if (needsRefresh(true)) await refresh();
+    return current;
+  };
+  async function operate<T>(action: (service: BootstrapReviewService) => Promise<T>): Promise<T> {
+    const service = await fresh();
+    try {
+      return await action(service);
+    } catch (error) {
+      // The refusal stands; the next operation derives the context again.
+      if (error instanceof BootstrapRenewalContextChanged && service === current) stale = true;
+      throw error;
+    }
+  }
+  const automatic = (service: BootstrapReviewService) => {
+    if (!service.automatic)
+      throw new BootstrapRequestConflict("Automatic coordinator maintenance is unavailable");
+    return service.automatic;
+  };
+  return {
+    get available() {
+      return refreshing ? false : current.available;
+    },
+    get unavailableReason() {
+      return refreshing
+        ? "Refreshing coordinator maintenance after a completed coordinator operation."
+        : current.unavailableReason;
+    },
+    get automatic(): BootstrapReviewService["automatic"] {
+      const enabled = refreshing ? undefined : current.automatic;
+      if (!enabled) return undefined;
+      return {
+        prepare: enabled.prepare
+          ? (input, proof) =>
+              operate((service) => {
+                const prepare = automatic(service).prepare;
+                if (!prepare)
+                  throw new BootstrapRequestConflict(
+                    "Authenticated coordinator submission required",
+                  );
+                return prepare(input, proof);
+              })
+          : undefined,
+        reconcile: (id) => operate((service) => automatic(service).reconcile(id)),
+      };
+    },
+    subscribeAvailability(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    list: () => {
+      if (!refreshing && needsRefresh(false)) void refresh();
+      return current.list();
+    },
+    prepare: (input) => operate((service) => service.prepare(input)),
+    decide: (input, password) => operate((service) => service.decide(input, password)),
+  };
 }
 
 /** Shared exact-plan launch path. Independent maintenance omits automatic

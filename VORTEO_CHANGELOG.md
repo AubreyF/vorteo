@@ -4,6 +4,35 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.694 - 2026-10-18
+
+Adds the Host renewal context refresh to the vorteo.693 integration. Its branch numbered its entries vorteo.692 and vorteo.693 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Renewal context refresh (renewal branch vorteo.692)
+
+#### Fixes
+
+- Re-derive the Host's coordinator renewal context after a coordinator request completes, or when the selected configuration changes, instead of refusing later requests until the Host restarts. Derivation reuses the unchanged initialization with every custody and identity check. Concurrent operations wait for one derivation. An operation already running still refuses a context change that happens while it runs.
+
+#### Validation
+
+- Tests cover preparing and approving request B after request A completes without a Host restart, a refused mid-operation change followed by re-derivation, single-flight concurrency, an unavailable derivation retried by the next operation, status-read refresh, and which history changes trigger re-derivation.
+
+### Renewal refresh fixes (renewal branch vorteo.693)
+
+#### Fixes
+
+- After a failed renewal re-derivation, status reads retry only once coordinator history or the selected configuration changes again. Polling no longer chains full derivations right after a coordinator replacement, explicit operations still retry, and the failure reason stays visible.
+- Forward availability from the current ordinary review through claimed-recovery refresh, and release a replaced service's subscription.
+
+#### Validation
+
+- Tests cover repeated status reads after a failed derivation, retry after a later context change, and claimed-recovery subscription forwarding and release.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 723 renewal, Host, artifact, scan, launch and runner cases, 165 claimed review and owner session cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
 ## 0.11.0-beta.3.vorteo.693 - 2026-10-18
 
 Adds release verification speedup A to the vorteo.692 integration. Its branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.

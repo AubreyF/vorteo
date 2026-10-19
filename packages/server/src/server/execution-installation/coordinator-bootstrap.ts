@@ -158,7 +158,9 @@ const transitions: Record<CoordinatorBootstrapStage, readonly CoordinatorBootstr
   rolled_back: [],
 };
 
-export function isCompletedBootstrap(request: CoordinatorBootstrapRequest): boolean {
+export function isCompletedBootstrap(
+  request: Pick<CoordinatorBootstrapRequest, "status" | "execution">,
+): boolean {
   return (
     request.status === "approved" &&
     request.execution !== undefined &&
