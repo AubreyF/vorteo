@@ -23,11 +23,16 @@ function alive(pid) {
     return error && error.code === "EPERM";
   }
 }
+// The deadline set by supervisor loss, so the record names what actually expired.
+let lossDeadline = 0n;
 function shorten(next) {
   for (;;) {
     const current = Atomics.load(deadline, 0);
     if (current !== 0n && next >= current) return;
-    if (Atomics.compareExchange(deadline, 0, current, next) === current) return;
+    if (Atomics.compareExchange(deadline, 0, current, next) === current) {
+      lossDeadline = next;
+      return;
+    }
   }
 }
 function record(reason, now) {
@@ -50,10 +55,12 @@ setInterval(() => {
   const now = Date.now();
   const supervisorLost =
     process.ppid !== workerData.supervisorPid || !alive(workerData.supervisorPid);
-  if (supervisorLost) shorten(BigInt(now + workerData.supervisorLossGraceMs));
+  if (supervisorLost && lossDeadline === 0n) {
+    shorten(BigInt(now + workerData.supervisorLossGraceMs));
+  }
   const armed = Atomics.load(deadline, 0);
   if (armed !== 0n && BigInt(now) >= armed) {
-    record(supervisorLost ? "supervisor_lost" : "shutdown_deadline_expired", now);
+    record(armed === lossDeadline ? "supervisor_lost" : "shutdown_deadline_expired", now);
     process.kill(process.pid, "SIGKILL");
   }
 }, workerData.pollMs);

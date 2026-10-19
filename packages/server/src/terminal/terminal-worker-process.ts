@@ -344,7 +344,14 @@ process.on("message", (message: TerminalWorkerRequest) => {
   });
 });
 
-process.once("disconnect", () => {
+// The parent disconnects only to shut this worker down, and a parent that was
+// SIGKILLed (for example by its watchdog) cannot kill it, so exit on our own.
+function exitAfterParentLoss(): void {
   ipcClosing = true;
   manager.killAll();
-});
+  setTimeout(() => process.exit(0), 1000);
+}
+
+process.once("disconnect", exitAfterParentLoss);
+// A parent that died while this module was still loading never emits "disconnect".
+if (!process.connected) exitAfterParentLoss();

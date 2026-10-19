@@ -13,13 +13,13 @@ import { getProcessDiagnostics } from "./process-diagnostics.js";
 import { loadGovernedScheduleRuntimeFactory } from "./schedule/governed-runtime.js";
 import { createWorkerShutdown } from "./worker-shutdown.js";
 import { startWorkerWatchdog, type WorkerWatchdog } from "./worker-watchdog.js";
+import { createMaintenanceRestartChannel } from "./maintenance-restart-channel.js";
 
 /** Graceful shutdown budget, then this much more before the watchdog kills the worker. */
 const DEFAULT_SHUTDOWN_BUDGET_MS = 10_000;
 const HARD_EXIT_MARGIN_MS = 5_000;
 /** A worker whose supervisor is gone is killed within this, even with a blocked event loop. */
 const SUPERVISOR_LOSS_GRACE_MS = 15_000;
-import { createMaintenanceRestartChannel } from "./maintenance-restart-channel.js";
 
 // Managed updates and Host renewal verify the entrypoint through OS arguments.
 // Changing the title overwrites that evidence on macOS.

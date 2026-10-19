@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Fixes
+
+- The worker watchdog now records which deadline expired, so a worker killed at its shutdown deadline after losing its supervisor is no longer reported as a supervisor loss.
+- A terminal worker exits on its own after its daemon worker disconnects or dies, including a daemon worker that died before the terminal worker finished loading. A watchdog-killed daemon worker no longer leaves its terminal worker running.
+
+### Validation
+
+- A real supervisor and worker pair reproduces the incident: a running mock turn under a continuation capture freezes the worker's event loop in "close agents", the supervisor gets SIGTERM and then SIGKILL 4 seconds later. The tests assert that the watchdog kills the old worker at its 15-second shutdown deadline and names the step, and that a replacement binds the port both after that and when started immediately. The mock provider gains a development-only `mockBlockingCloseMs` option for this.
+
 ## 0.11.0-beta.3.vorteo.698 - 2026-10-19
 
 ### Fixes
