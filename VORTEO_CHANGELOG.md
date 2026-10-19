@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.700 - 2026-10-19
+
+### Fixes
+
+- Pin a listen address holder's identity to its process start time when it is discovered, and re-read its pid, uid, start time and arguments immediately before SIGTERM and again before SIGKILL. Any change, including a reused pid, stops termination and is logged as "Listen address holder changed before it was signalled; leaving it alone".
+
+### Validation
+
+- Tests cover a pid reused before SIGTERM, a pid reused between SIGTERM and SIGKILL, and an unchanged frozen predecessor.
+
 ## 0.11.0-beta.3.vorteo.699 - 2026-10-19
 
 ### Fixes

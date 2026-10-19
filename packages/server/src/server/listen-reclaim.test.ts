@@ -9,6 +9,7 @@ import {
   isPreviousWorker,
   reclaimListenAddress,
   systemListenReclaimPorts,
+  terminateVerified,
   type ListenerProcess,
   type ListenReclaimPorts,
 } from "./listen-reclaim.js";
@@ -30,6 +31,7 @@ const previous: ListenerProcess = {
   uid: 501,
   command:
     "/usr/bin/node /Users/me/.local/share/vorteo-host/releases/reviewed-updates/a/packages/server/dist/scripts/daemon-worker.js",
+  startedAt: "Mon Oct 19 05:02:11 2026",
 };
 
 function fakePorts(input: { busyProbes: number; holders: ListenerProcess[] }) {
@@ -39,8 +41,9 @@ function fakePorts(input: { busyProbes: number; holders: ListenerProcess[] }) {
   const ports: ListenReclaimPorts = {
     probe: async () => (probes++ < input.busyProbes ? "in-use" : "free"),
     listeners: async () => input.holders,
-    terminate: async (pid) => {
-      terminated.push(pid);
+    terminate: async (holder) => {
+      terminated.push(holder.pid);
+      return "exited";
     },
     sleep: async (ms) => {
       slept.push(ms);
@@ -80,7 +83,12 @@ test("a previous worker holding the address is terminated, then the address is u
 });
 
 test("another owner is never terminated; retries back off exponentially", async () => {
-  const stranger = { pid: 5000, uid: 501, command: "/usr/bin/python3 -m http.server 6771" };
+  const stranger = {
+    pid: 5000,
+    uid: 501,
+    command: "/usr/bin/python3 -m http.server 6771",
+    startedAt: "Mon Oct 19 05:00:00 2026",
+  };
   const fake = fakePorts({ busyProbes: 4, holders: [stranger] });
   await reclaimListenAddress({ host: "127.0.0.1", port: 1, self, logger, ports: fake.ports });
   expect(fake.terminated).toEqual([]);
@@ -92,6 +100,44 @@ test("reclaim is bounded when a previous worker cannot be removed", async () => 
   await reclaimListenAddress({ host: "127.0.0.1", port: 1, self, logger, ports: fake.ports });
   expect(fake.terminated).toEqual([previous.pid, previous.pid, previous.pid]);
   expect(fake.slept).toEqual([1000, 2000]);
+});
+
+function verifiedIo(described: (ListenerProcess | null)[]) {
+  const signals: NodeJS.Signals[] = [];
+  return {
+    signals,
+    io: {
+      describe: async () => described.shift() ?? null,
+      kill: (_pid: number, signal: NodeJS.Signals) => {
+        signals.push(signal);
+      },
+      waitForExit: async () => false,
+    },
+  };
+}
+
+test("a reused pid is never signalled", async () => {
+  const reused = { ...previous, startedAt: "Mon Oct 19 05:21:19 2026" };
+  const fake = verifiedIo([reused]);
+  expect(await terminateVerified(previous, fake.io)).toBe("identity_changed");
+  expect(fake.signals).toEqual([]);
+});
+
+test("a pid reused between SIGTERM and SIGKILL is not killed", async () => {
+  const reused = {
+    ...previous,
+    command: "/usr/bin/vim notes.txt",
+    startedAt: "Mon Oct 19 05:21:19 2026",
+  };
+  const fake = verifiedIo([previous, reused]);
+  expect(await terminateVerified(previous, fake.io)).toBe("identity_changed");
+  expect(fake.signals).toEqual(["SIGTERM"]);
+});
+
+test("an unchanged frozen predecessor gets SIGTERM and then SIGKILL", async () => {
+  const fake = verifiedIo([previous, previous]);
+  expect(await terminateVerified(previous, fake.io)).toBe("still_running");
+  expect(fake.signals).toEqual(["SIGTERM", "SIGKILL"]);
 });
 
 test("a real frozen predecessor that ignores SIGTERM is killed and its port freed", async () => {

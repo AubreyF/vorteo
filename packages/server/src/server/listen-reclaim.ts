@@ -13,13 +13,18 @@ export interface ListenerProcess {
   pid: number;
   uid: number;
   command: string;
+  /** Process start time from ps lstart; with the pid it pins identity against PID reuse. */
+  startedAt: string;
 }
+
+export type TerminateResult = "exited" | "identity_changed" | "still_running";
 
 export interface ListenReclaimPorts {
   probe(host: string, port: number): Promise<"free" | "in-use">;
   listeners(port: number): Promise<ListenerProcess[]>;
-  /** SIGTERM, then SIGKILL if it is still alive after the grace period. */
-  terminate(pid: number): Promise<void>;
+  /** SIGTERM, then SIGKILL if it is still alive after the grace period. Each signal is
+   * sent only after the process is re-verified as the one discovered. */
+  terminate(holder: ListenerProcess): Promise<TerminateResult>;
   sleep(ms: number): Promise<void>;
 }
 
@@ -77,7 +82,11 @@ export async function reclaimListenAddress(input: {
           { port, stalePid: holder.pid, command: holder.command },
           "Listen address is held by a previous daemon worker of this installation; terminating it",
         );
-        await ports.terminate(holder.pid);
+        if ((await ports.terminate(holder)) === "identity_changed")
+          logger.warn(
+            { port, stalePid: holder.pid },
+            "Listen address holder changed before it was signalled; leaving it alone",
+          );
       }
       continue;
     }
@@ -103,6 +112,68 @@ function alive(pid: number): boolean {
     return true;
   } catch (error) {
     return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
+function sameProcess(a: ListenerProcess, b: ListenerProcess): boolean {
+  return (
+    a.pid === b.pid && a.uid === b.uid && a.startedAt === b.startedAt && a.command === b.command
+  );
+}
+
+export interface TerminateIo {
+  describe(pid: number): Promise<ListenerProcess | null>;
+  kill(pid: number, signal: NodeJS.Signals): void;
+  waitForExit(pid: number, ms: number): Promise<boolean>;
+}
+
+/**
+ * Signals only the exact process discovered: pid, uid, start time and argv are
+ * re-read immediately before SIGTERM and again before SIGKILL, and any change
+ * (including a reused pid) stops termination.
+ */
+export async function terminateVerified(
+  expected: ListenerProcess,
+  io: TerminateIo,
+): Promise<TerminateResult> {
+  const steps = [
+    ["SIGTERM", 5000],
+    // A frozen worker never runs its JavaScript SIGTERM handler.
+    ["SIGKILL", 3000],
+  ] as const;
+  for (const [signal, graceMs] of steps) {
+    const current = await io.describe(expected.pid);
+    if (!current) return "exited";
+    if (!sameProcess(current, expected)) return "identity_changed";
+    try {
+      io.kill(expected.pid, signal);
+    } catch {
+      return alive(expected.pid) ? "still_running" : "exited";
+    }
+    if (await io.waitForExit(expected.pid, graceMs)) return "exited";
+  }
+  return "still_running";
+}
+
+async function describeProcess(pid: number): Promise<ListenerProcess | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "ps",
+      ["-o", "uid=,lstart=,command=", "-p", String(pid)],
+      {
+        timeout: 5000,
+        env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+      },
+    );
+    const match = /^\s*(\d+)\s+(\w{3} \w{3}\s+\d+ \d\d:\d\d:\d\d \d{4})\s+(.*)$/s.exec(
+      stdout.trim(),
+    );
+    return match
+      ? { pid, uid: Number(match[1]), startedAt: match[2]!, command: match[3]!.trim() }
+      : null;
+  } catch {
+    // ps exits non-zero when the process is gone.
+    return null;
   }
 }
 
@@ -140,32 +211,17 @@ export const systemListenReclaimPorts: ListenReclaimPorts = {
     }
     const described: ListenerProcess[] = [];
     for (const pid of new Set(pids)) {
-      try {
-        const { stdout } = await execFileAsync("ps", ["-o", "uid=,command=", "-p", String(pid)], {
-          timeout: 5000,
-        });
-        const match = /^\s*(\d+)\s+(.*)$/s.exec(stdout.trim());
-        if (match) described.push({ pid, uid: Number(match[1]), command: match[2]!.trim() });
-      } catch {
-        // The process exited between lsof and ps.
-      }
+      // A process that exited between lsof and ps is skipped.
+      const listener = await describeProcess(pid);
+      if (listener) described.push(listener);
     }
     return described;
   },
-  async terminate(pid) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      return;
-    }
-    if (await waitForExit(pid, 5000)) return;
-    // A frozen worker never runs its JavaScript SIGTERM handler.
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      return;
-    }
-    await waitForExit(pid, 3000);
-  },
+  terminate: (holder) =>
+    terminateVerified(holder, {
+      describe: describeProcess,
+      kill: (pid, signal) => process.kill(pid, signal),
+      waitForExit,
+    }),
   sleep: (ms) => delay(ms),
 };
