@@ -27,6 +27,10 @@ for (const [network, prefix] of [
   ["::", 128],
   ["::1", 128],
   ["64:ff9b:1::", 48],
+  // 6to4 and Teredo embed IPv4 addresses (Teredo obfuscates its client
+  // address). Both are deprecated, so refuse the whole prefixes.
+  ["2002::", 16],
+  ["2001::", 32],
   ["fc00::", 7], // unique local, including Tailscale
   ["fe80::", 10],
   ["ff00::", 8],
@@ -83,21 +87,40 @@ export function parseAllowedHost(value: string): AllowEntry {
   };
 }
 
+// Expands a valid IPv6 address into its eight 16-bit groups.
+function ipv6Groups(address: string): number[] {
+  let text = address;
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number) as [number, number, number, number];
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head = "", tail] = text.split("::");
+  const parse = (part: string) =>
+    part ? part.split(":").map((group) => Number.parseInt(group, 16)) : [];
+  const front = parse(head);
+  if (tail === undefined) return front;
+  const back = parse(tail);
+  return [...front, ...Array<number>(8 - front.length - back.length).fill(0), ...back];
+}
+
+function groupsToIpv4(high: number, low: number): string {
+  return [high >> 8, high & 255, low >> 8, low & 255].join(".");
+}
+
 export function isPrivateAddress(address: string): boolean {
   const normalized = normalizeHostname(address);
   const family = isIP(normalized);
   if (family === 4) return privateRanges.check(normalized, "ipv4");
   if (family !== 6) return false;
-  // IPv4-mapped and IPv4-compatible forms inherit the IPv4 decision.
-  const mapped = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(normalized)?.[1];
-  if (mapped) return privateRanges.check(mapped, "ipv4");
-  const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
-  if (hexMapped) {
-    const high = Number.parseInt(hexMapped[1] ?? "0", 16);
-    const low = Number.parseInt(hexMapped[2] ?? "0", 16);
-    const ipv4 = [high >> 8, high & 255, low >> 8, low & 255].join(".");
-    return privateRanges.check(ipv4, "ipv4");
-  }
+  const groups = ipv6Groups(normalized);
+  const [g0, g1, g2, g3, g4, g5, g6 = 0, g7 = 0] = groups;
+  // IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96) and NAT64
+  // (64:ff9b::/96) addresses inherit the decision for their embedded IPv4.
+  const embedsIpv4 =
+    (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && (g5 === 0 || g5 === 0xffff)) ||
+    (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0);
+  if (embedsIpv4) return privateRanges.check(groupsToIpv4(g6, g7), "ipv4");
   return privateRanges.check(normalized, "ipv6");
 }
 

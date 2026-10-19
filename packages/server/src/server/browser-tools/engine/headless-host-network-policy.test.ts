@@ -41,16 +41,31 @@ describe("isPrivateAddress", () => {
     "::ffff:7f00:1",
     "::127.0.0.1",
     "[::1]",
+    "64:ff9b::7f00:1",
+    "64:ff9b::127.0.0.1",
+    "64:ff9b::a00:1",
+    "64:ff9b::c0a8:101",
+    "64:ff9b::6440:1",
+    "2002:7f00:1::1",
+    "2002:808:808::1",
+    "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+    "2001::1",
   ])("refuses %s", (address) => {
     expect(isPrivateAddress(address)).toBe(true);
   });
 
-  test.each(["93.184.215.14", "8.8.8.8", "172.32.0.1", "100.128.0.1", "2606:4700::6810:84e5"])(
-    "permits public %s",
-    (address) => {
-      expect(isPrivateAddress(address)).toBe(false);
-    },
-  );
+  test.each([
+    "93.184.215.14",
+    "8.8.8.8",
+    "172.32.0.1",
+    "100.128.0.1",
+    "2606:4700::6810:84e5",
+    "2001:4860:4860::8888",
+    "64:ff9b::808:808",
+    "64:ff9b::8.8.8.8",
+  ])("permits public %s", (address) => {
+    expect(isPrivateAddress(address)).toBe(false);
+  });
 });
 
 describe("NetworkPolicy", () => {
@@ -75,6 +90,20 @@ describe("NetworkPolicy", () => {
       allowed: false,
       reason: "rebind.example.com resolves to private address 127.0.0.1",
     });
+  });
+
+  test("refuses public names that resolve to NAT64, 6to4 or Teredo forms of private addresses", async () => {
+    const rules = policy(
+      {},
+      {
+        "nat64.example.com": ["64:ff9b::7f00:1"],
+        "sixtofour.example.com": ["2002:a00:1::1"],
+        "teredo.example.com": ["2001:0:4136:e378:8000:63bf:3fff:fdd2"],
+      },
+    );
+    for (const host of ["nat64.example.com", "sixtofour.example.com", "teredo.example.com"]) {
+      await expect(rules.check(host, 443)).resolves.toMatchObject({ allowed: false });
+    }
   });
 
   test("pins public names to the resolved address", async () => {

@@ -60,7 +60,7 @@ The command connects only to the local daemon through its local credential and r
 The browser cannot reach this machine or private networks by default. Every request, including loopback, goes through a filtering proxy inside the browser host process. The proxy resolves each name itself, refuses private destinations and connects to the exact address it checked, so redirects and DNS rebinding cannot reach a refused address. It refuses:
 
 - loopback, link-local, private (RFC 1918), CGNAT and Tailscale (`100.64.0.0/10`) and other reserved IPv4 ranges
-- IPv6 loopback, link-local, unique local (including Tailscale) and multicast addresses, and IPv4-mapped forms of refused IPv4 addresses
+- IPv6 loopback, link-local, unique local (including Tailscale) and multicast addresses; IPv4-mapped, IPv4-compatible and NAT64 (`64:ff9b::/96`) forms of refused IPv4 addresses; and all 6to4 (`2002::/16`) and Teredo (`2001::/32`) addresses
 - `localhost`, single-label names, and names ending in `.localhost`, `.local`, `.internal`, `.home.arpa` or `.ts.net`
 - any public name that resolves to one of those addresses
 

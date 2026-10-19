@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): the headless browser network policy also refuses NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses, which can embed them. Public NAT64 destinations still work. README onboarding is unchanged.
+
 Maintenance review (2026-10-19): review fixes for the headless browser host. A filtering proxy now refuses private and local destinations by default after DNS resolution, with an explicit allow list; IPC messages are validated with zod in both directions; the child receives a minimal environment. Chromium still comes from the Playwright cache outside release custody, as documented. README onboarding is unchanged.
 
 Maintenance review (2026-10-19): the headless browser host now runs in its own supervised process. The daemon and `paseo browser host` fork it on demand, so the Host startup module contract keeps its existing rules and contains no Playwright files; a source trace test enforces that. README onboarding is unchanged.

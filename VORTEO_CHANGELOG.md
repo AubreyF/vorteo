@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+
 ## 0.11.0-beta.3.vorteo.698 - 2026-10-19
 
 ### Fixed
