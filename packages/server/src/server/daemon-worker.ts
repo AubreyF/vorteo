@@ -3,7 +3,8 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { resolveManagedInstallationClient } from "./execution-installation/managed-client.js";
-import { createPaseoDaemon, formatListenTarget } from "./bootstrap.js";
+import { createPaseoDaemon, formatListenTarget, parseListenString } from "./bootstrap.js";
+import { reclaimListenAddress, systemListenReclaimPorts } from "./listen-reclaim.js";
 import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 import { createRootLogger } from "./logger.js";
@@ -408,6 +409,22 @@ async function main() {
   } catch (err) {
     logger.fatal({ err }, "Daemon bootstrap failed");
     throw err;
+  }
+
+  const requestedTarget = parseListenString(config.listen);
+  if (requestedTarget.type === "tcp" && process.platform !== "win32") {
+    // A frozen predecessor must not turn every restart into a crash loop.
+    await reclaimListenAddress({
+      host: requestedTarget.host,
+      port: requestedTarget.port,
+      self: {
+        pid: process.pid,
+        uid: process.getuid?.() ?? -1,
+        workerScript: process.argv[1] ?? "",
+      },
+      logger,
+      ports: systemListenReclaimPorts,
+    });
   }
 
   try {

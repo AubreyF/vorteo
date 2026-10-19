@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Fixes
+
+- When the daemon's listen address is taken, a starting worker now identifies the holder. A previous daemon worker of this installation, run by the same user, is sent SIGTERM and then SIGKILL; any other holder is reported and retried with exponential backoff up to a minute. Startup no longer exits into a 5-second launchd restart loop.
+- Keep the supervisor alive until its worker force-kill timer fires or the worker exits, and give the Host launchd job a 30-second ExitTimeOut covering the worker's shutdown budget.
+
+### Validation
+
+- Listen reclaim tests cover free, previous-worker, foreign-owner and bounded cases, plus a real predecessor that ignores SIGTERM. Existing supervisor suites pass.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-19
 
 ### Fixes

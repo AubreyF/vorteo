@@ -73,12 +73,16 @@ async function build(command, args, cwd, log, environment = {}) {
     throw new Error(`Build failed; inspect ${log}`, { cause: error });
   }
 }
-function plist(label, argv, environment, log) {
+// The Host supervisor needs its 10 s worker grace plus the worker's 15 s hard
+// deadline before launchd escalates to SIGKILL; the default leaves no margin.
+const HOST_EXIT_TIMEOUT_SECONDS = 30;
+
+function plist(label, argv, environment, log, exitTimeOut) {
   const args = argv.map((arg) => `<string>${xml(arg)}</string>`).join("");
   const env = Object.entries(environment)
     .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
     .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer>${exitTimeOut === undefined ? "" : `<key>ExitTimeOut</key><integer>${exitTimeOut}</integer>`}<key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`;
 }
 
 async function writableBindRoots(docker) {
@@ -403,6 +407,7 @@ async function install(planFile) {
       ],
       env,
       path.join(logDir, "host.log"),
+      HOST_EXIT_TIMEOUT_SECONDS,
     ),
   );
   privateWrite(
