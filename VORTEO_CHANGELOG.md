@@ -4,6 +4,64 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.702 - 2026-10-19
+
+### Maintenance
+
+- Combine the Host headless browser host (browser-host-on-installed) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' maintenance entries.
+
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Fixed
+
+- Refuse NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses in the headless browser, since they can embed private destinations
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixed
+
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+
+### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright and the Host startup module contract keeps its existing rules.
+
+### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+Integrates GitHub main (vorteo.555 and vorteo.556 below) onto installed source vorteo.695. Main's entries keep their original labels verbatim; neither was installed.
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium owned by the Host daemon. See vorteo.556 below.
+
+## 0.11.0-beta.3.vorteo.556 - 2026-10-18
+
+### Added
+
+- Give Host agents browser tools through a disposable headless Chromium, run by the Host daemon when `daemon.browserTools.headlessHost` is enabled or by `paseo browser host`. Each run uses an empty profile and blocks denied origins, including redirects, popups, fetches and WebSockets. The protected interface still refuses automation.
+
+### Changed
+
+- Share one browser automation engine between the desktop app and the headless host, and merge current main into the browser host work.
+
+## 0.11.0-beta.3.vorteo.555 - 2026-10-18
+
+### Fixed
+
+- Remove web tooltips directly on dismissal so interrupted animations cannot leave small floating boxes behind. Preserve hover, keyboard focus and native tooltip fades; add browser regression coverage with the real animation library.
+
 ## 0.11.0-beta.3.vorteo.701 - 2026-10-19
 
 ### Maintenance

@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/server",
-  "version": "0.11.0-beta.3.vorteo.701",
+  "version": "0.11.0-beta.3.vorteo.702",
   "description": "Vorteo backend server",
   "files": [
     "dist/server",
@@ -92,6 +92,11 @@
       "types": "./dist/server/server/factory/governed-stage-native.d.ts",
       "source": "./src/server/factory/governed-stage-native.ts",
       "default": "./dist/server/server/factory/governed-stage-native.js"
+    },
+    "./browser-automation/*": {
+      "types": "./dist/server/server/browser-tools/engine/*.d.ts",
+      "source": "./src/server/browser-tools/engine/*.ts",
+      "default": "./dist/server/server/browser-tools/engine/*.js"
     }
   },
   "publishConfig": {
@@ -139,11 +144,11 @@
     "@anthropic-ai/claude-agent-sdk": "0.3.246",
     "@anthropic-ai/claude-code": "2.1.284",
     "@anthropic-ai/sdk": "^0.104.2",
-    "@getpaseo/client": "0.11.0-beta.3.vorteo.701",
-    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.701",
-    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.701",
-    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.701",
-    "@getpaseo/relay": "0.11.0-beta.3.vorteo.701",
+    "@getpaseo/client": "0.11.0-beta.3.vorteo.702",
+    "@getpaseo/highlight": "0.11.0-beta.3.vorteo.702",
+    "@getpaseo/plugin": "0.11.0-beta.3.vorteo.702",
+    "@getpaseo/protocol": "0.11.0-beta.3.vorteo.702",
+    "@getpaseo/relay": "0.11.0-beta.3.vorteo.702",
     "@isaacs/ttlcache": "^2.1.4",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@opencode-ai/sdk": "1.14.46",
@@ -191,6 +196,14 @@
     "cross-env": "^10.1.0",
     "tsx": "^4.6.0",
     "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "playwright-core": ">=1.56.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    }
   },
   "overrides": {
     "lightningcss": "1.30.1"

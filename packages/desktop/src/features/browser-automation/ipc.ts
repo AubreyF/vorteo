@@ -4,9 +4,13 @@ import type {
   BrowserAutomationConsoleLogEntry,
   BrowserAutomationDialogEvent,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
-import type { TabContents, BrowserRegistry, TabImage } from "./service.js";
-import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
-import { CdpSessionQueue } from "./cdp-session-queue.js";
+import type {
+  TabContents,
+  BrowserRegistry,
+  TabImage,
+} from "@getpaseo/server/browser-automation/service";
+import type { IsolatedKeyboardInputEvent } from "@getpaseo/server/browser-automation/trusted-input";
+import { CdpSessionQueue } from "@getpaseo/server/browser-automation/cdp-session-queue";
 import {
   dialogAcceptValue,
   handledDialogEvent,
@@ -14,9 +18,12 @@ import {
   promptShimDrainScript,
   promptShimInstallScript,
   promptShimRestoreScript,
-} from "./dialog-handling.js";
-import { BrowserTabClosedError, executeAutomationCommand } from "./service.js";
-import { BrowserSnapshotEngine } from "./snapshot-engine.js";
+} from "@getpaseo/server/browser-automation/dialog-handling";
+import {
+  BrowserTabClosedError,
+  executeAutomationCommand,
+} from "@getpaseo/server/browser-automation/service";
+import { BrowserSnapshotEngine } from "@getpaseo/server/browser-automation/snapshot-engine";
 import {
   listRegisteredPaseoBrowserIds,
   listRegisteredPaseoBrowserIdsForWorkspace,
