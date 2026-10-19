@@ -14392,9 +14392,14 @@ test("uncapped frozen profiles admit more than eight managed fake workers and st
   }
 });
 
-test.each(["goal", "ordinary"] as const)(
-  "durably captures a running %s before force and reopens only after exact readiness",
-  async (kind) => {
+test.each([
+  ["goal", "ready"],
+  ["goal", "cancelled"],
+  ["ordinary", "ready"],
+  ["ordinary", "cancelled"],
+] as const)(
+  "durably captures a running %s before force and reopens after a replacement %s release",
+  async (kind, outcome) => {
     const workdir = mkdtempSync(join(tmpdir(), "restart-continuation-reopen-"));
     const storagePath = join(workdir, "agents");
     const queuePath = join(workdir, "queue");
@@ -14505,10 +14510,10 @@ test.each(["goal", "ordinary"] as const)(
           logger,
         }),
       );
-      expect(await reopened.releaseRestartContinuation(request, "cancelled")).toBe(false);
       expect(continuedTurns).toBe(0);
       if (kind === "goal") expect(goal.status).toBe("blocked");
-      expect(await reopened.releaseRestartContinuation(request, "ready")).toBe(true);
+      // The replacement never owned this cause; either outcome must still let tasks continue.
+      expect(await reopened.releaseRestartContinuation(request, outcome)).toBe(true);
       if (kind === "goal") await expect.poll(() => goal.status).toBe("active");
       else await expect.poll(() => continuedTurns).toBe(1);
       expect(resumedHandles).toHaveLength(1);
@@ -14601,7 +14606,7 @@ test("does not advertise restart continuation without all durable queue controls
   expect(manager.isRestartDraining()).toBe(false);
 });
 
-test("retains a failed capture without acknowledging or replaying interruption", async () => {
+test("clears a failed capture barrier and retries it without replaying interruption", async () => {
   const fixture = await createControlledInterruptFixture({
     name: "restart-write-failure",
     agentId: randomUUID(),
@@ -14620,16 +14625,21 @@ test("retains a failed capture without acknowledging or replaying interruption",
     await fixture.startForegroundRun();
     const request = randomUUID();
     await expect(fixture.manager.captureRestartContinuation(request)).rejects.toThrow();
-    await expect(fixture.manager.captureRestartContinuation(request)).rejects.toThrow();
+    // A transient store failure must not keep admission closed or poison the cause.
+    expect(fixture.manager.isRestartDraining()).toBe(false);
+    expect(fixture.manager.getRestartImpact()).toMatchObject({
+      pendingStarts: 0,
+      restartDrainId: null,
+    });
+    rmSync(queuePath);
+    await fixture.manager.captureRestartContinuation(request);
     expect(fixture.manager.isRestartDraining()).toBe(true);
-    expect(fixture.manager.beginRestartDrain(request)).toBe(false);
-    expect(fixture.manager.getRestartImpact().pendingStarts).toBe(1);
+    expect(await queue.restartContinuationHeld(fixture.agentId)).toBe(true);
+    expect((await queue.read(fixture.agentId)).items).toHaveLength(1);
     expect(fixture.manager.beginRestartDrain("other")).toBe(false);
     expect(fixture.session.interruptCalled).toBe(false);
-    await expect(
-      fixture.manager.releaseRestartContinuation(request, "cancelled"),
-    ).rejects.toThrow();
-    expect(fixture.manager.isRestartDraining()).toBe(true);
+    expect(await fixture.manager.releaseRestartContinuation(request, "cancelled")).toBe(true);
+    expect(fixture.manager.isRestartDraining()).toBe(false);
   } finally {
     queue.close();
     await fixture.cleanup();
@@ -14637,7 +14647,7 @@ test("retains a failed capture without acknowledging or replaying interruption",
   }
 });
 
-test("refuses replacement cancellation of an unknown cause without claiming its intent", async () => {
+test("lets a replacement cancel an unknown cause without claiming its intent", async () => {
   const path = mkdtempSync(join(tmpdir(), "restart-unknown-cause-"));
   const manager = new AgentManager({ clients: {}, logger });
   const store = new MessageQueueStore(path);
@@ -14645,11 +14655,12 @@ test("refuses replacement cancellation of an unknown cause without claiming its 
   manager.setMessageQueueControl(queue);
   try {
     expect(await store.listAgentIds()).toEqual([]);
-    expect(await manager.releaseRestartContinuation("unknown", "cancelled")).toBe(false);
-    expect(await manager.releaseRestartContinuation("unknown", "cancelled")).toBe(false);
-    expect(manager.cancelRestartDrain("unknown")).toBe(false);
+    expect(await manager.releaseRestartContinuation("unknown", "cancelled")).toBe(true);
+    expect(await manager.releaseRestartContinuation("unknown", "cancelled")).toBe(true);
+    expect(manager.cancelRestartDrain("unknown")).toBe(true);
     expect(await manager.releaseRestartContinuation("unknown", "ready")).toBe(true);
-    expect(await manager.releaseRestartContinuation("unknown", "cancelled")).toBe(false);
+    // A late capture of the cancelled cause cannot reclose admission.
+    await expect(manager.captureRestartContinuation("unknown")).rejects.toThrow("cancelled");
     expect(manager.isRestartDraining()).toBe(false);
     expect(await store.listAgentIds()).toEqual([]);
   } finally {
@@ -14658,7 +14669,7 @@ test("refuses replacement cancellation of an unknown cause without claiming its 
   }
 });
 
-test("cancels a zero-agent locally captured cause idempotently without granting another lifetime ownership", async () => {
+test("cancels a zero-agent locally captured cause idempotently while another lifetime releases only durable state", async () => {
   const path = mkdtempSync(join(tmpdir(), "restart-empty-capture-"));
   const manager = new AgentManager({ clients: {}, logger });
   const queue = new MessageQueueService(
@@ -14675,12 +14686,14 @@ test("cancels a zero-agent locally captured cause idempotently without granting 
   try {
     await manager.captureRestartContinuation("empty");
     expect(manager.beginRestartDrain("empty")).toBe(true);
-    expect(await replacement.releaseRestartContinuation("empty", "cancelled")).toBe(false);
+    // Durable release from another lifetime never clears this lifetime's barrier.
+    expect(await replacement.releaseRestartContinuation("empty", "cancelled")).toBe(true);
+    expect(manager.isRestartDraining()).toBe(true);
     expect(await manager.releaseRestartContinuation("empty", "cancelled")).toBe(true);
     expect(await manager.releaseRestartContinuation("empty", "cancelled")).toBe(true);
     expect(manager.isRestartDraining()).toBe(false);
     expect(manager.beginRestartDrain("empty")).toBe(false);
-    expect(await replacement.releaseRestartContinuation("empty", "cancelled")).toBe(false);
+    expect(await replacement.releaseRestartContinuation("empty", "cancelled")).toBe(true);
   } finally {
     queue.close();
     nextQueue.close();
@@ -14744,7 +14757,7 @@ test.each(["ready", "cancelled"] as const)(
         "already released",
       );
       expect(manager.beginRestartDrain("released")).toBe(false);
-      expect(await manager.releaseRestartContinuation("released", "cancelled")).toBe(false);
+      expect(await manager.releaseRestartContinuation("released", "cancelled")).toBe(true);
       expect(
         readdirSync(path).map((name) => ({ name, bytes: readFileSync(join(path, name), "utf8") })),
       ).toEqual(before);
@@ -14789,8 +14802,8 @@ test.each(["ready", "cancelled"] as const)(
       expect(manager.isRestartDraining()).toBe(false);
       expect(manager.getRestartImpact().pendingStarts).toBe(0);
       expect(manager.beginRestartDrain("released")).toBe(false);
-      expect(manager.cancelRestartDrain("released")).toBe(false);
-      expect(await manager.releaseRestartContinuation("released", "cancelled")).toBe(false);
+      expect(manager.cancelRestartDrain("released")).toBe(true);
+      expect(await manager.releaseRestartContinuation("released", "cancelled")).toBe(true);
       expect(
         readdirSync(path).map((name) => ({ name, bytes: readFileSync(join(path, name), "utf8") })),
       ).toEqual(before);

@@ -411,49 +411,51 @@ it("holds automatic review while an empty queue has an unresolved delivery error
   }
 });
 
-it("holds persisted restart continuation until exact ready release, never replacement cancellation", async () => {
-  const root = await mkdtemp(join(tmpdir(), "paseo-restart-release-"));
-  const original = new MessageQueueService(
-    new MessageQueueStore(root),
-    new QueueAttachmentStore(root),
-  );
-  let recovered: MessageQueueService | undefined;
-  try {
-    await original.captureRestartContinuation("agent", "restart");
-    await original.queueRestartContinuation("agent", "restart");
-    original.close();
-    recovered = new MessageQueueService(
+it.each(["ready", "cancelled"] as const)(
+  "holds persisted restart continuation until a replacement releases its exact cause as %s",
+  async (outcome) => {
+    const root = await mkdtemp(join(tmpdir(), "paseo-restart-release-"));
+    const original = new MessageQueueService(
       new MessageQueueStore(root),
       new QueueAttachmentStore(root),
     );
-    const received: string[] = [];
-    await recovered.startDelivery({
-      prepare: async () => true,
-      load: async (item) => item.text,
-      start: (_agentId, item) =>
-        (async function* () {
-          received.push(item.id);
-          yield { type: "turn_started", provider: "codex", turnId: "resumed" };
-        })(),
-      failed: (error) => {
-        throw error;
-      },
-    });
-    expect(await recovered.releaseRestartContinuation("restart", "cancelled")).toBe(false);
-    expect(await recovered.releaseRestartContinuation("other", "ready")).toBe(true);
-    expect(received).toEqual([]);
-    expect(await recovered.releaseRestartContinuation("restart", "ready")).toBe(true);
-    await expect.poll(() => received).toEqual(["restart-restart-agent"]);
-    expect(await recovered.releaseRestartContinuation("restart", "ready")).toBe(true);
-    recovered.wake("agent");
-    expect(await recovered.read("agent")).toMatchObject({ items: [] });
-    expect(received).toHaveLength(1);
-  } finally {
-    original.close();
-    recovered?.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+    let recovered: MessageQueueService | undefined;
+    try {
+      await original.captureRestartContinuation("agent", "restart");
+      await original.queueRestartContinuation("agent", "restart");
+      original.close();
+      recovered = new MessageQueueService(
+        new MessageQueueStore(root),
+        new QueueAttachmentStore(root),
+      );
+      const received: string[] = [];
+      await recovered.startDelivery({
+        prepare: async () => true,
+        load: async (item) => item.text,
+        start: (_agentId, item) =>
+          (async function* () {
+            received.push(item.id);
+            yield { type: "turn_started", provider: "codex", turnId: "resumed" };
+          })(),
+        failed: (error) => {
+          throw error;
+        },
+      });
+      expect(await recovered.releaseRestartContinuation("other", "ready")).toBe(true);
+      expect(received).toEqual([]);
+      expect(await recovered.releaseRestartContinuation("restart", outcome)).toBe(true);
+      await expect.poll(() => received).toEqual(["restart-restart-agent"]);
+      expect(await recovered.releaseRestartContinuation("restart", "ready")).toBe(true);
+      recovered.wake("agent");
+      expect(await recovered.read("agent")).toMatchObject({ items: [] });
+      expect(received).toHaveLength(1);
+    } finally {
+      original.close();
+      recovered?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it("keeps pause and manual stop authoritative through ready release and repeated capture", async () => {
   const root = await mkdtemp(join(tmpdir(), "paseo-restart-stop-"));

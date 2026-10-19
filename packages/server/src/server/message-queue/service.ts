@@ -77,14 +77,10 @@ export class MessageQueueService {
     const matching: string[] = [];
     for (const id of agents) {
       const retained = await this.store.restartContinuation(id);
-      if (retained?.requestId !== requestId) continue;
-      if (outcome === "cancelled" && retained.owner !== this.restartOwner) return false;
-      matching.push(id);
+      if (retained?.requestId === requestId) matching.push(id);
     }
-    for (const id of matching) {
-      if (!(await this.store.releaseRestartContinuation(id, requestId, this.restartOwner, outcome)))
-        return false;
-    }
+    // Any lifetime may release: a cancelled cause from a dead owner still lets tasks continue.
+    for (const id of matching) await this.store.releaseRestartContinuation(id, requestId, outcome);
     for (const id of matching) void this.delivery?.wake(id);
     return true;
   }
@@ -130,7 +126,11 @@ export class MessageQueueService {
   }
 
   initialize(): Promise<void> {
-    this.initialization ??= this.recover();
+    // A transient recovery failure must stay retryable rather than poisoning every call.
+    this.initialization ??= this.recover().catch((error: unknown) => {
+      this.initialization = null;
+      throw error;
+    });
     return this.initialization;
   }
 

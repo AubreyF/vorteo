@@ -526,6 +526,20 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     },
+    async restartContinuationAvailable(target) {
+      let client: DaemonClient;
+      try {
+        client = await connectInstallationDaemon(config, target === "host" ? "host" : "container");
+      } catch {
+        // An unreachable daemon holds no tasks to capture; restart recovery stays legacy.
+        return false;
+      }
+      try {
+        return client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+      } finally {
+        await client.close();
+      }
+    },
     async captureRestartContinuation(target, requestId) {
       assertReady(target);
       const client = await connectInstallationDaemon(
@@ -552,11 +566,15 @@ export function createInstallationRestartExecutor(
         target === "host" ? "host" : "container",
       );
       try {
+        // COMPAT(restartContinuation): a daemon without durable continuation (for
+        // example after a downgrade) can only hold the legacy drain, so release that.
+        const continuation =
+          client.getLastServerInfoMessage()?.features?.restartContinuation === true;
         const result = await client.restartServer(undefined, undefined, {
           timeout: 5000,
           idleMode: "cancel-drain",
           restartDrainId: requestId,
-          restartContinuation: outcome,
+          ...(continuation ? { restartContinuation: outcome } : {}),
         });
         return result.accepted === true;
       } finally {

@@ -437,6 +437,9 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   finishCurrentTurns: z.boolean().optional(),
   holdReleased: z.boolean().optional(),
   continuationCaptureRequested: z.boolean().optional(),
+  // Idle-only restarts capture under a fresh cause per dispatch attempt, so a
+  // released attempt never fences a later one. Absent means the job id.
+  continuationCaptureId: z.string().uuid().optional(),
   approvedAt: z.string().datetime().optional(),
   impact: RestartImpactSchema.optional(),
 });

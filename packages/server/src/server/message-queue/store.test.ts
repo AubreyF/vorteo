@@ -377,20 +377,14 @@ it("retains an uncertain dispatch behind restart readiness without replay or idl
   await reopened.recover("agent");
   expect(await reopened.withIdleQueue("agent", async () => "unexpected")).toBeNull();
   expect(await reopened.claim("agent")).toBeNull();
-  expect(
-    await reopened.releaseRestartContinuation(
-      "agent",
-      "request",
-      "b15ea011-654a-48b1-85d4-ea05c46e8946",
-      "cancelled",
-    ),
-  ).toBe(false);
-  expect(await reopened.releaseRestartContinuation("agent", "request", owner, "ready")).toBe(true);
+  // A replacement lifetime may cancel the dead owner's cause; that only releases admission.
+  await reopened.releaseRestartContinuation("agent", "request", "cancelled");
+  await reopened.releaseRestartContinuation("agent", "request", "ready");
   expect((await reopened.read("agent")).items[0].delivery.status).toBe("uncertain");
   expect(await reopened.claim("agent")).toBeNull();
   await reopened.captureRestartContinuation("agent", "request", owner);
   expect(await reopened.restartContinuation("agent")).toMatchObject({
-    phase: "ready",
+    phase: "cancelled",
     requestId: "request",
   });
 });

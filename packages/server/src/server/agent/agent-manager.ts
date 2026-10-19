@@ -1650,11 +1650,10 @@ export class AgentManager {
     if (retained) return retained;
     if (!this.supportsRestartContinuation())
       return Promise.reject(new Error("Durable restart continuation is unavailable"));
-    if (
-      this.cancelledRestartDrains.has(requestId) ||
-      this.releasedRestartContinuations.has(requestId)
-    )
+    if (this.cancelledRestartDrains.has(requestId))
       return Promise.reject(new Error("This restart was cancelled"));
+    if (this.releasedRestartContinuations.has(requestId))
+      return Promise.reject(new Error("This restart continuation was already released"));
     if (this.restartDrainId && this.restartDrainId !== requestId)
       return Promise.reject(new Error("Another restart owns task admission"));
     const previousDrainId = this.restartDrainId;
@@ -1671,8 +1670,6 @@ export class AgentManager {
       if (await queue?.restartContinuationReleased?.(requestId)) {
         this.releasedRestartContinuations.add(requestId);
         if (!previouslyOwned) this.ownedRestartContinuations.delete(requestId);
-        if (previousDrainId === null && this.restartDrainId === requestId)
-          this.restartDrainId = null;
         throw new Error("This restart continuation was already released");
       }
       await Promise.all(this.agentRegistrationTasks);
@@ -1684,7 +1681,16 @@ export class AgentManager {
         await this.retainRestartContinuation(agent.id, requestId, wasRunning);
       }
       this.capturedRestartContinuations.add(requestId);
-    })();
+    })().catch((error: unknown) => {
+      // A failed capture must not keep admission closed or poison retries. Any
+      // queue it already held stays owned here, so a retry or cancellation settles it.
+      this.restartContinuationCaptures.delete(requestId);
+      if (previousDrainId === null && this.restartDrainId === requestId) {
+        this.restartDrainId = null;
+        for (const agent of this.agents.values()) queue?.wake(agent.id);
+      }
+      throw error;
+    });
     this.restartContinuationCaptures.set(requestId, capture);
     return capture;
   }
@@ -1705,7 +1711,8 @@ export class AgentManager {
       await this.restartContinuationCaptures.get(requestId)?.catch((error: unknown) => {
         if (outcome === "ready") throw error;
       });
-      if (outcome === "cancelled" && !this.ownedRestartContinuations.has(requestId)) return false;
+      // A replacement lifetime may cancel a cause it never owned. Its earlier owner is
+      // gone, so releasing lets held tasks continue instead of freezing them forever.
       await Promise.all(this.restartDrainTasks.values());
       const released = await releaseControl.call(queue, requestId, outcome);
       if (!released) return false;
@@ -1856,8 +1863,14 @@ export class AgentManager {
 
   cancelRestartDrain(requestId: string): boolean {
     if (this.committedRestartDrainId === requestId) return false;
-    if (this.supportsRestartContinuation() && !this.ownedRestartContinuations.has(requestId))
+    if (this.supportsRestartContinuation() && !this.ownedRestartContinuations.has(requestId)) {
+      // A drain from an earlier lifetime acknowledges only after its durable release.
+      if (this.releasedRestartContinuations.has(requestId)) return true;
+      void this.releaseRestartContinuation(requestId, "cancelled").catch((error: unknown) => {
+        this.logger.warn({ err: error }, "Restart continuation release remains unresolved");
+      });
       return false;
+    }
     this.cancelledRestartDrains.add(requestId);
     if (this.restartDrainId !== requestId) return true;
     // Let outstanding goal pauses settle before releasing the barrier so cancellation

@@ -183,18 +183,14 @@ export class MessageQueueStore {
   releaseRestartContinuation(
     agentId: string,
     requestId: string,
-    owner: string,
     outcome: "ready" | "cancelled",
-  ): Promise<boolean> {
+  ): Promise<void> {
     return this.serial(agentId, async () => {
       const record = await this.load(agentId);
       const retained = record.restartContinuation;
-      if (!retained || retained.requestId !== requestId) return true;
-      if (outcome === "cancelled" && retained.owner !== owner) return false;
-      if (retained.phase !== "held") return true;
+      if (retained?.requestId !== requestId || retained.phase !== "held") return;
       record.restartContinuation = { ...retained, phase: outcome };
       await this.commit(record);
-      return true;
     });
   }
 
