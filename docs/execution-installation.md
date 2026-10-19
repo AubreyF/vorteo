@@ -22,17 +22,35 @@ The trusted installation interface disables agent browser automation and rejects
 
 ### Browser tools for Host agents
 
-Host agents get browser tools from a disposable headless Chromium instead of the installation interface. Start it as the macOS account that runs the Host daemon:
+Host agents get browser tools from a disposable headless Chromium instead of the installation interface. Enable the daemon-owned host in the Host daemon's `config.json`:
+
+```json
+{
+  "daemon": {
+    "browserTools": {
+      "enabled": true,
+      "headlessHost": {
+        "enabled": true,
+        "deniedOrigins": ["https://<protected-interface-origin>"]
+      }
+    }
+  }
+}
+```
+
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Chromium starts on the first browser request and closes with the daemon. Older daemons ignore the setting. Only enable it on the Host daemon.
+
+To run a host without a restart, start it as the macOS account that runs the Host daemon:
 
 ```sh
 paseo browser host --deny-origin https://<protected-interface-origin>
 ```
 
-The command connects only to the local daemon through its local credential and refuses `--host`. It registers as `headless chromium`; the Settings → Agents **Browser tools** switch still decides whether agents receive the tools. Each run starts with an empty in-memory profile, with no cookies, storage or saved logins from any owner interface. Downloads are refused, service workers are blocked and each tab is visible only to agents in the workspace that opened it. Popups join their opener's workspace.
+The command connects only to the local daemon through its local credential and refuses `--host`. Both forms register as `headless chromium`; the Settings → Agents **Browser tools** switch still decides whether agents receive the tools. Each run starts with an empty in-memory profile, with no cookies, storage or saved logins from any owner interface. Downloads are refused, service workers are blocked and each tab is visible only to agents in the workspace that opened it. Popups join their opener's workspace.
 
-`--deny-origin` blocks a host on every scheme and port. It applies to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
+`deniedOrigins` and `--deny-origin` block a host on every scheme and port. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
 
-To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. It stops when its process exits and reconnects after daemon restarts.
+To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. The command stops when its process exits and reconnects after daemon restarts.
 
 ### Change the protected interface address
 
