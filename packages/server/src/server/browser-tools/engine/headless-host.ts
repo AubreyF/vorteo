@@ -19,6 +19,7 @@ import {
   type TabContents,
   type TabImage,
 } from "./service.js";
+import { normalizeDeniedHost } from "./headless-host-process-protocol.js";
 import { BrowserSnapshotEngine } from "./snapshot-engine.js";
 import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
 
@@ -29,8 +30,6 @@ import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
 // never shares storage with an owner interface: each launch uses a fresh,
 // in-memory context, downloads are refused, service workers are blocked, and
 // requests to denied hosts are aborted for every page, frame and popup.
-
-export const HEADLESS_BROWSER_HOST_KIND = "headless chromium";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 const NAVIGATION_TIMEOUT_MS = 15_000;
@@ -108,20 +107,6 @@ export interface HeadlessBrowserHostOptions {
 export interface LaunchHeadlessBrowserHostOptions extends HeadlessBrowserHostOptions {
   headed?: boolean;
   executablePath?: string;
-}
-
-export function normalizeDeniedHost(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) throw new Error("A denied host cannot be empty.");
-  const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
-  let hostname: string;
-  try {
-    hostname = new URL(candidate).hostname;
-  } catch {
-    throw new Error(`Invalid denied host: ${value}`);
-  }
-  if (!hostname) throw new Error(`Invalid denied host: ${value}`);
-  return hostname.toLowerCase();
 }
 
 function urlHostname(url: string): string | null {
