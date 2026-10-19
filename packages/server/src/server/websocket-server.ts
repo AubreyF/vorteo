@@ -2087,6 +2087,8 @@ export class VoiceAssistantWebSocketServer {
         sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
         agentJournal: true,
+        // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; retain until the client floor includes it.
+        agentQuestions: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.

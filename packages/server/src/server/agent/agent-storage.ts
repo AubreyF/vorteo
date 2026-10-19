@@ -6,6 +6,17 @@ import {
   type AppendJournalInput,
 } from "@getpaseo/protocol/agent-journal";
 import { JournalError } from "./journal/model.js";
+import {
+  AgentQuestionSchema,
+  type AgentQuestion,
+  type QuestionMutation,
+} from "@getpaseo/protocol/agent-questions";
+import {
+  answerQuestion,
+  mutateQuestions,
+  QuestionError,
+  type AnsweredQuestions,
+} from "./questions/model.js";
 import { AgentTaskItemSchema } from "@getpaseo/protocol/messages";
 import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
 import {
@@ -83,6 +94,7 @@ export type GoalSubmission = z.infer<typeof GoalSubmissionSchema>;
 
 const STORED_AGENT_SCHEMA = z.object({
   journal: z.array(AgentJournalEntrySchema).optional(),
+  questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
   // Discovery hint only. Admission always re-reads the native goal.
@@ -329,6 +341,58 @@ export class AgentStorage {
         "not_found",
         "The thread was deleted before the journal entry could be saved.",
       );
+    return structuredClone(committed);
+  }
+
+  async mutateQuestions(agentId: string, mutation: QuestionMutation): Promise<AgentQuestion[]> {
+    await this.load();
+    let committed: AgentQuestion[] | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new QuestionError("not_found", "Only an active thread can ask questions.");
+        const taskIds = new Set(
+          (record.tasks ?? []).flatMap((task) =>
+            task.source === "vorteo" && task.id ? [task.id] : [],
+          ),
+        );
+        const questions = record.questions ?? [];
+        committed = mutateQuestions(questions, mutation, {
+          askedBy: agentId,
+          now: new Date().toISOString(),
+          taskIds,
+        });
+        return committed === questions ? null : { ...record, questions: committed };
+      },
+      { questionsWrite: true },
+    );
+    if (committed === null)
+      throw new QuestionError("not_found", "The thread was deleted before the question was saved.");
+    return structuredClone(committed);
+  }
+
+  async answerQuestion(
+    agentId: string,
+    input: { questionId: string; answer: string; answeredBy: string },
+  ): Promise<AnsweredQuestions> {
+    await this.load();
+    let committed: AnsweredQuestions | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record || record.archivedAt)
+          throw new QuestionError("not_found", "Only an active thread can receive answers.");
+        const questions = record.questions ?? [];
+        committed = answerQuestion(questions, { ...input, now: new Date().toISOString() });
+        return committed.questions === questions
+          ? null
+          : { ...record, questions: committed.questions };
+      },
+      { questionsWrite: true },
+    );
+    if (committed === null)
+      throw new QuestionError("not_found", "The thread was deleted before the answer was saved.");
     return structuredClone(committed);
   }
 
@@ -673,6 +737,7 @@ interface RecordMutationOptions {
   goalReviewWrite?: boolean;
   checklistWrite?: boolean;
   journalWrite?: boolean;
+  questionsWrite?: boolean;
   blockedReviewWrite?: boolean;
 }
 
@@ -687,6 +752,7 @@ function preserveOwnedRecordFields({ record, existing, options }: OwnedRecordFie
   if (!options.goalReviewWrite && existing)
     record.blockedGoalReviewNeeded = existing.blockedGoalReviewNeeded;
   if (!options.journalWrite && existing) record.journal = existing.journal;
+  if (!options.questionsWrite && existing) record.questions = existing.questions;
   if (!options.checklistWrite) preserveManagedChecklist(record, existing);
   if (!options.blockedReviewWrite && existing)
     record.lastBlockedReviewAt = existing.lastBlockedReviewAt;

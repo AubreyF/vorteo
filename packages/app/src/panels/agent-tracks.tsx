@@ -7,6 +7,7 @@ import { memo, useCallback, useMemo, type ReactElement } from "react";
 
 import { ChecklistCard } from "@/task-checklist/card";
 import { JournalCard } from "@/journal/card";
+import { OpenQuestionsCard } from "@/open-questions/card";
 
 import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/layout";
 import { usePaneContext } from "@/panels/pane-context";
@@ -108,6 +109,7 @@ export const AgentTracks = memo(function AgentTracks({
 
   return (
     <>
+      <OpenQuestionsCard key={`questions:${agentId}`} serverId={serverId} agentId={agentId} />
       <ChecklistCard serverId={serverId} agentId={agentId} tasks={tasks} />
       <JournalCard key={agentId} serverId={serverId} agentId={agentId} />
       <SubagentsTrack

@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.690 - 2026-10-18
+
+### Features
+
+- Add an Open questions card above Tasks. Agents ask blocking questions with a required recommended default, optional blocked tasks and an optional default time; the owner answers inline with Use recommended or typed text. Answers are saved once, journaled and delivered to the asking thread as a message.
+- Show a calm count of open questions on workspace sidebar rows.
+
+### Validation
+
+- Focused question model, daemon MCP and RPC, and app model tests pass, with a real-browser check at phone, tablet and desktop widths against a disposable daemon.
+
 ## 0.11.0-beta.3.vorteo.689 - 2026-10-18
 
 ### Fixes

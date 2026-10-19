@@ -3817,6 +3817,21 @@ export class DaemonClient {
     return result.tasks;
   }
 
+  async answerAgentQuestion(
+    agentId: string,
+    questionId: string,
+    answer: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    if (this.lastServerInfoMessage?.features?.agentQuestions !== true)
+      throw new Error("Update the daemon before answering open questions.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.questions.answer.response">({
+        message: { type: "agent.questions.answer.request", agentId, questionId, answer },
+      });
+    if (result.error || !result.questions) throw new Error(result.error ?? "Answer unconfirmed");
+    return result.questions;
+  }
+
   private assertChecklistSupport(): void {
     if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
       throw new Error("Update the daemon before editing thread checklists.");

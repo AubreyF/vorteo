@@ -5,6 +5,12 @@ import {
   BLOCKED_REVIEW_PROMPT,
 } from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
+import {
+  answerJournalEntryId,
+  answerJournalText,
+  answerMessage,
+  QuestionError,
+} from "./questions/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import {
@@ -493,6 +499,7 @@ interface HandleStreamEventOptions {
 
 interface ManagedAgentBase {
   journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
+  questions?: import("@getpaseo/protocol/agent-questions").AgentQuestion[];
   tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
@@ -1242,6 +1249,7 @@ export class AgentManager {
           Pick<
             MessageQueueService,
             | "withIdleQueue"
+            | "queueQuestionAnswer"
             | "captureRestartContinuation"
             | "releaseRestartContinuation"
             | "restartContinuationHeld"
@@ -1490,6 +1498,7 @@ export class AgentManager {
         Pick<
           MessageQueueService,
           | "withIdleQueue"
+          | "queueQuestionAnswer"
           | "captureRestartContinuation"
           | "releaseRestartContinuation"
           | "restartContinuationHeld"
@@ -4120,6 +4129,49 @@ export class AgentManager {
     return entry;
   }
 
+  async readQuestions(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const record = await this.requireRegistry().get(agentId);
+    if (!record) throw new QuestionError("not_found", "Thread not found.");
+    return structuredClone(record.questions ?? []);
+  }
+
+  async mutateQuestions(
+    agentId: string,
+    mutation: import("@getpaseo/protocol/agent-questions").QuestionMutation,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const agent = this.requireAgent(agentId);
+    const questions = await this.requireRegistry().mutateQuestions(agentId, mutation);
+    agent.questions = questions;
+    this.emitState(agent, { persist: false });
+    return structuredClone(questions);
+  }
+
+  /** The owner's answer is saved, journaled, and delivered once through the durable queue. */
+  async answerQuestion(
+    agentId: string,
+    input: { questionId: string; answer: string },
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const agent = this.requireAgent(agentId);
+    const queue = this.messageQueueControl;
+    if (!queue?.queueQuestionAnswer)
+      throw new QuestionError("unavailable", "This daemon cannot deliver answers to the thread.");
+    const { questions, answered } = await this.requireRegistry().answerQuestion(agentId, {
+      ...input,
+      answeredBy: "owner",
+    });
+    agent.questions = questions;
+    this.emitState(agent, { persist: false });
+    await this.appendJournal(agentId, {
+      entryId: answerJournalEntryId(answered.id),
+      text: answerJournalText(answered),
+      machineContext: `questionId=${answered.id}`,
+    });
+    await queue.queueQuestionAnswer(agentId, answered.id, answerMessage(answered));
+    return structuredClone(questions);
+  }
+
   readChecklist(agentId: string): AgentTaskItem[] {
     return structuredClone(this.requireAgent(agentId).tasks ?? []);
   }
@@ -5297,6 +5349,7 @@ export class AgentManager {
     const record = await this.registry?.get(managed.id);
     managed.tasks = record?.tasks;
     managed.journal = record?.journal;
+    managed.questions = record?.questions;
     const managedTasks = managed.tasks?.filter((task) => task.source === "vorteo") ?? [];
     for (const item of this.timelineStore.getItems(managed.id)) {
       if (item.type === "todo") {

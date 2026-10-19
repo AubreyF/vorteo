@@ -1,3 +1,4 @@
+import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -3420,6 +3421,8 @@ export class Session {
       case "agent.checklist.get.request":
       case "agent.checklist.mutate.request":
         return this.handleChecklistRequest(msg);
+      case "agent.questions.answer.request":
+        return this.handleQuestionAnswerRequest(msg);
       case "agent.goal.get.request":
       case "agent.goal.set.request":
       case "agent.goal.clear.request":
@@ -5749,6 +5752,34 @@ export class Session {
           error: error instanceof Error ? error.message : "Checklist operation failed",
         },
       });
+    }
+  }
+
+  private async handleQuestionAnswerRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.questions.answer.request" }>,
+  ): Promise<void> {
+    const reply = (questions: AgentQuestion[] | null, error: string | null) =>
+      this.emit({
+        type: "agent.questions.answer.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, questions, error },
+      });
+    try {
+      const answer = msg.answer.trim();
+      if (!answer) throw new Error("Write an answer before sending it.");
+      await ensureUnarchivedAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(
+        await this.agentManager.answerQuestion(msg.agentId, {
+          questionId: msg.questionId,
+          answer,
+        }),
+        null,
+      );
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
     }
   }
 
