@@ -62,11 +62,16 @@ export const ProviderLoginCancelResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), state: ProviderLoginStateSchema }),
 });
 
+/** "full" uses Claude's web sign-in, whose OAuth grant also authorizes usage. Absent means setup-token. */
+export const ClaudeSignInSchema = z.enum(["setup-token", "full"]);
+export type ClaudeSignIn = z.infer<typeof ClaudeSignInSchema>;
+
 export const ClaudeAccountCreateRequestSchema = z.object({
   type: z.literal("provider.claude.create_account.request"),
   requestId: z.string(),
   creationId: z.string().uuid(),
   name: z.string().min(1).max(100),
+  signIn: ClaudeSignInSchema.optional(),
 });
 export const ClaudeAccountCreateResponseSchema = z.object({
   type: z.literal("provider.claude.create_account.response"),

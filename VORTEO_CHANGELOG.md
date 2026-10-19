@@ -4,6 +4,79 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.701 - 2026-10-19
+
+### Maintenance
+
+- Combine Claude full sign-in v2 into the post-Factory integration; retain its release notes below with their original version labels.
+
+## 0.11.0-beta.3.vorteo.700 - 2026-10-18
+
+### Fixed
+
+- Sign a full web sign-in Claude account out with its own CLI (`auth logout` in its configuration directory) before removal deletes the directory. On macOS its Keychain item otherwise outlives the directory. Sign-out failure does not block removal; the removal response carries a warning naming the item and the daemon logs it.
+
+### Known limitations
+
+- The app does not display the removal warning yet. Whether logout revokes the grant at Anthropic is unverified.
+
+### Validation
+
+- Synthetic tests with a fake CLI cover sign-out arguments and directory, failure without blocking deletion, setup-token accounts and stale reviews; 29 removal and account tests pass.
+
+## 0.11.0-beta.3.vorteo.699 - 2026-10-18
+
+### Fixed
+
+- Report an expired full sign-in access token that still has a refresh grant as refreshing on the account's next turn, not as a lost sign-in. The CLI refreshes only when it runs, so usage reads no longer ask for sign-in while the grant is valid. Grants without a refresh token still defer to the usage endpoint.
+
+### Validation
+
+- Synthetic tests cover expired, still-valid and refresh-less records; the quota suites pass.
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-18
+
+### Maintenance
+
+- Clear the managed-installation client marker in the server test setup. Agent shells on a managed Host inherit it, which made Claude setup-token, session, authentication and usage suites fail; suites that test managed behavior still stub it explicitly.
+
+### Validation
+
+- With the marker set in the shell, 559 of 560 focused Claude, provider-login, quota and installation-account tests pass; the remaining packaged CLI payload check fails identically without this change.
+
+## 0.11.0-beta.3.vorteo.697 - 2026-10-18
+
+### Maintenance
+
+- Skip the nested subagent ownership real-provider test unless an OpenRouter key is configured, using the same guard as the other Claude real e2e tests. Running the file directly or through `test:e2e:all` no longer spends this machine's default Claude login.
+
+### Known limitations
+
+- When real-provider runs are enabled, this test still uses the machine's default Claude login rather than OpenRouter.
+
+### Validation
+
+- The guarded file skips in a sandbox with no OpenRouter key and an empty Claude configuration; format and lint pass.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-18
+
+### Added
+
+- Add a full web sign-in Claude account type beside setup-token accounts. Sign-in runs the official `claude auth login --claudeai` in the account's own configuration directory, where the CLI stores and refreshes the grant. A non-secret binding marker records the type; existing bindings stay setup-token, and a retried creation cannot change it.
+- Show usage for full sign-in accounts from only that account's own credentials: the per-directory Keychain item the pinned CLI derives on macOS, then its `.credentials.json` fallback, or the file alone on Linux. Setup-token accounts stay unavailable.
+
+### Fixed
+
+- Launch full sign-in accounts without inherited secure-storage, OAuth, gateway or cloud-provider overrides, so they cannot use another account's storage. Read the type marker only from bindings, never from the daemon's own environment.
+
+### Known limitations
+
+- Managed installations still refuse environment-local sign-in, and the app does not offer the type yet. Installation-wide use needs Host-owned refresh with short-lived Dev tokens. Live sign-in, granted scopes and usage acceptance are unverified.
+
+### Validation
+
+- 17 new synthetic-credential tests pass. 537 of 538 focused Claude unit tests pass; the packaged CLI payload check fails identically on the base commit in this worktree. Workspace typecheck, lint and format pass.
+
 ## 0.11.0-beta.3.vorteo.699 - 2026-10-19
 
 ### Maintenance

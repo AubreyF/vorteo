@@ -21,6 +21,7 @@ import {
   defaultProviderAccountHomes,
   deleteManagedProviderCredentials,
   ProviderRemovalError,
+  signOutClaudeFullSignIn,
 } from "../services/provider-login/removal.js";
 import { QueueStoreError } from "./message-queue/store.js";
 import type { MessageQueueService } from "./message-queue/service.js";
@@ -2977,6 +2978,9 @@ export class Session {
           store: this.daemonConfigStore,
           creationId: msg.creationId,
           name: msg.name,
+          ...(msg.type === "provider.claude.create_account.request" && msg.signIn
+            ? { signIn: msg.signIn }
+            : {}),
         }).then((account) => {
           return this.emit({
             type:
@@ -3281,6 +3285,13 @@ export class Session {
         payload: { requestId: msg.requestId, plan: planProviderRemoval(input) },
       });
     } else {
+      // Sign a full sign-in Claude account out first; its grant can outlive the directory.
+      const warning = await signOutClaudeFullSignIn(input, msg.revision);
+      if (warning)
+        this.sessionLogger.warn(
+          { providerId: msg.providerId },
+          "Claude sign-out failed during account removal",
+        );
       const plan = deleteManagedProviderCredentials(input, msg.revision);
       await this.daemonConfigStore.patchFromClient(
         this.daemonConfigStore.get().sharedProviderPreferences?.installation ||
@@ -3290,7 +3301,7 @@ export class Session {
       );
       this.emit({
         type: "provider.connection.remove.response",
-        payload: { requestId: msg.requestId, plan },
+        payload: { requestId: msg.requestId, plan, ...(warning ? { warning } : {}) },
       });
     }
   }

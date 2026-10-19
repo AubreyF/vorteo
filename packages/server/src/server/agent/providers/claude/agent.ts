@@ -1,5 +1,7 @@
 import { verifySkillSnapshot } from "../../../orchestration-skills/internal/policy.js";
 import { ClaudeSetupTokenLoginSession } from "./setup-token-login.js";
+import { ClaudeLoginSession } from "./login.js";
+import { claudeSignInMode } from "./sign-in-mode.js";
 import {
   claudeSetupTokenStore,
   readClaudeSetupToken,
@@ -1688,6 +1690,14 @@ export class ClaudeAgentClient implements AgentClient {
     const env = createProviderEnv({ baseEnv: process.env, runtimeSettings: this.runtimeSettings });
     const scope = claudeConfigDir(env);
     await promises.mkdir(scope, { recursive: true, mode: 0o700 });
+    // Web sign-in: the CLI stores and refreshes the OAuth grant for this config directory.
+    if (claudeSignInMode(env) === "full")
+      return new ClaudeLoginSession({
+        executable: available.resolvedPath,
+        args: launch.args,
+        scope,
+        runtimeSettings: this.runtimeSettings,
+      });
     return new ClaudeSetupTokenLoginSession({
       executable: available.resolvedPath,
       args: launch.args,
