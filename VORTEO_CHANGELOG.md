@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Give every dispatched restart a 10-minute readiness deadline. After it, the job fails with a clear detail and releases any continuation hold, and a late outcome is logged but never applied or replayed. The coordinator logs each dispatch step and reports every 30 seconds while waiting for a replacement worker.
+- Bound each daemon readiness probe, including its connect and close, so a frozen daemon whose listen backlog still accepts connections can no longer stall the coordinator.
+
+### Validation
+
+- A coordinator test verifies the deadline, the continuation release and that a late success is ignored.
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-19
 
 ### Fixes

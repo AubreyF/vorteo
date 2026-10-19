@@ -28,6 +28,7 @@ const execFileAsync = promisify(execFile);
 
 // Status includes provider availability probes, which can exceed three seconds.
 const DAEMON_RESPONSE_TIMEOUT_MS = 30_000;
+const READINESS_PROBE_TIMEOUT_MS = 10_000;
 
 interface CoordinatorSubmission {
   config: InstallationConfig;
@@ -319,21 +320,67 @@ export function createInstallationRestartExecutor(
     );
   }
 
+  /**
+   * One bounded readiness probe. A frozen daemon still completes TCP handshakes
+   * from its listen backlog, so an unbounded connect or close can wait forever.
+   */
+  async function probeDaemonPid(kind: "host" | "container"): Promise<number> {
+    const attempt = (async () => {
+      const client = await connectInstallationDaemon(config, kind);
+      try {
+        return (await client.getDaemonStatus({ timeout: READINESS_PROBE_TIMEOUT_MS })).pid;
+      } finally {
+        void client.close().catch(() => {});
+      }
+    })();
+    const expired = delay(READINESS_PROBE_TIMEOUT_MS + 5_000).then(() => {
+      throw new Error("Daemon readiness probe did not answer in time");
+    });
+    return Promise.race([attempt, expired]);
+  }
+
+  /** Waits for a changed worker PID, reporting progress, until its own deadline. */
+  async function waitForReplacement(
+    target: RestartJob["target"],
+    kind: "host" | "container",
+    previousPid: number | null,
+  ): Promise<string> {
+    const startedAt = Date.now();
+    const deadline = startedAt + 120_000;
+    let reportedAt = startedAt;
+    logger?.info({ target, previousPid }, "Restart sent; waiting for a replacement worker");
+    while (Date.now() < deadline) {
+      await delay(1000);
+      try {
+        const pid = await probeDaemonPid(kind);
+        if (pid !== previousPid)
+          return `Replacement worker ${pid} is ready; environment identity verified`;
+      } catch {
+        // Startup can temporarily refuse connections. The deadline bounds recovery.
+      }
+      if (Date.now() - reportedAt >= 30_000) {
+        reportedAt = Date.now();
+        logger?.info(
+          { target, previousPid, waitedMs: reportedAt - startedAt },
+          "Still waiting for a replacement worker",
+        );
+      }
+    }
+    logger?.warn({ target, previousPid }, "No replacement worker became ready in time");
+    return reportRestartTimeout(config, target);
+  }
+
   async function restart(target: RestartJob["target"], whenIdle = false): Promise<string | null> {
     assertReady(target);
     const kind = target === "host" ? "host" : "container";
     let previousPid: number | null = null;
-    let before: DaemonClient | null = null;
     try {
-      before = await connectInstallationDaemon(config, kind);
-      previousPid = (await before.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS })).pid;
+      previousPid = await probeDaemonPid(kind);
     } catch (error) {
       if (whenIdle) return null;
       if (target !== "host") throw error;
       // The installation owns this launchd service even when its daemon is down.
       // Readiness after recovery still requires the pinned identity and credential.
-    } finally {
-      await before?.close();
     }
     if (whenIdle) {
       let client: DaemonClient;
@@ -379,22 +426,7 @@ export function createInstallationRestartExecutor(
         await client.close();
       }
     }
-    const deadline = Date.now() + 120_000;
-    while (Date.now() < deadline) {
-      await delay(1000);
-      let client: DaemonClient | null = null;
-      try {
-        client = await connectInstallationDaemon(config, kind);
-        const status = await client.getDaemonStatus({ timeout: DAEMON_RESPONSE_TIMEOUT_MS });
-        if (status.pid !== previousPid)
-          return `Replacement worker ${status.pid} is ready; environment identity verified`;
-      } catch {
-        // Startup can temporarily refuse connections. The deadline bounds recovery.
-      } finally {
-        await client?.close();
-      }
-    }
-    return reportRestartTimeout(config, target);
+    return waitForReplacement(target, kind, previousPid);
   }
   return {
     restartHeld,
