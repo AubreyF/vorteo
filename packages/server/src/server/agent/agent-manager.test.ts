@@ -14801,3 +14801,93 @@ test.each(["ready", "cancelled"] as const)(
     }
   },
 );
+
+test("an answer saved before a failed delivery is delivered once when its thread reloads", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "question-delivery-"));
+  const storagePath = join(workdir, "agents");
+  const queuePath = join(workdir, "queue");
+  const client = new TestAgentClient();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    registry: new AgentStorage(storagePath, logger),
+    logger,
+  });
+  const queue = new MessageQueueService(
+    new MessageQueueStore(queuePath),
+    new QueueAttachmentStore(queuePath),
+  );
+  manager.setMessageQueueControl(queue);
+  let reopened: AgentManager | undefined;
+  let nextQueue: MessageQueueService | undefined;
+  let agentId: string | undefined;
+  try {
+    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    agentId = agent.id;
+    const questionId = randomUUID();
+    await manager.mutateQuestions(agent.id, {
+      operation: "ask",
+      id: questionId,
+      question: "Ship the beta tonight?",
+      why: "Release notes wait for this decision.",
+      recommendedDefault: "Ship tomorrow",
+    });
+    queue.queueQuestionAnswer = async () => {
+      throw new Error("daemon stopped before enqueue");
+    };
+    await expect(
+      manager.answerQuestion(agent.id, {
+        questionId,
+        answer: "Ship tomorrow",
+        answeredBy: "mobile:owner-app",
+      }),
+    ).rejects.toThrow("daemon stopped before enqueue");
+    const saved = (await manager.readQuestions(agent.id))[0];
+    expect(saved).toMatchObject({ status: "answered", answeredBy: "mobile:owner-app" });
+    expect(saved?.answerDeliveredAt).toBeUndefined();
+    expect((await queue.read(agent.id)).items).toEqual([]);
+    await manager.closeAgent(agent.id);
+    await manager.flush();
+    queue.close();
+
+    reopened = new AgentManager({
+      clients: { codex: client },
+      registry: new AgentStorage(storagePath, logger),
+      logger,
+    });
+    nextQueue = new MessageQueueService(
+      new MessageQueueStore(queuePath),
+      new QueueAttachmentStore(queuePath),
+    );
+    reopened.setMessageQueueControl(nextQueue);
+    await reopened.resumeAgentFromPersistence(
+      { provider: "codex", sessionId: "question-delivery" },
+      { cwd: workdir },
+      agent.id,
+    );
+    await expect
+      .poll(async () => (await reopened!.readQuestions(agent.id))[0]?.answerDeliveredAt)
+      .toBeDefined();
+    const items = (await nextQueue.read(agent.id)).items;
+    expect(items.map((item) => item.id)).toEqual([`question-answer-${questionId}`]);
+    expect(reopened.getAgent(agent.id)?.journal?.map((entry) => entry.text)).toEqual([
+      'Owner answered "Ship the beta tonight?": Ship tomorrow',
+    ]);
+    // A retried answer after delivery neither enqueues nor journals again.
+    await reopened.answerQuestion(agent.id, {
+      questionId,
+      answer: "Ship tomorrow",
+      answeredBy: "mobile:owner-app",
+    });
+    expect((await nextQueue.read(agent.id)).items).toHaveLength(1);
+    expect(reopened.getAgent(agent.id)?.journal).toHaveLength(1);
+  } finally {
+    queue.close();
+    nextQueue?.close();
+    if (agentId) await reopened?.closeAgent(agentId);
+    await manager.flush();
+    await reopened?.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});

@@ -13,6 +13,7 @@ import {
 } from "@getpaseo/protocol/agent-questions";
 import {
   answerQuestion,
+  markAnswerDelivered,
   mutateQuestions,
   QuestionError,
   type AnsweredQuestions,
@@ -393,6 +394,24 @@ export class AgentStorage {
     );
     if (committed === null)
       throw new QuestionError("not_found", "The thread was deleted before the answer was saved.");
+    return structuredClone(committed);
+  }
+
+  async markAnswerDelivered(agentId: string, questionId: string): Promise<AgentQuestion[]> {
+    await this.load();
+    let committed: AgentQuestion[] | null = null;
+    await this.queueRecordMutation(
+      agentId,
+      (record) => {
+        if (!record) throw new QuestionError("not_found", "Thread not found.");
+        const questions = record.questions ?? [];
+        committed = markAnswerDelivered(questions, questionId, new Date().toISOString());
+        return committed === questions ? null : { ...record, questions: committed };
+      },
+      { questionsWrite: true },
+    );
+    if (committed === null)
+      throw new QuestionError("not_found", "The thread was deleted before delivery was saved.");
     return structuredClone(committed);
   }
 

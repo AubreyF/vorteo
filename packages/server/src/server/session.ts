@@ -488,6 +488,8 @@ export interface SessionOptions {
   clientId: string;
   /** From authenticated transport admission, never client request data. */
   principalId?: string | null;
+  /** Self-declared in hello; distinguishes owner interfaces from bridges and tools. */
+  clientType?: "mobile" | "browser" | "cli" | "mcp" | "hub";
   permissions: readonly DaemonPermission[];
   appVersion?: string | null;
   clientCapabilities?: Record<string, unknown> | null;
@@ -764,6 +766,7 @@ export class Session {
   private readonly authorization: SessionAuthorization;
   private readonly ownerEvidence: TaskOwnerEvidenceStore;
   private readonly principalId: string | null | undefined;
+  private readonly clientType: SessionOptions["clientType"];
   private appVersion: string | null;
   private clientCapabilities: ReadonlySet<ClientCapability>;
   private readonly sessionId: string;
@@ -947,6 +950,7 @@ export class Session {
     this.serverId = serverId;
     this.authorization = new SessionAuthorization(permissions);
     this.principalId = options.principalId;
+    this.clientType = options.clientType;
     this.ownerEvidence = new TaskOwnerEvidenceStore(paseoHome);
     this.appVersion = appVersion ?? null;
     this.clientCapabilities = parseClientCapabilities(clientCapabilities);
@@ -5766,6 +5770,9 @@ export class Session {
     try {
       const answer = msg.answer.trim();
       if (!answer) throw new Error("Write an answer before sending it.");
+      // Agent bridges, tools and hubs share the daemon credential but never speak for the owner.
+      if (this.clientType !== "mobile" && this.clientType !== "browser")
+        throw new Error("Answer open questions from the Vorteo app.");
       await ensureUnarchivedAgentLoaded(msg.agentId, {
         agentManager: this.agentManager,
         agentStorage: this.agentStorage,
@@ -5775,6 +5782,7 @@ export class Session {
         await this.agentManager.answerQuestion(msg.agentId, {
           questionId: msg.questionId,
           answer,
+          answeredBy: `${this.clientType}:${this.clientId}`,
         }),
         null,
       );

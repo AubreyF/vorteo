@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import type { AgentQuestion, QuestionMutation } from "@getpaseo/protocol/agent-questions";
 
 const MAX_QUESTIONS = 200;
+/** Closed questions beyond this many are pruned once answers are delivered. */
+const RETAINED_CLOSED_QUESTIONS = 20;
+const MIN_DEFAULT_WINDOW_MS = 15 * 60_000;
 
 export class QuestionError extends Error {
   constructor(
@@ -57,6 +60,41 @@ function askedFields(question: AskedFields): string {
   ]);
 }
 
+/** The owner needs a real chance to answer before an agent proceeds on its default. */
+function requireDefaultWindow(defaultAppliesAfter: string | null | undefined, now: string): void {
+  if (!defaultAppliesAfter) return;
+  if (Date.parse(defaultAppliesAfter) - Date.parse(now) < MIN_DEFAULT_WINDOW_MS)
+    throw new QuestionError(
+      "invalid",
+      "defaultAppliesAfter must be at least 15 minutes after the question is asked or updated.",
+    );
+}
+
+function closedAt(question: AgentQuestion): string {
+  return question.answeredAt ?? question.askedAt;
+}
+
+/** Keep open and undelivered questions, plus the newest closed ones. */
+function retainQuestions(questions: AgentQuestion[]): AgentQuestion[] {
+  const pending = (question: AgentQuestion) =>
+    question.status === "open" || (question.status === "answered" && !question.answerDeliveredAt);
+  const closed = questions.filter((question) => !pending(question));
+  if (closed.length <= RETAINED_CLOSED_QUESTIONS) return questions;
+  const kept = new Set(
+    closed
+      .sort((left, right) => closedAt(right).localeCompare(closedAt(left)))
+      .slice(0, RETAINED_CLOSED_QUESTIONS),
+  );
+  return questions.filter((question) => pending(question) || kept.has(question));
+}
+
+/** Withdrawn questions need no owner, so snapshots omit them. */
+export function snapshotQuestions(
+  questions: AgentQuestion[] | undefined,
+): AgentQuestion[] | undefined {
+  return questions?.filter((question) => question.status !== "withdrawn");
+}
+
 function requireQuestion(questions: AgentQuestion[], id: string): AgentQuestion {
   const question = questions.find((item) => item.id === id);
   if (!question) throw new QuestionError("not_found", `Question ${id} does not exist.`);
@@ -84,6 +122,7 @@ export function mutateQuestions(
         );
       return questions;
     }
+    requireDefaultWindow(mutation.defaultAppliesAfter, context.now);
     if (questions.length >= MAX_QUESTIONS)
       throw new QuestionError("invalid", "This thread already has too many questions.");
     const asked: AgentQuestion = {
@@ -106,7 +145,7 @@ export function mutateQuestions(
     if (question.status === "withdrawn") return questions;
     if (question.status === "answered")
       throw new QuestionError("conflict", "The owner already answered this question.");
-    return replaceQuestion(questions, { ...question, status: "withdrawn" });
+    return retainQuestions(replaceQuestion(questions, { ...question, status: "withdrawn" }));
   }
   if (question.status !== "open")
     throw new QuestionError(
@@ -114,13 +153,19 @@ export function mutateQuestions(
       `Only open questions can be updated; this one is ${question.status}.`,
     );
   requireTasks(mutation.blocks, context.taskIds);
+  requireDefaultWindow(mutation.defaultAppliesAfter, context.now);
+  const { defaultAppliesAfter: _previous, ...revisable } = question;
+  const defaultAppliesAfter =
+    mutation.defaultAppliesAfter === undefined
+      ? question.defaultAppliesAfter
+      : mutation.defaultAppliesAfter;
   const updated: AgentQuestion = {
-    ...question,
+    ...revisable,
     question: mutation.question ?? question.question,
     why: mutation.why ?? question.why,
     recommendedDefault: mutation.recommendedDefault ?? question.recommendedDefault,
     ...(mutation.blocks ? { blocks: mutation.blocks } : {}),
-    ...(mutation.defaultAppliesAfter ? { defaultAppliesAfter: mutation.defaultAppliesAfter } : {}),
+    ...(defaultAppliesAfter ? { defaultAppliesAfter } : {}),
   };
   return replaceQuestion(questions, updated);
 }
@@ -146,6 +191,17 @@ export function answerQuestion(questions: AgentQuestion[], input: OwnerAnswer): 
     answeredBy: input.answeredBy,
   };
   return { questions: replaceQuestion(questions, answered), answered };
+}
+
+/** Recorded only after the answer message is durably queued. */
+export function markAnswerDelivered(
+  questions: AgentQuestion[],
+  questionId: string,
+  now: string,
+): AgentQuestion[] {
+  const question = requireQuestion(questions, questionId);
+  if (question.answerDeliveredAt) return questions;
+  return retainQuestions(replaceQuestion(questions, { ...question, answerDeliveredAt: now }));
 }
 
 /** A stable journal entry ID makes answer retries append at most one entry. */

@@ -15,6 +15,7 @@ export const AgentQuestionSchema = z.object({
   answer: z.string().optional(),
   answeredAt: z.string().datetime().optional(),
   answeredBy: z.string().optional(),
+  answerDeliveredAt: z.string().datetime().optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestionSchema>;
 
@@ -47,7 +48,7 @@ const QuestionFields = {
     .datetime()
     .optional()
     .describe(
-      "Optional ISO time after which you will proceed with the recommended default if the owner has not answered.",
+      "Optional ISO time, at least 15 minutes ahead, after which you will proceed with the recommended default if the owner has not answered.",
     ),
 };
 
@@ -70,7 +71,12 @@ export const QuestionMutationSchema = z.discriminatedUnion("operation", [
       why: QuestionFields.why.optional(),
       recommendedDefault: QuestionFields.recommendedDefault.optional(),
       blocks: QuestionFields.blocks,
-      defaultAppliesAfter: QuestionFields.defaultAppliesAfter,
+      defaultAppliesAfter: z
+        .string()
+        .datetime()
+        .nullable()
+        .optional()
+        .describe("A new time after which the default applies, or null to remove it."),
     })
     .strict(),
   z.object({ operation: z.literal("withdraw"), id: z.string().uuid() }).strict(),

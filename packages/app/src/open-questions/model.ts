@@ -32,6 +32,18 @@ export function blockedTasks(question: AgentQuestion, tasks: readonly TodoEntry[
   });
 }
 
+const ANSWER_SOURCES: Record<string, string> = {
+  mobile: "the Vorteo app",
+  browser: "a browser",
+};
+
+/** answeredBy is "<client type>:<client id>"; early daemons recorded only "owner". */
+export function answeredFrom(answeredBy: string | undefined): string | null {
+  const type = answeredBy?.split(":")[0];
+  if (!type || type === "owner") return null;
+  return ANSWER_SOURCES[type] ?? type;
+}
+
 export function openQuestionCount(questions: readonly AgentQuestion[] | undefined): number {
   return questions?.filter((question) => question.status === "open").length ?? 0;
 }

@@ -18,7 +18,7 @@ import { useSessionStore } from "@/stores/session-store";
 import type { TodoEntry } from "@/types/stream";
 import { formatMessageTimestamp, formatTimeAgo } from "@/utils/time";
 import { useVortonTouch } from "@/vorton-touch";
-import { blockedTasks, groupQuestions } from "./model";
+import { answeredFrom, blockedTasks, groupQuestions } from "./model";
 
 const EMPTY_QUESTIONS: AgentQuestion[] = [];
 const EMPTY_TASKS: TodoEntry[] = [];
@@ -296,15 +296,19 @@ function AnsweredQuestions({
                 {question.answer}
               </Text>
               {question.answeredAt ? (
-                <Text style={styles.meta}>
-                  {`Answered ${formatTimeAgo(new Date(question.answeredAt))}`}
-                </Text>
+                <Text style={styles.meta}>{answeredMeta(question)}</Text>
               ) : null}
             </View>
           ))
         : null}
     </View>
   );
+}
+
+function answeredMeta(question: AgentQuestion): string {
+  const when = `Answered ${formatTimeAgo(new Date(question.answeredAt ?? question.askedAt))}`;
+  const source = answeredFrom(question.answeredBy);
+  return source ? `${when} from ${source}` : when;
 }
 
 const styles = StyleSheet.create((theme) => ({

@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.691 - 2026-10-18
+
+### Fixes
+
+- Deliver every saved open-question answer exactly once: answers are marked delivered only after their message is durably queued, and a thread queues any undelivered answer when it loads. Journaling is best effort after delivery.
+- Accept answers only from the Vorteo app or a browser, record which client answered, and show it in answered rows.
+- Require the recommended-default time to be at least 15 minutes ahead and let agents clear it. Omit withdrawn questions from snapshots and keep the newest 20 closed questions once delivered.
+
+### Validation
+
+- Question model, reload delivery, daemon end-to-end and browser checks at three widths pass.
+
 ## 0.11.0-beta.3.vorteo.690 - 2026-10-18
 
 ### Features

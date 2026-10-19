@@ -1,4 +1,5 @@
 import { projectQueueGoalState } from "../message-queue/goal-hold.js";
+import { snapshotQuestions } from "./questions/model.js";
 import type {
   AgentListItemPayload,
   AgentSnapshotPayload,
@@ -139,7 +140,7 @@ export function toAgentPayload(
   const payload: AgentSnapshotPayload = {
     ...(agent.tasks === undefined ? {} : { tasks: agent.tasks }),
     ...(agent.journal === undefined ? {} : { journal: agent.journal }),
-    ...(agent.questions === undefined ? {} : { questions: agent.questions }),
+    ...(agent.questions === undefined ? {} : { questions: snapshotQuestions(agent.questions) }),
     id: agent.id,
     ...projectLaunchMetadata(agent.config),
     provider: agent.provider,
@@ -255,7 +256,7 @@ export function buildStoredAgentPayload(
   return {
     ...(record.tasks === undefined ? {} : { tasks: record.tasks }),
     ...(record.journal === undefined ? {} : { journal: record.journal }),
-    questions: record.questions,
+    questions: snapshotQuestions(record.questions),
     id: record.id,
     ...projectLaunchMetadata(record.config),
     provider: record.provider,

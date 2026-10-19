@@ -20,10 +20,12 @@ test("agents ask through MCP and the owner's answer is saved, journaled and deli
     mcpEnabled: true,
   });
   const url = `ws://127.0.0.1:${daemon.port}/ws`;
-  const owner = new DaemonClient({ url, appVersion: "0.7.2" });
+  const owner = new DaemonClient({ url, appVersion: "0.7.2", clientType: "browser" });
+  const bridge = new DaemonClient({ url, appVersion: "0.7.2", clientType: "mcp" });
   const mcp = new McpClient({ name: "questions-test", version: "1.0.0" });
   try {
     await owner.connect();
+    await bridge.connect();
     await owner.fetchAgents({ subscribe: {} });
     const agent = await owner.createAgent({
       config: { provider: "codex", cwd: daemon.paseoHome },
@@ -71,12 +73,13 @@ test("agents ask through MCP and the owner's answer is saved, journaled and deli
       askedBy: agent.id,
     });
 
+    await expect(bridge.answerAgentQuestion(agent.id, questionId, "us-east")).rejects.toThrow(
+      "Answer open questions from the Vorteo app.",
+    );
     const answered = await owner.answerAgentQuestion(agent.id, questionId, " eu-west ");
-    expect(answered[0]).toMatchObject({
-      status: "answered",
-      answer: "eu-west",
-      answeredBy: "owner",
-    });
+    expect(answered[0]).toMatchObject({ status: "answered", answer: "eu-west" });
+    expect(answered[0]?.answeredBy).toMatch(/^browser:/);
+    expect(answered[0]?.answerDeliveredAt).toBeDefined();
     expect(await owner.answerAgentQuestion(agent.id, questionId, "eu-west")).toEqual(answered);
     await expect(owner.answerAgentQuestion(agent.id, questionId, "us-east")).rejects.toThrow(
       "already answered",
@@ -114,6 +117,7 @@ test("agents ask through MCP and the owner's answer is saved, journaled and deli
     expect((await storage.get(agent.id))?.questions).toEqual(answered);
   } finally {
     await mcp.close();
+    await bridge.close();
     await owner.close();
     await daemon.close();
   }

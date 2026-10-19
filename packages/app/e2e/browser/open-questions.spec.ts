@@ -137,12 +137,13 @@ for (const [label, width] of [
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: info.outputPath(`open-questions-answered-${label}.png`) });
 
-      const questions = await client.answerAgentQuestion(
-        agent.agentId,
-        notes,
-        "Leave pricing out for now",
+      await expect(page.getByTestId(`answered-question-${notes}`)).toContainText(
+        "from the Vorteo app",
       );
-      expect(questions.map((item) => item.status)).toEqual(["answered", "answered"]);
+      // Tools and bridges share the daemon credential but cannot answer for the owner.
+      await expect(
+        client.answerAgentQuestion(agent.agentId, notes, "Leave pricing out for now"),
+      ).rejects.toThrow("Answer open questions from the Vorteo app.");
       await expect
         .poll(async () => {
           const timeline = await client.fetchAgentTimeline(agent.agentId);
