@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Fixes
+
+- Never let a daemon worker outlive its supervisor. A watchdog on its own thread kills the worker within 15 seconds of supervisor loss, and 5 seconds after its shutdown budget, even when the worker's event loop is blocked or process exit hangs. It records the shutdown step the worker was stuck on.
+
+### Validation
+
+- Watchdog tests block a real process's event loop and verify it is killed at its deadline and after its supervisor dies, and that an unarmed watchdog never kills a healthy process.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes
