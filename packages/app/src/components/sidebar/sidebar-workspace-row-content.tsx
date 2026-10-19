@@ -7,6 +7,7 @@ import {
 } from "@/execution-installation/environment-icon";
 import { WorkspaceChecklistProgress } from "@/task-checklist/workspace-progress";
 import { WorkspaceQueueCount } from "@/message-queue/workspace-queue-count";
+import { WorkspaceOpenQuestionCount } from "@/open-questions/workspace-count";
 import { WorkspaceSubagentCount } from "@/subagents/workspace-count";
 import { useVortonTouch } from "@/vorton-touch";
 
@@ -120,6 +121,7 @@ function WorkspaceActivityBadges({
   if (!visible) return null;
   return (
     <>
+      <WorkspaceOpenQuestionCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceQueueCount serverId={serverId} workspaceId={workspaceId} />
       <WorkspaceSubagentCount serverId={serverId} workspaceId={workspaceId} />
     </>

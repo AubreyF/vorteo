@@ -4,6 +4,157 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Maintenance
+
+- Integrate checklist progress, project placement and conversation-width work with the currently installed Host source, retaining both complete release histories. Version-only manifest conflicts take the installed side before this version bump; both sides' end-of-file agent manager tests are kept.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.695 - 2026-10-18
+
+### Fixes
+
+- Start release scan and reader workers without the parent's main-input options. Bounded verification children run as `--input-type=module --eval`, and workers inheriting `--input-type` failed at once, so the executor's retained-renewal check refused every coordinator dispatch in 0.3 s. `--eval`, `--print` and `--experimental-default-type` are dropped as well, in inline and separate forms.
+
+### Validation
+
+- Regression tests run a full digest with parallel readers inside `--input-type=module --eval` children, in both forms, using the retained-renewal launcher's flags, reduced environment and stdout handshake. They fail without the fix. The real retained-renewal child, run from this build against the live renewal file, now passes (exit 0 in 9.5 s, where v695 exited 1 in 0.35 s).
+
+## 0.11.0-beta.3.vorteo.695 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.694 - 2026-10-18
+
+Adds the Host renewal context refresh to the vorteo.693 integration. Its branch numbered its entries vorteo.692 and vorteo.693 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Renewal context refresh (renewal branch vorteo.692)
+
+#### Fixes
+
+- Re-derive the Host's coordinator renewal context after a coordinator request completes, or when the selected configuration changes, instead of refusing later requests until the Host restarts. Derivation reuses the unchanged initialization with every custody and identity check. Concurrent operations wait for one derivation. An operation already running still refuses a context change that happens while it runs.
+
+#### Validation
+
+- Tests cover preparing and approving request B after request A completes without a Host restart, a refused mid-operation change followed by re-derivation, single-flight concurrency, an unavailable derivation retried by the next operation, status-read refresh, and which history changes trigger re-derivation.
+
+### Renewal refresh fixes (renewal branch vorteo.693)
+
+#### Fixes
+
+- After a failed renewal re-derivation, status reads retry only once coordinator history or the selected configuration changes again. Polling no longer chains full derivations right after a coordinator replacement, explicit operations still retry, and the failure reason stays visible.
+- Forward availability from the current ordinary review through claimed-recovery refresh, and release a replaced service's subscription.
+
+#### Validation
+
+- Tests cover repeated status reads after a failed derivation, retry after a later context change, and claimed-recovery subscription forwarding and release.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 723 renewal, Host, artifact, scan, launch and runner cases, 165 claimed review and owner session cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-18
+
+Adds release verification speedup A to the vorteo.692 integration. Its branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Release verification speedup (speedup branch vorteo.690)
+
+#### Fixes
+
+- Verify coordinator and Host release trees on worker threads with bounded parallel reads. Digests stay byte-identical, so existing coordinators keep accepting them. A full installed release takes 8 to 13 seconds rather than more than two minutes, and the Host event loop stays responsive while it runs.
+- Hash each distinct release tree at most once per review action, plan verification or dispatch. Later checks in the same operation re-assert every retained path's metadata off the event loop, never across operations or processes.
+- Keep each caller's deadline and cancellation separate within shared verification. One caller's timeout no longer rejects other callers, and a rejected or abandoned scan is never reused.
+
+#### Validation
+
+- Equivalence tests compare the new and sequential implementations on fixture trees covering chunk boundaries, modes, links, hard links, special files, permission failures and limits. Both produce the same digest on the installed release.
+
+### Release verification fixes (speedup branch vorteo.691)
+
+#### Fixes
+
+- Re-read coordinator candidate bytes in full at dispatch after an owner decision. Proofs collected before the password check and approval re-verification no longer carry into launch, which keeps the hash-to-use window short.
+- Update a shared tree scan's reuse state before its result settles, so no caller can join a rejection that is about to be discarded.
+- Keep retained tree metadata in one compact form, roughly halving retained proof memory.
+
+#### Validation
+
+- A regression test shows dispatch performs a fresh byte scan after an owner decision, including inside an enclosing reuse operation. It fails when dispatch joins the earlier proof.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 489 artifact, scan, Host, launch, renewal and runner cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-18
+
+Integrates the restart continuation fixes (vorteo.690 below) with the Open questions card. The card branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Open questions card (card branch vorteo.690)
+
+#### Features
+
+- Add an Open questions card above Tasks. Agents ask blocking questions with a required recommended default, optional blocked tasks and an optional default time; the owner answers inline with Use recommended or typed text. Answers are saved once, journaled and delivered to the asking thread as a message.
+- Show a calm count of open questions on workspace sidebar rows.
+
+#### Validation
+
+- Focused question model, daemon MCP and RPC, and app model tests pass, with a real-browser check at phone, tablet and desktop widths against a disposable daemon.
+
+### Open questions fixes (card branch vorteo.691)
+
+#### Fixes
+
+- Deliver every saved open-question answer exactly once: answers are marked delivered only after their message is durably queued, and a thread queues any undelivered answer when it loads. Journaling is best effort after delivery.
+- Accept answers only from the Vorteo app or a browser, record which client answered, and show it in answered rows.
+- Require the recommended-default time to be at least 15 minutes ahead and let agents clear it. Omit withdrawn questions from snapshots and keep the newest 20 closed questions once delivered.
+
+#### Validation
+
+- Question model, reload delivery, daemon end-to-end and browser checks at three widths pass.
+
+### Documentation
+
+- Describe the manual lifecycle journal recovery for rolling back to vorteo.689 while an idle restart capture is held.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 905 of 907 focused server cases, 228 client cases, 40 app cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-18
+
+### Fixes
+
+- Keep restart continuation from freezing lifecycle work. Targets without durable continuation keep legacy restarts without recording intent, release falls back to the legacy drain, and only undispatched or running captures fence other work.
+- Let a replacement daemon recapture and release a held cause from an earlier lifetime, so tasks continue after crashes and unverified restarts without replaying uncertain deliveries.
+- Clear and retry failed captures. Idle-only restarts capture under a fresh cause per attempt and release it while waiting, so waiting never pauses goals or closes admission.
+- Drop the queued continuation nudge when a capture is cancelled within its own daemon lifetime, unless the agent was asked to stop and save work.
+- Clear per-attempt capture causes when holds are released and omit them from restart replies, keeping journals readable after a rollback to v689. Log when a daemon is treated as lacking continuation support.
+
+### Validation
+
+- Focused restart, manager, queue, session and coordinator server suites pass apart from two failures that also occur on v689.
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-18
+
+### Fixes
+
+- Preserve running goal and no-goal tasks before tracked daemon restarts, including force restarts. Release their saved continuations only after verified replacement readiness or cancellation by the original daemon.
+- Keep paused, stopped, exhausted and uncertain work fenced during recovery. Reject stale restart causes and retain unresolved capture intent across adapter changes.
+- Give coordinator preparation POSTs one sixteen-minute connection, headers and body deadline using the standalone client’s built-in HTTP transport. Clean up on completion or failure without replaying uncertain requests.
+- Reuse retained release proofs within coordinator plan verification when candidate and fallback share a runtime. Separate configuration checks and final custody assertions remain required.
+
+### Validation
+
+- Combined source passes all workspace typechecks, repository lint and 42 focused manager and transport cases. Startup-contract validation passes; tracked installation acceptance remains pending.
+
 ## 0.11.0-beta.3.vorteo.689 - 2026-10-18
 
 ### Added

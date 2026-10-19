@@ -11,6 +11,7 @@ import { z } from "zod";
 export const SUPPORTING_CARD_DEFAULTS = {
   goal: true,
   tasks: true,
+  questions: true,
   journal: true,
   queue: true,
   subagents: true,
@@ -25,6 +26,7 @@ const SupportingCardStateSchema = z
   .object({
     goal: z.boolean(),
     tasks: z.boolean(),
+    questions: z.boolean(),
     journal: z.boolean(),
     queue: z.boolean(),
     subagents: z.boolean(),

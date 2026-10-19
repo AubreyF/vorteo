@@ -15,7 +15,15 @@ import {
   type QueueAttachment,
 } from "@getpaseo/protocol/message-queue";
 
+const RestartContinuationSchema = z.object({
+  requestId: IdSchema,
+  owner: z.string().uuid(),
+  phase: z.enum(["held", "ready", "cancelled"]),
+  abandoned: z.boolean().optional(),
+});
+
 const RecordSchema = z.object({
+  restartContinuation: RestartContinuationSchema.optional(),
   snapshot: SnapshotSchema,
   messageIds: z.array(IdSchema),
   receipts: z.array(
@@ -56,6 +64,13 @@ export class QueueStoreError extends Error {
     super(message);
     this.name = "QueueStoreError";
   }
+}
+
+interface RestartContinuationRelease {
+  requestId: string;
+  owner: string;
+  outcome: "ready" | "cancelled";
+  keepContinuation: boolean;
 }
 
 // The daemon is the single writer. Each task's read/modify/commit belongs in this
@@ -136,10 +151,65 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => (await this.load(agentId)).snapshot);
   }
 
+  restartContinuation(agentId: string) {
+    return this.serial(agentId, async () => (await this.load(agentId)).restartContinuation);
+  }
+
+  captureRestartContinuation(agentId: string, requestId: string, owner: string): Promise<void> {
+    IdSchema.parse(requestId);
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      // One daemon lifetime owns a store at a time. A replacement accepts the same held
+      // cause without rewriting its owner, which keeps proof that the capturing lifetime ended.
+      if (retained?.requestId === requestId) return;
+      if (retained?.phase === "held")
+        throw new Error("Another restart owns this task's continuation");
+      record.restartContinuation = { requestId, owner, phase: "held" };
+      await this.commit(record);
+    });
+  }
+
+  abandonRestartContinuation(agentId: string): Promise<void> {
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      if (!retained) return;
+      const id = `restart-${retained.requestId}-${agentId}`;
+      record.restartContinuation = { ...retained, abandoned: true };
+      record.snapshot.items = record.snapshot.items.filter(
+        (item) => item.id !== id || item.delivery.status !== "queued",
+      );
+      record.snapshot.revision += 1;
+      await this.commit(record);
+    });
+  }
+
+  releaseRestartContinuation(agentId: string, input: RestartContinuationRelease): Promise<void> {
+    const { requestId, owner, outcome, keepContinuation } = input;
+    return this.serial(agentId, async () => {
+      const record = await this.load(agentId);
+      const retained = record.restartContinuation;
+      if (retained?.requestId !== requestId || retained.phase !== "held") return;
+      record.restartContinuation = { ...retained, phase: outcome };
+      // A cancellation within the capturing lifetime interrupted nothing. Its nudge would
+      // start a spurious turn unless the agent was asked to stop and save its work.
+      if (outcome === "cancelled" && retained.owner === owner && !keepContinuation) {
+        const id = `restart-${requestId}-${agentId}`;
+        record.snapshot.items = record.snapshot.items.filter(
+          (item) => item.id !== id || item.delivery.status !== "queued",
+        );
+        record.snapshot.revision += 1;
+      }
+      await this.commit(record);
+    });
+  }
+
   /** Reserve ordinary automatic work only while no user queue operation can interleave. */
   withIdleQueue<T>(agentId: string, operation: () => Promise<T>): Promise<T | null> {
     return this.serial(agentId, async () => {
-      const { snapshot } = await this.load(agentId);
+      const { snapshot, restartContinuation } = await this.load(agentId);
+      if (restartContinuation?.phase === "held") return null;
       if (snapshot.paused || snapshot.items.length || snapshot.deliveryError) return null;
       return operation();
     });
@@ -207,6 +277,7 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => {
       const record = await this.load(agentId);
       const head = record.snapshot.items[0];
+      if (record.restartContinuation?.phase === "held") return null;
       if (!head || (record.snapshot.paused && !head.sendNow) || head.delivery.status !== "queued")
         return null;
       head.delivery = {
@@ -429,6 +500,16 @@ export class MessageQueueStore {
         // snapshot that existed when this operation originally committed.
         return record.snapshot;
       }
+      const restart = record.restartContinuation;
+      const restartMessage =
+        operation.kind === "enqueue" &&
+        restart &&
+        operation.messageId === `restart-${restart.requestId}-${agentId}`;
+      if (
+        restartMessage &&
+        (restart.phase !== "held" || restart.abandoned || record.snapshot.paused)
+      )
+        return record.snapshot;
       apply(record, operation);
       record.snapshot.revision += 1;
       record.receipts.push({

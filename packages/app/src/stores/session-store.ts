@@ -72,6 +72,7 @@ export interface AgentRuntimeInfo {
 export interface Agent {
   tasks?: TodoEntry[];
   journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
+  questions?: import("@getpaseo/protocol/agent-questions").AgentQuestion[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
   profile?: { id: string; name: string };
   quotaPausedAt?: string;

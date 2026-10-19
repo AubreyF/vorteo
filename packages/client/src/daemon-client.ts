@@ -784,6 +784,7 @@ export interface RestartServerOptions {
   idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
   restartDrainId?: string;
   heldRestart?: HeldRestart;
+  restartContinuation?: "capture" | "ready" | "cancelled";
 }
 
 function assertHeldRestartAcknowledgement(
@@ -3822,6 +3823,21 @@ export class DaemonClient {
     return result.tasks;
   }
 
+  async answerAgentQuestion(
+    agentId: string,
+    questionId: string,
+    answer: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    if (this.lastServerInfoMessage?.features?.agentQuestions !== true)
+      throw new Error("Update the daemon before answering open questions.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.questions.answer.response">({
+        message: { type: "agent.questions.answer.request", agentId, questionId, answer },
+      });
+    if (result.error || !result.questions) throw new Error(result.error ?? "Answer unconfirmed");
+    return result.questions;
+  }
+
   private assertChecklistSupport(): void {
     if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
       throw new Error("Update the daemon before editing thread checklists.");
@@ -4350,11 +4366,22 @@ export class DaemonClient {
     return held;
   }
 
+  private requireRestartContinuation(options?: RestartServerOptions): void {
+    if (options?.restartContinuation) {
+      if (this.lastServerInfoMessage?.features?.restartContinuation !== true)
+        throw new Error("Update this daemon to preserve tasks across restarts");
+      const expectedMode = options.restartContinuation === "capture" ? "drain" : "cancel-drain";
+      if (!options.restartDrainId || options.idleMode !== expectedMode || options.heldRestart)
+        throw new Error("Restart continuation requires its exact request and control mode");
+    }
+  }
+
   async restartServer(
     reason?: string,
     requestId?: string,
     options?: RestartServerOptions,
   ): Promise<RestartRequestedStatusPayload> {
+    this.requireRestartContinuation(options);
     const heldRestart = this.requireHeldRestart(options);
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
@@ -4370,6 +4397,7 @@ export class DaemonClient {
       type: "restart_server_request",
       heldRestart,
       restartDrainId: options?.restartDrainId,
+      restartContinuation: options?.restartContinuation,
       idleMode: options?.idleMode,
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,

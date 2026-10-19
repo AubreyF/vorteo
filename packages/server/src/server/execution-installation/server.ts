@@ -178,6 +178,8 @@ function restartReply(
     automaticAuthority: _authority,
     supervisorRecoveredBy: _supervisorRecovery,
     automaticDispatchAfter: _dispatchAfter,
+    // COMPAT(restartContinuation): coordinator-internal; strict v689 clients reject it.
+    continuationCaptureId: _captureId,
     ...publicJob
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);

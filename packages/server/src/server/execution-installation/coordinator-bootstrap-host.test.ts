@@ -2577,8 +2577,10 @@ test.runIf(process.platform === "darwin")(
       Mounts: [],
     });
     duringInspection.run = () => writeFileSync(file, "changed prepared tooling");
+    // The final pass reuses the operation's retained tooling proof, whose
+    // metadata assertion refuses before any second byte digest.
     await expect(verifyBootstrapPlan(plan, host)).rejects.toThrow(
-      "Prepared release artifact changed",
+      "Prepared artifact changed during verification",
     );
     restore();
     duringInspection.run = () => {

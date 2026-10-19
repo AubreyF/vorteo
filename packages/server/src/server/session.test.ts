@@ -448,6 +448,83 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
   return new Session(sessionOptions);
 }
 
+test("restart continuation capture acknowledges durability without restarting", async () => {
+  const captured = deferred<void>();
+  const capture = vi.fn(() => captured.promise);
+  const messages: SessionOutboundMessage[] = [];
+  const session = createSessionForTest({
+    messages,
+    agentManager: {
+      captureRestartContinuation: capture,
+      getRestartImpact: () => ({ agents: [], pendingStarts: 0 }),
+    },
+  });
+  const cause = "c9cb1157-4773-4c61-905a-3f4e8bbf30f3";
+  const handling = session.handleMessage({
+    type: "restart_server_request",
+    requestId: "capture-rpc",
+    idleMode: "drain",
+    restartDrainId: cause,
+    restartContinuation: "capture",
+  });
+  await expect.poll(() => capture.mock.calls.length).toBe(1);
+  expect(capture).toHaveBeenCalledWith(cause);
+  expect(messages.filter((m) => m.type === "status")).toEqual([]);
+  captured.resolve();
+  await handling;
+  expect(messages.filter((m) => m.type === "status")).toEqual([
+    {
+      type: "status",
+      payload: {
+        status: "restart_requested",
+        requestId: "capture-rpc",
+        clientId: "test-client",
+        accepted: true,
+        impact: { agents: [], pendingStarts: 0 },
+      },
+    },
+  ]);
+});
+
+test.each(["ready", "cancelled"] as const)(
+  "restart continuation forwards exact %s outcome",
+  async (outcome) => {
+    const release = vi.fn(async () => false);
+    const legacyCancel = vi.fn(() => true);
+    const messages: SessionOutboundMessage[] = [];
+    const session = createSessionForTest({
+      messages,
+      agentManager: {
+        releaseRestartContinuation: release,
+        cancelRestartDrain: legacyCancel,
+        getRestartImpact: () => ({ agents: [], pendingStarts: 0 }),
+      },
+    });
+    const cause = "c9cb1157-4773-4c61-905a-3f4e8bbf30f3";
+    await session.handleMessage({
+      type: "restart_server_request",
+      requestId: "release-rpc",
+      idleMode: "cancel-drain",
+      restartDrainId: cause,
+      restartContinuation: outcome,
+    });
+    expect(release).toHaveBeenCalledWith(cause, outcome);
+    expect(legacyCancel).not.toHaveBeenCalled();
+    expect(messages.filter((m) => m.type === "status")).toEqual([
+      {
+        type: "status",
+        payload: {
+          status: "restart_requested",
+          requestId: "release-rpc",
+          clientId: "test-client",
+          accepted: false,
+          impact: { agents: [], pendingStarts: 0 },
+        },
+      },
+    ]);
+  },
+);
+
 test("held idle restart replies only after exact supervisor acceptance", async () => {
   const held = {
     requestId: "c9cb1157-4773-4c61-905a-3f4e8bbf30f3",

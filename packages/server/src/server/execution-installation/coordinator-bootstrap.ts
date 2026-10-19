@@ -120,7 +120,9 @@ export function coordinatorLifecycleWork(journal: unknown) {
     }
     if (job.target === "host" || job.target === "container-daemon") {
       const active = job.status === "approved" || job.status === "running";
-      const held = job.finishCurrentTurns === true && job.holdReleased !== true;
+      const held =
+        (job.finishCurrentTurns === true || job.continuationCaptureRequested === true) &&
+        job.holdReleased !== true;
       const preparing = job.sourceBatch?.status === "preparing";
       const registration = job.supervisorEffect && !isSupervisorEffectSettled(job.supervisorEffect);
       return active || held || preparing || registration;
@@ -156,7 +158,9 @@ const transitions: Record<CoordinatorBootstrapStage, readonly CoordinatorBootstr
   rolled_back: [],
 };
 
-export function isCompletedBootstrap(request: CoordinatorBootstrapRequest): boolean {
+export function isCompletedBootstrap(
+  request: Pick<CoordinatorBootstrapRequest, "status" | "execution">,
+): boolean {
   return (
     request.status === "approved" &&
     request.execution !== undefined &&

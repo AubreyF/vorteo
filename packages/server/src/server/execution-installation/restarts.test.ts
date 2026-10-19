@@ -24,7 +24,11 @@ import {
   validateHostStartup,
 } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
-import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
+import {
+  RestartJobSchema,
+  type RestartImpact,
+  type RestartJob,
+} from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
@@ -39,6 +43,419 @@ class MemoryJournal implements RestartJournal {
     this.jobs = structuredClone(jobs);
   }
 }
+
+test("force restart persists continuation intent before capture and releases only after readiness", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (_target, id) => {
+      expect(journal.jobs.find((job) => job.id === id)?.continuationCaptureRequested).toBe(true);
+      calls.push("capture");
+      await captured;
+    },
+    releaseRestartContinuation: async (_target, _id, outcome) => {
+      calls.push(outcome);
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Resume active tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(calls).toEqual(["capture"]));
+  finishCapture();
+  await draining;
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(calls).toEqual(["capture", "restart"]);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+});
+
+test("cancellation during durable capture prevents force dispatch", async () => {
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const capture = vi.fn(async () => captured);
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    captureRestartContinuation: capture,
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Capture cancellation" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+  queue.decide(request.id, approved.revision, "cancel");
+  finishCapture();
+  await draining;
+  expect(restart).not.toHaveBeenCalled();
+  expect(queue.list()[0]?.status).toBe("rejected");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+});
+
+test("failed restart retains uncertain continuation when replacement refuses cancellation", async () => {
+  const journal = new MemoryJournal();
+  const release = vi.fn(async () => false);
+  const restart = vi.fn(async () => {
+    throw new Error("replacement readiness unknown");
+  });
+  const executor: RestartExecutor = {
+    captureRestartContinuation: async () => {},
+    releaseRestartContinuation: release,
+    restart,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain uncertain tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("failed");
+  const reopened = new InstallationRestarts(journal, executor);
+  await reopened.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(restart).toHaveBeenCalledTimes(1);
+});
+
+test("lost capture acknowledgement never dispatches and keeps the exact cause cancellable", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain capture intent" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  expect(journal.jobs[0]?.status).toBe("approved");
+  expect(restart).not.toHaveBeenCalled();
+  queue.decide(request.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+});
+
+test("a legacy executor cannot bypass recorded continuation capture", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async () => false,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain exact capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  const reopened = new InstallationRestarts(journal, { restart });
+  await reopened.drain();
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(reopened.list()[0]?.status).toBe("failed");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+});
+
+test("retained approved idle capture refuses a missing adapter before dispatch", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const inspect = vi.fn(
+    async (): Promise<RestartImpact> => ({
+      target: "host",
+      checkedAt: new Date().toISOString(),
+      agents: [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      error: null,
+    }),
+  );
+  const executor: RestartExecutor = {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+    captureRestartContinuation: async () => {
+      throw new Error("lost capture acknowledgment");
+    },
+    releaseRestartContinuation: async () => false,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain idle capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  const reopened = new InstallationRestarts(journal, {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+  });
+  await reopened.drain();
+  expect(inspect).toHaveBeenCalledTimes(2);
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]).toMatchObject({
+    status: "approved",
+    continuationCaptureRequested: true,
+  });
+  expect(reopened.list()[0]?.detail).toContain("compatible executor");
+});
+
+test("a target without durable continuation keeps legacy restarts and never records intent", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("release");
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["restart"]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("finishing current turns on a target without durable continuation uses the legacy hold", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("continuation-release");
+      return true;
+    },
+    inspect: async () => idleImpact("host"),
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("legacy-release");
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon drain" }, "owner");
+  queue.decide(request.id, request.revision, "finish-current-turns");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["hold", "restart", "legacy-release"]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("recorded continuation on a target that lost support settles through legacy dispatch", async () => {
+  const journal = new MemoryJournal();
+  let supported = true;
+  const release = vi.fn(async () => true);
+  const restart = vi.fn(async () => "replacement verified");
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => supported,
+    captureRestartContinuation: async () => {
+      throw new Error("Update this daemon to preserve tasks across restarts");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Downgraded daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", continuationCaptureRequested: true });
+  supported = false;
+  await queue.drain();
+  await queue.drain();
+  expect(restart).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledWith("host", request.id, "ready");
+  expect(queue.list()[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+});
+
+test("a terminal continuation awaiting release does not fence another target's restart", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "replacement verified");
+  const release = vi.fn(async () => false);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (target) => {
+      if (target === "host") throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const stuck = queue.request({ target: "host", reason: "Unreleasable" }, "owner");
+  const approved = queue.decide(stuck.id, stuck.revision, "approve");
+  await queue.drain();
+  queue.decide(stuck.id, approved.revision, "cancel");
+  const other = queue.request({ target: "container-daemon", reason: "Unrelated" }, "owner");
+  queue.decide(other.id, other.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", stuck.id, "cancelled");
+  expect(restart).toHaveBeenCalledWith("container-daemon");
+  expect(queue.list().map((job) => [job.target, job.status, job.holdReleased])).toEqual([
+    ["host", "rejected", undefined],
+    ["container-daemon", "succeeded", undefined],
+  ]);
+});
+
+// v689 parses lifecycle jobs strictly and predates per-attempt capture causes.
+const V689RestartJobSchema = RestartJobSchema.omit({ continuationCaptureId: true });
+
+function v689Readable(journal: MemoryJournal): boolean {
+  return journal.jobs.every(
+    (job) => V689RestartJobSchema.safeParse(JSON.parse(JSON.stringify(job))).success,
+  );
+}
+
+test("an idle restart releases its capture while waiting and recaptures under a fresh cause", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let idleAttempts = 0;
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => (++idleAttempts === 1 ? null : "replacement verified"),
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  expect(first).not.toBe(request.id);
+  expect(calls).toEqual([`capture:${first}`, `cancelled:${first}`]);
+  // Waiting for idleness neither holds admission nor fences other lifecycle work.
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", whenIdle: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+  expect(v689Readable(journal)).toBe(true);
+  await queue.drain();
+  await queue.drain();
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+    `ready:${second}`,
+  ]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  // A rollback to v689 must still read the journal once the hold is released.
+  expect(journal.jobs[0]).not.toHaveProperty("continuationCaptureId");
+  expect(v689Readable(journal)).toBe(true);
+  const retained = { ...journal.jobs[0], continuationCaptureId: randomUUID() };
+  expect(V689RestartJobSchema.safeParse(retained).success).toBe(false);
+});
+
+test("a lost idle capture receipt is released before a fresh attempt", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+      if (calls.length === 1) throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => "replacement verified",
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls.slice(0, 3)).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+  ]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+});
+
+test("the daemon adapter probes continuation support and releases older targets' legacy holds", async () => {
+  const config = {
+    public: { environments: [{ kind: "container", serverId: "test-container" }] },
+    container: { endpoint: "127.0.0.1:1", password: "test-only" },
+  } as unknown as InstallationConfig;
+  const connect = vi.spyOn(DaemonClient.prototype, "connect").mockResolvedValue();
+  const close = vi.spyOn(DaemonClient.prototype, "close").mockResolvedValue();
+  const info = vi
+    .spyOn(DaemonClient.prototype, "getLastServerInfoMessage")
+    .mockReturnValue({ features: { idleRestart: true } } as never);
+  const restartServer = vi
+    .spyOn(DaemonClient.prototype, "restartServer")
+    .mockResolvedValue({ accepted: true } as never);
+  const id = randomUUID();
+  try {
+    const executor = createInstallationRestartExecutor(config);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+    expect(await executor.releaseRestartContinuation!("container-daemon", id, "cancelled")).toBe(
+      true,
+    );
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+    });
+    info.mockReturnValue({ features: { restartContinuation: true } } as never);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(true);
+    await executor.releaseRestartContinuation!("container-daemon", id, "ready");
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+      restartContinuation: "ready",
+    });
+    connect.mockRejectedValueOnce(new Error("offline"));
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+    info.mockRestore();
+    restartServer.mockRestore();
+  }
+});
 
 test("Factory adoption requires its own exact approval and never shares a plain restart", async () => {
   const plan = "c".repeat(64);
