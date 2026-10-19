@@ -7,6 +7,10 @@ const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 dotenv.config({ path: path.resolve(serverRoot, ".env.test"), override: true });
 dotenv.config({ path: path.resolve(serverRoot, "../.env") });
 
+// Agent shells on a managed Host inherit the installation client marker, which makes Claude
+// credential code refuse undelivered setup tokens. Suites that test managed behavior stub it.
+delete process.env.VORTEO_INSTALLATION_CLIENT_CONFIG;
+
 process.env.PASEO_SUPERVISED = "0";
 process.env.GIT_TERMINAL_PROMPT = "0";
 process.env.GIT_SSH_COMMAND = "ssh -oBatchMode=yes";

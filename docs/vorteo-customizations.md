@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-18): server tests now clear the managed-installation client marker inherited from Host agent shells, so Claude credential suites pass in any shell. This changes test tooling only; features, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-18): the nested subagent ownership real-provider test now skips unless real-provider runs are enabled, matching the other Claude real tests. This changes test tooling only; features, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-18): added a full web sign-in Claude account type for unmanaged daemons. Its launches use only the account's own CLI grant, and its usage reads only that account's credentials in the pinned CLI's store order. Setup-token accounts and the managed-installation sign-in refusal are unchanged. Synthetic tests, workspace typecheck and lint pass; live sign-in and installation-wide refresh remain open. README overview and onboarding are unchanged.

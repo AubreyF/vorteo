@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-18
+
+### Maintenance
+
+- Clear the managed-installation client marker in the server test setup. Agent shells on a managed Host inherit it, which made Claude setup-token, session, authentication and usage suites fail; suites that test managed behavior still stub it explicitly.
+
+### Validation
+
+- With the marker set in the shell, 559 of 560 focused Claude, provider-login, quota and installation-account tests pass; the remaining packaged CLI payload check fails identically without this change.
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-18
 
 ### Maintenance
