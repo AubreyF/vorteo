@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): hardened the durable session host for phase 1. Frames are size-capped and validated in both directions, slow, silent or misbehaving peers are dropped, acknowledgements are fenced to the current worker, retention is bounded per session and per host, and the host directory, socket, token and lock are private, with a fresh token per host start and an audit log without secrets. Twenty-four focused tests pass. Nothing is wired into the daemon, supervisor or launchd yet; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-18): prepared durable task capture and verified restart release across the existing queue, manager and lifecycle transport. The standalone coordinator client uses one sixteen-minute POST deadline without retries. Coordinator plan verification reuses retained proofs for shared runtimes within one operation and reasserts final custody. Combined source passes workspace typechecks, repository lint and focused regressions. Startup-contract validation passes; installed acceptance remains pending. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-18): pending plain Host restart requests expose the existing confirmed Force restart now action directly. It retains the running-task interruption warning and sends the existing approve decision only after confirmation. Dev, source updates, supervisor maintenance and Factory adoption retain their existing controls. This interface correction is published and owner-verified. The README overview and onboarding are unchanged.
@@ -611,6 +613,8 @@ Sidebar integration review: shared state is integrated with the published Nova b
 - **Continuous custom versions.** Each commit advances the Vorteo counter, including documentation and tooling commits. Upstream upgrades retain that sequence; manifests, internal dependency pins, lockfiles and native metadata stay synchronized through the installed hook. See [commit versioning](release.md#vorton-commit-versions).
 
 ## Incomplete integrations
+
+- **Durable provider sessions.** Prepared source for a session host that keeps provider sessions running while the daemon worker restarts. A worker attaches over a private, token-protected socket, replays the events it missed and fences stale workers; frames are bounded and validated, and authentication and attach outcomes go to a private audit log. The host is not wired into the daemon, supervisor or launchd, no setting enables it, and restarts still interrupt turns. See the [session host](../packages/server/src/server/session-host/host.ts).
 
 - **Nova bridge.** A private Node package exposes scoped Host and Dev tools, durable write receipts, bounded inventory and proactive event delivery. Machine-origin prompts remain distinct from owner evidence. Source tests and builds do not establish account support, managed activation or delivery in the existing Nova conversation. See [Nova integration](nova-integration.md).
 

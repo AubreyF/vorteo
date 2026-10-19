@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Maintenance
+
+- Harden the durable session host prototype for phase 1. Frames are size-capped (4 KiB before hello, 32 MiB after) and validated in both directions, including typed call results. An unauthenticated connection must say hello within 5 seconds, connections are capped, and a peer that keeps sending refused calls or acknowledgements is dropped.
+- A worker that stops reading, such as one hung in shutdown, is dropped at a live-output limit twice the frame cap while its sessions keep running; replay is flow-controlled so a large catch-up is not dropped. Only the current attachment can acknowledge events, and reattaching below the acknowledged or retained range falls back to restart continuation instead of silently skipping events. Retention is bounded per session and across the host, oldest events first. Oversized or unserializable provider events become markers so sequence numbers stay contiguous. The client fails closed on malformed frames, detaches only the affected session after a sequence gap, and reports a missing host separately from a dropped connection.
+- The host directory must be a real directory owned by the user with mode 0700; the socket, token, lock and audit files are 0600. Each host start writes a fresh token, and workers refuse a token file other users could read. A lock file keeps two hosts from serving one socket; a lock or socket left by an exited host is replaced. An audit log records authentication, attach, fencing and disconnect outcomes without tokens, prompts or configuration. A failed close keeps the session hosted so it can be retried, and host shutdown bounds each provider close.
+- Not integrated: no daemon, supervisor, launchd or provider changes, and no setting enables the host yet.
+
+### Validation
+
+- Twenty-four focused session host tests pass repeatedly. They cover a worker lost mid-turn, stale-worker fencing including acknowledgements, bounded, host-wide and acknowledged replay fallback, rejected tokens and versions, frame limits before and after hello, oversized events, a worker that stops reading, connection and refusal caps, concurrent opens, stale locks and sockets from exited hosts, bounded shutdown, a per-session sequence gap, private files with token rotation across host restarts, and an audit log free of secrets.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes
