@@ -350,10 +350,19 @@ type PreparedQuotaRun = Extract<
 >;
 type ScheduleRunner = PreparedQuotaRun["run"];
 
+/** The stored schedule no longer matches the snapshot a run was admitted from. */
+class ScheduleAdmissionChangedError extends Error {
+  constructor() {
+    super("Schedule changed before admission.");
+    this.name = "ScheduleAdmissionChangedError";
+  }
+}
+
 /** Keeps cleanup independent of fallible schedule writes. The driver owns actual settlement. */
 class SchedulePreparationCustody {
   prepared: PreparedQuotaRun | undefined;
   dispatched = false;
+  onDispatch: (() => void) | undefined;
   private freezing: Promise<void> | undefined;
 
   freeze(reason: string): void {
@@ -420,6 +429,7 @@ export class ScheduleService {
   private readonly runningScheduleIds = new Set<string>();
   private readonly deletingScheduleIds = new Set<string>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private tickInFlight = false;
 
   constructor(options: ScheduleServiceOptions) {
     this.canStartWork = options.canStartWork ?? (() => true);
@@ -758,7 +768,31 @@ export class ScheduleService {
     return this.inspect(id);
   }
 
+  /**
+   * Admits due schedules from one store snapshot. A tick that starts while another is
+   * still listing or admitting is skipped, not queued, so overlapping interval ticks
+   * never admit from competing snapshots. Dispatched executions keep running
+   * concurrently after the guard is released, and this call settles once they finish.
+   */
   async tick(): Promise<void> {
+    if (this.tickInFlight) return;
+    this.tickInFlight = true;
+    const dispatchedRuns: Promise<void>[] = [];
+    let admissionFailure: { error: unknown } | undefined;
+    try {
+      await this.admitDueSchedules(dispatchedRuns);
+    } catch (error) {
+      admissionFailure = { error };
+    } finally {
+      this.tickInFlight = false;
+    }
+    const settled = await Promise.allSettled(dispatchedRuns);
+    if (admissionFailure) throw admissionFailure.error;
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+  }
+
+  private async admitDueSchedules(dispatchedRuns: Promise<void>[]): Promise<void> {
     if (!this.canStartWork()) return;
     const now = this.now();
     const schedules = await this.store.list();
@@ -777,8 +811,36 @@ export class ScheduleService {
       if (new Date(schedule.nextRunAt).getTime() > now.getTime()) {
         continue;
       }
-      await this.runSchedule(schedule, now);
+      try {
+        const dispatched = await this.runScheduleUntilDispatch(schedule, now);
+        if (dispatched) dispatchedRuns.push(dispatched.run);
+      } catch (error) {
+        // A stale snapshot only affects this schedule; the next tick retries it.
+        if (!(error instanceof ScheduleAdmissionChangedError)) throw error;
+        this.logger.debug(
+          { scheduleId: schedule.id },
+          "Schedule changed before tick admission; retrying on the next tick",
+        );
+      }
     }
+  }
+
+  /**
+   * Resolves once execution is dispatched, carrying the still running attempt, or with
+   * null if the attempt settled first. The run is wrapped because an async function
+   * would otherwise adopt it and wait for the whole execution.
+   */
+  private async runScheduleUntilDispatch(
+    schedule: StoredSchedule,
+    now: Date,
+  ): Promise<{ run: Promise<void> } | null> {
+    let signalDispatch!: () => void;
+    const dispatchSignal = new Promise<"dispatched">((resolve) => {
+      signalDispatch = () => resolve("dispatched");
+    });
+    const run = this.runSchedule(schedule, now, { onDispatch: () => signalDispatch() });
+    const outcome = await Promise.race([run.then(() => "settled" as const), dispatchSignal]);
+    return outcome === "dispatched" ? { run } : null;
   }
 
   private async completeScheduleIfDue(scheduleId: string, now: Date): Promise<void> {
@@ -911,7 +973,7 @@ export class ScheduleService {
     try {
       const current = await this.store.get(schedule.id);
       if (!current || !isDeepStrictEqual(current, schedule))
-        throw new Error("Schedule changed before admission.");
+        throw new ScheduleAdmissionChangedError();
     } catch (error) {
       this.runningScheduleIds.delete(schedule.id);
       throw error;
@@ -921,7 +983,7 @@ export class ScheduleService {
   private async runSchedule(
     schedule: StoredSchedule,
     now: Date,
-    options?: { manual?: boolean },
+    options?: { manual?: boolean; onDispatch?: () => void },
   ): Promise<void> {
     const manual = options?.manual === true;
     if (!this.canStartWork()) {
@@ -930,6 +992,7 @@ export class ScheduleService {
     }
     await this.beginScheduleRun(schedule);
     const custody = new SchedulePreparationCustody();
+    custody.onDispatch = options?.onDispatch;
     let failure: { error: unknown } | undefined;
     try {
       await this.runScheduleAttempt(schedule, now, manual, custody);
@@ -1047,6 +1110,7 @@ export class ScheduleService {
         result = { state: "frozen", reason: "schedule_expired" };
       } else {
         custody.dispatched = true;
+        custody.onDispatch?.();
         result = await runner(scheduleWithRun, runId);
       }
       if ("state" in result) {

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
 
 ## 0.11.0-beta.3.vorteo.687 - 2026-10-18
 
