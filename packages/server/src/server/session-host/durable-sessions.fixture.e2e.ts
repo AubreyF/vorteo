@@ -21,6 +21,11 @@ import {
 
 /** A prompt containing `CHUNKS=<n>` streams n chunks; any other prompt, such as a continuation, streams this many. */
 const DEFAULT_CHUNKS = 3;
+/**
+ * A prompt containing `PERMISSION_AT=<k>` pauses the turn after chunk k on a permission request,
+ * as a tool call would, and resumes once it is allowed.
+ */
+const PERMISSION_PATTERN = /PERMISSION_AT=(\d+)/;
 const CHUNK_INTERVAL_MS = Number(process.env.DURABLE_SESSIONS_FAKE_CHUNK_MS ?? 1_000);
 /** Marks this run's stand-in CLI processes, so the test finds exactly its own. */
 const CLI_MARKER = process.env.DURABLE_SESSIONS_FAKE_CLI_MARKER ?? "durable-sessions-fake-cli";
@@ -55,18 +60,32 @@ class ScriptedSession extends ControlledSession {
 
   override async startTurn(prompt: AgentPromptInput): Promise<{ turnId: string }> {
     const started = await super.startTurn(prompt);
-    const match = /CHUNKS=(\d+)/.exec(promptText(prompt));
+    const text = promptText(prompt);
+    const match = /CHUNKS=(\d+)/.exec(text);
     const total = match ? Number(match[1]) : DEFAULT_CHUNKS;
+    const permissionAt = Number(PERMISSION_PATTERN.exec(text)?.[1] ?? 0);
     let sent = 0;
-    this.timer = setInterval(() => {
+    const tick = (): void => {
       sent += 1;
       this.text(chunkText(this.tag, sent));
       if (sent >= total) {
         this.stopTimer();
         this.complete();
+        return;
       }
-    }, CHUNK_INTERVAL_MS);
+      if (sent !== permissionAt) return;
+      this.stopTimer();
+      void this.pauseForPermission(tick);
+    };
+    this.timer = setInterval(tick, CHUNK_INTERVAL_MS);
     return started;
+  }
+
+  /** Waits on a permission, as a tool call would, and resumes the turn once it is allowed. */
+  private async pauseForPermission(resume: () => void): Promise<void> {
+    const response = await this.requestPermission(`perm-${this.tag}`);
+    if (response.behavior === "allow") this.timer = setInterval(resume, CHUNK_INTERVAL_MS);
+    else this.complete();
   }
 
   override async interrupt(): Promise<void> {

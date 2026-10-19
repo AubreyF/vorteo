@@ -49,8 +49,8 @@ function report(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-async function freshInstallation(): Promise<Installation> {
-  const created = await createInstallation({ provider: "fake" });
+async function freshInstallation(options: { password?: boolean } = {}): Promise<Installation> {
+  const created = await createInstallation({ provider: "fake", ...options });
   cleanups.push(() => created.cleanup());
   return created;
 }
@@ -175,7 +175,9 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     );
   }, 300_000);
 
-  test("a daemon upgraded to another release with the same protocol finishes the hosted turn", async () => {
+  // Two release labels on one protocol, not an upgrade: the trees differ only in their version, run
+  // from source and use a fixed plist path. A real upgrade is left to installed acceptance.
+  test("a host on release label A finishes the hosted turn for a worker on release label B", async () => {
     // Cloned first so it is removed last, after every process running from it is gone.
     const releaseA = cloneRelease("release-a");
     const install = await freshInstallation();
@@ -208,8 +210,73 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     expect(helloReleases).toContain(versionA);
     expect(helloReleases).toContain(versionB);
     expectProviderProcesses(install, host.pid, 1);
-    report(`[release upgrade] ${versionA} -> ${versionB}, turn done after ${doneMs} ms`);
+    report(`[release labels] ${versionA} -> ${versionB}, turn done after ${doneMs} ms`);
   }, 600_000);
+
+  test("a permission asked before a worker kill is answered after the replacement attaches", async () => {
+    const install = await freshInstallation();
+    const host = await install.startHost(THIS_TREE);
+    const supervisor = await install.startSupervisor(THIS_TREE);
+    const firstWorker = supervisor.workers[0]!;
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS, { permissionAt: 3 });
+    const asked = await waitUntil(
+      "the permission request",
+      async () => (await client.fetchAgent(agentId))?.agent?.pendingPermissions?.[0]?.id,
+      60_000,
+    );
+    await client.close();
+
+    const killedAt = Date.now();
+    process.kill(firstWorker, "SIGKILL");
+    await supervisor.waitForWorker([firstWorker]);
+    const next = await connected(install);
+    // The replacement shows the same request once and delivers the answer to the running turn.
+    const pending = await waitUntil(
+      "the permission after the restart",
+      async () => {
+        const agent = (await next.fetchAgent(agentId))?.agent;
+        return agent?.pendingPermissions?.length ? agent.pendingPermissions : null;
+      },
+      60_000,
+    );
+    expect(pending.map((request) => request.id)).toEqual([asked]);
+    await next.respondToPermission(agentId, asked, { behavior: "allow" });
+    await expectUninterruptedTurn(next, agentId);
+    const doneMs = Date.now() - killedAt;
+
+    expect((await install.host()).pid).toBe(host.pid);
+    expectProviderProcesses(install, host.pid, 1);
+    report(`[permission across restart] turn done ${doneMs} ms after the kill`);
+  }, 300_000);
+
+  test("the replacement worker accepts the session host's tool token at the agent endpoint", async () => {
+    // Only a password-protected daemon checks tokens at the endpoint.
+    const install = await freshInstallation({ password: true });
+    await install.startHost(THIS_TREE);
+    const supervisor = await install.startSupervisor(THIS_TREE);
+    const firstWorker = supervisor.workers[0]!;
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS);
+    await waitForChunks(client, agentId, RESTART_AFTER_CHUNKS);
+    await client.close();
+
+    const killedAt = Date.now();
+    process.kill(firstWorker, "SIGKILL");
+    await supervisor.waitForWorker([firstWorker]);
+    const next = await connected(install);
+    await waitUntil(
+      "the replacement worker to attach",
+      () => attachesSince(install, killedAt).length > 0,
+      60_000,
+    );
+
+    // The hosted provider still holds the host's token, issued before the restart.
+    const hostToken = await install.hostMcpToken();
+    expect(await install.postAgentEndpoint(agentId, hostToken)).toBe(200);
+    expect(await install.postAgentEndpoint(agentId, `${hostToken}x`)).toBe(401);
+    await expectUninterruptedTurn(next, agentId);
+  }, 300_000);
 
   test("a host killed mid-turn is restarted and the agent finishes from one continuation", async () => {
     const install = await freshInstallation();

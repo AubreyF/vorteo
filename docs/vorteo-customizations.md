@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): the durable sessions end-to-end test now covers a permission answered across a worker kill and the session host's tool token accepted by the replacement worker of a password-protected daemon, and its cleanup never matches the shell that started it. All six scenarios pass; real Claude and a real release upgrade remain for installed acceptance, the setting stays off, and README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-19): calls to a hosted session whose host is alive but silent now fail after the one-minute reattach window with a retryable error while the turn keeps running, and the session host replaces a watchdog thread that ends. Eighty-two focused tests pass; the setting stays off and README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-19): added an opt-in end-to-end test of durable sessions with the real supervisor, worker and launchd-managed session host in an isolated test installation. A hosted turn survives a killed worker, a supervisor restart and a release upgrade with every chunk shown once, and a killed host falls back to exactly one continuation. All four scenarios pass; the real-Claude variant has not run, the setting stays off, and README overview and onboarding are unchanged.

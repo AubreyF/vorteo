@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.706 - 2026-10-19
+
+### Added
+
+- The durable sessions end-to-end test answers a permission asked before a worker kill after the replacement worker attaches: the request is shown once and the hosted turn finishes. It also proves that the replacement worker of a password-protected daemon accepts the session host's tool token at the agent endpoint and still rejects a wrong one.
+
+### Fixes
+
+- Test cleanup and the leftover check now find this run's processes by the run's temporary root in their command line or environment, read environments that span several lines, and never touch the shell or test runner that started the test.
+- The release scenario is named for what it proves: a host on one release label serving a worker on another with the same protocol. A real upgrade is left to installed acceptance.
+
+### Validation
+
+- All six scenarios pass in 217 seconds with no leftover jobs, directories or processes. The tool token scenario fails when the worker stops accepting the host's token.
+
 ## 0.11.0-beta.3.vorteo.705 - 2026-10-19
 
 ### Fixes

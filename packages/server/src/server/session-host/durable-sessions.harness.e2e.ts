@@ -133,6 +133,10 @@ export interface Installation {
   startSupervisor(tree: ReleaseTree): Promise<Supervisor>;
   client(): Promise<DaemonClient>;
   fakeCliProcesses(): FakeCliProcess[];
+  /** The tool endpoint token the running host hands its workers at hello. */
+  hostMcpToken(): Promise<string>;
+  /** Status of an MCP initialize request to the daemon's agent tool endpoint with this bearer. */
+  postAgentEndpoint(agentId: string, bearer: string): Promise<number>;
   auditRecords(): Record<string, unknown>[];
   /** Tails of the daemon, host and launchd logs, for failure messages. */
   logs(): string;
@@ -145,10 +149,20 @@ export interface HostIdentity {
 }
 
 export interface InstallationOptions {
-  /** fake runs the scripted provider in the host and a stub claude in the worker. */
+  /**
+   * fake runs the scripted provider in the host and a stub claude in the worker. The worker finds
+   * the stub only through the provider command setting written below: if that setting stopped
+   * applying, the worker would run the real claude on PATH, with the isolated config directory and
+   * so without a login.
+   */
   provider: "fake" | "real";
   /** Milliseconds between scripted chunks. */
   chunkMs?: number;
+  /**
+   * Protects the daemon with a password. Without one the agent tool endpoint accepts any request,
+   * so a check of which tokens it accepts needs this.
+   */
+  password?: boolean;
 }
 
 /** Answers what the daemon asks a claude binary before it hosts a session (see authentication.ts). */
@@ -185,6 +199,7 @@ export async function createInstallation(options: InstallationOptions): Promise<
   const cliMarker = `dsh-fake-cli-${runId}`;
   const launchdLog = path.join(root, "launchd.log");
   const fake = options.provider === "fake";
+  const password = options.password ? randomBytes(16).toString("hex") : null;
 
   writeFileSync(durableSessionsSettingsPath(home), JSON.stringify({ enabled: true }));
   const providers: Record<string, unknown> = Object.fromEntries(
@@ -307,6 +322,7 @@ export async function createInstallation(options: InstallationOptions): Promise<
             PASEO_NODE_INSPECT: "0",
             PASEO_LOCAL_MODELS_DIR: path.join(root, "models"),
             OPENAI_API_KEY: "",
+            ...(password ? { PASEO_PASSWORD: password } : {}),
           },
           stdio: ["ignore", "pipe", "pipe"],
         },
@@ -362,13 +378,55 @@ export async function createInstallation(options: InstallationOptions): Promise<
 
     async client() {
       if (LIVE_PORTS.has(port)) throw new Error("Refusing to connect to a live installation port.");
-      const client = new DaemonClient({ url: `ws://127.0.0.1:${port}/ws`, appVersion: "0.7.2" });
+      const client = new DaemonClient({
+        url: `ws://127.0.0.1:${port}/ws`,
+        appVersion: "0.7.2",
+        ...(password ? { password } : {}),
+      });
       await client.connect();
       return client;
     },
 
+    async hostMcpToken() {
+      const paths = sessionHostPaths(home);
+      const client = await connectSessionHost({
+        socketPath: paths.socketPath,
+        token: await readSessionHostToken(paths),
+        connectTimeoutMs: 5_000,
+      });
+      client.close();
+      return client.mcpToken;
+    },
+
+    async postAgentEndpoint(agentId, bearer) {
+      if (LIVE_PORTS.has(port)) throw new Error("Refusing to connect to a live installation port.");
+      const response = await fetch(
+        `http://127.0.0.1:${port}/mcp/agents?callerAgentId=${encodeURIComponent(agentId)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${bearer}`,
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-03-26",
+              capabilities: {},
+              clientInfo: { name: "durable-sessions-e2e", version: "1" },
+            },
+          }),
+        },
+      );
+      await response.body?.cancel();
+      return response.status;
+    },
+
     fakeCliProcesses() {
-      return listProcesses(false)
+      return processTable()
         .filter((entry) => entry.command.includes(cliMarker))
         .map(({ pid, ppid }) => ({ pid, ppid }));
     },
@@ -407,10 +465,12 @@ export async function createInstallation(options: InstallationOptions): Promise<
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         for (const pid of supervisor.workers) if (alive(pid)) process.kill(pid, "SIGKILL");
       }
-      // With environments, so descendants such as the terminal worker match on PASEO_HOME too.
-      for (const entry of listProcesses(true))
-        if (entry.command.includes(root) || entry.command.includes(cliMarker))
-          if (alive(entry.pid)) process.kill(entry.pid, "SIGKILL");
+      // Everything this run started mentions its root, in its command line or as PASEO_HOME in
+      // its environment, as the stand-in CLIs and terminal workers do. The shell and test runner
+      // above this process may mention it too and are never touched.
+      const spared = ancestorsOfThisProcess();
+      for (const pid of processesMentioning((text) => text.includes(root)))
+        if (!spared.has(pid) && alive(pid)) process.kill(pid, "SIGKILL");
       rmSync(root, { recursive: true, force: true });
     },
   };
@@ -423,10 +483,9 @@ interface ProcessEntry {
   command: string;
 }
 
-/** With environments, each command line is followed by the process's environment (ps -E). */
-function listProcesses(withEnvironment: boolean): ProcessEntry[] {
-  const flags = withEnvironment ? "-axwwE" : "-axww";
-  return execFileSync("/bin/ps", [flags, "-o", "pid=,ppid=,command="], {
+/** Every process with its parent, one line each: command lines never contain newlines. */
+function processTable(): ProcessEntry[] {
+  return execFileSync("/bin/ps", ["-axww", "-o", "pid=,ppid=,command="], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   })
@@ -435,6 +494,36 @@ function listProcesses(withEnvironment: boolean): ProcessEntry[] {
     .filter((match): match is RegExpExecArray => match !== null)
     .map((match) => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3]! }))
     .filter((entry) => entry.pid !== process.pid);
+}
+
+/**
+ * Pids whose command line or environment satisfies matches. ps -E prints the environment after
+ * the command, and a variable can contain newlines, so a record runs until the next line that
+ * starts with a pid.
+ */
+function processesMentioning(matches: (text: string) => boolean): number[] {
+  const output = execFileSync("/bin/ps", ["-axwwE", "-o", "pid=,command="], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const records: { pid: number; text: string }[] = [];
+  for (const line of output.split("\n")) {
+    const start = /^\s*(\d+)\s(.*)$/.exec(line);
+    if (start) records.push({ pid: Number(start[1]), text: start[2]! });
+    else if (records.length > 0) records[records.length - 1]!.text += `\n${line}`;
+  }
+  return records
+    .filter((record) => record.pid !== process.pid && matches(record.text))
+    .map((record) => record.pid);
+}
+
+/** This process and every ancestor, such as the shell that started the test. */
+function ancestorsOfThisProcess(): Set<number> {
+  const parents = new Map(processTable().map((entry) => [entry.pid, entry.ppid]));
+  const ancestors = new Set<number>([process.pid]);
+  for (let pid = process.ppid; pid > 1 && !ancestors.has(pid); pid = parents.get(pid) ?? 0)
+    ancestors.add(pid);
+  return ancestors;
 }
 
 /** Leftovers from any durable sessions test run, for the final cleanup check. */
@@ -449,16 +538,12 @@ export async function leftovers(): Promise<{
   const directories = execFileSync("/bin/ls", ["/tmp"], { encoding: "utf8" })
     .split("\n")
     .filter((name) => /^dsh-(e2e|release-[a-z]+)-/.test(name));
-  const all = listProcesses(true);
   // The shell that started this test can mention these paths in its own command line.
-  const ancestors = new Set<number>();
-  const parents = new Map(all.map((entry) => [entry.pid, entry.ppid]));
-  for (let pid = process.ppid; pid > 1 && !ancestors.has(pid); pid = parents.get(pid) ?? 0)
-    ancestors.add(pid);
-  const processes = all
-    .filter((entry) => !ancestors.has(entry.pid))
-    .filter((entry) => /dsh-fake-cli-|\/tmp\/dsh-(e2e|release-[a-z]+)-/.test(entry.command))
-    .map((entry) => `${entry.pid} ${entry.command.slice(0, 160)}`);
+  const spared = ancestorsOfThisProcess();
+  const commands = new Map(processTable().map((entry) => [entry.pid, entry.command]));
+  const processes = processesMentioning((text) => /\/tmp\/dsh-(e2e|release-[a-z]+)-/.test(text))
+    .filter((pid) => !spared.has(pid))
+    .map((pid) => `${pid} ${(commands.get(pid) ?? "").slice(0, 160)}`);
   return { jobs, directories, processes };
 }
 
@@ -501,19 +586,24 @@ export async function summarizeTimeline(
   return summary;
 }
 
-/** Starts a scripted turn of `chunks` numbered chunks and waits until it is running in the host. */
+/**
+ * Starts a scripted turn of `chunks` numbered chunks and waits until it is running in the host.
+ * With permissionAt, the turn pauses on a permission request after that chunk.
+ */
 export async function startScriptedAgent(
   installation: Installation,
   client: DaemonClient,
   chunks: number,
+  options: { permissionAt?: number } = {},
 ): Promise<string> {
+  const permission = options.permissionAt ? ` PERMISSION_AT=${options.permissionAt}` : "";
   const agent = await client.createAgent({
     config: {
       provider: "claude",
       cwd: path.join(installation.root, "work"),
       title: "durable sessions e2e",
     },
-    initialPrompt: `Stream your scripted turn. CHUNKS=${chunks}`,
+    initialPrompt: `Stream your scripted turn. CHUNKS=${chunks}${permission}`,
   });
   await client.waitForAgentUpsert(agent.id, (snapshot) => snapshot.status === "running", 60_000);
   return agent.id;
