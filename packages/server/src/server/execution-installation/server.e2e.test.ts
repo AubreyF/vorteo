@@ -627,6 +627,66 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
+test("delegated requests are labeled only for clients that ask and only for Host-agent requests", async () => {
+  const { request } = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    (config) =>
+      writeFileSync(
+        path.join(config.stateDir, "owner-delegation.json"),
+        JSON.stringify({
+          version: 1,
+          delegatedRequesterPrefixes: ["Nova "],
+          hostUpdateServiceRestart: false,
+        }),
+      ),
+  );
+  const ask = async (token: string, target: string) =>
+    RestartJobSchema.parse(
+      await (
+        await request("/api/installation/restart-requests", token, {
+          target,
+          reason: "Routine maintenance",
+          requester: "Nova integration",
+        })
+      ).json(),
+    );
+  const host = await ask("host-agent-test-token", "host");
+  const guest = await ask("guest-agent-test-token", "container-daemon");
+  const query = async (flags: string) =>
+    RestartJobSchema.array().parse(
+      await (
+        await request(`/api/installation/owner/restarts/query${flags}`, "owner-test-password", {})
+      ).json(),
+    );
+  const modern = await query("?idleRestarts=1&delegatedRequests=1");
+  expect(modern.find((job) => job.id === host.id)?.delegatedTo).toBe("Nova integration");
+  // A guest can choose any requester label, so its request still needs the owner.
+  expect(modern.find((job) => job.id === guest.id)?.delegatedTo).toBeUndefined();
+  for (const job of await query("?idleRestarts=1")) expect(job).not.toHaveProperty("delegatedTo");
+  // The locked summary prompts only for the guest request.
+  expect(await (await request("/api/installation/restart-summary")).json()).toMatchObject({
+    requested: 1,
+    queued: 1,
+  });
+  const cancelled = await request(
+    `/api/installation/owner/restarts/${host.id}/decision?delegatedRequests=1`,
+    "owner-test-password",
+    { revision: host.revision, decision: "reject" },
+  );
+  // The owner keeps every decision; a finished request is no longer being handled.
+  expect(RestartJobSchema.parse(await cancelled.json())).toMatchObject({ status: "rejected" });
+  expect(
+    (await query("?delegatedRequests=1")).find((job) => job.id === host.id),
+  ).not.toHaveProperty("delegatedTo");
+});
+
 async function fixture(
   profiles?: InstallationProfiles,
   settings?: InstallationSettingsService,

@@ -649,7 +649,14 @@ export function restartNoticeVisible(job: RestartJob): boolean {
   return !job.sourceBatch || job.sourceBatch.status === "ready";
 }
 
+/** Pending requests and holds that have not dispatched can still be withdrawn. */
+export function restartCancellable(job: RestartJob): boolean {
+  if (job.status === "pending") return true;
+  return job.status === "approved" && Boolean(job.whenIdle || job.continuationCaptureRequested);
+}
+
 export function restartBannerTitle(job: RestartJob): string {
+  if (job.delegatedTo) return `Being handled by ${job.delegatedTo}`;
   if (job.factoryRuntimePlanSha256) {
     if (job.status === "running") return "Adopting Factory startup on Dev";
     if (job.finishCurrentTurns) return "Dev finishing turns for Factory adoption";

@@ -61,6 +61,7 @@ import {
   InstallationPanelModel,
   restartRequestSummary,
   restartBannerTitle,
+  restartCancellable,
   restartNoticeVisible,
   restartBlockingReason,
   restartRepairGuidance,
@@ -202,6 +203,8 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
 }
 
 function restartStatus(job: RestartJob, historical = false) {
+  if (job.delegatedTo && !historical)
+    return { label: `Being handled by ${job.delegatedTo}`, variant: "muted" as const };
   if (job.status === "pending") {
     if (historical) return { label: "Superseded", variant: "muted" as const };
     const batchStatus = job.sourceBatch?.status;
@@ -1544,14 +1547,18 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
         </View>
       ))}
       {jobs.map((job) => (
-        <RestartBannerItem key={job.id} job={job} />
+        <RestartBannerItem key={job.id} job={job} model={model} />
       ))}
     </View>
   );
 }
 
-function RestartBannerItem({ job }: { job: RestartJob }) {
+function RestartBannerItem({ job, model }: { job: RestartJob; model: InstallationPanelModel }) {
   const router = useRouter();
+  const delegated = Boolean(job.delegatedTo);
+  const cancel = useCallback(() => {
+    void model.decide(job, job.status === "pending" ? "reject" : "cancel");
+  }, [job, model]);
   const open = useCallback(
     () =>
       router.push({
@@ -1563,8 +1570,12 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
   return (
     <MaintenanceNotice
       title={restartBannerTitle(job)}
-      description={restartRepairGuidance(job) ?? restartRequestSummary(job)}
-      needsAction={job.status === "pending"}
+      description={
+        delegated ? job.reason : (restartRepairGuidance(job) ?? restartRequestSummary(job))
+      }
+      // A delegate is handling it, so it is status rather than a request for approval.
+      needsAction={job.status === "pending" && !delegated}
+      onCancel={delegated && restartCancellable(job) ? cancel : undefined}
       revision={`${job.id}:${job.revision}:${job.status}:${job.sourceBatch?.status ?? ""}`}
       reviewLabel={job.update || job.sourceBatch ? "Review update" : "Review restart"}
       onReview={open}

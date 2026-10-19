@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Features
+
+- Show Host-agent requests from owner-delegated requesters as "Being handled by <requester>" with their reason and a Cancel action in the sidebar and Installation controls, instead of an approval toast. Owner decisions remain available, and the locked summary no longer prompts for them.
+- Let an owner-delegated setting give automatically approved Host source updates the same full service restart as an owner approve, after the cancellation window and the finish-turns hold, with exact grant binding and no replay.
+
+### Validation
+
+- Focused coordinator, delegation and Installation model tests pass, with a real-browser check of the delegated banner against the packaged coordinator and web interface.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes
