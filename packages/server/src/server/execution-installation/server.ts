@@ -406,7 +406,10 @@ export function createInstallationServer(
           )
           .digest("hex"),
     },
-    { fenced: startupFence !== undefined },
+    {
+      fenced: startupFence !== undefined,
+      progress: (message, fields) => logger.info(fields, message),
+    },
   );
   const startupReleased = () => {
     if (startupFence && !startupFence.released()) return false;
