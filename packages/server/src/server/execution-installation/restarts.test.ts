@@ -3002,11 +3002,20 @@ test("automatic source approval binds its prepared digest and remains cancellabl
   expect(f.queue.list()[0]?.status).toBe("rejected");
 });
 
-function delegatedServiceRestartFixture(input: { enabled: boolean; cancellationDelayMs?: number }) {
+function delegatedServiceRestartFixture(input: {
+  enabled: boolean;
+  cancellationDelayMs?: number;
+  /** Changes the owner setting after the last policy refresh, just before install. */
+  flipBeforeInstall?: boolean;
+}) {
   const f = automaticFixture();
   const installs: boolean[] = [];
+  let enabled = input.enabled;
   const executor: RestartExecutor = {
     ...f.executor,
+    verifyDispatch: async () => {
+      if (input.flipBeforeInstall) enabled = !enabled;
+    },
     installUpdate: async (_job, options) => {
       installs.push(options.serviceRestart);
       f.events.push("install");
@@ -3016,7 +3025,9 @@ function delegatedServiceRestartFixture(input: { enabled: boolean; cancellationD
   const queue = new InstallationRestarts(f.journal, executor, () => 2000, {
     ...f.policy,
     cancellationDelayMs: input.cancellationDelayMs,
-    hostUpdateServiceRestart: () => input.enabled,
+    hostUpdateServiceRestart: () => enabled,
+    // As in production, the setting is part of the automatic grant's authority.
+    authority: () => (enabled ? "authority-with-service-restart" : "authority"),
   });
   queue.contribute(
     { target: "host", reason: "Routine Host update", requester: "Nova integration" },
@@ -3043,6 +3054,14 @@ test.each([true, false])(
     expect(f.installs).toEqual([enabled]);
   },
 );
+
+test("enabling the setting during preparation never upgrades an existing grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: false, flipBeforeInstall: true });
+  await f.queue.drain();
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([false]);
+});
 
 test("an owner-allowed service restart keeps the cancellation window and its exact grant", async () => {
   const f = delegatedServiceRestartFixture({ enabled: true, cancellationDelayMs: 30_000 });

@@ -62,6 +62,7 @@ import {
   restartRequestSummary,
   restartBannerTitle,
   restartCancellable,
+  delegationOverdueNote,
   restartNoticeVisible,
   restartBlockingReason,
   restartRepairGuidance,
@@ -216,6 +217,8 @@ function restartStatus(job: RestartJob, historical = false) {
       };
       return { label: labels[batchStatus], variant: "warning" as const };
     }
+    if (job.delegationOverdue)
+      return { label: "Waiting longer than expected", variant: "warning" as const };
     return { label: "Approval needed", variant: "warning" as const };
   }
   let approvedLabel = "Approved";
@@ -1571,7 +1574,11 @@ function RestartBannerItem({ job, model }: { job: RestartJob; model: Installatio
     <MaintenanceNotice
       title={restartBannerTitle(job)}
       description={
-        delegated ? job.reason : (restartRepairGuidance(job) ?? restartRequestSummary(job))
+        delegated
+          ? job.reason
+          : [delegationOverdueNote(job), restartRepairGuidance(job) ?? restartRequestSummary(job)]
+              .filter(Boolean)
+              .join(" ")
       }
       // A delegate is handling it, so it is status rather than a request for approval.
       needsAction={job.status === "pending" && !delegated}

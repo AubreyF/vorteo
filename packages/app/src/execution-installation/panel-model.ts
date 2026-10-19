@@ -655,6 +655,13 @@ export function restartCancellable(job: RestartJob): boolean {
   return job.status === "approved" && Boolean(job.whenIdle || job.continuationCaptureRequested);
 }
 
+/** Tells the owner why a delegated request is back in their queue. */
+export function delegationOverdueNote(job: RestartJob): string | null {
+  return job.delegationOverdue
+    ? `Waiting longer than expected for ${job.delegationOverdue}.`
+    : null;
+}
+
 export function restartBannerTitle(job: RestartJob): string {
   if (job.delegatedTo) return `Being handled by ${job.delegatedTo}`;
   if (job.factoryRuntimePlanSha256) {

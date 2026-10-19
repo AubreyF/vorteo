@@ -124,12 +124,17 @@ A coordinator restart preserves an idle approval that has not been dispatched, b
 A Host operator can delegate routine requests with `<stateDir>/owner-delegation.json`:
 
 ```json
-{ "version": 1, "delegatedRequesterPrefixes": ["Nova "], "hostUpdateServiceRestart": true }
+{
+  "version": 1,
+  "delegatedRequesterPrefixes": ["Nova "],
+  "hostUpdateServiceRestart": true,
+  "graceMinutes": 15
+}
 ```
 
-A missing or invalid file delegates nothing. Prefixes match only requests made with the Host agent credential, because requester labels are free text. A Dev request that names itself the delegate still needs the owner. Delegated requests appear in the sidebar and Installation controls as "Being handled by <requester>" with their reason and a Cancel action, not as an approval toast. Every owner decision stays available, and the locked summary counts them as queued rather than requested. Coordinator update requests carry no requester yet, so they are not delegated.
+A missing or invalid file delegates nothing. Prefixes are display only, not authentication: approval never reads them, and they match only requests made with the Host agent credential. A Dev request that names itself the delegate still needs the owner. A delegated request appears in the sidebar and Installation controls as "Being handled by <requester>" with its reason and a Cancel action, not as an approval toast, while it is automatically approved, running, or pending for less than `graceMinutes` (default 15, at most 60). After that it returns to the normal owner prompt and toast, noting that the delegate is taking longer than expected, so a mislabeled or stalled request cannot expire unseen. Every owner decision stays available, and the locked summary counts only handled requests as queued. Coordinator update requests carry no requester yet, so they are not delegated.
 
-`hostUpdateServiceRestart` lets an automatically approved Host source update replace the whole service, like an owner approve, instead of restarting only the worker. The update still waits out the cancellation window, prepares its candidate, holds new turns and waits for running turns to finish before the launchd restart. It keeps its exact revision and digest binding and is never replayed. The setting is part of the automatic grant's authority, so changing it cancels automatic grants that have not dispatched. Standing interruptions and Dev updates keep their existing restart paths.
+`hostUpdateServiceRestart` lets an automatically approved Host source update replace the whole service, like an owner approve, instead of restarting only the worker. The update still waits out the cancellation window, prepares its candidate, holds new turns and waits for running turns to finish before the launchd restart. It keeps its exact revision and digest binding and is never replayed. The setting is part of the automatic grant's authority, so changing it cancels automatic grants that have not dispatched, and dispatch uses a full service restart only for a grant issued under the current setting. Standing interruptions and Dev updates keep their existing restart paths.
 
 #### Rolling the coordinator back to vorteo.689
 

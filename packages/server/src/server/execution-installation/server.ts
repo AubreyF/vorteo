@@ -92,7 +92,7 @@ import {
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
-import { delegatedHandler, readOwnerDelegation } from "./owner-delegation.js";
+import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
 function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
@@ -151,13 +151,15 @@ function ownerApprovalReply(job: RestartJob, enabled: boolean | undefined): Rest
 }
 
 // COMPAT(delegatedRequests): added in v0.11.0-beta.3.vorteo.695; only clients that ask receive delegatedTo.
-function withDelegation(reply: RestartJob, job: RestartJob, prefixes: readonly string[]) {
-  const handler = delegatedHandler(job, prefixes);
-  return handler ? { ...reply, delegatedTo: handler } : reply;
+function withDelegation(reply: RestartJob, job: RestartJob, delegation: OwnerDelegation | null) {
+  const handler = delegation ? delegatedHandler(job, delegation, Date.now()) : null;
+  if (handler?.state === "handling") return { ...reply, delegatedTo: handler.requester };
+  if (handler?.state === "overdue") return { ...reply, delegationOverdue: handler.requester };
+  return reply;
 }
 
-function delegationPrefixes(stateDir: string, requested: boolean): readonly string[] {
-  return requested ? readOwnerDelegation(stateDir).delegatedRequesterPrefixes : [];
+function requestedDelegation(stateDir: string, requested: boolean): OwnerDelegation | null {
+  return requested ? readOwnerDelegation(stateDir) : null;
 }
 
 // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; keep old open tabs' strict restart decoders working until they reload.
@@ -1012,8 +1014,10 @@ export function createInstallationServer(
   // Only counts are public. Reasons and task identities require owner access.
   app.get("/api/installation/restart-summary", (_req, res) => {
     const jobs = restarts.list();
-    const prefixes = readOwnerDelegation(config.stateDir).delegatedRequesterPrefixes;
-    const delegated = (job: RestartJob) => delegatedHandler(job, prefixes) !== null;
+    const delegation = readOwnerDelegation(config.stateDir);
+    const now = Date.now();
+    const delegated = (job: RestartJob) =>
+      delegatedHandler(job, delegation, now)?.state === "handling";
     const helpers = restarts.listHelpers();
     const monitors = restarts.listMonitors();
     const services = restarts.listServices();
@@ -1650,7 +1654,7 @@ export function createInstallationServer(
     void restarts.impacts().then((impacts) => res.json(impacts), next);
   });
   app.post("/api/installation/owner/restarts/query", (req, res) => {
-    const prefixes = delegationPrefixes(config.stateDir, req.query.delegatedRequests === "1");
+    const delegation = requestedDelegation(config.stateDir, req.query.delegatedRequests === "1");
     res.json(
       restarts
         .list()
@@ -1669,7 +1673,7 @@ export function createInstallationServer(
               req.query.requireOwnerApproval === "1",
             ),
             job,
-            prefixes,
+            delegation,
           ),
         ),
     );
@@ -1733,7 +1737,7 @@ export function createInstallationServer(
           req.query.requireOwnerApproval === "1",
         ),
         job,
-        delegationPrefixes(config.stateDir, req.query.delegatedRequests === "1"),
+        requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),
       ),
     );
     void restarts

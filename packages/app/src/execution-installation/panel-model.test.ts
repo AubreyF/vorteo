@@ -9,6 +9,7 @@ import {
   restartRequestSummary,
   restartBannerTitle,
   restartCancellable,
+  delegationOverdueNote,
   restartNoticeVisible,
   restartBlockingReason,
   restartActionDisabledReason,
@@ -962,4 +963,24 @@ test("a delegated request reads as handled by its delegate and stays cancellable
   expect(restartCancellable({ ...job, status: "running" })).toBe(false);
   const { delegatedTo: _handled, ...owned } = job;
   expect(restartBannerTitle(owned)).not.toContain("Being handled");
+});
+
+test("an overdue delegated request returns to the owner with an explanation", () => {
+  const job: RestartJob = {
+    id: "10000000-0000-4000-8000-000000000001",
+    revision: "10000000-0000-4000-8000-000000000002",
+    target: "host",
+    reason: "Routine Host update",
+    requester: "Nova integration",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(1).toISOString(),
+    status: "pending",
+    detail: "Waiting",
+    delegationOverdue: "Nova integration",
+  };
+  expect(delegationOverdueNote(job)).toBe("Waiting longer than expected for Nova integration.");
+  expect(restartBannerTitle(job)).not.toContain("Being handled");
+  const { delegationOverdue: _late, ...owned } = job;
+  expect(delegationOverdueNote(owned)).toBeNull();
 });

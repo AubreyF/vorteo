@@ -2444,7 +2444,11 @@ export class InstallationRestarts {
       job.whenIdle &&
       !job.standingDecision &&
       !job.standingInterruption &&
-      this.approvalPolicy.hostUpdateServiceRestart?.() === true,
+      this.approvalPolicy.hostUpdateServiceRestart?.() === true &&
+      // The grant must have been issued under the current setting. A change during
+      // preparation never upgrades an existing grant to a full service restart.
+      job.automaticAuthority !== undefined &&
+      job.automaticAuthority === this.approvalPolicy.authority?.(),
     );
   }
 

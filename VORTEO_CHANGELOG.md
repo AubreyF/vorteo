@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Fixes
+
+- Show delegated requests as handled only while they are automatically approved, running, or pending within a grace window (default 15 minutes, at most an hour). After that the owner gets the normal prompt and toast, noting that the delegate is taking longer than expected.
+- Use a full service restart for an automatic Host update only when its grant was issued under the current owner setting, so enabling it during preparation never upgrades an existing grant.
+- Document that delegated requester labels are display only and not authentication.
+
+### Validation
+
+- Delegation, coordinator and Installation model tests cover handled, running, grace and overdue requests and the mid-preparation setting change.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-19
 
 ### Features

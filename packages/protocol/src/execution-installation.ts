@@ -439,6 +439,8 @@ export const RestartJobSchema = RestartRequestSchema.extend({
   continuationCaptureRequested: z.boolean().optional(),
   // COMPAT(delegatedRequests): reply-only, sent only to clients that request it; never journaled.
   delegatedTo: z.string().max(200).optional(),
+  /** A delegated request still unapproved after its grace window; the owner is prompted. */
+  delegationOverdue: z.string().max(200).optional(),
   // Idle-only restarts capture under a fresh cause per dispatch attempt, so a
   // released attempt never fences a later one. Absent means the job id.
   continuationCaptureId: z.string().uuid().optional(),
