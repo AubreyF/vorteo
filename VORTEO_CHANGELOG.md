@@ -4,6 +4,38 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.693 - 2026-10-18
+
+Adds release verification speedup A to the vorteo.692 integration. Its branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Release verification speedup (speedup branch vorteo.690)
+
+#### Fixes
+
+- Verify coordinator and Host release trees on worker threads with bounded parallel reads. Digests stay byte-identical, so existing coordinators keep accepting them. A full installed release takes 8 to 13 seconds rather than more than two minutes, and the Host event loop stays responsive while it runs.
+- Hash each distinct release tree at most once per review action, plan verification or dispatch. Later checks in the same operation re-assert every retained path's metadata off the event loop, never across operations or processes.
+- Keep each caller's deadline and cancellation separate within shared verification. One caller's timeout no longer rejects other callers, and a rejected or abandoned scan is never reused.
+
+#### Validation
+
+- Equivalence tests compare the new and sequential implementations on fixture trees covering chunk boundaries, modes, links, hard links, special files, permission failures and limits. Both produce the same digest on the installed release.
+
+### Release verification fixes (speedup branch vorteo.691)
+
+#### Fixes
+
+- Re-read coordinator candidate bytes in full at dispatch after an owner decision. Proofs collected before the password check and approval re-verification no longer carry into launch, which keeps the hash-to-use window short.
+- Update a shared tree scan's reuse state before its result settles, so no caller can join a rejection that is about to be discarded.
+- Keep retained tree metadata in one compact form, roughly halving retained proof memory.
+
+#### Validation
+
+- A regression test shows dispatch performs a fresh byte scan after an owner decision, including inside an enclosing reuse operation. It fails when dispatch joins the earlier proof.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 489 artifact, scan, Host, launch, renewal and runner cases, 905 of 907 continuation and question cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
 ## 0.11.0-beta.3.vorteo.692 - 2026-10-18
 
 Integrates the restart continuation fixes (vorteo.690 below) with the Open questions card. The card branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.

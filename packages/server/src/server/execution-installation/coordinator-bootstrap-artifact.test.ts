@@ -5,8 +5,8 @@ import {
 } from "./maintenance/host-startup-contract.js";
 import { test, expect, afterEach, vi } from "vitest";
 import * as nativeFs from "node:fs";
+import { Worker } from "node:worker_threads";
 import {
-  readdir,
   mkdtemp,
   cp,
   mkdir,
@@ -37,10 +37,25 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, lstatSync: vi.fn(actual.lstatSync) };
 });
 
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, readdir: vi.fn(actual.readdir) };
+vi.mock("node:worker_threads", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:worker_threads")>();
+  return {
+    ...actual,
+    Worker: vi.fn(function (...args: ConstructorParameters<typeof actual.Worker>) {
+      return new actual.Worker(...args);
+    }),
+  };
 });
+
+function treeScans(directory: string): number {
+  return vi
+    .mocked(Worker)
+    .mock.calls.filter(
+      ([, options]) =>
+        options?.workerData?.role === "vorteo-artifact-scan" &&
+        options.workerData.directory === directory,
+    ).length;
+}
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -539,7 +554,7 @@ test("one verification reuses a runtime while validating separate configuration 
     configuration: pin(configuration, "fallback config"),
     launcher: pin(launcher, "fallback launcher"),
   };
-  vi.mocked(readdir).mockClear();
+  vi.mocked(Worker).mockClear();
   await withBootstrapReleaseInspection(async (inspect) => {
     await Promise.all([inspect(candidate, []), inspect(fallback, [])]);
     await inspect(candidate, []);
@@ -555,15 +570,11 @@ test("one verification reuses a runtime while validating separate configuration 
     ).rejects.toThrow("digest changed");
     await expect(inspect(candidate, [root])).rejects.toThrow("mount");
   });
-  expect(vi.mocked(readdir).mock.calls.filter(([directory]) => directory === release)).toHaveLength(
-    1,
-  );
+  expect(treeScans(release)).toBe(1);
   await withBootstrapReleaseInspection(async (inspect) => {
     await inspect(candidate, []);
   });
-  expect(vi.mocked(readdir).mock.calls.filter(([directory]) => directory === release)).toHaveLength(
-    2,
-  );
+  expect(treeScans(release)).toBe(2);
 });
 
 test("reuse refuses a different expected digest and a canonical directory alias", async () => {
