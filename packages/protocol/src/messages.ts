@@ -118,6 +118,11 @@ export { TerminalProfileSchema, type TerminalProfile } from "./terminal-profile.
 import { z } from "zod";
 import { AgentJournalEntrySchema } from "./agent-journal.js";
 import {
+  AgentQuestionSchema,
+  QuestionAnswerRequestSchema,
+  QuestionAnswerResponseSchema,
+} from "./agent-questions.js";
+import {
   AgentGoalSetInputSchema,
   AgentGoalStateSchema,
   AgentGoalGetRequestSchema,
@@ -1011,6 +1016,8 @@ const AgentActiveTurnPayloadSchema = z.object({
 
 export const AgentSnapshotPayloadSchema = z.object({
   journal: z.array(AgentJournalEntrySchema).optional(),
+  // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; older daemons omit it.
+  questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
@@ -3551,6 +3558,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   QueueSubscribeRequestSchema,
   ChecklistGetRequestSchema,
   ChecklistMutateRequestSchema,
+  QuestionAnswerRequestSchema,
   AgentGoalGetRequestSchema,
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
@@ -4023,6 +4031,8 @@ export const ServerInfoStatusPayloadSchema = z
         sidebarState: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
+        // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; gate the Open questions card until the daemon floor includes it.
+        agentQuestions: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
@@ -7388,6 +7398,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   QueueChangedSchema,
   ChecklistGetResponseSchema,
   ChecklistMutateResponseSchema,
+  QuestionAnswerResponseSchema,
   AgentGoalGetResponseSchema,
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,

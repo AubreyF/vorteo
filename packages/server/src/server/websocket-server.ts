@@ -473,6 +473,7 @@ type SessionConnection = ReconnectableSessionConnection | PluginSessionConnectio
 
 interface SocketSessionOptions {
   principalId?: string | null;
+  clientType?: WSHelloMessage["clientType"];
   clientId: string;
   appVersion: string | null;
   clientCapabilities: Record<string, unknown> | null;
@@ -1507,6 +1508,7 @@ export class VoiceAssistantWebSocketServer {
     connectionLogger: pino.Logger;
     lifecycle: { kind: "reconnectable" } | { kind: "ephemeral-plugin"; pluginId: string };
     admission: SessionAdmission;
+    clientType: WSHelloMessage["clientType"];
   }): SessionConnection {
     const { ws, clientId, appVersion, clientCapabilities, connectionLogger, lifecycle, admission } =
       params;
@@ -1514,6 +1516,7 @@ export class VoiceAssistantWebSocketServer {
 
     const session = this.createSocketSession({
       clientId,
+      clientType: params.clientType,
       principalId: lifecycle.kind === "reconnectable" ? admission.principalId : null,
       appVersion,
       clientCapabilities,
@@ -1599,6 +1602,7 @@ export class VoiceAssistantWebSocketServer {
       maintenanceRestart: this.maintenanceRestart,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
+      clientType: options.clientType,
       principalId: options.principalId,
       appVersion: options.appVersion,
       clientCapabilities: options.clientCapabilities,
@@ -1779,6 +1783,7 @@ export class VoiceAssistantWebSocketServer {
       connectionLogger,
       lifecycle: pluginId ? { kind: "ephemeral-plugin", pluginId } : { kind: "reconnectable" },
       admission: admitted,
+      clientType: message.clientType,
     });
     this.sessions.set(ws, connection);
     if (connection.lifecycle === "reconnectable") {
@@ -2087,6 +2092,8 @@ export class VoiceAssistantWebSocketServer {
         sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
         agentJournal: true,
+        // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; retain until the client floor includes it.
+        agentQuestions: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.

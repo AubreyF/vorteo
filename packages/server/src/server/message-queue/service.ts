@@ -104,6 +104,18 @@ export class MessageQueueService {
     }
   }
 
+  /** The stable operation ID makes a retried answer enqueue at most once. */
+  async queueQuestionAnswer(agentId: string, questionId: string, text: string): Promise<void> {
+    const id = `question-answer-${questionId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text,
+    });
+  }
+
   async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {
     const retained = await this.store.restartContinuation(agentId);
     if (retained?.requestId === requestId && (retained.phase !== "held" || retained.abandoned))

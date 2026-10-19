@@ -5,6 +5,12 @@ import {
   BLOCKED_REVIEW_PROMPT,
 } from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
+import {
+  answerJournalEntryId,
+  answerJournalText,
+  answerMessage,
+  QuestionError,
+} from "./questions/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
 import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
 import {
@@ -493,6 +499,7 @@ interface HandleStreamEventOptions {
 
 interface ManagedAgentBase {
   journal?: import("@getpaseo/protocol/agent-journal").AgentJournalEntry[];
+  questions?: import("@getpaseo/protocol/agent-questions").AgentQuestion[];
   tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
@@ -1242,6 +1249,7 @@ export class AgentManager {
           Pick<
             MessageQueueService,
             | "withIdleQueue"
+            | "queueQuestionAnswer"
             | "captureRestartContinuation"
             | "releaseRestartContinuation"
             | "wakeRestartContinuation"
@@ -1493,6 +1501,7 @@ export class AgentManager {
         Pick<
           MessageQueueService,
           | "withIdleQueue"
+          | "queueQuestionAnswer"
           | "captureRestartContinuation"
           | "releaseRestartContinuation"
           | "wakeRestartContinuation"
@@ -4143,6 +4152,74 @@ export class AgentManager {
     return entry;
   }
 
+  async readQuestions(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const record = await this.requireRegistry().get(agentId);
+    if (!record) throw new QuestionError("not_found", "Thread not found.");
+    return structuredClone(record.questions ?? []);
+  }
+
+  async mutateQuestions(
+    agentId: string,
+    mutation: import("@getpaseo/protocol/agent-questions").QuestionMutation,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const agent = this.requireAgent(agentId);
+    const questions = await this.requireRegistry().mutateQuestions(agentId, mutation);
+    agent.questions = questions;
+    this.emitState(agent, { persist: false });
+    return structuredClone(questions);
+  }
+
+  /** The owner's answer is saved, then delivered once through the durable queue. */
+  async answerQuestion(
+    agentId: string,
+    input: { questionId: string; answer: string; answeredBy: string },
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const agent = this.requireAgent(agentId);
+    if (!this.messageQueueControl?.queueQuestionAnswer)
+      throw new QuestionError("unavailable", "This daemon cannot deliver answers to the thread.");
+    const { questions, answered } = await this.requireRegistry().answerQuestion(agentId, input);
+    agent.questions = questions;
+    this.emitState(agent, { persist: false });
+    if (answered.answerDeliveredAt) return structuredClone(questions);
+    return this.deliverAnswer(agentId, answered);
+  }
+
+  /** The stable queue operation ID keeps delivery exactly once across retries and reloads. */
+  private async deliverAnswer(
+    agentId: string,
+    question: import("@getpaseo/protocol/agent-questions").AgentQuestion,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    const queue = this.messageQueueControl;
+    if (!queue?.queueQuestionAnswer)
+      throw new QuestionError("unavailable", "This daemon cannot deliver answers to the thread.");
+    await queue.queueQuestionAnswer(agentId, question.id, answerMessage(question));
+    const questions = await this.requireRegistry().markAnswerDelivered(agentId, question.id);
+    const agent = this.requireAgent(agentId);
+    agent.questions = questions;
+    this.emitState(agent, { persist: false });
+    try {
+      await this.appendJournal(agentId, {
+        entryId: answerJournalEntryId(question.id),
+        text: answerJournalText(question),
+        machineContext: `questionId=${question.id}\nansweredBy=${question.answeredBy}`,
+      });
+    } catch (error) {
+      // The durable message already carries the answer; the journal is a record of it.
+      this.logger.warn({ err: error, agentId }, "Delivered open question answer was not journaled");
+    }
+    return structuredClone(questions);
+  }
+
+  /** Recover answers saved before a crash or failure prevented their delivery. */
+  private async deliverPendingAnswers(agentId: string): Promise<void> {
+    const pending = (this.agents.get(agentId)?.questions ?? []).filter(
+      (question) => question.status === "answered" && !question.answerDeliveredAt,
+    );
+    for (const question of pending) await this.deliverAnswer(agentId, question);
+  }
+
   readChecklist(agentId: string): AgentTaskItem[] {
     return structuredClone(this.requireAgent(agentId).tasks ?? []);
   }
@@ -5320,6 +5397,7 @@ export class AgentManager {
     const record = await this.registry?.get(managed.id);
     managed.tasks = record?.tasks;
     managed.journal = record?.journal;
+    managed.questions = record?.questions;
     const managedTasks = managed.tasks?.filter((task) => task.source === "vorteo") ?? [];
     for (const item of this.timelineStore.getItems(managed.id)) {
       if (item.type === "todo") {
@@ -5403,6 +5481,12 @@ export class AgentManager {
       this.restoreLatestQuotaReserve(resolvedAgentId, managed.config);
       this.agents.set(resolvedAgentId, managed);
       registered = true;
+      void this.deliverPendingAnswers(resolvedAgentId).catch((error: unknown) => {
+        this.logger.warn(
+          { err: error, agentId: resolvedAgentId },
+          "Open question answer delivery is pending",
+        );
+      });
       // Initialize previousStatus to track transitions
       this.previousStatuses.set(resolvedAgentId, managed.lifecycle);
       if (session.initialTimeline?.length) {

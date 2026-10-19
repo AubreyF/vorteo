@@ -4,6 +4,41 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.692 - 2026-10-18
+
+Integrates the restart continuation fixes (vorteo.690 below) with the Open questions card. The card branch numbered its entries vorteo.690 and vorteo.691 independently; neither was installed, so they are kept here verbatim under this version.
+
+### Open questions card (card branch vorteo.690)
+
+#### Features
+
+- Add an Open questions card above Tasks. Agents ask blocking questions with a required recommended default, optional blocked tasks and an optional default time; the owner answers inline with Use recommended or typed text. Answers are saved once, journaled and delivered to the asking thread as a message.
+- Show a calm count of open questions on workspace sidebar rows.
+
+#### Validation
+
+- Focused question model, daemon MCP and RPC, and app model tests pass, with a real-browser check at phone, tablet and desktop widths against a disposable daemon.
+
+### Open questions fixes (card branch vorteo.691)
+
+#### Fixes
+
+- Deliver every saved open-question answer exactly once: answers are marked delivered only after their message is durably queued, and a thread queues any undelivered answer when it loads. Journaling is best effort after delivery.
+- Accept answers only from the Vorteo app or a browser, record which client answered, and show it in answered rows.
+- Require the recommended-default time to be at least 15 minutes ahead and let agents clear it. Omit withdrawn questions from snapshots and keep the newest 20 closed questions once delivered.
+
+#### Validation
+
+- Question model, reload delivery, daemon end-to-end and browser checks at three widths pass.
+
+### Documentation
+
+- Describe the manual lifecycle journal recovery for rolling back to vorteo.689 while an idle restart capture is held.
+
+### Validation
+
+- Integrated source passes the workspace typecheck, repository lint, server and CLI builds, 905 of 907 focused server cases, 228 client cases, 40 app cases and the Open questions browser spec at three widths. The two failing cases also fail on vorteo.689.
+
 ## 0.11.0-beta.3.vorteo.690 - 2026-10-18
 
 ### Fixes

@@ -412,4 +412,8 @@ Question cards are content-sized at every viewport width. Use `scrollBody={false
 
 Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.
 
+### Open questions cards
+
+Open questions sit above Tasks in the thread details. Each open question shows its text, why it matters, linked blocked tasks, when it was asked, and a highlighted recommended default with a primary Use recommended button; a text field answers differently. Answered questions collapse into an Answered (n) disclosure below, newest first; withdrawn questions are hidden. The card disappears when nothing is open or answered. The sidebar shows a static warm question badge with the open count; it never pulses because it stays until the owner answers.
+
 Maintenance that is awaiting dispatch or running belongs in compact two-line status rows at the bottom of the left sidebar. Keep a spinner on the left and Review on the right. Approval and recovery notices remain floating and dismissible; dismissing a notice does not cancel its request. Queued messages stays last in the supporting card group, after Files and Changes.

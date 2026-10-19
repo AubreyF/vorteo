@@ -166,6 +166,12 @@ Daemons advertise `features.agentJournal`. The interface gates the journal card 
 
 Journal entries and append input accept optional `machineContext` text for agent reference details. The card renders only `text`; machine context remains available in journal reads and snapshots and is not a secret store. Older entries omit it, and older clients ignore it. Agents must inspect the append tool schema before sending this field to an older daemon; no client write path assumes support. Retries must retain both text and machine context exactly. The short-summary limits are writing instructions, not a narrowing of the existing wire text schema; historical entries remain readable.
 
+## Open questions
+
+Daemons advertise `features.agentQuestions`. The interface gates the Open questions card, its sidebar count and answering on that capability. Questions travel as an optional `questions` array in existing agent snapshots; older clients ignore it and newer clients accept snapshots that omit it. The only new message pair is `agent.questions.answer.request` and its response, sent only by clients that saw the capability, so older daemons never receive it. Agents ask, revise and withdraw through the caller-bound `get_questions` and `update_questions` MCP tools; no agent operation can answer. Answers are idempotent per question: repeating the same text returns the saved state, while a different answer is rejected. Ordinary agent snapshot writes preserve the durable questions.
+
+The daemon accepts answers only from sessions whose hello declared `mobile` or `browser`, and records `answeredBy` as `<client type>:<client id>`. The client type is self-declared, so this keeps bridges, CLIs and hubs from answering by mistake but is not authentication: every password or local-credential session is the same owner principal. A saved answer is marked `answerDeliveredAt` only after its message is durably queued under a stable operation ID; loading a thread queues any answer still missing that marker, so delivery survives crashes without duplicates. Journaling the answer is best effort after delivery. Snapshots omit withdrawn questions, and the daemon keeps the newest 20 closed questions once their answers are delivered. Rolling the app back to a version without question support drops cached thread rows that contain questions; the replica cache deletes rows it cannot parse and refetches them, so no directory read fails.
+
 ## Workspace project membership at creation
 
 Clients require `workspaceCreateProjectMembership` before including optional

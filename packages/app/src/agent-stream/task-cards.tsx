@@ -1,6 +1,7 @@
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { InlineFilesCard } from "./inline-files-card";
 import { JournalCard } from "@/journal/card";
+import { OpenQuestionsCard } from "@/open-questions/card";
 import { AgentHistoryTracks } from "@/panels/agent-tracks";
 import { useCallback, useState } from "react";
 import { GoalBar } from "@/goals/goal-bar";
@@ -50,7 +51,10 @@ export function AgentTaskCards({
           cwd={cwd}
         />
       ) : (
-        <JournalCard serverId={serverId} agentId={agentId} />
+        <>
+          <OpenQuestionsCard serverId={serverId} agentId={agentId} />
+          <JournalCard serverId={serverId} agentId={agentId} />
+        </>
       )}
       {compact && workspaceId && !hasWorkspaceCards ? (
         <InlineFilesCard serverId={serverId} workspaceId={workspaceId} cwd={cwd} />
