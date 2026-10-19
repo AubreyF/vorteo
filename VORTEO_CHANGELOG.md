@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.703 - 2026-10-19
+
+### Maintenance
+
+- Combine the installed coordinator readiness fix (installation-integration at e52d1bd2b) into the post-Factory integration; retain its release notes below with their original version labels. The customizations log keeps both sides' entries.
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Count any unreadable or malformed coordinator runner file, including deeply nested JSON, as no executor activity, so a diagnostic file can never stop the automatic watchdog.
+
+### Validation
+
+- The runner-file filter regression now includes a deeply nested JSON file.
+
 ## 0.11.0-beta.3.vorteo.702 - 2026-10-19
 
 ### Maintenance
@@ -145,6 +161,18 @@ Integrates GitHub main (vorteo.555 and vorteo.556 below) onto installed source v
 
 ### Fixes
 
+- Wait up to two minutes for launchd to start the startup recovery service after registration, checking once a second. Each check now confirms only the execution lock and the exact claimed request; full ownership verification, which rehashes the release tree for 8 to 17 seconds, still runs immediately before registration and after readiness. Previously the 15-second wait fitted only one or two checks, so a healthy request failed when launchd took 20 to 58 seconds to start the service.
+- Let the automatic watchdog treat advancing activity in the bound executor's own runner file as progress while the request stays claimed. Activity can postpone fencing for at most 15 minutes after the watchdog starts waiting; stage changes keep their existing 180-second reset. Unreadable, foreign or ambiguous runner files count as no activity.
+
+### Validation
+
+- Simulated-clock regressions cover a 58-second launchd start with full checks only before and after the wait, the two-minute bound, ownership loss during the wait, an executor whose activity advances for 300 seconds without a stage change, the 15-minute cap, the unchanged 180-second stage timeout and rejection of foreign runner files. The new cases fail on the previous source.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 - Show delegated requests as handled only while they are automatically approved, running, or pending within a grace window (default 15 minutes, at most an hour). After that the owner gets the normal prompt and toast, noting that the delegate is taking longer than expected.
 - Use a full service restart for an automatic Host update only when its grant was issued under the current owner setting, so enabling it during preparation never upgrades an existing grant.
 - Document that delegated requester labels are display only and not authentication.
@@ -205,6 +233,12 @@ Integrates GitHub main (vorteo.555 and vorteo.556 below) onto installed source v
 ### Validation
 
 - Regression tests run a full digest with parallel readers inside `--input-type=module --eval` children, in both forms, using the retained-renewal launcher's flags, reduced environment and stdout handshake. They fail without the fix. The real retained-renewal child, run from this build against the live renewal file, now passes (exit 0 in 9.5 s, where v695 exited 1 in 0.35 s).
+
+## 0.11.0-beta.3.vorteo.695 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.694 - 2026-10-18
 
