@@ -822,6 +822,22 @@ export interface AgentSession {
   interrupt(): Promise<void>;
   /** Release live runtime resources without archiving or deleting the durable native session. */
   close(): Promise<void>;
+  /**
+   * Runtime-only: true while the provider runs outside this worker, in the durable session host,
+   * and this worker is attached. A worker restart then leaves its turn running.
+   */
+  isDurablyHosted?(): boolean;
+  /**
+   * Runtime-only: release this worker's attachment and leave the provider running, for worker
+   * shutdown. A later close() does nothing; the next worker takes the session over.
+   */
+  detach?(): Promise<void>;
+  /**
+   * Runtime-only: the manager has committed the rows read from streamHistory. A session that holds
+   * live events until its history is in place, such as one taken over after a restart, may now
+   * deliver them in order.
+   */
+  historyApplied?(): void;
   listCommands?(): Promise<AgentSlashCommand[]>;
   setModel?(modelId: string | null): Promise<void>;
   setThinkingOption?(thinkingOptionId: string | null): Promise<void | AgentProviderNotice>;

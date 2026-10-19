@@ -21,6 +21,7 @@ import type {
 } from "./agent-sdk-types.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { JsonValue } from "../json-utils.js";
+import { stripInternalPaseoMcpServer } from "./runtime-mcp-config.js";
 import {
   isStoredAgentProviderAvailable,
   resolveStoredAgentUpdatedAt,
@@ -72,7 +73,7 @@ export function toStoredAgentRecord(
 ): StoredAgentRecord {
   const createdAt = options?.createdAt ?? agent.createdAt.toISOString();
   const config = buildSerializableConfig(agent.config);
-  const persistence = sanitizePersistenceHandle(agent.persistence);
+  const persistence = withoutInternalToolServer(sanitizePersistenceHandle(agent.persistence));
   const runtimeInfo = sanitizeRuntimeInfo(agent.runtimeInfo);
 
   return {
@@ -402,6 +403,18 @@ function sanitizePersistenceHandle(
     sanitized.metadata = metadata;
   }
   return sanitized;
+}
+
+/**
+ * The injected Vorteo tool server authenticates with a token for one daemon run, or for the life of
+ * a session host. Every launch and resume injects it again, so stored handles never need it.
+ */
+function withoutInternalToolServer(
+  handle: AgentPersistenceHandle | null,
+): AgentPersistenceHandle | null {
+  if (!handle?.metadata) return handle;
+  const metadata = stripInternalPaseoMcpServer(handle.metadata as unknown as AgentSessionConfig);
+  return { ...handle, metadata: metadata as unknown as AgentMetadata };
 }
 
 function projectPersistenceHandleForWire(

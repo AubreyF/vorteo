@@ -134,6 +134,23 @@ export class MessageQueueService {
     });
   }
 
+  /**
+   * Continues an agent whose hosted session ended with the session host, the way a restart
+   * continuation would. Existing queued work already supplies continuation.
+   */
+  async queueHostedSessionContinuation(agentId: string, cause: string): Promise<void> {
+    const snapshot = await this.read(agentId);
+    if (snapshot.paused || snapshot.items.length) return;
+    const id = `session-host-${cause}-${agentId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text: "The session host stopped and interrupted this turn. Continue the work in progress, following the owner's latest instructions.",
+    });
+  }
+
   wake(agentId: string): void {
     if (this.queuedAgents.has(agentId) || this.deliveryPort?.needsCompletion?.(agentId))
       void this.delivery?.wake(agentId);

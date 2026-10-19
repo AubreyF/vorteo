@@ -1256,6 +1256,7 @@ export class AgentManager {
             | "restartContinuationHeld"
             | "restartContinuationReleased"
             | "abandonRestartContinuation"
+            | "queueHostedSessionContinuation"
           >
         >)
     | null = null;
@@ -1508,6 +1509,7 @@ export class AgentManager {
           | "restartContinuationHeld"
           | "restartContinuationReleased"
           | "abandonRestartContinuation"
+          | "queueHostedSessionContinuation"
         >
       >,
   ): void {
@@ -1689,6 +1691,8 @@ export class AgentManager {
       for (const agent of this.agents.values()) {
         const archived = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
         if (archived || agent.lifecycle === "initializing") continue;
+        // A durably hosted turn keeps running through the restart: no continuation is needed.
+        if (this.isDurablyHosted(agent)) continue;
         const wasRunning = running.has(agent.id) || this.hasInFlightRun(agent.id);
         if (!wasRunning && agent.session?.goals?.state.goal?.status !== "active") continue;
         await this.retainRestartContinuation(agent.id, requestId, wasRunning);
@@ -1804,9 +1808,7 @@ export class AgentManager {
     this.restartDrainId = requestId;
     this.ownedRestartContinuations.add(requestId);
     for (const agent of this.agents.values()) {
-      const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
-      if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
-        continue;
+      if (!this.needsRestartPreparation(agent)) continue;
       if (
         agent.lifecycle === "initializing" ||
         this.restartDrainTasks.has(agent.id) ||
@@ -1826,6 +1828,15 @@ export class AgentManager {
       this.restartDrainTasks.set(agent.id, task);
     }
     return true;
+  }
+
+  /** Archived history and durably hosted turns need no preparation before a restart. */
+  private needsRestartPreparation(agent: ManagedAgent): boolean {
+    const archivedHistory = this.registry?.getLoadedRecord(agent.id)?.archivedAt;
+    if (archivedHistory && agent.lifecycle !== "initializing" && !this.hasInFlightRun(agent.id))
+      return false;
+    // Never ask a durably hosted turn to wrap up; it survives the restart.
+    return !this.isDurablyHosted(agent);
   }
 
   private async prepareAgentForRestart(agentId: string, requestId: string): Promise<void> {
@@ -1911,7 +1922,10 @@ export class AgentManager {
   }
 
   getRestartImpact() {
-    const managed = Array.from(this.agents.values());
+    // Durably hosted sessions keep running through a worker restart, so they do not hold it.
+    const managed = Array.from(this.agents.values()).filter(
+      (agent) => !this.isDurablyHosted(agent),
+    );
     const agents = managed
       .filter((agent) => agent.lifecycle === "initializing" || this.hasInFlightRun(agent.id))
       .map((agent) => ({
@@ -2027,7 +2041,7 @@ export class AgentManager {
       await Promise.all(this.restartDrainTasks.values());
       assertCurrent();
       for (const agent of this.agents.values()) {
-        if (!this.hasInFlightRun(agent.id)) continue;
+        if (!this.hasInFlightRun(agent.id) || this.isDurablyHosted(agent)) continue;
         await this.runForegroundMutation(agent.id, async () => {
           assertCurrent();
           const run = this.runs.getRun(agent.id) ?? this.runs.trackAutonomousRun(agent.id, null);
@@ -2158,6 +2172,51 @@ export class AgentManager {
     const nowMs = Date.now();
     const nextMs = nowMs > previousMs ? nowMs : previousMs + 1;
     return new Date(nextMs).toISOString();
+  }
+
+  /** The provider runs in the durable session host and outlives this worker. */
+  private isDurablyHosted(agent: ManagedAgent): boolean {
+    return agent.session?.isDurablyHosted?.() === true;
+  }
+
+  /**
+   * Worker shutdown: release durably hosted sessions without stopping their providers, so the
+   * next worker takes them over mid-turn. Closing them afterwards does nothing.
+   */
+  async detachDurableSessions(): Promise<number> {
+    const hosted = [...this.agents.values()].filter((agent) => this.isDurablyHosted(agent));
+    await Promise.all(
+      hosted.map((agent) =>
+        agent.session?.detach?.().catch((error: unknown) => {
+          this.logger.warn({ err: error, agentId: agent.id }, "Detaching a hosted session failed");
+        }),
+      ),
+    );
+    return hosted.length;
+  }
+
+  /**
+   * The session host no longer runs this agent's session, as after a host crash. Like a restart,
+   * the agent continues from a queued message on a fresh session, hosted again when possible.
+   */
+  async continueAfterHostedSessionLoss(agentId: string): Promise<void> {
+    if (this.agents.has(agentId)) {
+      await this.drainSessionEvents(agentId).catch(() => {});
+      // During a restart drain no session may open. The next worker loads the agent afresh and
+      // delivers the continuation, so only the continuation is queued here.
+      if (!this.isRestartDraining()) {
+        try {
+          await this.reloadAgentSession(agentId);
+        } catch (error) {
+          this.logger.warn(
+            { err: error, agentId },
+            "Could not reopen an agent after its host ended",
+          );
+        }
+      }
+    }
+    await this.messageQueueControl?.queueHostedSessionContinuation?.(agentId, String(Date.now()));
+    this.messageQueueControl?.wake(agentId);
   }
 
   hasInFlightRun(agentId: string): boolean {
@@ -5072,7 +5131,12 @@ export class AgentManager {
     options?: HydrateTimelineOptions,
   ): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
-    await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
+    try {
+      await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
+    } finally {
+      // Rows from history are committed (or were already); held live events may follow them now.
+      agent.session.historyApplied?.();
+    }
   }
 
   async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
