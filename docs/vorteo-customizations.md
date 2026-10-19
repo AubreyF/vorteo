@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-18): the nested subagent ownership real-provider test now skips unless real-provider runs are enabled, matching the other Claude real tests. This changes test tooling only; features, README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-18): added a full web sign-in Claude account type for unmanaged daemons. Its launches use only the account's own CLI grant, and its usage reads only that account's credentials in the pinned CLI's store order. Setup-token accounts and the managed-installation sign-in refusal are unchanged. Synthetic tests, workspace typecheck and lint pass; live sign-in and installation-wide refresh remain open. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-18): prepared durable task capture and verified restart release across the existing queue, manager and lifecycle transport. The standalone coordinator client uses one sixteen-minute POST deadline without retries. Coordinator plan verification reuses retained proofs for shared runtimes within one operation and reasserts final custody. Combined source passes workspace typechecks, repository lint and focused regressions. Startup-contract validation passes; installed acceptance remains pending. README overview and onboarding are unchanged.

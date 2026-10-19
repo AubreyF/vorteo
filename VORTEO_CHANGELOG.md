@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-18
+
+### Maintenance
+
+- Skip the nested subagent ownership real-provider test unless an OpenRouter key is configured, using the same guard as the other Claude real e2e tests. Running the file directly or through `test:e2e:all` no longer spends this machine's default Claude login.
+
+### Known limitations
+
+- When real-provider runs are enabled, this test still uses the machine's default Claude login rather than OpenRouter.
+
+### Validation
+
+- The guarded file skips in a sandbox with no OpenRouter key and an empty Claude configuration; format and lint pass.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-18
 
 ### Added
