@@ -19,7 +19,9 @@ import {
   type TabContents,
   type TabImage,
 } from "./service.js";
+import { NetworkPolicy } from "./headless-host-network-policy.js";
 import { normalizeDeniedHost } from "./headless-host-process-protocol.js";
+import { startFilteringProxy } from "./headless-host-proxy.js";
 import { BrowserSnapshotEngine } from "./snapshot-engine.js";
 import type { IsolatedKeyboardInputEvent } from "./trusted-input.js";
 
@@ -101,6 +103,9 @@ export interface HeadlessBrowserHostOptions {
   // scheme or port. Use it for owner-authority origins such as the protected
   // installation interface.
   deniedHosts?: readonly string[];
+  // "host" or "host:port" entries the browser may reach even though they are
+  // private, such as a local preview server. Denied hosts still win.
+  allowedHosts?: readonly string[];
   viewport?: { width: number; height: number };
 }
 
@@ -342,6 +347,7 @@ export class HeadlessBrowserHost {
   private readonly tabs = new Map<string, HeadlessTab>();
   private readonly activeByWorkspace = new Map<string, string>();
   private readonly deniedHosts: ReadonlySet<string>;
+  private readonly policy: NetworkPolicy;
   private readonly viewport: { width: number; height: number };
   private readonly snapshotEngine = new BrowserSnapshotEngine();
   private readonly registry: BrowserRegistry;
@@ -354,6 +360,10 @@ export class HeadlessBrowserHost {
     private readonly onClose?: () => Promise<void>,
   ) {
     this.deniedHosts = new Set((options.deniedHosts ?? []).map(normalizeDeniedHost));
+    this.policy = new NetworkPolicy({
+      deniedHosts: [...this.deniedHosts],
+      allowedHosts: options.allowedHosts ?? [],
+    });
     this.viewport = options.viewport ?? DEFAULT_VIEWPORT;
     this.registry = {
       listRegisteredBrowserIds: () => [...this.tabs.keys()],
@@ -379,9 +389,19 @@ export class HeadlessBrowserHost {
     );
   }
 
+  // Refuses denied, private and local destinations visible from the URL
+  // alone. The filtering proxy also checks every request after DNS resolution.
   public isDeniedUrl(url: string): boolean {
-    const hostname = urlHostname(url);
-    return hostname !== null && this.deniedHosts.has(hostname);
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return false;
+    }
+    const defaultPort = parsed.protocol === "https:" ? 443 : 80;
+    const port = parsed.port ? Number(parsed.port) : defaultPort;
+    const decision = this.policy.checkName(parsed.hostname, port);
+    return decision !== "resolve" && !decision.allowed;
   }
 
   public async execute(
@@ -564,7 +584,13 @@ export class HeadlessBrowserHost {
 
 interface PlaywrightModule {
   chromium: {
-    launch(options: { headless: boolean; executablePath?: string }): Promise<{
+    launch(options: {
+      headless: boolean;
+      executablePath?: string;
+      args?: string[];
+      proxy?: { server: string; username: string; password: string };
+      env?: Record<string, string>;
+    }): Promise<{
       newContext(options: Record<string, unknown>): Promise<PlaywrightContextLike>;
       close(): Promise<void>;
     }>;
@@ -587,10 +613,31 @@ export async function launchHeadlessBrowserHost(
   options: LaunchHeadlessBrowserHostOptions = {},
 ): Promise<HeadlessBrowserHost> {
   const playwright = await importPlaywright();
-  const browser = await playwright.chromium.launch({
-    headless: !options.headed,
-    ...(options.executablePath ? { executablePath: options.executablePath } : {}),
+  // Every browser request, including loopback, goes through this proxy, which
+  // refuses private and denied destinations after resolving them.
+  const proxy = await startFilteringProxy({
+    policy: new NetworkPolicy({
+      deniedHosts: (options.deniedHosts ?? []).map(normalizeDeniedHost),
+      allowedHosts: options.allowedHosts ?? [],
+    }),
   });
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({
+      headless: !options.headed,
+      ...(options.executablePath ? { executablePath: options.executablePath } : {}),
+      proxy: { server: proxy.server, username: proxy.username, password: proxy.password },
+      // WebRTC could otherwise send UDP to local addresses outside the proxy.
+      args: ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
+    });
+  } catch (error) {
+    await proxy.close();
+    throw error;
+  }
+  const closeAll = async () => {
+    await browser.close().catch(() => {});
+    await proxy.close();
+  };
   try {
     // newContext without a user data directory is an ephemeral, in-memory
     // profile. Nothing persists between launches.
@@ -601,11 +648,11 @@ export async function launchHeadlessBrowserHost(
       serviceWorkers: "block",
       permissions: [],
     });
-    const host = new HeadlessBrowserHost(context, options, () => browser.close());
+    const host = new HeadlessBrowserHost(context, options, closeAll);
     await host.initialize();
     return host;
   } catch (error) {
-    await browser.close().catch(() => {});
+    await closeAll();
     throw error;
   }
 }

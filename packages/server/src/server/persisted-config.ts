@@ -259,6 +259,8 @@ export const PersistedConfigSchema = z
               .object({
                 enabled: z.boolean().optional(),
                 deniedOrigins: z.array(z.string()).optional(),
+                // Private destinations to permit, as "host" or "host:port".
+                allowedHosts: z.array(z.string()).optional(),
               })
               .strict()
               .optional(),

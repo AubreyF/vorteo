@@ -202,6 +202,35 @@ describe("HeadlessBrowserHost", () => {
     expect(context.pages[0]?.visited).toEqual(["https://example.com/"]);
   });
 
+  test("refuses private and local destinations unless allowed", async () => {
+    const { context, host } = await createHost();
+    for (const url of [
+      "http://127.0.0.1:6771/",
+      "http://localhost:8081/",
+      "http://[::1]/",
+      "http://192.168.1.1/",
+      "https://machine.tailnet.ts.net/",
+    ]) {
+      await expect(
+        host.execute(request({ command: "new_tab", args: { url } })),
+      ).resolves.toMatchObject({
+        ok: false,
+        error: { code: "browser_denied" },
+      });
+    }
+    expect(context.pages).toHaveLength(0);
+
+    const allowed = new HeadlessBrowserHost(new FakeContext(), {
+      allowedHosts: ["localhost:8081"],
+    });
+    await expect(
+      allowed.execute(request({ command: "new_tab", args: { url: "http://localhost:8081/" } })),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      allowed.execute(request({ command: "new_tab", args: { url: "http://localhost:6771/" } })),
+    ).resolves.toMatchObject({ ok: false, error: { code: "browser_denied" } });
+  });
+
   test("aborts every request to a denied host at the context", async () => {
     const { context } = await createHost(["owner.example.com"]);
 

@@ -9,6 +9,7 @@ import {
   spawnHeadlessHostProcess,
   type HeadlessHostProcess,
 } from "./engine/headless-host-process-client.js";
+import { parseAllowedHost } from "./engine/headless-host-network-policy.js";
 import {
   HEADLESS_BROWSER_HOST_KIND,
   normalizeDeniedHost,
@@ -21,6 +22,7 @@ export const EMBEDDED_HEADLESS_HOST_ID = "daemon-headless-browser";
 export interface EmbeddedHeadlessHostConfig {
   enabled?: boolean;
   deniedOrigins?: string[];
+  allowedHosts?: string[];
 }
 
 export interface EmbeddedHeadlessHostInput {
@@ -44,9 +46,19 @@ export function startEmbeddedHeadlessHost(input: EmbeddedHeadlessHostInput): Emb
   const config: EmbeddedHeadlessHostConfig | undefined =
     input.persisted.daemon?.browserTools?.headlessHost;
   if (config?.enabled !== true) return { stop: async () => {} };
-  const options: HeadlessHostProcessOptions = {
-    deniedHosts: (config.deniedOrigins ?? []).map(normalizeDeniedHost),
-  };
+  let options: HeadlessHostProcessOptions;
+  try {
+    const allowedHosts = config.allowedHosts ?? [];
+    for (const host of allowedHosts) parseAllowedHost(host);
+    options = {
+      deniedHosts: (config.deniedOrigins ?? []).map(normalizeDeniedHost),
+      ...(allowedHosts.length > 0 ? { allowedHosts } : {}),
+    };
+  } catch (error) {
+    // Fail closed: an unreadable policy must not start an unrestricted browser.
+    logger.error({ err: error }, "Headless browser host configuration is invalid; not starting");
+    return { stop: async () => {} };
+  }
   const supervisor = new HeadlessHostSupervisor({
     options,
     spawn:
@@ -55,6 +67,7 @@ export function startEmbeddedHeadlessHost(input: EmbeddedHeadlessHostInput): Emb
         spawnHeadlessHostProcess({
           options: processOptions,
           onStderr: (text) => logger.debug({ text }, "Headless browser host output"),
+          onInvalidMessage: () => logger.warn("Dropped an invalid message from the browser host"),
         })),
     onExit: (detail) => logger.warn(detail, "Headless browser host process exited"),
     ...(input.now ? { now: input.now } : {}),

@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixed
+
+- Refuse loopback, private, link-local, CGNAT/tailnet and local destinations in the headless browser by default, including after DNS resolution and redirects, with `allowedHosts` and `--allow-host` for explicit exceptions such as a local preview
+- Validate every message between the daemon and the browser host process, so a malformed or hostile message is dropped instead of crashing the daemon
+- Start the browser host process with a minimal environment, keeping SSH agent sockets and tokens out of it
+
+### Documentation
+
+- Note that Chromium comes from the Playwright cache, outside release custody
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-19
 
 ### Changed

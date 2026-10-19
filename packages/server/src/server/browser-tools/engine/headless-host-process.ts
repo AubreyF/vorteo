@@ -5,7 +5,7 @@
 import { launchHeadlessBrowserHost } from "./headless-host.js";
 import {
   decodeHeadlessHostProcessOptions,
-  type HeadlessHostParentMessage,
+  parseHeadlessHostParentMessage,
 } from "./headless-host-process-protocol.js";
 import { runHeadlessHostProcess } from "./headless-host-process-runner.js";
 
@@ -28,7 +28,10 @@ async function main(): Promise<number> {
     channel: {
       send: (message) => void send(message),
       onMessage: (listener) =>
-        process.on("message", (message) => listener(message as HeadlessHostParentMessage)),
+        process.on("message", (raw) => {
+          const message = parseHeadlessHostParentMessage(raw);
+          if (message) listener(message);
+        }),
       onDisconnect: (listener) => process.once("disconnect", listener),
     },
   });

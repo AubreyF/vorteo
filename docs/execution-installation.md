@@ -33,14 +33,15 @@ Host agents get browser tools from a disposable headless Chromium instead of the
       "enabled": true,
       "headlessHost": {
         "enabled": true,
-        "deniedOrigins": ["https://<protected-interface-origin>"]
+        "deniedOrigins": ["https://<protected-interface-origin>"],
+        "allowedHosts": ["localhost:8081"]
       }
     }
   }
 }
 ```
 
-The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. Only enable it on the Host daemon.
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. Only enable it on the Host daemon. An invalid `allowedHosts` entry stops the browser host from starting rather than loosening its policy.
 
 Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
 
@@ -49,14 +50,25 @@ That process entry, `headless-host-process.js`, is deliberately outside the init
 To run a host without a restart, start it as the macOS account that runs the Host daemon:
 
 ```sh
-paseo browser host --deny-origin https://<protected-interface-origin>
+paseo browser host --deny-origin https://<protected-interface-origin> --allow-host localhost:8081
 ```
+
+The browser host process receives only `PATH`, `HOME`, `TMPDIR`, locale and `PLAYWRIGHT_BROWSERS_PATH` from its parent; SSH agent sockets, provider tokens and other variables stay behind. Each side validates every IPC message and drops malformed ones, so a misbehaving browser process cannot crash the daemon.
 
 The command connects only to the local daemon through its local credential and refuses `--host`. Both forms register as `headless chromium`; the Settings → Agents **Browser tools** switch still decides whether agents receive the tools. Each run starts with an empty in-memory profile, with no cookies, storage or saved logins from any owner interface. Downloads are refused, service workers are blocked and each tab is visible only to agents in the workspace that opened it. Popups join their opener's workspace.
 
-`deniedOrigins` and `--deny-origin` block a host on every scheme and port. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
+The browser cannot reach this machine or private networks by default. Every request, including loopback, goes through a filtering proxy inside the browser host process. The proxy resolves each name itself, refuses private destinations and connects to the exact address it checked, so redirects and DNS rebinding cannot reach a refused address. It refuses:
 
-To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. The command stops when its process exits and reconnects after daemon restarts.
+- loopback, link-local, private (RFC 1918), CGNAT and Tailscale (`100.64.0.0/10`) and other reserved IPv4 ranges
+- IPv6 loopback, link-local, unique local (including Tailscale) and multicast addresses, and IPv4-mapped forms of refused IPv4 addresses
+- `localhost`, single-label names, and names ending in `.localhost`, `.local`, `.internal`, `.home.arpa` or `.ts.net`
+- any public name that resolves to one of those addresses
+
+WebRTC cannot send UDP outside the proxy. `allowedHosts` and `--allow-host` open a specific private destination, as `host` or `host:port`; use them for a local preview server, never for the protected interface or daemon ports.
+
+`deniedOrigins` and `--deny-origin` block a host on every scheme and port, even when it is also allowed. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
+
+To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. Chromium comes from the account's Playwright cache, outside release custody: release installation neither pins nor verifies that executable. The command stops when its process exits and reconnects after daemon restarts.
 
 ### Change the protected interface address
 
