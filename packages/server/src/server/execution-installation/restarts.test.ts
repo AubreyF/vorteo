@@ -3103,6 +3103,80 @@ test("automatic source approval binds its prepared digest and remains cancellabl
   expect(f.queue.list()[0]?.status).toBe("rejected");
 });
 
+function delegatedServiceRestartFixture(input: {
+  enabled: boolean;
+  cancellationDelayMs?: number;
+  /** Changes the owner setting after the last policy refresh, just before install. */
+  flipBeforeInstall?: boolean;
+}) {
+  const f = automaticFixture();
+  const installs: boolean[] = [];
+  let enabled = input.enabled;
+  const executor: RestartExecutor = {
+    ...f.executor,
+    verifyDispatch: async () => {
+      if (input.flipBeforeInstall) enabled = !enabled;
+    },
+    installUpdate: async (_job, options) => {
+      installs.push(options.serviceRestart);
+      f.events.push("install");
+      return "installed";
+    },
+  };
+  const queue = new InstallationRestarts(f.journal, executor, () => 2000, {
+    ...f.policy,
+    cancellationDelayMs: input.cancellationDelayMs,
+    hostUpdateServiceRestart: () => enabled,
+    // As in production, the setting is part of the automatic grant's authority.
+    authority: () => (enabled ? "authority-with-service-restart" : "authority"),
+  });
+  queue.contribute(
+    { target: "host", reason: "Routine Host update", requester: "Nova integration" },
+    "host-agent",
+    { sourceCommit: "a".repeat(40), baseCommit: "b".repeat(40), sha256: "c".repeat(64), bytes: 12 },
+    "10000000-0000-4000-8000-000000000031",
+  );
+  return { ...f, queue, installs };
+}
+
+test.each([true, false])(
+  "an automatic Host source update replaces the whole service only when the owner allows it: %s",
+  async (enabled) => {
+    const f = delegatedServiceRestartFixture({ enabled });
+    await f.queue.drain();
+    // Running turns are held and finish first, exactly as for any automatic update.
+    expect(f.queue.list()[0]).toMatchObject({ status: "approved", whenIdle: true });
+    expect(f.events).toEqual(["hold"]);
+    f.idle();
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+    expect(f.queue.list()[0]?.status).toBe("succeeded");
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+  },
+);
+
+test("enabling the setting during preparation never upgrades an existing grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: false, flipBeforeInstall: true });
+  await f.queue.drain();
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([false]);
+});
+
+test("an owner-allowed service restart keeps the cancellation window and its exact grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: true, cancellationDelayMs: 30_000 });
+  await f.queue.drain();
+  const approved = f.queue.list()[0]!;
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  expect(f.events).toEqual([]);
+  f.queue.decide(approved.id, approved.revision, "cancel");
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([]);
+  expect(f.queue.list()[0]?.status).toBe("rejected");
+});
+
 test("automatic approval does not retroactively authorize older Host requests", async () => {
   const f = automaticFixture();
   const old = new InstallationRestarts(f.journal, f.executor, () => 500, f.policy);

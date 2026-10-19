@@ -62,6 +62,11 @@ import type {
   SourceUpdate,
 } from "@getpaseo/protocol/execution-installation";
 
+export interface InstallUpdateOptions {
+  /** Replace the whole service, as an owner approve does, after the turns hold settles. */
+  serviceRestart: boolean;
+}
+
 export interface RestartApprovalPolicy {
   serviceAuthority?: (
     job: MaintenanceServiceJob,
@@ -79,6 +84,8 @@ export interface RestartApprovalPolicy {
   daemonRequestsAfter?: (target: RestartJob["target"]) => string | null | undefined;
   /** Controller authority never inherits a daemon or legacy Host grant. */
   supervisorRequestsAfter?: () => string | null;
+  /** Owner delegation: automatic Host source updates may replace the supervisor. */
+  hostUpdateServiceRestart?: () => boolean;
 }
 
 export interface RestartJournal {
@@ -147,7 +154,7 @@ export interface RestartExecutor {
   verifyPreparedInstallation?(job: RestartJob, options?: { signal?: AbortSignal }): Promise<void>;
   /** Final independent evidence after the locked running reservation. */
   verifyDispatch?(job: RestartJob): Promise<void>;
-  installUpdate?(job: RestartJob): Promise<string>;
+  installUpdate?(job: RestartJob, options: InstallUpdateOptions): Promise<string>;
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
@@ -2424,6 +2431,27 @@ export class InstallationRestarts {
     }
   }
 
+  /**
+   * Only a legacy automatic Host source update qualifies. It still waits out the
+   * cancellation window, prepares and holds turns like any automatic update; the
+   * setting is part of the grant authority, so changing it revokes undispatched grants.
+   */
+  private serviceRestartGranted(job: RestartJob): boolean {
+    return Boolean(
+      job.target === "host" &&
+      job.update &&
+      job.automaticApproval &&
+      job.whenIdle &&
+      !job.standingDecision &&
+      !job.standingInterruption &&
+      this.approvalPolicy.hostUpdateServiceRestart?.() === true &&
+      // The grant must have been issued under the current setting. A change during
+      // preparation never upgrades an existing grant to a full service restart.
+      job.automaticAuthority !== undefined &&
+      job.automaticAuthority === this.approvalPolicy.authority?.(),
+    );
+  }
+
   private requiresInterruption(job: RestartJob): boolean {
     // Native plan executors retain their own exact claims; worker transport does
     // not authorize supervisor replacement or Factory adoption.
@@ -2523,7 +2551,7 @@ export class InstallationRestarts {
     }
     if (job.update) {
       if (!this.executor.installUpdate) throw new Error("Source update executor unavailable");
-      return this.executor.installUpdate(job);
+      return this.executor.installUpdate(job, { serviceRestart: this.serviceRestartGranted(job) });
     }
     if (job.standingInterruption) {
       if (!this.executor.restartHeld)

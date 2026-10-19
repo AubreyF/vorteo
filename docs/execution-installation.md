@@ -119,6 +119,23 @@ A queued plain restart authorizes restarting the installed runtime at the select
 
 A coordinator restart preserves an idle approval that has not been dispatched, but marks other previously approved or running jobs as interrupted. It never replays an ambiguous restart. Inspect the target and submit a new request if another attempt is necessary. These controls do not update release files, roll back databases, or promise to preserve an in-progress provider turn.
 
+#### Owner delegation
+
+A Host operator can delegate routine requests with `<stateDir>/owner-delegation.json`:
+
+```json
+{
+  "version": 1,
+  "delegatedRequesterPrefixes": ["Nova "],
+  "hostUpdateServiceRestart": true,
+  "graceMinutes": 15
+}
+```
+
+A missing or invalid file delegates nothing. Prefixes are display only, not authentication: approval never reads them, and they match only requests made with the Host agent credential. A Dev request that names itself the delegate still needs the owner. A delegated request appears in the sidebar and Installation controls as "Being handled by <requester>" with its reason and a Cancel action, not as an approval toast, while it is automatically approved, running, or pending for less than `graceMinutes` (default 15, at most 60). After that it returns to the normal owner prompt and toast, noting that the delegate is taking longer than expected, so a mislabeled or stalled request cannot expire unseen. Every owner decision stays available, and the locked summary counts only handled requests as queued. Coordinator update requests carry no requester yet, so they are not delegated.
+
+`hostUpdateServiceRestart` lets an automatically approved Host source update replace the whole service, like an owner approve, instead of restarting only the worker. The update still waits out the cancellation window, prepares its candidate, holds new turns and waits for running turns to finish before the launchd restart. It keeps its exact revision and digest binding and is never replayed. The setting is part of the automatic grant's authority, so changing it cancels automatic grants that have not dispatched, and dispatch uses a full service restart only for a grant issued under the current setting. Standing interruptions and Dev updates keep their existing restart paths.
+
 #### Rolling the coordinator back to vorteo.689
 
 Vorteo.689 reads `<stateDir>/restart-jobs.json` with a strict schema that predates `continuationCaptureId`. Later coordinators record that field only while a Restart when idle request holds a task capture, remove it when the hold is released, and never send it to clients. A job keeps it only in a short window: between capture and the idle check, or while the target is unreachable and the release keeps failing. A rollback during that window makes vorteo.689's startup fence reject the journal.
