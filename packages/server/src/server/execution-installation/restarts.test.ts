@@ -457,6 +457,43 @@ test("the daemon adapter probes continuation support and releases older targets'
   }
 });
 
+test("a restart that never verifies readiness fails at its deadline, releases its hold and ignores a late result", async () => {
+  const journal = new MemoryJournal();
+  const progress: string[] = [];
+  const release = vi.fn(async () => true);
+  let finish!: (detail: string) => void;
+  const queue = new InstallationRestarts(
+    journal,
+    {
+      captureRestartContinuation: async () => {},
+      releaseRestartContinuation: release,
+      restart: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    },
+    Date.now,
+    {},
+    { fenced: false, dispatchDeadlineMs: 50, progress: (message) => progress.push(message) },
+  );
+  const request = queue.request({ target: "host", reason: "Frozen predecessor" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "failed" });
+  expect(queue.list()[0]?.detail).toContain("No verified readiness within");
+  expect(progress).toEqual([
+    "Restart dispatched; waiting for verified readiness",
+    "Restart readiness deadline expired",
+  ]);
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  finish("Replacement worker 42 is ready");
+  await vi.waitFor(() =>
+    expect(progress).toContain("Restart outcome arrived after its deadline and was not applied"),
+  );
+  expect(queue.list()[0]?.status).toBe("failed");
+});
+
 test("Factory adoption requires its own exact approval and never shares a plain restart", async () => {
   const plan = "c".repeat(64);
   const calls: string[] = [];

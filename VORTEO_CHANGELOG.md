@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.703 - 2026-10-19
+
+### Maintenance
+
+- Merged the reviewed restart orphan fix into the durable sessions branch: workers kill themselves when their supervisor is gone, a starting worker reclaims its listen address from a frozen predecessor after re-verifying the holder before each signal, restart dispatch has a readiness deadline, and a real supervisor reproduces the frozen restart. The session host is unaffected, since it never listens on TCP, does not run a daemon worker script and is its own launchd job.
+- Worker shutdown names a "detach hosted sessions" step before "close agents", so a stalled shutdown reports where hosted sessions were released.
+
+### Validation
+
+- Focused session host, restart, listen reclaim and worker watchdog tests pass after the merge, except one restart queue test that already fails at the shared base.
+
 ## 0.11.0-beta.3.vorteo.702 - 2026-10-19
 
 ### Fixes
@@ -126,6 +137,59 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Validation
 
 - Twenty-four focused session host tests pass repeatedly. They cover a worker lost mid-turn, stale-worker fencing including acknowledgements, bounded, host-wide and acknowledged replay fallback, rejected tokens and versions, frame limits before and after hello, oversized events, a worker that stops reading, connection and refusal caps, concurrent opens, stale locks and sockets from exited hosts, bounded shutdown, a per-session sequence gap, private files with token rotation across host restarts, and an audit log free of secrets.
+
+## 0.11.0-beta.3.vorteo.700 - 2026-10-19
+
+### Fixes
+
+- Pin a listen address holder's identity to its process start time when it is discovered, and re-read its pid, uid, start time and arguments immediately before SIGTERM and again before SIGKILL. Any change, including a reused pid, stops termination and is logged as "Listen address holder changed before it was signalled; leaving it alone".
+
+### Validation
+
+- Tests cover a pid reused before SIGTERM, a pid reused between SIGTERM and SIGKILL, and an unchanged frozen predecessor.
+
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Fixes
+
+- The worker watchdog now records which deadline expired, so a worker killed at its shutdown deadline after losing its supervisor is no longer reported as a supervisor loss.
+- A terminal worker exits on its own after its daemon worker disconnects or dies, including a daemon worker that died before the terminal worker finished loading. A watchdog-killed daemon worker no longer leaves its terminal worker running.
+
+### Validation
+
+- A real supervisor and worker pair reproduces the incident: a running mock turn under a continuation capture freezes the worker's event loop in "close agents", the supervisor gets SIGTERM and then SIGKILL 4 seconds later. The tests assert that the watchdog kills the old worker at its 15-second shutdown deadline and names the step, and that a replacement binds the port both after that and when started immediately. The mock provider gains a development-only `mockBlockingCloseMs` option for this.
+
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Fixes
+
+- Give every dispatched restart a 10-minute readiness deadline. After it, the job fails with a clear detail and releases any continuation hold, and a late outcome is logged but never applied or replayed. The coordinator logs each dispatch step and reports every 30 seconds while waiting for a replacement worker.
+- Bound each daemon readiness probe, including its connect and close, so a frozen daemon whose listen backlog still accepts connections can no longer stall the coordinator.
+
+### Validation
+
+- A coordinator test verifies the deadline, the continuation release and that a late success is ignored.
+
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Fixes
+
+- When the daemon's listen address is taken, a starting worker now identifies the holder. A previous daemon worker of this installation, run by the same user, is sent SIGTERM and then SIGKILL; any other holder is reported and retried with exponential backoff up to a minute. Startup no longer exits into a 5-second launchd restart loop.
+- Keep the supervisor alive until its worker force-kill timer fires or the worker exits, and give the Host launchd job a 30-second ExitTimeOut covering the worker's shutdown budget.
+
+### Validation
+
+- Listen reclaim tests cover free, previous-worker, foreign-owner and bounded cases, plus a real predecessor that ignores SIGTERM. Existing supervisor suites pass.
+
+## 0.11.0-beta.3.vorteo.696 - 2026-10-19
+
+### Fixes
+
+- Never let a daemon worker outlive its supervisor. A watchdog on its own thread kills the worker within 15 seconds of supervisor loss, and 5 seconds after its shutdown budget, even when the worker's event loop is blocked or process exit hangs. It records the shutdown step the worker was stuck on.
+
+### Validation
+
+- Watchdog tests block a real process's event loop and verify it is killed at its deadline and after its supervisor dies, and that an unarmed watchdog never kills a healthy process.
 
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
