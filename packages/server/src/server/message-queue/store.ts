@@ -66,6 +66,13 @@ export class QueueStoreError extends Error {
   }
 }
 
+interface RestartContinuationRelease {
+  requestId: string;
+  owner: string;
+  outcome: "ready" | "cancelled";
+  keepContinuation: boolean;
+}
+
 // The daemon is the single writer. Each task's read/modify/commit belongs in this
 // lane, including reads, so no caller can observe an uncommitted mutation.
 export class MessageQueueStore {
@@ -153,11 +160,9 @@ export class MessageQueueStore {
     return this.serial(agentId, async () => {
       const record = await this.load(agentId);
       const retained = record.restartContinuation;
-      if (retained?.requestId === requestId) {
-        if (retained.phase === "held" && retained.owner !== owner)
-          throw new Error("Restart continuation belongs to another daemon lifetime");
-        return;
-      }
+      // One daemon lifetime owns a store at a time. A replacement accepts the same held
+      // cause without rewriting its owner, which keeps proof that the capturing lifetime ended.
+      if (retained?.requestId === requestId) return;
       if (retained?.phase === "held")
         throw new Error("Another restart owns this task's continuation");
       record.restartContinuation = { requestId, owner, phase: "held" };
@@ -180,16 +185,22 @@ export class MessageQueueStore {
     });
   }
 
-  releaseRestartContinuation(
-    agentId: string,
-    requestId: string,
-    outcome: "ready" | "cancelled",
-  ): Promise<void> {
+  releaseRestartContinuation(agentId: string, input: RestartContinuationRelease): Promise<void> {
+    const { requestId, owner, outcome, keepContinuation } = input;
     return this.serial(agentId, async () => {
       const record = await this.load(agentId);
       const retained = record.restartContinuation;
       if (retained?.requestId !== requestId || retained.phase !== "held") return;
       record.restartContinuation = { ...retained, phase: outcome };
+      // A cancellation within the capturing lifetime interrupted nothing. Its nudge would
+      // start a spurious turn unless the agent was asked to stop and save its work.
+      if (outcome === "cancelled" && retained.owner === owner && !keepContinuation) {
+        const id = `restart-${requestId}-${agentId}`;
+        record.snapshot.items = record.snapshot.items.filter(
+          (item) => item.id !== id || item.delivery.status !== "queued",
+        );
+        record.snapshot.revision += 1;
+      }
       await this.commit(record);
     });
   }

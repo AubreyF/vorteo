@@ -68,9 +68,11 @@ export class MessageQueueService {
     return (await this.store.restartContinuation(agentId))?.phase === "held";
   }
 
+  /** steered names agents asked to stop and save work; they keep their nudge on cancellation. */
   async releaseRestartContinuation(
     requestId: string,
     outcome: "ready" | "cancelled",
+    steered: ReadonlySet<string> = new Set(),
   ): Promise<boolean> {
     await this.initialize();
     const agents = await this.store.listAgentIds();
@@ -80,9 +82,26 @@ export class MessageQueueService {
       if (retained?.requestId === requestId) matching.push(id);
     }
     // Any lifetime may release: a cancelled cause from a dead owner still lets tasks continue.
-    for (const id of matching) await this.store.releaseRestartContinuation(id, requestId, outcome);
-    for (const id of matching) void this.delivery?.wake(id);
+    for (const id of matching)
+      await this.store.releaseRestartContinuation(id, {
+        requestId,
+        owner: this.restartOwner,
+        outcome,
+        keepContinuation: steered.has(id),
+      });
+    for (const id of matching) {
+      this.publish(await this.store.read(id));
+      void this.delivery?.wake(id);
+    }
     return true;
+  }
+
+  /** Wake released tasks after their daemon admission barrier is gone, including unloaded ones. */
+  async wakeRestartContinuation(requestId: string): Promise<void> {
+    for (const id of await this.store.listAgentIds()) {
+      if ((await this.store.restartContinuation(id))?.requestId === requestId)
+        void this.delivery?.wake(id);
+    }
   }
 
   async queueRestartContinuation(agentId: string, requestId: string): Promise<void> {

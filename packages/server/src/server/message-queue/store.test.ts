@@ -377,9 +377,17 @@ it("retains an uncertain dispatch behind restart readiness without replay or idl
   await reopened.recover("agent");
   expect(await reopened.withIdleQueue("agent", async () => "unexpected")).toBeNull();
   expect(await reopened.claim("agent")).toBeNull();
+  const replacement = "b15ea011-654a-48b1-85d4-ea05c46e8946";
+  // A replacement lifetime recaptures the same held cause without claiming its owner.
+  await reopened.captureRestartContinuation("agent", "request", replacement);
+  expect(await reopened.restartContinuation("agent")).toMatchObject({ owner, phase: "held" });
+  await expect(reopened.captureRestartContinuation("agent", "other", replacement)).rejects.toThrow(
+    "Another restart",
+  );
   // A replacement lifetime may cancel the dead owner's cause; that only releases admission.
-  await reopened.releaseRestartContinuation("agent", "request", "cancelled");
-  await reopened.releaseRestartContinuation("agent", "request", "ready");
+  const release = { requestId: "request", owner: replacement, keepContinuation: false };
+  await reopened.releaseRestartContinuation("agent", { ...release, outcome: "cancelled" });
+  await reopened.releaseRestartContinuation("agent", { ...release, outcome: "ready" });
   expect((await reopened.read("agent")).items[0].delivery.status).toBe("uncertain");
   expect(await reopened.claim("agent")).toBeNull();
   await reopened.captureRestartContinuation("agent", "request", owner);
@@ -388,3 +396,34 @@ it("retains an uncertain dispatch behind restart readiness without replay or idl
     requestId: "request",
   });
 });
+
+it.each([
+  ["same-lifetime cancellation", "cancelled", true, false, 0],
+  ["steered same-lifetime cancellation", "cancelled", true, true, 1],
+  ["replacement cancellation", "cancelled", false, false, 1],
+  ["same-lifetime readiness", "ready", true, false, 1],
+] as const)(
+  "%s keeps or drops the queued continuation nudge",
+  async (_case, outcome, sameOwner, keepContinuation, remaining) => {
+    const root = await mkdtemp(join(tmpdir(), "paseo-queue-restart-nudge-"));
+    roots.push(root);
+    const store = new MessageQueueStore(root);
+    const owner = "8eebd9f4-90f5-4f69-a5ce-6db9891642f2";
+    await store.captureRestartContinuation("agent", "request", owner);
+    await store.mutate("agent", {
+      kind: "enqueue",
+      operationId: "restart-request-agent",
+      messageId: "restart-request-agent",
+      text: "Continue the work you saved",
+      attachments: [],
+    });
+    await store.releaseRestartContinuation("agent", {
+      requestId: "request",
+      owner: sameOwner ? owner : "b15ea011-654a-48b1-85d4-ea05c46e8946",
+      outcome,
+      keepContinuation,
+    });
+    expect((await store.read("agent")).items).toHaveLength(remaining);
+    expect(await store.restartContinuation("agent")).toMatchObject({ phase: outcome });
+  },
+);

@@ -1824,11 +1824,7 @@ export class InstallationRestarts {
     }
     const current = this.jobs.find((item) => item.id === job.id);
     if (current?.status === "approved")
-      this.replace({
-        ...current,
-        continuationCaptureRequested: undefined,
-        continuationCaptureId: undefined,
-      });
+      this.replace({ ...withoutCaptureId(current), continuationCaptureRequested: undefined });
     return true;
   }
 
@@ -2146,7 +2142,7 @@ export class InstallationRestarts {
         await this.executor.releaseCurrentTurns(job.target, job.id);
       }
       const current = this.jobs.find((item) => item.id === job.id);
-      if (current) this.replace({ ...current, holdReleased: true });
+      if (current) this.replace({ ...withoutCaptureId(current), holdReleased: true });
     } catch {
       const current = this.jobs.find((item) => item.id === job.id);
       if (current)
@@ -2847,6 +2843,12 @@ export class InstallationRestarts {
 
 function continuationId(job: RestartJob): string {
   return job.continuationCaptureId ?? job.id;
+}
+
+/** A released capture needs no cause, and v689 strict journals reject the field. */
+function withoutCaptureId(job: RestartJob): RestartJob {
+  const { continuationCaptureId: _released, ...retained } = job;
+  return retained;
 }
 
 /** Only an undispatched or running continuation fences other lifecycle work. A

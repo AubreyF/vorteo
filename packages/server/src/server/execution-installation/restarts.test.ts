@@ -24,7 +24,11 @@ import {
   validateHostStartup,
 } from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
-import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
+import {
+  RestartJobSchema,
+  type RestartImpact,
+  type RestartJob,
+} from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
@@ -325,6 +329,15 @@ test("a terminal continuation awaiting release does not fence another target's r
   ]);
 });
 
+// v689 parses lifecycle jobs strictly and predates per-attempt capture causes.
+const V689RestartJobSchema = RestartJobSchema.omit({ continuationCaptureId: true });
+
+function v689Readable(journal: MemoryJournal): boolean {
+  return journal.jobs.every(
+    (job) => V689RestartJobSchema.safeParse(JSON.parse(JSON.stringify(job))).success,
+  );
+}
+
 test("an idle restart releases its capture while waiting and recaptures under a fresh cause", async () => {
   const journal = new MemoryJournal();
   const calls: string[] = [];
@@ -350,6 +363,7 @@ test("an idle restart releases its capture while waiting and recaptures under a 
   // Waiting for idleness neither holds admission nor fences other lifecycle work.
   expect(journal.jobs[0]).toMatchObject({ status: "approved", whenIdle: true });
   expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+  expect(v689Readable(journal)).toBe(true);
   await queue.drain();
   await queue.drain();
   const second = calls[2]!.slice("capture:".length);
@@ -361,6 +375,11 @@ test("an idle restart releases its capture while waiting and recaptures under a 
     `ready:${second}`,
   ]);
   expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  // A rollback to v689 must still read the journal once the hold is released.
+  expect(journal.jobs[0]).not.toHaveProperty("continuationCaptureId");
+  expect(v689Readable(journal)).toBe(true);
+  const retained = { ...journal.jobs[0], continuationCaptureId: randomUUID() };
+  expect(V689RestartJobSchema.safeParse(retained).success).toBe(false);
 });
 
 test("a lost idle capture receipt is released before a fresh attempt", async () => {

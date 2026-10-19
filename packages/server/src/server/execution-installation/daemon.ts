@@ -8,6 +8,7 @@ import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 import { WebSocket } from "ws";
+import type { Logger } from "pino";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
   RestartImpact,
@@ -241,6 +242,7 @@ export function createInstallationRegistrationAdmission(
 export function createInstallationRestartExecutor(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
+  logger?: Pick<Logger, "info" | "warn">,
 ): RestartExecutor {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   function retainedHeldRestart(job: RestartJob) {
@@ -530,12 +532,22 @@ export function createInstallationRestartExecutor(
       let client: DaemonClient;
       try {
         client = await connectInstallationDaemon(config, target === "host" ? "host" : "container");
-      } catch {
+      } catch (error) {
         // An unreachable daemon holds no tasks to capture; restart recovery stays legacy.
+        logger?.warn(
+          { err: error, target },
+          "Restart continuation skipped: the daemon is unreachable, so this restart uses legacy behavior",
+        );
         return false;
       }
       try {
-        return client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+        const available = client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+        if (!available)
+          logger?.info(
+            { target },
+            "Restart continuation skipped: the daemon does not advertise it, so this restart uses legacy behavior",
+          );
+        return available;
       } finally {
         await client.close();
       }
@@ -570,6 +582,11 @@ export function createInstallationRestartExecutor(
         // example after a downgrade) can only hold the legacy drain, so release that.
         const continuation =
           client.getLastServerInfoMessage()?.features?.restartContinuation === true;
+        if (!continuation)
+          logger?.info(
+            { target, requestId },
+            "Releasing the legacy restart hold: the daemon does not advertise restart continuation",
+          );
         const result = await client.restartServer(undefined, undefined, {
           timeout: 5000,
           idleMode: "cancel-drain",

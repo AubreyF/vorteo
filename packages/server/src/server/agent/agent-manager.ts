@@ -1244,6 +1244,7 @@ export class AgentManager {
             | "withIdleQueue"
             | "captureRestartContinuation"
             | "releaseRestartContinuation"
+            | "wakeRestartContinuation"
             | "restartContinuationHeld"
             | "restartContinuationReleased"
             | "abandonRestartContinuation"
@@ -1269,6 +1270,8 @@ export class AgentManager {
   private readonly restartDrainTasks = new Map<string, Promise<void>>();
   private readonly restartDrainPrepared = new Set<string>();
   private readonly restartDrainWarnings = new Set<string>();
+  /** Agents told to stop and save work in the current drain keep their continuation nudge. */
+  private readonly restartSteeredAgents = new Set<string>();
   private readonly restartDrainErrors = new Map<string, string>();
   private readonly getSharedProviderConfig?: () => MutableDaemonConfig;
   private readonly installationSettingsReader?: InstallationSettingsReader;
@@ -1492,6 +1495,7 @@ export class AgentManager {
           | "withIdleQueue"
           | "captureRestartContinuation"
           | "releaseRestartContinuation"
+          | "wakeRestartContinuation"
           | "restartContinuationHeld"
           | "restartContinuationReleased"
           | "abandonRestartContinuation"
@@ -1714,7 +1718,9 @@ export class AgentManager {
       // A replacement lifetime may cancel a cause it never owned. Its earlier owner is
       // gone, so releasing lets held tasks continue instead of freezing them forever.
       await Promise.all(this.restartDrainTasks.values());
-      const released = await releaseControl.call(queue, requestId, outcome);
+      const steered =
+        this.restartDrainId === requestId ? new Set(this.restartSteeredAgents) : new Set<string>();
+      const released = await releaseControl.call(queue, requestId, outcome, steered);
       if (!released) return false;
       this.releasedRestartContinuations.add(requestId);
       if (outcome === "cancelled") this.cancelledRestartDrains.add(requestId);
@@ -1722,9 +1728,11 @@ export class AgentManager {
         this.restartDrainId = null;
         this.restartDrainPrepared.clear();
         this.restartDrainWarnings.clear();
+        this.restartSteeredAgents.clear();
         this.restartDrainErrors.clear();
       }
       for (const agent of this.agents.values()) queue.wake(agent.id);
+      await queue.wakeRestartContinuation?.(requestId);
       return true;
     })();
     this.restartContinuationReleases.set(key, release);
@@ -1821,6 +1829,7 @@ export class AgentManager {
     await this.retainRestartContinuation(agentId, requestId, this.hasInFlightRun(agentId));
     if (notify) {
       this.restartDrainWarnings.add(turnKey);
+      this.restartSteeredAgents.add(agentId);
       await this.appendTimelineItem(agentId, {
         type: "notification",
         level: "warning",
@@ -1886,6 +1895,7 @@ export class AgentManager {
     this.restartDrainId = null;
     this.restartDrainPrepared.clear();
     this.restartDrainWarnings.clear();
+    this.restartSteeredAgents.clear();
     this.restartDrainErrors.clear();
     for (const agent of this.agents.values()) this.messageQueueControl?.wake(agent.id);
     return true;

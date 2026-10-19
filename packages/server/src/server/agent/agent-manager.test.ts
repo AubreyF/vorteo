@@ -14512,6 +14512,10 @@ test.each([
       );
       expect(continuedTurns).toBe(0);
       if (kind === "goal") expect(goal.status).toBe("blocked");
+      // A coordinator retrying capture after a daemon lifetime change must not be refused.
+      await reopened.captureRestartContinuation(request);
+      expect(reopened.isRestartDraining()).toBe(true);
+      expect(continuedTurns).toBe(0);
       // The replacement never owned this cause; either outcome must still let tasks continue.
       expect(await reopened.releaseRestartContinuation(request, outcome)).toBe(true);
       if (kind === "goal") await expect.poll(() => goal.status).toBe("active");
@@ -14540,6 +14544,41 @@ test.each([
     }
   },
 );
+
+test.each([
+  ["drops", false, 0],
+  ["keeps a steered agent's", true, 1],
+] as const)("same-lifetime cancellation %s continuation nudge", async (_case, steer, remaining) => {
+  const fixture = await createControlledInterruptFixture({
+    name: "restart-cancel-nudge",
+    agentId: randomUUID(),
+    turnId: "working",
+    interrupt: async () => {},
+  });
+  const path = mkdtempSync(join(tmpdir(), "restart-cancel-nudge-"));
+  const queue = new MessageQueueService(
+    new MessageQueueStore(path),
+    new QueueAttachmentStore(path),
+  );
+  fixture.manager.setMessageQueueControl(queue);
+  try {
+    await fixture.startForegroundRun();
+    const request = randomUUID();
+    await fixture.manager.captureRestartContinuation(request);
+    if (steer) {
+      expect(fixture.manager.beginRestartDrain(request)).toBe(true);
+      await expect.poll(() => fixture.manager.getRestartImpact().pendingStarts).toBe(0);
+    }
+    expect((await queue.read(fixture.agentId)).items).toHaveLength(1);
+    expect(await fixture.manager.releaseRestartContinuation(request, "cancelled")).toBe(true);
+    expect((await queue.read(fixture.agentId)).items).toHaveLength(remaining);
+    expect(fixture.session.interruptCalled).toBe(false);
+  } finally {
+    queue.close();
+    await fixture.cleanup();
+    rmSync(path, { recursive: true, force: true });
+  }
+});
 
 test.each(["finish", "stop", "stop-write-failure"] as const)(
   "retains exact restart cause through %s without waiting for a turn",

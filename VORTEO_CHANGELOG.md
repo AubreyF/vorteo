@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.690 - 2026-10-18
+
+### Fixes
+
+- Keep restart continuation from freezing lifecycle work. Targets without durable continuation keep legacy restarts without recording intent, release falls back to the legacy drain, and only undispatched or running captures fence other work.
+- Let a replacement daemon recapture and release a held cause from an earlier lifetime, so tasks continue after crashes and unverified restarts without replaying uncertain deliveries.
+- Clear and retry failed captures. Idle-only restarts capture under a fresh cause per attempt and release it while waiting, so waiting never pauses goals or closes admission.
+- Drop the queued continuation nudge when a capture is cancelled within its own daemon lifetime, unless the agent was asked to stop and save work.
+- Clear per-attempt capture causes when holds are released and omit them from restart replies, keeping journals readable after a rollback to v689. Log when a daemon is treated as lacking continuation support.
+
+### Validation
+
+- Focused restart, manager, queue, session and coordinator server suites pass apart from two failures that also occur on v689.
+
 ## 0.11.0-beta.3.vorteo.689 - 2026-10-18
 
 ### Fixes
