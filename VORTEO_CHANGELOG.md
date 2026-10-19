@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.693 - 2026-10-18
+
+### Fixes
+
+- After a failed renewal re-derivation, status reads retry only once coordinator history or the selected configuration changes again. Polling no longer chains full derivations right after a coordinator replacement, explicit operations still retry, and the failure reason stays visible.
+- Forward availability from the current ordinary review through claimed-recovery refresh, and release a replaced service's subscription.
+
+### Validation
+
+- Tests cover repeated status reads after a failed derivation, retry after a later context change, and claimed-recovery subscription forwarding and release.
+
 ## 0.11.0-beta.3.vorteo.692 - 2026-10-18
 
 ### Fixes

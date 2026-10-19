@@ -9,6 +9,7 @@ import type {
 } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRenewalContextChanged } from "./coordinator-bootstrap-errors.js";
 import {
+  refreshBootstrapReviewAfterClaimedRecovery,
   refreshBootstrapReviewOnRenewalChange,
   renewalContextFingerprint,
 } from "./coordinator-bootstrap-launch.js";
@@ -48,7 +49,8 @@ const requestB = { id: "request-b" } as unknown as CoordinatorBootstrapRequest;
  * stale once history or the selected configuration differs from derivation. */
 function derivedReview(history: HistoryRecord[], configurationFile: string) {
   const derived = renewalContextFingerprint(history, configurationFile);
-  const stale = () => renewalContextFingerprint(history, configurationFile) !== derived;
+  const current = () => renewalContextFingerprint(history, configurationFile);
+  const stale = () => current() !== derived;
   const refuseStale = async () => {
     if (stale())
       throw new BootstrapRenewalContextChanged(
@@ -61,7 +63,7 @@ function derivedReview(history: HistoryRecord[], configurationFile: string) {
     prepare: vi.fn(refuseStale),
     decide: vi.fn(refuseStale),
     automatic: { reconcile: vi.fn(refuseStale) },
-    renewalContextChanged: stale,
+    renewalContext: { derived, current },
   } satisfies BootstrapReviewService;
 }
 
@@ -193,4 +195,84 @@ test("a status read starts re-derivation and notifies availability listeners", a
   derivation.resolve(derivedReview(history, configuration));
   await vi.waitFor(() => expect(review.available).toBeUndefined());
   expect(notify).toHaveBeenCalledTimes(2);
+});
+
+test("status reads retry a failed derivation only after the context changes again", async () => {
+  const configuration = await configurationFixture();
+  const requestA = record("started");
+  const history = [requestA];
+  const reason = "Coordinator renewal is unavailable until its bootstrap recovery is terminal";
+  const unavailable = {
+    unavailableReason: reason,
+    list: () => [],
+    prepare: async () => {
+      throw new Error(reason);
+    },
+    decide: async () => {
+      throw new Error(reason);
+    },
+  };
+  const initialize = vi
+    .fn<() => Promise<BootstrapReviewService>>()
+    .mockResolvedValueOnce(unavailable)
+    .mockImplementation(async () => derivedReview(history, configuration));
+  const review = refreshBootstrapReviewOnRenewalChange(
+    derivedReview(history, configuration),
+    initialize,
+  );
+  requestA.execution = { ...requestA.execution!, stage: "succeeded" };
+  review.list();
+  await vi.waitFor(() => expect(review.unavailableReason).toBe(reason));
+  // UI polling after the failure starts no further derivation.
+  for (let poll = 0; poll < 5; poll++) review.list();
+  await Promise.resolve();
+  expect(initialize).toHaveBeenCalledTimes(1);
+  expect(review.unavailableReason).toBe(reason);
+  // Another completed request changes the context; the next read retries.
+  history.push(record("succeeded"));
+  review.list();
+  await vi.waitFor(() => expect(initialize).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(review.unavailableReason).toBeUndefined());
+});
+
+test("claimed-recovery refresh forwards and releases each replaced service's availability", async () => {
+  const subscriptions: Array<{ listener: () => void; released: boolean }> = [];
+  const service = (unavailableReason?: string): BootstrapReviewService => ({
+    unavailableReason,
+    list: () => [],
+    prepare: async () => requestB,
+    decide: async () => requestB,
+    subscribeAvailability(listener) {
+      const subscription = { listener, released: false };
+      subscriptions.push(subscription);
+      return () => {
+        subscription.released = true;
+      };
+    },
+  });
+  const succeeded = { status: "approved", execution: { stage: "succeeded" } };
+  const claimed = {
+    available: true,
+    list: () => [succeeded],
+    prepare: async () => {
+      throw new Error("Unexpected preparation");
+    },
+    decide: async () => {
+      throw new Error("Unexpected decision");
+    },
+  } as unknown as NonNullable<BootstrapReviewService["claimedRecovery"]>;
+  const replacement = service();
+  const review = refreshBootstrapReviewAfterClaimedRecovery(
+    service("Recovery required"),
+    claimed,
+    async () => replacement,
+  );
+  const notify = vi.fn();
+  review.subscribeAvailability!(notify);
+  review.claimedRecovery!.list();
+  await vi.waitFor(() => expect(review.available).toBe(true));
+  expect(subscriptions.map((subscription) => subscription.released)).toEqual([true, false]);
+  notify.mockClear();
+  subscriptions[1].listener();
+  expect(notify).toHaveBeenCalledTimes(1);
 });

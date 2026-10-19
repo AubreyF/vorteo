@@ -1312,6 +1312,7 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
 ): BootstrapReviewService {
   let current = initial;
   let pending = false;
+  let unfollow: (() => void) | undefined;
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) {
@@ -1322,6 +1323,12 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
       }
     }
   };
+  // Forward the current service's availability; a replaced one is released.
+  const follow = (service: BootstrapReviewService) => {
+    unfollow?.();
+    unfollow = service.subscribeAvailability?.(notify);
+  };
+  follow(initial);
   const ready = () => {
     if (pending || current.available === false || current.unavailableReason)
       throw new BootstrapRequestConflict(
@@ -1346,7 +1353,10 @@ export function refreshBootstrapReviewAfterClaimedRecovery(
           .then(initialize)
           .then(
             (result) => {
-              if (result) current = result;
+              if (result) {
+                current = result;
+                follow(result);
+              }
               return undefined;
             },
             () => undefined,
@@ -1499,8 +1509,10 @@ export async function createManagedBootstrapReview(
         verifySetup,
         automatic: { configurationFile, uid },
       }),
-      renewalContextChanged: () =>
-        renewalContextFingerprint(requests.list(), configurationFile) !== derivedContext,
+      renewalContext: {
+        derived: derivedContext,
+        current: () => renewalContextFingerprint(requests.list(), configurationFile),
+      },
     };
   });
 }
@@ -1543,7 +1555,11 @@ export function refreshBootstrapReviewOnRenewalChange(
   initialize: () => Promise<BootstrapReviewService | undefined>,
 ): BootstrapReviewService {
   let current = initial;
+  // The latest usable derivation still reads history after a failed attempt.
+  let probe = initial.renewalContext;
   let stale = false;
+  // Context fingerprint when the latest derivation failed, if it did.
+  let failedContext: string | undefined;
   let refreshing: Promise<void> | undefined;
   let unfollow: (() => void) | undefined;
   const listeners = new Set<() => void>();
@@ -1563,19 +1579,32 @@ export function refreshBootstrapReviewOnRenewalChange(
   follow(initial);
   const unusable = (service: BootstrapReviewService) =>
     service.available === false || service.unavailableReason !== undefined;
-  const needsRefresh = () => stale || current.renewalContextChanged?.() === true;
+  // Status reads retry a failed derivation only after the context moves again,
+  // so polling cannot chain full derivations; explicit operations always retry.
+  const needsRefresh = (operation: boolean) => {
+    if (failedContext !== undefined)
+      return operation || (probe !== undefined && probe.current() !== failedContext);
+    if (stale) return true;
+    return current.renewalContext !== undefined
+      ? current.renewalContext.current() !== current.renewalContext.derived
+      : false;
+  };
   // Single flight: concurrent operations wait for one derivation, then use it.
   const refresh = () => {
     refreshing ??= (async () => {
       notify();
+      const attempted = probe?.current();
       try {
         const next = await initialize();
         if (next) {
+          // An unavailable result stays current so its reason remains visible.
           current = next;
           follow(next);
         }
-        // An unavailable derivation is attempted again by the next operation.
-        stale = next === undefined || unusable(next);
+        const failed = next === undefined || unusable(next);
+        stale = failed;
+        failedContext = failed ? (attempted ?? "") : undefined;
+        if (!failed && next.renewalContext) probe = next.renewalContext;
       } finally {
         refreshing = undefined;
         notify();
@@ -1585,7 +1614,7 @@ export function refreshBootstrapReviewOnRenewalChange(
   };
   const fresh = async () => {
     if (refreshing) await refreshing;
-    if (needsRefresh()) await refresh();
+    if (needsRefresh(true)) await refresh();
     return current;
   };
   async function operate<T>(action: (service: BootstrapReviewService) => Promise<T>): Promise<T> {
@@ -1635,7 +1664,7 @@ export function refreshBootstrapReviewOnRenewalChange(
       return () => listeners.delete(listener);
     },
     list: () => {
-      if (!refreshing && needsRefresh()) void refresh();
+      if (!refreshing && needsRefresh(false)) void refresh();
       return current.list();
     },
     prepare: (input) => operate((service) => service.prepare(input)),
