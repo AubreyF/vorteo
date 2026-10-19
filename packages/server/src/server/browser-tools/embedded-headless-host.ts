@@ -6,11 +6,15 @@ import {
 import type { PersistedConfig } from "../persisted-config.js";
 import type { BrowserToolsBroker } from "./broker.js";
 import {
+  spawnHeadlessHostProcess,
+  type HeadlessHostProcess,
+} from "./engine/headless-host-process-client.js";
+import {
   HEADLESS_BROWSER_HOST_KIND,
-  launchHeadlessBrowserHost,
-  type HeadlessBrowserHost,
-  type LaunchHeadlessBrowserHostOptions,
-} from "./engine/headless-host.js";
+  normalizeDeniedHost,
+  type HeadlessHostProcessOptions,
+} from "./engine/headless-host-process-protocol.js";
+import { HeadlessHostSupervisor } from "./engine/headless-host-supervisor.js";
 
 export const EMBEDDED_HEADLESS_HOST_ID = "daemon-headless-browser";
 
@@ -23,55 +27,42 @@ export interface EmbeddedHeadlessHostInput {
   broker: Pick<BrowserToolsBroker, "registerClient" | "receiveResponse">;
   persisted: Pick<PersistedConfig, "daemon">;
   logger: Logger;
-  launch?: (options: LaunchHeadlessBrowserHostOptions) => Promise<HeadlessBrowserHost>;
+  spawn?: (options: HeadlessHostProcessOptions) => Promise<HeadlessHostProcess>;
+  now?: () => number;
 }
 
 export interface EmbeddedHeadlessHost {
   stop(): Promise<void>;
 }
 
-// Registers a daemon-owned headless Chromium as a browser automation host.
-// Chromium starts on the first browser request, not at daemon startup, and
-// closes with the daemon. Only the daemon's own agents reach this host.
+// Registers a daemon-supervised headless Chromium as a browser automation
+// host. Chromium runs in a separate process that starts on the first browser
+// request, restarts after a crash with backoff, and stops with the daemon.
+// Only the daemon's own agents reach it through the broker.
 export function startEmbeddedHeadlessHost(input: EmbeddedHeadlessHostInput): EmbeddedHeadlessHost {
   const { broker, logger } = input;
   const config: EmbeddedHeadlessHostConfig | undefined =
     input.persisted.daemon?.browserTools?.headlessHost;
   if (config?.enabled !== true) return { stop: async () => {} };
-  const launch = input.launch ?? launchHeadlessBrowserHost;
-  const deniedHosts = config.deniedOrigins ?? [];
-  let hostPromise: Promise<HeadlessBrowserHost> | null = null;
+  const options: HeadlessHostProcessOptions = {
+    deniedHosts: (config.deniedOrigins ?? []).map(normalizeDeniedHost),
+  };
+  const supervisor = new HeadlessHostSupervisor({
+    options,
+    spawn:
+      input.spawn ??
+      ((processOptions) =>
+        spawnHeadlessHostProcess({
+          options: processOptions,
+          onStderr: (text) => logger.debug({ text }, "Headless browser host output"),
+        })),
+    onExit: (detail) => logger.warn(detail, "Headless browser host process exited"),
+    ...(input.now ? { now: input.now } : {}),
+  });
   let stopped = false;
 
-  function ensureHost(): Promise<HeadlessBrowserHost> {
-    if (!hostPromise) {
-      hostPromise = launch({ deniedHosts }).catch((error: unknown) => {
-        // Allow a later request to retry, for example after browser setup.
-        hostPromise = null;
-        throw error;
-      });
-    }
-    return hostPromise;
-  }
-
   async function handle(request: BrowserAutomationExecuteRequest): Promise<void> {
-    let payload;
-    try {
-      payload = await (await ensureHost()).execute(request);
-    } catch (error) {
-      logger.warn({ err: error }, "Headless browser host could not start");
-      payload = {
-        requestId: request.requestId,
-        ok: false as const,
-        error: {
-          code: "browser_no_host" as const,
-          message: `The daemon's headless browser could not start: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          retryable: true,
-        },
-      };
-    }
+    const payload = await supervisor.execute(request);
     broker.receiveResponse({ type: "browser.automation.execute.response", payload }, [
       EMBEDDED_HEADLESS_HOST_ID,
     ]);
@@ -85,15 +76,17 @@ export function startEmbeddedHeadlessHost(input: EmbeddedHeadlessHostInput): Emb
       if (!stopped) void handle(request);
     },
   });
-  logger.info({ deniedHosts }, "Registered the daemon's headless browser host");
+  logger.info(
+    { deniedHosts: options.deniedHosts },
+    "Registered the daemon's headless browser host",
+  );
 
   return {
     async stop() {
       if (stopped) return;
       stopped = true;
       unregister();
-      const host = await hostPromise?.catch(() => null);
-      await host?.close();
+      await supervisor.stop();
     },
   };
 }

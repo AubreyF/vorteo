@@ -3,9 +3,9 @@ import type {
   BrowserAutomationCommand,
   BrowserAutomationExecuteRequest,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import { normalizeDeniedHost } from "./headless-host-process-protocol.js";
 import {
   HeadlessBrowserHost,
-  normalizeDeniedHost,
   type PlaywrightContextLike,
   type PlaywrightPageLike,
   type PlaywrightRouteLike,

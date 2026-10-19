@@ -40,7 +40,11 @@ Host agents get browser tools from a disposable headless Chromium instead of the
 }
 ```
 
-The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Chromium starts on the first browser request and closes with the daemon. Older daemons ignore the setting. Only enable it on the Host daemon.
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. Only enable it on the Host daemon.
+
+Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
+
+That process entry, `headless-host-process.js`, is deliberately outside the initial Host module contract. That contract covers the daemon worker, CLI and other startup entries, and a test checks that their traces never reach Playwright.
 
 To run a host without a restart, start it as the macOS account that runs the Host daemon:
 

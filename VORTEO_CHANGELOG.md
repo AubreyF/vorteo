@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.697 - 2026-10-19
+
+### Changed
+
+- Run the Host daemon's headless Chromium in a separate supervised process that starts on the first browser request, restarts after a crash with backoff and stops with the daemon. `paseo browser host` uses the same process, so neither the daemon nor the CLI loads Playwright and the Host startup module contract keeps its existing rules.
+
+### Validation
+
+- A source trace test confirms the daemon worker and CLI entries never reach Playwright, with a positive control on the browser host entry.
+
 ## 0.11.0-beta.3.vorteo.696 - 2026-10-19
 
 Integrates GitHub main (vorteo.555 and vorteo.556 below) onto installed source vorteo.695. Main's entries keep their original labels verbatim; neither was installed.

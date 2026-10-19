@@ -2,12 +2,12 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { Command } from "commander";
 import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import { spawnHeadlessHostProcess } from "@getpaseo/server/browser-automation/headless-host-process-client";
 import {
   HEADLESS_BROWSER_HOST_KIND,
-  launchHeadlessBrowserHost,
   normalizeDeniedHost,
-  type HeadlessBrowserHost,
-} from "@getpaseo/server/browser-automation/headless-host";
+} from "@getpaseo/server/browser-automation/headless-host-process-protocol";
+import { HeadlessHostSupervisor } from "@getpaseo/server/browser-automation/headless-host-supervisor";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectToDaemon } from "../../utils/client.js";
 import {
@@ -62,11 +62,23 @@ export function createBrowserCommand(): Command {
 async function runBrowserHostCommand(options: BrowserHostOptions): Promise<void> {
   const deniedHosts = options.denyOrigin.map(normalizeDeniedHost);
   const viewport = parseViewport(options.viewport);
-  const host = await launchHeadlessBrowserHost({
-    deniedHosts,
-    ...(viewport ? { viewport } : {}),
-    ...(options.headed ? { headed: true } : {}),
+  // Chromium runs in its own process so Playwright never loads in the CLI.
+  const host = new HeadlessHostSupervisor({
+    options: {
+      deniedHosts,
+      ...(viewport ? { viewport } : {}),
+      ...(options.headed ? { headed: true } : {}),
+    },
+    spawn: (processOptions) =>
+      spawnHeadlessHostProcess({
+        options: processOptions,
+        onStderr: (text) => process.stderr.write(text),
+      }),
+    onExit: ({ retryInMs }) =>
+      log(`Browser process exited; it restarts on the next request after ${retryInMs / 1000}s.`),
   });
+  // Report a missing Playwright or Chromium before registering with the daemon.
+  await host.start();
 
   const shutdown = new AbortController();
   const stop = () => shutdown.abort();
@@ -88,7 +100,7 @@ async function runBrowserHostCommand(options: BrowserHostOptions): Promise<void>
         await serveUntilDisconnected({ client, host, signal: shutdown.signal });
         if (!shutdown.signal.aborted) log("Daemon connection closed. Reconnecting.");
       } catch (error) {
-        log(`Cannot reach the daemon: ${error instanceof Error ? error.message : String(error)}`);
+        log(`Cannot reach the daemon: ${describeError(error)}`);
       } finally {
         await client?.close().catch(() => {});
       }
@@ -96,7 +108,7 @@ async function runBrowserHostCommand(options: BrowserHostOptions): Promise<void>
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
     }
   } finally {
-    await host.close();
+    await host.stop();
     log("Stopped.");
   }
 }
@@ -116,7 +128,7 @@ interface ServeBrowserHostInput {
     DaemonClient,
     "registerBrowserHost" | "sendBrowserAutomationExecuteResponse" | "subscribeConnectionStatus"
   >;
-  host: Pick<HeadlessBrowserHost, "execute">;
+  host: Pick<HeadlessHostSupervisor, "execute">;
   signal: AbortSignal;
 }
 
@@ -150,6 +162,15 @@ export async function serveUntilDisconnected(input: ServeBrowserHostInput): Prom
     unsubscribe();
     await observation.release().catch(() => {});
   }
+}
+
+// Connection failures can be plain objects with a message, not Error instances.
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
 }
 
 function log(message: string): void {
