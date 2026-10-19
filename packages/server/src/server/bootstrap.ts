@@ -156,6 +156,9 @@ import { createSessionHostConnector } from "./session-host/connector.js";
 import type { HostedSessionRouting } from "./session-host/hosted-agent-client.js";
 import { sessionHostPaths } from "./session-host/host-files.js";
 import { readDurableSessionsSettings } from "./session-host/settings.js";
+import { createAppliedSeqStore } from "./session-host/applied-store.js";
+import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach.js";
+import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
@@ -1755,6 +1758,7 @@ export async function createPaseoDaemon(
         !(await isAgentMcpRequestAuthorized({
           password: config.auth?.password,
           capabilityToken: agentMcpAuthToken,
+          additionalCapabilityTokens: sessionHostConnector.knownMcpTokens(),
           authorizationHeader: req.header("authorization"),
         }))
       ) {
@@ -1858,6 +1862,17 @@ export async function createPaseoDaemon(
           "Service proxy listening",
         );
       }
+
+      // Hosted sessions still running a turn are attached and registered for adoption before any
+      // client can load their agents, so nobody starts a second provider for them.
+      const hostedPlan = await planHostedStartup({
+        routing: sessionHostRouting,
+        agents: agentStorage,
+        logger,
+      }).catch((error: unknown) => {
+        logger.warn({ err: error }, "Hosted session startup planning failed");
+        return null;
+      });
 
       // Start main HTTP server
       await new Promise<void>((resolve, reject) => {
@@ -2035,6 +2050,23 @@ export async function createPaseoDaemon(
         }
       });
 
+      if (hostedPlan && hostedPlan.adopted.length > 0) {
+        void loadAdoptedAgents({
+          routing: sessionHostRouting,
+          adopted: hostedPlan.adopted,
+          loadAgent: (agentId) =>
+            ensureAgentLoaded(agentId, { agentManager, agentStorage, logger }),
+          logger,
+        }).then(({ attached, total }) =>
+          logger.info({ attached, total }, `Hosted sessions attached: ${attached}/${total}`),
+        );
+      }
+      if (hostedPlan && (hostedPlan.closed.length > 0 || hostedPlan.lost.length > 0))
+        logger.info(
+          { closed: hostedPlan.closed.length, lost: hostedPlan.lost },
+          "Hosted sessions reconciled at startup",
+        );
+
       // Start speech service after listening so synchronous Sherpa native
       // model loading doesn't block the server from accepting connections.
       speechService.start();
@@ -2201,12 +2233,16 @@ function createDurableSessionsRouting(input: {
   paseoHome: string;
   logger: Logger;
   release: string;
-}): { connector: SessionHostConnector; routing: HostedSessionRouting } {
+}): {
+  connector: SessionHostConnector;
+  routing: HostedSessionRouting & Required<Pick<HostedSessionRouting, "applied" | "adoptions">>;
+} {
   const setting = readDurableSessionsSettings(input.paseoHome);
   if (setting.problem)
     input.logger.warn({ problem: setting.problem }, "Durable sessions setting ignored");
+  const paths = sessionHostPaths(input.paseoHome);
   const connector = createSessionHostConnector({
-    paths: sessionHostPaths(input.paseoHome),
+    paths,
     logger: input.logger.child({ module: "session-host" }),
     release: input.release,
   });
@@ -2216,6 +2252,8 @@ function createDurableSessionsRouting(input: {
       connector,
       isEnabled: () => readDurableSessionsSettings(input.paseoHome).enabled,
       logger: input.logger,
+      applied: createAppliedSeqStore(paths),
+      adoptions: new Map(),
     },
   };
 }

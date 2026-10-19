@@ -96,8 +96,23 @@ export const SessionHostRequestSchema = z.discriminatedUnion("type", [
       call: SessionCallSchema,
     })
     .strict(),
-  /** The worker has durably applied events through seq; the host may forget them. */
+  /**
+   * The worker has durably applied events through seq. Live replay never starts below it again;
+   * the events stay retained so a later worker can rebuild the same timeline.
+   */
   z.object({ type: z.literal("ack"), sessionId: IdSchema, seq: SeqSchema }).strict(),
+  /** Retained events in (afterSeq, throughSeq], paged, for the attached worker's rebuild. */
+  z
+    .object({
+      type: z.literal("history"),
+      requestId: IdSchema,
+      sessionId: IdSchema,
+      afterSeq: SeqSchema,
+      throughSeq: SeqSchema,
+    })
+    .strict(),
+  /** Every hosted session, so a starting worker can decide which ones to attach. */
+  z.object({ type: z.literal("list"), requestId: IdSchema }).strict(),
 ]);
 export type SessionHostRequest = z.infer<typeof SessionHostRequestSchema>;
 
@@ -135,12 +150,45 @@ export const AttachResultSchema = z
   .strict();
 export type AttachResult = z.infer<typeof AttachResultSchema>;
 
+export const LoggedHistoryPageSchema = z
+  .object({
+    events: z.array(z.object({ seq: SeqSchema.positive(), event: JsonSchema }).strict()),
+    /** Ask again from here while more is true. */
+    nextAfterSeq: SeqSchema,
+    more: z.boolean(),
+    /** Events at or below this seq were dropped by retention, so a rebuild from them is lossy. */
+    truncatedThrough: SeqSchema,
+  })
+  .strict();
+export type LoggedHistoryPage = z.infer<typeof LoggedHistoryPageSchema>;
+
+export const HostedSessionSummarySchema = z
+  .object({
+    sessionId: IdSchema,
+    provider: IdSchema,
+    lastSeq: SeqSchema,
+    /** True while some worker connection is attached. */
+    attached: z.boolean(),
+    snapshot: JsonSchema,
+  })
+  .strict();
+export type HostedSessionSummary = z.infer<typeof HostedSessionSummarySchema>;
+
+export const SessionListSchema = z
+  .object({ sessions: z.array(HostedSessionSummarySchema).max(10_000) })
+  .strict();
+
 export const SessionHostReplySchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
       protocolVersion: z.number().int(),
       host: HostIdentitySchema,
+      /**
+       * Bearer token for the worker's agent tool endpoint. Hosted providers keep it for the host's
+       * lifetime, so every worker that attaches must accept it. Rotates with each host start.
+       */
+      mcpToken: z.string().min(1).max(512),
     })
     .strict(),
   z.object({ type: z.literal("result"), requestId: IdSchema, value: JsonSchema }).strict(),

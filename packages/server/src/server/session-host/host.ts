@@ -19,12 +19,17 @@ import {
   SessionHostRequestSchema,
   type AttachResult,
   type DroppedEvent,
+  type LoggedHistoryPage,
   type HostIdentity,
   type SessionHostCall,
   type SessionHostErrorCode,
   type SessionHostReply,
   type SessionHostRequest,
 } from "./protocol.js";
+import type { z } from "zod";
+import type { SessionListSchema } from "./protocol.js";
+
+type SessionList = z.infer<typeof SessionListSchema>;
 import { parseCallResult } from "./session-contract.js";
 
 /**
@@ -82,6 +87,9 @@ const DEFAULT_LIMITS: SessionHostLimits = {
   closeTimeoutMs: 15_000,
 };
 
+/** History pages stay well under one frame. */
+const HISTORY_PAGE_BYTES = 4 * 1024 * 1024;
+
 /** Room for the event frame envelope around a serialized provider event. */
 const EVENT_FRAME_OVERHEAD_BYTES = 1_024;
 const MAX_ERROR_MESSAGE_LENGTH = 2_000;
@@ -89,6 +97,8 @@ const MAX_ERROR_MESSAGE_LENGTH = 2_000;
 export interface SessionHostOptions {
   socketPath: string;
   token: string;
+  /** Given to every worker at hello; see the hello reply in the protocol. */
+  mcpToken: string;
   openSession: HostedSessionFactory;
   /** Records authentication, attach and detach outcomes. */
   audit?: SessionHostAuditSink;
@@ -251,13 +261,13 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
   let nextOrder = 1;
   let totalRetainedBytes = 0;
 
-  /** Forgets one retained event. An unacknowledged one makes replay below it unavailable. */
-  function forgetOldest(state: HostedSessionState, reason: "acknowledged" | "retention"): void {
+  /** Forgets the oldest retained event; replay and rebuilds below it become unavailable. */
+  function forgetOldest(state: HostedSessionState): void {
     const forgotten = state.log.shift();
     if (!forgotten) return;
     state.retainedBytes -= forgotten.bytes;
     totalRetainedBytes -= forgotten.bytes;
-    if (reason === "retention") state.truncatedThrough = forgotten.seq;
+    state.truncatedThrough = forgotten.seq;
   }
 
   function enforceRetention(state: HostedSessionState): void {
@@ -265,7 +275,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       state.log.length > limits.maxRetainedEvents ||
       state.retainedBytes > limits.maxRetainedBytes
     )
-      forgetOldest(state, "retention");
+      forgetOldest(state);
     while (totalRetainedBytes > limits.maxTotalRetainedBytes) {
       let oldest: HostedSessionState | null = null;
       for (const candidate of sessions.values()) {
@@ -273,7 +283,7 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
         if (head && (!oldest || head.order < oldest.log[0]!.order)) oldest = candidate;
       }
       if (!oldest) break;
-      forgetOldest(oldest, "retention");
+      forgetOldest(oldest);
     }
   }
 
@@ -456,9 +466,60 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       connection.refused();
       return;
     }
-    if (seq <= state.acknowledgedThrough) return;
-    state.acknowledgedThrough = seq;
-    while (state.log.length > 0 && state.log[0]!.seq <= seq) forgetOldest(state, "acknowledged");
+    // Acknowledged events stay retained: a later worker rebuilds its timeline from them.
+    state.acknowledgedThrough = Math.max(state.acknowledgedThrough, seq);
+  }
+
+  /** Pages retained events in (afterSeq, throughSeq] to the session's current attachment. */
+  function history(
+    connection: Connection,
+    request: Extract<SessionHostRequest, { type: "history" }>,
+  ): LoggedHistoryPage {
+    const state = requireSession(request.sessionId);
+    if (state.attached !== connection) {
+      connection.refused();
+      throw new HostError("not_attached", "Attach to this session before reading its history.");
+    }
+    const events: LoggedHistoryPage["events"] = [];
+    let bytes = 0;
+    let nextAfterSeq = request.afterSeq;
+    let more = false;
+    for (const logged of state.log) {
+      if (logged.seq <= request.afterSeq) continue;
+      if (logged.seq > request.throughSeq) break;
+      if (events.length > 0 && bytes + logged.bytes > HISTORY_PAGE_BYTES) {
+        more = true;
+        break;
+      }
+      events.push({ seq: logged.seq, event: JSON.parse(logged.json) as JsonValue });
+      bytes += logged.bytes;
+      nextAfterSeq = logged.seq;
+    }
+    return { events, nextAfterSeq, more, truncatedThrough: state.truncatedThrough };
+  }
+
+  /**
+   * Every hosted session for a starting worker. Snapshots that would push the reply past one
+   * frame are left out; the worker then attaches those sessions and gets their state from the
+   * attach result.
+   */
+  function list(): SessionList {
+    let budget = limits.maxFrameBytes / 2;
+    return {
+      sessions: [...sessions].map(([sessionId, state]) => {
+        let snapshot: JsonValue = state.port.snapshot();
+        const bytes = Buffer.byteLength(JSON.stringify(snapshot));
+        if (bytes > budget) snapshot = null;
+        else budget -= bytes;
+        return {
+          sessionId,
+          provider: state.provider,
+          lastSeq: state.nextSeq - 1,
+          attached: state.attached !== null && !state.attached.destroyed(),
+          snapshot,
+        };
+      }),
+    };
   }
 
   function removeSession(sessionId: string, state: HostedSessionState): void {
@@ -569,7 +630,20 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
         type: "hello",
         protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
         host: identity,
+        mcpToken: options.mcpToken,
       });
+    }
+
+    /** Answers a synchronous request, turning a failure into an error frame. */
+    function answer(requestId: string, produce: () => JsonValue): void {
+      let value: JsonValue;
+      try {
+        value = produce();
+      } catch (error) {
+        fail(requestId, error);
+        return;
+      }
+      connection.send({ type: "result", requestId, value });
     }
 
     async function openAndAttach(
@@ -596,6 +670,12 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
       switch (request.type) {
         case "ack":
           acknowledge(connection, request.sessionId, request.seq);
+          return;
+        case "history":
+        case "list":
+          answer(request.requestId, () =>
+            request.type === "list" ? list() : history(connection, request),
+          );
           return;
         case "attach": {
           let attached: { result: AttachResult; afterSeq: number };

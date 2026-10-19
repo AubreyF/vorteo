@@ -19,6 +19,8 @@ import {
   type HostedReattachPolicy,
 } from "./hosted-agent-session.js";
 import type { HostedOpenRequest } from "./session-contract.js";
+import type { AppliedSeqStore } from "./applied-store.js";
+import { withPaseoMcpAuthToken } from "../agent/runtime-mcp-config.js";
 
 /** What a provider client needs to route eligible sessions through the session host. */
 export interface HostedSessionRouting {
@@ -28,6 +30,23 @@ export interface HostedSessionRouting {
   logger: Logger;
   /** How long and how often a hosted session keeps trying to reattach. Defaults suit production. */
   reattach?: HostedReattachPolicy;
+  /** Records the last event each hosted agent applied, for the next worker's rebuild. */
+  applied?: AppliedSeqStore;
+  /** Sessions attached at startup and waiting for their agent to load. */
+  adoptions?: Map<string, HostedAdoption>;
+}
+
+/**
+ * A running hosted session this worker attached at startup. Loading its agent adopts it instead of
+ * starting a provider: the attachment was made after the events this worker's predecessor applied.
+ */
+export interface HostedAdoption {
+  channel: HostedSession;
+  hostId: string;
+  throughSeq: number;
+  lossy: boolean;
+  /** Receives the adopted session, so startup can release its held events. */
+  onAdopted?(session: HostedAgentSession): void;
 }
 
 export class HostedSessionConflictError extends Error {
@@ -97,6 +116,49 @@ export function createHostedAgentClient(input: {
     };
   }
 
+  function hostedSession(params: {
+    channel: HostedSession;
+    agentId: string;
+    hostId: string;
+    model: string | undefined;
+    launchEnv: Record<string, string> | undefined;
+    rebuild?: { throughSeq: number; lossy: boolean };
+  }): HostedAgentSession {
+    return new HostedAgentSession({
+      provider: inner.provider,
+      capabilities: inner.capabilities,
+      channel: params.channel,
+      reattach: reattacher(params.agentId),
+      reattachPolicy: routing.reattach,
+      usage: {
+        model: params.model,
+        env: createProviderEnv({
+          baseEnv: process.env,
+          runtimeSettings: input.runtimeSettings,
+          overlays: [params.launchEnv],
+        }) as Record<string, string>,
+      },
+      applied: routing.applied
+        ? { store: routing.applied, agentId: params.agentId, hostId: params.hostId }
+        : undefined,
+      rebuild: params.rebuild,
+      logger,
+    });
+  }
+
+  /** Hosted providers outlive this worker, so their tool server uses the host's token. */
+  function withHostToken(request: HostedOpenRequest, token: string): HostedOpenRequest {
+    const config = withPaseoMcpAuthToken(request.config as unknown as AgentSessionConfig, token);
+    const overrides = request.overrides
+      ? withPaseoMcpAuthToken(request.overrides as Partial<AgentSessionConfig>, token)
+      : undefined;
+    return {
+      ...request,
+      config: config as unknown as HostedOpenRequest["config"],
+      ...(overrides ? { overrides: overrides as HostedOpenRequest["overrides"] } : {}),
+    };
+  }
+
   async function open(params: {
     request: HostedOpenRequest;
     agentId: string;
@@ -110,7 +172,7 @@ export function createHostedAgentClient(input: {
       channel = await client.open({
         sessionId: params.agentId,
         provider: inner.provider,
-        config: params.request as unknown as JsonValue,
+        config: withHostToken(params.request, client.mcpToken) as unknown as JsonValue,
       });
     } catch (error) {
       // Never start a second provider process for a session the host still runs.
@@ -123,22 +185,38 @@ export function createHostedAgentClient(input: {
       return null;
     }
     logger.info({ agentId: params.agentId, kind: params.request.kind }, "Opened a hosted session");
-    return new HostedAgentSession({
-      provider: inner.provider,
-      capabilities: inner.capabilities,
+    return hostedSession({
       channel,
-      reattach: reattacher(params.agentId),
-      reattachPolicy: routing.reattach,
-      usage: {
-        model: params.config.model,
-        env: createProviderEnv({
-          baseEnv: process.env,
-          runtimeSettings: input.runtimeSettings,
-          overlays: [params.launchContext.env],
-        }) as Record<string, string>,
-      },
-      logger,
+      agentId: params.agentId,
+      hostId: client.host.id,
+      model: params.config.model,
+      launchEnv: params.launchContext.env,
     });
+  }
+
+  /**
+   * A session attached at startup is adopted whichever way its agent loads, and even if the
+   * setting was turned off since, so the turn it is running can finish.
+   */
+  function adopt(
+    config: AgentSessionConfig,
+    launchContext: AgentLaunchContext | undefined,
+  ): HostedAgentSession | null {
+    const agentId = launchContext?.agentId;
+    const adoption = agentId ? routing.adoptions?.get(agentId) : undefined;
+    if (!agentId || !adoption) return null;
+    routing.adoptions?.delete(agentId);
+    const session = hostedSession({
+      channel: adoption.channel,
+      agentId,
+      hostId: adoption.hostId,
+      model: config.model,
+      launchEnv: launchContext?.env,
+      rebuild: { throughSeq: adoption.throughSeq, lossy: adoption.lossy },
+    });
+    adoption.onAdopted?.(session);
+    logger.info({ agentId, throughSeq: adoption.throughSeq }, "Adopted a hosted session");
+    return session;
   }
 
   async function createSession(
@@ -146,6 +224,8 @@ export function createHostedAgentClient(input: {
     launchContext?: AgentLaunchContext,
     options?: AgentCreateSessionOptions,
   ): Promise<AgentSession> {
+    const adopted = adopt(config, launchContext);
+    if (adopted) return adopted;
     const eligibility = { config, launchContext, persistSession: options?.persistSession };
     if (routing.isEnabled() && isHostable(eligibility)) {
       const hosted = await open({
@@ -177,6 +257,8 @@ export function createHostedAgentClient(input: {
       ...overrides,
     } as AgentSessionConfig;
     const eligibility = { config, launchContext };
+    const adopted = options?.purpose === "history" ? null : adopt(config, launchContext);
+    if (adopted) return adopted;
     // Reading saved history needs no running provider, so it stays in the worker.
     if (options?.purpose !== "history" && routing.isEnabled() && isHostable(eligibility)) {
       const hosted = await open({

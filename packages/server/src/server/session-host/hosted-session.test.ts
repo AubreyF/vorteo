@@ -4,21 +4,16 @@ import { join } from "node:path";
 import pino from "pino";
 import { afterEach, expect, test } from "vitest";
 import type {
-  AgentCapabilityFlags,
   AgentClient,
-  AgentFeature,
   AgentLaunchContext,
-  AgentMode,
-  AgentPermissionRequest,
-  AgentPermissionResponse,
-  AgentPersistenceHandle,
-  AgentPromptInput,
-  AgentRunResult,
-  AgentRuntimeInfo,
   AgentSession,
   AgentSessionConfig,
   AgentStreamEvent,
 } from "../agent/agent-sdk-types.js";
+import {
+  CONTROLLED_SESSION_CAPABILITIES,
+  ControlledSession,
+} from "../test-utils/controlled-provider-session.js";
 import { createSessionHostConnector, type SessionHostConnector } from "./connector.js";
 import { createHostedAgentClient, HostedSessionConflictError } from "./hosted-agent-client.js";
 import { HostedAgentSession, HostedSessionUnavailableError } from "./hosted-agent-session.js";
@@ -35,154 +30,12 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-const CAPABILITIES: AgentCapabilityFlags = {
-  supportsStreaming: true,
-  supportsSessionPersistence: true,
-  supportsDynamicModes: true,
-  supportsMcpServers: true,
-  supportsReasoningStream: true,
-  supportsToolInvocations: true,
-};
-
-/**
- * A provider session whose turn runs until the test ends it, like a long Claude turn. It keeps
- * its state the way the Claude adapter does: updated before each event is emitted.
- */
-class ControlledSession implements AgentSession {
-  readonly provider = "claude";
-  readonly capabilities = CAPABILITIES;
-  private sessionId: string | null = null;
-  private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
-  private readonly pending = new Map<
-    string,
-    { request: AgentPermissionRequest; resolve: (response: AgentPermissionResponse) => void }
-  >();
-  private turnId: string | null = null;
-  private turnOrdinal = 0;
-  private mode = "default";
-  private fastMode = false;
-  readonly calls: string[] = [];
-  closed = false;
-
-  constructor(
-    readonly config: AgentSessionConfig,
-    private readonly history: AgentStreamEvent[] = [],
-  ) {}
-
-  get id(): string | null {
-    return this.sessionId;
-  }
-
-  get features(): AgentFeature[] {
-    return [{ type: "toggle", id: "fast_mode", label: "Fast", value: this.fastMode }];
-  }
-
-  emit(event: AgentStreamEvent): void {
-    const tagged = this.turnId ? { ...event, turnId: this.turnId } : event;
-    for (const subscriber of this.subscribers) subscriber(tagged);
-  }
-
-  text(text: string): void {
-    this.emit({
-      type: "timeline",
-      provider: "claude",
-      item: { type: "assistant_message", text },
-    });
-  }
-
-  requestPermission(id: string): Promise<AgentPermissionResponse> {
-    const request: AgentPermissionRequest = { id, provider: "claude", name: "Bash", kind: "tool" };
-    return new Promise((resolve) => {
-      this.pending.set(id, { request, resolve });
-      this.emit({ type: "permission_requested", provider: "claude", request });
-    });
-  }
-
-  complete(): void {
-    this.emit({ type: "turn_completed", provider: "claude", usage: { outputTokens: 1 } });
-    this.turnId = null;
-  }
-
-  async run(): Promise<AgentRunResult> {
-    throw new Error("Not used");
-  }
-
-  async startTurn(prompt: AgentPromptInput): Promise<{ turnId: string }> {
-    this.calls.push(`startTurn:${typeof prompt === "string" ? prompt : "blocks"}`);
-    if (!this.sessionId) {
-      this.sessionId = "claude-session-1";
-      this.emit({ type: "thread_started", provider: "claude", sessionId: this.sessionId });
-    }
-    this.turnId = `turn-${++this.turnOrdinal}`;
-    this.emit({ type: "turn_started", provider: "claude" });
-    return { turnId: this.turnId };
-  }
-
-  subscribe(callback: (event: AgentStreamEvent) => void): () => void {
-    this.subscribers.add(callback);
-    return () => this.subscribers.delete(callback);
-  }
-
-  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    yield* this.history.splice(0);
-  }
-
-  async getRuntimeInfo(): Promise<AgentRuntimeInfo> {
-    return { provider: "claude", sessionId: this.sessionId, modeId: this.mode };
-  }
-
-  async getAvailableModes(): Promise<AgentMode[]> {
-    return [{ id: "default", label: "Default" }];
-  }
-
-  async getCurrentMode(): Promise<string | null> {
-    return this.mode;
-  }
-
-  async setMode(modeId: string): Promise<void> {
-    this.mode = modeId;
-  }
-
-  async setFeature(featureId: string, value: unknown): Promise<void> {
-    if (featureId === "fast_mode") this.fastMode = value === true;
-  }
-
-  getPendingPermissions(): AgentPermissionRequest[] {
-    return [...this.pending.values()].map((entry) => entry.request);
-  }
-
-  async respondToPermission(requestId: string, response: AgentPermissionResponse): Promise<void> {
-    const entry = this.pending.get(requestId);
-    if (!entry) throw new Error(`No pending permission request with id '${requestId}'`);
-    this.pending.delete(requestId);
-    entry.resolve(response);
-    this.emit({ type: "permission_resolved", provider: "claude", requestId, resolution: response });
-  }
-
-  describePersistence(): AgentPersistenceHandle | null {
-    return this.sessionId
-      ? { provider: "claude", sessionId: this.sessionId, nativeHandle: this.sessionId }
-      : null;
-  }
-
-  async interrupt(): Promise<void> {
-    this.calls.push("interrupt");
-    if (!this.turnId) return;
-    this.emit({ type: "turn_canceled", provider: "claude", reason: "Interrupted" });
-    this.turnId = null;
-  }
-
-  async close(): Promise<void> {
-    this.closed = true;
-  }
-}
-
 /** Stands in for the local Claude client; it records sessions the worker ran itself. */
 function localClient() {
   const local: ControlledSession[] = [];
   const client: AgentClient = {
     provider: "claude",
-    capabilities: CAPABILITIES,
+    capabilities: CONTROLLED_SESSION_CAPABILITIES,
     async createSession(config) {
       const session = new ControlledSession(config);
       local.push(session);
@@ -230,12 +83,13 @@ async function hostedFixture(
   const host = await startSessionHost({
     socketPath: paths.socketPath,
     token,
+    mcpToken: "test-mcp-token",
     limits: input.limits,
     openSession: createProviderSessionFactory({
       logger,
       createClient: () => ({
         provider: "claude",
-        capabilities: CAPABILITIES,
+        capabilities: CONTROLLED_SESSION_CAPABILITIES,
         async createSession(config, launchContext) {
           launchSeen.push(launchContext);
           const session = new ControlledSession(config);
@@ -545,4 +399,24 @@ test("events the host could not deliver produce one notice per attachment", asyn
     (event) => event.type === "timeline" && event.item.type === "notification",
   );
   expect(notices).toHaveLength(1);
+});
+
+test("a hosted provider calls the agent tool endpoint with the host's token", async () => {
+  const fixture = await hostedFixture();
+  await fixture.client.createSession(
+    {
+      ...config,
+      mcpServers: {
+        paseo: {
+          type: "http",
+          url: "http://127.0.0.1:7777/mcp/agents?callerAgentId=agent-1",
+          headers: { Authorization: "Bearer worker-run-token" },
+        },
+      },
+    },
+    { agentId: "agent-1" },
+  );
+  expect(fixture.hosted[0]!.config.mcpServers?.paseo).toMatchObject({
+    headers: { Authorization: "Bearer test-mcp-token" },
+  });
 });

@@ -35,6 +35,7 @@ async function hostedManager(input: { enabled: boolean }) {
   const host = await startSessionHost({
     socketPath: paths.socketPath,
     token,
+    mcpToken: "test-mcp-token",
     openSession: createProviderSessionFactory({
       logger,
       createClient: () => {

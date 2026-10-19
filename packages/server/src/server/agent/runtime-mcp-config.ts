@@ -57,6 +57,28 @@ export function withRuntimePaseoMcpServer(params: {
   };
 }
 
+/**
+ * Points the injected Paseo server at a different capability token, leaving every other server
+ * unchanged. Durable hosted sessions use the session host's token, which outlives this daemon run.
+ */
+export function withPaseoMcpAuthToken<T extends Pick<AgentSessionConfig, "mcpServers">>(
+  config: T,
+  token: string,
+): T {
+  const server = config.mcpServers?.[PASEO_MCP_SERVER_NAME];
+  if (!server || !isInternalPaseoMcpServer(server) || server.type === "stdio") return config;
+  return {
+    ...config,
+    mcpServers: {
+      ...config.mcpServers,
+      [PASEO_MCP_SERVER_NAME]: {
+        ...server,
+        headers: { ...server.headers, Authorization: `Bearer ${token}` },
+      },
+    },
+  };
+}
+
 function isInternalPaseoMcpServer(config: McpServerConfig): boolean {
   if (config.type !== "http" && config.type !== "sse") {
     return false;

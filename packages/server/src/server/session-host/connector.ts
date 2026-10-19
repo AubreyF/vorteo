@@ -16,6 +16,11 @@ export interface SessionHostConnector {
   connect(options?: { force?: boolean }): Promise<SessionHostClient | null>;
   /** The live connection, without connecting. */
   current(): SessionHostClient | null;
+  /**
+   * Tool endpoint tokens of the last host this worker reached. Hosted providers keep using them
+   * while the connection is down, so the endpoint must keep accepting them.
+   */
+  knownMcpTokens(): readonly string[];
   close(): void;
 }
 
@@ -47,6 +52,7 @@ export function createSessionHostConnector(
   let attempt: Promise<SessionHostClient | null> | null = null;
   let lastFailureAt: number | null = null;
   let closed = false;
+  let lastMcpToken: string | null = null;
 
   async function open(): Promise<SessionHostClient | null> {
     try {
@@ -63,6 +69,7 @@ export function createSessionHostConnector(
       }
       client = connected;
       lastFailureAt = null;
+      lastMcpToken = connected.mcpToken;
       options.logger.info({ hostId: connected.host.id }, "Connected to the session host");
       connected.onClose((error) => {
         if (client === connected) client = null;
@@ -98,6 +105,7 @@ export function createSessionHostConnector(
       return attempt;
     },
     current: () => client,
+    knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {
       closed = true;
       client?.close();

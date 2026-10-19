@@ -110,6 +110,7 @@ async function hostWith(
   const host: SessionHost = await startSessionHost({
     socketPath,
     token: input.token ?? token,
+    mcpToken: "test-mcp-token",
     openSession: input.openSession ?? (async () => session.port),
     limits: input.limits,
     audit: input.audit,
@@ -417,7 +418,12 @@ test("a second host refuses a live socket and replaces one left by a crashed hos
   const { socketPath } = await hostWith(provider);
   await expect(claimSocketPath(socketPath)).rejects.toBeInstanceOf(SessionHostAlreadyRunningError);
   await expect(
-    startSessionHost({ socketPath, token, openSession: async () => provider.port }),
+    startSessionHost({
+      socketPath,
+      token,
+      mcpToken: "test-mcp-token",
+      openSession: async () => provider.port,
+    }),
   ).rejects.toBeInstanceOf(SessionHostAlreadyRunningError);
   await worker(socketPath);
 
@@ -589,6 +595,7 @@ test("a session that skips a seq detaches alone; the connection's other sessions
             type: "hello",
             protocolVersion: SESSION_HOST_PROTOCOL_VERSION,
             host: { id: "broken-host", pid: process.pid, startedAt: new Date().toISOString() },
+            mcpToken: "broken-host-mcp-token",
           });
         if (frame.type === "attach") {
           const sessionId = frame.sessionId as string;
@@ -692,7 +699,12 @@ test("a stale lock from an exited host is taken over; a live one is refused", as
   const { host } = await hostWith(provider, { socketPath });
   expect(readFileSync(`${socketPath}.lock`, "utf8").trim()).toBe(String(process.pid));
   await expect(
-    startSessionHost({ socketPath, token, openSession: async () => provider.port }),
+    startSessionHost({
+      socketPath,
+      token,
+      mcpToken: "test-mcp-token",
+      openSession: async () => provider.port,
+    }),
   ).rejects.toBeInstanceOf(SessionHostAlreadyRunningError);
   await host.close();
   expect(existsSync(`${socketPath}.lock`)).toBe(false);
@@ -731,4 +743,79 @@ test("the audit log tightens files left with wider permissions", () => {
   createSessionHostAuditLog({ path: auditPath });
   expect(statSync(auditPath).mode & 0o777).toBe(0o600);
   expect(statSync(`${auditPath}.1`).mode & 0o777).toBe(0o600);
+});
+
+test("acknowledged events stay retained, and history pages them to the attachment only", async () => {
+  const provider = controllableSession();
+  const { socketPath } = await hostWith(provider);
+  const first = await worker(socketPath);
+  const session = await first.open({ sessionId: "agent-1", provider: "fake", config: {} });
+  const seen = record(session);
+  const big = "h".repeat(3 * 1024 * 1024);
+  for (const text of ["a", big, big, "d"]) provider.emit({ type: "text", text });
+  await expect.poll(() => seen.seqs).toEqual([1, 2, 3, 4]);
+  session.acknowledge(4);
+
+  const outsider = await worker(socketPath);
+  await expect(
+    (await outsider.attach({ sessionId: "agent-1", afterSeq: null })).history({
+      afterSeq: 0,
+      throughSeq: 4,
+    }),
+  ).resolves.toMatchObject({ truncatedThrough: 0 });
+  // The outsider took the attachment; the fenced first worker may no longer read history.
+  await expect(session.history({ afterSeq: 0, throughSeq: 4 })).rejects.toMatchObject({
+    code: "not_attached",
+  });
+
+  const next = await worker(socketPath);
+  const current = await next.attach({ sessionId: "agent-1", afterSeq: 4 });
+  const pages = [];
+  let afterSeq = 0;
+  for (;;) {
+    const page = await current.history({ afterSeq, throughSeq: 3 });
+    pages.push(page.events.map((entry) => entry.seq));
+    if (!page.more) break;
+    afterSeq = page.nextAfterSeq;
+  }
+  expect(pages.flat()).toEqual([1, 2, 3]);
+  expect(pages.length).toBeGreaterThan(1);
+});
+
+test("hello carries the host tool token and list reports every hosted session", async () => {
+  const provider = controllableSession();
+  const { socketPath } = await hostWith(provider);
+  const client = await worker(socketPath);
+  expect(client.mcpToken).toBe("test-mcp-token");
+  await client.open({ sessionId: "agent-1", provider: "fake", config: {} });
+  provider.requestPermission("perm-1");
+  await expect.poll(async () => (await client.list())[0]?.lastSeq).toBe(1);
+  expect(await client.list()).toEqual([
+    {
+      sessionId: "agent-1",
+      provider: "fake",
+      lastSeq: 1,
+      attached: true,
+      snapshot: {
+        pendingPermissions: [{ permissionId: "perm-1", tool: "Bash", command: "npm test" }],
+      },
+    },
+  ]);
+});
+
+test("the session list leaves out snapshots that would not fit one frame", async () => {
+  const provider = controllableSession();
+  const bulky: HostedSessionPort = {
+    ...provider.port,
+    snapshot: () => ({ blob: "x".repeat(40_000) }),
+  };
+  const { socketPath } = await hostWith(provider, {
+    limits: { maxFrameBytes: 128 * 1024 },
+    openSession: async () => bulky,
+  });
+  const client = await worker(socketPath);
+  await client.open({ sessionId: "agent-1", provider: "fake", config: {} });
+  await client.open({ sessionId: "agent-2", provider: "fake", config: {} });
+  const sessions = await client.list();
+  expect(sessions.map((session) => session.snapshot === null)).toEqual([false, true]);
 });

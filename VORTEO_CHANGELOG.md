@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.699 - 2026-10-19
+
+### Added
+
+- A worker that starts while hosted Claude sessions are still running a turn or waiting on a permission takes them over before it accepts clients. It rebuilds each timeline from the provider's saved history plus the events its predecessor had already applied, then applies the rest live, so no row appears twice and none goes missing. A turn still running is shown as running and finishes in the new worker; a permission asked before the restart is shown once and can be answered.
+- Idle hosted sessions are closed at startup and resume on demand like any other agent, which keeps the host from accumulating them. Sessions whose host restarted are reported as lost for the restart fallback.
+- Hosted providers call the agent tool endpoint with a token owned by the session host, which every worker accepts, so tool calls keep working after a worker restart even with a daemon password.
+
+### Maintenance
+
+- Each hosted agent's last applied event is written to a private file before the host is told it was applied. The host keeps acknowledged events for later rebuilds within its retention limits, and gains paged history reads for the attached worker and a session list for startup. The list leaves out snapshots that would not fit one frame.
+- Sessions attached at startup are adopted whichever way their agent loads, even if the setting was turned off since, so their turns can finish. Interrupts asked for while reconnecting are delivered on reattach instead of waiting out the reconnect window, reconnect backoff never keeps a stopping worker alive, and a close cut off mid-call is logged.
+- Still missing: worker shutdown closes hosted sessions instead of detaching them, the host has no launchd service, and restart readiness does not skip hosted sessions, so the setting stays off.
+
+### Validation
+
+- Sixty-six focused tests pass, including a worker killed mid-turn whose replacement shows the identical timeline and finishes the turn, a permission answered after the restart, idle sessions closed at startup, sessions of a restarted host reported lost, history paging, the host token at the tool endpoint and private applied records.
+
 ## 0.11.0-beta.3.vorteo.698 - 2026-10-19
 
 ### Fixes

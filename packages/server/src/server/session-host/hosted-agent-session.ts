@@ -22,6 +22,7 @@ import type {
   SteerResult,
 } from "../agent/agent-sdk-types.js";
 import { runProviderTurn } from "../agent/providers/provider-runner.js";
+import type { AppliedSeqStore } from "./applied-store.js";
 import type { HostedSession, HostedSessionDetachReason } from "./client.js";
 import { DroppedEventSchema } from "./protocol.js";
 import {
@@ -108,14 +109,36 @@ export interface HostedAgentSessionOptions {
    * same settings it sent to the host, so credentials never travel back from the host.
    */
   usage: { model?: string; env: Record<string, string> };
+  /**
+   * Where this worker records the last event it applied. The record is written before the host
+   * hears about it, so a later worker never treats an unapplied event as applied.
+   */
+  applied?: { store: AppliedSeqStore; agentId: string; hostId: string };
+  /**
+   * Set when this worker adopts a session another worker was driving. History is rebuilt from
+   * the provider's saved history plus logged events through throughSeq, and later events are held
+   * until that history has been read, so no row appears twice.
+   */
+  rebuild?: { throughSeq: number; lossy: boolean };
   logger: Logger;
 }
 
 type CallOf<M extends SessionHostMethod> = Extract<SessionHostCall, { method: M }>;
 
+/** An event waiting for the manager, with the seq it settles; null for worker-made notices. */
+interface HeldEntry {
+  event: AgentStreamEvent | null;
+  seq: number | null;
+}
+
 /** Plain JSON for a call argument; the host validates its shape. */
 function asJson<T>(value: unknown): T {
   return (value === undefined ? null : JSON.parse(JSON.stringify(value))) as T;
+}
+
+/** Saved history carries rows, not lifecycle: the snapshot restores turn and permission state. */
+function isHistoryEvent(event: AgentStreamEvent): boolean {
+  return event.type === "timeline" || event.type === "provider_subagent";
 }
 
 /**
@@ -136,15 +159,21 @@ export class HostedAgentSession implements AgentSession {
   /** State entries at or below this seq are already reflected in the snapshot. */
   private snapshotSeq: number;
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
-  /** Delivered before the first subscriber; null once someone has subscribed. */
-  private held: AgentStreamEvent[] | null = [];
+  /** Events waiting for a first subscriber or, when adopted, for the rebuilt history. */
+  private held: HeldEntry[] = [];
+  private everSubscribed = false;
+  private liveHeld: boolean;
+  /** The turn running as of the rebuilt history, from its logged lifecycle events. */
+  private rebuiltActiveTurnId: string | null | undefined;
   private status: "attached" | "reattaching" | HostedSessionUnavailableReason = "attached";
   private recovery: Promise<void> | null = null;
   private unsubscribeChannel: () => void = () => {};
   private historyRead = false;
   private model: string | undefined;
   private readonly usageSessionKey = randomUUID();
-  private pendingAck: number | null = null;
+  /** Every entry at or below this seq has been applied, in order. */
+  private appliedSeq: number;
+  private ackedSeq: number;
   private ackTimer: NodeJS.Timeout | null = null;
   /** One lossy notice per attachment, however many events it lost. */
   private lossyNoticeShown = false;
@@ -152,6 +181,8 @@ export class HostedAgentSession implements AgentSession {
   private heldOverflowed = false;
   /** Wakes a reattach backoff early, for close(). */
   private wakeRecovery: (() => void) | null = null;
+  /** An interrupt asked for while reattaching, sent once the session is attached again. */
+  private interruptPending = false;
 
   constructor(private readonly options: HostedAgentSessionOptions) {
     this.provider = options.provider;
@@ -160,6 +191,9 @@ export class HostedAgentSession implements AgentSession {
     this.channel = options.channel;
     this.snapshot = HostedSessionSnapshotSchema.parse(options.channel.attach.snapshot);
     this.snapshotSeq = options.channel.attach.lastSeq;
+    this.liveHeld = options.rebuild !== undefined;
+    this.appliedSeq = options.rebuild?.throughSeq ?? 0;
+    this.ackedSeq = this.appliedSeq;
     this.bind(options.channel);
   }
 
@@ -196,13 +230,21 @@ export class HostedAgentSession implements AgentSession {
 
   subscribe(callback: (event: AgentStreamEvent) => void): () => void {
     this.subscribers.add(callback);
-    const held = this.held;
-    this.held = null;
-    if (this.heldOverflowed) this.deliverLossyNotice();
-    for (const event of held ?? []) this.deliver(event);
+    this.everSubscribed = true;
+    this.flushHeld();
     return () => {
       this.subscribers.delete(callback);
     };
+  }
+
+  /**
+   * Lets held live events through. Reading the rebuilt history does this; the startup path also
+   * calls it when loading an adopted agent finished or failed, so events are never held forever.
+   */
+  releaseLive(): void {
+    if (!this.liveHeld) return;
+    this.liveHeld = false;
+    this.flushHeld();
   }
 
   async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
@@ -241,7 +283,12 @@ export class HostedAgentSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     // A lost or closed session has nothing left to interrupt.
-    if (this.status === "lost" || this.status === "closed") return;
+    if (this.status === "lost" || this.status === "closed" || this.status === "fenced") return;
+    if (this.status === "reattaching") {
+      // Do not hold a stop button for the whole reconnect window; deliver it on reattach.
+      this.interruptPending = true;
+      return;
+    }
     await this.invoke({ method: "interrupt" });
   }
 
@@ -315,12 +362,19 @@ export class HostedAgentSession implements AgentSession {
     try {
       // While reattaching, the recovery closes the host session if it gets an attachment back.
       if (attached) await this.invoke({ method: "close" });
+      await this.forgetApplied();
+    } catch (error) {
+      this.options.logger.warn(
+        { err: error },
+        "Closing a hosted session did not finish; the host may still run it until the next worker start",
+      );
+      throw error;
     } finally {
-      this.flushAck();
       this.status = "closed";
       this.wakeRecovery?.();
       this.unsubscribeChannel();
       this.subscribers.clear();
+      this.held = [];
     }
   }
 
@@ -328,6 +382,19 @@ export class HostedAgentSession implements AgentSession {
     // Like the provider itself, saved history is yielded once per session object.
     if (this.historyRead) return;
     this.historyRead = true;
+    let complete = false;
+    try {
+      yield* this.readProviderHistory();
+      if (this.options.rebuild) yield* this.readLoggedHistory(this.options.rebuild);
+      complete = true;
+    } finally {
+      // A failed read can be retried; the manager collects history before it appends rows.
+      if (!complete) this.historyRead = false;
+      this.releaseLive();
+    }
+  }
+
+  private async *readProviderHistory(): AsyncGenerator<AgentStreamEvent> {
     let cursor: number | null = 0;
     while (cursor !== null) {
       const page: SessionCallResult<"streamHistory"> = await this.invoke({
@@ -341,6 +408,54 @@ export class HostedAgentSession implements AgentSession {
       }
       cursor = page.nextCursor;
     }
+  }
+
+  /** The events the previous worker already showed, read back from the host's log. */
+  private async *readLoggedHistory(rebuild: {
+    throughSeq: number;
+    lossy: boolean;
+  }): AsyncGenerator<AgentStreamEvent> {
+    let activeTurnId: string | null = null;
+    let afterSeq = 0;
+    let lossy = rebuild.lossy;
+    while (afterSeq < rebuild.throughSeq) {
+      const page = await this.channel.history({ afterSeq, throughSeq: rebuild.throughSeq });
+      if (!lossy && page.truncatedThrough > 0) {
+        lossy = true;
+        yield this.historyNotice();
+      }
+      for (const entry of page.events) {
+        const parsed = HostedPortEventSchema.safeParse(entry.event);
+        if (!parsed.success || parsed.data.type !== "stream") continue;
+        if (!HostedStreamEventSchema.safeParse(parsed.data.event).success) continue;
+        const event = parsed.data.event as unknown as AgentStreamEvent;
+        if (event.type === "turn_started") activeTurnId = event.turnId ?? activeTurnId;
+        if (
+          (event.type === "turn_completed" ||
+            event.type === "turn_failed" ||
+            event.type === "turn_canceled") &&
+          (event.turnId === undefined || event.turnId === activeTurnId)
+        )
+          activeTurnId = null;
+        if (isHistoryEvent(event)) yield event;
+      }
+      if (!page.more) break;
+      afterSeq = page.nextAfterSeq;
+    }
+    if (rebuild.lossy && !lossy) yield this.historyNotice();
+    this.rebuiltActiveTurnId = activeTurnId;
+  }
+
+  private historyNotice(): AgentStreamEvent {
+    return {
+      type: "timeline",
+      provider: this.provider,
+      item: {
+        type: "notification",
+        level: "warning",
+        message: "Some earlier activity from this session could not be restored after a restart.",
+      },
+    };
   }
 
   private async invoke<M extends SessionHostMethod>(
@@ -365,37 +480,80 @@ export class HostedAgentSession implements AgentSession {
   }
 
   private accept(value: JsonValue, seq: number): void {
-    if (DroppedEventSchema.safeParse(value).success) {
-      this.deliverLossyNotice();
-    } else {
-      const entry = HostedPortEventSchema.safeParse(value);
-      if (!entry.success) {
-        this.options.logger.warn({ seq }, "Skipped a malformed entry from the session host");
-        this.deliverLossyNotice();
-      } else if (entry.data.type === "state") {
-        if (seq > this.snapshotSeq) {
-          this.snapshot = entry.data.snapshot;
-          this.snapshotSeq = seq;
-        }
-      } else if (HostedStreamEventSchema.safeParse(entry.data.event).success) {
-        this.deliver(entry.data.event as unknown as AgentStreamEvent);
-      } else {
-        this.options.logger.warn({ seq }, "Skipped a malformed event from the session host");
-        this.deliverLossyNotice();
-      }
-    }
-    this.scheduleAck(seq);
+    this.emit(this.interpret(value, seq), seq);
   }
 
-  private deliver(event: AgentStreamEvent): void {
-    if (this.held) {
-      this.held.push(event);
+  /** Applies state entries to the mirror and turns everything else into an event, or nothing. */
+  private interpret(value: JsonValue, seq: number): AgentStreamEvent | null {
+    if (DroppedEventSchema.safeParse(value).success) return this.lossyNotice();
+    const entry = HostedPortEventSchema.safeParse(value);
+    if (!entry.success) {
+      this.options.logger.warn({ seq }, "Skipped a malformed entry from the session host");
+      return this.lossyNotice();
+    }
+    if (entry.data.type === "state") {
+      if (seq > this.snapshotSeq) {
+        this.snapshot = entry.data.snapshot;
+        this.snapshotSeq = seq;
+      }
+      return null;
+    }
+    if (HostedStreamEventSchema.safeParse(entry.data.event).success)
+      return entry.data.event as unknown as AgentStreamEvent;
+    this.options.logger.warn({ seq }, "Skipped a malformed event from the session host");
+    return this.lossyNotice();
+  }
+
+  private holding(): boolean {
+    return this.liveHeld || !this.everSubscribed;
+  }
+
+  /** Delivers an event in order, or holds it; seq marks how far this worker has applied. */
+  private emit(event: AgentStreamEvent | null, seq: number | null): void {
+    if (this.holding()) {
+      this.held.push({ event, seq });
       if (this.held.length > MAX_HELD_EVENTS) {
         this.held.shift();
         this.heldOverflowed = true;
       }
       return;
     }
+    if (event) this.deliver(event);
+    if (seq !== null) this.markApplied(seq);
+  }
+
+  private flushHeld(): void {
+    if (this.holding()) return;
+    const held = this.held;
+    this.held = [];
+    if (this.heldOverflowed) {
+      this.heldOverflowed = false;
+      const notice = this.lossyNotice();
+      if (notice) this.deliver(notice);
+    }
+    this.resumeTurnIfRunning(held);
+    for (const entry of held) {
+      if (entry.event) this.deliver(entry.event);
+      if (entry.seq !== null) this.markApplied(entry.seq);
+    }
+  }
+
+  /**
+   * A fresh worker registers an adopted session as idle. If a turn was running where the rebuilt
+   * history ends, announce it before the held events, so its completion is handled as usual.
+   */
+  private resumeTurnIfRunning(held: HeldEntry[]): void {
+    if (!this.options.rebuild || this.rebuiltActiveTurnId === null) return;
+    const turnId = this.rebuiltActiveTurnId ?? this.snapshot.activeTurnId;
+    this.rebuiltActiveTurnId = null;
+    if (!turnId) return;
+    const restartedInHeld = held.some(
+      (entry) => entry.event?.type === "turn_started" && entry.event.turnId === turnId,
+    );
+    if (!restartedInHeld) this.deliver({ type: "turn_started", provider: this.provider, turnId });
+  }
+
+  private deliver(event: AgentStreamEvent): void {
     for (const subscriber of this.subscribers) {
       try {
         subscriber(event);
@@ -405,10 +563,10 @@ export class HostedAgentSession implements AgentSession {
     }
   }
 
-  private deliverLossyNotice(): void {
-    if (this.lossyNoticeShown) return;
+  private lossyNotice(): AgentStreamEvent | null {
+    if (this.lossyNoticeShown) return null;
     this.lossyNoticeShown = true;
-    this.deliver({
+    return {
       type: "timeline",
       provider: this.provider,
       item: {
@@ -416,22 +574,45 @@ export class HostedAgentSession implements AgentSession {
         level: "warning",
         message: "Some activity from this session could not be shown after a reconnect.",
       },
-    });
+    };
   }
 
-  private scheduleAck(seq: number): void {
-    this.pendingAck = seq;
+  private markApplied(seq: number): void {
+    if (seq <= this.appliedSeq) return;
+    this.appliedSeq = seq;
     if (this.ackTimer) return;
-    this.ackTimer = setTimeout(() => this.flushAck(), ACK_INTERVAL_MS);
+    this.ackTimer = setTimeout(() => void this.flushAck(), ACK_INTERVAL_MS);
     this.ackTimer.unref();
   }
 
-  private flushAck(): void {
+  /** Records the applied position durably, then lets the host raise its replay floor. */
+  private async flushAck(): Promise<void> {
     if (this.ackTimer) clearTimeout(this.ackTimer);
     this.ackTimer = null;
-    if (this.pendingAck === null || this.status !== "attached") return;
-    this.channel.acknowledge(this.pendingAck);
-    this.pendingAck = null;
+    const seq = this.appliedSeq;
+    const channel = this.channel;
+    if (seq <= this.ackedSeq || this.status !== "attached") return;
+    const applied = this.options.applied;
+    if (applied) {
+      try {
+        await applied.store.write(applied.agentId, {
+          hostId: applied.hostId,
+          lastAppliedSeq: seq,
+        });
+      } catch (error) {
+        // Without a durable record the host must keep treating these events as unapplied.
+        this.options.logger.warn({ err: error }, "Could not record applied hosted events");
+        return;
+      }
+    }
+    if (channel !== this.channel || this.status !== "attached") return;
+    channel.acknowledge(seq);
+    this.ackedSeq = Math.max(this.ackedSeq, seq);
+  }
+
+  private async forgetApplied(): Promise<void> {
+    const applied = this.options.applied;
+    if (applied) await applied.store.remove(applied.agentId);
   }
 
   private handleDetached(channel: HostedSession, reason: HostedSessionDetachReason): void {
@@ -485,7 +666,13 @@ export class HostedAgentSession implements AgentSession {
       this.snapshotSeq = next.channel.attach.lastSeq;
       this.status = "attached";
       this.bind(next.channel);
-      if (next.lossy) this.deliverLossyNotice();
+      if (next.lossy) this.emit(this.lossyNotice(), null);
+      if (this.interruptPending) {
+        this.interruptPending = false;
+        this.invoke({ method: "interrupt" }).catch((error: unknown) =>
+          this.options.logger.warn({ err: error }, "Interrupt after reattach failed"),
+        );
+      }
       return;
     }
   }
@@ -498,6 +685,8 @@ export class HostedAgentSession implements AgentSession {
   private backoff(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
       const timer = setTimeout(done, ms);
+      // A backoff must never keep a stopping worker alive.
+      timer.unref();
       function done(): void {
         clearTimeout(timer);
         resolve();
@@ -514,11 +703,12 @@ export class HostedAgentSession implements AgentSession {
   ): void {
     const turnId = this.snapshot.activeTurnId;
     this.snapshot = { ...this.snapshot, pendingPermissions: [], activeTurnId: null };
-    if (turnId) this.deliver({ ...event, turnId });
+    if (turnId) this.emit({ ...event, turnId }, null);
   }
 
   /** The provider process died with its host. The turn cannot continue in this session. */
   private markLost(): void {
+    // The applied record stays: the next worker's startup reconciles it with what the host runs.
     this.status = "lost";
     this.releaseTurn({
       type: "turn_failed",

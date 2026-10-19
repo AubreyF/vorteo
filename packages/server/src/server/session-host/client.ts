@@ -4,6 +4,10 @@ import type { JsonValue } from "@getpaseo/protocol/agent-types";
 import { readFrames } from "./frame-reader.js";
 import {
   AttachResultSchema,
+  LoggedHistoryPageSchema,
+  SessionListSchema,
+  type HostedSessionSummary,
+  type LoggedHistoryPage,
   MAX_FRAME_BYTES,
   SESSION_HOST_PROTOCOL_VERSION,
   SessionHostReplySchema,
@@ -28,6 +32,11 @@ export class SessionHostClientError extends Error {
 
 export type HostedEventListener = (event: JsonValue, seq: number) => void;
 
+interface Greeting {
+  host: HostIdentity;
+  mcpToken: string;
+}
+
 /** A worker's handle on one hosted session. It tracks the last delivered seq for reattach. */
 export interface HostedSession {
   readonly sessionId: string;
@@ -42,6 +51,8 @@ export interface HostedSession {
   acknowledge(seq: number): void;
   /** Sends one session call. The caller checks the result against the method's contract. */
   call(call: SessionHostCall): Promise<JsonValue>;
+  /** Retained events in (afterSeq, throughSeq], one page at a time. Needs the attachment. */
+  history(input: { afterSeq: number; throughSeq: number }): Promise<LoggedHistoryPage>;
 }
 
 export type HostedSessionDetachReason = "fenced" | "disconnected" | "gap";
@@ -49,8 +60,12 @@ export type HostedSessionDetachReason = "fenced" | "disconnected" | "gap";
 export interface SessionHostClient {
   /** The host run this connection authenticated to. */
   readonly host: HostIdentity;
+  /** Bearer token the worker's agent tool endpoint must accept for hosted providers. */
+  readonly mcpToken: string;
   /** True once the connection has ended. */
   readonly closed: boolean;
+  /** Every session the host runs, so a starting worker can decide which ones to attach. */
+  list(): Promise<HostedSessionSummary[]>;
   open(input: { sessionId: string; provider: string; config: JsonValue }): Promise<HostedSession>;
   /** afterSeq null attaches at the newest event, without replay. */
   attach(input: { sessionId: string; afterSeq: number | null }): Promise<HostedSession>;
@@ -99,7 +114,7 @@ export async function connectSessionHost(
   >();
   const channels = new Map<string, SessionChannel>();
   const closeListeners: ((error: SessionHostClientError) => void)[] = [];
-  let greeted: ((result: HostIdentity | Error) => void) | null = null;
+  let greeted: ((result: Greeting | Error) => void) | null = null;
   let closeError: SessionHostClientError | null = null;
 
   /** Ends the connection and settles everything waiting on it, exactly once. */
@@ -133,7 +148,7 @@ export async function connectSessionHost(
           terminate(new SessionHostClientError("version", "Session host protocol differs."));
           return;
         }
-        greeted?.(reply.host);
+        greeted?.({ host: reply.host, mcpToken: reply.mcpToken });
         greeted = null;
         return;
       case "event": {
@@ -220,7 +235,7 @@ export async function connectSessionHost(
   }
 
   const connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
-  const host = await new Promise<HostIdentity>((resolve, reject) => {
+  const { host, mcpToken } = await new Promise<Greeting>((resolve, reject) => {
     const timer = setTimeout(
       () =>
         terminate(new SessionHostClientError("timeout", "Session host did not answer in time.")),
@@ -273,6 +288,19 @@ export async function connectSessionHost(
           channels.delete(sessionId);
         return value;
       },
+      async history({ afterSeq, throughSeq }) {
+        const value = await call((requestId) => ({
+          type: "history",
+          requestId,
+          sessionId,
+          afterSeq,
+          throughSeq,
+        }));
+        const page = LoggedHistoryPageSchema.safeParse(value);
+        if (!page.success)
+          throw new SessionHostClientError("invalid_frame", "Session host sent a malformed page.");
+        return page.data;
+      },
     };
   }
 
@@ -310,6 +338,14 @@ export async function connectSessionHost(
 
   return {
     host,
+    mcpToken,
+    async list() {
+      const value = await call((requestId) => ({ type: "list", requestId }));
+      const parsed = SessionListSchema.safeParse(value);
+      if (!parsed.success)
+        throw new SessionHostClientError("invalid_frame", "Session host sent a malformed list.");
+      return parsed.data.sessions;
+    },
     get closed() {
       return closeError !== null;
     },
