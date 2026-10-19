@@ -1,0 +1,157 @@
+import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
+import { Command } from "commander";
+import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
+import {
+  HEADLESS_BROWSER_HOST_KIND,
+  launchHeadlessBrowserHost,
+  normalizeDeniedHost,
+  type HeadlessBrowserHost,
+} from "@getpaseo/server/browser-automation/headless-host";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { connectToDaemon } from "../../utils/client.js";
+import {
+  addLocalDaemonOptions,
+  collectMultiple,
+  withGlobalOptions,
+} from "../../utils/command-options.js";
+import type { DaemonTarget } from "../../utils/daemon-target.js";
+
+const RECONNECT_MIN_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
+interface BrowserHostOptions {
+  denyOrigin: string[];
+  headed?: boolean;
+  viewport?: string;
+  daemonTarget: DaemonTarget;
+}
+
+export function parseViewport(
+  value: string | undefined,
+): { width: number; height: number } | undefined {
+  if (value === undefined) return undefined;
+  const match = /^(\d+)x(\d+)$/.exec(value.trim());
+  const width = match ? Number(match[1]) : 0;
+  const height = match ? Number(match[2]) : 0;
+  if (width <= 0 || height <= 0)
+    throw new Error(`Invalid viewport "${value}". Use WIDTHxHEIGHT, such as 1280x800.`);
+  return { width, height };
+}
+
+export function createBrowserCommand(): Command {
+  const browser = new Command("browser").description("Browser automation hosts");
+  addLocalDaemonOptions(
+    browser
+      .command("host")
+      .description(
+        "Run a disposable headless Chromium that agents on the local daemon can drive with browser tools",
+      )
+      .option(
+        "--deny-origin <url-or-host>",
+        "Never load this host on any scheme or port, such as the protected installation interface (repeatable)",
+        collectMultiple,
+        [],
+      )
+      .option("--viewport <WIDTHxHEIGHT>", "Initial tab viewport (default: 1280x800)")
+      .option("--headed", "Show the browser window instead of running headless"),
+  ).action(withGlobalOptions(runBrowserHostCommand));
+  return browser;
+}
+
+async function runBrowserHostCommand(options: BrowserHostOptions): Promise<void> {
+  const deniedHosts = options.denyOrigin.map(normalizeDeniedHost);
+  const viewport = parseViewport(options.viewport);
+  const host = await launchHeadlessBrowserHost({
+    deniedHosts,
+    ...(viewport ? { viewport } : {}),
+    ...(options.headed ? { headed: true } : {}),
+  });
+
+  const shutdown = new AbortController();
+  const stop = () => shutdown.abort();
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
+  log(
+    `Started ${HEADLESS_BROWSER_HOST_KIND}` +
+      (deniedHosts.length > 0 ? `; denied hosts: ${deniedHosts.join(", ")}` : "; no denied hosts"),
+  );
+
+  let backoff = RECONNECT_MIN_MS;
+  try {
+    while (!shutdown.signal.aborted) {
+      let client: DaemonClient | null = null;
+      try {
+        client = await connectToDaemon({ target: options.daemonTarget });
+        backoff = RECONNECT_MIN_MS;
+        await serveUntilDisconnected({ client, host, signal: shutdown.signal });
+        if (!shutdown.signal.aborted) log("Daemon connection closed. Reconnecting.");
+      } catch (error) {
+        log(`Cannot reach the daemon: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        await client?.close().catch(() => {});
+      }
+      await waitOrAbort(backoff, shutdown.signal);
+      backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
+    }
+  } finally {
+    await host.close();
+    log("Stopped.");
+  }
+}
+
+// Resolve after ms, or when the signal aborts. A null ms waits only for the signal.
+async function waitOrAbort(ms: number | null, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  if (ms === null) {
+    await once(signal, "abort");
+    return;
+  }
+  await delay(ms, undefined, { signal }).catch(() => {});
+}
+
+interface ServeBrowserHostInput {
+  client: Pick<
+    DaemonClient,
+    "registerBrowserHost" | "sendBrowserAutomationExecuteResponse" | "subscribeConnectionStatus"
+  >;
+  host: Pick<HeadlessBrowserHost, "execute">;
+  signal: AbortSignal;
+}
+
+// Serve browser automation requests until the connection drops or shutdown is requested.
+export async function serveUntilDisconnected(input: ServeBrowserHostInput): Promise<void> {
+  const { client, host, signal } = input;
+  const observation = client.registerBrowserHost({
+    hostKind: HEADLESS_BROWSER_HOST_KIND,
+    supportedCommands: [...BROWSER_AUTOMATION_COMMAND_NAMES],
+  });
+  const unsubscribe = observation.subscribe({
+    snapshot: () => log("Registered with the daemon. Agents can now use browser tools."),
+    update: (message) => {
+      if (message.type !== "browser.automation.execute.request") return;
+      void host.execute(message).then((payload) =>
+        client.sendBrowserAutomationExecuteResponse({
+          type: "browser.automation.execute.response",
+          payload,
+        }),
+      );
+    },
+  });
+  const disconnected = new AbortController();
+  const unsubscribeStatus = client.subscribeConnectionStatus((state) => {
+    if (state.status === "disconnected" || state.status === "disposed") disconnected.abort();
+  });
+  try {
+    await waitOrAbort(null, AbortSignal.any([signal, disconnected.signal]));
+  } finally {
+    unsubscribeStatus();
+    unsubscribe();
+    await observation.release().catch(() => {});
+  }
+}
+
+function log(message: string): void {
+  process.stderr.write(`[browser host] ${message}\n`);
+}

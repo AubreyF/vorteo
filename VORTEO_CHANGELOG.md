@@ -2,6 +2,12 @@
 
 Custom changes to vorteo. Paseo's release history remains in its upstream changelog.
 
+## 0.11.0-beta.3.vorteo.152 - 2026-10-18
+
+### Added
+
+- Run `paseo browser host` to give Host agents browser tools through a disposable headless Chromium with an empty profile and blocked owner origins
+
 ## 0.11.0-beta.3.vorteo.150 - 2026-10-06
 
 ### Changed

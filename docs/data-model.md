@@ -318,7 +318,7 @@ Each entry may include a Vorteo-tool policy:
 Absent `paseoTools`, or absent fields within it, means Vorteo tools are enabled and all tools are
 allowed. `enabled: false` disables the provider's Vorteo catalog; `disabledTools` lists exact tool
 IDs to omit. The policy covers the core and browser catalog, not the voice-only `speak` tool.
-Browser tools also require `daemon.browserTools.enabled` and a connected browser host.
+Browser tools also require `daemon.browserTools.enabled` and a connected browser host: the desktop app or `paseo browser host`.
 This policy controls the catalog presented to an agent. It is not an authorization boundary for
 agents that can access the host through a shell.
 
