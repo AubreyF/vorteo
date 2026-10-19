@@ -8,6 +8,7 @@ import {
   normalizeDeniedHost,
 } from "@getpaseo/server/browser-automation/headless-host-process-protocol";
 import { HeadlessHostSupervisor } from "@getpaseo/server/browser-automation/headless-host-supervisor";
+import { parseAllowedHost } from "@getpaseo/server/browser-automation/headless-host-network-policy";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { connectToDaemon } from "../../utils/client.js";
 import {
@@ -22,6 +23,7 @@ const RECONNECT_MAX_MS = 30_000;
 
 interface BrowserHostOptions {
   denyOrigin: string[];
+  allowHost: string[];
   headed?: boolean;
   viewport?: string;
   daemonTarget: DaemonTarget;
@@ -53,6 +55,12 @@ export function createBrowserCommand(): Command {
         collectMultiple,
         [],
       )
+      .option(
+        "--allow-host <host[:port]>",
+        "Permit a private destination, such as a local preview server; private networks are blocked otherwise (repeatable)",
+        collectMultiple,
+        [],
+      )
       .option("--viewport <WIDTHxHEIGHT>", "Initial tab viewport (default: 1280x800)")
       .option("--headed", "Show the browser window instead of running headless"),
   ).action(withGlobalOptions(runBrowserHostCommand));
@@ -62,10 +70,12 @@ export function createBrowserCommand(): Command {
 async function runBrowserHostCommand(options: BrowserHostOptions): Promise<void> {
   const deniedHosts = options.denyOrigin.map(normalizeDeniedHost);
   const viewport = parseViewport(options.viewport);
+  for (const host of options.allowHost) parseAllowedHost(host);
   // Chromium runs in its own process so Playwright never loads in the CLI.
   const host = new HeadlessHostSupervisor({
     options: {
       deniedHosts,
+      ...(options.allowHost.length > 0 ? { allowedHosts: options.allowHost } : {}),
       ...(viewport ? { viewport } : {}),
       ...(options.headed ? { headed: true } : {}),
     },

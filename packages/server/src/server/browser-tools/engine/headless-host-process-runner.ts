@@ -29,6 +29,7 @@ export async function runHeadlessHostProcess(input: {
   try {
     host = await input.launch({
       deniedHosts: options.deniedHosts,
+      ...(options.allowedHosts ? { allowedHosts: options.allowedHosts } : {}),
       ...(options.viewport ? { viewport: options.viewport } : {}),
       ...(options.headed ? { headed: true } : {}),
     });

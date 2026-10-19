@@ -6,7 +6,7 @@ import type {
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import {
   encodeHeadlessHostProcessOptions,
-  type HeadlessHostChildMessage,
+  parseHeadlessHostChildMessage,
   type HeadlessHostParentMessage,
   type HeadlessHostProcessOptions,
 } from "./headless-host-process-protocol.js";
@@ -30,6 +30,29 @@ export interface HeadlessHostProcess {
 export interface SpawnHeadlessHostProcessInput {
   options: HeadlessHostProcessOptions;
   onStderr?: (text: string) => void;
+  onInvalidMessage?: () => void;
+}
+
+// Variables the browser host needs. Everything else in the parent's
+// environment, such as SSH agent sockets and provider tokens, stays behind.
+const CHILD_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "PLAYWRIGHT_BROWSERS_PATH",
+] as const;
+
+export function headlessHostChildEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const key of CHILD_ENVIRONMENT_KEYS) {
+    const value = source[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  return environment;
 }
 
 // The child entry beside this module. Development runs from TypeScript
@@ -58,6 +81,11 @@ export function spawnHeadlessHostProcess(
     // Daemon flags such as inspector ports must not leak into the browser
     // host. TypeScript development still needs the parent's loader.
     execArgv: entry.endsWith(".ts") ? process.execArgv : [],
+    env: headlessHostChildEnvironment(),
+  });
+  // An unhandled error event would crash the parent, so always observe it.
+  child.on("error", () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
   });
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (text: string) => input.onStderr?.(text));
@@ -89,7 +117,18 @@ export function spawnHeadlessHostProcess(
         pending.set(request.requestId, resolve);
         pendingFailures.set(request.requestId, reject);
         const message: HeadlessHostParentMessage = { type: "execute", request };
-        child.send(message);
+        const fail = () => {
+          pending.delete(request.requestId);
+          pendingFailures.delete(request.requestId);
+          reject(new HeadlessHostProcessError("The headless browser host is not reachable."));
+        };
+        try {
+          child.send(message, (error) => {
+            if (error) fail();
+          });
+        } catch {
+          fail();
+        }
       });
     },
     async close() {
@@ -117,7 +156,11 @@ export function spawnHeadlessHostProcess(
       );
     })();
     child.on("message", (raw) => {
-      const message = raw as HeadlessHostChildMessage;
+      const message = parseHeadlessHostChildMessage(raw);
+      if (!message) {
+        input.onInvalidMessage?.();
+        return;
+      }
       if (message.type === "ready") {
         clearTimeout(timer);
         resolve(handle);

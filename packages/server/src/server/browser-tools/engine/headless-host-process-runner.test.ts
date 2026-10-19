@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type { BrowserAutomationExecuteRequest } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import type { HeadlessBrowserHost, LaunchHeadlessBrowserHostOptions } from "./headless-host.js";
+import { headlessHostChildEnvironment } from "./headless-host-process-client.js";
 import {
   decodeHeadlessHostProcessOptions,
   encodeHeadlessHostProcessOptions,
+  parseHeadlessHostChildMessage,
+  parseHeadlessHostParentMessage,
   type HeadlessHostChildMessage,
   type HeadlessHostParentMessage,
 } from "./headless-host-process-protocol.js";
@@ -141,5 +144,58 @@ describe("headless host process options", () => {
     expect(() =>
       decodeHeadlessHostProcessOptions('{"deniedHosts":[],"viewport":{"width":0,"height":5}}'),
     ).toThrow("viewport");
+  });
+});
+
+describe("headless host IPC validation", () => {
+  test("accepts well-formed child messages", () => {
+    expect(parseHeadlessHostChildMessage({ type: "ready" })).toEqual({ type: "ready" });
+    expect(
+      parseHeadlessHostChildMessage({
+        type: "response",
+        payload: { requestId: "req-1", ok: true, result: { command: "list_tabs", tabs: [] } },
+      }),
+    ).toMatchObject({ type: "response", payload: { requestId: "req-1" } });
+  });
+
+  test.each([
+    ["a response without a payload", { type: "response" }],
+    ["a payload without a request ID", { type: "response", payload: { ok: true } }],
+    ["an unknown type", { type: "shutdown" }],
+    ["extra fields", { type: "ready", command: "rm" }],
+    ["an oversized fatal message", { type: "fatal", message: "x".repeat(5_000) }],
+    ["a non-object", "ready"],
+    ["null", null],
+  ])("drops %s from the child", (_label, message) => {
+    expect(parseHeadlessHostChildMessage(message)).toBeNull();
+  });
+
+  test("validates parent requests", () => {
+    expect(parseHeadlessHostParentMessage({ type: "execute", request })).toMatchObject({
+      type: "execute",
+      request: { requestId: "req-1" },
+    });
+    expect(parseHeadlessHostParentMessage({ type: "execute" })).toBeNull();
+    expect(
+      parseHeadlessHostParentMessage({
+        type: "execute",
+        request: { ...request, command: { command: "rm" } },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("headlessHostChildEnvironment", () => {
+  test("passes only the variables the browser host needs", () => {
+    expect(
+      headlessHostChildEnvironment({
+        PATH: "/usr/bin",
+        HOME: "/Users/owner",
+        TMPDIR: "/tmp/x",
+        SSH_AUTH_SOCK: "/private/agent.sock",
+        ANTHROPIC_API_KEY: "secret",
+        PASEO_HOME: "/state",
+      }),
+    ).toEqual({ PATH: "/usr/bin", HOME: "/Users/owner", TMPDIR: "/tmp/x" });
   });
 });
