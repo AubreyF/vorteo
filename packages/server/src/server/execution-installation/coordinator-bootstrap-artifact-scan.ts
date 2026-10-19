@@ -112,16 +112,14 @@ export interface ArtifactBudget {
   signal?: AbortSignal;
 }
 
-/** Every observed path with its metadata identity, in traversal order. The
- * joined forms are retained so revalidation can cross to a worker cheaply. */
+/** Every observed path with its metadata identity, in traversal order, kept
+ * NUL-joined: one compact form serves assertions and crosses to workers cheaply. */
 export interface ArtifactScan {
   sha256: string;
-  paths: string[];
-  identities: string[];
   observed: ObservedMetadata;
 }
 
-interface ObservedMetadata {
+export interface ObservedMetadata {
   paths: string;
   identities: string;
 }
@@ -180,11 +178,7 @@ export function scanArtifactTree(directory: string, input: ArtifactBudget): Prom
   return runArtifactWorker(request, input, (message) => {
     const reply = ScanReplySchema.parse(message);
     if (reply.type === "error") throw revive(reply.failure);
-    const paths = reply.paths.split("\0");
-    const identities = reply.identities.split("\0");
-    if (paths.length !== identities.length) throw new Error("Malformed artifact scan");
-    const observed = { paths: reply.paths, identities: reply.identities };
-    return { sha256: reply.sha256, paths, identities, observed };
+    return { sha256: reply.sha256, observed: { paths: reply.paths, identities: reply.identities } };
   });
 }
 
@@ -205,6 +199,25 @@ export async function verifyArtifactTree(
     const reply = VerifyReplySchema.parse(message);
     if (reply.type === "error") throw revive(reply.failure);
   });
+}
+
+/** Walks both NUL-joined lists in step without materializing arrays. */
+export function* observedEntries(observed: ObservedMetadata): Generator<[string, string]> {
+  let pathStart = 0;
+  let identityStart = 0;
+  for (;;) {
+    const pathEnd = observed.paths.indexOf("\0", pathStart);
+    const identityEnd = observed.identities.indexOf("\0", identityStart);
+    const last = pathEnd === -1;
+    if (last !== (identityEnd === -1)) throw new Error("Malformed artifact metadata");
+    yield [
+      observed.paths.slice(pathStart, last ? undefined : pathEnd),
+      observed.identities.slice(identityStart, last ? undefined : identityEnd),
+    ];
+    if (last) return;
+    pathStart = pathEnd + 1;
+    identityStart = identityEnd + 1;
+  }
 }
 
 function runArtifactWorker<T>(
@@ -249,11 +262,9 @@ function runArtifactWorker<T>(
 function verifyObserved(request: z.infer<typeof VerifyRequestSchema>) {
   if (realpathSync(request.directory) !== request.directory)
     throw conflict("Retained artifact requires its canonical directory");
-  const paths = request.paths.split("\0");
-  const identities = request.identities.split("\0");
-  for (const [index, file] of paths.entries()) {
+  for (const [file, expected] of observedEntries(request)) {
     checkDeadline(request.deadline);
-    if (identity(lstatSync(file, { bigint: true })) !== identities[index])
+    if (identity(lstatSync(file, { bigint: true })) !== expected)
       throw conflict("Prepared artifact changed during verification");
   }
   return { type: "current" as const };

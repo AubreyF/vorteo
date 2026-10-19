@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.691 - 2026-10-18
+
+### Fixes
+
+- Re-read coordinator candidate bytes in full at dispatch after an owner decision. Proofs collected before the password check and approval re-verification no longer carry into launch, which keeps the hash-to-use window short.
+- Update a shared tree scan's reuse state before its result settles, so no caller can join a rejection that is about to be discarded.
+- Keep retained tree metadata in one compact form, roughly halving retained proof memory.
+
+### Validation
+
+- A regression test shows dispatch performs a fresh byte scan after an owner decision, including inside an enclosing reuse operation. It fails when dispatch joins the earlier proof.
+
 ## 0.11.0-beta.3.vorteo.690 - 2026-10-18
 
 ### Fixes

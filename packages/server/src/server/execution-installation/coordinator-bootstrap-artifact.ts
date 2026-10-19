@@ -9,6 +9,7 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
   ArtifactScanConflict,
   identity,
+  observedEntries,
   scanArtifactTree,
   verifyArtifactTree,
   type ArtifactScan,
@@ -103,6 +104,12 @@ const artifactReuseScopes = new AsyncLocalStorage<ArtifactReuseScope>();
  * the outermost one; proofs never cross operations, requests or processes. */
 export async function withBootstrapArtifactReuse<T>(action: () => Promise<T>): Promise<T> {
   if (artifactReuseScopes.getStore()?.active) return action();
+  return withFreshBootstrapArtifactReuse(action);
+}
+
+/** Starts a new operation even inside another one, so every tree it inspects is
+ * read again in full. Use where the gap between hashing and use must be short. */
+export async function withFreshBootstrapArtifactReuse<T>(action: () => Promise<T>): Promise<T> {
   const scope: ArtifactReuseScope = { active: true, artifacts: new Map() };
   try {
     return await artifactReuseScopes.run(scope, action);
@@ -453,31 +460,27 @@ function startSharedInspection(
   input: ArtifactBudget,
 ): SharedInspection {
   const controller = new AbortController();
-  const inspection: SharedInspection = {
-    controller,
-    waiters: 0,
-    settled: false,
-    result: collectArtifact(directory, {
-      maxFiles: input.maxFiles,
-      maxBytes: input.maxBytes,
-      deadline: Infinity,
-      signal: controller.signal,
-    }),
-  };
-  // Rejections are never reused; a later request collects again.
-  // Registered before any waiter, so a waiter that resumes after success never
-  // mistakes a finished inspection for an abandoned one.
-  void inspection.result.then(
-    () => {
+  const collected = collectArtifact(directory, {
+    maxFiles: input.maxFiles,
+    maxBytes: input.maxBytes,
+    deadline: Infinity,
+    signal: controller.signal,
+  });
+  // State changes before the shared promise settles: no waiter can observe a
+  // settled result while the inspection still looks pending, and no caller can
+  // join a rejection that is about to be discarded. Rejections are never reused.
+  const result = collected.then(
+    (retained) => {
       inspection.settled = true;
-      return true;
+      return retained;
     },
-    () => {
+    (error: unknown) => {
       inspection.settled = true;
       if (scope.artifacts.get(key) === inspection) scope.artifacts.delete(key);
-      return false;
+      throw error;
     },
   );
+  const inspection: SharedInspection = { controller, waiters: 0, settled: false, result };
   scope.artifacts.set(key, inspection);
   return inspection;
 }
@@ -524,15 +527,15 @@ async function collectArtifact(
     if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
     throw error;
   }
-  const { sha256, paths, identities, observed } = scan;
+  const { sha256, observed } = scan;
   return {
     sha256,
     revalidate: (budget) => verifyArtifactTree(directory, observed, budget),
     assertCurrent(): void {
       if (realpathSync(directory) !== directory)
         throw new BootstrapRequestConflict("Retained artifact requires its canonical directory");
-      for (const [index, file] of paths.entries())
-        if (identity(lstatSync(file, { bigint: true })) !== identities[index])
+      for (const [file, expected] of observedEntries(observed))
+        if (identity(lstatSync(file, { bigint: true })) !== expected)
           throw new BootstrapRequestConflict("Prepared artifact changed during verification");
     },
   };

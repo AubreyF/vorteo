@@ -37,6 +37,7 @@ import {
   readProtectedDocument,
   verifyBootstrapReleaseArtifacts,
   withBootstrapArtifactReuse,
+  withFreshBootstrapArtifactReuse,
 } from "./coordinator-bootstrap-artifact.js";
 import {
   BootstrapRunnerSetupSchema,
@@ -1529,8 +1530,10 @@ export function createDispatchingBootstrapReview(options: {
       await verifyBootstrapReleaseArtifacts(candidate, roots);
       await verifyRenewalPlan(setup, request.plan);
     });
+  // Launch re-reads every byte: proofs from review or the owner decision never
+  // reach it, so the hash-to-use window excludes password and approval checks.
   const dispatch = (request: CoordinatorBootstrapRequest, automatic: boolean) =>
-    withBootstrapArtifactReuse(() => dispatchVerified(request, automatic));
+    withFreshBootstrapArtifactReuse(() => dispatchVerified(request, automatic));
   const dispatchVerified = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {
     await verifyCandidate(request);
     const source = await readBootstrapPreparedFile(setup.ownerLauncher, await verifySetup());
@@ -1601,18 +1604,17 @@ export function createDispatchingBootstrapReview(options: {
       await verifyCandidate(prepared);
       return requests.prepare(prepared);
     },
-    decide: (input, password) =>
-      withBootstrapArtifactReuse(async () => {
-        const decision = CoordinatorBootstrapDecisionSchema.parse(input);
-        if (decision.decision === "approve") {
-          const pending = requests.list().find((item) => item.id === decision.id);
-          if (!pending) throw new BootstrapRequestConflict("Exact bootstrap review is unavailable");
-          await verifyCandidate(pending);
-        }
-        const request = await requests.decide(input, password);
-        if (request.status !== "approved") return request;
-        return dispatch(request, false);
-      }),
+    decide: async (input, password) => {
+      const decision = CoordinatorBootstrapDecisionSchema.parse(input);
+      if (decision.decision === "approve") {
+        const pending = requests.list().find((item) => item.id === decision.id);
+        if (!pending) throw new BootstrapRequestConflict("Exact bootstrap review is unavailable");
+        await verifyCandidate(pending);
+      }
+      const request = await requests.decide(input, password);
+      if (request.status !== "approved") return request;
+      return dispatch(request, false);
+    },
     automatic: automaticPolicy
       ? {
           prepare: async (input, proof) => {
