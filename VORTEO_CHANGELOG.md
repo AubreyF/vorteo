@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.698 - 2026-10-19
+
+### Features
+
+- Optionally build a standalone coordinator bundle during release preparation, off unless `VORTEO_COORDINATOR_BUNDLE=enabled`. It runs right after the installation receipt is written. It traces the coordinator service and every runner module that custody reads or launches by runtime-built name, including the recovery access entrypoint. Only that closure, the receipt and the owner scripts are copied into `<release>/coordinator`, with a file manifest. A build of current source yields 847 entries and 30 MB, against 3.6 GB for the full release. Nothing consumes the bundle yet.
+- Refuse a bundle with missing inputs, unreviewed trace warnings or escaping links. Its verifier must load and digest the bundle under Node's permission model with reads confined to the bundle.
+
+### Validation
+
+- Builder tests cover the exact closure with links, assets and owner scripts, agreement with the runner contract's runtime-named modules, a missing receipt, warning refusal, a verifier reading outside the bundle, output reuse and the disabled default. They need no built workspace package.
+
 ## 0.11.0-beta.3.vorteo.697 - 2026-10-19
 
 ### Features
