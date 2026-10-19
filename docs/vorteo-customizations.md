@@ -396,6 +396,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 19, 2026: The ported headless browser network policy also refuses NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses, which can embed them. Public NAT64 destinations still work. README onboarding is unchanged.
+
 October 19, 2026: Ported review fixes for the headless browser host. A filtering proxy refuses private and local destinations by default after DNS resolution, with an explicit allow list; IPC messages are validated with zod in both directions; the child receives a minimal environment. Chromium still comes from the Playwright cache outside release custody, as documented. README onboarding is unchanged.
 
 October 19, 2026: Ported from the reviewed installation branch, the headless browser host now runs in its own supervised process. The daemon and `paseo browser host` fork it on demand, so neither loads Playwright; a source trace test enforces that the daemon worker and CLI never reach it. README onboarding is unchanged.
