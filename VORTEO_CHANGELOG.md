@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.556 - 2026-10-18
+
+### Added
+
+- Add inert Linux Host source adapters: a `systemd --user` service reader that pins the account's user manager through the system manager, a procfs process inspector matching the macOS observation format, and a service ownership check bound to the manager's main PID, parent and cgroup. Nothing selects them yet, so installed Hosts are unchanged.
+- Accept a tagged `systemdService` Host descriptor in installation configuration beside `launchdService`. A macOS Host still requires launchd, and Host restarts still support only launchd.
+
+### Maintenance
+
+- Add the [Linux Host plan](docs/plans/execution-environments/linux-host.md) with its trust anchors, prerequisites, blockers and remaining work. The watchdog's audit-token signal binding has no Linux equivalent yet, so recovery chains cannot be ported until a pidfd design exists.
+- Cover the adapters with captured `busctl` fixtures, live procfs tests and a local systemd end-to-end test. Darwin-only installation tests were not run on macOS for this change.
+
 ## 0.11.0-beta.3.vorteo.555 - 2026-10-18
 
 ### Fixed

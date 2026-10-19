@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-18): add inert Linux Host source adapters. Installation configuration accepts a tagged `systemd --user` Host service, and a macOS Host still requires launchd. A systemd reader, procfs inspector and service ownership check have fixture and live Linux tests; nothing selects them, so macOS behavior and installed Hosts are unchanged. Remaining work and blockers are in the [Linux Host plan](plans/execution-environments/linux-host.md). README overview and onboarding remain unchanged.
+
 Maintenance review (2026-10-18): integrate the installed web tooltip cleanup fix into main. Web tooltip dismissal no longer creates animation copies; real-browser coverage checks interruption, navigation, repeated open/close cycles, hover and keyboard focus. README overview and onboarding remain unchanged because this repairs an existing interaction.
 
 Maintenance review (2026-10-15): combine shared lifecycle admission with repeated immutable repair admissions and exact historical runner pins. Queue exclusion and recovery fencing retain their separate responsibilities. Source checks do not admit the frozen repair proposal or establish installed compatibility; README overview and onboarding are unchanged.
@@ -374,6 +376,8 @@ Sidebar integration review: shared state is integrated with the published Nova b
 - **Continuous custom versions.** Each commit advances the Vorteo counter, including documentation and tooling commits. Upstream upgrades retain that sequence; manifests, internal dependency pins, lockfiles and native metadata stay synchronized through the installed hook. See [commit versioning](release.md#vorton-commit-versions).
 
 ## Incomplete integrations
+
+- **Linux Host adapters.** Source reads a `systemd --user` service through the account's user manager as vouched for by the system manager. It observes processes through procfs and binds service ownership to the manager's main PID, parent and cgroup. Installation configuration accepts a tagged systemd Host service. Nothing selects these adapters: protocol support, launcher units, restarts, peer authentication, a watchdog signal design and the recovery chains remain before a Linux Host can be installed. See the [Linux Host plan](plans/execution-environments/linux-host.md).
 
 - **Nova bridge.** A private Node package exposes scoped Host and Dev tools, durable write receipts, bounded inventory and proactive event delivery. Machine-origin prompts remain distinct from owner evidence. Source tests and builds do not establish account support, managed activation or delivery in the existing Nova conversation. See [Nova integration](nova-integration.md).
 
