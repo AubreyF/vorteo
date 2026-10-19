@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.700 - 2026-10-18
+
+### Fixed
+
+- Sign a full web sign-in Claude account out with its own CLI (`auth logout` in its configuration directory) before removal deletes the directory. On macOS its Keychain item otherwise outlives the directory. Sign-out failure does not block removal; the removal response carries a warning naming the item and the daemon logs it.
+
+### Known limitations
+
+- The app does not display the removal warning yet. Whether logout revokes the grant at Anthropic is unverified.
+
+### Validation
+
+- Synthetic tests with a fake CLI cover sign-out arguments and directory, failure without blocking deletion, setup-token accounts and stale reviews; 29 removal and account tests pass.
+
 ## 0.11.0-beta.3.vorteo.699 - 2026-10-18
 
 ### Fixed

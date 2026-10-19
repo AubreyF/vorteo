@@ -1,5 +1,13 @@
-import { afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -10,6 +18,11 @@ import { DaemonConfigStore } from "../../server/daemon-config-store.js";
 import { createClaudeAccount } from "./create-account.js";
 import { ClaudeAgentClient } from "../../server/agent/providers/claude/agent.js";
 import { createProviderEnv } from "../../server/agent/provider-launch-config.js";
+import {
+  deleteManagedProviderCredentials,
+  planProviderRemoval,
+  signOutClaudeFullSignIn,
+} from "./removal.js";
 import { ClaudeLoginSession } from "../../server/agent/providers/claude/login.js";
 import { ClaudeSetupTokenLoginSession } from "../../server/agent/providers/claude/setup-token-login.js";
 import {
@@ -188,4 +201,69 @@ it("keeps refusing local sign-in inside a managed installation for both types", 
   await expect(client.openAccountLoginSession()).rejects.toThrow(
     "installation subscription controls",
   );
+});
+
+describe("removing a full sign-in account", () => {
+  const ACCOUNT = "claude-account-00000000-0000-4000-8000-000000000001";
+  function removalFixture(exitCode: number, signIn?: "full") {
+    const paseoHome = temporary("claude-removal-");
+    const home = path.join(paseoHome, "claude-accounts", ACCOUNT);
+    mkdirSync(home, { recursive: true });
+    writeFileSync(path.join(home, ".credentials.json"), "{}");
+    const record = path.join(paseoHome, "logout-record");
+    const cli = path.join(paseoHome, "fake-claude");
+    writeFileSync(
+      cli,
+      `#!/bin/sh\nprintf '%s|%s' "$CLAUDE_CONFIG_DIR" "$*" > "$RECORD"\nexit ${exitCode}\n`,
+    );
+    chmodSync(cli, 0o755);
+    const input = {
+      paseoHome,
+      providerId: ACCOUNT,
+      defaultCodexHome: temporary("codex-default-"),
+      defaultClaudeHome: temporary("claude-default-"),
+      providers: {
+        [ACCOUNT]: {
+          extends: "claude",
+          label: "Max",
+          command: [cli],
+          env: {
+            CLAUDE_CONFIG_DIR: home,
+            RECORD: record,
+            ...(signIn ? { [CLAUDE_SIGN_IN_ENV]: signIn } : {}),
+          },
+        },
+      },
+    };
+    return { input, home, record };
+  }
+
+  it("signs out with the account's own CLI and directory, then deletes it", async () => {
+    const { input, home, record } = removalFixture(0, "full");
+    const { revision } = planProviderRemoval(input);
+    await expect(signOutClaudeFullSignIn(input, revision)).resolves.toBeNull();
+    expect(readFileSync(record, "utf8")).toBe(`${home}|auth logout`);
+    deleteManagedProviderCredentials(input, revision);
+    expect(existsSync(home)).toBe(false);
+  });
+
+  it("reports a failed sign-out without blocking deletion", async () => {
+    const { input, home } = removalFixture(1, "full");
+    const { revision } = planProviderRemoval(input);
+    const warning = await signOutClaudeFullSignIn(input, revision);
+    expect(warning).toContain("Claude sign-out did not finish for Max");
+    deleteManagedProviderCredentials(input, revision);
+    expect(existsSync(home)).toBe(false);
+  });
+
+  it("runs nothing for setup-token accounts or a stale review", async () => {
+    const token = removalFixture(0);
+    await expect(
+      signOutClaudeFullSignIn(token.input, planProviderRemoval(token.input).revision),
+    ).resolves.toBeNull();
+    expect(existsSync(token.record)).toBe(false);
+    const full = removalFixture(0, "full");
+    await expect(signOutClaudeFullSignIn(full.input, "stale")).resolves.toBeNull();
+    expect(existsSync(full.record)).toBe(false);
+  });
 });
