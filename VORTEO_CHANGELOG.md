@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.699 - 2026-10-18
+
+### Fixed
+
+- Report an expired full sign-in access token that still has a refresh grant as refreshing on the account's next turn, not as a lost sign-in. The CLI refreshes only when it runs, so usage reads no longer ask for sign-in while the grant is valid. Grants without a refresh token still defer to the usage endpoint.
+
+### Validation
+
+- Synthetic tests cover expired, still-valid and refresh-less records; the quota suites pass.
+
 ## 0.11.0-beta.3.vorteo.698 - 2026-10-18
 
 ### Maintenance

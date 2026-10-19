@@ -35,6 +35,8 @@ const ClaudeCredentialsSchema = z.object({
     .object({
       accessToken: z.string().optional(),
       refreshToken: z.string().optional(),
+      // Milliseconds since the epoch. Checked at use so an unexpected type cannot hide usage.
+      expiresAt: z.unknown().optional(),
       subscriptionType: z.string().optional(),
       rateLimitTier: z.string().optional(),
     })
@@ -99,6 +101,8 @@ interface ClaudeQuotaProviderOptions {
   claudeAccountKeychainReader?: (service: string, account: string) => Promise<unknown | null>;
   platform?: typeof process.platform;
   fetch?: ProviderApiFetch;
+  /** Clock for access-token expiry. Injected by tests. */
+  now?: () => number;
 }
 
 function buildClaudePlan(
@@ -393,6 +397,7 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
   private readonly signIn: ClaudeSignInMode;
   private readonly platform: typeof process.platform;
   private readonly fetchApi: ProviderApiFetch;
+  private readonly now: () => number;
 
   constructor(options: ClaudeQuotaProviderOptions) {
     this.logger = options.logger.child({ module: "claude-quota-provider" });
@@ -412,6 +417,7 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
     this.signIn = options.signIn ?? "setup-token";
     this.platform = options.platform ?? process.platform;
     this.fetchApi = options.fetch ?? fetch;
+    this.now = options.now ?? Date.now;
   }
 
   async fetchUsage(): Promise<ProviderUsage> {
@@ -450,9 +456,9 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
 
   /**
    * A web sign-in account reads only the credentials its own CLI stores for its own
-   * config directory: the plaintext file there, then on macOS the exact Keychain item the
-   * CLI derives from that directory. Never the default item, a service-only match or
-   * another home, including inside a managed installation.
+   * config directory: on macOS the exact Keychain item the CLI derives from that directory,
+   * then the plaintext file there. Never the default item, a service-only match or another
+   * home, including inside a managed installation.
    */
   private async fetchFullSignInUsage(): Promise<ProviderUsage> {
     const credentials = this.claudeHome ? await this.readAccountCredentials(this.claudeHome) : null;
@@ -464,6 +470,20 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
             id: "claude-sign-in",
             label: "Subscription",
             value: "Sign in with Claude for this account to show its usage.",
+          },
+        ],
+      };
+    // The CLI refreshes an expired access token only when it next runs for this account.
+    // With a refresh token present that is not a lost sign-in, so do not ask for one.
+    const { expiresAt, refreshToken } = credentials.oauth;
+    if (typeof expiresAt === "number" && expiresAt <= this.now() && refreshToken)
+      return {
+        ...unavailableUsage(this),
+        details: [
+          {
+            id: "claude-refresh-pending",
+            label: "Subscription",
+            value: "The saved sign-in has expired. Usage will refresh on this account’s next turn.",
           },
         ],
       };

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-18): full web sign-in Claude accounts with an expired access token and a refresh grant now say usage will refresh on the account's next turn instead of asking for sign-in again. Setup-token accounts are unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-18): server tests now clear the managed-installation client marker inherited from Host agent shells, so Claude credential suites pass in any shell. This changes test tooling only; features, README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-18): the nested subagent ownership real-provider test now skips unless real-provider runs are enabled, matching the other Claude real tests. This changes test tooling only; features, README overview and onboarding are unchanged.

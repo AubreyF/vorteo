@@ -243,3 +243,38 @@ it("routes each binding to its own type through the manifest", async () => {
   expect((await byId("claude-account-token").fetchUsage()).status).toBe("unavailable");
   expect(tokens).toEqual(["Bearer full-token"]);
 });
+
+it("says usage refreshes on the next turn when an expired grant can still refresh", async () => {
+  const account = await home();
+  const write = (oauth: Record<string, unknown>) =>
+    writeFile(
+      join(account, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "a", subscriptionType: "max", ...oauth } }),
+    );
+  const fetch = vi.fn(async () => usageResponse());
+  const provider = new ClaudeQuotaProvider({
+    logger,
+    providerId: "claude-account-full",
+    claudeHome: account,
+    strictClaudeHome: true,
+    signIn: "full",
+    platform: "linux",
+    fetch,
+    now: () => 2_000,
+  });
+  await write({ expiresAt: 1_000, refreshToken: "synthetic-refresh" });
+  const pending = await provider.fetchUsage();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(pending.status).toBe("unavailable");
+  expect(pending.details?.[0]?.id).toBe("claude-refresh-pending");
+  expect(pending.authRecovery).toBeUndefined();
+  // A token that is still valid is read normally.
+  await write({ expiresAt: 3_000, refreshToken: "synthetic-refresh" });
+  expect((await provider.fetchUsage()).status).toBe("available");
+  // Without a refresh token the endpoint decides, and a rejection asks for sign-in.
+  fetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  await write({ expiresAt: 1_000 });
+  expect((await provider.fetchUsage()).authRecovery?.instructions).toContain(
+    "Sign in with Claude again",
+  );
+});
