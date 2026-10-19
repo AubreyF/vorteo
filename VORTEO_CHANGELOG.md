@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.704 - 2026-10-19
+
+### Added
+
+- An end-to-end test runs the real supervisor, daemon worker and launchd-managed session host in an isolated test installation, with its own home under /tmp, its own port and a test-only launchd label, and a scripted fake Claude in the host. A hosted turn survives a killed worker, a supervisor restart and a daemon upgrade from one release to another while the host keeps the old release, with every streamed chunk shown exactly once, no error and no continuation. When the host itself is killed, launchd restarts it and exactly one continuation finishes the work on a fresh session. Run it with `DURABLE_SESSIONS_E2E=1`.
+- A real-Claude variant of the killed-worker case on Claude Haiku runs only with `DURABLE_SESSIONS_REAL_CLAUDE=1`.
+
+### Maintenance
+
+- Test children receive an explicit environment instead of inheriting the agent's, the live installation's ports are refused, and cleanup checks for leftover jobs, directories and processes, including orphaned stand-in Claude processes.
+
+### Validation
+
+- The four scenarios pass in 167 seconds on this branch and leave no test jobs, directories or processes behind. The real-Claude variant has not run yet.
+
 ## 0.11.0-beta.3.vorteo.703 - 2026-10-19
 
 ### Maintenance
