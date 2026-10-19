@@ -2977,6 +2977,9 @@ export class Session {
           store: this.daemonConfigStore,
           creationId: msg.creationId,
           name: msg.name,
+          ...(msg.type === "provider.claude.create_account.request" && msg.signIn
+            ? { signIn: msg.signIn }
+            : {}),
         }).then((account) => {
           return this.emit({
             type:

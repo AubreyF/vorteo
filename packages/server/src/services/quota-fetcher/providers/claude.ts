@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, promises as fs } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import type {
   ProviderUsageWindow,
 } from "../../../server/messages.js";
 import type { ProviderApiFetch, ProviderUsageFetcher } from "../provider.js";
+import type { ClaudeSignInMode } from "../../../server/agent/providers/claude/sign-in-mode.js";
 import {
   ApiNumberSchema,
   fetchProviderApi,
@@ -23,6 +25,10 @@ const execFileAsync = promisify(execFile);
 const CLAUDE_KEYCHAIN_TIMEOUT_MS = 2_000;
 const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials";
+const CLAUDE_NATIVE_RECOVERY =
+  "Open Claude Code on this account’s host using the same account configuration. Run /login and follow the sign-in prompts for the intended account. Then check the connection below.";
+const CLAUDE_FULL_SIGN_IN_RECOVERY =
+  "This account’s Claude sign-in expired or was revoked. Sign in with Claude again for this account in Providers settings, then check the connection below.";
 
 const ClaudeCredentialsSchema = z.object({
   claudeAiOauth: z
@@ -87,6 +93,10 @@ interface ClaudeQuotaProviderOptions {
   displayName?: string;
   strictClaudeHome?: boolean;
   claudeKeychainReader?: () => Promise<unknown | null>;
+  /** "full" reads only this account's own CLI credentials; absent means setup-token. */
+  signIn?: ClaudeSignInMode;
+  /** Exact per-account Keychain lookup (service, account). Injected by tests. */
+  claudeAccountKeychainReader?: (service: string, account: string) => Promise<unknown | null>;
   platform?: typeof process.platform;
   fetch?: ProviderApiFetch;
 }
@@ -315,6 +325,34 @@ async function runSecurityCommand(args: string[]): Promise<string | null> {
   }
 }
 
+/**
+ * The Keychain service Claude Code 2.1.284 uses for OAuth credentials when CLAUDE_CONFIG_DIR is
+ * set (`wN("-credentials")` in the pinned CLI): the default service name suffixed with the first
+ * eight hex digits of SHA-256 over the NFC-normalized config directory. The CLI hashes the raw
+ * variable, so pass it exactly as set (no resolve, no trailing-slash trim). The production OAuth
+ * file suffix is empty. Every Vorteo account sets CLAUDE_CONFIG_DIR, so its item is always
+ * suffixed and never the default `Claude Code-credentials` item.
+ */
+export function claudeKeychainServiceForConfigDir(configDir: string): string {
+  const suffix = createHash("sha256").update(configDir.normalize("NFC")).digest("hex").slice(0, 8);
+  return `${CLAUDE_KEYCHAIN_SERVICE}-${suffix}`;
+}
+
+/** One exact item: this service and this account. Never a service-only or default lookup. */
+export async function readClaudeAccountKeychainCredentials(
+  service: string,
+  account: string,
+  run: ClaudeKeychainCommandRunner = runSecurityCommand,
+): Promise<unknown | null> {
+  const raw = await run(["find-generic-password", "-a", account, "-w", "-s", service]);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** Read Claude Code's account-specific Keychain item, then try the legacy lookup. */
 export async function readClaudeKeychainCredentials(
   run: ClaudeKeychainCommandRunner = runSecurityCommand,
@@ -348,6 +386,11 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
   private readonly logger: Logger;
   private readonly claudeHome: string | undefined;
   private readonly readKeychainCredentials: () => Promise<unknown | null>;
+  private readonly readAccountKeychain: (
+    service: string,
+    account: string,
+  ) => Promise<unknown | null>;
+  private readonly signIn: ClaudeSignInMode;
   private readonly platform: typeof process.platform;
   private readonly fetchApi: ProviderApiFetch;
 
@@ -363,11 +406,16 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
         process.env["CLAUDE_HOME"] ||
         join(homedir(), ".claude");
     this.readKeychainCredentials = options.claudeKeychainReader ?? readClaudeKeychainCredentials;
+    this.readAccountKeychain =
+      options.claudeAccountKeychainReader ??
+      ((service, account) => readClaudeAccountKeychainCredentials(service, account));
+    this.signIn = options.signIn ?? "setup-token";
     this.platform = options.platform ?? process.platform;
     this.fetchApi = options.fetch ?? fetch;
   }
 
   async fetchUsage(): Promise<ProviderUsage> {
+    if (this.signIn === "full") return this.fetchFullSignInUsage();
     // Presence is sufficient, including malformed or expired artifacts. Never inspect an older
     // native grant to identify or operate on an installation setup-token connection.
     if (this.claudeHome || process.env.VORTEO_INSTALLATION_CLIENT_CONFIG) {
@@ -397,7 +445,53 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
     if (!credentials) {
       return unavailableUsage(this);
     }
+    return this.usageFromCredentials(credentials, CLAUDE_NATIVE_RECOVERY);
+  }
 
+  /**
+   * A web sign-in account reads only the credentials its own CLI stores for its own
+   * config directory: the plaintext file there, then on macOS the exact Keychain item the
+   * CLI derives from that directory. Never the default item, a service-only match or
+   * another home, including inside a managed installation.
+   */
+  private async fetchFullSignInUsage(): Promise<ProviderUsage> {
+    const credentials = this.claudeHome ? await this.readAccountCredentials(this.claudeHome) : null;
+    if (!credentials)
+      return {
+        ...unavailableUsage(this),
+        details: [
+          {
+            id: "claude-sign-in",
+            label: "Subscription",
+            value: "Sign in with Claude for this account to show its usage.",
+          },
+        ],
+      };
+    return this.usageFromCredentials(credentials, CLAUDE_FULL_SIGN_IN_RECOVERY);
+  }
+
+  /**
+   * Same store order as the pinned CLI: on macOS an existing per-directory Keychain item wins
+   * and the plaintext file is only its fallback, so a stale fallback file never shadows the
+   * live grant. Linux builds have only the file.
+   */
+  private async readAccountCredentials(home: string): Promise<ClaudeCredentialRecord | null> {
+    if (this.platform === "darwin") {
+      const service = claudeKeychainServiceForConfigDir(home);
+      if (service === CLAUDE_KEYCHAIN_SERVICE) return null;
+      const item = await this.readAccountKeychain(service, claudeKeychainAccount());
+      if (item !== null && item !== undefined) {
+        const parsed = ClaudeCredentialsSchema.safeParse(item);
+        return parsed.success ? this.toCredentialRecord(parsed.data) : null;
+      }
+    }
+    return this.readCredentialFile(join(home, ".credentials.json"));
+  }
+
+  private async usageFromCredentials(
+    credentials: ClaudeCredentialRecord,
+    recoveryInstructions: string,
+  ): Promise<ProviderUsage> {
     const { oauth } = credentials;
     const plan = buildClaudePlan(oauth.subscriptionType, oauth.rateLimitTier);
     const resp = await this.callClaudeApi(oauth.accessToken);
@@ -405,10 +499,7 @@ export class ClaudeQuotaProvider implements ProviderUsageFetcher {
     if (resp === "AUTH_REJECTED") {
       return {
         ...unavailableUsage(this),
-        authRecovery: {
-          instructions:
-            "Open Claude Code on this account’s host using the same account configuration. Run /login and follow the sign-in prompts for the intended account. Then check the connection below.",
-        },
+        authRecovery: { instructions: recoveryInstructions },
       };
     }
     if (resp === "NEEDS_AUTH") {

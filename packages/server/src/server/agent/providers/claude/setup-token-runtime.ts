@@ -8,6 +8,7 @@ import { ClaudeSetupTokenError } from "./setup-token-output.js";
 import { join } from "node:path";
 import { claudeConfigDir } from "./project-dir.js";
 import { ClaudeSetupTokenStore, type ClaudeSetupToken } from "./setup-token-store.js";
+import { claudeSignInMode } from "./sign-in-mode.js";
 
 export function claudeSetupTokenStore(configDirectory: string): ClaudeSetupTokenStore {
   return new ClaudeSetupTokenStore({ directory: join(configDirectory, ".vorteo-auth") });
@@ -16,6 +17,9 @@ export function claudeSetupTokenStore(configDirectory: string): ClaudeSetupToken
 export async function readClaudeSetupToken(
   env: NodeJS.ProcessEnv,
 ): Promise<ClaudeSetupToken | null> {
+  // A full sign-in account authenticates with the CLI's own credentials for its config
+  // directory. It never injects a setup token, even if a stray .vorteo-auth exists.
+  if (claudeSignInMode(env) === "full") return null;
   const config = claudeConfigDir(env);
   const credential = await claudeSetupTokenStore(config).read();
   let receipt: unknown;

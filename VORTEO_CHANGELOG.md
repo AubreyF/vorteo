@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.696 - 2026-10-18
+
+### Added
+
+- Add a full web sign-in Claude account type beside setup-token accounts. Sign-in runs the official `claude auth login --claudeai` in the account's own configuration directory, where the CLI stores and refreshes the grant. A non-secret binding marker records the type; existing bindings stay setup-token, and a retried creation cannot change it.
+- Show usage for full sign-in accounts from only that account's own credentials: the per-directory Keychain item the pinned CLI derives on macOS, then its `.credentials.json` fallback, or the file alone on Linux. Setup-token accounts stay unavailable.
+
+### Fixed
+
+- Launch full sign-in accounts without inherited secure-storage, OAuth, gateway or cloud-provider overrides, so they cannot use another account's storage. Read the type marker only from bindings, never from the daemon's own environment.
+
+### Known limitations
+
+- Managed installations still refuse environment-local sign-in, and the app does not offer the type yet. Installation-wide use needs Host-owned refresh with short-lived Dev tokens. Live sign-in, granted scopes and usage acceptance are unverified.
+
+### Validation
+
+- 17 new synthetic-credential tests pass. 537 of 538 focused Claude unit tests pass; the packaged CLI payload check fails identically on the base commit in this worktree. Workspace typecheck, lint and format pass.
+
 ## 0.11.0-beta.3.vorteo.695 - 2026-10-18
 
 ### Fixes

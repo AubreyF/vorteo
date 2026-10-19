@@ -4,6 +4,7 @@ import type {
   ProviderUsageFetcherManifestEntry,
 } from "./provider.js";
 import { ClaudeQuotaProvider } from "./providers/claude.js";
+import { claudeSignInMode } from "../../server/agent/providers/claude/sign-in-mode.js";
 import { CodexQuotaProvider } from "./providers/codex.js";
 import { CopilotQuotaProvider } from "./providers/copilot.js";
 import { CursorQuotaProvider } from "./providers/cursor.js";
@@ -71,6 +72,7 @@ export function createProviderUsageFetchers(
           claudeHome,
           displayName: configured?.label,
           strictClaudeHome: claudeHome !== undefined,
+          signIn: claudeSignInMode(configured?.env),
         }),
       ];
     }
@@ -99,6 +101,7 @@ export function createProviderUsageFetchers(
           displayName: provider.label ?? providerId,
           claudeHome: provider.env?.CLAUDE_CONFIG_DIR,
           strictClaudeHome: true,
+          signIn: claudeSignInMode(provider.env),
         }),
       );
       continue;

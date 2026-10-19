@@ -32,6 +32,16 @@ The runtime applies `CLAUDE_CODE_OAUTH_TOKEN` after ordinary configuration, clea
 
 The coordinator routes require installation owner authentication and matching Origin. Daemon delivery routes require daemon authentication plus the current installation binding and policy revision. They expose no credential read API. Keep the coordinator, both daemons and UI on a compatible candidate before enabling this flow; managed daemons refuse environment-local Claude login, so older clients must update rather than create an unsynchronized connection. Source implementation alone does not establish installation or live account acceptance.
 
+### Full web sign-in accounts
+
+A Claude account can use full web sign-in instead of a setup token. Its binding carries the non-secret marker `VORTEO_CLAUDE_SIGN_IN=full`. Bindings without the marker remain setup-token accounts, and retrying an account creation cannot change its type. Sign-in runs `claude auth login --claudeai` in the account's own `CLAUDE_CONFIG_DIR`; the CLI stores and refreshes the OAuth grant there. These accounts never inject a setup token, even when a stray `.vorteo-auth` directory exists.
+
+Launches, status checks and sign-in for these accounts remove inherited `CLAUDE_SECURESTORAGE_CONFIG_DIR` and OAuth scope, client, custom URL and host-managed overrides. They also blank competing tokens and API keys and force first-party routing. The secure-storage variable must be absent, not empty: the pinned CLI maps an empty value to the shared default credential item. The daemon reads the marker only from bindings and ignores a copy inherited from its own environment, such as a daemon started inside an agent shell.
+
+Usage reads only the account's own credentials. On macOS, the pinned CLI 2.1.284 stores them in the Keychain item `Claude Code-credentials-<first eight hex digits of SHA-256 over the raw CLAUDE_CONFIG_DIR>` for account `$USER`. It uses `.credentials.json` in the account directory only as a fallback. Vorteo reads both in the same order and never queries the default item. Linux builds use only the file. A missing grant reports that sign-in is needed; a rejected grant asks for sign-in again. The hash input, store order and file layout are compatibility obligations: recheck them when upgrading Claude.
+
+Managed installations still refuse environment-local sign-in. This type is therefore limited to unmanaged daemons until the Host owns refresh and delivers short-lived access tokens to Dev. The app does not offer the choice yet; the protocol accepts `signIn: "full"` on account creation. Live sign-in, granted scopes and usage acceptance have not been verified.
+
 ## CLI compatibility warnings
 
 Catalogs can include optional `cliUpdate` information in provider snapshots without changing
