@@ -36,6 +36,7 @@ import {
   readBootstrapPreparedFile,
   readProtectedDocument,
   verifyBootstrapReleaseArtifacts,
+  withBootstrapArtifactReuse,
 } from "./coordinator-bootstrap-artifact.js";
 import {
   BootstrapRunnerSetupSchema,
@@ -1429,57 +1430,66 @@ export async function createManagedBootstrapReview(
       moduleFile: fileURLToPath(import.meta.url),
       hostPid: process.pid,
     });
-  const setup = (await reconstruct()) ?? original;
-  const readAdmission = () =>
-    BootstrapAdmissionSetupSchema.parse(
-      readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
-    );
-  const admission = readAdmission();
-  const verifySetup = async () => {
-    if (!isDeepStrictEqual(original, readSetup()) || !isDeepStrictEqual(admission, readAdmission()))
-      throw new BootstrapRequestConflict("Bootstrap launch setup changed");
-    if (setup.renewal) {
-      if (!isDeepStrictEqual(await reconstruct(), setup))
-        throw new BootstrapRequestConflict("Host renewal context changed; prepare a fresh review");
-      await verifyRetainedRenewal(setup);
-    }
-    const roots = await inspectBootstrapWritableMountRoots(admission);
-    await assertBootstrapPathsProtected(
-      [setupFile, setup.admissionSetupFile, setup.runtimeDirectory],
-      roots,
-    );
-    const relative = path.relative(setup.runtimeDirectory, setup.entrypoint.path);
-    if (relative.startsWith("..") || path.isAbsolute(relative))
-      throw new BootstrapRequestConflict("Bootstrap runner is outside its prepared runtime");
-    for (const file of [setup.entrypoint, setup.ownerLauncher, setup.ownershipVerifier])
-      await readBootstrapPreparedFile(file, roots);
-    if ((await digestBootstrapArtifact(setup.runtimeDirectory)) !== setup.runtimeSha256)
-      throw new BootstrapRequestConflict("Bootstrap runner artifact changed");
-    return roots;
-  };
-  await verifySetup();
-  const requests = await createBootstrapReviewService(
-    setup.admissionSetupFile,
-    daemonId,
-    setup.renewal
-      ? {
-          setup: { ...admission, configurationFile: setup.renewal.configuration.path },
-          verify: async (plan) => {
-            await verifySetup();
-            await verifyRenewalPlan(setup, plan);
-          },
+  // Reconstruction and setup verification read the same selected Host tree.
+  return withBootstrapArtifactReuse(async () => {
+    const setup = (await reconstruct()) ?? original;
+    const readAdmission = () =>
+      BootstrapAdmissionSetupSchema.parse(
+        readPrivateBootstrapConfiguration(setup.admissionSetupFile, uid),
+      );
+    const admission = readAdmission();
+    const verifySetup = () =>
+      withBootstrapArtifactReuse(async () => {
+        if (
+          !isDeepStrictEqual(original, readSetup()) ||
+          !isDeepStrictEqual(admission, readAdmission())
+        )
+          throw new BootstrapRequestConflict("Bootstrap launch setup changed");
+        if (setup.renewal) {
+          if (!isDeepStrictEqual(await reconstruct(), setup))
+            throw new BootstrapRequestConflict(
+              "Host renewal context changed; prepare a fresh review",
+            );
+          await verifyRetainedRenewal(setup);
         }
-      : undefined,
-  );
-  return createDispatchingBootstrapReview({
-    setup,
-    setupFile,
-    requests,
-    verifySetup,
-    automatic: {
-      configurationFile: setup.renewal?.configuration.path ?? admission.configurationFile,
-      uid,
-    },
+        const roots = await inspectBootstrapWritableMountRoots(admission);
+        await assertBootstrapPathsProtected(
+          [setupFile, setup.admissionSetupFile, setup.runtimeDirectory],
+          roots,
+        );
+        const relative = path.relative(setup.runtimeDirectory, setup.entrypoint.path);
+        if (relative.startsWith("..") || path.isAbsolute(relative))
+          throw new BootstrapRequestConflict("Bootstrap runner is outside its prepared runtime");
+        for (const file of [setup.entrypoint, setup.ownerLauncher, setup.ownershipVerifier])
+          await readBootstrapPreparedFile(file, roots);
+        if ((await digestBootstrapArtifact(setup.runtimeDirectory)) !== setup.runtimeSha256)
+          throw new BootstrapRequestConflict("Bootstrap runner artifact changed");
+        return roots;
+      });
+    await verifySetup();
+    const requests = await createBootstrapReviewService(
+      setup.admissionSetupFile,
+      daemonId,
+      setup.renewal
+        ? {
+            setup: { ...admission, configurationFile: setup.renewal.configuration.path },
+            verify: async (plan) => {
+              await verifySetup();
+              await verifyRenewalPlan(setup, plan);
+            },
+          }
+        : undefined,
+    );
+    return createDispatchingBootstrapReview({
+      setup,
+      setupFile,
+      requests,
+      verifySetup,
+      automatic: {
+        configurationFile: setup.renewal?.configuration.path ?? admission.configurationFile,
+        uid,
+      },
+    });
   });
 }
 
@@ -1504,14 +1514,24 @@ export function createDispatchingBootstrapReview(options: {
       options.dispatchWaitTimeoutMs > 15 * 60_000)
   )
     throw new BootstrapRequestConflict("Invalid bootstrap dispatch observation deadline");
-  const verifyCandidate = async (request: Pick<CoordinatorBootstrapRequest, "id" | "plan">) => {
-    const candidate = request.plan.candidate;
-    const roots = await verifySetup();
-    await verifyBootstrapExecutionRuntime({ request, setupFile, setup, writableMountRoots: roots });
-    await verifyBootstrapReleaseArtifacts(candidate, roots);
-    await verifyRenewalPlan(setup, request.plan);
-  };
-  const dispatch = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {
+  // Each review action is one verification operation: its repeated setup and
+  // candidate checks share retained tree proofs, never across actions.
+  const verifyCandidate = (request: Pick<CoordinatorBootstrapRequest, "id" | "plan">) =>
+    withBootstrapArtifactReuse(async () => {
+      const candidate = request.plan.candidate;
+      const roots = await verifySetup();
+      await verifyBootstrapExecutionRuntime({
+        request,
+        setupFile,
+        setup,
+        writableMountRoots: roots,
+      });
+      await verifyBootstrapReleaseArtifacts(candidate, roots);
+      await verifyRenewalPlan(setup, request.plan);
+    });
+  const dispatch = (request: CoordinatorBootstrapRequest, automatic: boolean) =>
+    withBootstrapArtifactReuse(() => dispatchVerified(request, automatic));
+  const dispatchVerified = async (request: CoordinatorBootstrapRequest, automatic: boolean) => {
     await verifyCandidate(request);
     const source = await readBootstrapPreparedFile(setup.ownerLauncher, await verifySetup());
     if (automatic)
@@ -1581,17 +1601,18 @@ export function createDispatchingBootstrapReview(options: {
       await verifyCandidate(prepared);
       return requests.prepare(prepared);
     },
-    decide: async (input, password) => {
-      const decision = CoordinatorBootstrapDecisionSchema.parse(input);
-      if (decision.decision === "approve") {
-        const pending = requests.list().find((item) => item.id === decision.id);
-        if (!pending) throw new BootstrapRequestConflict("Exact bootstrap review is unavailable");
-        await verifyCandidate(pending);
-      }
-      const request = await requests.decide(input, password);
-      if (request.status !== "approved") return request;
-      return dispatch(request, false);
-    },
+    decide: (input, password) =>
+      withBootstrapArtifactReuse(async () => {
+        const decision = CoordinatorBootstrapDecisionSchema.parse(input);
+        if (decision.decision === "approve") {
+          const pending = requests.list().find((item) => item.id === decision.id);
+          if (!pending) throw new BootstrapRequestConflict("Exact bootstrap review is unavailable");
+          await verifyCandidate(pending);
+        }
+        const request = await requests.decide(input, password);
+        if (request.status !== "approved") return request;
+        return dispatch(request, false);
+      }),
     automatic: automaticPolicy
       ? {
           prepare: async (input, proof) => {

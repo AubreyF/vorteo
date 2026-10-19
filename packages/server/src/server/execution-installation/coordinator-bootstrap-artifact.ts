@@ -1,10 +1,19 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { constants, lstatSync, realpathSync, type BigIntStats } from "node:fs";
-import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
+import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import {
+  ArtifactScanConflict,
+  identity,
+  scanArtifactTree,
+  verifyArtifactTree,
+  type ArtifactScan,
+  type ArtifactBudget,
+} from "./coordinator-bootstrap-artifact-scan.js";
 
 function containsPath(directory: string, file: string): boolean {
   const relative = path.relative(directory, file);
@@ -47,35 +56,60 @@ type ReleaseInspector = (
 export async function withBootstrapReleaseInspection<T>(
   action: (inspect: ReleaseInspector) => Promise<T>,
 ): Promise<T> {
-  const artifacts = new Map<string, ReturnType<typeof inspectBootstrapArtifact>>();
   const releases: Array<() => void> = [];
   let active = true;
   const inspect: ReleaseInspector = async (release, roots) => {
     if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
-    const captured = structuredClone(release);
-    const proof = await inspectReleaseArtifacts(captured, roots, {}, async (directory, limits) => {
-      const key = JSON.stringify([directory, captured.artifactSha256]);
-      let pending = artifacts.get(key);
-      if (!pending) {
-        pending = inspectBootstrapArtifact(directory, limits);
-        artifacts.set(key, pending);
-      }
-      const artifact = await pending;
-      if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
-      artifact.assertCurrent();
-      return artifact;
-    });
+    const proof = await inspectBootstrapReleaseArtifacts(release, roots);
     if (!active) throw new BootstrapRequestConflict("Release inspection scope ended");
     releases.push(proof.assertCurrent);
     return proof;
   };
+  return withBootstrapArtifactReuse(async () => {
+    try {
+      const result = await action(inspect);
+      for (const assertRelease of releases) assertRelease();
+      return result;
+    } finally {
+      active = false;
+    }
+  });
+}
+
+interface RetainedArtifact {
+  sha256: string;
+  assertCurrent(): void;
+  /** The same checks as assertCurrent, without blocking the calling thread. */
+  revalidate(budget: ArtifactBudget): Promise<void>;
+}
+
+interface SharedInspection {
+  result: Promise<RetainedArtifact>;
+  controller: AbortController;
+  waiters: number;
+  settled: boolean;
+}
+
+interface ArtifactReuseScope {
+  active: boolean;
+  artifacts: Map<string, SharedInspection>;
+}
+
+const artifactReuseScopes = new AsyncLocalStorage<ArtifactReuseScope>();
+
+/** One verification operation hashes each distinct runtime tree at most once.
+ * A later request in the same operation accepts the retained proof only after
+ * re-asserting the metadata of every path it observed. Nested operations join
+ * the outermost one; proofs never cross operations, requests or processes. */
+export async function withBootstrapArtifactReuse<T>(action: () => Promise<T>): Promise<T> {
+  if (artifactReuseScopes.getStore()?.active) return action();
+  const scope: ArtifactReuseScope = { active: true, artifacts: new Map() };
   try {
-    const result = await action(inspect);
-    for (const assertRelease of releases) assertRelease();
-    return result;
+    return await artifactReuseScopes.run(scope, action);
   } finally {
-    active = false;
-    artifacts.clear();
+    scope.active = false;
+    for (const inspection of scope.artifacts.values()) inspection.controller.abort();
+    scope.artifacts.clear();
   }
 }
 
@@ -85,15 +119,6 @@ export async function inspectBootstrapReleaseArtifacts(
   value: CoordinatorBootstrapPlan["candidate"],
   writableMountRoots: readonly string[],
   limits: BootstrapArtifactDigestLimits = {},
-) {
-  return inspectReleaseArtifacts(value, writableMountRoots, limits, inspectBootstrapArtifact);
-}
-
-async function inspectReleaseArtifacts(
-  value: CoordinatorBootstrapPlan["candidate"],
-  writableMountRoots: readonly string[],
-  limits: BootstrapArtifactDigestLimits,
-  inspectArtifact: typeof inspectBootstrapArtifact,
 ) {
   const release = structuredClone(value);
   const { signal, timeoutMs, maxFiles, maxBytes } = limits;
@@ -136,7 +161,7 @@ async function inspectReleaseArtifacts(
   if (receipt.sourceCommit !== release.sourceCommit)
     throw new BootstrapRequestConflict("Prepared source does not match its installation receipt");
   checkBudget();
-  const artifact = await inspectArtifact(release.directory, {
+  const artifact = await inspectBootstrapArtifact(release.directory, {
     signal,
     timeoutMs: timeoutMs === undefined ? undefined : timeoutMs - (Date.now() - startedAt),
     maxFiles,
@@ -158,20 +183,6 @@ async function inspectReleaseArtifacts(
   assertCurrent();
   checkBudget();
   return { assertCurrent };
-}
-
-function identity(stat: BigIntStats): string {
-  return [
-    stat.dev,
-    stat.ino,
-    stat.mode,
-    stat.uid,
-    stat.gid,
-    stat.nlink,
-    stat.size,
-    stat.mtimeNs,
-    stat.ctimeNs,
-  ].join(":");
 }
 
 function requireUnchanged(before: BigIntStats, after: BigIntStats): void {
@@ -386,94 +397,143 @@ export async function inspectBootstrapArtifact(
 ) {
   const { signal, maxFiles = Infinity, maxBytes = Infinity, timeoutMs } = limits;
   const deadline = timeoutMs === undefined ? Infinity : Date.now() + timeoutMs;
-  let files = 0;
-  let bytes = 0;
   const checkBudget = () => {
     if (signal?.aborted) throw new BootstrapRequestConflict("Artifact verification cancelled");
     if (Date.now() >= deadline)
       throw new BootstrapRequestConflict("Artifact verification deadline exceeded");
-    if (files > maxFiles || bytes > maxBytes)
+    if (maxFiles < 0 || maxBytes < 0)
       throw new BootstrapRequestConflict("Artifact verification limit exceeded");
   };
   checkBudget();
-  const root = await realpath(directory);
-  if (root !== directory)
-    throw new BootstrapRequestConflict("Prepared artifact requires a canonical directory");
-  const hash = createHash("sha256");
-  hash.update("vorteo-coordinator-artifact-v1\n");
-  const observed = new Map<string, BigIntStats>();
-
-  const hardLinks = new Map<string, { count: bigint; paths: string[] }>();
-  // Visits are sequential. Keep one scratch buffer per scan, never shared
-  // across concurrent verifications or retained as a cache of file contents.
-  const buffer = Buffer.alloc(64 * 1024);
-
-  async function visit(relative: string): Promise<void> {
-    files++;
-    checkBudget();
-    const file = path.join(root, relative);
-    const before = await lstat(file, { bigint: true });
-    requireOwned(before);
-    observed.set(file, before);
-    if (before.isDirectory()) {
-      hash.update(JSON.stringify(["directory", relative, String(before.mode)]) + "\n");
-      const entries = (await readdir(file)).sort();
-      for (const entry of entries) await visit(path.join(relative, entry));
-    } else if (before.isFile()) {
-      bytes += Number(before.size);
-      checkBudget();
-      if (before.nlink > 1n) {
-        const key = `${before.dev}:${before.ino}`;
-        const group = hardLinks.get(key) ?? { count: before.nlink, paths: [] };
-        if (group.count !== before.nlink)
-          throw new BootstrapRequestConflict("Prepared hard-linked artifact changed");
-        group.paths.push(relative);
-        hardLinks.set(key, group);
-      }
-      const digest = await digestFile(file, before, {
-        verifyLinksInTree: true,
-        buffer,
-        checkBudget,
-      });
-      hash.update(JSON.stringify(["file", relative, String(before.mode), digest]) + "\n");
-    } else if (before.isSymbolicLink()) {
-      const target = await readlink(file);
-      const resolved = await realpath(file);
-      if (resolved !== root && !resolved.startsWith(root + path.sep))
-        throw new BootstrapRequestConflict("Prepared artifact links outside its release");
-      hash.update(JSON.stringify(["link", relative, target]) + "\n");
-    } else {
-      throw new BootstrapRequestConflict("Prepared artifact contains a non-runtime file type");
-    }
-    requireUnchanged(before, await lstat(file, { bigint: true }));
-  }
-
-  if (!(await lstat(root)).isDirectory())
-    throw new BootstrapRequestConflict("Prepared artifact must be a directory");
-  await visit("");
-  // npm links some executable packages within the release. Count every physical
-  // name, without following symlinks, so an alias outside this tree is refused.
-  for (const group of hardLinks.values()) {
-    if (BigInt(group.paths.length) !== group.count)
-      throw new BootstrapRequestConflict("Prepared hard-linked file escapes its release");
-    hash.update(JSON.stringify(["hard-links", group.paths.sort()]) + "\n");
-  }
-  // A dependency visited earlier may change while another subtree is read.
-  for (const [file, before] of observed) {
-    checkBudget();
-    requireUnchanged(before, await lstat(file, { bigint: true }));
-  }
+  const scope = artifactReuseScopes.getStore();
+  const retained = scope?.active
+    ? await joinArtifactInspection(scope, directory, { maxFiles, maxBytes, deadline, signal })
+    : await collectArtifact(directory, { maxFiles, maxBytes, deadline, signal });
   checkBudget();
-  const sha256 = hash.digest("hex");
   return {
-    sha256,
+    sha256: retained.sha256,
     assertCurrent(): void {
       signal?.throwIfAborted();
+      retained.assertCurrent();
+      signal?.throwIfAborted();
+    },
+  };
+}
+
+/** Keyed by everything that decides acceptance. Deadlines and cancellation stay
+ * with each caller: one caller's expiry never rejects another, and the shared
+ * scan stops only when no caller still waits for it. */
+async function joinArtifactInspection(
+  scope: ArtifactReuseScope,
+  directory: string,
+  input: ArtifactBudget,
+): Promise<RetainedArtifact> {
+  const key = JSON.stringify([directory, String(input.maxFiles), String(input.maxBytes)]);
+  const existing = scope.artifacts.get(key);
+  const inspection = existing ?? startSharedInspection(scope, key, directory, input);
+  inspection.waiters++;
+  try {
+    const retained = await awaitWithinBudget(inspection.result, input);
+    // A proof collected earlier in this operation must still describe the tree.
+    if (existing) await revalidate(retained, input);
+    return retained;
+  } finally {
+    inspection.waiters--;
+    if (inspection.waiters === 0 && !inspection.settled) {
+      inspection.controller.abort();
+      if (scope.artifacts.get(key) === inspection) scope.artifacts.delete(key);
+    }
+  }
+}
+
+function startSharedInspection(
+  scope: ArtifactReuseScope,
+  key: string,
+  directory: string,
+  input: ArtifactBudget,
+): SharedInspection {
+  const controller = new AbortController();
+  const inspection: SharedInspection = {
+    controller,
+    waiters: 0,
+    settled: false,
+    result: collectArtifact(directory, {
+      maxFiles: input.maxFiles,
+      maxBytes: input.maxBytes,
+      deadline: Infinity,
+      signal: controller.signal,
+    }),
+  };
+  // Rejections are never reused; a later request collects again.
+  // Registered before any waiter, so a waiter that resumes after success never
+  // mistakes a finished inspection for an abandoned one.
+  void inspection.result.then(
+    () => {
+      inspection.settled = true;
+      return true;
+    },
+    () => {
+      inspection.settled = true;
+      if (scope.artifacts.get(key) === inspection) scope.artifacts.delete(key);
+      return false;
+    },
+  );
+  scope.artifacts.set(key, inspection);
+  return inspection;
+}
+
+async function revalidate(retained: RetainedArtifact, budget: ArtifactBudget): Promise<void> {
+  try {
+    await retained.revalidate(budget);
+  } catch (error) {
+    if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
+    throw error;
+  }
+}
+
+function awaitWithinBudget<T>(work: Promise<T>, budget: ArtifactBudget): Promise<T> {
+  const { signal, deadline } = budget;
+  return new Promise((resolve, reject) => {
+    const settle = (complete: () => void) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+      complete();
+    };
+    const fail = (error: unknown) => settle(() => reject(error));
+    const cancel = () => fail(new BootstrapRequestConflict("Artifact verification cancelled"));
+    const remaining = deadline - Date.now();
+    const timer = Number.isFinite(remaining)
+      ? setTimeout(
+          () => fail(new BootstrapRequestConflict("Artifact verification deadline exceeded")),
+          Math.max(0, remaining),
+        )
+      : undefined;
+    signal?.addEventListener("abort", cancel, { once: true });
+    work.then((value) => settle(() => resolve(value)), fail);
+  });
+}
+
+async function collectArtifact(
+  directory: string,
+  input: ArtifactBudget,
+): Promise<RetainedArtifact> {
+  let scan: ArtifactScan;
+  try {
+    scan = await scanArtifactTree(directory, input);
+  } catch (error) {
+    if (error instanceof ArtifactScanConflict) throw new BootstrapRequestConflict(error.message);
+    throw error;
+  }
+  const { sha256, paths, identities, observed } = scan;
+  return {
+    sha256,
+    revalidate: (budget) => verifyArtifactTree(directory, observed, budget),
+    assertCurrent(): void {
       if (realpathSync(directory) !== directory)
         throw new BootstrapRequestConflict("Retained artifact requires its canonical directory");
-      for (const [file, before] of observed)
-        requireUnchanged(before, lstatSync(file, { bigint: true }));
-      signal?.throwIfAborted();
+      for (const [index, file] of paths.entries())
+        if (identity(lstatSync(file, { bigint: true })) !== identities[index])
+          throw new BootstrapRequestConflict("Prepared artifact changed during verification");
     },
   };
 }

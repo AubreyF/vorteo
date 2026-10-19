@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.690 - 2026-10-18
+
+### Fixes
+
+- Verify coordinator and Host release trees on worker threads with bounded parallel reads. Digests stay byte-identical, so existing coordinators keep accepting them. A full installed release takes 8 to 13 seconds rather than more than two minutes, and the Host event loop stays responsive while it runs.
+- Hash each distinct release tree at most once per review action, plan verification or dispatch. Later checks in the same operation re-assert every retained path's metadata off the event loop, never across operations or processes.
+- Keep each caller's deadline and cancellation separate within shared verification. One caller's timeout no longer rejects other callers, and a rejected or abandoned scan is never reused.
+
+### Validation
+
+- Equivalence tests compare the new and sequential implementations on fixture trees covering chunk boundaries, modes, links, hard links, special files, permission failures and limits. Both produce the same digest on the installed release.
+
 ## 0.11.0-beta.3.vorteo.689 - 2026-10-18
 
 ### Fixes
