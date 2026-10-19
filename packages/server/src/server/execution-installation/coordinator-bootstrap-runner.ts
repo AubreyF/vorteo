@@ -556,8 +556,9 @@ export async function runNativeBootstrap(
         }
         await trace("renewal-validation", () => renewal.verify());
       });
-    const requireOwnership = async () => {
-      await verifySetup();
+    // Kernel lock ownership without setup or renewal digests. Use only between
+    // full requireOwnership checks, never as the sole fence for an effect.
+    const requireLock = async () => {
       const writableMountRoots = await trace("ownership-mounts", () =>
         inspectBootstrapWritableMountRoots(host),
       );
@@ -569,6 +570,10 @@ export async function runNativeBootstrap(
           writableMountRoots,
         }),
       );
+    };
+    const requireOwnership = async () => {
+      await verifySetup();
+      await requireLock();
     };
     await requireOwnership();
     const executorFile = (generation: string) =>
@@ -790,11 +795,14 @@ export async function runNativeBootstrap(
       operations.armBootRecovery = async (claimed) => {
         const recovery = claimed.plan.bootRecovery!;
         await verifyBootRunnerBinding(claimed, setupFile, setup);
-        const requireClaim = async () => {
-          await requireOwnership();
+        const requireClaimedGeneration = () => {
           const current = requests.list().find((item) => item.id === claimed.id);
           if (!isDeepStrictEqual(current, claimed) || current?.execution?.stage !== "claimed")
             throw new BootstrapRequestConflict("Startup recovery lost its claimed generation");
+        };
+        const requireClaim = async () => {
+          await requireOwnership();
+          requireClaimedGeneration();
         };
         const pythonExecutable = await inspectBootstrapPythonExecutable();
         const [, ...pythonArguments] = bootstrapRecoveryLauncher(claimed.plan).ProgramArguments;
@@ -813,38 +821,27 @@ export async function runNativeBootstrap(
               maxBuffer: 8192,
             });
           },
-          verifyRegistered: async () => {
-            const deadline = performance.now() + 15_000;
-            for (;;) {
-              await requireClaim();
-              try {
-                const service = await reader.readService(recovery.service);
-                const pid = loadedCoordinatorPid(recovery.service, service);
-                const observed = ProcessObservationSchema.parse(await reader.inspectProcess(pid));
-                if (
-                  !service.includes("\n\tprogram = /usr/bin/python3\n") ||
-                  observed.pid !== pid ||
-                  observed.uid !== uid ||
-                  observed.executable !== pythonExecutable ||
-                  observed.parentPid !== 1 ||
-                  observed.bootId !== claimed.plan.expectedProcess.bootId ||
-                  observed.argumentsSha256 !== expectedArguments ||
-                  !isDeepStrictEqual(observed, await reader.inspectProcess(pid)) ||
-                  loadedCoordinatorPid(
-                    recovery.service,
-                    await reader.readService(recovery.service),
-                  ) !== pid
-                )
-                  throw new BootstrapRequestConflict("Startup recovery service identity changed");
-                return;
-              } catch {
-                if (performance.now() >= deadline)
-                  throw new BootstrapRequestConflict(
-                    "Startup recovery did not establish readiness",
-                  );
-              }
-              await delay(50);
-            }
+          requireHeldClaim: async () => {
+            await requireLock();
+            requireClaimedGeneration();
+          },
+          probeRegistered: async () => {
+            const service = await reader.readService(recovery.service);
+            const pid = loadedCoordinatorPid(recovery.service, service);
+            const observed = ProcessObservationSchema.parse(await reader.inspectProcess(pid));
+            if (
+              !service.includes("\n\tprogram = /usr/bin/python3\n") ||
+              observed.pid !== pid ||
+              observed.uid !== uid ||
+              observed.executable !== pythonExecutable ||
+              observed.parentPid !== 1 ||
+              observed.bootId !== claimed.plan.expectedProcess.bootId ||
+              observed.argumentsSha256 !== expectedArguments ||
+              !isDeepStrictEqual(observed, await reader.inspectProcess(pid)) ||
+              loadedCoordinatorPid(recovery.service, await reader.readService(recovery.service)) !==
+                pid
+            )
+              throw new BootstrapRequestConflict("Startup recovery service identity changed");
           },
         });
       };

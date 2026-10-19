@@ -91,6 +91,7 @@ import {
 } from "./coordinator-bootstrap-runtime.js";
 
 import {
+  BOOT_RECOVERY_READINESS_TIMEOUT_MS,
   bootstrapRecoveryLauncher,
   registerBootstrapRecovery,
   removeCompletedBootstrapRecovery,
@@ -4868,7 +4869,10 @@ test.each([true, false])(
         });
         if (!succeeds) throw new Error("Native registration result lost");
       },
-      verifyRegistered: async () => {
+      requireHeldClaim: async () => {
+        expect(f.service().list()[0]).toEqual(request);
+      },
+      probeRegistered: async () => {
         verified++;
       },
     };
@@ -4885,6 +4889,128 @@ test.each([true, false])(
     expect(statSync(f.plan.bootRecovery!.installedLauncher).nlink).toBe(1);
   },
 );
+
+async function claimedStartupRegistration() {
+  const f = bootRecoveryFixture();
+  const bytes = Buffer.from("prepared fixture launcher");
+  const source = path.join(f.root, "prepared.plist");
+  writeFileSync(source, bytes, { mode: 0o600 });
+  f.plan.state.directory = f.root;
+  f.plan.bootRecovery!.launcher = {
+    path: source,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  f.plan.bootRecovery!.installedLauncher = path.join(f.root, "selected.plist");
+  const pending = await f
+    .service()
+    .prepare({ id: f.id, reason: "Restore after login", plan: f.plan });
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  return { f, request: await f.service().claimDispatch(pickDecision(approved)) };
+}
+
+/** Simulated clock: a full ownership check rehashes the release tree (8 to
+ * 17 seconds on the Host), the lock-only check spawns one small helper. */
+function startupReadinessClock() {
+  let now = 0;
+  return {
+    now: () => now,
+    advance: (ms: number) => {
+      now += ms;
+    },
+    wait: async (ms: number) => {
+      now += ms;
+    },
+  };
+}
+
+test("startup registration waits for a slow launchd spawn with cheap ownership polls", async () => {
+  const { f, request } = await claimedStartupRegistration();
+  const clock = startupReadinessClock();
+  const events: string[] = [];
+  let registeredAt: number | undefined;
+  await registerBootstrapRecovery(
+    {
+      request,
+      writableMountRoots: [],
+      requireClaim: async () => {
+        clock.advance(12_000);
+        expect(f.service().list()[0]).toEqual(request);
+        events.push("full");
+      },
+      requireHeldClaim: async () => {
+        clock.advance(60);
+        expect(f.service().list()[0]).toEqual(request);
+        events.push("held");
+      },
+      verifyServiceAbsent: async () => {},
+      register: async () => {
+        registeredAt = clock.now();
+        events.push("register");
+      },
+      probeRegistered: async () => {
+        // Observed on the Host: launchd spawned the job 58 seconds after bootstrap.
+        if (clock.now() - registeredAt! < 58_000) throw new Error("Service is not running yet");
+        events.push("ready");
+      },
+      readiness: clock,
+    },
+    async () => {},
+  );
+  const registration = events.indexOf("register");
+  expect(events[registration - 1]).toBe("full");
+  expect(events.slice(-2)).toEqual(["ready", "full"]);
+  const waiting = events.slice(registration + 1, -2);
+  expect(waiting.length).toBeGreaterThan(50);
+  expect(new Set(waiting)).toEqual(new Set(["held"]));
+});
+
+test("startup readiness stays bounded and fails closed on ownership loss", async () => {
+  const { request } = await claimedStartupRegistration();
+  const clock = startupReadinessClock();
+  let full = 0;
+  let probes = 0;
+  const input = {
+    request,
+    writableMountRoots: [],
+    requireClaim: async () => {
+      full++;
+    },
+    requireHeldClaim: async () => {},
+    verifyServiceAbsent: async () => {},
+    register: async () => {},
+    probeRegistered: async () => {
+      probes++;
+      throw new Error("Service never started");
+    },
+    readiness: clock,
+  };
+  await expect(registerBootstrapRecovery(input, async () => {})).rejects.toThrow(
+    "did not establish readiness",
+  );
+  expect(clock.now()).toBeGreaterThanOrEqual(BOOT_RECOVERY_READINESS_TIMEOUT_MS);
+  expect(clock.now()).toBeLessThan(BOOT_RECOVERY_READINESS_TIMEOUT_MS + 2_000);
+  // Every full check precedes registration; none follows an unready service.
+  expect(full).toBe(4);
+
+  const lost = await claimedStartupRegistration();
+  probes = 0;
+  await expect(
+    registerBootstrapRecovery(
+      {
+        ...input,
+        request: lost.request,
+        requireHeldClaim: async () => {
+          if (probes > 2) throw new Error("Bootstrap ownership lost");
+        },
+      },
+      async () => {},
+    ),
+  ).rejects.toThrow("ownership lost");
+  expect(probes).toBe(3);
+  expect(full).toBe(8);
+});
 
 test("startup cleanup keeps unresolved and altered launchers and removes only exact completed work", async () => {
   const f = bootRecoveryFixture();
