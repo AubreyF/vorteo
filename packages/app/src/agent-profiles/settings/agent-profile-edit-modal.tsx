@@ -6,7 +6,15 @@ import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
 import { workerChoices, workerAccountProfiles } from "./worker-choices";
 import { ProfileSkillPolicy } from "@/agent-skills/profile-policy";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -166,8 +174,24 @@ const WORKER_LIMIT_OPTIONS: SelectFieldOption<number | "uncapped">[] = [1, 2, 3,
 
 const UNCAPPED_WORKER_OPTION = { id: "uncapped", value: "uncapped" as const, label: "Uncapped" };
 
-function ProfileLaunchFields({
-  defaults,
+function ProfileNicknameField({ serverId, model, state, controlSize }: ProfileLaunchFieldsProps) {
+  const { supportsLaunch } = useAgentProfiles(serverId);
+  if (!supportsLaunch) return null;
+  return (
+    <Field label="Nickname" hint="Leave blank to generate from the profile name.">
+      <FormTextInput
+        initialValue={state.nickname}
+        onChangeText={model.setNickname}
+        placeholder={generatedPresetNickname(state.name)}
+        accessibilityLabel="Profile nickname"
+        testID="agent-profile-nickname-input"
+        size={controlSize}
+      />
+    </Field>
+  );
+}
+
+function ProfileInstructionFields({
   serverId,
   profile,
   model,
@@ -180,18 +204,6 @@ function ProfileLaunchFields({
   if (!supportsLaunch) return null;
   return (
     <>
-      {!defaults ? (
-        <Field label="Nickname" hint="Leave blank to generate from the preset name.">
-          <FormTextInput
-            initialValue={state.nickname}
-            onChangeText={model.setNickname}
-            placeholder={generatedPresetNickname(state.name)}
-            accessibilityLabel="Preset nickname"
-            testID="agent-profile-nickname-input"
-            size={controlSize}
-          />
-        </Field>
-      ) : null}
       <ProfileSkillPolicy
         serverId={serverId}
         providerType={providerType}
@@ -214,21 +226,36 @@ function ProfileLaunchFields({
           testID="agent-profile-instructions-input"
         />
       </Field>
-      {!defaults ? (
-        <ProfileWorkerFields
-          serverId={serverId}
-          profile={profile}
-          model={model}
-          state={state}
-          controlSize={controlSize}
-        />
-      ) : (
-        <Text style={styles.sharedScope}>
-          Configure workers on individual profiles. Existing teams keep their worker settings when
-          you save these defaults.
-        </Text>
-      )}
     </>
+  );
+}
+
+function ProfileWorkersBlock(props: ProfileLaunchFieldsProps) {
+  const { supportsLaunch } = useAgentProfiles(props.serverId);
+  if (!supportsLaunch) return null;
+  if (props.defaults) {
+    return (
+      <Text style={styles.sharedScope}>
+        Configure workers on individual profiles. Existing teams keep their worker settings when you
+        save these defaults.
+      </Text>
+    );
+  }
+  return <ProfileWorkerFields {...props} />;
+}
+
+/**
+ * A labeled stage of the profile editor. Stages read top to bottom from what
+ * a profile is to where it may run, so the common edits sit first.
+ */
+function EditorStage({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.stage} accessibilityRole="summary">
+      <Text style={styles.stageTitle} accessibilityRole="header">
+        {title}
+      </Text>
+      {children}
+    </View>
   );
 }
 
@@ -481,6 +508,122 @@ function ProfileIdentityFields({
   ) : null;
 }
 
+interface ProfileModelStageProps {
+  state: AgentProfileFormState;
+  model: AgentProfileFormModel;
+  sharedScope: AgentProfileEditModalProps["sharedScope"];
+  controlSize: FieldControlSize;
+  modelOptions: SelectFieldOption<string>[];
+  modeOptions: SelectFieldOption<string>[];
+  thinkingOptions: SelectFieldOption<string>[];
+  onModelChange: (value: string, display: SelectFieldDisplay) => void;
+  onModeChange: (value: string, display: SelectFieldDisplay) => void;
+  onThinkingChange: (value: string, display: SelectFieldDisplay) => void;
+}
+
+function ProfileModelStage({
+  state,
+  model,
+  sharedScope,
+  controlSize,
+  modelOptions,
+  modeOptions,
+  thinkingOptions,
+  onModelChange,
+  onModeChange,
+  onThinkingChange,
+}: ProfileModelStageProps) {
+  const { t } = useTranslation();
+  const { disclosure } = state;
+  // Model choices appear once a provider is chosen; until then the stage is empty.
+  if (
+    !disclosure.showModelField &&
+    !disclosure.showModeField &&
+    !disclosure.showThinkingField &&
+    !disclosure.showFeaturesField
+  ) {
+    return null;
+  }
+  return (
+    <EditorStage title="Model">
+      {state.disclosure.showModelField ? (
+        <SelectField
+          label={t("settings.host.agentProfiles.modelLabel")}
+          hint={state.compatibilityWarnings.join(" ")}
+          value={state.modelId || UNSET_VALUE}
+          selectedDisplay={state.modelDisplay}
+          options={modelOptions}
+          onChange={onModelChange}
+          placeholder={t("settings.host.agentProfiles.modelLabel")}
+          emptyText={t("settings.host.agentProfiles.noModels")}
+          disabled={state.isSubmitting}
+          searchable={modelOptions.length > 6}
+          title={t("settings.host.agentProfiles.modelLabel")}
+          size={controlSize}
+          testID="agent-profile-model-field"
+          triggerTestID="agent-profile-model-trigger"
+        />
+      ) : null}
+
+      {state.disclosure.showModeField ? (
+        <SelectField
+          label={t("settings.host.agentProfiles.modeLabel")}
+          value={state.modeId || UNSET_VALUE}
+          selectedDisplay={state.modeDisplay}
+          options={modeOptions}
+          onChange={onModeChange}
+          placeholder={t("settings.host.agentProfiles.modeLabel")}
+          emptyText={t("settings.host.agentProfiles.noModes")}
+          disabled={state.isSubmitting}
+          searchable={modeOptions.length > 6}
+          title={t("settings.host.agentProfiles.modeLabel")}
+          size={controlSize}
+          testID="agent-profile-mode-field"
+          triggerTestID="agent-profile-mode-trigger"
+        />
+      ) : null}
+
+      {state.disclosure.showThinkingField && sharedScope?.kind !== "workflow" ? (
+        <SelectField
+          label={t("settings.host.agentProfiles.thinkingLabel")}
+          value={state.thinkingOptionId || UNSET_VALUE}
+          selectedDisplay={state.thinkingDisplay}
+          options={thinkingOptions}
+          onChange={onThinkingChange}
+          placeholder={t("settings.host.agentProfiles.thinkingLabel")}
+          emptyText={t("settings.host.agentProfiles.noThinkingOptions")}
+          disabled={state.isSubmitting}
+          searchable={thinkingOptions.length > 6}
+          title={t("settings.host.agentProfiles.thinkingLabel")}
+          size={controlSize}
+          testID="agent-profile-thinking-field"
+          triggerTestID="agent-profile-thinking-trigger"
+        />
+      ) : null}
+
+      {state.disclosure.showFeaturesField ? (
+        <Field
+          label={t("settings.host.agentProfiles.featuresLabel")}
+          testID="agent-profile-features-field"
+        >
+          <View style={styles.featureCard} testID="agent-profile-features-card">
+            {state.features.map((feature, index) => (
+              <AgentProfileFeatureRow
+                key={feature.id}
+                feature={feature}
+                isFirst={index === 0}
+                disabled={state.isSubmitting}
+                size={controlSize}
+                model={model}
+              />
+            ))}
+          </View>
+        </Field>
+      ) : null}
+    </EditorStage>
+  );
+}
+
 function OpenAgentProfileEditModal({
   serverId,
   visible,
@@ -505,6 +648,7 @@ function OpenAgentProfileEditModal({
   useAgentProfileFormFeatures({ serverId, model, state });
 
   const editingDefaults = sharedScope?.kind === "defaults";
+  const { supportsLaunch } = useAgentProfiles(serverId);
   const sheetHeader = useMemo<SheetHeader>(
     () => ({
       title: editingDefaults
@@ -619,136 +763,107 @@ function OpenAgentProfileEditModal({
       footer={actions}
       sizeContentToCurrentSnapPoint
       desktopMaxWidth={520}
+      desktopPlacement="end"
       testID="agent-profile-edit-modal"
     >
       <View style={styles.body}>
-        <ProfileIdentityFields
-          editingDefaults={editingDefaults}
-          state={state}
-          profile={profile}
-          seed={seed}
-          controlSize={controlSize}
-          model={model}
-          onAppearance={handleAppearanceChange}
-        />
-
-        <ProfileProviderFields
-          serverId={serverId}
-          sharedScope={sharedScope}
-          state={state}
-          providerOptions={providerOptions}
-          onChange={handleProviderChange}
-          controlSize={controlSize}
-        />
-        {state.disclosure.showModelField ? (
-          <SelectField
-            label={t("settings.host.agentProfiles.modelLabel")}
-            hint={state.compatibilityWarnings.join(" ")}
-            value={state.modelId || UNSET_VALUE}
-            selectedDisplay={state.modelDisplay}
-            options={modelOptions}
-            onChange={handleModelChange}
-            placeholder={t("settings.host.agentProfiles.modelLabel")}
-            emptyText={t("settings.host.agentProfiles.noModels")}
-            disabled={state.isSubmitting}
-            searchable={modelOptions.length > 6}
-            title={t("settings.host.agentProfiles.modelLabel")}
-            size={controlSize}
-            testID="agent-profile-model-field"
-            triggerTestID="agent-profile-model-trigger"
+        <EditorStage title="Basics">
+          <ProfileIdentityFields
+            editingDefaults={editingDefaults}
+            state={state}
+            profile={profile}
+            seed={seed}
+            controlSize={controlSize}
+            model={model}
+            onAppearance={handleAppearanceChange}
           />
-        ) : null}
-
-        {state.disclosure.showModeField ? (
-          <SelectField
-            label={t("settings.host.agentProfiles.modeLabel")}
-            value={state.modeId || UNSET_VALUE}
-            selectedDisplay={state.modeDisplay}
-            options={modeOptions}
-            onChange={handleModeChange}
-            placeholder={t("settings.host.agentProfiles.modeLabel")}
-            emptyText={t("settings.host.agentProfiles.noModes")}
-            disabled={state.isSubmitting}
-            searchable={modeOptions.length > 6}
-            title={t("settings.host.agentProfiles.modeLabel")}
-            size={controlSize}
-            testID="agent-profile-mode-field"
-            triggerTestID="agent-profile-mode-trigger"
-          />
-        ) : null}
-
-        {state.disclosure.showThinkingField && sharedScope?.kind !== "workflow" ? (
-          <SelectField
-            label={t("settings.host.agentProfiles.thinkingLabel")}
-            value={state.thinkingOptionId || UNSET_VALUE}
-            selectedDisplay={state.thinkingDisplay}
-            options={thinkingOptions}
-            onChange={handleThinkingChange}
-            placeholder={t("settings.host.agentProfiles.thinkingLabel")}
-            emptyText={t("settings.host.agentProfiles.noThinkingOptions")}
-            disabled={state.isSubmitting}
-            searchable={thinkingOptions.length > 6}
-            title={t("settings.host.agentProfiles.thinkingLabel")}
-            size={controlSize}
-            testID="agent-profile-thinking-field"
-            triggerTestID="agent-profile-thinking-trigger"
-          />
-        ) : null}
-
-        {state.disclosure.showFeaturesField ? (
-          <Field
-            label={t("settings.host.agentProfiles.featuresLabel")}
-            testID="agent-profile-features-field"
-          >
-            <View style={styles.featureCard} testID="agent-profile-features-card">
-              {state.features.map((feature, index) => (
-                <AgentProfileFeatureRow
-                  key={feature.id}
-                  feature={feature}
-                  isFirst={index === 0}
-                  disabled={state.isSubmitting}
-                  size={controlSize}
-                  model={model}
-                />
-              ))}
-            </View>
-          </Field>
-        ) : null}
-
-        <ProfileLaunchFields
-          defaults={editingDefaults}
-          serverId={serverId}
-          profile={profile}
-          model={model}
-          state={state}
-          controlSize={controlSize}
-        />
-        {sharedScope?.kind === "workflow" && readExecutionInstallation() ? (
-          <EnvironmentAvailabilityField
-            excludedEnvironments={state.excludedEnvironments}
-            onChange={model.setExcludedEnvironments}
-            disabled={state.isSubmitting}
-          />
-        ) : null}
-        {!editingDefaults ? (
-          <Field
-            label={t("settings.host.agentProfiles.notesLabel")}
-            hint={t("settings.host.agentProfiles.notesHint")}
-            testID="agent-profile-notes-field"
-          >
-            <FormTextInput
-              initialValue={profile?.notes ?? ""}
-              onChangeText={model.setNotes}
-              placeholder={t("settings.host.agentProfiles.notesPlaceholder")}
-              multiline
-              numberOfLines={4}
-              style={styles.notesInput}
-              editable={!state.isSubmitting}
-              size={controlSize}
-              accessibilityLabel={t("settings.host.agentProfiles.notesLabel")}
-              testID="agent-profile-notes-input"
+          {!editingDefaults ? (
+            <ProfileNicknameField
+              defaults={editingDefaults}
+              serverId={serverId}
+              profile={profile}
+              model={model}
+              state={state}
+              controlSize={controlSize}
             />
-          </Field>
+          ) : null}
+          <ProfileProviderFields
+            serverId={serverId}
+            sharedScope={sharedScope}
+            state={state}
+            providerOptions={providerOptions}
+            onChange={handleProviderChange}
+            controlSize={controlSize}
+          />
+        </EditorStage>
+
+        <ProfileModelStage
+          state={state}
+          model={model}
+          sharedScope={sharedScope}
+          controlSize={controlSize}
+          modelOptions={modelOptions}
+          modeOptions={modeOptions}
+          thinkingOptions={thinkingOptions}
+          onModelChange={handleModelChange}
+          onModeChange={handleModeChange}
+          onThinkingChange={handleThinkingChange}
+        />
+
+        {supportsLaunch || !editingDefaults ? (
+          <EditorStage title="Instructions">
+            <ProfileInstructionFields
+              defaults={editingDefaults}
+              serverId={serverId}
+              profile={profile}
+              model={model}
+              state={state}
+              controlSize={controlSize}
+            />
+            {!editingDefaults ? (
+              <Field
+                label={t("settings.host.agentProfiles.notesLabel")}
+                hint={t("settings.host.agentProfiles.notesHint")}
+                testID="agent-profile-notes-field"
+              >
+                <FormTextInput
+                  initialValue={profile?.notes ?? ""}
+                  onChangeText={model.setNotes}
+                  placeholder={t("settings.host.agentProfiles.notesPlaceholder")}
+                  multiline
+                  numberOfLines={4}
+                  style={styles.notesInput}
+                  editable={!state.isSubmitting}
+                  size={controlSize}
+                  accessibilityLabel={t("settings.host.agentProfiles.notesLabel")}
+                  testID="agent-profile-notes-input"
+                />
+              </Field>
+            ) : null}
+          </EditorStage>
+        ) : null}
+
+        {supportsLaunch ? (
+          <EditorStage title="Workers">
+            <ProfileWorkersBlock
+              defaults={editingDefaults}
+              serverId={serverId}
+              profile={profile}
+              model={model}
+              state={state}
+              controlSize={controlSize}
+            />
+          </EditorStage>
+        ) : null}
+
+        {sharedScope?.kind === "workflow" && readExecutionInstallation() ? (
+          <EditorStage title="Availability">
+            <EnvironmentAvailabilityField
+              excludedEnvironments={state.excludedEnvironments}
+              onChange={model.setExcludedEnvironments}
+              disabled={state.isSubmitting}
+            />
+          </EditorStage>
         ) : null}
       </View>
     </AdaptiveModalSheet>
@@ -849,8 +964,16 @@ function AgentProfileFeatureRow({
 const styles = StyleSheet.create((theme) => ({
   sharedScope: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
   body: {
-    gap: theme.spacing[4],
+    gap: theme.spacing[6],
     paddingBottom: theme.spacing[2],
+  },
+  stage: {
+    gap: theme.spacing[4],
+  },
+  stageTitle: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foregroundMuted,
   },
   nameRow: {
     flexDirection: "row",

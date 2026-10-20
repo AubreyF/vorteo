@@ -40,7 +40,9 @@ export function VortonUpdatesSection() {
   if (preferencesLoading) return null;
   let message = statusText(update.data, t);
   if (!VORTON_BUILD_COMMIT) message = t("settings.about.vortonUpdates.unknown");
-  else if (checking) message = t("settings.about.vortonUpdates.checking");
+  // The button says "Checking GitHub..." during a check; the status keeps the
+  // last result so the same words do not appear twice.
+  else if (checking && !update.data) message = t("settings.about.vortonUpdates.checking");
   else if (update.isError)
     message = t("settings.about.vortonUpdates.failed", { error: update.error.message });
   return (

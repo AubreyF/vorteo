@@ -30,7 +30,7 @@ export function TerminalSection() {
   }, [settings.terminalScrollbackLines]);
 
   return (
-    <SettingsSection title={t("settings.sections.terminal")}>
+    <SettingsSection title="Built-in terminal">
       <View style={settingsStyles.card}>
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>
