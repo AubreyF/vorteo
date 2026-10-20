@@ -470,6 +470,57 @@ test("personal skill preparation requires owner access and leaves the shared cat
   }
 });
 
+test("agents propose shared instructions that apply only after owner approval", async () => {
+  const host = new SettingsEnvironmentFake("host-id");
+  const guest = new SettingsEnvironmentFake("guest-id");
+  const settings = new InstallationSettingsService(new SettingsJournalFake(), [host, guest]);
+  await settings.reconcile();
+  const { request } = await fixture(undefined, settings);
+  const before = settings.snapshot();
+  const proposal = {
+    appendSystemPrompt: "Use HTTPS preview links, never raw addresses.",
+    baseRevision: before.revision,
+    reason: "Preview links",
+    requester: "Dev sync thread",
+  };
+  const submitRoute = "/api/installation/instruction-requests";
+  expect((await request(submitRoute, undefined, proposal)).status).toBe(401);
+  expect((await request(submitRoute, "owner-test-password", proposal)).status).toBe(401);
+  const submitted = await request(submitRoute, "guest-agent-test-token", proposal);
+  expect(submitted.status).toBe(201);
+  const created = await submitted.json();
+  expect(created).toMatchObject({ status: "pending", environment: "container" });
+  expect(settings.snapshot()).toEqual(before);
+  expect((await request(`${submitRoute}/${created.id}`, "host-agent-test-token")).status).toBe(404);
+  expect((await request(`${submitRoute}/${created.id}`, "guest-agent-test-token")).status).toBe(
+    200,
+  );
+  const queryRoute = "/api/installation/owner/instruction-requests/query";
+  const decisionRoute = "/api/installation/owner/instruction-requests/decision";
+  const decision = { id: created.id, decision: "approve", proposedSha256: created.proposedSha256 };
+  // Agent request keys never approve, even their own request.
+  expect((await request(queryRoute, "guest-agent-test-token", {})).status).toBe(401);
+  expect((await request(decisionRoute, "guest-agent-test-token", decision)).status).toBe(401);
+  expect((await request(decisionRoute, "host-agent-test-token", decision)).status).toBe(401);
+  const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  expect(
+    (await request(decisionRoute, undefined, decision, "https://foreign.example.test", cookie))
+      .status,
+  ).toBe(403);
+  const query = await (await request(queryRoute, undefined, {}, undefined, cookie)).json();
+  expect(query.requests.map((item: { id: string }) => item.id)).toEqual([created.id]);
+  const applied = await request(decisionRoute, undefined, decision, undefined, cookie);
+  expect(applied.status).toBe(200);
+  expect(await applied.json()).toMatchObject({
+    status: "applied",
+    appliedRevision: before.revision + 1,
+  });
+  expect(settings.snapshot().settings?.appendSystemPrompt).toBe(proposal.appendSystemPrompt);
+  expect((await request(decisionRoute, undefined, decision, undefined, cookie)).status).toBe(409);
+});
+
 test("shared settings require owner access and persist revisioned writes before offline delivery", async () => {
   const host = new SettingsEnvironmentFake("host-id");
   const guest = new SettingsEnvironmentFake("guest-id");

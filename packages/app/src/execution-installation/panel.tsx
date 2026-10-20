@@ -19,6 +19,8 @@ import {
   type HelperReviewAction,
 } from "./helper-review";
 import type { SessionHostJob } from "@getpaseo/protocol/session-host-maintenance";
+import type { InstructionRequestQuery } from "@getpaseo/protocol/instruction-requests";
+import { diffInstructionLines } from "./instruction-diff";
 import {
   sessionHostActionDisabledReason,
   sessionHostOperationTitle,
@@ -357,6 +359,7 @@ function InstallationPanel({
               />
             ))}
             <SessionHostCard model={model} state={state} />
+            <InstructionRequestsCard model={model} state={state} />
             {active.map((job) => (
               <RestartRequest
                 key={`${job.id}:${job.revision}`}
@@ -1055,6 +1058,155 @@ function HelperActionButton({
     >
       {labels[action]}
     </RestartActionButton>
+  );
+}
+
+/**
+ * Agent-proposed changes to the shared agent instructions. Nothing changes until the owner presses
+ * Apply, which applies exactly the text shown. Hidden for coordinators without instruction requests.
+ */
+function InstructionRequestsCard({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const overview = state.instructionRequests;
+  if (!overview) return null;
+  const pending = overview.requests.filter((request) => request.status === "pending");
+  const recent = overview.requests
+    .filter((request) => request.status !== "pending")
+    .slice(-3)
+    .toReversed();
+  if (!pending.length && !recent.length && !state.instructionError) return null;
+  return (
+    <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="instruction-requests-card">
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Agent instruction changes</Text>
+        <StatusBadge
+          label={pending.length ? `${pending.length} pending` : "None pending"}
+          variant={pending.length ? "warning" : "muted"}
+        />
+      </View>
+      {state.instructionError ? (
+        <>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {state.instructionError}
+          </Text>
+          <Button variant="ghost" size={size} onPress={model.dismissInstructionError}>
+            Dismiss
+          </Button>
+        </>
+      ) : null}
+      {pending.map((request) => (
+        <InstructionRequestReview
+          key={request.id}
+          request={request}
+          current={overview.appendSystemPrompt ?? ""}
+          model={model}
+          busy={state.busy}
+        />
+      ))}
+      {recent.map((request) => (
+        <Text key={request.id} style={styles.text} testID={`instruction-${request.id}-settled`}>
+          {`${request.environment === "container" ? "Dev" : "Host"} request: ${request.status}${request.detail ? ` (${request.detail})` : ""}`}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+type InstructionRequest = InstructionRequestQuery["requests"][number];
+
+function InstructionRequestReview({
+  request,
+  current,
+  model,
+  busy,
+}: {
+  request: InstructionRequest;
+  current: string;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const approve = useCallback(() => {
+    void model.decideInstructionRequest(request, "approve");
+  }, [model, request]);
+  const reject = useCallback(() => {
+    void model.decideInstructionRequest(request, "reject");
+  }, [model, request]);
+  const changes = useMemo(
+    () => diffInstructionLines(current, request.appendSystemPrompt),
+    [current, request.appendSystemPrompt],
+  );
+  // The source comes from the submitting credential, never from agent-written text.
+  const fromDev = request.environment === "container";
+  return (
+    <View testID={`instruction-${request.id}`} style={styles.historyItem}>
+      <View style={styles.requestHeader}>
+        <StatusBadge
+          label={fromDev ? "From Dev (untrusted)" : "From Host"}
+          variant={fromDev ? "error" : "muted"}
+        />
+      </View>
+      <Text selectable style={styles.text} numberOfLines={1}>
+        {`Requester (as named by the agent): ${request.requester}`}
+      </Text>
+      <Text selectable style={styles.text}>{`Reason: ${request.reason}`}</Text>
+      <Text style={settingsStyles.rowTitle}>Changes</Text>
+      <View testID={`instruction-${request.id}-changes`}>
+        {changes.map((line, index) => (
+          <Text
+            // Diff lines have no identity beyond position.
+            // eslint-disable-next-line react/no-array-index-key
+            key={index}
+            selectable
+            style={line.kind === "added" ? styles.diffAdded : styles.diffRemoved}
+          >
+            {`${line.kind === "added" ? "+ " : "- "}${line.text}`}
+          </Text>
+        ))}
+      </View>
+      <Text style={settingsStyles.rowTitle}>Full proposed instructions (applied exactly)</Text>
+      <SettingsExpansion testID={`instruction-${request.id}-proposed`}>
+        <Text selectable style={styles.text}>
+          {request.appendSystemPrompt || "(empty)"}
+        </Text>
+      </SettingsExpansion>
+      <Text style={settingsStyles.rowTitle}>Current instructions</Text>
+      <SettingsExpansion>
+        <Text selectable style={styles.text}>
+          {current || "(empty)"}
+        </Text>
+      </SettingsExpansion>
+      <Text style={styles.text}>
+        New agent sessions use the applied text. Running Cursor, Copilot, Kimi and Kiro sessions
+        keep the instructions they started with.
+      </Text>
+      <ActionFooter style={styles.actions}>
+        <RestartActionButton
+          testID={`instruction-${request.id}-reject`}
+          size={size}
+          variant="outline"
+          disabledReason={busy ? "Another installation action is running" : null}
+          onPress={reject}
+        >
+          Reject
+        </RestartActionButton>
+        <RestartActionButton
+          testID={`instruction-${request.id}-approve`}
+          size={size}
+          variant="destructive"
+          disabledReason={busy ? "Another installation action is running" : null}
+          onPress={approve}
+        >
+          Apply to all agents
+        </RestartActionButton>
+      </ActionFooter>
+    </View>
   );
 }
 
@@ -1811,6 +1963,16 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
   },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  diffAdded: {
+    color: theme.colors.diffAddition,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
+  diffRemoved: {
+    color: theme.colors.diffDeletion,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));

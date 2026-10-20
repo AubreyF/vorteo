@@ -347,6 +347,11 @@ export class InstallationSettingsService {
     return ids;
   }
 
+  /** False when the text would be refused because it embeds installation-owned instructions. */
+  acceptsAppendSystemPrompt(text: string): boolean {
+    return !this.installationInstructions.some((instructions) => text.includes(instructions));
+  }
+
   private validateResources(settings: InstallationSettings): void {
     if (
       this.installationInstructions.some((instructions) =>

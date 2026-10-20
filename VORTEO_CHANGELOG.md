@@ -4,7 +4,37 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.722 - 2026-10-20
+
+### Maintenance
+
+- Combine the reviewed agent instruction change requests and ACP session instructions with the preview link guidance and the card column fix for one Host update. Feature behavior is unchanged by the merge.
+
+## 0.11.0-beta.3.vorteo.721 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests refuse text with characters that render as nothing (zero-width, bidirectional and Unicode tag characters, private-use and control characters other than newline, carriage return and tab) and the reserved session instruction tag, so a reviewed diff always shows everything an approval applies. Long prompts align only the changed middle, so local edits stay readable.
+
+## 0.11.0-beta.3.vorteo.720 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests show "From Dev (untrusted)" or "From Host" from the submitting credential, limit agent-chosen requester names to one line, and lead with the added and removed lines. Each environment has its own pending limit, and proposals the settings would refuse are rejected at submission.
+- An unreadable or newer instruction request store is set aside instead of stopping the coordinator, and Installation controls stays usable when the request list cannot be read.
+- ACP agents keep their session instructions after a failed first prompt, a first-turn slash command still runs as a command, and history replay hides the instruction block even when a provider trims it.
+
+## 0.11.0-beta.3.vorteo.719 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions. ACP has no system prompt channel, so a new session's first message carries them in a marked block that resumed history hides.
+
 ## 0.11.0-beta.3.vorteo.718 - 2026-10-20
+
+### Features
+
+- Agents can propose changes to the shared agent instructions with `installation-agent.mjs read-instructions` and `request-instructions`. Installation controls shows the current and proposed text. Nothing changes until the owner presses Apply, which applies exactly the reviewed text and is refused if the instructions changed after the agent read them.
 
 ### Fixes
 
