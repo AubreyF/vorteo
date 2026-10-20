@@ -9,6 +9,10 @@ import type {
 } from "@getpaseo/protocol/maintenance-service-status";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
+import type {
+  InstructionRequest,
+  InstructionRequestQuery,
+} from "@getpaseo/protocol/instruction-requests";
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   SessionHostJob,
@@ -61,6 +65,9 @@ interface InstallationPanelState {
   /** Null hides the session host card: locked, or a coordinator without session host jobs. */
   sessionHost: SessionHostOverview | null;
   sessionHostError: string | null;
+  /** Null hides the instruction request card: locked, or a coordinator without the route. */
+  instructionRequests: InstructionRequestQuery | null;
+  instructionError: string | null;
   pendingJobs: RestartJob[];
   profileSharing: ProfileSharingStatus | null;
   passwordFile: string | null;
@@ -97,6 +104,8 @@ export class InstallationPanelModel {
     helperError: null,
     sessionHost: null,
     sessionHostError: null,
+    instructionRequests: null,
+    instructionError: null,
     pendingJobs: [],
     profileSharing: null,
     passwordFile: null,
@@ -141,6 +150,8 @@ export class InstallationPanelModel {
           | "sessionHost"
           | "requestSessionHost"
           | "decideSessionHost"
+          | "listInstructionRequests"
+          | "decideInstructionRequest"
         >
       >,
     private readonly options: {
@@ -189,6 +200,8 @@ export class InstallationPanelModel {
         helperError: null,
         sessionHost: null,
         sessionHostError: null,
+        instructionRequests: null,
+        instructionError: null,
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,
@@ -268,6 +281,7 @@ export class InstallationPanelModel {
         devRepair,
         maintenanceStatus,
         sessionHost,
+        instructionRequests,
       ] = await Promise.all([
         this.client.listRestarts(),
         this.client.profileSharingStatus(),
@@ -277,6 +291,7 @@ export class InstallationPanelModel {
         this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
         this.client.maintenanceStatus?.() ?? Promise.resolve(null),
         this.client.sessionHost?.() ?? Promise.resolve(null),
+        this.client.listInstructionRequests?.() ?? Promise.resolve(null),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(
@@ -303,6 +318,7 @@ export class InstallationPanelModel {
         helperJobs,
         monitorJobs,
         sessionHost,
+        instructionRequests,
         pendingJobs: pending,
         profileSharing,
         ...(automationGeneration === this.automationGeneration
@@ -571,6 +587,40 @@ export class InstallationPanelModel {
     });
   }
 
+  dismissInstructionError = (): void => {
+    this.publish({ instructionError: null });
+  };
+
+  async decideInstructionRequest(
+    request: InstructionRequest,
+    decision: "approve" | "reject",
+  ): Promise<void> {
+    if (this.state.busy || !this.client.decideInstructionRequest) return;
+    const current = this.state.instructionRequests?.requests.find((item) => item.id === request.id);
+    if (!current || current.proposedSha256 !== request.proposedSha256) {
+      this.publish({
+        instructionError: "Instruction request changed. Refresh and review it again.",
+      });
+      return;
+    }
+    this.publish({ busy: true, error: null, instructionError: null, notice: null });
+    try {
+      const result = await this.client.decideInstructionRequest(current, decision);
+      if (result.status === "stale")
+        this.publish({ instructionError: result.detail ?? "Instructions changed first." });
+      await this.refresh();
+    } catch (error) {
+      this.publish({
+        instructionError:
+          error instanceof Error
+            ? error.message
+            : "Instruction decision unconfirmed. Refresh before retrying.",
+      });
+    } finally {
+      this.publish({ busy: false });
+    }
+  }
+
   async decideHelper(job: NativeHelperJob, action: HelperReviewAction): Promise<void> {
     if (this.state.busy) return;
     const current = this.state.helperJobs.find((item) => item.id === job.id);
@@ -697,6 +747,8 @@ export class InstallationPanelModel {
         helperError: null,
         sessionHost: null,
         sessionHostError: null,
+        instructionRequests: null,
+        instructionError: null,
         pendingJobs: [],
         profileSharing: null,
         daemonAutomation: null,

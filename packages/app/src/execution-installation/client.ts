@@ -24,6 +24,12 @@ import {
   type SessionHostJob,
   type SessionHostOperation,
 } from "@getpaseo/protocol/session-host-maintenance";
+import {
+  InstructionRequestQuerySchema,
+  InstructionRequestSchema,
+  type InstructionRequest,
+  type InstructionRequestQuery,
+} from "@getpaseo/protocol/instruction-requests";
 import type { MonitorAction } from "./preview-monitor-review";
 import type { SessionHostAction, SessionHostOverview } from "./session-host-review";
 import type { HelperReviewAction } from "./helper-review";
@@ -83,6 +89,7 @@ export class InstallationRouteUnavailable extends Error {}
 export class InstallationClient {
   private password: string | null = null;
   private helperRetryAt = 0;
+  private instructionRetryAt = 0;
   private daemonAutomationSupported = false;
   private servicePermissionsSupported = false;
   private maintenanceStatusSupported = false;
@@ -232,6 +239,41 @@ export class InstallationClient {
       result.planSha256 !== job.planSha256
     )
       throw new Error("Helper receipt changed. Refresh status before taking another action.");
+    return result;
+  }
+
+  /** Null when the coordinator predates instruction requests, so the panel hides its card. */
+  async listInstructionRequests(): Promise<InstructionRequestQuery | null> {
+    if (this.password === null) throw new Error("Unlock installation controls first");
+    const now = this.ports.now ?? Date.now;
+    if (now() < this.instructionRetryAt) return null;
+    try {
+      return InstructionRequestQuerySchema.parse(
+        await this.request("instruction-requests/query", {}),
+      );
+    } catch (error) {
+      // COMPAT(instructionRequests): older coordinators have no instruction request route.
+      if (error instanceof InstallationRouteUnavailable) {
+        this.instructionRetryAt = now() + 60_000;
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async decideInstructionRequest(
+    request: InstructionRequest,
+    decision: "approve" | "reject",
+  ): Promise<InstructionRequest> {
+    const result = InstructionRequestSchema.parse(
+      await this.request("instruction-requests/decision", {
+        id: request.id,
+        decision,
+        proposedSha256: request.proposedSha256,
+      }),
+    );
+    if (result.id !== request.id || result.proposedSha256 !== request.proposedSha256)
+      throw new Error("Instruction request changed. Refresh before another action.");
     return result;
   }
 
@@ -515,7 +557,12 @@ export async function requestInstallationOwner(
   // Older coordinators may serve their SPA fallback for an unknown owner query.
   // A client that already observed support still treats this as a lost capability.
   if (
-    ["daemon-automation/query", "dev-repair/query", "session-host/query"].includes(path) &&
+    [
+      "daemon-automation/query",
+      "dev-repair/query",
+      "session-host/query",
+      "instruction-requests/query",
+    ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
   ) {
