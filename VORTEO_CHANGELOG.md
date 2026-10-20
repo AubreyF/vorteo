@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.717 - 2026-10-20
+
+### Fixes
+
+- Completing a checklist item is refused while any of its acceptance checks is undone, so a completed item never carries failed checks.
+- Sending an empty check list drops the progress those checks derived, and `progress: null` stops tracking progress.
+- Only plain folder workspaces move their local project along with a group; repository checkouts stay with their repository's project, like worktrees.
+- New workspace preselects the only project on a host instead of asking.
+- Checks with identical text get distinct keys in the task details sheet.
+
+### Maintenance
+
+- Demo data adds two simulated workers under the first thread so the subagent tiles appear.
 
 ## 0.11.0-beta.3.vorteo.716 - 2026-10-20
 

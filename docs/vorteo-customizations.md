@@ -701,6 +701,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 20, 2026: Follow-up fixes from the progress review: completion requires passed checks, progress can be cleared, only plain folders move their local project with a group, a lone project is preselected, and repeated check texts keep distinct keys. Demo data gains two simulated workers. README overview and onboarding are unchanged.
+
 October 19, 2026: Integration merges checklist progress and project placement work with the installed Open questions and restart continuation source. Feature behavior is unchanged by the merge; README overview and onboarding are unchanged.
 
 October 18, 2026: Checklist items gain acceptance checks and capped progress with partial-credit workspace rollups. Sidebar plus and New workspace keep the clicked or remembered group, and group moves carry their local project. Conversation cards follow a resized text column. README overview and onboarding are unchanged.

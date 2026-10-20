@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkKeys,
   taskProgressDescription,
   taskProgressLabel,
   taskProgressSummary,
@@ -35,5 +36,15 @@ describe("task progress summary", () => {
     expect(
       taskProgressSummary({ text: "New", completed: false, checks: [{ text: "A", done: false }] }),
     ).toEqual({ percent: 0, source: "checks", passed: 0, checks: 1 });
+  });
+});
+
+describe("check keys", () => {
+  it("keeps repeated check texts distinct", () => {
+    expect(checkKeys([{ text: "Tests pass" }, { text: "Docs" }, { text: "Tests pass" }])).toEqual([
+      "Tests pass",
+      "Docs",
+      "Tests pass#2",
+    ]);
   });
 });

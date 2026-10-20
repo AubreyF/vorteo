@@ -90,7 +90,7 @@ export function createDemoScenario() {
       });
     }),
   );
-  const agents = workspaces.map((workspace, index) =>
+  const primaryAgents = workspaces.map((workspace, index) =>
     AgentSnapshotPayloadSchema.parse({
       id: `demo-agent-${index}`,
       provider: "demo",
@@ -138,8 +138,21 @@ export function createDemoScenario() {
       ],
     }),
   );
-  const timelines = new Map(
-    agents.map((agent, index) => {
+  // Two simulated workers under the first thread, so the workspace shows subagent tiles.
+  const subagents = ["Audit keyboard focus order", "Check phone touch targets"].map(
+    (title, index) =>
+      AgentSnapshotPayloadSchema.parse({
+        ...primaryAgents[0],
+        id: `demo-subagent-${index}`,
+        title,
+        status: index === 0 ? "running" : "idle",
+        labels: { "paseo.parent-agent-id": primaryAgents[0].id },
+        tasks: [],
+      }),
+  );
+  const agents = [...primaryAgents, ...subagents];
+  const timelines = new Map([
+    ...primaryAgents.map((agent, index) => {
       const story = DEMO_STORIES[index];
       const messages = [
         { type: "user_message", text: story.request },
@@ -166,6 +179,20 @@ export function createDemoScenario() {
       );
       return [agent.id, entries] as const;
     }),
-  );
+    ...subagents.map((agent) => {
+      const entries = [
+        AgentTimelineEntryPayloadSchema.parse({
+          provider: "demo",
+          item: { type: "user_message", text: agent.title },
+          timestamp: DEMO_TIMESTAMP,
+          seqStart: 1,
+          seqEnd: 1,
+          sourceSeqRanges: [{ startSeq: 1, endSeq: 1 }],
+          collapsed: [],
+        }),
+      ];
+      return [agent.id, entries] as const;
+    }),
+  ]);
   return { projects, workspaces, agents, timelines };
 }

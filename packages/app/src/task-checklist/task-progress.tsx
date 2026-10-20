@@ -2,7 +2,12 @@ import { Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentTaskItem } from "@getpaseo/protocol/agent-types";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
-import { taskProgressDescription, taskProgressSummary } from "./task-progress-summary";
+import { checkKeys, taskProgressDescription, taskProgressSummary } from "./task-progress-summary";
+
+function keyedChecks(checks: readonly { text: string; done: boolean }[]) {
+  const keys = checkKeys(checks);
+  return checks.map((check, position) => ({ key: keys[position]!, check }));
+}
 
 export function TaskProgressDetails({ task }: { task: AgentTaskItem }) {
   const summary = taskProgressSummary(task);
@@ -24,9 +29,9 @@ export function TaskProgressDetails({ task }: { task: AgentTaskItem }) {
         />
       </View>
       <Text style={styles.caption}>{description}</Text>
-      {(task.checks ?? []).map((check) => (
+      {keyedChecks(task.checks ?? []).map(({ key, check }) => (
         <Text
-          key={check.text}
+          key={key}
           style={[styles.check, check.done && styles.checkDone]}
           accessibilityLabel={`${check.done ? "Passed" : "Not yet passed"}: ${check.text}`}
         >

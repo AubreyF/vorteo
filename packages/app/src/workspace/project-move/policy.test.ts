@@ -45,6 +45,13 @@ describe("moving the local project with the group", () => {
     ).toBeUndefined();
     expect(
       placementForProjectMove({
+        workspace: { projectId: "prj-dev", workspaceKind: "local_checkout" },
+        target: vorteo,
+        serverId: "host",
+      }),
+    ).toBeUndefined();
+    expect(
+      placementForProjectMove({
         workspace: { projectId: "prj-vorteo", workspaceKind: "directory" },
         target: vorteo,
         serverId: "host",

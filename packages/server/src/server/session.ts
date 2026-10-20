@@ -4338,8 +4338,12 @@ export class Session {
       const updated = await this.workspaceRegistry.update(msg.workspaceId, (workspace) => {
         assertWorkspaceNotFactoryManaged(workspace);
         if (workspace.archivedAt) throw new Error("Restore this workspace before moving it.");
-        if (msg.projectId !== undefined && workspace.kind === "worktree") {
-          throw new Error("Worktrees stay with their repository's project.");
+        // Repository checkouts and worktrees belong to their repository's project; only plain
+        // folders follow their group to another local project.
+        if (msg.projectId !== undefined && workspace.kind !== "directory") {
+          throw new Error(
+            "Repository checkouts and worktrees stay with their repository's project.",
+          );
         }
         return {
           ...workspace,

@@ -34,3 +34,16 @@ export function taskProgressDescription(summary: TaskProgressSummary): string {
     ? `${summary.passed} of ${summary.checks} checks passed · ${summary.percent}%`
     : `${summary.percent}% estimated`;
 }
+
+/**
+ * Stable keys for a check list. Texts may repeat, so repeats are numbered by occurrence; the key
+ * still follows the text when checks are reordered.
+ */
+export function checkKeys(checks: readonly { text: string }[]): string[] {
+  const seen = new Map<string, number>();
+  return checks.map(({ text }) => {
+    const count = seen.get(text) ?? 0;
+    seen.set(text, count + 1);
+    return count === 0 ? text : `${text}#${count + 1}`;
+  });
+}

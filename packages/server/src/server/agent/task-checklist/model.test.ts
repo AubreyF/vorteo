@@ -403,3 +403,53 @@ describe("checklist progress", () => {
     ).toMatchObject({ progress: 65, checks: [{ text: "Check", done: true }] });
   });
 });
+
+describe("checklist progress review follow-ups", () => {
+  const created = mutateChecklist([], { operation: "create", id: "a", text: "Ship it" });
+  const update = (
+    items: AgentTaskItem[],
+    fields: Omit<
+      Extract<z.infer<typeof ChecklistMutationSchema>, { operation: "update" }>,
+      "operation" | "id"
+    >,
+  ) => mutateChecklist(items, { operation: "update", id: "a", ...fields });
+
+  test("refuses completion while an acceptance check has not passed", () => {
+    const checked = update(created, { checks: [{ text: "Tests pass", done: false }] });
+    expect(() => update(checked, { status: "completed" })).toThrow("acceptance check");
+    const passed = update(checked, { checks: [{ text: "Tests pass", done: true }] });
+    expect(update(passed, { status: "completed" })[0]).toMatchObject({
+      completed: true,
+      progress: 100,
+    });
+  });
+
+  test("emptying checks drops their derived value, and null clears an estimate", () => {
+    const checked = update(created, {
+      checks: [
+        { text: "A", done: true },
+        { text: "B", done: false },
+      ],
+    });
+    expect(checked[0].progress).toBe(50);
+    const cleared = update(checked, { checks: [] })[0];
+    expect(cleared).not.toHaveProperty("checks");
+    expect(cleared).not.toHaveProperty("progress");
+    const estimated = update(created, { progress: 40 });
+    expect(update(estimated, { progress: null })[0]).not.toHaveProperty("progress");
+    expect(update(checked, { checks: [], progress: 30 })[0].progress).toBe(30);
+  });
+
+  test("items completed before the rule stay editable", () => {
+    const legacy: AgentTaskItem[] = [
+      {
+        ...created[0],
+        status: "completed",
+        completed: true,
+        checks: [{ text: "Old", done: false }],
+        progress: 100,
+      },
+    ];
+    expect(update(legacy, { text: "Renamed" })[0].text).toBe("Renamed");
+  });
+});
