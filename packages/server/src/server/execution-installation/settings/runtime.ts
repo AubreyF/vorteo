@@ -117,12 +117,16 @@ export function createInstallationSettings(
           const features = client.getLastServerInfoMessage()?.features;
           const capability =
             setup.provider === "codex" ? "codexAccountCreation" : "claudeAccountCreation";
-          if (features?.installationSettingsAuthority !== true || features[capability] !== true)
+          if (
+            features?.installationSettingsAuthority !== true ||
+            features[capability] !== true ||
+            (setup.signIn === "full" && features.claudeFullSignIn !== true)
+          )
             throw new Error("Update the daemon before creating shared account bindings.");
           const name = definition.policy.label ?? setup.provider;
           assertCurrent();
           if (setup.provider === "codex") await client.createCodexAccount(setup.creationId, name);
-          else await client.createClaudeAccount(setup.creationId, name);
+          else await client.createClaudeAccount(setup.creationId, name, setup.signIn);
         }
       } finally {
         await client.close();

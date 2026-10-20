@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.701 - 2026-10-19
+
+### Added
+
+- Prepare daemons for Host-owned Claude refresh. Shared Claude account definitions can carry a full sign-in type, and settings projection creates such bindings only on daemons that advertise `claudeFullSignIn`. The Host returns only a full sign-in account's exact configuration path to the coordinator, never a credential. Dev writes access-only token projections into the account's `.credentials.json` under the CLI's storage lock, keeps the CLI's other storage keys, applies generation and rotation order, and journals digests only.
+
+### Changed
+
+- Setup-token delivery and setup-token sign-in refuse full sign-in definitions.
+
+### Known limitations
+
+- Nothing sends these requests until the coordinator side lands behind its setting. Projections are refused on macOS daemons. Lock and file names come from static analysis of Claude Code 2.1.284.
+
+### Validation
+
+- 7 new synthetic tests; 129 installation account, settings and provider-login tests pass.
+
 ## 0.11.0-beta.3.vorteo.700 - 2026-10-18
 
 ### Fixed

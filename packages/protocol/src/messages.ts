@@ -3987,6 +3987,7 @@ export const ServerInfoStatusPayloadSchema = z
         providerAccountLogin: z.boolean().optional(),
         codexAccountCreation: z.boolean().optional(),
         claudeAccountCreation: z.boolean().optional(),
+        claudeFullSignIn: z.boolean().optional(),
         providerCredentialRemoval: z.boolean().optional(),
         providerOrdering: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): daemons accept Host-owned Claude refresh requests: a full sign-in type for shared definitions, a path-only Host binding route and an ordered Dev access-token writer. Nothing calls them until the coordinator side is enabled; setup-token behavior is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-18): removing a full web sign-in Claude account now signs it out with the account's own CLI before deleting its directory. Sign-out failure does not block removal and is returned as a warning; the app does not display it yet. Setup-token removal is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-18): full web sign-in Claude accounts with an expired access token and a refresh grant now say usage will refresh on the account's next turn instead of asking for sign-in again. Setup-token accounts are unchanged. README overview and onboarding are unchanged.
