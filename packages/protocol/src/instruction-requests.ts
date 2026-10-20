@@ -31,10 +31,30 @@ export const InstructionRequestSchema = z.strictObject({
 });
 export type InstructionRequest = z.infer<typeof InstructionRequestSchema>;
 
+// Agent-proposed text is reviewed by eye, so it may not contain characters that render as
+// nothing: format characters (zero-width, bidi controls, Unicode tags), private-use characters,
+// or control characters other than newline, carriage return and tab.
+const HIDDEN_CHARACTERS = /[\p{Cf}\p{Co}]|(?![\n\r\t])\p{Cc}/u;
+// The ACP session instruction wrapper is reserved; proposals cannot open or close it.
+const RESERVED_TAG = /vorteo-session-instructions/i;
+
+function reviewableText(max: number, min = 0) {
+  return z
+    .string()
+    .min(min)
+    .max(max)
+    .refine((text) => !HIDDEN_CHARACTERS.test(text), {
+      message: "Text contains invisible or control characters",
+    })
+    .refine((text) => !RESERVED_TAG.test(text), {
+      message: "Text contains a reserved instruction tag",
+    });
+}
+
 export const InstructionRequestInputSchema = z.strictObject({
-  appendSystemPrompt: z.string().max(INSTRUCTION_REQUEST_MAX_LENGTH),
+  appendSystemPrompt: reviewableText(INSTRUCTION_REQUEST_MAX_LENGTH),
   baseRevision: z.number().int().nonnegative(),
-  reason: z.string().min(1).max(4096),
+  reason: reviewableText(4096, 1),
   requester: RequesterSchema,
 });
 

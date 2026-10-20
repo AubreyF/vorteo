@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.721 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests refuse text with characters that render as nothing (zero-width, bidirectional and Unicode tag characters, private-use and control characters other than newline, carriage return and tab) and the reserved session instruction tag, so a reviewed diff always shows everything an approval applies. Long prompts align only the changed middle, so local edits stay readable.
+
 ## 0.11.0-beta.3.vorteo.720 - 2026-10-20
 
 ### Fixes

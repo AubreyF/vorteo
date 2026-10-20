@@ -27,4 +27,14 @@ describe("diffInstructionLines", () => {
   it("returns nothing for identical text", () => {
     expect(diffInstructionLines("same\ntext", "same\ntext")).toEqual([]);
   });
+
+  it("keeps a local edit readable in a prompt too long to align whole", () => {
+    const lines = Array.from({ length: 5000 }, (_, index) => `rule ${index}`);
+    const proposed = [...lines];
+    proposed[2500] = "rule 2500 changed";
+    expect(diffInstructionLines(lines.join("\n"), proposed.join("\n"))).toEqual([
+      { kind: "removed", text: "rule 2500" },
+      { kind: "added", text: "rule 2500 changed" },
+    ]);
+  });
 });

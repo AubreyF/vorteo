@@ -92,8 +92,12 @@ export class InstructionRequests {
     } catch {
       // A damaged store must not keep the coordinator down. Keep it for inspection.
       const kept = `${this.file}.unreadable-${this.now().getTime()}`;
-      renameSync(this.file, kept);
-      this.warn(`Instruction request store was unreadable; moved to ${kept}`);
+      try {
+        renameSync(this.file, kept);
+        this.warn(`Instruction request store was unreadable; moved to ${kept}`);
+      } catch {
+        this.warn("Instruction request store was unreadable and could not be moved aside");
+      }
       return [];
     }
   }
@@ -110,7 +114,13 @@ export class InstructionRequests {
   }
 
   submit(input: unknown, environment: InstructionRequestEnvironment): InstructionRequest {
-    const request = InstructionRequestInputSchema.parse(input);
+    const parsed = InstructionRequestInputSchema.safeParse(input);
+    if (!parsed.success)
+      throw new InstructionRequestError(
+        parsed.error.issues[0]?.message ?? "Invalid instruction request",
+        400,
+      );
+    const request = parsed.data;
     const snapshot = this.settings.snapshot();
     if (!snapshot.settings) throw new InstructionRequestError("Shared settings are not ready", 503);
     if (request.baseRevision !== snapshot.revision)
