@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Fixed
+
+- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
+- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
+- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
+
 ## 0.11.0-beta.3.vorteo.689 - 2026-10-20
 
 ### Fixed
