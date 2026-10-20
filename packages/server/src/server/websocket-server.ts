@@ -2037,6 +2037,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
+        workspaceProjectPlacement: true,
         workspaceCreateProjectMembership: true,
         workspaceTaskEnvironments: true,
         idleRestart: true,
@@ -2091,6 +2092,7 @@ export class VoiceAssistantWebSocketServer {
         checklistBlockedStatus: true,
         sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
+        checklistProgress: true,
         agentJournal: true,
         // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; retain until the client floor includes it.
         agentQuestions: true,

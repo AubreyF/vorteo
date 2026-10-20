@@ -381,6 +381,7 @@ export const ptBR: TranslationResources = {
       empty: "Nenhuma tarefa ainda.",
       tasksProgress: "{{completed}}/{{total}} tarefas",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "{{count}} tarefas criadas",
         added: "Adicionada",

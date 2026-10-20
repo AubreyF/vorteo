@@ -21,6 +21,22 @@ const PROJECTS = [
 ];
 
 /** Fresh, deterministic data for every demo session. No paths identify real files. */
+/** Representative progress: alternate stories show check-based and estimated progress. */
+function demoTaskProgress(status: string, storyIndex: number) {
+  if (status !== "in_progress" && status !== "blocked") return {};
+  if (storyIndex % 2 === 0) {
+    return {
+      progress: 65,
+      checks: [
+        { text: "Behavior covered by tests", done: true },
+        { text: "Reviewed on desktop and mobile", done: true },
+        { text: "Owner approved the result", done: false },
+      ],
+    };
+  }
+  return { progress: status === "blocked" ? 40 : 50 };
+}
+
 export function createDemoScenario() {
   const projects = PROJECTS.map((project) =>
     WorkspaceProjectDescriptorPayloadSchema.parse({
@@ -110,6 +126,7 @@ export function createDemoScenario() {
           status === "blocked"
             ? "A prerequisite remains open in this simulated project."
             : undefined,
+        ...demoTaskProgress(status, index),
       })),
       journal: [
         {

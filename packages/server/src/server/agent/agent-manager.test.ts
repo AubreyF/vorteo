@@ -14943,3 +14943,8 @@ test("an answer saved before a failed delivery is delivered once when its thread
     rmSync(workdir, { recursive: true, force: true });
   }
 });
+
+test("checklist guidance teaches checks first and capped estimates", () => {
+  expect(TASK_CHECKLIST_GUIDANCE).toContain("passed checks decide the item's progress");
+  expect(TASK_CHECKLIST_GUIDANCE).toContain("stay at or below 90 until the item is completed");
+});

@@ -3185,13 +3185,19 @@ export class DaemonClient {
       SessionInboundMessage,
       { type: "workspace.project.set.request" }
     >["membership"];
+    /** Also move the workspace's local project. Dropped for daemons without the capability. */
+    projectId?: string;
   }): Promise<void> {
+    const movesPlacement =
+      options.projectId !== undefined &&
+      this.lastServerInfoMessage?.features?.workspaceProjectPlacement === true;
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.project.set.response">({
         message: {
           type: "workspace.project.set.request",
           workspaceId: options.workspaceId,
           membership: options.membership ?? null,
+          ...(movesPlacement ? { projectId: options.projectId } : {}),
         },
       });
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");

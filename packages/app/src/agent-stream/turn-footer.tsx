@@ -16,6 +16,7 @@ import {
   type AssistantForkTarget,
 } from "@/components/message";
 import type { TurnFooterHost } from "./layout";
+import { useStreamColumnWidthStyle } from "./columns/column-width";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -207,7 +208,11 @@ function CompletedTurnFooter({
 }
 
 function TurnFooterRow({ children }: { children: ReactNode }) {
-  const rowStyle = useMemo(() => [stylesheet.streamItemWrapper, stylesheet.turnFooterRow], []);
+  const columnWidthStyle = useStreamColumnWidthStyle();
+  const rowStyle = useMemo(
+    () => [stylesheet.streamItemWrapper, stylesheet.turnFooterRow, columnWidthStyle],
+    [columnWidthStyle],
+  );
   return <View style={rowStyle}>{children}</View>;
 }
 
