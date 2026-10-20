@@ -99,6 +99,19 @@ export function normalizeTaskProgress(task: AgentTaskItem): AgentTaskItem {
   return task.progress === progress ? task : { ...task, progress };
 }
 
+/**
+ * Apps from before checklist progress drop `progress` and `checks` when they parse an item, so
+ * their expectedTask never contains them. Compare those fields only when the client sent them;
+ * every other field keeps exact optimistic concurrency. Agents own these fields; editors never
+ * change them.
+ */
+function comparableTask(expected: AgentTaskItem, current: AgentTaskItem): AgentTaskItem {
+  const comparable = { ...current };
+  if (!("progress" in expected)) delete comparable.progress;
+  if (!("checks" in expected)) delete comparable.checks;
+  return comparable;
+}
+
 export function mutateChecklist(
   items: readonly AgentTaskItem[],
   mutation: ChecklistMutation,
@@ -153,7 +166,10 @@ export function mutateChecklist(
       "Use the native provider task tool to edit this provider-owned task.",
     );
   }
-  if (mutation.expectedTask && !platform.equal(mutation.expectedTask, current)) {
+  if (
+    mutation.expectedTask &&
+    !platform.equal(mutation.expectedTask, comparableTask(mutation.expectedTask, current))
+  ) {
     throw new ChecklistError(
       "conflict",
       "This task changed while you were editing it. Close and reopen to review the current task.",

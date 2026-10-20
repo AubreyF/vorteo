@@ -301,6 +301,43 @@ describe("checklist progress", () => {
     >,
   ) => mutateChecklist(items, { operation: "update", id: "a", ...fields })[0];
 
+  test("accepts edits from apps that predate progress and keeps other conflicts", () => {
+    const tracked = mutateChecklist(created, {
+      operation: "update",
+      id: "a",
+      checks: [
+        { text: "One", done: true },
+        { text: "Two", done: false },
+      ],
+    });
+    // An older app parses items without progress and checks, so its expectedTask lacks them.
+    const { progress: _progress, checks: _checks, ...legacyView } = tracked[0];
+    const renamed = mutateChecklist(tracked, {
+      operation: "update",
+      id: "a",
+      text: "Renamed",
+      expectedTask: legacyView,
+    });
+    expect(renamed[0]).toMatchObject({ text: "Renamed", progress: 50, checks: tracked[0].checks });
+    expect(() =>
+      mutateChecklist(renamed, {
+        operation: "update",
+        id: "a",
+        text: "Stale rename",
+        expectedTask: legacyView,
+      }),
+    ).toThrow("changed while you were editing");
+    // A client that sends progress fields still has them compared.
+    expect(() =>
+      mutateChecklist(renamed, {
+        operation: "update",
+        id: "a",
+        text: "Stale progress",
+        expectedTask: { ...renamed[0], progress: 10 },
+      }),
+    ).toThrow("changed while you were editing");
+  });
+
   test("rounds estimates to five points and caps unfinished work at 90", () => {
     expect(update(created, { progress: 42 }).progress).toBe(40);
     expect(update(created, { progress: 43 }).progress).toBe(45);

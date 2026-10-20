@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.709 - 2026-10-20
+
+### Fixed
+
+- Older apps can edit checklist items that carry progress. They parse items without `progress` and `checks`, so the conflict check compares those fields only when the editor sent them; every other field keeps exact conflict detection.
+- Agent checklist guidance and the update tool now say that each update's `checks` replaces the whole list, so agents send every check instead of erasing the others.
+
 ## 0.11.0-beta.3.vorteo.708 - 2026-10-20
 
 Checklist progress and project placement, independently reviewed, on top of durable sessions.

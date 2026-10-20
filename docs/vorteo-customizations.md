@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-20): review fixes for checklist progress. Apps that predate progress no longer hit a permanent edit conflict on items an agent tracked, and agent guidance says that `checks` replaces the whole list. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-20): integrated the reviewed checklist progress and project placement branch into the next Host update, after durable sessions. Only version metadata and these notes conflicted; feature behavior is unchanged by the merge. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-19): integrated durable sessions phase 1 onto installed source vorteo.706 for the next Host update. The setting stays off and no session host job is installed, so Host behavior is unchanged; the job, live acceptance with real Claude and a coordinator-tracked restart remain. Release notes from the durable sessions branch are consolidated into one entry. README overview and onboarding are unchanged.
