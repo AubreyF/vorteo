@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.718 - 2026-10-20
+
+### Fixes
+
+- Remove the empty space below the right-hand cards when collapsed tiles share a row. On web, each tile reported its row in its DOM parent's coordinates, and tiles inside layout-transparent groups used a different origin, so the card column counted an extra row and left up to about 58px unused instead of giving it to Tasks and Files.
+- The card column now measures every collapsed tile against the grid in one batched pass after any tile or column resize. Web layout events fire only when a node's own size changes, so a tile pushed down by a sibling used to keep a stale row. State changes only when tiles change lines or a line's height changes, so reallocation cannot loop.
+- Collapsed tiles whose tops differ by less than half a tile height still share a line, and a joined line reserves its full extent so a real offset is never clipped. Native tiles keep reporting their own layout position.
+
 ## 0.11.0-beta.3.vorteo.717 - 2026-10-20
 
 ### Fixes
