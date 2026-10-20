@@ -1,5 +1,13 @@
 import express from "express";
-import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -162,6 +170,9 @@ it("writes access-only projections in order and keeps the CLI's other storage", 
   const withRefresh = { ...access("synthetic-access-c"), refreshToken: "synthetic-refresh" };
   expect((await f.project(1, 3, withRefresh)).status).toBe(400);
   expect(readFileSync(join(f.home, ".credentials.json"), "utf8")).not.toContain("refresh");
+  // The ordering journal holds digests only.
+  const journal = readFileSync(join(f.home, ".vorteo-oauth", "projection.json"), "utf8");
+  expect(journal).not.toContain("synthetic-access");
 });
 
 it("refuses access for an excluded binding but applies its withdrawal", async () => {
@@ -249,4 +260,15 @@ it("refuses a credentials file that is a symbolic link", async () => {
     ClaudeOAuthDeliveryError,
   );
   expect(readFileSync(target, "utf8")).toBe("{}");
+});
+
+it("refuses a credentials file that others could write", async () => {
+  const home = await temporary("claude-oauth-shared-");
+  const file = join(home, ".credentials.json");
+  writeFileSync(file, JSON.stringify({ mcpOAuth: { a: "kept" } }));
+  chmodSync(file, 0o666);
+  await expect(writeClaudeAccessProjection(home, access("synthetic-a"))).rejects.toBeInstanceOf(
+    ClaudeOAuthDeliveryError,
+  );
+  expect(readFileSync(file, "utf8")).not.toContain("synthetic-a");
 });

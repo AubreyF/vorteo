@@ -20,7 +20,12 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true });
 });
 
-function harness(accountSetup?: InstallationProvider["accountSetup"]) {
+const SUPPORTED = { installationSettingsAuthority: true, claudeFullSignIn: true };
+
+function harness(
+  accountSetup?: InstallationProvider["accountSetup"],
+  devFeatures: { installationSettingsAuthority?: boolean; claudeFullSignIn?: boolean } = SUPPORTED,
+) {
   const stateDir = mkdtempSync(join(tmpdir(), "claude-oauth-runtime-"));
   directories.push(stateDir);
   const creationId = randomUUID();
@@ -108,7 +113,11 @@ function harness(accountSetup?: InstallationProvider["accountSetup"]) {
     scopes: ["user:inference", "user:profile"],
   };
   const readGrant = vi.fn(async () => grant);
+  const daemonFeatures = vi.fn(async (kind: "host" | "container") =>
+    kind === "container" ? devFeatures : SUPPORTED,
+  );
   const runtime = createClaudeOAuthRuntime(config, settings, undefined, {
+    daemonFeatures,
     cli: cli as unknown as ClaudeHostCli,
     readGrant,
     fetch: fetchFake as unknown as typeof fetch,
@@ -191,5 +200,14 @@ it("refuses to turn a setup-token account into a full sign-in account", async ()
   const h = harness({ provider: "claude", creationId: randomUUID() });
   await expect(h.runtime.start("one")).rejects.toThrow();
   expect(h.settings.update).not.toHaveBeenCalled();
+  expect(h.cli.loginSession).not.toHaveBeenCalled();
+});
+
+it("refuses to mark a definition full sign-in until every daemon advertises support", async () => {
+  // An older Dev daemon would reject the whole settings authority because of the new field.
+  const h = harness(undefined, { installationSettingsAuthority: true });
+  await expect(h.runtime.start("one")).rejects.toThrow();
+  expect(h.settings.update).not.toHaveBeenCalled();
+  expect(h.definitions()[0]?.accountSetup).toBeUndefined();
   expect(h.cli.loginSession).not.toHaveBeenCalled();
 });

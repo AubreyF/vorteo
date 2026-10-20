@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -55,7 +55,7 @@ it("runs Option A as one tool-less print request in the account's environment", 
   expect(overlay[CLAUDE_SIGN_IN_ENV]).toBe("full");
   expect("CLAUDE_SECURESTORAGE_CONFIG_DIR" in overlay).toBe(true);
   expect(overlay.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
-  expect(calls[0]!.options.timeout).toBe(120_000);
+  expect(calls[0]!.options.timeout).toBe(60_000);
   // The scratch working directory is removed afterwards.
   expect(existsSync(cwdDuringRun)).toBe(false);
 });
@@ -155,4 +155,33 @@ it("reads identity from local auth status, signs out and opens sign-in for the e
   const session = await cli.loginSession(configDir);
   expect(session).toBeInstanceOf(ClaudeLoginSession);
   expect(session.scope).toBe(configDir);
+});
+
+it("trusts the Host credentials file only with the Dev reader's checks", async () => {
+  const configDir = temporary("claude-oauth-trust-");
+  const file = join(configDir, ".credentials.json");
+  writeFileSync(file, storage({ accessToken: "synthetic-access", expiresAt: 1_900_000_000_000 }));
+  chmodSync(file, 0o666);
+  await expect(readClaudeOAuthGrant(configDir, { platform: "linux" })).resolves.toBeNull();
+  chmodSync(file, 0o600);
+  await expect(readClaudeOAuthGrant(configDir, { platform: "linux" })).resolves.toMatchObject({
+    accessToken: "synthetic-access",
+  });
+});
+
+it("treats the CLI's dead-token marker as no grant", async () => {
+  const configDir = temporary("claude-oauth-dead-");
+  writeFileSync(
+    join(configDir, ".credentials.json"),
+    storage({ accessToken: "", refreshToken: "", expiresAt: 0 }),
+  );
+  await expect(readClaudeOAuthGrant(configDir, { platform: "linux" })).resolves.toBeNull();
+  expect(
+    claudeAccessProjection({
+      accessToken: "synthetic",
+      hasRefreshToken: false,
+      expiresAt: 0,
+      scopes: [],
+    }),
+  ).toBeNull();
 });

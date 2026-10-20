@@ -17,6 +17,7 @@ import {
 } from "../../../services/quota-fetcher/providers/claude.js";
 import { execCommand } from "../../../utils/spawn.js";
 import type { ClaudeAccessProjection } from "./claude-oauth-delivery.js";
+import { isTrustedCredentialsFile } from "./claude-oauth-credentials-file.js";
 
 /**
  * Host-side operations the coordinator performs on a full sign-in account's own CLI storage.
@@ -35,7 +36,9 @@ export const CLAUDE_REFRESH_LEAD_MS = 4 * 60_000;
  * Option A, chosen by the owner: one tiny non-interactive request through the official CLI.
  * The CLI refreshes an expiring grant under its own locks before the model request. The prompt
  * comes first so the variadic `--tools` option cannot consume it. `--bare` is avoided because it
- * disables the stored claude.ai sign-in.
+ * disables the stored claude.ai sign-in. `--setting-sources user` keeps only the account's own
+ * Vorteo-created settings, as its agents run; the empty working directory has no project or local
+ * settings, and `--strict-mcp-config` loads no MCP servers.
  */
 export const CLAUDE_REFRESH_REQUEST_ARGS = [
   "-p",
@@ -104,8 +107,8 @@ function readStorageFile(file: string): unknown | null {
     return null;
   }
   try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.size > 1024 * 1024) return null;
+    // Same checks as the Dev reader: regular, bounded, owned by this user, not shared-writable.
+    if (!isTrustedCredentialsFile(fstatSync(descriptor))) return null;
     return JSON.parse(readFileSync(descriptor, "utf8"));
   } catch {
     return null;
@@ -195,7 +198,8 @@ export function createClaudeHostCli(options: HostCliOptions = {}) {
         await run(launch.executable, [...launch.args, ...CLAUDE_REFRESH_REQUEST_ARGS], {
           ...accountEnvironment(configDir),
           cwd,
-          timeout: 120_000,
+          // Short enough that a stuck request cannot hold other accounts past their lead.
+          timeout: 60_000,
           maxBuffer: 1024 * 1024,
         });
       } finally {

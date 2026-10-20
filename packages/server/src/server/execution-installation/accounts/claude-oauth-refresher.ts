@@ -43,6 +43,11 @@ const RecordSchema = z.strictObject({
   refresh: z
     .strictObject({ at: Counter, outcome: z.enum(["refreshed", "unchanged", "failed"]) })
     .nullable(),
+  /** Consecutive refreshes of the current Host token that did not produce a newer one. */
+  refreshFailures: Counter.default(0),
+  /** Consecutive reconciles that left a rotation undelivered, and when to try again. */
+  deliveryFailures: Counter.default(0),
+  deliveryRetryAt: Counter.nullable().default(null),
   targets: z.array(TargetSchema),
 });
 export const ClaudeOAuthStateSchema = z.array(RecordSchema);
@@ -72,8 +77,12 @@ export interface ClaudeOAuthRefresherPorts {
 
 /** Normal cadence for noticing a rotation made by a Host agent or a new sign-in. */
 const RECHECK_MS = 5 * 60_000;
-/** Near expiry every reconcile reads the grant; a failed refresh is retried after this. */
+/** First retry delay after a failed refresh; it doubles up to RECHECK_MS. */
 const REFRESH_RETRY_MS = 60_000;
+/** Failed refreshes of one token before an expired grant counts as lost and needs sign-in. */
+const REFRESH_FAILURE_LIMIT = 3;
+/** First retry delay for an undelivered rotation; it doubles up to RECHECK_MS. */
+const DELIVERY_RETRY_MS = 30_000;
 
 /**
  * The coordinator's Host-owned refresh. It keeps the Host grant fresh only while a Dev
@@ -164,13 +173,15 @@ export class ClaudeOAuthRefresher {
   reconcile(): Promise<void> {
     if (this.reconciliation) return this.reconciliation;
     const task = this.enqueue(async () => {
-      for (const original of this.records) {
-        try {
-          await this.reconcileRecord(original.definitionId);
-        } catch {
-          // An unreachable Host or Dev leaves this record pending for the next reconcile.
-        }
-      }
+      // Accounts are independent (each has its own CLI storage and locks), so one slow refresh
+      // cannot push another past its lead. Each reconcile replaces only its own record.
+      await Promise.all(
+        this.records.map((record) =>
+          this.reconcileRecord(record.definitionId).catch(() => {
+            // An unreachable Host or Dev leaves this record pending for the next reconcile.
+          }),
+        ),
+      );
     });
     this.reconciliation = task.finally(() => {
       this.reconciliation = null;
@@ -191,7 +202,7 @@ export class ClaudeOAuthRefresher {
     if (desired !== undefined) rotate(next, desired);
     // Rewrite state only when something changed; idle reconciles stay read-only.
     if (!isDeepStrictEqual(next, current)) this.commit(this.withRecord(next));
-    if (desired !== undefined) await this.deliverPending(definitionId, next, desired);
+    if (desired !== undefined) await this.deliverPending(definitionId, next, desired, now);
   }
 
   /** Reads the Host grant, refreshing it first when Dev can use it and it is about to expire. */
@@ -201,14 +212,21 @@ export class ClaudeOAuthRefresher {
     now: number,
   ): Promise<ClaudeAccessProjection | null> {
     let grant = await this.ports.grant(definitionId);
-    const devActive = next.targets.some((target) => !target.excluded);
-    const retry = next.refresh === null || now - next.refresh.at >= REFRESH_RETRY_MS;
-    if (devActive && retry && needsHostRefresh(grant, now))
+    // A newer Host token (a Host agent refreshed it, or the owner signed in) clears failures.
+    if (isNewerGrant(next, grant)) next.refreshFailures = 0;
+    if (shouldRefresh(next, grant, now))
       grant = await this.refreshHost(definitionId, grant, next, now);
     next.checkedAt = now;
-    const desired = claudeAccessProjection(grant);
+    next.expiresAt = grant?.expiresAt ?? null;
+    // An expired grant that failed to refresh repeatedly counts as lost: Dev is withdrawn and
+    // the owner is asked to sign in again.
+    const lost =
+      grant !== null &&
+      grant.expiresAt !== null &&
+      grant.expiresAt <= now &&
+      next.refreshFailures >= REFRESH_FAILURE_LIMIT;
+    const desired = lost ? null : claudeAccessProjection(grant);
     next.hostGrant = desired ? "present" : "missing";
-    next.expiresAt = desired?.expiresAt ?? null;
     return desired;
   }
 
@@ -225,9 +243,11 @@ export class ClaudeOAuthRefresher {
       const advanced =
         after !== null && after.expiresAt !== null && (before === null || after.expiresAt > before);
       next.refresh = { at: now, outcome: advanced ? "refreshed" : "unchanged" };
+      next.refreshFailures = advanced ? 0 : next.refreshFailures + 1;
       return after;
     } catch {
       next.refresh = { at: now, outcome: "failed" };
+      next.refreshFailures += 1;
       return grant;
     }
   }
@@ -236,6 +256,7 @@ export class ClaudeOAuthRefresher {
     definitionId: string,
     next: ClaudeOAuthRecord,
     desired: ClaudeAccessProjection | null,
+    now: number,
   ): Promise<void> {
     for (const target of next.targets) {
       if (target.appliedRotation === next.rotation) continue;
@@ -259,6 +280,15 @@ export class ClaudeOAuthRefresher {
         // Offline Dev keeps this rotation pending; the token is read again next time.
       }
     }
+    // Back off while a rotation stays undelivered, so an offline Dev does not cause a Host
+    // read (a Keychain query on macOS) every reconcile.
+    const pending = next.targets.some((target) => target.appliedRotation !== next.rotation);
+    const failures = pending ? next.deliveryFailures + 1 : 0;
+    const retryAt = pending ? now + backoff(DELIVERY_RETRY_MS, failures) : null;
+    if (failures === next.deliveryFailures && retryAt === next.deliveryRetryAt) return;
+    next.deliveryFailures = failures;
+    next.deliveryRetryAt = retryAt;
+    this.commit(this.withRecord(next));
   }
 
   private replace(
@@ -282,6 +312,9 @@ export class ClaudeOAuthRefresher {
         identity: values.identity,
         checkedAt: null,
         refresh: null,
+        refreshFailures: 0,
+        deliveryFailures: 0,
+        deliveryRetryAt: null,
         targets: policy.targets.map((target) => ({ ...target, appliedRotation: null })),
       }),
     );
@@ -321,12 +354,44 @@ function applyPolicy(next: ClaudeOAuthRecord, policy: ClaudeOAuthPolicy): void {
   next.targets = policy.targets.map((target) => ({ ...target, appliedRotation: null }));
 }
 
+function backoff(base: number, failures: number): number {
+  return Math.min(base * 2 ** Math.max(0, failures - 1), RECHECK_MS);
+}
+
 function isDue(next: ClaudeOAuthRecord, now: number): boolean {
-  if (next.targets.some((target) => target.appliedRotation !== next.rotation)) return true;
+  // An undelivered rotation waits for its retry time, whatever the token's expiry.
+  if (next.targets.some((target) => target.appliedRotation !== next.rotation))
+    return next.deliveryRetryAt === null || now >= next.deliveryRetryAt;
   if (next.checkedAt === null || now - next.checkedAt >= RECHECK_MS) return true;
+  // After giving up on a token, read once more when it expires (to withdraw Dev); otherwise only
+  // the normal cadence looks for a newer grant.
+  if (next.refreshFailures >= REFRESH_FAILURE_LIMIT)
+    return next.hostGrant === "present" && next.expiresAt !== null && now >= next.expiresAt;
   return (
     next.expiresAt !== null && next.expiresAt - now <= CLAUDE_REFRESH_LEAD_MS + REFRESH_RETRY_MS
   );
+}
+
+function isNewerGrant(next: ClaudeOAuthRecord, grant: ClaudeOAuthGrant | null): boolean {
+  return (
+    grant !== null &&
+    grant.expiresAt !== null &&
+    (next.expiresAt === null || grant.expiresAt > next.expiresAt)
+  );
+}
+
+function shouldRefresh(next: ClaudeOAuthRecord, grant: ClaudeOAuthGrant | null, now: number) {
+  // Gave up on this token: wait for a newer Host grant or a new sign-in.
+  if (next.refreshFailures >= REFRESH_FAILURE_LIMIT) return false;
+  // Refresh only for a Dev that received the current rotation; an unreachable Dev could not use
+  // a new token, and launching the CLI for it would only spend the account's usage.
+  const reachable = next.targets.some(
+    (target) => !target.excluded && target.appliedRotation === next.rotation,
+  );
+  if (!reachable) return false;
+  const wait = backoff(REFRESH_RETRY_MS, next.refreshFailures);
+  if (next.refresh !== null && now - next.refresh.at < wait) return false;
+  return needsHostRefresh(grant, now);
 }
 
 /** A changed projection, including a withdrawal, takes the next rotation slot. */

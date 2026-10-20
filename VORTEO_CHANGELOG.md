@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.703 - 2026-10-19
+
+### Fixed
+
+- Refuse to mark a Claude definition full sign-in until every daemon advertises `claudeFullSignIn`. An older daemon would otherwise reject the whole settings authority, not just this account.
+- Stop relaunching the CLI every minute for a revoked or expired Host grant. Failed refreshes back off from one minute to five. After three failures an expired grant counts as lost: Dev is withdrawn and the status asks for sign-in again until a newer Host token or a new sign-in appears.
+- Trust a Host or Dev credentials file only when it is a regular file of bounded size, owned by this user and not writable by others.
+
+### Changed
+
+- Refresh only for a Dev that received the current token, and retry undelivered tokens after 30 seconds, doubling to five minutes. Reconcile accounts concurrently and limit the refresh request to 60 seconds.
+
+### Validation
+
+- A regression test covers each fix. 31 Host-refresh tests pass; the focused server typecheck, lint and format are clean.
+
 ## 0.11.0-beta.3.vorteo.702 - 2026-10-19
 
 ### Added

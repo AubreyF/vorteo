@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-19): Host-owned Claude refresh now refuses sign-in until every daemon supports it, gives up on an expired grant after three failed refreshes and asks for sign-in again, skips refreshes for an unreachable Dev, reconciles accounts concurrently and applies the same file trust checks on Host and Dev. It remains off by default, and the macOS credential location stays unverified. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-19): installations can enable Host-owned refresh for full sign-in Claude accounts with the coordinator setting `claudeHostRefresh`; it is off by default. The coordinator signs the Host account in, refreshes it with a tiny official CLI request inside the expiry window and delivers access-only tokens to Dev. The app has no controls yet, and the macOS credential location and token lifetime remain unverified. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-19): daemons accept Host-owned Claude refresh requests: a full sign-in type for shared definitions, a path-only Host binding route and an ordered Dev access-token writer. Nothing calls them until the coordinator side is enabled; setup-token behavior is unchanged. README overview and onboarding are unchanged.

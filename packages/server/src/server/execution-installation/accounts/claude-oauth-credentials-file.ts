@@ -1,4 +1,5 @@
 import {
+  type Stats,
   closeSync,
   constants,
   fstatSync,
@@ -33,6 +34,19 @@ interface LockOptions {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   attempts?: number;
+}
+
+/**
+ * A credentials file the coordinator or Dev may trust: a regular file of bounded size, owned by
+ * this user and not writable by anyone else. The CLI itself writes it with mode 0600.
+ */
+export function isTrustedCredentialsFile(stat: Stats): boolean {
+  return (
+    stat.isFile() &&
+    stat.size <= MAX_CREDENTIALS_BYTES &&
+    (!process.getuid || stat.uid === process.getuid()) &&
+    (process.platform === "win32" || (stat.mode & 0o022) === 0)
+  );
 }
 
 function code(error: unknown): string | undefined {
@@ -83,13 +97,7 @@ function readCredentials(file: string): Record<string, unknown> {
     throw new ClaudeOAuthDeliveryError();
   }
   try {
-    const stat = fstatSync(descriptor);
-    if (
-      !stat.isFile() ||
-      stat.size > MAX_CREDENTIALS_BYTES ||
-      (process.getuid && stat.uid !== process.getuid())
-    )
-      throw new ClaudeOAuthDeliveryError();
+    if (!isTrustedCredentialsFile(fstatSync(descriptor))) throw new ClaudeOAuthDeliveryError();
     try {
       const parsed: unknown = JSON.parse(readFileSync(descriptor, "utf8"));
       return parsed && typeof parsed === "object" && !Array.isArray(parsed)

@@ -29,6 +29,7 @@ function harness(options: { excluded?: boolean } = {}) {
   };
   let online = true;
   let tokens = 1;
+  let reads = 0;
   const deliveries: ClaudeOAuthProjectionDelivery[] = [];
   const persisted: string[] = [];
   // Option A: the official CLI rotates the token under its own locks.
@@ -45,7 +46,10 @@ function harness(options: { excluded?: boolean } = {}) {
         persisted.push(JSON.stringify(next));
       },
       policy: () => policy,
-      grant: async () => grant,
+      grant: async () => {
+        reads += 1;
+        return grant;
+      },
       refresh,
       deliver: async (delivery): Promise<ClaudeOAuthProjectionReceipt> => {
         if (!online) throw new Error("Dev is offline");
@@ -68,6 +72,8 @@ function harness(options: { excluded?: boolean } = {}) {
     advance: (ms: number) => {
       now += ms;
     },
+    now: () => now,
+    reads: () => reads,
     setGrant: (value: ClaudeOAuthGrant | null) => {
       grant = value;
     },
@@ -156,6 +162,7 @@ it("keeps an offline Dev pending and retries the same rotation from a fresh Host
   await refresher.reconcile();
   expect(refresher.status("one").environments).toEqual([{ serverId: "dev", status: "pending" }]);
   h.setOnline(true);
+  h.advance(30_000);
   await refresher.reconcile();
   expect(h.deliveries).toEqual([
     expect.objectContaining({
@@ -225,4 +232,120 @@ it("records a failed refresh and retries it after a minute", async () => {
   await refresher.reconcile();
   expect(h.refresh).toHaveBeenCalledTimes(2);
   expect(refresher.status("one").refresh).toMatchObject({ outcome: "refreshed" });
+});
+
+async function tick(refresher: ClaudeOAuthRefresher, h: ReturnType<typeof harness>, count: number) {
+  for (let index = 0; index < count; index++) {
+    await refresher.reconcile();
+    h.advance(30_000);
+  }
+}
+
+it("gives up on an expired grant after repeated failed refreshes and asks for sign-in", async () => {
+  const h = harness();
+  const refresher = h.create();
+  await refresher.connected("one", null);
+  await refresher.reconcile();
+  // The CLI runs but cannot refresh (revoked grant, network down) and writes no dead marker.
+  h.refresh.mockImplementation(async () => {});
+  h.advance(56 * MINUTE);
+  await tick(refresher, h, 240);
+  expect(h.refresh).toHaveBeenCalledTimes(3);
+  expect(h.deliveries.at(-1)).toMatchObject({ access: null });
+  expect(refresher.status("one")).toMatchObject({
+    needsSignIn: true,
+    environments: [{ serverId: "dev", status: "disconnected" }],
+  });
+  // Given up: the Host is read only on the normal five-minute cadence.
+  const reads = h.reads();
+  await tick(refresher, h, 20);
+  expect(h.reads() - reads).toBeLessThanOrEqual(2);
+  // A newer Host token (a Host agent refreshed it) recovers without a new sign-in.
+  h.setGrant({
+    ...h.grant()!,
+    accessToken: "synthetic-access-recovered",
+    expiresAt: h.now() + 60 * MINUTE,
+  });
+  h.advance(5 * MINUTE);
+  await refresher.reconcile();
+  expect(h.deliveries.at(-1)).toMatchObject({
+    access: { accessToken: "synthetic-access-recovered" },
+  });
+  expect(refresher.status("one")).toMatchObject({
+    needsSignIn: false,
+    environments: [{ serverId: "dev", status: "ready" }],
+  });
+});
+
+it("does not refresh for an unreachable Dev and backs off Host reads until it returns", async () => {
+  const h = harness();
+  const refresher = h.create();
+  h.setOnline(false);
+  await refresher.connected("one", null);
+  await tick(refresher, h, 120);
+  expect(h.refresh).not.toHaveBeenCalled();
+  expect(h.reads()).toBeLessThanOrEqual(16);
+  h.setOnline(true);
+  await tick(refresher, h, 12);
+  expect(h.refresh).toHaveBeenCalledTimes(1);
+  expect(h.deliveries.at(-1)).toMatchObject({ access: { accessToken: "synthetic-access-2" } });
+});
+
+it("reconciles accounts concurrently so a slow refresh cannot delay another account", async () => {
+  const now = 1_000_000_000_000;
+  let state: unknown = [];
+  const grants = new Map<string, ClaudeOAuthGrant>(
+    ["slow", "fast"].map((id) => [
+      id,
+      {
+        accessToken: `synthetic-${id}`,
+        hasRefreshToken: true,
+        expiresAt: now + 3 * MINUTE,
+        scopes: [],
+      },
+    ]),
+  );
+  let releaseSlow: (() => void) | null = null;
+  const refresh = vi.fn(async (definitionId: string) => {
+    if (definitionId === "slow")
+      await new Promise<void>((resolve) => {
+        releaseSlow = resolve;
+      });
+    grants.set(definitionId, { ...grants.get(definitionId)!, expiresAt: now + 60 * MINUTE });
+  });
+  const refresher = new ClaudeOAuthRefresher({
+    installationId: INSTALLATION,
+    read: () => state,
+    persist: (next) => {
+      state = structuredClone(next);
+    },
+    policy: (definitionId) => ({
+      revision: 1,
+      removed: false,
+      targets: [{ serverId: "dev", providerId: `claude-account-${definitionId}`, excluded: false }],
+    }),
+    grant: async (definitionId) => grants.get(definitionId) ?? null,
+    refresh,
+    deliver: async (delivery) => {
+      const { access, ...slot } = delivery;
+      return {
+        ...slot,
+        digest: accessProjectionDigest(access),
+        phase: "applied",
+        active: access !== null,
+      };
+    },
+    now: () => now,
+  });
+  await refresher.connected("slow", null);
+  await refresher.connected("fast", null);
+  await refresher.reconcile();
+  const running = refresher.reconcile();
+  await vi.waitFor(() => {
+    expect(releaseSlow).not.toBeNull();
+    expect(grants.get("fast")!.expiresAt).toBe(now + 60 * MINUTE);
+  });
+  releaseSlow!();
+  await running;
+  expect(refresh).toHaveBeenCalledTimes(2);
 });

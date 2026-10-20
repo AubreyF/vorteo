@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ProviderLoginService } from "../../../services/provider-login/service.js";
 import type { InstallationConfig } from "../config.js";
-import { createInstallationRegistrationAdmission } from "../daemon.js";
+import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.js";
 import {
@@ -19,7 +19,14 @@ import {
 } from "./claude-oauth-host.js";
 import { ClaudeOAuthRefresher, type ClaudeOAuthPolicy } from "./claude-oauth-refresher.js";
 
+interface DaemonFeatures {
+  installationSettingsAuthority?: boolean;
+  claudeFullSignIn?: boolean;
+}
+
 interface RuntimeOverrides {
+  /** Features each daemon advertises. Injected by tests. */
+  daemonFeatures?: (kind: "host" | "container") => Promise<DaemonFeatures | undefined>;
   cli?: ClaudeHostCli;
   readGrant?: typeof readClaudeOAuthGrant;
   fetch?: typeof fetch;
@@ -45,6 +52,29 @@ export function createClaudeOAuthRuntime(
   const request = overrides.fetch ?? fetch;
   const host = config.public.environments.find((environment) => environment.kind === "host");
   if (!host) throw new ClaudeOAuthDeliveryError();
+  const daemonFeatures =
+    overrides.daemonFeatures ??
+    (async (kind: "host" | "container") => {
+      const client = await connectInstallationDaemon(config, kind);
+      try {
+        return client.getLastServerInfoMessage()?.features;
+      } finally {
+        await client.close();
+      }
+    });
+
+  /**
+   * Older daemons parse definitions with a strict schema and would reject the whole settings
+   * authority, not just this account, if it carried `signIn`. Check every daemon first.
+   */
+  async function assertFullSignInSupported() {
+    for (const environment of config.public.environments) {
+      assertReady(environment.kind === "host" ? "host" : "container-daemon");
+      const features = await daemonFeatures(environment.kind);
+      if (features?.installationSettingsAuthority !== true || features.claudeFullSignIn !== true)
+        throw new ClaudeOAuthDeliveryError();
+    }
+  }
 
   function definition(definitionId: string) {
     const snapshot = settings.snapshot();
@@ -181,6 +211,7 @@ export function createClaudeOAuthRuntime(
     const complete = config.public.environments.every(
       (environment) => selected.bindings[environment.serverId] === providerId,
     );
+    await assertFullSignInSupported();
     if (!selected.accountSetup || !complete) {
       const definitions = structuredClone(snapshot.settings!.providerDefinitions!);
       const promoted = definitions.find((item) => item.id === definitionId)!;
