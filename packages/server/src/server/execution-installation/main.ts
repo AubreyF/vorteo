@@ -14,6 +14,7 @@ import {
 } from "./coordinator-bootstrap-host.js";
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
+import { createClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
 import { readInstallationConfig } from "./config.js";
@@ -121,6 +122,18 @@ const claudeSetupTimer = setInterval(() => {
     .catch(() => logger.warn("Claude subscription synchronization is pending"));
 }, 5000);
 claudeSetupTimer.unref();
+// Off by default: Host-owned refresh for full sign-in Claude accounts.
+const claudeOAuth =
+  config.claudeHostRefresh === true
+    ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
+    : undefined;
+const claudeOAuthTimer = claudeOAuth
+  ? setInterval(() => {
+      if (!synchronizing) return;
+      void claudeOAuth.reconcile().catch(() => logger.warn("Claude sign-in refresh is pending"));
+    }, 30_000)
+  : undefined;
+claudeOAuthTimer?.unref();
 const app = createInstallationServer(
   config,
   executor,
@@ -131,6 +144,7 @@ const app = createInstallationServer(
   claudeSetup,
   startupFence,
   coordinatorRequests,
+  claudeOAuth,
 );
 activateSynchronization();
 const restartTimer = setInterval(() => {
@@ -153,7 +167,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
     clearInterval(claudeSetupTimer);
+    if (claudeOAuthTimer) clearInterval(claudeOAuthTimer);
     void claudeSetup.dispose();
+    void claudeOAuth?.dispose();
     stopProfileSynchronization?.();
     stopSettingsReconciliation?.();
     server.close();

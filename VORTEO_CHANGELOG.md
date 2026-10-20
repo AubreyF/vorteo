@@ -4,6 +4,40 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.710 - 2026-10-20
+
+Host-owned refresh for full sign-in Claude accounts, off by default and independently reviewed with its fixes. Dev receives only short-lived access tokens; the Host account's own CLI keeps the only refresh grant.
+
+### Added
+
+- Prepare daemons for Host-owned Claude refresh. Shared Claude account definitions can carry a full sign-in type, and settings projection creates such bindings only on daemons that advertise `claudeFullSignIn`. The Host returns only a full sign-in account's exact configuration path to the coordinator, never a credential. Dev writes access-only token projections into the account's `.credentials.json` under the CLI's storage lock, keeps the CLI's other storage keys, applies generation and rotation order, and journals digests only.
+- Add Host-owned refresh for full sign-in Claude accounts in installations, off by default behind the coordinator setting `claudeHostRefresh`. Owner routes under `/api/installation/owner/claude/oauth` mark a definition full sign-in, sign the Host account in with `claude auth login --claudeai` in its exact configuration directory, and sign it out. The Host account's own CLI storage keeps the only grant.
+- While a non-excluded Dev environment can use the account and its token expires within four minutes, the coordinator makes one tiny official CLI request: print mode, Haiku, no tools, one turn and no session persistence. The CLI refreshes under its own locks. Dev receives only the access token, expiry, scopes and plan, numbered by generation and rotation. Coordinator state holds digests, expiry and identity only.
+- Dev usage for a projected account whose token expired says it is waiting for the Host instead of asking for sign-in.
+
+### Changed
+
+- Setup-token delivery and setup-token sign-in refuse full sign-in definitions.
+- Refresh only for a Dev that received the current token, and retry undelivered tokens after 30 seconds, doubling to five minutes. Reconcile accounts concurrently and limit the refresh request to 60 seconds.
+
+### Fixed
+
+- Refuse to mark a Claude definition full sign-in until every daemon advertises `claudeFullSignIn`. An older daemon would otherwise reject the whole settings authority, not just this account.
+- Stop relaunching the CLI every minute for a revoked or expired Host grant. Failed refreshes back off from one minute to five. After three failures an expired grant counts as lost: Dev is withdrawn and the status asks for sign-in again until a newer Host token or a new sign-in appears.
+- Trust a Host or Dev credentials file only when it is a regular file of bounded size, owned by this user and not writable by others.
+
+### Known limitations
+
+- Nothing sends these requests until the coordinator side lands behind its setting. Projections are refused on macOS daemons. Lock and file names come from static analysis of Claude Code 2.1.284.
+- The app has no controls yet. A changed identity on reconnect is recorded, not blocked. Back up coordinator state and Dev projection journals together.
+- Unverified until the owner's live sign-in check: the macOS Keychain location of the Host grant, granted scopes, token lifetime and how quickly a running Dev CLI picks up a new token.
+
+### Validation
+
+- 7 new synthetic tests; 129 installation account, settings and provider-login tests pass.
+- 18 new synthetic tests: refresher 8, Host CLI 6, runtime 3 and usage 1. With two workers, 663 of 665 focused tests pass. The packaged CLI checksum failure is environment-only. One timing-sensitive agent test failed under a load average near 300 and passes alone.
+- A regression test covers each fix. 31 Host-refresh tests pass; the focused server typecheck, lint and format are clean.
+
 ## 0.11.0-beta.3.vorteo.709 - 2026-10-20
 
 ### Fixed

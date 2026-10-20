@@ -1,5 +1,13 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-20): integrated the reviewed Host-owned Claude refresh into the next Host update, after durable sessions and checklist progress. Only version metadata and these notes conflicted. The feature stays off by default and README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-19): Host-owned Claude refresh now refuses sign-in until every daemon supports it, gives up on an expired grant after three failed refreshes and asks for sign-in again, skips refreshes for an unreachable Dev, reconciles accounts concurrently and applies the same file trust checks on Host and Dev. It remains off by default, and the macOS credential location stays unverified. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-19): installations can enable Host-owned refresh for full sign-in Claude accounts with the coordinator setting `claudeHostRefresh`; it is off by default. The coordinator signs the Host account in, refreshes it with a tiny official CLI request inside the expiry window and delivers access-only tokens to Dev. The app has no controls yet, and the macOS credential location and token lifetime remain unverified. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-19): daemons accept Host-owned Claude refresh requests: a full sign-in type for shared definitions, a path-only Host binding route and an ordered Dev access-token writer. Nothing calls them until the coordinator side is enabled; setup-token behavior is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-20): review fixes for checklist progress. Apps that predate progress no longer hit a permanent edit conflict on items an agent tracked, and agent guidance says that `checks` replaces the whole list. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-20): integrated the reviewed checklist progress and project placement branch into the next Host update, after durable sessions. Only version metadata and these notes conflicted; feature behavior is unchanged by the merge. README overview and onboarding are unchanged.

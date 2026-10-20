@@ -6142,9 +6142,14 @@ export class DaemonClient {
     });
   }
 
-  async createClaudeAccount(creationId: string, name: string) {
+  async createClaudeAccount(creationId: string, name: string, signIn?: "full") {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.claude.create_account.response">({
-      message: { type: "provider.claude.create_account.request", creationId, name },
+      message: {
+        type: "provider.claude.create_account.request",
+        creationId,
+        name,
+        ...(signIn ? { signIn } : {}),
+      },
     });
   }
 

@@ -21,6 +21,8 @@ import {
   type BootstrapReconciliationLedger,
 } from "./coordinator-bootstrap.js";
 import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
+import { mountClaudeOAuthRoutes } from "./accounts/claude-oauth-routes.js";
+import type { ClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import {
   SkillSourceSchema,
@@ -296,6 +298,7 @@ export function createInstallationServer(
   claudeSetup?: ClaudeSetupRuntime,
   startupFence?: InstallationStartupFence,
   coordinatorRequests?: BootstrapReconciliationLedger,
+  claudeOAuth?: ClaudeOAuthRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const updates = {
@@ -1462,6 +1465,7 @@ export function createInstallationServer(
     void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
+  if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);
