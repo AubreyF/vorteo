@@ -18,6 +18,7 @@ import {
   type BigIntStats,
 } from "node:fs";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
+import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
 
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const MAX_BYTES = 1024 * 1024;
@@ -41,6 +42,8 @@ export function selectMaintenanceReleaseLink(input: {
   assertCurrent(): void;
 }) {
   const { attemptFile, reservationSha256, link, previous, candidate, assertCurrent } = input;
+  // Defense for plans approved before the session host job was installed.
+  assertReleaseSelectionAllowed({ link, candidate });
   if (!/^[a-f0-9]{64}$/.test(reservationSha256))
     throw new BootstrapRequestConflict("Release selection reservation digest is invalid");
   if (new Set([attemptFile, link, previous, candidate]).size !== 4)

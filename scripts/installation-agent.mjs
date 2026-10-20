@@ -54,6 +54,19 @@ export async function postCoordinatorRequest(url, options, timers = { setTimeout
   }
 }
 
+/** Session host job commands need a coordinator that advertises them to this token. */
+async function requireSessionHostJob(base, config) {
+  const response = await fetch(new URL("/api/installation/capabilities", base), {
+    headers: { Authorization: `Bearer ${config.token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || (await response.json()).sessionHostJob?.available !== true)
+    throw new Error(
+      "The coordinator does not advertise session host jobs to this client. No request submitted.",
+    );
+}
+
 if (
   process.argv[1] &&
   realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
@@ -74,6 +87,9 @@ if (
       requester: { type: "string" },
       "reason-file": { type: "string" },
       "request-file": { type: "string" },
+      install: { type: "boolean" },
+      remove: { type: "boolean" },
+      reason: { type: "string" },
     },
   });
   if (
@@ -191,6 +207,26 @@ if (
       body = JSON.parse(readFileSync(values["request-file"], "utf8"));
       break;
     }
+    case "request-session-host": {
+      if (config.kind !== "host-agent")
+        throw new Error("Session host job requests require the trusted Host client");
+      if (Boolean(values.install) === Boolean(values.remove))
+        throw new Error("Use exactly one of --install or --remove");
+      await requireSessionHostJob(base, config);
+      resource = "/api/installation/session-host-requests";
+      // The coordinator derives the plan itself; the request names only the operation.
+      body = {
+        id: randomUUID(),
+        operation: values.install ? "session-host-install" : "session-host-remove",
+        reason:
+          values.reason?.trim() || "Requested by a Host agent through the installation client.",
+      };
+      break;
+    }
+    case "session-host-status":
+      await requireSessionHostJob(base, config);
+      resource = "/api/installation/session-host";
+      break;
     case "monitor-status":
       if (config.kind !== "host-agent")
         throw new Error("Preview monitor inspection requires the trusted Host client");
@@ -317,7 +353,7 @@ if (
       break;
     default:
       throw new Error(
-        "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, container-agents (Host only)",
+        "Commands: capabilities, request-worker-launch, worker-launch-status, request-restart, restart-status, contribution-status, request-coordinator, coordinator-status, request-helper, helper-status, request-session-host --install|--remove, session-host-status, container-agents (Host only)",
       );
   }
   let upload;
@@ -442,7 +478,7 @@ if (
     const detail = typeof failure?.error === "string" ? `: ${failure.error}` : "";
     throw new Error(`Installation rejected the request (${response.status})${detail}`);
   }
-  const result = await response.json();
+  let result = await response.json();
   if (
     positionals[0] === "request-monitor" ||
     positionals[0] === "monitor-status" ||
@@ -457,6 +493,23 @@ if (
     approval.searchParams.set("installation", "1");
     approval.searchParams.set("restart", result.batch?.id ?? result.id);
     result.approvalUrl = approval.href;
+  }
+  if (positionals[0] === "request-session-host") {
+    // The link opens Installation controls, where the owner reviews the plan and presses Approve.
+    const review = new URL(
+      "/settings/general",
+      new URL(config.publicOrigin ?? config.origin).origin,
+    );
+    review.searchParams.set("installation", "1");
+    review.searchParams.set("sessionHost", result.id);
+    result = {
+      id: result.id,
+      operation: result.operation,
+      status: result.status,
+      stage: result.stage,
+      planSha256: result.planSha256,
+      approvalUrl: review.href,
+    };
   }
   if (["request-coordinator", "coordinator-status"].includes(positionals[0])) {
     const approval = new URL(

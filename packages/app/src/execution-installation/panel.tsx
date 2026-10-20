@@ -18,6 +18,18 @@ import {
   helperRollbackSummary,
   type HelperReviewAction,
 } from "./helper-review";
+import type { SessionHostJob } from "@getpaseo/protocol/session-host-maintenance";
+import {
+  sessionHostActionDisabledReason,
+  sessionHostOperationTitle,
+  sessionHostPlanLines,
+  sessionHostRequestDisabledReason,
+  sessionHostReviewSummary,
+  sessionHostStatusLines,
+  visibleSessionHostJobs,
+  type SessionHostAction,
+  type SessionHostOverview,
+} from "./session-host-review";
 import { ActionFooter } from "@/components/ui/action-footer";
 import {
   useCallback,
@@ -344,6 +356,7 @@ function InstallationPanel({
                 busy={state.busy}
               />
             ))}
+            <SessionHostCard model={model} state={state} />
             {active.map((job) => (
               <RestartRequest
                 key={`${job.id}:${job.revision}`}
@@ -1045,6 +1058,176 @@ function HelperActionButton({
   );
 }
 
+/**
+ * The session host's launchd job, owned by the coordinator. Hidden for coordinators without session
+ * host jobs. Install and Remove only prepare a plan; each plan needs its own Approve.
+ */
+function SessionHostCard({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const install = useCallback(() => {
+    void model.requestSessionHost("session-host-install");
+  }, [model]);
+  const remove = useCallback(() => {
+    void model.requestSessionHost("session-host-remove");
+  }, [model]);
+  const overview = state.sessionHost;
+  if (!overview) return null;
+  const review = { busy: state.busy, unlocked: state.unlocked };
+  return (
+    <>
+      <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="session-host-card">
+        <View style={styles.requestHeader}>
+          <Text style={settingsStyles.rowTitle}>Session host</Text>
+          <StatusBadge
+            label={sessionHostBadge(overview.status)}
+            variant={overview.status?.installed ? "success" : "muted"}
+          />
+        </View>
+        <Text selectable style={styles.text} testID="session-host-status">
+          {sessionHostStatusLines(overview.status).join("\n")}
+        </Text>
+        {state.sessionHostError ? (
+          <>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {state.sessionHostError}
+            </Text>
+            <Button variant="ghost" size={size} onPress={model.dismissSessionHostError}>
+              Dismiss
+            </Button>
+          </>
+        ) : null}
+        <ActionFooter style={styles.actions}>
+          <RestartActionButton
+            testID="session-host-install"
+            size={size}
+            variant="outline"
+            disabledReason={sessionHostRequestDisabledReason(
+              "session-host-install",
+              overview,
+              review,
+            )}
+            onPress={install}
+          >
+            Install
+          </RestartActionButton>
+          <RestartActionButton
+            testID="session-host-remove"
+            size={size}
+            variant="outline"
+            disabledReason={sessionHostRequestDisabledReason(
+              "session-host-remove",
+              overview,
+              review,
+            )}
+            onPress={remove}
+          >
+            Remove
+          </RestartActionButton>
+        </ActionFooter>
+      </View>
+      {visibleSessionHostJobs(overview.jobs).map((job) => (
+        <SessionHostRequest
+          key={`${job.id}:${job.revision}`}
+          job={job}
+          model={model}
+          busy={state.busy}
+        />
+      ))}
+    </>
+  );
+}
+
+function sessionHostBadge(status: SessionHostOverview["status"]): string {
+  if (!status) return "Unknown";
+  return status.installed ? "Installed" : "Not installed";
+}
+
+function SessionHostRequest({
+  job,
+  model,
+  busy,
+}: {
+  job: SessionHostJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const size = useVortonTouch() ? "md" : "sm";
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  // An open request shows its whole plan: the owner approves exactly these facts.
+  const reviewing = job.status === "pending" || job.status === "approved";
+  return (
+    <View
+      style={[styles.cardBody, settingsStyles.rowBorder]}
+      testID={`session-host-request-${job.id}`}
+    >
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>{sessionHostOperationTitle(job.operation)}</Text>
+        <StatusBadge label={job.status} variant={job.status === "failed" ? "warning" : "muted"} />
+      </View>
+      <Text style={styles.text}>{sessionHostReviewSummary(job)}</Text>
+      <Text style={styles.text}>{job.reason}</Text>
+      {reviewing ? null : (
+        <Button variant="ghost" size={size} onPress={toggle} {...disclosureProps(expanded)}>
+          Details
+        </Button>
+      )}
+      {reviewing || expanded ? (
+        <Text selectable style={styles.text}>
+          {[job.detail, ...sessionHostPlanLines(job)].join("\n")}
+        </Text>
+      ) : null}
+      {reviewing ? (
+        <ActionFooter style={styles.actions}>
+          {(["approve", "cancel"] as SessionHostAction[]).map((action) => (
+            <SessionHostActionButton
+              key={action}
+              job={job}
+              model={model}
+              action={action}
+              busy={busy}
+            />
+          ))}
+        </ActionFooter>
+      ) : null}
+    </View>
+  );
+}
+
+function SessionHostActionButton({
+  job,
+  model,
+  action,
+  busy,
+}: {
+  job: SessionHostJob;
+  model: InstallationPanelModel;
+  action: SessionHostAction;
+  busy: boolean;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const onPress = useCallback(() => {
+    void model.decideSessionHost(job, action);
+  }, [model, job, action]);
+  return (
+    <RestartActionButton
+      testID={`session-host-${job.id}-${action}`}
+      size={size}
+      variant={action === "approve" ? "destructive" : "outline"}
+      disabledReason={sessionHostActionDisabledReason(job, action, { busy, unlocked: true })}
+      onPress={onPress}
+    >
+      {action === "approve" ? "Approve" : "Cancel"}
+    </RestartActionButton>
+  );
+}
+
 function RestartActionButton({
   disabledReason,
   ...props
@@ -1452,6 +1635,7 @@ function restartSummaryNeedsAction(summary: RestartSummary) {
     summary.serviceMaintenance?.attention,
     summary.nativeHelper?.requested,
     summary.nativeHelper?.recovery,
+    summary.sessionHost?.requested,
     summary.previewMonitor?.requested,
     summary.previewMonitor?.recovery,
   ].some((count) => (count ?? 0) > 0);

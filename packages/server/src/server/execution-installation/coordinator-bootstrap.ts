@@ -109,7 +109,12 @@ export function assertCoordinatorLifecycleIdle(journal: unknown): void {
 
 export function coordinatorLifecycleWork(journal: unknown) {
   return parseLifecycleJournal(journal).filter((job) => {
-    if (job.target === "maintenance-controller" || job.target === "recovery-launcher")
+    // A coordinator replacement must not cut a session host install or removal short either.
+    if (
+      job.target === "maintenance-controller" ||
+      job.target === "recovery-launcher" ||
+      job.target === "session-host"
+    )
       return job.status === "approved" || job.status === "running";
     if (job.target === "native-helper" || job.target === "preview-monitor") {
       return (

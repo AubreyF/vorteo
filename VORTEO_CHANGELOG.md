@@ -4,6 +4,26 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.712 - 2026-10-20
+
+The installation coordinator owns the durable session host's launchd job as tracked, owner-approved lifecycle work. Installing the job never turns durable sessions on.
+
+### Added
+
+- Install, inspect and remove the session host's launchd job, `local.vorteo.<installation id>.session-host`, through the coordinator. It derives each plan from its own configuration: the current release's session host entrypoint through the current link, with only `HOME`, `PASEO_HOME` and `PATH`. Requests join the existing lifecycle journal, and only an owner decision naming the exact operation and plan digest approves one; restart decisions and the trusted Host approval policy never do. Dispatch recomputes the plan and changes nothing when it differs, and a coordinator restart never replays an approved or running operation.
+- Install writes the plist with mode 0600 and requires the new host to answer with launchd's pid within 60 seconds and without a watchdog kill, or removes the job again. An identical installed job counts as installed.
+- Removal is refused while the durable sessions setting is on or the host runs sessions. A host that stops answering is stopped only after the workers' five-minute alive window with the setting still off, and the receipt records the forced stop. A process that survives bootout is killed only after its command is verified as the session host.
+- Host routes for status and requests, owner routes to query, request and decide, the `sessionHostJob` capability for the Host client, and session host counts in the restart summary. Dev sees only whether the job exists.
+- Installation controls show the job's status and full plan with Install, Remove, Approve and Cancel, and a pending request raises the sidebar notice. The maintenance client adds `request-session-host --install|--remove` and `session-host-status` for the Host client, documented in the maintenance skill.
+
+### Changed
+
+- While the session host job is installed, source updates and supervisor maintenance refuse to select a Host release without the session host entrypoint, and `install-execution-host.mjs remove` refuses to run.
+- A worker declares a hosted session lost as soon as reattach fails while no live process holds the host lock, because its lock is gone or names an exited process. A lock that cannot be read still counts as alive.
+
+### Maintenance
+
+- Tests use fake launchd effects and an isolated home, plus one opt-in real launchd round trip with a test label (`DURABLE_SESSIONS_LAUNCHD_E2E=1`). Coordinators without session host support reject the lifecycle journal once a session host record exists, so keep a supporting coordinator as the rollback target. The job reaches an installation only through a coordinator update; live installation, real Claude acceptance and the rollback rehearsal remain.
 
 ## 0.11.0-beta.3.vorteo.711 - 2026-10-20
 

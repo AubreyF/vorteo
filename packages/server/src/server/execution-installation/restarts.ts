@@ -51,6 +51,16 @@ import {
 import type { MaintenanceServiceNativeObservation } from "./maintenance/service-execution.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
+import {
+  SessionHostDecisionSchema,
+  SessionHostRequestSchema,
+  type SessionHostJob,
+  type SessionHostOperation,
+  type SessionHostPlan,
+} from "@getpaseo/protocol/session-host-maintenance";
+import { SessionHostJobError, sessionHostPlanSha256 } from "./session-host-job.js";
+import { LaunchctlError } from "../session-host/launchd.js";
+import { SessionHostReleaseRefused } from "./release-selection-guard.js";
 import type {
   DevRepairCapture,
   RestartImpact,
@@ -136,6 +146,17 @@ export interface RestartExecutor {
   installMonitor?(job: PreviewMonitorJob): Promise<string>;
   factoryRuntimePlan?(): string | undefined;
   adoptFactoryRuntime?(job: RestartJob): Promise<string>;
+  /** Computes the exact plan for a session host operation from the coordinator's configuration. */
+  sessionHostPlan?(operation: SessionHostOperation): Promise<SessionHostPlan>;
+  /** Observes the job; detail only for the Host token and owners. */
+  inspectSessionHost?(
+    detail: boolean,
+  ): Promise<import("@getpaseo/protocol/session-host-maintenance").SessionHostStatus>;
+  /** Performs an approved session host operation, reporting its stages. */
+  applySessionHost?(
+    job: SessionHostJob,
+    reportStage: (stage: "applying" | "verifying") => void,
+  ): Promise<{ detail: string; host?: SessionHostJob["host"]; forced?: boolean }>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
   verifyHelperRecovery?(job: NativeHelperJob): Promise<string>;
   validateHelperPlan?(plan: NativeHelperPlan): Promise<void>;
@@ -193,6 +214,18 @@ export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean
 
 export class RestartRequestError extends Error {}
 
+/** Messages written for the owner pass through; anything else gets a safe, generic detail. */
+function sessionHostFailureDetail(error: unknown): string {
+  if (
+    error instanceof SessionHostJobError ||
+    error instanceof SessionHostReleaseRefused ||
+    error instanceof RestartRequestError ||
+    error instanceof LaunchctlError
+  )
+    return error.message;
+  return "The session host operation failed. Inspect its status before retrying.";
+}
+
 function validateSourceDecision(job: RestartJob, decision: RestartDecision, updateSha256?: string) {
   if ((job.update || job.sourceBatch) && decision !== "reject" && decision !== "cancel") {
     if (decision !== "approve" || !job.update || updateSha256 !== job.update.sha256)
@@ -217,6 +250,7 @@ export class InstallationRestarts {
   private jobs: RestartJob[];
   private helpers: NativeHelperJob[];
   private monitors: PreviewMonitorJob[];
+  private sessionHosts: SessionHostJob[];
   private snapshot: LifecycleJob[];
   private active = false;
   private running = false;
@@ -244,6 +278,9 @@ export class InstallationRestarts {
     this.monitors = this.snapshot.filter(
       (job): job is PreviewMonitorJob => job.target === "preview-monitor",
     );
+    this.sessionHosts = this.snapshot.filter(
+      (job): job is SessionHostJob => job.target === "session-host",
+    );
     if (!startup.fenced) this.activate();
   }
 
@@ -257,6 +294,9 @@ export class InstallationRestarts {
     );
     this.monitors = this.snapshot.filter(
       (job): job is PreviewMonitorJob => job.target === "preview-monitor",
+    );
+    this.sessionHosts = this.snapshot.filter(
+      (job): job is SessionHostJob => job.target === "session-host",
     );
   }
 
@@ -346,6 +386,18 @@ export class InstallationRestarts {
           detail: "Preparation interrupted. Prepare a new monitor request.",
         };
       return job;
+    });
+    // An interrupted operation is never replayed. Both operations recheck everything they touch,
+    // so the owner inspects the status and requests whichever one the job now needs.
+    this.sessionHosts = this.sessionHosts.map((job): SessionHostJob => {
+      if (job.status !== "approved" && job.status !== "running") return job;
+      return {
+        ...job,
+        status: "failed",
+        stage: "failed",
+        detail:
+          "The coordinator restarted before this operation finished. Check the session host status before requesting it again.",
+      };
     });
     this.writeState(recovered, helpers, monitors);
     this.active = true;
@@ -606,6 +658,173 @@ export class InstallationRestarts {
 
   listHelpers(): NativeHelperJob[] {
     return structuredClone(this.helpers);
+  }
+
+  listSessionHosts(): SessionHostJob[] {
+    return structuredClone(this.sessionHosts);
+  }
+
+  sessionHostAvailable(): boolean {
+    return Boolean(this.executor.sessionHostPlan && this.executor.applySessionHost);
+  }
+
+  /**
+   * Prepares one session host operation. The coordinator derives the plan itself; the requester
+   * supplies only the operation and a reason. One request may be open at a time.
+   */
+  async requestSessionHost(
+    input: unknown,
+    requestedBy: SessionHostJob["requestedBy"],
+  ): Promise<SessionHostJob> {
+    this.requireActive();
+    if (!this.executor.sessionHostPlan || !this.executor.applySessionHost)
+      throw new RestartRequestError("Session host maintenance is unavailable");
+    const request = SessionHostRequestSchema.parse(input);
+    const existing = this.snapshot.find((job) => job.id === request.id);
+    if (existing) {
+      if (
+        existing.target !== "session-host" ||
+        existing.operation !== request.operation ||
+        existing.reason !== request.reason
+      )
+        throw new RestartRequestError("Request identity already belongs to different work");
+      return structuredClone(existing);
+    }
+    const open = () =>
+      this.sessionHosts.some((job) => ["pending", "approved", "running"].includes(job.status));
+    if (open())
+      throw new RestartRequestError(
+        "Another session host request is still open. Decide or cancel it first.",
+      );
+    const plan = await this.executor.sessionHostPlan(request.operation);
+    if (open())
+      throw new RestartRequestError(
+        "Another session host request is still open. Decide or cancel it first.",
+      );
+    const job: SessionHostJob = {
+      target: "session-host",
+      operation: request.operation,
+      id: request.id,
+      revision: randomUUID(),
+      requestedBy,
+      reason: request.reason,
+      createdAt: new Date(this.now()).toISOString(),
+      plan,
+      planSha256: sessionHostPlanSha256(plan),
+      status: "pending",
+      stage: "prepared",
+      detail:
+        request.operation === "session-host-install"
+          ? "Review this exact session host job. Installing it never turns the durable sessions setting on."
+          : "Review removing the session host job. Removal is refused while the setting is on or sessions run.",
+    };
+    this.replaceSessionHost(job);
+    return structuredClone(job);
+  }
+
+  /** The owner's decision; it must name the operation and the exact plan it reviewed. */
+  decideSessionHost(input: unknown): SessionHostJob {
+    this.requireActive();
+    const decision = SessionHostDecisionSchema.parse(input);
+    const job = this.sessionHosts.find((item) => item.id === decision.id);
+    if (
+      !job ||
+      job.revision !== decision.revision ||
+      job.planSha256 !== decision.planSha256 ||
+      job.operation !== decision.operation
+    )
+      throw new RestartRequestError("Session host request changed. Review the exact plan.");
+    this.assertSessionHostPlanUnchanged(job);
+    if (decision.decision === "cancel") {
+      if (job.status !== "pending" && job.status !== "approved")
+        throw new RestartRequestError("Session host operation already dispatched or decided");
+      this.replaceSessionHost({ ...job, status: "rejected", detail: "Canceled by the owner." });
+    } else {
+      if (job.status !== "pending" || job.stage !== "prepared")
+        throw new RestartRequestError("Session host request is not awaiting approval");
+      this.replaceSessionHost({
+        ...job,
+        status: "approved",
+        approvedAt: new Date(this.now()).toISOString(),
+        detail: "Approved. The operation starts when no other lifecycle work runs.",
+      });
+    }
+    return structuredClone(this.sessionHosts.find((item) => item.id === job.id)!);
+  }
+
+  private assertSessionHostPlanUnchanged(job: SessionHostJob): void {
+    if (sessionHostPlanSha256(job.plan) !== job.planSha256 || job.plan.operation !== job.operation)
+      throw new RestartRequestError("Session host plan changed. Prepare and review a new request.");
+  }
+
+  private replaceSessionHost(next: SessionHostJob): void {
+    this.requireActive();
+    this.sessionHosts = this.sessionHosts.some((job) => job.id === next.id)
+      ? this.sessionHosts.map((job) => (job.id === next.id ? next : job))
+      : [...this.sessionHosts, next];
+    this.writeState(this.jobs, this.helpers);
+  }
+
+  /** Runs one approved operation after recomputing its plan; any difference changes nothing. */
+  private async dispatchSessionHost(job: SessionHostJob): Promise<void> {
+    if (!this.executor.sessionHostPlan || !this.executor.applySessionHost) return;
+    const owns = (candidate: SessionHostJob | undefined, status: SessionHostJob["status"]) =>
+      candidate?.status === status && candidate.revision === job.revision;
+    try {
+      this.assertSessionHostPlanUnchanged(job);
+      const fresh = await this.executor.sessionHostPlan(job.operation);
+      if (sessionHostPlanSha256(fresh) !== job.planSha256)
+        throw new RestartRequestError(
+          "The session host plan changed after approval. Nothing was changed; prepare and review a new request.",
+        );
+      if (
+        !owns(
+          this.sessionHosts.find((item) => item.id === job.id),
+          "approved",
+        )
+      )
+        return;
+      const running: SessionHostJob = {
+        ...job,
+        status: "running",
+        stage: "dispatch_pending",
+        detail: "Running the approved session host operation",
+      };
+      this.replaceSessionHost(running);
+      const outcome = await this.executor.applySessionHost(structuredClone(running), (stage) => {
+        const executing = this.sessionHosts.find((item) => item.id === job.id);
+        if (!owns(executing, "running"))
+          throw new RestartRequestError("Session host operation no longer owns its request");
+        this.replaceSessionHost({
+          ...executing!,
+          stage,
+          detail:
+            stage === "applying"
+              ? "Applying the approved session host operation"
+              : "Verifying the session host",
+        });
+      });
+      const executing = this.sessionHosts.find((item) => item.id === job.id);
+      if (!owns(executing, "running")) return;
+      this.replaceSessionHost({
+        ...executing!,
+        status: "succeeded",
+        stage: "succeeded",
+        detail: outcome.detail,
+        ...(outcome.host ? { host: outcome.host } : {}),
+        ...(outcome.forced ? { forcedStop: true } : {}),
+      });
+    } catch (error) {
+      const current = this.sessionHosts.find((item) => item.id === job.id);
+      if (!current || current.revision !== job.revision) return;
+      if (current.status !== "approved" && current.status !== "running") return;
+      this.replaceSessionHost({
+        ...current,
+        status: "failed",
+        stage: "failed",
+        detail: sessionHostFailureDetail(error),
+      });
+    }
   }
 
   async prepareHelper(input: unknown, requestedBy: string): Promise<NativeHelperJob> {
@@ -2216,15 +2435,21 @@ export class InstallationRestarts {
           (job) =>
             (job.finishCurrentTurns || job.continuationCaptureRequested) && !job.holdReleased,
         )
-      ) {
-        for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
-          if (this.helperRecoveryRequired()) break;
-          await this.dispatchHelper(job);
-        }
-      }
+      )
+        await this.dispatchApprovedNativeWork();
     } finally {
       this.running = false;
     }
+  }
+
+  /** Helper and session host operations, which run only while no restart holds turns. */
+  private async dispatchApprovedNativeWork(): Promise<void> {
+    for (const job of this.helpers.filter((candidate) => candidate.status === "approved")) {
+      if (this.helperRecoveryRequired()) break;
+      await this.dispatchHelper(job);
+    }
+    for (const job of this.sessionHosts.filter((candidate) => candidate.status === "approved"))
+      await this.dispatchSessionHost(job);
   }
 
   private async reconcileRetainedInterruptions(): Promise<boolean> {
@@ -2711,7 +2936,10 @@ export class InstallationRestarts {
     evidence?: MaintenanceServiceAdmissionEvidence,
   ): void {
     const remaining = new Map<string, LifecycleJob>(
-      [...jobs, ...helpers, ...monitors, ...services].map((job) => [job.id, job]),
+      [...jobs, ...helpers, ...monitors, ...services, ...this.sessionHosts].map((job) => [
+        job.id,
+        job,
+      ]),
     );
     const next: LifecycleJob[] = [];
     for (const previous of this.snapshot) {

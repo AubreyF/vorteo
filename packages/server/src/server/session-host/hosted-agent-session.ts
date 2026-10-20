@@ -135,8 +135,12 @@ export interface HostedAgentSessionOptions {
    */
   reattach(afterSeq: number): Promise<HostedReattachment | null>;
   reattachPolicy?: HostedReattachPolicy;
-  /** Whether the host process still runs, answering or not. Absent means it is assumed gone. */
-  hostAlive?(): Promise<boolean>;
+  /**
+   * What the host lock proves. "gone" (no lock, or a holder pid that no longer exists) means the
+   * host took the session with it. "alive" includes a lock that cannot be checked. Absent means
+   * unknown: the session waits out the reattach window, with no extension.
+   */
+  hostState?(): Promise<"gone" | "alive">;
   /**
    * Usage plugins read the provider environment synchronously. The worker builds it from the
    * same settings it sent to the host, so credentials never travel back from the host.
@@ -776,8 +780,17 @@ export class HostedAgentSession implements AgentSession {
         next = await this.options.reattach(afterSeq);
       } catch (error) {
         if (this.isFinished()) return;
-        if (Date.now() + delay > deadline && !(await this.hostMayAnswer(aliveDeadline, delay))) {
-          if (this.isFinished()) return;
+        const host = await this.hostState();
+        if (this.isFinished()) return;
+        // A dead host ran nothing that waiting could bring back, and it can never run a second
+        // provider, so the session is lost at once rather than after the window.
+        if (host === "gone") {
+          this.options.logger.warn({ err: error }, "The session host is gone");
+          this.markLost();
+          return;
+        }
+        const until = host === "alive" ? aliveDeadline : deadline;
+        if (Date.now() + delay > until) {
           this.options.logger.warn({ err: error }, "The session host did not answer in time");
           this.markLost();
           return;
@@ -832,13 +845,16 @@ export class HostedAgentSession implements AgentSession {
     }
   }
 
-  /** Past the reattach window, a host process that still runs earns more time, up to a cap. */
-  private async hostMayAnswer(aliveDeadline: number, delay: number): Promise<boolean> {
-    if (Date.now() + delay > aliveDeadline || !this.options.hostAlive) return false;
+  /**
+   * The host lock's verdict. A live host earns time past the reattach window, up to the alive
+   * window. A failed check counts as alive: cancelling a live turn on a read error would be worse.
+   */
+  private async hostState(): Promise<"gone" | "alive" | "unknown"> {
+    if (!this.options.hostState) return "unknown";
     try {
-      return await this.options.hostAlive();
+      return await this.options.hostState();
     } catch {
-      return false;
+      return "alive";
     }
   }
 

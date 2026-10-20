@@ -114,7 +114,7 @@ function startWorker(
     connect: async (options) => (dead || unreachable ? null : real.connect(options)),
     current: () => (dead || unreachable ? null : real.current()),
     present: () => real.present(),
-    hostAlive: () => real.hostAlive(),
+    hostState: () => real.hostState(),
     knownMcpTokens: () => real.knownMcpTokens(),
     close: () => real.close(),
   };
@@ -458,6 +458,29 @@ test("when the host dies mid-turn the agent continues from a queued continuation
   expect(worker.manager.getTimeline(agent.id).some((item) => item.type === "error")).toBe(false);
   // Its record is gone with it, so the next startup does not report the agent lost again.
   expect(await worker.applied.read(agent.id)).toBeNull();
+});
+
+test("a host that is gone loses its session at once instead of waiting out the window", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  const host = await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  worker.routing.reattach = {
+    windowMs: 60_000,
+    aliveWindowMs: 120_000,
+    initialDelayMs: 20,
+    maxDelayMs: 50,
+  };
+  const agent = await runningAgent(worker, workdir);
+  await settled(worker, paths, agent.id);
+  // A closed host releases its lock: no process holds it, so nothing could still run the turn.
+  await host.close();
+
+  await expect.poll(() => worker.continued, { timeout: 3_000 }).toEqual([agent.id]);
+  expect(providers).toHaveLength(1);
 });
 
 test("a session keeps reattaching past its window while the host process lives", async () => {

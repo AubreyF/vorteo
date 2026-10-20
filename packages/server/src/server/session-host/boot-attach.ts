@@ -70,7 +70,7 @@ export async function planHostedStartup(input: {
   if (!client) {
     // Startup does not wait for a host that is alive but slow: its sessions may still run, and
     // loading each agent takes it over then. Only a host that is gone took its sessions along.
-    if (!(await routing.connector.hostAlive())) plan.lost = [...records.keys()];
+    if ((await routing.connector.hostState()) === "gone") plan.lost = [...records.keys()];
     return plan;
   }
   plan.hostReachable = true;
