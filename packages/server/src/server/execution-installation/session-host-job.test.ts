@@ -25,7 +25,8 @@ import {
   sessionHostLabel,
   type SessionHostPorts,
 } from "./session-host-job.js";
-import { createNativeSessionHostPorts } from "./session-host-job-native.js";
+import { classifyQueryFailure, createNativeSessionHostPorts } from "./session-host-job-native.js";
+import { SessionHostClientError } from "../session-host/client.js";
 
 // Every effect is fake: no launchctl, plutil, files or processes outside this test.
 const INSTALLATION_ID = "00000000-0000-4000-8000-000000000001";
@@ -587,25 +588,82 @@ test("status detail reports the plist, launchd's record, the host and the settin
   expect(changed).toMatchObject({ supported: false, detail: { plist: "different" } });
 });
 
+test("only a missing listener or a greeting that never arrives counts as silence", () => {
+  for (const code of [
+    "disconnected",
+    "version",
+    "unauthorized",
+    "invalid_frame",
+    "not_found",
+  ] as const)
+    expect(classifyQueryFailure(new SessionHostClientError(code, "live host")), code).toBe(
+      "refused",
+    );
+  for (const code of ["unavailable", "timeout"] as const)
+    expect(classifyQueryFailure(new SessionHostClientError(code, "silent")), code).toBeNull();
+  expect(classifyQueryFailure(new Error("token unreadable"))).toBeNull();
+});
+
+/** A stand-in host on a real socket: greets with the given version, then ignores requests. */
+function fakeHost(greeting: ((socket: net.Socket) => void) | null) {
+  return net.createServer((socket) => {
+    if (!greeting) {
+      socket.destroy();
+      return;
+    }
+    socket.once("data", () => greeting(socket));
+  });
+}
+
+function greet(protocolVersion: number) {
+  return (socket: net.Socket) =>
+    socket.write(
+      `${JSON.stringify({
+        type: "hello",
+        protocolVersion,
+        host: { id: "fake-host", pid: process.pid, startedAt: new Date().toISOString() },
+        mcpToken: "fake-tool-token",
+      })}\n`,
+    );
+}
+
 test.skipIf(process.getuid === undefined)(
-  "the native status query tells a refusing host from an absent one",
+  "the native status query treats every sign of a live host as a refusal",
   async () => {
     // Under /tmp so the socket path stays within the platform limit.
     const directory = realpathSync(mkdtempSync("/tmp/dshq-"));
     const home = path.join(directory, "home");
     const paths = sessionHostPaths(home);
-    const refusing = net.createServer((socket) => socket.destroy());
+    const ports = createNativeSessionHostPorts({ listTimeoutMs: 200 });
+    const servers: net.Server[] = [];
+    const serve = async (server: net.Server) => {
+      servers.push(server);
+      await new Promise<void>((resolve) => server.listen(paths.socketPath, resolve));
+    };
+    const stop = (server: net.Server) =>
+      new Promise<void>((resolve) => server.close(() => resolve()));
     try {
       await preparePrivateDirectory(paths.directory);
       await rotateSessionHostToken(paths);
-      await new Promise<void>((resolve) => refusing.listen(paths.socketPath, resolve));
-      const ports = createNativeSessionHostPorts();
       // Closing before the greeting is what a live host does at its connection limit.
+      const closing = fakeHost(null);
+      await serve(closing);
       expect(await ports.queryHost(home)).toBe("refused");
-      await new Promise<void>((resolve) => refusing.close(() => resolve()));
+      await stop(closing);
+      // A newer host greets with another protocol version: alive, though this client cannot talk.
+      const newer = fakeHost(greet(999));
+      await serve(newer);
+      expect(await ports.queryHost(home)).toBe("refused");
+      await stop(newer);
+      // A host that greets but never lists its sessions is alive too, and the query still ends.
+      const stalled = fakeHost(greet(1));
+      await serve(stalled);
+      expect(await ports.queryHost(home)).toBe("refused");
+      await stop(stalled);
+      // Nothing listening: no sign of life.
       expect(await ports.queryHost(home)).toBeNull();
     } finally {
-      refusing.close();
+      for (const server of servers) server.close();
       rmSync(directory, { recursive: true, force: true });
     }
   },

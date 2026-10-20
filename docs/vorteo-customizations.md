@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-20): session host removal treats any answer from the host, including a protocol version mismatch, as a live host that is never stopped by force, and status queries no longer wait unbounded for the session list. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-20): applied the session host job review follow-ups. The lifecycle queue now registers the release guard whenever source updates exist, and job status text matches its behavior. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-20): session host removal no longer force-stops a host that refuses the coordinator's connection, since only a live host can refuse. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
