@@ -3,7 +3,11 @@ import { blockedReviewDue } from "./task-checklist/blocked-review.js";
 import { MessageQueueService } from "../message-queue/service.js";
 import { MessageQueueStore } from "../message-queue/store.js";
 import { QueueAttachmentStore } from "../message-queue/attachments.js";
-import { TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
+import {
+  AGENT_LAUNCH_GUIDANCE,
+  PREVIEW_LINK_GUIDANCE,
+  TASK_CHECKLIST_GUIDANCE,
+} from "./system-prompt.js";
 import { CodexGoals } from "./providers/codex/goals.js";
 import type { AgentGoal } from "@getpaseo/protocol/agent-goals";
 import { expect, test, vi } from "vitest";
@@ -3397,7 +3401,7 @@ test("createAgent injects daemon append system prompt at runtime only", async ()
 
   expect(client.createdConfigs[0]?.systemPrompt).toBe("Agent instructions.");
   expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
-    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+    `${AGENT_LAUNCH_GUIDANCE}\n\nDaemon instructions.`,
   );
   expect(snapshot.config).not.toHaveProperty("daemonAppendSystemPrompt");
   expect(record?.config?.systemPrompt).toBe("Agent instructions.");
@@ -3433,7 +3437,7 @@ test("daemon append system prompt is injected into Pi configs", async () => {
   );
 
   expect(client.createdConfigs[0]?.daemonAppendSystemPrompt).toBe(
-    `${TASK_CHECKLIST_GUIDANCE}\n\nDaemon instructions.`,
+    `${AGENT_LAUNCH_GUIDANCE}\n\nDaemon instructions.`,
   );
 });
 
@@ -4040,7 +4044,7 @@ test("createAgent passes daemon launch env through the provider launch context",
   );
 
   expect(client.lastConfig).toEqual({
-    daemonAppendSystemPrompt: TASK_CHECKLIST_GUIDANCE,
+    daemonAppendSystemPrompt: AGENT_LAUNCH_GUIDANCE,
     provider: "codex",
     cwd: workdir,
     model: "gpt-5.4",
@@ -14389,4 +14393,13 @@ test("uncapped frozen profiles admit more than eight managed fake workers and st
     await manager.flush();
     rmSync(workdir, { recursive: true, force: true });
   }
+});
+
+test("launch guidance requires verified Tailscale preview links", () => {
+  expect(AGENT_LAUNCH_GUIDANCE).toBe(`${TASK_CHECKLIST_GUIDANCE}\n\n${PREVIEW_LINK_GUIDANCE}`);
+  expect(PREVIEW_LINK_GUIDANCE).toContain(
+    "verified Tailscale HTTPS links from the managed preview broker",
+  );
+  expect(PREVIEW_LINK_GUIDANCE).toContain("never an IP, localhost or *.localhost address");
+  expect(PREVIEW_LINK_GUIDANCE).toContain("~/.agents/skills/paseo-preview/SKILL.md");
 });

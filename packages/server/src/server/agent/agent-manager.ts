@@ -6,7 +6,7 @@ import {
 } from "./task-checklist/blocked-review.js";
 import { JournalError } from "./journal/model.js";
 import { editThreadGoal, type ThreadGoalEdit } from "./agent-goal.js";
-import { composeSystemPromptParts, TASK_CHECKLIST_GUIDANCE } from "./system-prompt.js";
+import { AGENT_LAUNCH_GUIDANCE, composeSystemPromptParts } from "./system-prompt.js";
 import {
   mergeProviderChecklistEvent,
   mergeProviderChecklist,
@@ -7023,7 +7023,7 @@ export class AgentManager {
 
   private applyDaemonAppendSystemPrompt(config: AgentSessionConfig): AgentSessionConfig {
     const daemonAppendSystemPrompt = composeSystemPromptParts(
-      config.internal ? undefined : TASK_CHECKLIST_GUIDANCE,
+      config.internal ? undefined : AGENT_LAUNCH_GUIDANCE,
       this.appendSystemPrompt,
     );
     const next = { ...config };
