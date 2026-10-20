@@ -384,7 +384,7 @@ test("a watchdog kill after the start fails the install and removes the job", as
     ),
   );
   await expect(installSessionHost({ plan: install, ports, reportStage: () => {} })).rejects.toThrow(
-    "The session host watchdog killed the new host. The job was removed again",
+    "The session host watchdog killed the host during the install check. The job was removed again",
   );
   expect(state.files.has(PLIST)).toBe(false);
 });

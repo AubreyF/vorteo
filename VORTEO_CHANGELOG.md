@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.714 - 2026-10-20
+
+### Changed
+
+- The lifecycle queue registers the session host release guard itself whenever source updates select Host releases, on every platform, so no coordinator entry point can select a Host release unguarded.
+- An approved session host operation says it waits for pending restarts and other lifecycle work. A failed install names a watchdog kill during the install check, and the removal card says removal is refused while hosted sessions run.
+
 ## 0.11.0-beta.3.vorteo.713 - 2026-10-20
 
 ### Fixed

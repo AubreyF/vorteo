@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import {
   SessionHostPlanSchema,
@@ -81,6 +82,18 @@ export interface SessionHostPorts {
 
 export function sessionHostLabel(installationId: string): string {
   return `local.vorteo.${installationId}.session-host`;
+}
+
+/** The user's LaunchAgents directory, where the Host and session host plists live. */
+export function defaultLaunchAgentsDirectory(): string {
+  return path.join(os.homedir(), "Library", "LaunchAgents");
+}
+
+export function sessionHostPlistPath(
+  installationId: string,
+  launchAgentsDirectory: string,
+): string {
+  return path.join(launchAgentsDirectory, `${sessionHostLabel(installationId)}.plist`);
 }
 
 export function sessionHostPlanSha256(plan: SessionHostPlan): string {
@@ -168,7 +181,7 @@ export async function deriveSessionHostPlan(input: {
   if (service.uid !== ports.uid)
     throw new SessionHostJobError("The coordinator does not run as the Host job's user.");
   const label = sessionHostLabel(config.public.installationId);
-  const plistPath = path.join(ports.launchAgentsDirectory, `${label}.plist`);
+  const plistPath = sessionHostPlistPath(config.public.installationId, ports.launchAgentsDirectory);
   const partial = {
     version: 1 as const,
     operation,
@@ -294,7 +307,9 @@ export async function installSessionHost(input: {
     const job = answer ? await readLaunchdJob(plan.label, ports) : null;
     if (answer && job?.pid === answer.pid) {
       if (await watchdogKilledSince(plan, startedAt, ports)) {
-        failure = "The session host watchdog killed the new host.";
+        // Strict on purpose: a host killed during the check is not accepted even though
+        // launchd starts another one.
+        failure = "The session host watchdog killed the host during the install check.";
         break;
       }
       return {
@@ -462,8 +477,9 @@ export async function inspectSessionHost(input: {
     ? await ports.exists(path.join(current, SESSION_HOST_ENTRYPOINT))
     : false;
   const label = sessionHostLabel(config.public.installationId);
-  const plistPath = path.join(ports.launchAgentsDirectory, `${label}.plist`);
-  const plist = await ports.readFile(plistPath);
+  const plist = await ports.readFile(
+    sessionHostPlistPath(config.public.installationId, ports.launchAgentsDirectory),
+  );
   const job = await readLaunchdJob(label, ports);
   const installed = plist !== null || job !== null;
   if (!input.detail) return { supported, installed };

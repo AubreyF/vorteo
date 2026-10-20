@@ -7,14 +7,9 @@ import { createNativeMaintenanceServiceRouter } from "./coordinator-bootstrap-ma
 import { initializePackagedClaudeCli } from "../agent/providers/claude/packaged-cli.js";
 import { createPreviewMonitorExecutor } from "./preview-monitor-executor.js";
 import { realpathSync } from "node:fs";
-import path from "node:path";
 import { createNativeHelperExecutor } from "./native-helper-executor.js";
-import { createSessionHostExecutor, sessionHostLabel } from "./session-host-job.js";
+import { createSessionHostExecutor } from "./session-host-job.js";
 import { createNativeSessionHostPorts } from "./session-host-job-native.js";
-import {
-  createSessionHostReleaseGuard,
-  setReleaseSelectionGuard,
-} from "./release-selection-guard.js";
 import {
   inspectBootstrapWritableMountRoots,
   createBootstrapReconciliationLedger,
@@ -99,21 +94,12 @@ if (config.nativeHelper) {
   );
 }
 // The coordinator owns the session host's launchd job wherever Host releases are selected
-// through the current link. Every Host release selection then refuses a release without the
-// session host while the job is installed.
-if (config.sourceUpdates && config.host.startupValidation && process.platform === "darwin") {
-  const ports = createNativeSessionHostPorts();
-  Object.assign(executor, createSessionHostExecutor({ config, ports }));
-  setReleaseSelectionGuard(
-    createSessionHostReleaseGuard({
-      currentReleaseLink: config.sourceUpdates.currentReleaseLink,
-      plistPath: path.join(
-        ports.launchAgentsDirectory,
-        `${sessionHostLabel(config.public.installationId)}.plist`,
-      ),
-    }),
+// through the current link. The lifecycle queue registers the matching release guard itself.
+if (config.sourceUpdates && config.host.startupValidation && process.platform === "darwin")
+  Object.assign(
+    executor,
+    createSessionHostExecutor({ config, ports: createNativeSessionHostPorts() }),
   );
-}
 if (config.previewMonitor)
   Object.assign(
     executor,

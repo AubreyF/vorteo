@@ -84,7 +84,7 @@ export function sessionHostRequestDisabledReason(
   if (status.detail?.settingEnabled)
     return "Turn off durable sessions first. Removal is refused while the setting is on.";
   if (status.detail?.host?.sessions)
-    return "Hosted sessions are still running. Removal waits until none remain.";
+    return "Hosted sessions are still running. Removal is refused until none remain.";
   return null;
 }
 

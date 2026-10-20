@@ -8,6 +8,7 @@ import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
 import { MaintenanceServiceProposalSchema } from "@getpaseo/protocol/maintenance-service";
 import type { SessionHostStatus } from "@getpaseo/protocol/session-host-maintenance";
+import { ensureSessionHostReleaseGuard } from "./release-selection-guard.js";
 import { maintenanceServiceView } from "./maintenance/service-view.js";
 import { FileEnrollmentJournal } from "./maintenance/authorization.js";
 import {
@@ -388,6 +389,8 @@ export function createInstallationServer(
     Boolean(config.restartApprovalPolicy),
     config.restartApprovalPolicy?.hostRequestsAfter,
   );
+  // Host release selection runs only through this queue, so it never starts unguarded.
+  ensureSessionHostReleaseGuard(config);
   const restarts = new InstallationRestarts(
     standingRuntime.journal,
     restartExecutor,

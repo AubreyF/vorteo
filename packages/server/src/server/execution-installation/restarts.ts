@@ -746,7 +746,8 @@ export class InstallationRestarts {
         ...job,
         status: "approved",
         approvedAt: new Date(this.now()).toISOString(),
-        detail: "Approved. The operation starts when no other lifecycle work runs.",
+        detail:
+          "Approved. The operation starts after pending restarts and other lifecycle work finish.",
       });
     }
     return structuredClone(this.sessionHosts.find((item) => item.id === job.id)!);

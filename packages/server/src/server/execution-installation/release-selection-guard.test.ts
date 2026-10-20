@@ -2,9 +2,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
+import type { InstallationConfig } from "./config.js";
 import {
   assertReleaseSelectionAllowed,
   createSessionHostReleaseGuard,
+  ensureSessionHostReleaseGuard,
+  releaseSelectionGuardRegistered,
   SessionHostReleaseRefused,
   setReleaseSelectionGuard,
 } from "./release-selection-guard.js";
@@ -84,5 +87,32 @@ test("selection checks nothing until a guard is registered", () => {
   );
   expect(() => assertReleaseSelectionAllowed({ link: f.link, candidate: f.unsupported })).toThrow(
     SessionHostReleaseRefused,
+  );
+});
+
+test("a coordinator that selects Host releases registers the guard itself, keeping any other", () => {
+  const f = fixture();
+  const config = {
+    public: { installationId: "00000000-0000-4000-8000-000000000001" },
+  } as InstallationConfig;
+  ensureSessionHostReleaseGuard(config);
+  expect(releaseSelectionGuardRegistered()).toBe(false);
+  const selecting = {
+    ...config,
+    sourceUpdates: { currentReleaseLink: f.link },
+  } as InstallationConfig;
+  ensureSessionHostReleaseGuard(selecting);
+  expect(releaseSelectionGuardRegistered()).toBe(true);
+  // No session host plist exists for this installation, so nothing is refused.
+  expect(() =>
+    assertReleaseSelectionAllowed({ link: f.link, candidate: f.unsupported }),
+  ).not.toThrow();
+  const refuseAll = () => {
+    throw new SessionHostReleaseRefused("registered");
+  };
+  setReleaseSelectionGuard(refuseAll);
+  ensureSessionHostReleaseGuard(selecting);
+  expect(() => assertReleaseSelectionAllowed({ link: f.link, candidate: f.supported })).toThrow(
+    "release registered",
   );
 });

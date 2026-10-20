@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { access, readFile, rename, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { connectSessionHost, SessionHostClientError } from "../session-host/client.js";
 import {
@@ -12,6 +11,7 @@ import {
 } from "../session-host/host-files.js";
 import { readDurableSessionsSettings } from "../session-host/settings.js";
 import {
+  defaultLaunchAgentsDirectory,
   SESSION_HOST_STATUS_RELEASE,
   type SessionHostAnswer,
   type SessionHostPorts,
@@ -87,7 +87,7 @@ export function createNativeSessionHostPorts(): SessionHostPorts {
   if (uid === undefined) throw new Error("The session host job requires macOS.");
   return {
     uid,
-    launchAgentsDirectory: path.join(os.homedir(), "Library", "LaunchAgents"),
+    launchAgentsDirectory: defaultLaunchAgentsDirectory(),
     readFile: readOptional,
     writePrivateFile: writePrivateFileAtomic,
     removeFile: (file) => rm(file, { force: true }),

@@ -1,7 +1,12 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
+import type { InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
-import { SESSION_HOST_ENTRYPOINT } from "./session-host-job.js";
+import {
+  defaultLaunchAgentsDirectory,
+  SESSION_HOST_ENTRYPOINT,
+  sessionHostPlistPath,
+} from "./session-host-job.js";
 
 /** One proposed switch of a release link to a candidate release directory. */
 export interface ReleaseSelection {
@@ -31,13 +36,30 @@ function linkIdentity(link: string): string {
 }
 
 /**
- * The coordinator registers its guard once at startup. Every Host release selection, from source
- * updates and from supervisor maintenance alike, then passes through the same check. Selection
- * code runs deep in custody-checked paths with no configuration of its own, so the guard is
- * registered rather than passed down.
+ * The guard is registered rather than passed down, because selection code runs deep in
+ * custody-checked paths with no configuration of its own. Every Host release selection, from
+ * source updates and from supervisor maintenance alike, passes through the same check. The
+ * lifecycle queue registers it when it is created, so no entry point can forget it.
  */
 export function setReleaseSelectionGuard(guard: ReleaseSelectionGuard | null): void {
   registered = guard;
+}
+
+export function releaseSelectionGuardRegistered(): boolean {
+  return registered !== null;
+}
+
+/**
+ * Registers the session host guard for a coordinator that selects Host releases, unless one is
+ * already registered. It needs only the current link and the plist path, so it applies on every
+ * platform; where no session host plist can exist it never refuses.
+ */
+export function ensureSessionHostReleaseGuard(config: InstallationConfig): void {
+  if (!config.sourceUpdates || registered) return;
+  registered = createSessionHostReleaseGuard({
+    currentReleaseLink: config.sourceUpdates.currentReleaseLink,
+    plistPath: sessionHostPlistPath(config.public.installationId, defaultLaunchAgentsDirectory()),
+  });
 }
 
 /** Throws when the registered guard refuses the selection; checks nothing when none is set. */
