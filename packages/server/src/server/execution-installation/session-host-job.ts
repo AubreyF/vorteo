@@ -65,8 +65,11 @@ export interface SessionHostPorts {
   removeFile(file: string): Promise<void>;
   exists(file: string): Promise<boolean>;
   preparePrivateDirectory(directory: string): Promise<void>;
-  /** The host's identity and session count, or null when it does not answer. */
-  queryHost(paseoHome: string): Promise<SessionHostAnswer | null>;
+  /**
+   * The host's identity and session count; "refused" when it closed the connection before
+   * greeting, which only a live host can do; null when it does not answer at all.
+   */
+  queryHost(paseoHome: string): Promise<SessionHostAnswer | "refused" | null>;
   /** What the host lock proves; see readSessionHostLock. */
   hostLock(paseoHome: string): Promise<SessionHostLockState>;
   processCommand(pid: number): Promise<string | null>;
@@ -286,7 +289,8 @@ export async function installSessionHost(input: {
   const deadline = ports.now() + INSTALL_ANSWER_DEADLINE_MS;
   let failure = "The session host did not answer after installation.";
   for (;;) {
-    const answer = await ports.queryHost(plan.paseoHome);
+    const reply = await ports.queryHost(plan.paseoHome);
+    const answer = reply === "refused" ? null : reply;
     const job = answer ? await readLaunchdJob(plan.label, ports) : null;
     if (answer && job?.pid === answer.pid) {
       if (await watchdogKilledSince(plan, startedAt, ports)) {
@@ -341,8 +345,20 @@ export async function removeSessionHost(input: {
   input.reportStage("applying");
   let forced = false;
   let silentSince: number | null = null;
+  const startedAt = ports.now();
   for (;;) {
     const answer = await ports.queryHost(plan.paseoHome);
+    if (answer === "refused") {
+      // Refusing a connection proves the host is alive and may be serving workers, so it is
+      // never silent enough to force. Give up rather than wait forever.
+      silentSince = null;
+      if (ports.now() - startedAt >= FORCED_STOP_AFTER_MS)
+        throw new SessionHostJobError(
+          "The session host keeps refusing connections and may still run sessions. Nothing was changed; try again later.",
+        );
+      await ports.sleep(UNANSWERED_POLL_MS);
+      continue;
+    }
     if (answer) {
       if (answer.sessions > 0)
         throw new SessionHostJobError(
@@ -412,6 +428,25 @@ async function stopLockHolder(plan: SessionHostPlan, ports: SessionHostPorts): P
   }
 }
 
+/** Whether an installed plist is the one an install would write now. */
+async function comparePlist(
+  config: InstallationConfig,
+  ports: SessionHostPorts,
+  plist: Buffer | null,
+): Promise<"absent" | "matching" | "different"> {
+  if (!plist) return "absent";
+  try {
+    const planned = await deriveSessionHostPlan({
+      config,
+      operation: "session-host-install",
+      ports,
+    });
+    return digest(plist) === planned.plistSha256 ? "matching" : "different";
+  } catch {
+    return "different";
+  }
+}
+
 /**
  * What the coordinator observes about the job. Details are for the Host token and owners only;
  * the host is asked only when detail is requested, so status checks stay out of its audit log.
@@ -432,21 +467,10 @@ export async function inspectSessionHost(input: {
   const job = await readLaunchdJob(label, ports);
   const installed = plist !== null || job !== null;
   if (!input.detail) return { supported, installed };
-  let plistState: "absent" | "matching" | "different" = "absent";
-  if (plist) {
-    try {
-      const planned = await deriveSessionHostPlan({
-        config,
-        operation: "session-host-install",
-        ports,
-      });
-      plistState = digest(plist) === planned.plistSha256 ? "matching" : "different";
-    } catch {
-      plistState = "different";
-    }
-  }
+  const plistState = await comparePlist(config, ports, plist);
   const home = config.host.startupValidation?.home;
-  const answer = home && job ? await ports.queryHost(home) : null;
+  const reply = home && job ? await ports.queryHost(home) : null;
+  const answer = reply === "refused" ? null : reply;
   return {
     supported,
     installed,

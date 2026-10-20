@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { access, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { connectSessionHost } from "../session-host/client.js";
+import { connectSessionHost, SessionHostClientError } from "../session-host/client.js";
 import {
   preparePrivateDirectory,
   readSessionHostLock,
@@ -39,8 +39,12 @@ async function writePrivateFileAtomic(file: string, data: string): Promise<void>
   }
 }
 
-/** Identity and session count; null when the host does not answer. Never returns tokens. */
-async function queryHost(paseoHome: string): Promise<SessionHostAnswer | null> {
+/**
+ * Identity and session count; "refused" when the host closed the connection before greeting, as
+ * it does at its connection limit or while closing; null when it does not answer. Never returns
+ * tokens.
+ */
+async function queryHost(paseoHome: string): Promise<SessionHostAnswer | "refused" | null> {
   const paths = sessionHostPaths(paseoHome);
   try {
     const client = await connectSessionHost({
@@ -59,8 +63,10 @@ async function queryHost(paseoHome: string): Promise<SessionHostAnswer | null> {
     } finally {
       client.close();
     }
-  } catch {
-    return null;
+  } catch (error) {
+    return error instanceof SessionHostClientError && error.code === "disconnected"
+      ? "refused"
+      : null;
   }
 }
 

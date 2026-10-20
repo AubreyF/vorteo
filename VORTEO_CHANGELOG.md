@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.713 - 2026-10-20
+
+### Fixed
+
+- Session host removal never force-stops a host that refuses the coordinator's connection, as it does at its connection limit, because refusing proves the host is alive and may still serve workers. After five minutes of refusals the removal fails without changes.
+
 ## 0.11.0-beta.3.vorteo.712 - 2026-10-20
 
 The installation coordinator owns the durable session host's launchd job as tracked, owner-approved lifecycle work. Installing the job never turns durable sessions on.

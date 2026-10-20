@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-20): session host removal no longer force-stops a host that refuses the coordinator's connection, since only a live host can refuse. Functionality is otherwise unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-20): the installation coordinator can install, inspect and remove the durable session host's launchd job as owner-approved lifecycle work, on top of installed source vorteo.711. Host restarts and updates leave the job alone, release selection refuses a release without the session host while the job exists, and the setting stays off until the owner enables it. Live installation needs a coordinator update. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-20): integrated the reviewed Host-owned Claude refresh into the next Host update, after durable sessions and checklist progress. Only version metadata and these notes conflicted. The feature stays off by default and README overview and onboarding are unchanged.

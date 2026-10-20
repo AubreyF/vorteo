@@ -4,6 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SessionHostPlan } from "@getpaseo/protocol/session-host-maintenance";
 import { expect, test } from "vitest";
+import net from "node:net";
+import {
+  preparePrivateDirectory,
+  rotateSessionHostToken,
+  sessionHostPaths,
+} from "../session-host/host-files.js";
 import { bootoutJob, LaunchctlError, type CommandRunner } from "../session-host/launchd.js";
 import type { InstallationConfig } from "./config.js";
 import {
@@ -77,6 +83,8 @@ interface FakeHost {
   pid: number;
   sessions: number;
   answers: boolean;
+  /** Closes the coordinator's connection before greeting, as at its connection limit. */
+  refuses?: boolean;
   /** Keeps running after bootout until SIGKILL. */
   survivesBootout?: boolean;
 }
@@ -180,6 +188,7 @@ function fakeInstallation() {
       expect(paseoHome).toBe(HOME);
       state.queries += 1;
       const host = state.host;
+      if (host?.refuses) return "refused";
       return host?.answers ? { pid: host.pid, release: "fixture", sessions: host.sessions } : null;
     },
     hostLock: async () =>
@@ -449,6 +458,23 @@ test("a silent host is stopped only after the workers' alive window, and the sto
   expect(fake.state.files.has(PLIST)).toBe(false);
 });
 
+test("a host that refuses the coordinator is alive, so it is never stopped by force", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.host!.refuses = true;
+  const started = fake.state.clock;
+  await expect(
+    removeSessionHost({
+      plan: await plan(fake.ports, "session-host-remove"),
+      ports: fake.ports,
+      reportStage: () => {},
+    }),
+  ).rejects.toThrow("The session host keeps refusing connections and may still run sessions.");
+  expect(fake.state.clock - started).toBeGreaterThanOrEqual(FORCED_STOP_AFTER_MS);
+  expect(fake.state.calls).toEqual([]);
+  expect(fake.state.files.has(PLIST)).toBe(true);
+});
+
 test("turning the setting on while a silent host is awaited keeps the job", async () => {
   const fake = fakeInstallation();
   await installed(fake);
@@ -560,6 +586,30 @@ test("status detail reports the plist, launchd's record, the host and the settin
   });
   expect(changed).toMatchObject({ supported: false, detail: { plist: "different" } });
 });
+
+test.skipIf(process.getuid === undefined)(
+  "the native status query tells a refusing host from an absent one",
+  async () => {
+    // Under /tmp so the socket path stays within the platform limit.
+    const directory = realpathSync(mkdtempSync("/tmp/dshq-"));
+    const home = path.join(directory, "home");
+    const paths = sessionHostPaths(home);
+    const refusing = net.createServer((socket) => socket.destroy());
+    try {
+      await preparePrivateDirectory(paths.directory);
+      await rotateSessionHostToken(paths);
+      await new Promise<void>((resolve) => refusing.listen(paths.socketPath, resolve));
+      const ports = createNativeSessionHostPorts();
+      // Closing before the greeting is what a live host does at its connection limit.
+      expect(await ports.queryHost(home)).toBe("refused");
+      await new Promise<void>((resolve) => refusing.close(() => resolve()));
+      expect(await ports.queryHost(home)).toBeNull();
+    } finally {
+      refusing.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 /**
  * One real round trip through launchd and the built session host, run only on request because it
