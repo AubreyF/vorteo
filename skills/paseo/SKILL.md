@@ -73,6 +73,8 @@ paseo script start <name> [--cwd <path> | --workspace <workspace-id>]
 paseo script stop <name> [--cwd <path> | --workspace <workspace-id>]
 ```
 
+Script proxy URLs and ports are local routing details. To show a running app to the owner or anyone else, load the **paseo-preview** skill and share only the verified Tailscale HTTPS URL its managed broker returns.
+
 ## Agents
 
 **`create_agent`** — required: `title`, `provider` (`claude/opus`, `codex/gpt-5.4`, …), `initialPrompt`. Optional: `workspaceId`, `notifyOnFinish`, `settings`, `labels`. Returns `{ agentId, workspaceId, … }`.
