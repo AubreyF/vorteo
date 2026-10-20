@@ -4,6 +4,13 @@ import { tmpdir } from "node:os";
 import { test, expect } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { connectSeedClient } from "../support/helpers/seed-client";
+import {
+  addProjectFlowInput,
+  addProjectFlowLocation,
+  browseAddProjectFolderPath,
+  chooseAddProjectMethod,
+  openAddProjectFlow,
+} from "../support/helpers/add-project-flow";
 
 const filesystemRoot = path.parse(tmpdir()).root;
 const hostHome = path.join(filesystemRoot, "host-example");
@@ -26,67 +33,45 @@ test.use({
   },
 });
 
-test("browses shared host folders, opens a project, and explains unshared host paths", async ({
+test("browses shared host folders by host path, opens a project, and explains unshared paths", async ({
   page,
 }, info) => {
   const root = await mkdtemp(path.join(tmpdir(), "paseo-browser-"));
   const projectPath = path.join(root, "Project");
   await mkdir(projectPath);
+  const hostRoot = `~/Documents/${path.relative(filesystemRoot, root).split(path.sep).join("/")}`;
   let projectId: string | null = null;
   try {
     await gotoAppShell(page);
-    for (const enabled of [false, true]) {
-      await page.evaluate((value) => {
-        localStorage.setItem(
-          "@paseo:e2e-disable-default-seed-once",
-          localStorage.getItem("@paseo:e2e-seed-nonce") ?? "",
-        );
-        const key = "@paseo:create-agent-preferences";
-        localStorage.setItem(
-          key,
-          JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? "{}"), vortonMode: value }),
-        );
-      }, enabled);
-      await page.reload();
-      await page.getByTestId("sidebar-footer-overflow").click();
-      await page.getByTestId("sidebar-add-project").click();
-      await page.getByTestId("add-project-flow-method-shared-folders").click();
-      const input = page.getByTestId("project-directory-host-path");
-      await input.fill("~/Downloads/unshared");
-      await page.getByTestId("project-directory-open-path").click();
-      await expect(page.getByTestId("project-directory-error")).toContainText("not shared");
-      await input.fill(
-        `~/Documents/${path.relative(filesystemRoot, root).split(path.sep).join("/")}`,
-      );
-      await page.getByTestId("project-directory-open-path").click();
-      await page.getByTestId("project-directory-child-Project").click();
-      await expect(page.getByTestId("project-directory-browser")).toContainText(projectPath);
-      await page.screenshot({ path: info.outputPath(`folders-${enabled}.png`) });
-      await page.getByTestId("add-project-flow-back").click();
-      await page.getByTestId("add-project-flow-method-shared-folders").click();
-      await page
-        .getByTestId("project-directory-host-path")
-        .fill(
-          `~/Documents/${path.relative(filesystemRoot, projectPath).split(path.sep).join("/")}`,
-        );
-      await page.getByTestId("project-directory-open-path").click();
-      await expect(page.getByTestId("project-directory-select")).toBeVisible();
-      if (!enabled) await page.keyboard.press("Escape");
-    }
+    await openAddProjectFlow(page);
+    await chooseAddProjectMethod(page, "open-folder");
+    // Shared folders are listed by their host path, ahead of container storage.
+    await expect(
+      page.getByTestId(`add-project-flow-location-${encodeURIComponent("root:projects")}`),
+    ).toContainText(path.join(hostHome, "Documents"));
+
+    await addProjectFlowInput(page).fill("~/Downloads/unshared");
+    await page.getByTestId("add-project-flow-go-to").click();
+    await expect(page.getByTestId("add-project-flow-query-error")).toContainText("not shared");
+
+    await browseAddProjectFolderPath(page, hostRoot, path.basename(root));
+    await page.getByTestId("add-project-flow-folder-Project").click();
+    await expect(addProjectFlowLocation(page)).toContainText(`${path.basename(root)}/Project`);
+    await expect(page.getByTestId("add-project-flow-location")).toContainText("Shared folder");
+    await expect(addProjectFlowLocation(page)).toContainText(path.join(hostHome, "Documents"));
+    await page.screenshot({ path: info.outputPath("folders-desktop.png") });
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
     await page.getByTestId("sidebar-footer-overflow").click();
     await page.getByTestId("sidebar-add-project").click();
-    await page.getByTestId("add-project-flow-method-shared-folders").click();
-    await page
-      .getByTestId("project-directory-host-path")
-      .fill(`~/Documents/${path.relative(filesystemRoot, projectPath).split(path.sep).join("/")}`);
-    await page.getByTestId("project-directory-open-path").click();
-    await expect(page.getByTestId("project-directory-select")).toBeVisible();
+    await chooseAddProjectMethod(page, "open-folder");
+    await browseAddProjectFolderPath(page, `${hostRoot}/Project`, "Project");
+    await expect(page.getByTestId("add-project-flow-use-folder")).toBeVisible();
     await page.screenshot({ path: info.outputPath("folders-compact.png") });
-    await page.getByTestId("project-directory-select").click();
+    await page.getByTestId("add-project-flow-use-folder").click();
     await expect(page).toHaveURL(/\/new\?.*projectId=/);
     const url = new URL(page.url());
     projectId = url.searchParams.get("projectId");
@@ -104,21 +89,22 @@ test("browses shared host folders, opens a project, and explains unshared host p
   }
 });
 
-test("new directories use the chosen shared parent", async ({ page }) => {
+test("new project folders are created in the browsed shared folder", async ({ page }) => {
   const root = await mkdtemp(path.join(tmpdir(), "paseo-shared-parent-"));
   const projectPath = path.join(root, "Created");
   let projectId: string | null = null;
   try {
     await gotoAppShell(page);
-    await page.getByTestId("sidebar-add-project").click();
-    await page.getByTestId("add-project-flow-method-new-directory").click();
-    await page.getByTestId("add-project-toggle-browser").click();
-    await page
-      .getByTestId("project-directory-host-path")
-      .fill(`~/Documents/${path.relative(filesystemRoot, root).split(path.sep).join("/")}`);
-    await page.getByTestId("project-directory-open-path").click();
-    await page.getByTestId("project-directory-select").click();
-    await page.getByTestId("add-project-flow-input").fill("Created");
+    await openAddProjectFlow(page);
+    await chooseAddProjectMethod(page, "new-directory");
+    await browseAddProjectFolderPath(
+      page,
+      `~/Documents/${path.relative(filesystemRoot, root).split(path.sep).join("/")}`,
+      path.basename(root),
+    );
+    await page.keyboard.type("Created");
+    const create = page.getByTestId("add-project-flow-create-folder");
+    await expect(create).toContainText(`${path.basename(root)}/Created`);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/new\?.*projectId=/);
     const url = new URL(page.url());

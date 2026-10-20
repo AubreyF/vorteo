@@ -290,7 +290,7 @@ test.describe("New workspace flow", () => {
       await addProject.click();
 
       await expectAddProjectPage(page, "method");
-      await chooseAddProjectMethod(page, "directory-search");
+      await chooseAddProjectMethod(page, "open-folder");
     } finally {
       await repo.cleanup();
     }

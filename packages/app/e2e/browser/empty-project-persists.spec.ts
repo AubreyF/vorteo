@@ -53,7 +53,7 @@ async function removeProjectFromSidebar(page: Page, projectViewKey: string): Pro
 
 async function addProjectFromPicker(page: Page, projectPath: string): Promise<string> {
   await openAddProjectFlow(page);
-  await chooseAddProjectMethod(page, "directory-search");
+  await chooseAddProjectMethod(page, "open-folder");
 
   const input = addProjectFlowInput(page);
   await input.fill(projectPath);
@@ -85,7 +85,7 @@ test.describe("Project picker search", () => {
     await gotoAppShell(page);
     await waitForSidebarProjectListReady(page);
     await openAddProjectFlow(page);
-    await chooseAddProjectMethod(page, "directory-search");
+    await chooseAddProjectMethod(page, "open-folder");
 
     const input = addProjectFlowInput(page);
     await input.fill(projectPickerFixture.fuzzyQuery);
@@ -104,7 +104,7 @@ test.describe("Project picker search", () => {
     await gotoAppShell(page);
     await waitForSidebarProjectListReady(page);
     await openAddProjectFlow(page);
-    await chooseAddProjectMethod(page, "directory-search");
+    await chooseAddProjectMethod(page, "open-folder");
 
     const input = addProjectFlowInput(page);
     await input.fill("paseo-loading-state-no-match");

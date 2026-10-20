@@ -167,7 +167,7 @@ async function readProjectConfigFile(project: ProjectsSettingsProject): Promise<
 
 async function addProjectFromSidebar(page: Page, projectPath: string): Promise<string> {
   await openAddProjectFlow(page);
-  await chooseAddProjectMethod(page, "directory-search");
+  await chooseAddProjectMethod(page, "open-folder");
 
   const input = addProjectFlowInput(page);
   await input.fill(projectPath);
