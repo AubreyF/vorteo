@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.702 - 2026-10-19
+
+### Added
+
+- Add Host-owned refresh for full sign-in Claude accounts in installations, off by default behind the coordinator setting `claudeHostRefresh`. Owner routes under `/api/installation/owner/claude/oauth` mark a definition full sign-in, sign the Host account in with `claude auth login --claudeai` in its exact configuration directory, and sign it out. The Host account's own CLI storage keeps the only grant.
+- While a non-excluded Dev environment can use the account and its token expires within four minutes, the coordinator makes one tiny official CLI request: print mode, Haiku, no tools, one turn and no session persistence. The CLI refreshes under its own locks. Dev receives only the access token, expiry, scopes and plan, numbered by generation and rotation. Coordinator state holds digests, expiry and identity only.
+- Dev usage for a projected account whose token expired says it is waiting for the Host instead of asking for sign-in.
+
+### Known limitations
+
+- The app has no controls yet. A changed identity on reconnect is recorded, not blocked. Back up coordinator state and Dev projection journals together.
+- Unverified until the owner's live sign-in check: the macOS Keychain location of the Host grant, granted scopes, token lifetime and how quickly a running Dev CLI picks up a new token.
+
+### Validation
+
+- 18 new synthetic tests: refresher 8, Host CLI 6, runtime 3 and usage 1. With two workers, 663 of 665 focused tests pass. The packaged CLI checksum failure is environment-only. One timing-sensitive agent test failed under a load average near 300 and passes alone.
+
 ## 0.11.0-beta.3.vorteo.701 - 2026-10-19
 
 ### Added

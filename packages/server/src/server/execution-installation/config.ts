@@ -37,6 +37,8 @@ export const InstallationConfigSchema = z.strictObject({
   previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
+  /** Off by default. Enables full sign-in Claude accounts with Host-owned refresh. */
+  claudeHostRefresh: z.boolean().optional(),
   sourceUpdates: z
     .strictObject({
       sourceRepository: z.string().startsWith("/"),
