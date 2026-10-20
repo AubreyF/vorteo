@@ -12,14 +12,7 @@ import type { ProviderUsage } from "@/provider-usage/types";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import {
-  Alert,
-  Pressable,
-  Text,
-  View,
-  type PressableStateCallbackType,
-  type GestureResponderEvent,
-} from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { settingsStyles } from "@/styles/settings";
@@ -127,13 +120,7 @@ function ProviderRow({
   const { theme } = useUnistyles();
   const isCompact = useIsCompactFormFactor();
   const ProviderIcon = useProviderIcon(def.id, serverId);
-  const providerError =
-    enabled &&
-    entry.status === "error" &&
-    typeof entry.error === "string" &&
-    entry.error.trim().length > 0
-      ? entry.error.trim()
-      : null;
+  const providerError = providerErrorText(entry, enabled);
   const modelCount = filterSelectableModels(entry.models ?? null)?.length ?? 0;
   const needsCliUpdate = enabled && Boolean(entry.cliUpdate);
   const visibleStatus = useMemo<ProviderStatus>(() => {
@@ -144,18 +131,11 @@ function ProviderRow({
   const handlePress = useCallback(() => {
     onPress(def.id);
   }, [def.id, onPress]);
-  const handleRename = useCallback(
-    (event: GestureResponderEvent) => {
-      event.stopPropagation();
-      onRename(def);
-    },
-    [def, onRename],
-  );
+  // The controls are siblings of the details button, so presses no longer
+  // need to stop propagation.
+  const handleRename = useCallback(() => onRename(def), [def, onRename]);
   const handleRemove = useCallback(
-    (event: GestureResponderEvent) => {
-      event.stopPropagation();
-      onRemove(def.id, def.label);
-    },
+    () => onRemove(def.id, def.label),
     [def.id, def.label, onRemove],
   );
   const handleToggleValueChange = useCallback(
@@ -164,15 +144,17 @@ function ProviderRow({
     },
     [def.id, onToggleEnabled],
   );
-  const rowStyle = useCallback(
-    ({ pressed, hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
+  const [hovered, setHovered] = useState(false);
+  const handleHoverIn = useCallback(() => setHovered(true), []);
+  const handleHoverOut = useCallback(() => setHovered(false), []);
+  const rowStyle = useMemo(
+    () => [
       settingsStyles.row,
       styles.row,
       isCompact && styles.compactRow,
       hovered && styles.rowHovered,
-      pressed && styles.rowPressed,
     ],
-    [isCompact],
+    [hovered, isCompact],
   );
 
   return (
@@ -195,76 +177,127 @@ function ProviderRow({
           </Pressable>
         </View>
       ) : null}
-      <Pressable
-        style={rowStyle}
-        onPress={handlePress}
-        accessibilityRole="button"
-        accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
-      >
-        {({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => (
-          <>
-            <View style={styles.rowContent}>
-              <ChevronRight
-                size={theme.iconSize.sm}
-                color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-              />
-              <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
-              <View style={styles.textColumn}>
-                <View style={styles.titleRow}>
-                  <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-                    {def.label}
-                  </Text>
-                  {!isCompact ? <Text style={styles.separator}>·</Text> : null}
-                  <StatusIndicator status={visibleStatus} compact={isCompact} />
-                </View>
-                {needsCliUpdate && isCompact ? (
-                  <Text style={settingsStyles.rowHint}>CLI update needed</Text>
-                ) : null}
-                {providerError && !isCompact ? (
-                  <Text style={styles.errorText} numberOfLines={3}>
-                    {providerError}
-                  </Text>
-                ) : null}
-              </View>
+      {/* Controls sit beside the details button, not inside it: a button
+          inside a button is invalid HTML and breaks keyboard focus. */}
+      <View style={rowStyle}>
+        <Pressable
+          style={styles.rowContent}
+          onPress={handlePress}
+          onHoverIn={handleHoverIn}
+          onHoverOut={handleHoverOut}
+          accessibilityRole="button"
+          accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
+        >
+          <ChevronRight
+            size={theme.iconSize.sm}
+            color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+          />
+          <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
+          <View style={styles.textColumn}>
+            <View style={styles.titleRow}>
+              <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+                {def.label}
+              </Text>
+              {!isCompact ? <Text style={styles.separator}>·</Text> : null}
+              <StatusIndicator status={visibleStatus} compact={isCompact} />
             </View>
-            <View style={[styles.trailingControls, styles.vortonTrailingControls]}>
-              {entry.source === "custom" ? (
-                <>
-                  <CompactAccountButton
-                    onPress={handleRename}
-                    disabled={isRemoving}
-                    testID={`provider-rename-${def.id}`}
-                  >
-                    Rename
-                  </CompactAccountButton>
-                  {canRemove ? (
-                    <CompactAccountButton
-                      onPress={handleRemove}
-                      disabled={isRemoving}
-                      loading={isRemoving}
-                      testID={`provider-remove-${def.id}`}
-                    >
-                      Delete
-                    </CompactAccountButton>
-                  ) : null}
-                </>
-              ) : null}
-              <ProviderReconnectControl
-                serverId={serverId}
-                providerId={def.id}
-                name={def.label}
-                usage={usage}
-              />
-              <Switch
-                value={enabled}
-                onValueChange={handleToggleValueChange}
-                disabled={isToggling || isRemoving}
-                accessibilityLabel={t("settings.providers.enableProvider", { name: def.label })}
-              />
-            </View>
-          </>
-        )}
-      </Pressable>
+            {needsCliUpdate && isCompact ? (
+              <Text style={settingsStyles.rowHint}>CLI update needed</Text>
+            ) : null}
+            {providerError && !isCompact ? (
+              <Text style={styles.errorText} numberOfLines={3}>
+                {providerError}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+        <ProviderRowControls
+          custom={entry.source === "custom"}
+          canRemove={canRemove}
+          isRemoving={isRemoving}
+          isToggling={isToggling}
+          enabled={enabled}
+          serverId={serverId}
+          def={def}
+          usage={usage}
+          onRename={handleRename}
+          onRemove={handleRemove}
+          onToggle={handleToggleValueChange}
+        />
+      </View>
+    </View>
+  );
+}
+
+function providerErrorText(
+  entry: { status: string; error?: string },
+  enabled: boolean,
+): string | null {
+  const error = entry.error?.trim();
+  return enabled && entry.status === "error" && error ? error : null;
+}
+
+function ProviderRowControls({
+  custom,
+  canRemove,
+  isRemoving,
+  isToggling,
+  enabled,
+  serverId,
+  def,
+  usage,
+  onRename,
+  onRemove,
+  onToggle,
+}: {
+  custom: boolean;
+  canRemove: boolean;
+  isRemoving: boolean;
+  isToggling: boolean;
+  enabled: boolean;
+  serverId: string;
+  def: { id: string; label: string };
+  usage: ProviderUsage | undefined;
+  onRename: () => void;
+  onRemove: () => void;
+  onToggle: (value: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View style={[styles.trailingControls, styles.vortonTrailingControls]}>
+      {custom ? (
+        <>
+          <CompactAccountButton
+            onPress={onRename}
+            disabled={isRemoving}
+            testID={`provider-rename-${def.id}`}
+          >
+            Rename
+          </CompactAccountButton>
+          {canRemove ? (
+            <CompactAccountButton
+              onPress={onRemove}
+              disabled={isRemoving}
+              loading={isRemoving}
+              testID={`provider-remove-${def.id}`}
+            >
+              Delete
+            </CompactAccountButton>
+          ) : null}
+        </>
+      ) : null}
+      <ProviderReconnectControl
+        serverId={serverId}
+        providerId={def.id}
+        name={def.label}
+        usage={usage}
+      />
+      <Switch
+        value={enabled}
+        onValueChange={onToggle}
+        disabled={isToggling || isRemoving}
+        accessibilityLabel={t("settings.providers.enableProvider", { name: def.label })}
+      />
     </View>
   );
 }

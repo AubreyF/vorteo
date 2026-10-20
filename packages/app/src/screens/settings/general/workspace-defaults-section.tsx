@@ -35,8 +35,9 @@ export function WorkspaceDefaultsSection() {
     error: null,
   });
   const providers = config?.providers ?? {};
+  // Accounts that are not installed cannot start a workspace, so they get no default row.
   const accounts = (entries ?? [])
-    .filter((entry) => entry.enabled)
+    .filter((entry) => entry.enabled && entry.status !== "unavailable")
     .map((entry) => ({
       value: installationProviderReference(entry.provider, providers),
       label: entry.label ?? entry.provider,

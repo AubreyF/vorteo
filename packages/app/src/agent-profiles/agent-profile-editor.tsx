@@ -52,7 +52,7 @@ export function useAgentProfileEditor(serverId: string | null): AgentProfileEdit
         JSON.stringify(current.find((entry) => entry.id === editing.id)) !== JSON.stringify(editing)
       ) {
         throw new Error(
-          "This preset changed while you were editing. Close and reopen it before saving.",
+          "This profile changed while you were editing. Close and reopen it before saving.",
         );
       }
       const next: AgentProfile[] = editing
