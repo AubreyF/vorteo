@@ -126,6 +126,7 @@ import {
   truncateForDiagnostic,
 } from "./diagnostic-utils.js";
 import { withTimeout } from "../../../utils/promise-timeout.js";
+import { composeSystemPromptParts } from "../system-prompt.js";
 
 const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
 
@@ -586,7 +587,8 @@ class ACPImportHistoryCollector {
     current: { messageId: string | null; text: string } | null;
     hasConversation: boolean;
   }): void {
-    if (state.current?.text.trim()) state.completed.push(state.current.text);
+    const text = state.current ? stripSessionInstructions(state.current.text) : "";
+    if (text.trim()) state.completed.push(text);
     state.current = null;
   }
 }
@@ -1691,6 +1693,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private pendingUserMessage: PendingUserMessage | null = null;
+  /** Sent once with a new session's first prompt; resumed sessions already carry them. */
+  private pendingSessionInstructions: string | undefined;
   private submittedUserMessageTurnId: string | null = null;
   private readonly toolCalls = new Map<string, ACPToolSnapshot>();
   private readonly terminalEntries = new Map<string, TerminalEntry>();
@@ -1777,6 +1781,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         }),
       );
       this.sessionId = response.sessionId;
+      this.pendingSessionInstructions = composeSystemPromptParts(
+        this.config.systemPrompt,
+        this.config.daemonAppendSystemPrompt,
+      );
       this.bootstrapThreadEventPending = true;
       this.applySessionState(response);
       for (const update of this.earlySessionUpdates.splice(0)) {
@@ -1895,11 +1903,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
     this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
 
+    const instructions = this.pendingSessionInstructions;
+    this.pendingSessionInstructions = undefined;
     void this.connection
       .prompt({
         sessionId: this.sessionId,
         messageId,
-        prompt: toACPContentBlocks(prompt),
+        prompt: withSessionInstructions(toACPContentBlocks(prompt), instructions),
       })
       .then((response) => {
         this.handlePromptResponse(response, turnId);
@@ -3075,7 +3085,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     return [
       this.wrapTimeline({
         type: "user_message",
-        text: pending.text,
+        text: stripSessionInstructions(pending.text),
         ...(pending.messageId ? { messageId: pending.messageId } : {}),
       }),
     ];
@@ -3528,6 +3538,31 @@ function normalizeMcpServers(servers?: Record<string, McpServerConfig>): McpServ
       })),
     } satisfies McpServer;
   });
+}
+
+// ACP has no system prompt channel. A new session's first prompt carries the agent and
+// shared installation instructions in this marked block, which history replay hides.
+const SESSION_INSTRUCTIONS_OPEN = "<vorteo-session-instructions>\n";
+const SESSION_INSTRUCTIONS_CLOSE = "\n</vorteo-session-instructions>\n\n";
+
+export function withSessionInstructions(
+  blocks: ContentBlock[],
+  instructions: string | undefined,
+): ContentBlock[] {
+  if (!instructions) return blocks;
+  return [
+    {
+      type: "text",
+      text: `${SESSION_INSTRUCTIONS_OPEN}Instructions for this whole session:\n\n${instructions}${SESSION_INSTRUCTIONS_CLOSE}`,
+    },
+    ...blocks,
+  ];
+}
+
+export function stripSessionInstructions(text: string): string {
+  if (!text.startsWith(SESSION_INSTRUCTIONS_OPEN)) return text;
+  const end = text.indexOf(SESSION_INSTRUCTIONS_CLOSE);
+  return end === -1 ? text : text.slice(end + SESSION_INSTRUCTIONS_CLOSE.length);
 }
 
 function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
