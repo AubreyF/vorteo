@@ -18,6 +18,9 @@ Priorities below describe unfinished work. The [customizations inventory](vorteo
 - **Extend goals across providers.** Build on the existing Codex-native controls with durable objectives, checkpoints, completion evidence and reviewed handoffs across models. Coordinate budgets, queue delivery, quota admission and restart recovery through one continuation owner. Qualify Codex Secondary and Pi first, then other providers; do not run competing native and daemon continuation loops.
 - **Expand execution isolation.** Evaluate task containers, Apple Container, folder grants and environment authorization as separately scoped projects. Keep credential, browser-trust and installation-recovery research in the [execution environment plans](plans/execution-environments/README.md#independent-future-projects).
 
+- **Rename the container user to `vorteo`.** The image, entrypoint, compose file, HTTPS broker, tests and docs still use `paseo` and `/home/paseo`. Existing volumes, agent worktrees and task artifacts live under that home, so the rename needs a migration with compatibility paths and an approved restart. The Add project interface already hides the container home path.
+- **Browse the whole filesystem on native hosts.** The folder browser's daemon roots cover only the home folder on a native host, so other locations must be typed. Add a filesystem root for non-container daemons behind a capability, keeping container roots limited to shares and container storage.
+
 ## Keep pace with Paseo
 
 Every upstream merge must compare incoming behavior with the [customizations inventory](vorteo-customizations.md#upstream-comparison), credit inherited features and revise these priorities. The integrated `0.11.0-beta.3` baseline already overlaps in usage visibility, provider configuration, mobile controls and skill deduplication. Preserve remaining custom behavior until implementation and tests establish parity; track any resulting retirement work here.

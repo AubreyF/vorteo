@@ -27,6 +27,7 @@ const HOST: AddProjectHost = {
   label: "Local",
   canAddProject: true,
   canBrowse: true,
+  canBrowseFolders: false,
   canCloneGithubRepositories: true,
   canSearchGithubRepositories: true,
   canCreateDirectory: true,
@@ -134,18 +135,26 @@ describe("Add Project options", () => {
         description: "Find a directory on Local",
       },
       {
+        id: "new-directory",
+        label: "New project folder",
+        description: "Update this host to create folders",
+        disabled: true,
+      },
+      {
         id: "github",
         label: "Clone from GitHub",
         description: "Update this host to clone GitHub repositories",
         disabled: true,
       },
-      {
-        id: "new-directory",
-        label: "New directory",
-        description: "Update this host to create directories",
-        disabled: true,
-      },
     ]);
+  });
+
+  it("replaces directory search with the folder browser on hosts that can list folders", () => {
+    expect(
+      buildAddProjectMethods({ ...HOST, canBrowse: false, canBrowseFolders: true }).map(
+        (method) => method.id,
+      ),
+    ).toEqual(["open-folder", "new-directory", "github"]);
   });
 
   it("offers manual URL and protocol-specific owner/repo clone choices", () => {
