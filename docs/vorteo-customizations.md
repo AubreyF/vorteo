@@ -396,6 +396,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 20, 2026: The README browser entry now states the private-network default, and the paseo and paseo-help skills explain browser tools, their errors and safe preview checks. Functionality is unchanged.
+
 October 19, 2026: The ported headless browser network policy also refuses NAT64 forms of private IPv4 addresses and all 6to4 and Teredo addresses, which can embed them. Public NAT64 destinations still work. README onboarding is unchanged.
 
 October 19, 2026: Ported review fixes for the headless browser host. A filtering proxy refuses private and local destinations by default after DNS resolution, with an explicit allow list; IPC messages are validated with zod in both directions; the child receives a minimal environment. Chromium still comes from the Playwright cache outside release custody, as documented. README onboarding is unchanged.

@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.560 - 2026-10-20
+
+### Documentation
+
+- State in the README that the Host agents' browser cannot reach this machine, private networks or the tailnet unless a specific address is allowed
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy
+
 ## 0.11.0-beta.3.vorteo.559 - 2026-10-19
 
 ### Fixed
