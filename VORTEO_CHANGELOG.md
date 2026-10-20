@@ -4,6 +4,28 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.717 - 2026-10-20
+
+### Changed
+
+- Rebuild Add project around one folder browser. Open a folder, New project folder and the GitHub clone destination share it on hosts that can list folders, replacing the separate directory search page, the Browse host folders toggle and the choose-parent-then-name pages
+- Create a project folder by browsing into its parent and typing a name, so the parent always exists and the late "Parent directory not found" error no longer appears
+- List shared host folders by their host path and container storage by name, so the container user's home never appears as `~` or `/home/paseo`; `~` in typed paths means the host home
+- Navigate with Right Arrow to open a folder and Backspace in an empty field to go up; a pasted path opens directly, and top-level text still searches folders by name
+- Show creation errors in terms of the browsed folder instead of container paths
+
+### Fixed
+
+- Open the sidebar overflow menu before choosing Add project in browser test helpers
+
+### Documentation
+
+- Describe the folder browser in the Docker guide and customizations inventory, and add roadmap items for renaming the container user to `vorteo` and for whole-filesystem browsing on native hosts
+
+### Known limitations
+
+- Native hosts browse only inside the home folder; other locations must be typed
+- Browser tests that add a second host or use the global new workspace action still target moved sidebar controls and fail independently of this change
 
 ## 0.11.0-beta.3.vorteo.716 - 2026-10-20
 
