@@ -37,6 +37,10 @@ import {
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
+// Protected admission can await runtime calls without their own deadline. Past this bound a
+// tick stops waiting for that attempt (it stays in runningScheduleIds, so it is never admitted
+// twice) and admits the remaining schedules, as before the tick guard existed.
+const SCHEDULE_ADMISSION_DISPATCH_BOUND_MS = 15_000;
 
 // A run failed because its target no longer exists: the agent was deleted or
 // archived, or a new-agent cwd was removed. These are permanent, so the schedule
@@ -306,6 +310,8 @@ interface ScheduleWorkspaceCreateInput {
 
 export interface ScheduleServiceOptions {
   canStartWork?: () => boolean;
+  /** How long one tick waits for an admitted attempt to dispatch or settle. Tests shorten it. */
+  admissionDispatchBoundMs?: number;
   quotaRunner?: {
     /** Resolve the durable attempt before retrying. Resume retains the same attempt identity. */
     reconcilePreparation?(schedule: StoredSchedule): Promise<"clear" | "resume" | "held">;
@@ -430,9 +436,14 @@ export class ScheduleService {
   private readonly deletingScheduleIds = new Set<string>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private tickInFlight = false;
+  private tickStartedAt = 0;
+  private stalledTickReported = false;
+  private readonly admissionDispatchBoundMs: number;
 
   constructor(options: ScheduleServiceOptions) {
     this.canStartWork = options.canStartWork ?? (() => true);
+    this.admissionDispatchBoundMs =
+      options.admissionDispatchBoundMs ?? SCHEDULE_ADMISSION_DISPATCH_BOUND_MS;
     this.quotaRunner = options.quotaRunner;
     this.logger = options.logger.child({ module: "schedule-service" });
     this.store = new ScheduleStore(join(options.paseoHome, "schedules"), this.logger);
@@ -775,8 +786,23 @@ export class ScheduleService {
    * concurrently after the guard is released, and this call settles once they finish.
    */
   async tick(): Promise<void> {
-    if (this.tickInFlight) return;
+    if (this.tickInFlight) {
+      // Admission is bounded per attempt, so a long hold means listing or the store is stuck.
+      if (
+        !this.stalledTickReported &&
+        Date.now() - this.tickStartedAt > this.admissionDispatchBoundMs
+      ) {
+        this.stalledTickReported = true;
+        this.logger.warn(
+          { heldMs: Date.now() - this.tickStartedAt },
+          "Schedule tick still admitting past its bound; later ticks are skipped",
+        );
+      }
+      return;
+    }
     this.tickInFlight = true;
+    this.tickStartedAt = Date.now();
+    this.stalledTickReported = false;
     const dispatchedRuns: Promise<void>[] = [];
     let admissionFailure: { error: unknown } | undefined;
     try {
@@ -828,7 +854,9 @@ export class ScheduleService {
   /**
    * Resolves once execution is dispatched, carrying the still running attempt, or with
    * null if the attempt settled first. The run is wrapped because an async function
-   * would otherwise adopt it and wait for the whole execution.
+   * would otherwise adopt it and wait for the whole execution. An attempt that has done
+   * neither within the admission bound is treated as dispatched: it stays in
+   * runningScheduleIds (never admitted twice) and the tick moves on to other schedules.
    */
   private async runScheduleUntilDispatch(
     schedule: StoredSchedule,
@@ -838,9 +866,28 @@ export class ScheduleService {
     const dispatchSignal = new Promise<"dispatched">((resolve) => {
       signalDispatch = () => resolve("dispatched");
     });
+    let boundTimer: ReturnType<typeof setTimeout> | undefined;
+    const boundSignal = new Promise<"bounded">((resolve) => {
+      boundTimer = setTimeout(() => resolve("bounded"), this.admissionDispatchBoundMs);
+      (boundTimer as unknown as { unref?: () => void }).unref?.();
+    });
     const run = this.runSchedule(schedule, now, { onDispatch: () => signalDispatch() });
-    const outcome = await Promise.race([run.then(() => "settled" as const), dispatchSignal]);
-    return outcome === "dispatched" ? { run } : null;
+    try {
+      const outcome = await Promise.race([
+        run.then(() => "settled" as const),
+        dispatchSignal,
+        boundSignal,
+      ]);
+      if (outcome === "bounded") {
+        this.logger.warn(
+          { scheduleId: schedule.id, boundMs: this.admissionDispatchBoundMs },
+          "Schedule admission did not dispatch within its bound; continuing the tick",
+        );
+      }
+      return outcome === "settled" ? null : { run };
+    } finally {
+      clearTimeout(boundTimer);
+    }
   }
 
   private async completeScheduleIfDue(scheduleId: string, now: Date): Promise<void> {

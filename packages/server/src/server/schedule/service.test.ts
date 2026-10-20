@@ -715,6 +715,54 @@ describe("ScheduleService", () => {
     expect(runner).toHaveBeenCalledTimes(1);
   });
 
+  test("a hung protected admission does not stop other schedules", async () => {
+    // Reviewer reproduction (2026-10-19): prepare never resolves. Before the admission bound,
+    // the tick guard held forever and the ordinary schedule never ran.
+    vi.restoreAllMocks();
+    const prepare = vi.fn(() => new Promise<never>(() => {}));
+    const ran: string[] = [];
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      admissionDispatchBoundMs: 50,
+      quotaRunner: { prepare },
+      runner: async (schedule) => {
+        ran.push(schedule.prompt);
+        return { agentId: null, output: "done" };
+      },
+    });
+    await service.create({
+      prompt: "Hung",
+      cadence: { type: "every", everyMs: 60_000 },
+      runOnCreate: false,
+      target: {
+        type: "new-agent",
+        config: { provider: "codex-secondary", cwd: tempDir, quotaPolicy: heldQuotaPolicy },
+      },
+    });
+    now = new Date("2026-01-01T00:00:30.000Z");
+    await service.create({
+      prompt: "Plain",
+      cadence: { type: "every", everyMs: 60_000 },
+      runOnCreate: false,
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    void service.tick().catch(() => {});
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+    // Past the bound the first tick releases the guard while its attempt stays running.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    now = new Date("2026-01-01T00:01:30.000Z");
+    await Promise.race([service.tick(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    expect(ran).toEqual(["Plain"]);
+    // The hung attempt stays admitted exactly once.
+    expect(prepare).toHaveBeenCalledTimes(1);
+  });
+
   test("continues the tick after one schedule changed before admission", async () => {
     // Earlier tests leave ScheduleStore spies installed; start from the real store.
     vi.restoreAllMocks();
