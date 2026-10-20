@@ -26,10 +26,10 @@ import {
 } from "@getpaseo/protocol/session-host-maintenance";
 import {
   InstructionRequestQuerySchema,
-  InstructionRequestSchema,
-  type InstructionRequest,
   type InstructionRequestQuery,
 } from "@getpaseo/protocol/instruction-requests";
+
+type InstructionRequestView = InstructionRequestQuery["requests"][number];
 import type { MonitorAction } from "./preview-monitor-review";
 import type { SessionHostAction, SessionHostOverview } from "./session-host-review";
 import type { HelperReviewAction } from "./helper-review";
@@ -262,10 +262,10 @@ export class InstallationClient {
   }
 
   async decideInstructionRequest(
-    request: InstructionRequest,
+    request: InstructionRequestView,
     decision: "approve" | "reject",
-  ): Promise<InstructionRequest> {
-    const result = InstructionRequestSchema.parse(
+  ): Promise<InstructionRequestView> {
+    const result = InstructionRequestQuerySchema.shape.requests.element.parse(
       await this.request("instruction-requests/decision", {
         id: request.id,
         decision,

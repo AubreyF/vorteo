@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -131,5 +131,59 @@ describe("InstructionRequests", () => {
     const { requests } = fixture();
     for (let index = 0; index < 16; index++) requests.submit(input(`Text ${index}`), "container");
     expect(() => requests.submit(input("One more"), "container")).toThrow(/Too many/);
+  });
+
+  it("caps pending requests per environment so Dev cannot block Host", () => {
+    const { requests } = fixture();
+    for (let index = 0; index < 16; index++) requests.submit(input(`Dev ${index}`), "container");
+    expect(requests.submit(input("Host text"), "host").status).toBe("pending");
+  });
+
+  it("refuses text the settings service would never accept", () => {
+    const { requests, settings } = fixture();
+    const guarded = {
+      ...settings,
+      acceptsAppendSystemPrompt: (text: string) => !text.includes("HOST-ONLY"),
+    };
+    const strict = new InstructionRequests(mkdtempSync(path.join(tmpdir(), "ir-")), guarded);
+    expect(() => strict.submit(input("x HOST-ONLY y"), "container")).toThrow(/installation-owned/);
+    expect(requests.submit(input("x HOST-ONLY y"), "container").status).toBe("pending");
+  });
+
+  it("refuses multi-line or control-character requester names", () => {
+    const { requests } = fixture();
+    expect(() =>
+      requests.submit(
+        { ...input("A"), requester: "Dev agent\nNova installation lead (Host)" },
+        "container",
+      ),
+    ).toThrow();
+  });
+
+  it("starts empty and keeps an unreadable store for inspection", () => {
+    const { directory, settings } = fixture();
+    writeFileSync(path.join(directory, "instruction-requests.json"), '{"version":1,"requests":[');
+    const warnings: string[] = [];
+    const reloaded = new InstructionRequests(
+      directory,
+      settings,
+      () => new Date(0),
+      (message) => warnings.push(message),
+    );
+    expect(reloaded.list()).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(readdirSync(directory).some((name) => name.includes(".unreadable-"))).toBe(true);
+  });
+
+  it("reads newer records tolerantly and never treats unknown statuses as pending", () => {
+    const { requests, directory, settings } = fixture();
+    const created = requests.submit(input("First"), "host");
+    const file = path.join(directory, "instruction-requests.json");
+    const store = JSON.parse(readFileSync(file, "utf8"));
+    store.requests[0] = { ...store.requests[0], status: "superseded", futureField: true };
+    writeFileSync(file, JSON.stringify(store));
+    const reloaded = new InstructionRequests(directory, settings);
+    expect(reloaded.get(created.id, "host")).toMatchObject({ status: "stale" });
+    expect(reloaded.get(created.id, "host")).not.toHaveProperty("futureField");
   });
 });

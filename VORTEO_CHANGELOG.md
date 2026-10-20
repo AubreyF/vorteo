@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.720 - 2026-10-20
+
+### Fixes
+
+- Instruction change requests show "From Dev (untrusted)" or "From Host" from the submitting credential, limit agent-chosen requester names to one line, and lead with the added and removed lines. Each environment has its own pending limit, and proposals the settings would refuse are rejected at submission.
+- An unreadable or newer instruction request store is set aside instead of stopping the coordinator, and Installation controls stays usable when the request list cannot be read.
+- ACP agents keep their session instructions after a failed first prompt, a first-turn slash command still runs as a command, and history replay hides the instruction block even when a provider trims it.
+
 ## 0.11.0-beta.3.vorteo.719 - 2026-10-20
 
 ### Fixes

@@ -9,10 +9,9 @@ import type {
 } from "@getpaseo/protocol/maintenance-service-status";
 import { monitorActionDisabledReason, type MonitorAction } from "./preview-monitor-review";
 import type { NativeHelperJob } from "@getpaseo/protocol/native-helper-maintenance";
-import type {
-  InstructionRequest,
-  InstructionRequestQuery,
-} from "@getpaseo/protocol/instruction-requests";
+import type { InstructionRequestQuery } from "@getpaseo/protocol/instruction-requests";
+
+type InstructionRequest = InstructionRequestQuery["requests"][number];
 import { helperActionDisabledReason, type HelperReviewAction } from "./helper-review";
 import type {
   SessionHostJob,
@@ -291,7 +290,16 @@ export class InstallationPanelModel {
         this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
         this.client.maintenanceStatus?.() ?? Promise.resolve(null),
         this.client.sessionHost?.() ?? Promise.resolve(null),
-        this.client.listInstructionRequests?.() ?? Promise.resolve(null),
+        // This card never blocks the rest of Installation controls.
+        (this.client.listInstructionRequests?.() ?? Promise.resolve(null)).catch(
+          (error: unknown) => {
+            this.publish({
+              instructionError:
+                error instanceof Error ? error.message : "Instruction requests are unavailable",
+            });
+            return this.state.instructionRequests;
+          },
+        ),
       ]);
       if (generation !== this.accessGeneration) return;
       const targets = new Set(

@@ -1903,19 +1903,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
     this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
 
-    const instructions = this.pendingSessionInstructions;
-    this.pendingSessionInstructions = undefined;
+    const blocks = toACPContentBlocks(prompt);
+    const instructions = startsWithCommand(blocks) ? undefined : this.pendingSessionInstructions;
+    if (instructions) this.pendingSessionInstructions = undefined;
     void this.connection
       .prompt({
         sessionId: this.sessionId,
         messageId,
-        prompt: withSessionInstructions(toACPContentBlocks(prompt), instructions),
+        prompt: withSessionInstructions(blocks, instructions),
       })
       .then((response) => {
         this.handlePromptResponse(response, turnId);
         return;
       })
       .catch((error) => {
+        // A failed first prompt must not lose the instructions for the rest of the session.
+        if (instructions) this.pendingSessionInstructions ??= instructions;
         const summary = summarizeACPRequestError(error);
         this.finishTurn({
           type: "turn_failed",
@@ -3082,10 +3085,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
       return [];
     }
     this.pendingUserMessage = null;
+    const text = stripSessionInstructions(pending.text);
+    // A provider that replays the instruction block as its own message leaves nothing to show.
+    if (!text.trim()) return [];
     return [
       this.wrapTimeline({
         type: "user_message",
-        text: stripSessionInstructions(pending.text),
+        text,
         ...(pending.messageId ? { messageId: pending.messageId } : {}),
       }),
     ];
@@ -3542,8 +3548,8 @@ function normalizeMcpServers(servers?: Record<string, McpServerConfig>): McpServ
 
 // ACP has no system prompt channel. A new session's first prompt carries the agent and
 // shared installation instructions in this marked block, which history replay hides.
-const SESSION_INSTRUCTIONS_OPEN = "<vorteo-session-instructions>\n";
-const SESSION_INSTRUCTIONS_CLOSE = "\n</vorteo-session-instructions>\n\n";
+const SESSION_INSTRUCTIONS_OPEN = "<vorteo-session-instructions>";
+const SESSION_INSTRUCTIONS_CLOSE = "</vorteo-session-instructions>";
 
 export function withSessionInstructions(
   blocks: ContentBlock[],
@@ -3553,16 +3559,23 @@ export function withSessionInstructions(
   return [
     {
       type: "text",
-      text: `${SESSION_INSTRUCTIONS_OPEN}Instructions for this whole session:\n\n${instructions}${SESSION_INSTRUCTIONS_CLOSE}`,
+      text: `${SESSION_INSTRUCTIONS_OPEN}\nInstructions for this whole session:\n\n${instructions}\n${SESSION_INSTRUCTIONS_CLOSE}\n\n`,
     },
     ...blocks,
   ];
 }
 
+// Providers may trim or rejoin blocks on replay, so match the tags, not exact whitespace.
 export function stripSessionInstructions(text: string): string {
-  if (!text.startsWith(SESSION_INSTRUCTIONS_OPEN)) return text;
+  if (!text.trimStart().startsWith(SESSION_INSTRUCTIONS_OPEN)) return text;
   const end = text.indexOf(SESSION_INSTRUCTIONS_CLOSE);
-  return end === -1 ? text : text.slice(end + SESSION_INSTRUCTIONS_CLOSE.length);
+  return end === -1 ? text : text.slice(end + SESSION_INSTRUCTIONS_CLOSE.length).trimStart();
+}
+
+/** Slash commands must stay first; their turn defers the instructions to the next prompt. */
+function startsWithCommand(blocks: ContentBlock[]): boolean {
+  const first = blocks[0];
+  return first?.type === "text" && first.text.trimStart().startsWith("/");
 }
 
 function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {

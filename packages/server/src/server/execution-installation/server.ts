@@ -314,6 +314,8 @@ export function createInstallationServer(
   const instructionRequests = new InstructionRequests(
     path.join(config.stateDir, "shared-settings"),
     settings,
+    () => new Date(),
+    (message) => logger.warn(message),
   );
   const updates = {
     host: config.sourceUpdates ? new InstallationSourceUpdates(config) : null,

@@ -19,7 +19,8 @@ import {
   type HelperReviewAction,
 } from "./helper-review";
 import type { SessionHostJob } from "@getpaseo/protocol/session-host-maintenance";
-import type { InstructionRequest } from "@getpaseo/protocol/instruction-requests";
+import type { InstructionRequestQuery } from "@getpaseo/protocol/instruction-requests";
+import { diffInstructionLines } from "./instruction-diff";
 import {
   sessionHostActionDisabledReason,
   sessionHostOperationTitle,
@@ -1110,12 +1111,14 @@ function InstructionRequestsCard({
       ))}
       {recent.map((request) => (
         <Text key={request.id} style={styles.text} testID={`instruction-${request.id}-settled`}>
-          {`${request.requester}: ${request.status}${request.detail ? ` (${request.detail})` : ""}`}
+          {`${request.environment === "container" ? "Dev" : "Host"} request: ${request.status}${request.detail ? ` (${request.detail})` : ""}`}
         </Text>
       ))}
     </View>
   );
 }
+
+type InstructionRequest = InstructionRequestQuery["requests"][number];
 
 function InstructionRequestReview({
   request,
@@ -1135,24 +1138,54 @@ function InstructionRequestReview({
   const reject = useCallback(() => {
     void model.decideInstructionRequest(request, "reject");
   }, [model, request]);
+  const changes = useMemo(
+    () => diffInstructionLines(current, request.appendSystemPrompt),
+    [current, request.appendSystemPrompt],
+  );
+  // The source comes from the submitting credential, never from agent-written text.
+  const fromDev = request.environment === "container";
   return (
-    <View testID={`instruction-${request.id}`}>
-      <Text style={styles.text}>
-        {`${request.requester} (${request.environment === "host" ? "Host" : "Dev"}) proposes new shared agent instructions.`}
+    <View testID={`instruction-${request.id}`} style={styles.historyItem}>
+      <View style={styles.requestHeader}>
+        <StatusBadge
+          label={fromDev ? "From Dev (untrusted)" : "From Host"}
+          variant={fromDev ? "error" : "muted"}
+        />
+      </View>
+      <Text selectable style={styles.text} numberOfLines={1}>
+        {`Requester (as named by the agent): ${request.requester}`}
       </Text>
       <Text selectable style={styles.text}>{`Reason: ${request.reason}`}</Text>
+      <Text style={settingsStyles.rowTitle}>Changes</Text>
+      <View testID={`instruction-${request.id}-changes`}>
+        {changes.map((line, index) => (
+          <Text
+            // Diff lines have no identity beyond position.
+            // eslint-disable-next-line react/no-array-index-key
+            key={index}
+            selectable
+            style={line.kind === "added" ? styles.diffAdded : styles.diffRemoved}
+          >
+            {`${line.kind === "added" ? "+ " : "- "}${line.text}`}
+          </Text>
+        ))}
+      </View>
+      <Text style={settingsStyles.rowTitle}>Full proposed instructions (applied exactly)</Text>
+      <SettingsExpansion testID={`instruction-${request.id}-proposed`}>
+        <Text selectable style={styles.text}>
+          {request.appendSystemPrompt || "(empty)"}
+        </Text>
+      </SettingsExpansion>
       <Text style={settingsStyles.rowTitle}>Current instructions</Text>
       <SettingsExpansion>
         <Text selectable style={styles.text}>
           {current || "(empty)"}
         </Text>
       </SettingsExpansion>
-      <Text style={settingsStyles.rowTitle}>Proposed instructions (applied exactly as shown)</Text>
-      <SettingsExpansion testID={`instruction-${request.id}-proposed`}>
-        <Text selectable style={styles.text}>
-          {request.appendSystemPrompt || "(empty)"}
-        </Text>
-      </SettingsExpansion>
+      <Text style={styles.text}>
+        New agent sessions use the applied text. Running Cursor, Copilot, Kimi and Kiro sessions
+        keep the instructions they started with.
+      </Text>
       <ActionFooter style={styles.actions}>
         <RestartActionButton
           testID={`instruction-${request.id}-reject`}
@@ -1930,6 +1963,16 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
   },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  diffAdded: {
+    color: theme.colors.diffAddition,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
+  diffRemoved: {
+    color: theme.colors.diffDeletion,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));

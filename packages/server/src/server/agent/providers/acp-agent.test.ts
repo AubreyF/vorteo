@@ -4295,4 +4295,58 @@ describe("ACP session instructions", () => {
       }),
     ]);
   });
+
+  test("a failed first prompt keeps the instructions for the next turn", async () => {
+    let rejectFirst!: (error: Error) => void;
+    const prompt = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<PromptResponse>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementation(() => new Promise<PromptResponse>(() => {}));
+    const session = sessionWithInstructions(prompt);
+    await session.initializeNewSession();
+    await session.startTurn("hello");
+    rejectFirst(new Error("rate limited"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    asInternals<ACPSessionInternals>(session).activeForegroundTurnId = null;
+    await session.startTurn("retry");
+    const second = prompt.mock.calls[1][0] as { prompt: Array<{ text: string }> };
+    expect(second.prompt).toHaveLength(2);
+    expect(second.prompt[0].text).toContain("Shared installation instructions.");
+  });
+
+  test("a first-turn slash command stays first and defers the instructions", async () => {
+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+    const session = sessionWithInstructions(prompt);
+    await session.initializeNewSession();
+    await session.startTurn("/compact");
+    expect((prompt.mock.calls[0][0] as { prompt: unknown }).prompt).toEqual([
+      { type: "text", text: "/compact" },
+    ]);
+    asInternals<ACPSessionInternals>(session).activeForegroundTurnId = null;
+    await session.startTurn("hello");
+    const second = prompt.mock.calls[1][0] as { prompt: Array<{ text: string }> };
+    expect(second.prompt[0].text).toContain("Agent prompt.");
+  });
+
+  test("replay strips trimmed instruction blocks and drops an instructions-only message", () => {
+    const [block] = withSessionInstructions([], "Shared instructions.");
+    const text = (block as { text: string }).text;
+    expect(stripSessionInstructions(`${text.trim()}hello`)).toBe("hello");
+    const session = createSession();
+    const internals = asInternals<ACPSessionInternals>(session);
+    internals.translateSessionUpdate({
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: text.trim() },
+    } as SessionUpdate);
+    expect(
+      asInternals<{ flushPendingUserMessage(): AgentStreamEvent[] }>(
+        session,
+      ).flushPendingUserMessage(),
+    ).toEqual([]);
+  });
 });
