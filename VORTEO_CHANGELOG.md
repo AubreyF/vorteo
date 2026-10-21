@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.734 - 2026-10-21
+
+### Added
+
+- Let headless browser allowed hosts name a port range, such as `<preview-host>.ts.net:32768-32799`, so agents can screenshot any managed preview on that name without opening the host's other services or restarting for each new preview
+
+### Documentation
+
+- Describe running the headless browser in the Dev container, inside the container's network, with the safety settings it needs and a rootless library setup for older containers
+- Teach agents how browser tools work, what `browser_no_host` and `browser_denied` mean, and how to check a local preview without bypassing the browser policy; update the README browser entry for Host and Dev
+
 ## 0.11.0-beta.3.vorteo.733 - 2026-10-21
 
 ### Fixes

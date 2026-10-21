@@ -79,9 +79,9 @@ Script proxy URLs and ports are local routing details. To show a running app to 
 
 `browser_*` tools (`browser_new_tab`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_screenshot` and others) drive a browser through a host connected to your daemon. Tabs belong to your workspace; use the `browserId` that `browser_new_tab` or `browser_list_tabs` returns. Take a `browser_snapshot` before clicking or typing, because refs expire when the page changes.
 
-- `browser_no_host` means no browser host is connected. On a Host daemon the host is a headless Chromium the daemon starts on demand when the owner enables it; elsewhere it is the desktop app. Report the gap; do not start a host yourself.
+- `browser_no_host` means no browser host is connected. On a Host or Dev daemon the host is a headless Chromium the daemon starts on demand when the owner enables it; elsewhere it is the desktop app. Report the gap; do not start a host yourself.
 - `browser_denied` means the browser policy refused the destination. The headless host blocks this machine, private networks, tailnet names and the protected installation interface. Do not work around it.
-- To check a local preview, run the workspace script and ask the owner to allow that exact `host:port`, or use a managed preview URL. Never point the browser at the protected installation interface or daemon ports.
+- To check a local preview, run the workspace script and ask the owner to allow that exact `host:port` or the managed preview port range, or use a managed preview URL. Never point the browser at the protected installation interface or daemon ports.
 - The headless browser starts with an empty profile and keeps no logins between restarts.
 
 ## Agents

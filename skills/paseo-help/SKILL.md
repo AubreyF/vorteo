@@ -63,7 +63,7 @@ Use the status-reported home, listen address, and log path for further checks. P
 
 For a missing provider or `command not found`, run `paseo provider diagnostic <provider>` against the affected host, or open **Settings → your host → Providers → provider → Diagnostic**. Compare its resolved binary, daemon `PATH`, and provider version with a brand-new login shell. Shell aliases and functions are not executable paths.
 
-For browser tools that fail with `browser_no_host`, check which daemon the agent runs on. A Host daemon provides its own headless browser only when `daemon.browserTools.headlessHost.enabled` is set; other daemons need the desktop app connected. The Settings → Agents **Browser tools** switch only decides whether agents receive the tools. `browser_denied` is the browser's network policy working as intended; see [browser tools for Host agents](https://github.com/AubreyF/vorteo/blob/main/docs/execution-installation.md#browser-tools-for-host-agents).
+For browser tools that fail with `browser_no_host`, check which daemon the agent runs on. A Host or Dev daemon provides its own headless browser only when `daemon.browserTools.headlessHost.enabled` is set; a Dev container also needs Chromium's libraries (`npm run browser:setup` inside the container). Other daemons need the desktop app connected. The Settings → Agents **Browser tools** switch only decides whether agents receive the tools. `browser_denied` is the browser's network policy working as intended; see [browser tools for Host agents](https://github.com/AubreyF/vorteo/blob/main/docs/execution-installation.md#browser-tools-for-host-agents).
 
 ## Logs and local files
 

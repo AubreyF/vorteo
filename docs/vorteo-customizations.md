@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-21): headless browser allowed hosts accept a port range for managed preview ports. Docs, skills and the README describe browser tools and running the browser in the Dev container with its safety settings. README Power Tools entry updated.
+
 Maintenance review (2026-10-21): right-hand card rows match the sidebar's row density through shared row metrics. Sub-agent rows move profile, model, status and usage into a tooltip, and task rows drag from anywhere without a handle. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-21): added the Context window details card and a provider-reported context breakdown for Claude, read on demand. The meter popover now renders the same details. README overview and onboarding are unchanged.
