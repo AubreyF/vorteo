@@ -41,7 +41,7 @@ Host agents get browser tools from a disposable headless Chromium instead of the
 }
 ```
 
-The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. For the Dev daemon, see [Browser tools for Dev container agents](#browser-tools-for-dev-container-agents). An invalid `allowedHosts` entry stops the browser host from starting rather than loosening its policy.
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. For the Dev daemon, see [Browser tools for Dev container agents](#browser-tools-for-dev-container-agents). An invalid `allowedHosts` entry, an unknown `headlessHost` key such as a misspelled `deniedOrigins`, or a value of the wrong type stops the browser host from starting rather than loosening its policy; the daemon itself still starts and logs the error.
 
 Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
 

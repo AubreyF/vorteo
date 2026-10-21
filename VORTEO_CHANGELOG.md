@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.735 - 2026-10-21
+
+### Fixed
+
+- Keep the daemon starting when `daemon.browserTools.headlessHost` contains an unknown key or a wrongly typed value, such as a typo or a setting from another release. The headless browser validates its settings itself and stays off with a logged error, so a misspelled denial can never start an unrestricted browser
+
 ## 0.11.0-beta.3.vorteo.734 - 2026-10-21
 
 ### Added

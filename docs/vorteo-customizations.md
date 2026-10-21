@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-21): headless browser settings are validated by the browser host instead of the config schema, so an unknown key or wrongly typed value keeps the browser off without stopping the daemon. README onboarding is unchanged.
+
 Maintenance review (2026-10-21): headless browser allowed hosts accept a port range for managed preview ports. Docs, skills and the README describe browser tools and running the browser in the Dev container with its safety settings. README Power Tools entry updated.
 
 Maintenance review (2026-10-21): right-hand card rows match the sidebar's row density through shared row metrics. Sub-agent rows move profile, model, status and usage into a tooltip, and task rows drag from anywhere without a handle. README overview and onboarding are unchanged.

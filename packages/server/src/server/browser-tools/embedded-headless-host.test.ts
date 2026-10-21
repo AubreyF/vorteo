@@ -95,6 +95,51 @@ describe("startEmbeddedHeadlessHost", () => {
     expect(spawner.spawned).toHaveLength(0);
   });
 
+  test("does not start when the settings contain an unknown key", async () => {
+    const broker = new BrowserToolsBroker({});
+    const spawner = createSpawner();
+    const host = startEmbeddedHeadlessHost({
+      broker,
+      persisted: {
+        daemon: {
+          browserTools: {
+            headlessHost: {
+              enabled: true,
+              deniedOrigin: ["https://owner.example.com"],
+            },
+          },
+        },
+      },
+      logger,
+      spawn: spawner.spawn,
+    });
+
+    expect(broker.getRegisteredClientCount()).toBe(0);
+    await host.stop();
+    expect(spawner.spawned).toHaveLength(0);
+  });
+
+  test("does not start when a setting has the wrong type", async () => {
+    const broker = new BrowserToolsBroker({});
+    const spawner = createSpawner();
+    const host = startEmbeddedHeadlessHost({
+      broker,
+      persisted: {
+        daemon: {
+          browserTools: {
+            headlessHost: { enabled: true, deniedOrigins: "https://owner.example.com" },
+          },
+        },
+      },
+      logger,
+      spawn: spawner.spawn,
+    });
+
+    expect(broker.getRegisteredClientCount()).toBe(0);
+    await host.stop();
+    expect(spawner.spawned).toHaveLength(0);
+  });
+
   test("starts the browser process on the first request with normalized denied hosts", async () => {
     const broker = new BrowserToolsBroker({});
     const spawner = createSpawner();
