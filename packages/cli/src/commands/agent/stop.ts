@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { connectToDaemon } from "../../utils/client.js";
+import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import { isSameOrDescendantPath } from "../../utils/paths.js";
 import type {
   CommandOptions,
@@ -55,15 +56,15 @@ export async function runStopCommand(
 
   try {
     const fetchPayload = await client.fetchAgents({ filter: { includeArchived: true } });
-    let agents = fetchPayload.entries.map((entry) => entry.agent);
+    let agents = fetchPayload.entries.map((entry: { agent: AgentSnapshotPayload }) => entry.agent);
     const stoppedIds: string[] = [];
 
     if (options.all) {
       // Stop all agents (not archived)
-      agents = agents.filter((a) => !a.archivedAt);
+      agents = agents.filter((a: AgentSnapshotPayload) => !a.archivedAt);
     } else if (options.cwd) {
       // Stop agents in directory
-      agents = agents.filter((a) => {
+      agents = agents.filter((a: AgentSnapshotPayload) => {
         if (a.archivedAt) return false;
         return isSameOrDescendantPath(options.cwd!, a.cwd);
       });
@@ -83,7 +84,7 @@ export async function runStopCommand(
 
     // Interrupt each running agent. Idle agents are a no-op.
     const stopResults = await Promise.all(
-      agents.map(async (agent) => {
+      agents.map(async (agent: AgentSnapshotPayload) => {
         if (agent.status !== "running") return { ok: true as const, id: agent.id, stopped: false };
         try {
           await client.cancelAgent(agent.id);

@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.727 - 2026-10-21
+
+### Fixed
+
+- Show only the current tab's cards in the right-hand column. Switching between conversation tabs could leave the previous tab's Open questions, Tasks, Journal and Subagents cards stacked above the current tab's. The column now checks which tab is focused when it draws each conversation's cards.
+
+### Maintenance
+
+- Give explicit types to agent and worktree list callbacks in the CLI archive, detach, reload, stop and worktree list commands. The type checker dropped their inferred types once the protocol grew, which failed `npm run typecheck` on main. Runtime behavior is unchanged.
+
+### Validation
+
+- New tests plant a leftover card entry from another tab and confirm it stays hidden, including after focus moves; both fail without the fix. Supporting card group tests pass. Typecheck and lint pass. The supporting view cards suite fails identically on main.
 
 ## 0.11.0-beta.3.vorteo.726 - 2026-10-20
 
