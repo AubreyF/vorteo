@@ -681,7 +681,9 @@ test("agents, tasks, plugin pills, queue and goals share the scrolling footer", 
       expect(subagentColumns.length).toBeGreaterThan(0);
       for (const columns of subagentColumns) {
         expect(columns.iconCenter).toBeCloseTo(columns.headingCenter, 1);
-        expect(columns.textGap).toBeGreaterThanOrEqual(12);
+        // The sidebar's status-to-name spacing, not a wide icon column.
+        expect(columns.textGap).toBeGreaterThanOrEqual(8);
+        expect(columns.textGap).toBeLessThanOrEqual(12);
       }
       const subagentBottomInset = await stack.getByTestId("subagents-card").evaluate((card) => {
         const rows = card.querySelectorAll('[data-testid^="subagents-track-row-"]');
@@ -1261,18 +1263,17 @@ async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) 
   const rowLayout = await stack.getByTestId("subagents-card").evaluate((card) => {
     return [...card.querySelectorAll('[data-testid^="subagents-track-row-"]')].map((row) => {
       const label = row.querySelector('[data-testid^="subagents-track-label-"]')!;
-      const metadata = row.querySelector('[data-testid^="subagents-track-metadata-"]')!;
       const action = row.querySelector('[data-testid^="subagents-track-detach-"]')!;
       const a = label.getBoundingClientRect();
-      const b = metadata.getBoundingClientRect();
       const c = action.getBoundingClientRect();
       return {
-        centers: [a.y + a.height / 2, b.y + b.height / 2, c.y + c.height / 2],
+        centers: [a.y + a.height / 2, c.y + c.height / 2],
+        height: row.getBoundingClientRect().height,
         labelRight: a.right,
-        metadataLeft: b.left,
-        metadataRight: b.right,
         actionLeft: c.left,
-        whiteSpace: getComputedStyle(metadata).whiteSpace,
+        // Profile, model and status moved into the row's tooltip.
+        metadata: row.querySelectorAll('[data-testid^="subagents-track-metadata-"]').length,
+        whiteSpace: getComputedStyle(label).whiteSpace,
         separator: getComputedStyle(row.parentElement!).borderTopWidth,
         overflow: row.scrollWidth > row.clientWidth,
       };
@@ -1281,8 +1282,10 @@ async function checkSubagentRows(stack: Locator, width: number, info: TestInfo) 
   expect(rowLayout).toHaveLength(5);
   for (const row of rowLayout) {
     expect(Math.max(...row.centers) - Math.min(...row.centers)).toBeLessThanOrEqual(1);
-    expect(row.labelRight).toBeLessThanOrEqual(row.metadataLeft);
-    expect(row.metadataRight).toBeLessThanOrEqual(row.actionLeft);
+    // Sidebar row density: 32px with a pointer, 44px for touch.
+    expect([32, 44]).toContain(Math.round(row.height));
+    expect(row.labelRight).toBeLessThanOrEqual(row.actionLeft);
+    expect(row.metadata).toBe(0);
     expect(row.whiteSpace).toBe("nowrap");
     expect(row.separator).toBe("0px");
     expect(row.overflow).toBe(false);
@@ -1689,18 +1692,15 @@ for (const width of [1400, 390]) {
           releaseTaskOrder: () => held.splice(0).forEach((release) => release()),
         });
       });
+      // The whole row is the drag activator; no grip sits before the check mark.
       const handle = page.getByTestId("checklist-drag-dependent");
       const checkbox = page.getByTestId("checklist-row-dependent").getByRole("checkbox");
-      expect((await handle.boundingBox())!.x).toBeLessThan((await checkbox.boundingBox())!.x);
-      if (width === 390) {
-        const grip = (await handle.boundingBox())!;
-        const check = (await checkbox.boundingBox())!;
-        expect(grip.width).toBe(32);
-        expect(grip.height).toBe(44);
-        expect(check.width).toBe(44);
-        expect(check.x - grip.x - grip.width).toBeCloseTo(0, 1);
-      }
-      await handle.click();
+      await expect(handle.getByRole("button", { name: /^Reorder / })).toHaveCount(0);
+      const rowBox = (await handle.boundingBox())!;
+      const check = (await checkbox.boundingBox())!;
+      expect(rowBox.height).toBe(width === 390 ? 44 : 32);
+      expect(check.width).toBe(width === 390 ? 32 : 20);
+      await handle.click({ position: { x: rowBox.width / 2, y: rowBox.height / 2 } });
       await expect(handle).toBeFocused();
       await handle.press("Space");
       await expect(handle).toHaveAttribute("aria-pressed", "true");
@@ -2527,7 +2527,8 @@ test("quiet queue and subagent rows align with header actions without hover fill
       }
       const cardBox = (await card.boundingBox())!;
       const rowBox = (await row.boundingBox())!;
-      expect(rowBox.height).toBe(44);
+      // Sidebar row density: 32px with a pointer, 44px on touch layouts.
+      expect(rowBox.height).toBe(width === 390 ? 44 : 32);
       const headingBox = (await card.getByTestId("subagents-group-paseo-toggle").boundingBox())!;
       expect(rowBox.y - headingBox.y - headingBox.height).toBeLessThanOrEqual(
         expectedHeaderInset(cardBox.width) + 3,
@@ -2577,8 +2578,11 @@ async function checkHandleCenterlines(stack: Locator) {
       const icon = card
         .querySelector("[aria-expanded]")!
         .firstElementChild!.getBoundingClientRect();
+      // Checklist rows drag from anywhere, so their check marks hold the leading centerline.
       return [
-        ...card.querySelectorAll('[data-testid^="checklist-drag-"], [data-testid^="queue-drag-"]'),
+        ...card.querySelectorAll(
+          '[data-testid^="checklist-row-"] [role="checkbox"], [data-testid^="queue-drag-"]',
+        ),
       ]
         .map((handle) => handle.getBoundingClientRect())
         .filter((box) => box.width > 0)

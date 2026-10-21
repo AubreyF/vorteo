@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.732 - 2026-10-21
+
+### Changed
+
+- Make right-hand card rows as dense as the sidebar. Subagent, task and queue rows are 32px tall on desktop and 44px on touch, 2px apart, with smaller row buttons. Shared row metrics keep both columns aligned.
+- Tighten the gap between each card row's first icon and its text to match the gap between a sidebar status circle and its workspace name. Row text now lines up with the card's heading title.
+- Show only the status icon, title and actions in Subagents and System sub-agents rows. Profile, model, effort, status, token use, context and cost appear in the row's tooltip. On phones, the first tap on a row shows the tooltip and the second opens the thread.
+- Reorder tasks by dragging anywhere on the row. The drag handle is gone, and the check mark sits beside the task text. Touch drags start after a short hold so the card still scrolls.
 
 ## 0.11.0-beta.3.vorteo.731 - 2026-10-21
 

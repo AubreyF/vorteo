@@ -1,5 +1,9 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { TaskCardRow, TaskCardRowLeading } from "@/agent-stream/task-card-row";
+import {
+  TaskCardRow,
+  TaskCardRowLeading,
+  useTaskCardRowActionStyle,
+} from "@/agent-stream/task-card-row";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { useCardDisclosure } from "@/agent-stream/use-card-disclosure";
 import { CardDisclosure, CollapsibleCardBody } from "@/agent-stream/card-disclosure";
@@ -650,7 +654,7 @@ function QueueActions({
   details: boolean;
   toggleDetails: () => void;
 }) {
-  const touch = useVortonTouch();
+  const rowActionStyle = useTaskCardRowActionStyle();
   const queued = item.delivery.status === "queued";
   const sendNow = useCallback(() => {
     void control
@@ -715,7 +719,7 @@ function QueueActions({
         <DropdownMenuTrigger
           accessibilityRole="button"
           accessibilityLabel="Queued message actions"
-          style={[taskCardStyles.iconAction, styles.menuTrigger, touch && styles.touch]}
+          style={[rowActionStyle, styles.menuTrigger]}
         >
           <ThemedMore size={16} uniProps={mutedIconMapping} />
         </DropdownMenuTrigger>
@@ -762,13 +766,14 @@ function QueuePrimaryActions({
   sendNow: () => void;
 }) {
   const touch = useVortonTouch();
+  const rowActionStyle = useTaskCardRowActionStyle();
   if (!queued && !dispatching) return null;
   return (
     <>
       <Button
         size="sm"
         variant="ghost"
-        style={[taskCardStyles.iconAction, touch && styles.touch]}
+        style={rowActionStyle}
         leftIcon={Pencil}
         accessibilityLabel="Edit queued message"
         disabled={!canMutate || dispatching}
@@ -778,7 +783,7 @@ function QueuePrimaryActions({
         <Button
           size="sm"
           variant="ghost"
-          style={[taskCardStyles.iconAction, touch && styles.touch]}
+          style={rowActionStyle}
           leftIcon={ArrowUp}
           accessibilityLabel={dispatching ? "Sending queued message" : "Send queued message now"}
           disabled={!canMutate || sendRequested || dispatching}
@@ -786,7 +791,7 @@ function QueuePrimaryActions({
         />
         {dispatching ? (
           <View pointerEvents="none" style={styles.sendProgress} testID="queue-send-progress">
-            <ThemedSendingSpinner size={28} />
+            <ThemedSendingSpinner size={touch ? 28 : 20} />
           </View>
         ) : null}
       </View>
@@ -825,7 +830,6 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     flexShrink: 1,
   },
-  touch: { minHeight: 44, minWidth: 44 },
   inlineAction: { minHeight: 44, alignSelf: "flex-start" },
   menuTrigger: {
     alignItems: "center",

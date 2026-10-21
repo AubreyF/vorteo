@@ -82,6 +82,16 @@ test("truncated card values reveal non-interactive details without changing row 
     await expect(tooltip).toBeHidden();
     await openAgentRoute(page, agent);
     await page.setViewportSize({ width: 390, height: 900 });
+    // On a phone, the first tap on a subagent shows its details and the second opens it.
+    const mobileChild = page.getByTestId(`subagents-track-label-${child.id}`);
+    await mobileChild.scrollIntoViewIfNeeded();
+    await mobileChild.click();
+    await expect(tooltip).toContainText(childTitle);
+    await mobileChild.click();
+    // Phones have no tab strip: the child thread replaces the parent and the tooltip closes.
+    await expect(mobileChild).toBeHidden();
+    await expect(tooltip).toBeHidden();
+    await openAgentRoute(page, agent);
     const mobileTask = page.getByTestId("checklist-row-long");
     await mobileTask.scrollIntoViewIfNeeded();
     await mobileTask.getByText(title, { exact: true }).click();
