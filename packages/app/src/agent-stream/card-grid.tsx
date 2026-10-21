@@ -2,6 +2,7 @@ import { createContext, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import { CARD_GAP } from "./columns/geometry";
 import { usePanelSpacing } from "@/styles/use-panel-spacing";
+import { CARD_GRID_DATASET } from "./grid-row";
 
 export const CardGridContext = createContext(false);
 export const CardGridInsetContext = createContext(2);
@@ -21,7 +22,12 @@ export function CardGrid({
   return (
     <CardGridContext value={true}>
       <CardGridInsetContext value={inset}>
-        <View style={[gridStyle, style]} testID={testID} onLayout={onLayout}>
+        <View
+          style={[gridStyle, style]}
+          testID={testID}
+          onLayout={onLayout}
+          dataSet={CARD_GRID_DATASET}
+        >
           {children}
         </View>
       </CardGridInsetContext>

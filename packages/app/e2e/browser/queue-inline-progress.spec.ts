@@ -43,12 +43,24 @@ for (const width of [1133, 1600, 390]) {
         await expect(timeline.getByTestId("shared-message-queue")).toBeVisible();
         await expect(timeline.getByTestId("agent-task-progress-card")).toHaveCount(0);
         await expect(timeline.getByTestId("agent-journal-card")).toHaveCount(0);
+        const row = timeline.getByTestId("queue-message-first");
+        await row.getByRole("button", { name: "Edit queued message", exact: true }).click();
+        const editor = row.getByRole("textbox", { name: "Edit queued message" });
+        await expect(editor).toHaveValue("First queued message");
+        await editor.fill("Edited in the conversation");
         await toggle.click();
-        await expect(dock.getByTestId("shared-message-queue")).toBeVisible();
-        await expect(timeline.getByTestId("shared-message-queue")).toHaveCount(0);
+        await expect(dock).toBeVisible();
+        await expect(editor).toHaveValue("Edited in the conversation");
+        await expect(dock.getByTestId("shared-message-queue")).toHaveCount(0);
+        await expect(timeline.getByTestId("shared-message-queue")).toBeVisible();
         await toggle.click();
+        await expect(editor).toHaveValue("Edited in the conversation");
+        await row.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(row).toContainText("Edited in the conversation");
         await expect(timeline.getByTestId("shared-message-queue")).toBeVisible();
       }
+      await expect(timeline.getByTestId("shared-message-queue")).toBeVisible();
+      await expect(card).toHaveCount(1);
       await card.scrollIntoViewIfNeeded();
       await page.evaluate(() => {
         const original = WebSocket.prototype.send;

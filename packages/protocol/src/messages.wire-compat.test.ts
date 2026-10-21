@@ -197,6 +197,41 @@ describe("wire schema compatibility", () => {
     });
   });
 
+  test("checklist progress and checks cross versions in both directions", () => {
+    const current = {
+      type: "todo",
+      items: [
+        {
+          id: "task-1",
+          text: "Current task",
+          completed: false,
+          progress: 65,
+          checks: [{ text: "Schema accepts progress", done: true }],
+        },
+      ],
+    };
+    // A new app reads a new daemon's progress.
+    expect(AgentTimelineItemPayloadSchema.parse(current)).toEqual(current);
+    // An old app, whose item schema predates these fields, still parses and drops them.
+    const legacyItem = z.object({
+      text: z.string(),
+      completed: z.boolean(),
+      id: z.string().optional(),
+    });
+    expect(legacyItem.parse(current.items[0])).toEqual({
+      id: "task-1",
+      text: "Current task",
+      completed: false,
+    });
+    // A new app reads an old daemon's items, which never carry progress.
+    expect(
+      AgentTimelineItemPayloadSchema.parse({
+        type: "todo",
+        items: [{ text: "Legacy task", completed: false }],
+      }),
+    ).toEqual({ type: "todo", items: [{ text: "Legacy task", completed: false }] });
+  });
+
   test("sub_agent tool-call payload still parses against the v0.1.65-beta.3 schema", () => {
     const parsed = LegacySubAgentToolCallSchema.parse({
       type: "tool_call",

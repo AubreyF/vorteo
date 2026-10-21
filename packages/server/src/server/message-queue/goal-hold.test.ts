@@ -259,3 +259,28 @@ it("keeps a confirmed hold retryable when quota preflight blocks goal resume", a
   await resumeGoalAfterQueue(port);
   expect(calls).toEqual(["blocked", "active"]);
 });
+
+it("retains the exact restart cause and never revives exhausted goal budgets", async () => {
+  const { port, calls } = fixture();
+  await pauseGoalForQueue(port, "restart", "request");
+  expect(port.hold()?.restartRequestId).toBe("request");
+  const state = await port.read();
+  await port.persist({
+    ...port.hold()!,
+    goal: { ...state.goal!, tokenBudget: 10, tokensUsed: 10 },
+  });
+  const exhausted = { ...state, goal: { ...state.goal!, tokenBudget: 10, tokensUsed: 10 } };
+  await resumeGoalAfterQueue({ ...port, read: async () => exhausted });
+  expect(calls).toEqual(["blocked"]);
+});
+
+it.each(["paused", "complete", "budgetLimited", "usageLimited"] as const)(
+  "does not capture or activate an already %s goal",
+  async (status) => {
+    const { port, calls } = fixture(status);
+    await pauseGoalForQueue(port, "restart", "request");
+    await resumeGoalAfterQueue(port);
+    expect(port.hold()).toBeUndefined();
+    expect(calls).toEqual([]);
+  },
+);

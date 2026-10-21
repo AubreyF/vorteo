@@ -4,8 +4,7 @@ import type { AgentProfile, SharedProviderPreferences } from "@getpaseo/protocol
 import { gotoAppShell, openSettings } from "./app";
 import { connectDaemonClient } from "./daemon-client-loader";
 import { getServerId } from "./server-id";
-import { expectAppRoute } from "./route-assertions";
-import { openSettingsHost } from "./settings";
+import { openSettingsHost, revealSettingsLocation } from "./settings";
 
 // ─── Daemon-side seeding ───────────────────────────────────────────────────
 
@@ -185,8 +184,8 @@ export async function openAgentProfileSettings(page: Page): Promise<void> {
   await gotoAppShell(page);
   await openSettings(page);
   await openSettingsHost(page, serverId);
-  await page.getByRole("button", { name: "Agents", exact: true }).click();
-  await expectAppRoute(page, "/settings/agents");
+  // Profiles live in Accounts & profiles on the continuous settings page.
+  await revealSettingsLocation(page, "profiles");
   await expect(page.getByTestId("agent-profiles-card")).toBeVisible({ timeout: 30_000 });
 }
 

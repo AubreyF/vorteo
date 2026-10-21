@@ -340,6 +340,46 @@ describe("OpenCodeServerManager managed process ledger", () => {
     expect(await runtime.managedProcesses.list()).toEqual([]);
   });
 
+  test.each(["release", "shutdown"] as const)(
+    "retains uncertain %s cleanup and refuses replacement until native exit",
+    async (route) => {
+      const { manager, runtime } = createTestManager([4604, 4605]);
+      const acquisition = await manager.acquireCurrent();
+      const records = await runtime.managedProcesses.list();
+      expect(records).toHaveLength(1);
+      runtime.timeoutTermination = true;
+      const close = () => (route === "release" ? acquisition.release() : manager.shutdown());
+      await expect(Promise.all([close(), close()])).rejects.toThrow(
+        "OpenCode helper cleanup remains unverified",
+      );
+      expect(await runtime.managedProcesses.list()).toEqual(records);
+      expect(runtime.terminatedPorts).toEqual([4604]);
+      await expect(close()).rejects.toThrow("OpenCode helper cleanup remains unverified");
+      await expect(manager.acquireCurrent()).rejects.toThrow(
+        "OpenCode helper cleanup remains unverified",
+      );
+      await expect(manager.acquireNew()).rejects.toThrow(
+        "OpenCode helper cleanup remains unverified",
+      );
+      await expect(manager.acquireDedicated({})).rejects.toThrow(
+        "OpenCode helper cleanup remains unverified",
+      );
+      expect(() => manager.acquireExisting(acquisition.server.url)).toThrow(
+        "OpenCode helper cleanup remains unverified",
+      );
+      expect(runtime.launchedPorts).toEqual([4604]);
+      expect(runtime.terminatedPorts).toEqual([4604]);
+      runtime.processForPort(4604).exitBySignal("SIGKILL");
+      await runtime.settle();
+      expect(await runtime.managedProcesses.list()).toEqual([]);
+      runtime.timeoutTermination = false;
+      const replacement = await manager.acquireCurrent();
+      expect(replacement.server.port).toBe(4605);
+      await manager.shutdown();
+      expect(runtime.terminatedPorts).toEqual([4604, 4605]);
+    },
+  );
+
   test("starts helper server from opencode-home", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "opencode-server-home-"));
     const opencodeHomeDir = path.join(tempDir, "opencode-home");
@@ -451,6 +491,7 @@ function createCapturingLogger(): { logger: Logger; records: Array<Record<string
 }
 
 class FakeOpenCodeServerRuntime {
+  timeoutTermination = false;
   readonly managedProcesses = new FakeManagedProcesses();
   readonly terminatedPorts: number[] = [];
   readonly spawnCalls: Array<{
@@ -500,6 +541,7 @@ class FakeOpenCodeServerRuntime {
   readonly terminateProcess: ProcessTerminator = async (target: TreeKillTarget) => {
     const process = this.processForChild(target as ChildProcess);
     this.terminatedPorts.push(process.port);
+    if (this.timeoutTermination) return "kill-timeout";
     process.exitBySignal("SIGTERM");
     return "terminated";
   };

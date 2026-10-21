@@ -9,6 +9,7 @@ import {
 export const QueueGoalHoldSchema = z.object({
   phase: z.enum(["pausing", "held", "resuming"]),
   reason: z.literal("restart").optional(),
+  restartRequestId: z.string().min(1).optional(),
   goal: AgentGoalSchema,
 });
 export type QueueGoalHold = z.infer<typeof QueueGoalHoldSchema>;
@@ -55,7 +56,11 @@ function sameGoal(left: AgentGoal, right: AgentGoal): boolean {
 
 /** Caller serializes this with explicit goal edits. Persist intent first so a
  * crash in the provider RPC leaves a reviewable pause, never a guessed resume. */
-export async function pauseGoalForQueue(port: QueueGoalPort, reason?: "restart"): Promise<void> {
+export async function pauseGoalForQueue(
+  port: QueueGoalPort,
+  reason?: "restart",
+  restartRequestId?: string,
+): Promise<void> {
   if (!port.canPause()) return;
   const state = await port.read();
   if (state.status !== "ready")
@@ -63,7 +68,7 @@ export async function pauseGoalForQueue(port: QueueGoalPort, reason?: "restart")
   if (!state.goal || state.goal.status !== "active") return;
   const original = state.goal;
   if (!port.canPause()) return;
-  await port.persist({ phase: "pausing", goal: original, reason });
+  await port.persist({ phase: "pausing", goal: original, reason, restartRequestId });
   const paused = await port.set("blocked");
   if (!port.canPause() || port.hold()?.phase !== "pausing") {
     await port.persist(undefined);
@@ -76,7 +81,7 @@ export async function pauseGoalForQueue(port: QueueGoalPort, reason?: "restart")
     !sameGoal(original, paused.goal)
   )
     throw new Error("The goal block could not be confirmed. Review the goal before continuing.");
-  await port.persist({ phase: "held", goal: paused.goal, reason });
+  await port.persist({ phase: "held", goal: paused.goal, reason, restartRequestId });
 }
 
 export async function resumeGoalAfterQueue(port: QueueGoalPort): Promise<void> {
@@ -89,7 +94,8 @@ export async function resumeGoalAfterQueue(port: QueueGoalPort): Promise<void> {
     !goal ||
     !isOwnedHoldStatus(goal, hold) ||
     !sameGoal(hold.goal, goal) ||
-    goal.updatedAt !== hold.goal.updatedAt
+    goal.updatedAt !== hold.goal.updatedAt ||
+    (goal.tokenBudget !== null && goal.tokensUsed >= goal.tokenBudget)
   ) {
     // A new objective, explicit pause or provider-side change owns its state.
     await port.persist(undefined);

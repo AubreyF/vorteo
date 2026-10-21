@@ -1,13 +1,13 @@
-import { memo } from "react";
+import { memo, useId } from "react";
 import { Text, View } from "react-native";
-import Svg, { G, Path } from "react-native-svg";
+import Svg, { Defs, G, LinearGradient, Path, Stop } from "react-native-svg";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Theme } from "@/styles/theme";
 import { isWeb } from "@/constants/platform";
-import type { ChecklistProgress } from "./progress";
-import { petalGeometry, taskPetals, type PetalStatus } from "./flower";
+import { checklistPercent, type ChecklistProgress } from "./progress";
+import { petalFills, petalGeometry, taskPetals, type PetalStatus } from "./flower";
 
 interface FlowerPalette {
   completed: string;
@@ -26,36 +26,86 @@ const decorativeSvgProps = isWeb
       importantForAccessibility: "no-hide-descendants" as const,
     };
 
-function Flower({ petals, ...colors }: FlowerPalette & { petals: PetalStatus[] }) {
+function Flower({
+  petals,
+  fills,
+  ...colors
+}: FlowerPalette & { petals: PetalStatus[]; fills: number[] }) {
   const geometry = petalGeometry(petals.length);
+  const gradientPrefix = useId().replace(/:/g, "");
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" {...decorativeSvgProps}>
+      {/* A partly done petal fills from the flower's center toward its tip with a hard edge. */}
+      <Defs>
+        {petals.map((status, index) => {
+          const fill = fills[index] ?? 0;
+          if (status === "completed" || fill <= 0 || fill >= 1) return null;
+          const angle = (index * 360) / petals.length;
+          return (
+            <LinearGradient
+              key={angle}
+              id={`${gradientPrefix}-petal-${index}`}
+              x1="0"
+              y1="1"
+              x2="0"
+              y2="0"
+            >
+              <Stop offset={fill} stopColor={colors.completed} />
+              <Stop offset={fill} stopColor={colors[status]} />
+            </LinearGradient>
+          );
+        })}
+      </Defs>
       {petals.map((status, index) => {
         const angle = (index * 360) / petals.length;
+        const fill = fills[index] ?? 0;
+        const paint = petalPaint({
+          status,
+          fill,
+          colors,
+          gradient: `${gradientPrefix}-petal-${index}`,
+        });
         return (
           <G key={angle} transform={`rotate(${angle} 12 12)`}>
-            <Path d={geometry.path} fill={colors[status]} />
+            <Path d={geometry.path} fill={paint} />
           </G>
         );
       })}
     </Svg>
   );
 }
+function petalPaint(input: {
+  status: PetalStatus;
+  fill: number;
+  colors: FlowerPalette;
+  gradient: string;
+}): string {
+  if (input.status === "completed" || input.fill >= 1) return input.colors.completed;
+  if (input.fill > 0) return `url(#${input.gradient})`;
+  return input.colors[input.status];
+}
+
 const ThemedFlower = withUnistyles(Flower);
 
 export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
   completed,
   active,
+  blocked,
+  credit,
   total,
   testID,
   tooltip = true,
 }: ChecklistProgress & { testID?: string; tooltip?: boolean }) {
   const { t } = useTranslation();
   if (total === 0) return null;
-  const percent = Math.round((completed / total) * 100);
+  const progress = { completed, active, blocked, credit, total };
+  const percent = checklistPercent(progress);
   const label = `${t("message.todo.tasksProgress", { completed, total })} (${percent}%)`;
-  const detail = `${label} · ${t("message.todo.activeCount", { count: active })}`;
-  const petals = taskPetals({ completed, active, total });
+  const parts = [label, t("message.todo.activeCount", { count: active })];
+  if (blocked > 0) parts.push(t("message.todo.blockedCount", { count: blocked }));
+  const detail = parts.join(" · ");
+  const petals = taskPetals(progress);
+  const fills = petalFills(progress);
   return (
     <Tooltip enabledOnDesktop={tooltip}>
       <TooltipTrigger asChild>
@@ -67,11 +117,11 @@ export const ChecklistProgressFlower = memo(function ChecklistProgressFlower({
           accessibilityRole="progressbar"
           accessibilityLabel={detail}
           aria-valuemin={0}
-          aria-valuemax={total}
-          aria-valuenow={completed}
+          aria-valuemax={100}
+          aria-valuenow={percent}
           aria-valuetext={detail}
         >
-          <ThemedFlower petals={petals} uniProps={palette} />
+          <ThemedFlower petals={petals} fills={fills} uniProps={palette} />
         </View>
       </TooltipTrigger>
       <TooltipContent>

@@ -1,5 +1,7 @@
 import { helperReviewFixture } from "../../src/execution-installation/helper-review.fixture";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { FileBootstrapRequestJournal } from "../../../server/dist/server/server/execution-installation/coordinator-bootstrap-journal";
 import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
 import { InstallationSkillPackages } from "../../../server/src/server/execution-installation/settings/skill-packages";
 import type { SkillFiles } from "../../../server/src/server/orchestration-skills/internal/inventory";
@@ -35,7 +37,9 @@ import {
   type IsolatedHostDaemon,
 } from "../support/helpers/isolated-host-daemon";
 import { hashDaemonPassword } from "../../../server/src/server/auth";
-import { createInstallationServer } from "../../../server/src/server/execution-installation/server";
+// Keep the native coordinator in its Node build boundary. Expo's global
+// environment declarations do not describe its protected subprocess environment.
+import { createInstallationServer } from "../../../server/dist/server/server/execution-installation/server";
 import {
   connectInstallationDaemon,
   createInstallationRestartExecutor,
@@ -43,11 +47,11 @@ import {
 import {
   createInstallationProfiles,
   startProfileSynchronization,
-} from "../../../server/src/server/execution-installation/profiles/runtime";
+} from "../../../server/dist/server/server/execution-installation/profiles/runtime";
 import {
   createInstallationSettings,
   startSettingsReconciliation,
-} from "../../../server/src/server/execution-installation/settings/runtime";
+} from "../../../server/dist/server/server/execution-installation/settings/runtime";
 import type { InstallationConfig } from "../../../server/src/server/execution-installation/config";
 import { pluginRequirements } from "../support/helpers/plugin-fixture";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
@@ -219,6 +223,7 @@ test.beforeAll(async () => {
         detail: "Approval required",
       },
     ]),
+    { mode: 0o600 },
   );
   const profiles = createInstallationProfiles(config);
   const settings = createInstallationSettings(config);
@@ -387,6 +392,85 @@ test.afterAll(async () => {
     await closed;
   }
   if (root) await rm(root, { recursive: true, force: true });
+});
+
+test("owner maintenance queue shows cancellation failures and cancels the exact request", async ({
+  page,
+}, testInfo) => {
+  const id = randomUUID();
+  const job = MaintenanceServiceJobSchema.parse({
+    id,
+    revision: randomUUID(),
+    target: "maintenance-controller",
+    operation: "replacement",
+    proposal: {
+      id,
+      installationId: config.public.installationId,
+      requestedBy: "host-agent",
+      target: "maintenance-controller",
+      operation: "replacement",
+      identitySha256: "a".repeat(64),
+      planSha256: "b".repeat(64),
+      repository: "https://example.test/maintenance",
+      sourceCommit: "c".repeat(40),
+      artifactSha256: "d".repeat(64),
+      previous: null,
+    },
+    reason: "Review the replacement controller",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    detail: "Awaiting independently verified native evidence.",
+    evidence: [],
+  });
+  const journal = new FileBootstrapRequestJournal(root);
+  journal.mutateLifecycle((jobs) => [...jobs, job], undefined);
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await expect(page.getByTestId("maintenance-request-queue")).toHaveCount(0);
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "controller or launcher maintenance requests",
+  );
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const queue = page.getByTestId("maintenance-request-queue");
+  const row = page.getByTestId(`maintenance-request-${id}`);
+  await expect(queue).toBeVisible();
+  await expect(row).toContainText(job.reason);
+  await expect(row).toContainText("Requested");
+  await expect(page.getByTestId("installation-update-toasts")).not.toContainText(
+    "Controller maintenance",
+  );
+  if (testInfo.project.name === "desktop")
+    await expect(
+      page.getByTestId("settings-sidebar").getByTestId(`maintenance-service-notice-${id}`),
+    ).toBeVisible();
+  await page.route("**/api/installation/owner/maintenance-services/cancel", async (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Fixture cancellation unavailable" }),
+    }),
+  );
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(queue.getByRole("alert")).toContainText("Fixture cancellation unavailable");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeDisabled();
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("pending");
+  await page.unroute("**/api/installation/owner/maintenance-services/cancel");
+  await queue.getByRole("button", { name: "Refresh requests" }).click();
+  await expect(queue.getByRole("alert")).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toBeEnabled();
+  // Keep the unrelated historical restart fixture out of this control screenshot.
+  await page
+    .getByTestId("installation-update-toasts")
+    .getByRole("alert")
+    .filter({ hasText: "Restart Host to enable protected workspaces" })
+    .getByRole("button", { name: "Dismiss", exact: true })
+    .last()
+    .click();
+  await queue.screenshot({ path: testInfo.outputPath("maintenance-request-queue.png") });
+  await row.getByRole("button", { name: "Cancel maintenance" }).click();
+  await expect(row).toContainText("Maintenance cancelled before dispatch.");
+  await expect(row.getByRole("button", { name: "Cancel maintenance" })).toHaveCount(0);
+  expect(journal.readLifecycle().find((item) => item.id === id)?.status).toBe("rejected");
 });
 
 test("welcome signs in with the owner password and restores both environments", async ({
@@ -932,6 +1016,82 @@ test("passive maintenance stays in the sidebar and actionable notices can be dis
     }
     for (const { client, id } of blockers) await client.cancelAgent(id);
     for (const client of clients) await client.close();
+  }
+});
+
+test("delegated requests read as handled by the delegate, with Cancel instead of an approval toast", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Sidebar placement uses the desktop sidebar.");
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 700 });
+  const delegation = path.join(root, "owner-delegation.json");
+  await writeFile(
+    delegation,
+    JSON.stringify({
+      version: 1,
+      delegatedRequesterPrefixes: ["Nova "],
+      hostUpdateServiceRestart: false,
+    }),
+  );
+  await page.goto(`${origin}/settings/general?installation=1`);
+  await page.getByTestId("installation-password").fill(ownerPassword);
+  await page.getByTestId("installation-unlock").click();
+  const pending = RestartJobSchema.array().parse(
+    await (await request("owner/restarts/query", ownerPassword, {})).json(),
+  );
+  for (const job of pending.filter((entry) => entry.status === "pending")) {
+    await request(`owner/restarts/${job.id}/decision`, ownerPassword, {
+      revision: job.revision,
+      decision: "reject",
+    });
+  }
+  const read = async (id: string) =>
+    RestartJobSchema.parse(
+      await (
+        await fetch(`${origin}/api/installation/restart-requests/${id}`, {
+          headers: { Authorization: `Bearer ${hostToken}` },
+        })
+      ).json(),
+    );
+  let jobId: string | null = null;
+  try {
+    const job = RestartJobSchema.parse(
+      await (
+        await request("restart-requests", hostToken, {
+          target: "host",
+          reason: "Routine Host maintenance prepared and verified by Nova.",
+          requester: "Nova integration",
+        })
+      ).json(),
+    );
+    jobId = job.id;
+    const sidebar = page.getByTestId("settings-sidebar").filter({ visible: true });
+    const row = sidebar.getByTestId(`restart-notice-${job.id}`);
+    await expect(row).toContainText("Being handled by Nova integration");
+    await expect(row).toContainText("Routine Host maintenance prepared and verified by Nova.");
+    await expect(
+      page.getByTestId("installation-update-toasts").getByTestId(`restart-notice-${job.id}`),
+    ).toHaveCount(0);
+    const card = page.getByTestId(`restart-request-${job.id}`);
+    await expect(card).toContainText("Being handled by Nova integration");
+    // The owner keeps every existing decision in Installation controls.
+    await expect(card.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+    await sidebar.screenshot({ path: testInfo.outputPath("delegated-sidebar.png") });
+    await card.screenshot({ path: testInfo.outputPath("delegated-settings.png") });
+    await row.getByTestId(`restart-notice-${job.id}-cancel`).click();
+    await expect.poll(async () => (await read(job.id)).status).toBe("rejected");
+    await expect(row).toHaveCount(0);
+  } finally {
+    await rm(delegation, { force: true });
+    if (jobId) {
+      const job = await read(jobId);
+      if (job.status === "pending" || job.status === "approved")
+        await request(`owner/restarts/${jobId}/decision`, ownerPassword, {
+          revision: job.revision,
+          decision: job.status === "pending" ? "reject" : "cancel",
+        });
+    }
   }
 });
 

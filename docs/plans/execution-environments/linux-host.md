@@ -13,6 +13,7 @@ Repository policy currently authorizes only the macOS Host extension ([AGENTS.md
 macOS relies on SIP-protected tool paths, Apple signing and kernel audit tokens. Linux substitutes:
 
 - **Tools.** `busctl` and `systemctl` must be canonical root-owned files, with no group or other write bit on the file or any ancestor directory. The same rule will apply to `docker`.
+- **User bus isolation.** The runtime directory must be canonical, private to the Host account and outside every writable guest mount, including ancestor and descendant overlaps. Same-UID guest processes defeat mode-bit protection if that directory is shared.
 - **Service manager.** The authoritative user-manager PID is `MainPID` of `user@<uid>.service`, read from the system manager. The bus connection that owns `org.freedesktop.systemd1` on the user bus must belong to that PID. Each property read is addressed to that unique connection name, which the broker never reuses.
 - **Exact launcher.** `ExecStart` is read as the typed D-Bus property `a(sasbttttuii)`. `systemctl show` joins argv with spaces without quoting, so it cannot bind arguments.
 - **Process identity.** `/proc` must be procfs. The target must share the observer's PID and mount namespaces, so its executable path names the same file. The real, effective, saved and filesystem UIDs must all be the Host account. `startIdentity` is `/proc/<pid>/stat` field 22 converted with the kernel's `AT_CLKTCK`. It is boot-relative and compared only within one `boot_id`.
@@ -38,11 +39,11 @@ Unlike root-owned launchd, `systemd --user` and the user bus broker run as the a
       Acceptance: every existing config parses unchanged, and macOS consumers keep reading `launchdService`. Verified by `config.test.ts` on Linux. Its Darwin case runs only on a Mac.
 - [x] **b. `createSystemdBootstrapServiceReader()`.** Implements `BootstrapServiceReader`, `inspectRunningProcess`, `inspectStoppedProcess`, `verifyProcessExited` and `verifyServiceAbsent` over the pinned user-bus connection. `readService` returns a canonical JSON record. The pure parsers `systemdLoadedPid` and `isStoppedSystemdCandidate` mirror the launchd ones.
       Acceptance: `coordinator-bootstrap-systemd.test.ts` replays captured `busctl` output. It covers foreign-account, unvouched bus owner, changing manager, inactive manager, partial, mistyped, space-ambiguous argv, drop-in and pending-reload refusals, plus exact absence.
-- [x] **c. `/proc` process inspector.** Produces the exact `ProcessObservationSchema` shape, with running, stopped (with child inventory) and exited modes. It re-reads before and after to detect exec or PID reuse.
+- [x] **c. `/proc` process inspector.** Produces the exact `ProcessObservationSchema` shape, with running, stopped (with child inventory) and exited modes. It re-reads before and after to detect exec or PID reuse and checks the requested running or stopped state on the final read.
       Acceptance: `coordinator-bootstrap-linux-process.test.ts` runs live against real PIDs: a spawned child, running and stopped states with child inventory, a reaped child through `verifyRetainedProcessExited`, a zombie, an exec under an unchanged birth, a thread ID, and another account's process when one exists.
 - [x] **d. Ownership check.** `verifySystemdServiceOwnership` binds `MainPID`, the parent manager and the cgroup. It is Linux-only and is not yet called by the launchd consumers.
       Acceptance: fixture tests refuse a migrated process, a non-manager parent, a same-uid container cgroup, a unit cgroup outside the user manager, reassignable `MainPID` (`NotifyAccess`, `Type=forking`) and another account. `coordinator-bootstrap-systemd.local.e2e.test.ts` checks a transient user unit live, an outsider process and a same-uid process in another PID namespace.
-- [x] **e. Tests.** Fixtures and live tests as above, stable across repeated runs on Node 24. The unit suites also pass on Node 22 inside a container whose PID 1 shares the test account's uid, as in the Dev container. The affected execution-installation suites pass on Linux, where their Darwin-only cases are skipped. CI's macOS leg runs only file-observation tests, so those cases still need a manual run on a Mac.
+- [x] **e. Tests.** Fixtures and live tests as above, stable across repeated runs on Node 24. The unit suites also pass on Node 22 inside a container whose PID 1 shares the test account's uid, as in the Dev container. The affected execution-installation suites pass on Linux, where their Darwin-only cases are skipped. CI's existing macOS leg also runs configuration and adapter contracts. The broader Darwin-only recovery suites still need a focused manual run on a Mac.
 
 ## Blockers found in this slice
 
@@ -64,3 +65,13 @@ Not started. Each item needs its own review:
 - Claimed-executor recovery, renewal and repair chains, which must land before any Linux Host is installed
 - Docker tool trust check, and a decision on the Host account's `docker` group membership, which is root-equivalent
 - Policy and installer documentation amendments, then live acceptance
+
+## Distribution and review follow-up
+
+The server's normal TypeScript build includes both adapters under `dist/server/server/execution-installation`; the server package includes that directory. No new npm dependency, platform binary, configuration migration or user-run patch is needed for this foundation. The existing Linux live tests run in the server unit job on Linux; deterministic state-transition and writable-mount regression cases run on all CI platforms. The macOS job also checks the launchd-only configuration rule.
+
+After this PR is merged, source installations must update to a revision containing it and run the normal build. Container installations must rebuild their image from that revision and follow the [existing deployment update procedure](../../docker.md). Managed Host and Dev installations use their [owner-approved source update workflow](../../host-handoff.md). A Git merge alone does not update installed runtimes, npm packages or desktop releases. Users of distributed packages receive the code when their chosen distribution publishes and installs a build containing the merge.
+
+The adapters remain unselected. Installing this source does not enable Linux Host provisioning, systemd restarts or recovery, and does not change existing macOS Hosts. A minimal coordinator bundle includes only reachable runtime modules; inert adapters do not need to be forced into that closure until wiring makes them reachable. The pending work above remains required before claiming Linux Host support.
+
+Review follow-up adds guest-mount exclusion for the trusted user runtime directory and rejects a final stopped, traced or exited process state after an initially running observation. Deterministic tests exercise the real inspection algorithm through a procfs read port, so signal timing does not make the race test flaky. Root README overview and onboarding remain unchanged because this is an inert foundation.

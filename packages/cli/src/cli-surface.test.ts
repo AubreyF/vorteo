@@ -109,6 +109,16 @@ describe("canonical CLI surface", () => {
       plugin?.commands.find((command) => command.name() === "install")?.helpInformation(),
     ).toContain("--id <id>");
   });
+
+  it("offers a local-only headless browser host with denied origins", async () => {
+    const browser = createCli().commands.find((command) => command.name() === "browser");
+    const host = browser?.commands.find((command) => command.name() === "host");
+    expect(host?.helpInformation()).toContain("--deny-origin <url-or-host>");
+    expect(host?.helpInformation()).toContain("--viewport <WIDTHxHEIGHT>");
+    await expect(
+      createCli().parseAsync(["browser", "host", "--host", "127.0.0.1:6767"], { from: "user" }),
+    ).rejects.toMatchObject({ code: "LOCAL_OPERATION" });
+  });
 });
 
 const originInput = {

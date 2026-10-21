@@ -1,4 +1,5 @@
 import { AgentJournalEntrySchema } from "@getpaseo/protocol/agent-journal";
+import { AgentQuestionSchema } from "@getpaseo/protocol/agent-questions";
 import { AgentGoalStateSchema } from "@getpaseo/protocol/agent-goals";
 import { z } from "zod";
 import {
@@ -233,6 +234,7 @@ const StoredProjectPlacementSchema = z.strictObject({
 const StoredAgentSnapshotSchema = z.strictObject({
   tasks: z.array(AgentTaskItemSchema).optional(),
   journal: z.array(AgentJournalEntrySchema).optional(),
+  questions: z.array(AgentQuestionSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
   provider: AgentProviderSchema,
@@ -679,6 +681,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     goalState: cachedGoalState(agent.goalState),
     tasks: agent.tasks,
     journal: agent.journal,
+    questions: agent.questions,
     persistence: null,
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,

@@ -8,10 +8,11 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select-field";
 import { useHostProjects } from "@/projects/host-projects";
-import { useWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks";
+import { useWorkspace, useWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks";
 import { useHostRuntimeClient, useHosts } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { useProjectMoveRequest } from "./request";
+import { placementForProjectMove } from "./policy";
 
 export function ProjectMoveModalHost() {
   const request = useProjectMoveRequest((state) => state.request);
@@ -37,6 +38,7 @@ function ProjectMoveModal({
     () => projects.find((project) => project.viewKey === projectKey) ?? null,
   );
   const client = useHostRuntimeClient(serverId);
+  const workspace = useWorkspace(serverId, workspaceId);
   const supported = useHostFeature(serverId, "workspaceProjectMembership");
   const close = useProjectMoveRequest((state) => state.close);
   const { mutate, reset, isPending, error } = useMutation({
@@ -46,6 +48,7 @@ function ProjectMoveModal({
       await client.setWorkspaceProject({
         workspaceId,
         membership: { key: selected.viewKey, name: selected.projectName },
+        projectId: placementForProjectMove({ workspace, target: selected, serverId }),
       });
     },
     onSuccess: close,

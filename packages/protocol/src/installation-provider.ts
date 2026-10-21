@@ -21,6 +21,10 @@ export const InstallationProviderSchema = z.strictObject({
     .strictObject({
       provider: z.enum(["codex", "claude"]),
       creationId: z.string().uuid(),
+      /** Claude only. Absent means a setup-token account; "full" is web sign-in whose
+       * grant the Host keeps and refreshes. Older daemons reject the field, so it is set
+       * only after every environment advertises claudeFullSignIn. */
+      signIn: z.literal("full").optional(),
     })
     .optional(),
   bindings: z.record(z.string().min(1), z.string().min(1)),

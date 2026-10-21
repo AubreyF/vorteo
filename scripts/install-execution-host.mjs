@@ -73,12 +73,16 @@ async function build(command, args, cwd, log, environment = {}) {
     throw new Error(`Build failed; inspect ${log}`, { cause: error });
   }
 }
-function plist(label, argv, environment, log) {
+// The Host supervisor needs its 10 s worker grace plus the worker's 15 s hard
+// deadline before launchd escalates to SIGKILL; the default leaves no margin.
+const HOST_EXIT_TIMEOUT_SECONDS = 30;
+
+function plist(label, argv, environment, log, exitTimeOut) {
   const args = argv.map((arg) => `<string>${xml(arg)}</string>`).join("");
   const env = Object.entries(environment)
     .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
     .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(label)}</string><key>ProgramArguments</key><array>${args}</array><key>EnvironmentVariables</key><dict>${env}</dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer>${exitTimeOut === undefined ? "" : `<key>ExitTimeOut</key><integer>${exitTimeOut}</integer>`}<key>StandardOutPath</key><string>${xml(log)}</string><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`;
 }
 
 async function writableBindRoots(docker) {
@@ -403,6 +407,7 @@ async function install(planFile) {
       ],
       env,
       path.join(logDir, "host.log"),
+      HOST_EXIT_TIMEOUT_SECONDS,
     ),
   );
   privateWrite(
@@ -863,6 +868,33 @@ async function stopOwnedServices(record) {
   }
 }
 
+/**
+ * The coordinator owns the durable session host's launchd job. Removing the installation first
+ * would leave that job running sessions with no daemon to attach them, so removal waits for it.
+ */
+export async function assertSessionHostJobRemoved(
+  record,
+  ports = {
+    uid: process.getuid(),
+    launchAgents: path.join(os.homedir(), "Library", "LaunchAgents"),
+    exists: existsSync,
+    run,
+  },
+) {
+  const label = `local.vorteo.${record.installationId}.session-host`;
+  let loaded = false;
+  try {
+    await ports.run("/bin/launchctl", ["print", `gui/${ports.uid}/${label}`]);
+    loaded = true;
+  } catch {
+    /* not loaded */
+  }
+  if (loaded || ports.exists(path.join(ports.launchAgents, `${label}.plist`)))
+    throw new Error(
+      `Remove the session host job (${label}) from Installation controls before removing this installation.`,
+    );
+}
+
 function validateLaunchAgentPaths(record) {
   for (const file of [record.hostPlist, record.coordinatorPlist]) {
     const ownedDirectory = path.join(os.homedir(), "Library", "LaunchAgents");
@@ -902,6 +934,7 @@ async function manage(command, root) {
     if (current && current !== target)
       throw new Error(`HTTPS port ${port} now belongs to another target; refusing removal`);
   }
+  await assertSessionHostJobRemoved(record);
   validateLaunchAgentPaths(record);
   await stopOwnedServices(record);
   const disabled = path.join(root, "disabled-launch-agents");

@@ -96,6 +96,9 @@ try {
     JSON.stringify({ sourceCommit: fetched, sha256: update.sha256 }),
     { mode: 0o600, flag: "wx" },
   );
+  // Standalone coordinator bundle, stage 1: inert, and built after the receipt it ships.
+  if (process.env.VORTEO_COORDINATOR_BUNDLE === "enabled")
+    run(process.execPath, ["packages/server/scripts/build-coordinator-bundle.mjs"], root);
   await fs.writeFile(input.resultFile, JSON.stringify({ release: root, exported }), {
     mode: 0o600,
     flag: "wx",

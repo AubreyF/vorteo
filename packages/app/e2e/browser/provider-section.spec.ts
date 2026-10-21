@@ -127,13 +127,15 @@ test("provider rows preserve snapshot labels, layout, settings, and enabled stat
     if (!mock) throw new Error("The isolated daemon must expose its deterministic provider");
     const row = card.getByRole("button", { name: `${mock.label} provider details`, exact: true });
     await expect(row.getByText("Available", { exact: true })).toBeVisible();
-    const toggle = row.getByRole("switch");
+    // The switch sits beside the details button rather than inside it.
+    const toggle = card.getByRole("switch", { name: `Enable ${mock.label}`, exact: true });
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     const count = mock.models?.filter((model) => model.isSelectable !== false).length ?? 0;
     expect(count).toBeGreaterThan(1);
     const modelCount = `${count.toLocaleString()} models`;
     await expect(row.getByText(modelCount, { exact: true })).toBeVisible();
-    const order = await row.evaluate(
+    // Controls are siblings of the details button, so read order from the row container.
+    const order = await row.locator("..").evaluate(
       (element, expected) => {
         const nodes = Array.from(element.querySelectorAll("*"));
         const icons = Array.from(element.querySelectorAll("svg"));
@@ -153,7 +155,10 @@ test("provider rows preserve snapshot labels, layout, settings, and enabled stat
     expect(order.status).toBeGreaterThan(order.label);
     expect(order.models).toBeGreaterThan(order.status);
     expect(order.toggle).toBeGreaterThan(order.models);
-    const disabledToggle = disabled.getByRole("switch");
+    const disabledToggle = card.getByRole("switch", {
+      name: "Enable Disabled account",
+      exact: true,
+    });
     await expect(disabledToggle).toHaveAttribute("aria-checked", "false");
     await disabledToggle.click();
     await expect(disabledToggle).toHaveAttribute("aria-checked", "true");

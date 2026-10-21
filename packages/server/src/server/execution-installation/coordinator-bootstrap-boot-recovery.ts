@@ -1,6 +1,7 @@
 import path from "node:path";
 import { open, lstat, realpath, link, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { userInfo } from "node:os";
 import { z } from "zod";
@@ -12,12 +13,18 @@ import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
   assertBootstrapPathsProtected,
   readBootstrapPreparedFile,
+  readProtectedDocument,
+  verifyBootstrapPreparedDependency,
+  digestBootstrapArtifact,
 } from "./coordinator-bootstrap-artifact.js";
 import { readBootstrapLauncher } from "./coordinator-bootstrap-service.js";
 
 /** A login service survives logout and reboot as retained configuration. It
  * runs after the Host account logs in; it cannot promise pre-login recovery. */
-export function bootstrapRecoveryLauncher(plan: CoordinatorBootstrapPlan) {
+export function bootstrapRecoveryLauncher(
+  plan: CoordinatorBootstrapPlan,
+  options: { processType: "Background" | "Interactive" } = { processType: "Background" },
+) {
   const recovery = plan.bootRecovery;
   if (!recovery) throw new BootstrapRequestConflict("Boot recovery is not in the approved plan");
   return {
@@ -38,7 +45,7 @@ export function bootstrapRecoveryLauncher(plan: CoordinatorBootstrapPlan) {
     // The recovery runner owns a persistent retry budget. launchd must never
     // turn a failed or completed operation into an unlimited execution loop.
     KeepAlive: false,
-    ProcessType: "Background",
+    ProcessType: options.processType,
     Umask: 0o077,
     StandardErrorPath: path.join(
       plan.state.directory,
@@ -54,6 +61,8 @@ export function verifyBootstrapRecoveryLauncher(input: {
   hostUid: number;
   hostHome: string;
   launcher: unknown;
+  /** Supplied only after reading the plan-addressed protected executor setup. */
+  runtimeDirectory?: string;
 }): void {
   const { plan } = input;
   const recovery = plan.bootRecovery;
@@ -70,42 +79,37 @@ export function verifyBootstrapRecoveryLauncher(input: {
     throw new BootstrapRequestConflict(
       "Boot recovery must use its own Host account startup service",
     );
+  const directory = input.runtimeDirectory ?? plan.candidate.directory;
+  const separateExecutor = input.runtimeDirectory !== undefined;
   if (
-    !isDeepStrictEqual(recovery.node, plan.candidate.node) ||
+    (!separateExecutor && !isDeepStrictEqual(recovery.node, plan.candidate.node)) ||
     recovery.entrypoint.path !==
       path.join(
-        plan.candidate.directory,
+        directory,
         "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
       ) ||
-    recovery.ownerLauncher.path !==
-      path.join(plan.candidate.directory, "scripts/run-coordinator-owner.py")
+    recovery.ownerLauncher.path !== path.join(directory, "scripts/run-coordinator-owner.py")
   )
     throw new BootstrapRequestConflict("Boot recovery must use the approved candidate runner");
-  if (!isDeepStrictEqual(input.launcher, bootstrapRecoveryLauncher(plan)))
+  // Scheduling is pinned by the reviewed launcher digest. Preserve old bytes
+  // while allowing new recovery runners to avoid macOS background I/O throttling.
+  const { ProcessType: processType } = z
+    .object({ ProcessType: z.enum(["Background", "Interactive"]) })
+    .parse(input.launcher);
+  if (!isDeepStrictEqual(input.launcher, bootstrapRecoveryLauncher(plan, { processType })))
     throw new BootstrapRequestConflict(
       "Boot recovery launcher changes unapproved startup settings",
     );
 }
 
-/** Called alongside full candidate verification, which hashes the Node binary
- * and runtime tree. Read setup and scripts as bounded protected documents. */
+/** The existing plan-addressed setup may pin an executor separate from the
+ * target. Its entire protected runtime and Node are verified before use. */
 export async function verifyBootstrapRecoveryArtifacts(
   plan: CoordinatorBootstrapPlan,
   writableMountRoots: readonly string[],
 ): Promise<void> {
   const recovery = plan.bootRecovery;
   if (!recovery) return;
-  const account = userInfo();
-  verifyBootstrapRecoveryLauncher({
-    plan,
-    hostUid: account.uid,
-    hostHome: account.homedir,
-    launcher: await readBootstrapLauncher(recovery.launcher, writableMountRoots),
-  });
-  await assertBootstrapPathsProtected(
-    [path.dirname(recovery.installedLauncher)],
-    writableMountRoots,
-  );
   for (const file of [recovery.ownerLauncher, recovery.entrypoint])
     await readBootstrapPreparedFile(file, writableMountRoots);
   const bytes = await readBootstrapPreparedFile(recovery.setup, writableMountRoots);
@@ -117,26 +121,100 @@ export async function verifyBootstrapRecoveryArtifacts(
       ownerLauncher: fileSchema,
       runtimeDirectory: z.string(),
       runtimeSha256: z.string(),
+      ownershipVerifier: fileSchema,
     })
     .parse(JSON.parse(bytes.toString("utf8")));
   if (
     !isDeepStrictEqual(setup.node, recovery.node) ||
     !isDeepStrictEqual(setup.entrypoint, recovery.entrypoint) ||
     !isDeepStrictEqual(setup.ownerLauncher, recovery.ownerLauncher) ||
-    setup.runtimeDirectory !== plan.candidate.directory ||
-    setup.runtimeSha256 !== plan.candidate.artifactSha256
+    setup.ownershipVerifier.path !==
+      path.join(setup.runtimeDirectory, "scripts/verify-coordinator-owner.py")
   )
     throw new BootstrapRequestConflict("Boot recovery setup does not match its approved runner");
+  const independent = setup.runtimeDirectory !== plan.candidate.directory;
+  if (!independent && setup.runtimeSha256 !== plan.candidate.artifactSha256)
+    throw new BootstrapRequestConflict("Boot recovery runtime differs from the reviewed candidate");
+  await assertBootstrapPathsProtected(
+    [
+      setup.runtimeDirectory,
+      path.dirname(recovery.installedLauncher),
+      recovery.node.path,
+      setup.ownershipVerifier.path,
+    ],
+    writableMountRoots,
+  );
+  const account = userInfo();
+  verifyBootstrapRecoveryLauncher({
+    plan,
+    hostUid: account.uid,
+    hostHome: account.homedir,
+    launcher: await readBootstrapLauncher(recovery.launcher, writableMountRoots),
+    ...(independent ? { runtimeDirectory: setup.runtimeDirectory } : {}),
+  });
+  await readBootstrapPreparedFile(setup.ownershipVerifier, writableMountRoots);
+  if (independent) {
+    // A hash-valid older runtime can still implement candidate-bound execution.
+    // Select the versioned contract before reservation, not after it strands a claim.
+    const metadata = await readProtectedDocument(
+      path.join(setup.runtimeDirectory, "packages/server/package.json"),
+    );
+    const support = z.object({
+      vorteoRuntimeContracts: z.object({ independentCoordinatorExecutor: z.literal(1) }),
+    });
+    if (!support.safeParse(JSON.parse(metadata.toString("utf8"))).success)
+      throw new BootstrapRequestConflict(
+        "Prepared runtime does not support independent coordinator execution",
+      );
+    await verifyBootstrapPreparedDependency(recovery.node, writableMountRoots);
+    const actual = await digestBootstrapArtifact(setup.runtimeDirectory, {
+      maxFiles: 10_000,
+      maxBytes: 1024 * 1024 * 1024,
+      timeoutMs: 30_000,
+    });
+    if (actual !== setup.runtimeSha256)
+      throw new BootstrapRequestConflict("Independent recovery executor runtime changed");
+  }
 }
+
+/** launchd spawned the login service 20 to 58 seconds after bootstrap on a
+ * loaded Host. Two minutes keeps more than twice that margin while the
+ * executor's own runner progress keeps the independent watchdog informed. */
+export const BOOT_RECOVERY_READINESS_TIMEOUT_MS = 120_000;
+export const BOOT_RECOVERY_READINESS_INTERVAL_MS = 1_000;
 
 interface StartupRecoveryRegistration {
   request: CoordinatorBootstrapRequest;
   writableMountRoots: readonly string[];
-  /** Recheck the kernel lock and exact claimed generation before each effect. */
+  /** Recheck setup, renewal evidence, the kernel lock and the exact claimed
+   * generation before each effect and after readiness. */
   requireClaim(): Promise<void>;
+  /** Recheck only the kernel lock and exact claimed generation while waiting
+   * for launchd. It must not hash release trees. */
+  requireHeldClaim(): Promise<void>;
   verifyServiceAbsent(): Promise<void>;
   register(serviceDomain: string, launcherFile: string): Promise<void>;
-  verifyRegistered(): Promise<void>;
+  /** Throw until the registered service runs the approved process identity. */
+  probeRegistered(): Promise<void>;
+  readiness?: { now(): number; wait(ms: number): Promise<void> };
+}
+
+/** Bounded wait for launchd to spawn the registered service. Ownership loss
+ * fails immediately; only probe failures are retried until the deadline. */
+async function waitForBootstrapRecoveryReadiness(input: StartupRecoveryRegistration) {
+  const { now, wait } = input.readiness ?? { now: () => performance.now(), wait: delay };
+  const deadline = now() + BOOT_RECOVERY_READINESS_TIMEOUT_MS;
+  for (;;) {
+    await input.requireHeldClaim();
+    try {
+      await input.probeRegistered();
+      return;
+    } catch {
+      if (now() >= deadline)
+        throw new BootstrapRequestConflict("Startup recovery did not establish readiness");
+    }
+    await wait(BOOT_RECOVERY_READINESS_INTERVAL_MS);
+  }
 }
 
 async function syncDirectory(directory: string): Promise<void> {
@@ -231,7 +309,7 @@ export async function registerBootstrapRecovery(
     recovery.service.split("/").slice(0, 2).join("/"),
     recovery.installedLauncher,
   );
-  await input.verifyRegistered();
+  await waitForBootstrapRecoveryReadiness(input);
   await input.requireClaim();
 }
 

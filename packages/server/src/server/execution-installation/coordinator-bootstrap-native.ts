@@ -20,6 +20,8 @@ import {
   verifyLoadedBootstrapService,
   verifyBootstrapReplacement,
   verifyBootstrapServiceIdentity,
+  verifyBootstrapCoordinatorProcess,
+  verifyUnregisteredBootstrapCoordinator,
   type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
 
@@ -42,6 +44,16 @@ const execute = promisify(execFile);
 export interface BootstrapNativeCommand {
   run(args: readonly string[]): Promise<void>;
 }
+
+/** Constructed only by an exact independently admitted native runner. Its
+ * implementation must consume a durable per-generation attempt and signal an
+ * audited process lifetime; a numeric PID or a successful precheck is not enough. */
+export interface BootstrapManualProcessControl {
+  signal(
+    request: CoordinatorBootstrapRequest,
+    effect: "freeze" | "terminate-frozen",
+  ): Promise<void>;
+}
 const nativeCommand: BootstrapNativeCommand = {
   async run(args) {
     await execute("/bin/launchctl", [...args], {
@@ -61,6 +73,7 @@ interface NativeLifecycleContext {
   writableMountRoots(): Promise<readonly string[]>;
   /** Must verify the inherited native ownership lock before each operation. */
   requireOwnership(): Promise<void>;
+  manualPrevious?: BootstrapManualProcessControl;
   /** Set only by the independent startup runner after observing its native boot. */
   recoveryBootId?: string;
 }
@@ -90,6 +103,10 @@ export function createBootstrapNativeLifecycle(
     stage: CoordinatorBootstrapStage,
   ) => {
     await context.requireOwnership();
+    if (Boolean(request.plan.supervisionRecovery) !== Boolean(context.manualPrevious))
+      throw new BootstrapRequestConflict(
+        "Supervision recovery lacks its exact native process control",
+      );
     if (context.recoveryBootId !== undefined) {
       const runner = ProcessObservationSchema.parse(
         await context.reader.inspectProcess(process.pid),
@@ -329,13 +346,17 @@ export function createBootstrapNativeLifecycle(
   };
   const originalService = (request: CoordinatorBootstrapRequest, service: string | null) =>
     context.recoveryBootId === undefined && isOriginalBootstrapService(request, service);
-  const verify = (request: CoordinatorBootstrapRequest) =>
-    verifyLoadedBootstrapService({
+  const verify = (request: CoordinatorBootstrapRequest) => {
+    const verifyProcess = request.plan.supervisionRecovery
+      ? verifyUnregisteredBootstrapCoordinator
+      : verifyLoadedBootstrapService;
+    return verifyProcess({
       plan: request.plan,
       hostUid: uid,
       configurationFile: context.configurationFile,
       reader: context.reader,
     });
+  };
   const waitFor = async (check: () => Promise<void>, timeoutMs = 15_000) => {
     // This bounded observer belongs to a visible claimed lifecycle request.
     // A timeout is failure, never proof of exit and never a reason to retry a signal.
@@ -382,13 +403,64 @@ export function createBootstrapNativeLifecycle(
     const { stopped: _state, ...identity } = observation;
     const { childPids: _children, ...processIdentity } =
       "childPids" in identity ? identity : { ...identity, childPids: undefined };
-    verifyBootstrapServiceIdentity({
+    const input = {
       plan: request.plan,
       hostUid: uid,
       configurationFile: context.configurationFile,
-      launchctlOutput: await context.reader.readService(request.plan.service),
       process: processIdentity,
+    };
+    if (request.plan.supervisionRecovery) {
+      await context.reader.verifyServiceAbsent(request.plan.service);
+      verifyBootstrapCoordinatorProcess(input);
+      await context.reader.verifyServiceAbsent(request.plan.service);
+    } else {
+      verifyBootstrapServiceIdentity({
+        ...input,
+        launchctlOutput: await context.reader.readService(request.plan.service),
+      });
+    }
+  };
+  const retireManualPrevious = async (input: {
+    request: CoordinatorBootstrapRequest;
+    service: string | null;
+    roots: readonly string[];
+  }) => {
+    const { request, service, roots } = input;
+    if (!request.plan.supervisionRecovery || service !== null) return;
+    if (context.recoveryBootId !== undefined) {
+      // requireStage verifies the independently observed current runner boot.
+      // The old lifetime cannot survive it; its numeric PID may now be unrelated.
+      await requireStage(request, "rollback_pending");
+      await context.reader.verifyServiceAbsent(request.plan.service);
+      return;
+    }
+    try {
+      await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
+      return;
+    } catch {
+      // Failed absence is not permission to signal another lifetime.
+      await verify(request);
+    }
+    try {
+      await verifyState(request, true);
+    } catch {
+      // Promotion can precede the first freeze. The audited signal port consumes
+      // one exclusive freeze intent, so an uncertain earlier attempt cannot replay.
+      await verifyState(request, false);
+      await requireStage(request, "rollback_pending");
+      await context.manualPrevious!.signal(request, "freeze");
+      await waitFor(() => verifyState(request, true));
+    }
+    const stopped = await context.reader.inspectStoppedProcess(request.plan.expectedProcess.pid);
+    await preserveBootstrapState({
+      request,
+      writableMountRoots: roots,
+      childPids: stopped.childPids,
     });
+    await requireStage(request, "rollback_pending");
+    await context.manualPrevious!.signal(request, "terminate-frozen");
+    await waitFor(() => context.reader.verifyProcessExited(request.plan.expectedProcess.pid));
+    await context.reader.verifyServiceAbsent(request.plan.service);
   };
   return {
     async inspectFrozen(request: CoordinatorBootstrapRequest) {
@@ -512,6 +584,7 @@ export function createBootstrapNativeLifecycle(
       } catch {
         await context.reader.verifyServiceAbsent(request.plan.service);
       }
+      await retireManualPrevious({ request, service, roots });
       service = await unloadStoppedPreviousAfterBoot(request, service, roots);
       service = await unloadRunningPreviousAfterBoot(request, service, roots);
       await preserveAfterBootIfAbsent(request, service, roots);
@@ -661,11 +734,16 @@ export function createBootstrapNativeLifecycle(
       await requireStage(request, "freeze_pending");
       await verify(request);
       await requireStage(request, "freeze_pending");
-      await command.run(["kill", "SIGSTOP", request.plan.service]);
+      if (request.plan.supervisionRecovery) await context.manualPrevious!.signal(request, "freeze");
+      else await command.run(["kill", "SIGSTOP", request.plan.service]);
       await waitFor(() => verifyState(request, true));
     },
     async resumePrevious(request: CoordinatorBootstrapRequest) {
       await requireStage(request, "resume_pending");
+      if (request.plan.supervisionRecovery)
+        throw new BootstrapRequestConflict(
+          "Supervision recovery cannot resume an incompatible reader",
+        );
       await verify(request);
       await requireStage(request, "resume_pending");
       await command.run(["kill", "SIGCONT", request.plan.service]);
@@ -682,7 +760,9 @@ export function createBootstrapNativeLifecycle(
         writableMountRoots: await context.writableMountRoots(),
       });
       await requireStage(request, "unload_pending");
-      await command.run(["bootout", request.plan.service]);
+      if (request.plan.supervisionRecovery)
+        await context.manualPrevious!.signal(request, "terminate-frozen");
+      else await command.run(["bootout", request.plan.service]);
       await waitFor(async () => {
         await context.reader.verifyProcessExited(request.plan.expectedProcess.pid);
         await context.reader.verifyServiceAbsent(request.plan.service);

@@ -1,8 +1,8 @@
 import { CardDisclosureLayoutContext } from "./use-card-disclosure";
 import { CardGrid } from "./card-grid";
 import { PortalHost } from "@gorhom/portal";
-import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
-import { StreamColumns, StreamColumnWidthContext, useStreamColumns } from "./columns/layout";
+import { StreamColumns, useStreamColumns } from "./columns/layout";
+import { useStreamColumnWidthStyle } from "./columns/column-width";
 import {
   useWorkspaceCardHost,
   useInlineCardsHost,
@@ -14,7 +14,7 @@ import { TaskCardIcon } from "@/agent-stream/task-card-icon";
 import { TaskCard, TaskCardHeader, TaskCardTitle } from "./task-card";
 import { CompactionMarker } from "@/compaction/marker";
 import { QueueDragScrollContext, useQueueDragScroll } from "@/message-queue/drag-scroll";
-import { AgentTaskCards } from "./task-cards";
+import { AgentTaskCards, AgentQueueCards } from "./task-cards";
 import { JumpToLatest } from "./jump-to-latest";
 
 import { isQuotaExhaustionMessage } from "./quota-notice";
@@ -24,7 +24,6 @@ import React, {
   forwardRef,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -190,11 +189,13 @@ function renderLiveAuxiliaryNode(input: {
   turnFooter: ReactNode;
   bottomOverlayInset: number;
   taskCards: ReactNode;
+  queueCards: ReactNode;
 }): ReactNode {
   if (
     !input.pendingPermissions &&
     !input.turnFooter &&
     !input.taskCards &&
+    !input.queueCards &&
     input.bottomOverlayInset === 0
   ) {
     return null;
@@ -202,17 +203,29 @@ function renderLiveAuxiliaryNode(input: {
   return (
     <>
       {input.turnFooter}
-      <View
-        style={[stylesheet.contentWrapper, stylesheet.bottomCardStack]}
-        testID={input.taskCards ? "agent-history-task-cards" : undefined}
-      >
+      <BottomCardStack testID={input.taskCards ? "agent-history-task-cards" : undefined}>
         <CardGrid>{input.taskCards}</CardGrid>
         {input.pendingPermissions}
-      </View>
+        {input.queueCards}
+      </BottomCardStack>
       {input.bottomOverlayInset > 0 ? (
         <BottomOverlayInset height={input.bottomOverlayInset} />
       ) : null}
     </>
+  );
+}
+
+/** Cards below the transcript share the message column's edges, including a resized width. */
+function BottomCardStack({ testID, children }: { testID?: string; children: ReactNode }) {
+  const columnWidthStyle = useStreamColumnWidthStyle();
+  const style = useMemo(
+    () => [stylesheet.contentWrapper, stylesheet.bottomCardStack, columnWidthStyle],
+    [columnWidthStyle],
+  );
+  return (
+    <View style={style} testID={testID}>
+      {children}
+    </View>
   );
 }
 
@@ -1183,6 +1196,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           renderStreamItem,
         }),
     );
+    const [queueReviewRequest, setQueueReviewRequest] = useState(0);
+    const reviewMessages = useCallback(() => setQueueReviewRequest((value) => value + 1), []);
     const inlineCardsHost = useInlineCardsHost(agentId);
     const cardsPortalHost = resolveCardsHost(inlineCardsHost, workspaceCardHost);
     const inlineCards = useMemo(
@@ -1191,7 +1206,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           <CardDisclosureLayoutContext value="sidebar">
             <PortalHost name={inlineCardsHost} />
             <PortalHost name={`${inlineCardsHost}:supporting`} />
-            <PortalHost name={`${inlineCardsHost}:queue`} />
           </CardDisclosureLayoutContext>
         ) : null,
       [inlineCardsHost],
@@ -1206,7 +1220,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           workspaceId={context.workspaceId}
           cwd={context.cwd}
           hasWorkspaceCards={Boolean(workspaceCardHost)}
-          queueHostName={cardsPortalHost ? `${cardsPortalHost}:queue` : undefined}
+          onReviewMessages={reviewMessages}
         />
       );
     }, [
@@ -1217,7 +1231,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       context.workspaceId,
       context.cwd,
       workspaceCardHost,
-      cardsPortalHost,
+      reviewMessages,
     ]);
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       const existingTailSpacing =
@@ -1231,6 +1245,17 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         pendingPermissions: splitColumns ? pendingQuestionsNode : auxiliary.pendingPermissions,
         turnFooter: auxiliary.turnFooter,
         taskCards: splitColumns ? inlineCards : taskCards,
+        queueCards:
+          shouldRenderTaskCards(showTaskCards, serverId) && !trailingCards ? (
+            <CardDisclosureLayoutContext value="inline">
+              <AgentQueueCards
+                serverId={serverId!}
+                agentId={agentId}
+                cwd={context.cwd}
+                reviewRequest={queueReviewRequest}
+              />
+            </CardDisclosureLayoutContext>
+          ) : null,
         bottomOverlayInset,
       });
     }, [
@@ -1242,6 +1267,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       inlineCardsHost,
       inlineCards,
       taskCards,
+      showTaskCards,
+      serverId,
+      trailingCards,
+      agentId,
+      context.cwd,
+      queueReviewRequest,
     ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
@@ -1297,7 +1328,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost}>
+          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost} agentId={agentId}>
             {taskCards}
             {pendingActionPermissionsNode}
           </WorkspaceCardsPortal>
@@ -1975,14 +2006,10 @@ interface StreamItemWrapperProps {
 }
 
 function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
-  const columnWidth = useContext(StreamColumnWidthContext);
+  const columnWidthStyle = useStreamColumnWidthStyle();
   const wrapperStyle = useMemo(
-    () => [
-      stylesheet.streamItemWrapper,
-      { marginBottom: gapBelow },
-      columnWidth !== undefined && inlineUnistylesStyle({ maxWidth: columnWidth }),
-    ],
-    [gapBelow, columnWidth],
+    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }, columnWidthStyle],
+    [gapBelow, columnWidthStyle],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

@@ -174,21 +174,48 @@ function compareHostProjectsForServer(
   );
 }
 
+/**
+ * A group whose workspaces on this host live in several local projects has no host placement
+ * of its own. Borrow the placement of the workspace or sidebar row that named the group, so the
+ * group stays selectable here instead of the picker falling back to an unrelated project.
+ */
+function withCandidatePlacement(
+  group: HostProjectListItem,
+  candidate: HostProjectListItem,
+  serverId: string,
+): HostProjectListItem {
+  if (getHostProjectPlacement(group, serverId)) return group;
+  const placement = getHostProjectPlacement(candidate, serverId);
+  if (!placement) return group;
+  // Selection state compares projects by identity; a fresh copy on every resolve never settles.
+  const cached = borrowedPlacements.get(group) ?? new Map<string, HostProjectListItem>();
+  borrowedPlacements.set(group, cached);
+  const key = JSON.stringify([serverId, placement.projectId, placement.iconWorkingDir]);
+  const existing = cached.get(key);
+  if (existing) return existing;
+  const borrowed = { ...group, hosts: [...group.hosts, placement] };
+  cached.set(key, borrowed);
+  return borrowed;
+}
+
+const borrowedPlacements = new WeakMap<HostProjectListItem, Map<string, HostProjectListItem>>();
+
 export function resolveExactHostProjectCandidate(input: {
   candidate: HostProjectListItem;
   projects: readonly HostProjectListItem[];
   serverId: string;
 }): HostProjectListItem | null {
   const exactView = input.projects.find((project) => project.viewKey === input.candidate.viewKey);
-  if (exactView && exactView.projectKey === input.candidate.projectKey) return exactView;
+  if (exactView && exactView.projectKey === input.candidate.projectKey) {
+    return withCandidatePlacement(exactView, input.candidate, input.serverId);
+  }
   // Logical project identity wins over a shared native execution directory.
   // Multiple memberships can deliberately use the same host-local project.
   if (input.candidate.membership) {
-    return (
-      input.projects.find(
-        (project) => project.membership?.key === input.candidate.membership?.key,
-      ) ?? null
+    const group = input.projects.find(
+      (project) => project.membership?.key === input.candidate.membership?.key,
     );
+    return group ? withCandidatePlacement(group, input.candidate, input.serverId) : null;
   }
   const candidatePlacement = getHostProjectId(input.candidate, input.serverId);
   if (candidatePlacement) {
@@ -200,6 +227,32 @@ export function resolveExactHostProjectCandidate(input: {
   }
 
   return null;
+}
+
+/**
+ * The project a New workspace route names. A sidebar row passes its own view key, which is the
+ * row the owner clicked; matching only the routed host placement can land on another row that
+ * shares the same local project.
+ */
+export function resolveRoutedHostProject(input: {
+  projectViewKey?: string;
+  placement: HostProjectListItem | null;
+  projects: readonly HostProjectListItem[];
+  serverId: string;
+}): HostProjectListItem | null {
+  const viewKey = input.projectViewKey?.trim();
+  const row = viewKey ? input.projects.find((project) => project.viewKey === viewKey) : undefined;
+  if (row) {
+    return input.placement ? withCandidatePlacement(row, input.placement, input.serverId) : row;
+  }
+  if (!input.placement) return null;
+  return (
+    resolveHostProjectCandidate({
+      candidate: input.placement,
+      projects: input.projects,
+      serverId: input.serverId,
+    }) ?? input.placement
+  );
 }
 
 export function resolveEquivalentHostProjectCandidate(input: {
@@ -225,14 +278,23 @@ export function resolveHostProjectCandidate(input: {
   return resolveExactHostProjectCandidate(input) ?? resolveEquivalentHostProjectCandidate(input);
 }
 
+/**
+ * The project New workspace starts with: the routed project, then the one the owner came from,
+ * then their last manual choice, then the only project when there is just one. Otherwise it
+ * returns null so the picker asks, rather than choosing whichever project happens to sort first.
+ */
 export function resolveInitialWorkspaceProject(input: {
   routeProject: HostProjectListItem | null;
   lastActiveProject: HostProjectListItem | null;
+  lastManualProjectViewKey?: string | null;
   projects: readonly HostProjectListItem[];
   serverId: string;
   allowAllProjects: boolean;
 }): HostProjectListItem | null {
-  const candidates = [input.routeProject, input.lastActiveProject];
+  const lastManual = input.lastManualProjectViewKey
+    ? (input.projects.find((project) => project.viewKey === input.lastManualProjectViewKey) ?? null)
+    : null;
+  const candidates = [input.routeProject, input.lastActiveProject, lastManual];
   for (const candidate of candidates) {
     if (!candidate) {
       continue;
@@ -254,7 +316,17 @@ export function resolveInitialWorkspaceProject(input: {
     }
   }
 
-  return input.projects[0] ?? null;
+  // With a single usable project there is nothing to ask.
+  const [only, ...others] = input.projects;
+  return only &&
+    others.length === 0 &&
+    canCreateWorkspaceForHostProject({
+      project: only,
+      serverId: input.serverId,
+      allowAllProjects: input.allowAllProjects,
+    })
+    ? only
+    : null;
 }
 
 export function resolveInitialWorktreeProject(input: {

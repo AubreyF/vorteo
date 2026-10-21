@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
 import { ProviderLoginService } from "../../../services/provider-login/service.js";
 import { ClaudeSetupTokenLoginSession } from "../../agent/providers/claude/setup-token-login.js";
@@ -7,6 +8,7 @@ import {
   resolveProviderLaunch,
 } from "../../agent/provider-launch-config.js";
 import type { InstallationConfig } from "../config.js";
+import { createInstallationRegistrationAdmission } from "../daemon.js";
 import type { InstallationSettingsService } from "../settings/service.js";
 import { ClaudeSetupAuthority } from "./claude-setup-authority.js";
 import {
@@ -19,7 +21,10 @@ import { readClaudeSetupFile, writeClaudeSetupFile } from "./claude-setup-file.j
 export function createClaudeSetupRuntime(
   config: InstallationConfig,
   settings: InstallationSettingsService,
+  assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
 ) {
+  const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
+  const configuration = structuredClone(config);
   const file = join(config.stateDir, "claude-setup", "authority.json");
   function definition(definitionId: string) {
     const snapshot = settings.snapshot();
@@ -32,7 +37,9 @@ export function createClaudeSetupRuntime(
   }
   async function prepare(definitionId: string) {
     const { snapshot, selected } = definition(definitionId);
-    if (selected.removed || selected.accountId) throw new ClaudeSetupDeliveryError();
+    // A full sign-in definition uses the web sign-in flow, never a setup token.
+    if (selected.removed || selected.accountId || selected.accountSetup?.signIn === "full")
+      throw new ClaudeSetupDeliveryError();
     const bindings = [...new Set(Object.values(selected.bindings))];
     if (bindings.length !== 1) throw new ClaudeSetupDeliveryError();
     const providerId = bindings[0]!;
@@ -91,6 +98,10 @@ export function createClaudeSetupRuntime(
       );
       if (!environment) throw new ClaudeSetupDeliveryError();
       const target = environment.kind === "host" ? config.host : config.container;
+      // Credential withdrawal remains available while ordinary Dev work is fenced.
+      if (delivery.credential !== null)
+        assertReady(environment.kind === "host" ? "host" : "container-daemon");
+      if (!isDeepStrictEqual(config, configuration)) throw new ClaudeSetupDeliveryError();
       // Explicit loopback endpoints are validated by installation config, never supplied by clients.
       const response = await fetch(
         `http://${target.endpoint}/api/installation/claude/setup-token`,
@@ -113,7 +124,11 @@ export function createClaudeSetupRuntime(
     getClient: (definitionId) => ({
       openAccountLoginSession: async () => {
         const { selected } = definition(definitionId);
-        if (selected.removed || selected.accountSetup?.provider !== "claude")
+        if (
+          selected.removed ||
+          selected.accountSetup?.provider !== "claude" ||
+          selected.accountSetup.signIn === "full"
+        )
           throw new ClaudeSetupDeliveryError();
         const launch = await resolveProviderLaunch({ defaultBinary: "claude" });
         const available = await checkProviderLaunchAvailable(launch);

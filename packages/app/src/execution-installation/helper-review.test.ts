@@ -80,3 +80,27 @@ test("rollback review identifies the retained selected release even without an o
     `Retained rollback source: ${previous.sourceCommit}\nRollback artifact: ${previous.artifactSha256}`,
   );
 });
+
+test("locked summary reports service uncertainty without claiming a live restart", () => {
+  const text = lockedMaintenanceSummary({
+    requested: 0,
+    queued: 0,
+    running: 0,
+    serviceMaintenance: { requested: 0, queued: 0, unverified: 1, attention: 1 },
+  });
+  expect(text).toContain("1 controller or launcher maintenance requests.");
+  expect(text).toContain("effects will not be repeated");
+  expect(text).toContain("0 restarting");
+});
+
+test("locked controls count session host requests, queued and running jobs", () => {
+  const idle = { requested: 0, queued: 0, running: 0 };
+  expect(
+    lockedMaintenanceSummary({ ...idle, sessionHost: { requested: 0, queued: 0, running: 0 } }),
+  ).toBeNull();
+  expect(
+    lockedMaintenanceSummary({ ...idle, sessionHost: { requested: 1, queued: 1, running: 1 } }),
+  ).toBe(
+    "0 requested · 0 queued · 0 restarting. 3 session host requests need attention. Unlock controls to review details.",
+  );
+});

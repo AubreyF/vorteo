@@ -382,6 +382,9 @@ export interface AgentTaskItem {
   blockedBy?: string[];
   metadata?: Record<string, JsonValue>;
   source?: "vorteo" | "provider";
+  /** 0 to 100. Derived from checks when present; otherwise a capped estimate. */
+  progress?: number;
+  checks?: { text: string; done: boolean }[];
 }
 
 export type AgentTimelineItem =

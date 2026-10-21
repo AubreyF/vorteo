@@ -1,3 +1,7 @@
+import { MaintenanceServiceQueue } from "./maintenance-service-queue";
+import { MaintenanceDashboard } from "./maintenance-dashboard";
+import { RecoveryBookmark } from "./recovery-bookmark";
+import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { SettingsExpansion } from "@/components/settings/settings-expansion";
 import type { PreviewMonitorJob } from "@getpaseo/protocol/preview-monitor-maintenance";
@@ -14,6 +18,20 @@ import {
   helperRollbackSummary,
   type HelperReviewAction,
 } from "./helper-review";
+import type { SessionHostJob } from "@getpaseo/protocol/session-host-maintenance";
+import type { InstructionRequestQuery } from "@getpaseo/protocol/instruction-requests";
+import { diffInstructionLines } from "./instruction-diff";
+import {
+  sessionHostActionDisabledReason,
+  sessionHostOperationTitle,
+  sessionHostPlanLines,
+  sessionHostRequestDisabledReason,
+  sessionHostReviewSummary,
+  sessionHostStatusLines,
+  visibleSessionHostJobs,
+  type SessionHostAction,
+  type SessionHostOverview,
+} from "./session-host-review";
 import { ActionFooter } from "@/components/ui/action-footer";
 import {
   useCallback,
@@ -57,6 +75,8 @@ import {
   InstallationPanelModel,
   restartRequestSummary,
   restartBannerTitle,
+  restartCancellable,
+  delegationOverdueNote,
   restartNoticeVisible,
   restartBlockingReason,
   restartRepairGuidance,
@@ -66,6 +86,7 @@ import type {
   MaintenanceService,
   ProfileSharingStatus,
   RestartJob,
+  RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
 
 const expandedDisclosure = { leftIcon: ChevronUp, accessibilityState: { expanded: true } };
@@ -197,6 +218,8 @@ function InstallationSession({ model }: { model: InstallationPanelModel }) {
 }
 
 function restartStatus(job: RestartJob, historical = false) {
+  if (job.delegatedTo && !historical)
+    return { label: `Being handled by ${job.delegatedTo}`, variant: "muted" as const };
   if (job.status === "pending") {
     if (historical) return { label: "Superseded", variant: "muted" as const };
     const batchStatus = job.sourceBatch?.status;
@@ -208,6 +231,8 @@ function restartStatus(job: RestartJob, historical = false) {
       };
       return { label: labels[batchStatus], variant: "warning" as const };
     }
+    if (job.delegationOverdue)
+      return { label: "Waiting longer than expected", variant: "warning" as const };
     return { label: "Approval needed", variant: "warning" as const };
   }
   let approvedLabel = "Approved";
@@ -232,6 +257,7 @@ function CoordinatorMaintenanceReviews() {
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <>
+      <MaintenanceProvisioning />
       <ClaimedRepairProvisioning />
       {claimedRecovery ? <ClaimedRecoveryReview model={claimedRecovery} /> : null}
       {recovery ? <PreclaimRecoveryReview model={recovery} /> : null}
@@ -295,6 +321,26 @@ function InstallationPanel({
         ) : null}
         {state.unlocked ? (
           <>
+            <MaintenanceDashboard
+              status={state.enrollmentStatus}
+              error={state.enrollmentError}
+              refreshing={state.enrollmentRefreshing}
+              onRefresh={model.refreshEnrollmentStatus}
+            />
+            <RecoveryBookmark
+              status={state.recoveryAccess}
+              error={state.recoveryAccessError}
+              refreshing={state.recoveryAccessRefreshing}
+              onRefresh={model.refreshRecoveryAccess}
+            />
+            <MaintenanceServiceQueue
+              status={state.serviceQueue}
+              error={state.serviceQueueError}
+              refreshing={state.serviceQueueRefreshing}
+              busy={state.busy}
+              onRefresh={model.refreshServiceQueue}
+              onCancel={model.cancelMaintenanceService}
+            />
             <DaemonAutomationControl model={model} state={state} />
             {state.monitorJobs.map((job) => (
               <MonitorRequest
@@ -312,6 +358,8 @@ function InstallationPanel({
                 busy={state.busy}
               />
             ))}
+            <SessionHostCard model={model} state={state} />
+            <InstructionRequestsCard model={model} state={state} />
             {active.map((job) => (
               <RestartRequest
                 key={`${job.id}:${job.revision}`}
@@ -1013,6 +1061,325 @@ function HelperActionButton({
   );
 }
 
+/**
+ * Agent-proposed changes to the shared agent instructions. Nothing changes until the owner presses
+ * Apply, which applies exactly the text shown. Hidden for coordinators without instruction requests.
+ */
+function InstructionRequestsCard({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const overview = state.instructionRequests;
+  if (!overview) return null;
+  const pending = overview.requests.filter((request) => request.status === "pending");
+  const recent = overview.requests
+    .filter((request) => request.status !== "pending")
+    .slice(-3)
+    .toReversed();
+  if (!pending.length && !recent.length && !state.instructionError) return null;
+  return (
+    <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="instruction-requests-card">
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>Agent instruction changes</Text>
+        <StatusBadge
+          label={pending.length ? `${pending.length} pending` : "None pending"}
+          variant={pending.length ? "warning" : "muted"}
+        />
+      </View>
+      {state.instructionError ? (
+        <>
+          <Text accessibilityRole="alert" style={styles.error}>
+            {state.instructionError}
+          </Text>
+          <Button variant="ghost" size={size} onPress={model.dismissInstructionError}>
+            Dismiss
+          </Button>
+        </>
+      ) : null}
+      {pending.map((request) => (
+        <InstructionRequestReview
+          key={request.id}
+          request={request}
+          current={overview.appendSystemPrompt ?? ""}
+          model={model}
+          busy={state.busy}
+        />
+      ))}
+      {recent.map((request) => (
+        <Text key={request.id} style={styles.text} testID={`instruction-${request.id}-settled`}>
+          {`${request.environment === "container" ? "Dev" : "Host"} request: ${request.status}${request.detail ? ` (${request.detail})` : ""}`}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+type InstructionRequest = InstructionRequestQuery["requests"][number];
+
+function InstructionRequestReview({
+  request,
+  current,
+  model,
+  busy,
+}: {
+  request: InstructionRequest;
+  current: string;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const approve = useCallback(() => {
+    void model.decideInstructionRequest(request, "approve");
+  }, [model, request]);
+  const reject = useCallback(() => {
+    void model.decideInstructionRequest(request, "reject");
+  }, [model, request]);
+  const changes = useMemo(
+    () => diffInstructionLines(current, request.appendSystemPrompt),
+    [current, request.appendSystemPrompt],
+  );
+  // The source comes from the submitting credential, never from agent-written text.
+  const fromDev = request.environment === "container";
+  return (
+    <View testID={`instruction-${request.id}`} style={styles.historyItem}>
+      <View style={styles.requestHeader}>
+        <StatusBadge
+          label={fromDev ? "From Dev (untrusted)" : "From Host"}
+          variant={fromDev ? "error" : "muted"}
+        />
+      </View>
+      <Text selectable style={styles.text} numberOfLines={1}>
+        {`Requester (as named by the agent): ${request.requester}`}
+      </Text>
+      <Text selectable style={styles.text}>{`Reason: ${request.reason}`}</Text>
+      <Text style={settingsStyles.rowTitle}>Changes</Text>
+      <View testID={`instruction-${request.id}-changes`}>
+        {changes.map((line, index) => (
+          <Text
+            // Diff lines have no identity beyond position.
+            // eslint-disable-next-line react/no-array-index-key
+            key={index}
+            selectable
+            style={line.kind === "added" ? styles.diffAdded : styles.diffRemoved}
+          >
+            {`${line.kind === "added" ? "+ " : "- "}${line.text}`}
+          </Text>
+        ))}
+      </View>
+      <Text style={settingsStyles.rowTitle}>Full proposed instructions (applied exactly)</Text>
+      <SettingsExpansion testID={`instruction-${request.id}-proposed`}>
+        <Text selectable style={styles.text}>
+          {request.appendSystemPrompt || "(empty)"}
+        </Text>
+      </SettingsExpansion>
+      <Text style={settingsStyles.rowTitle}>Current instructions</Text>
+      <SettingsExpansion>
+        <Text selectable style={styles.text}>
+          {current || "(empty)"}
+        </Text>
+      </SettingsExpansion>
+      <Text style={styles.text}>
+        New agent sessions use the applied text. Running Cursor, Copilot, Kimi and Kiro sessions
+        keep the instructions they started with.
+      </Text>
+      <ActionFooter style={styles.actions}>
+        <RestartActionButton
+          testID={`instruction-${request.id}-reject`}
+          size={size}
+          variant="outline"
+          disabledReason={busy ? "Another installation action is running" : null}
+          onPress={reject}
+        >
+          Reject
+        </RestartActionButton>
+        <RestartActionButton
+          testID={`instruction-${request.id}-approve`}
+          size={size}
+          variant="destructive"
+          disabledReason={busy ? "Another installation action is running" : null}
+          onPress={approve}
+        >
+          Apply to all agents
+        </RestartActionButton>
+      </ActionFooter>
+    </View>
+  );
+}
+
+/**
+ * The session host's launchd job, owned by the coordinator. Hidden for coordinators without session
+ * host jobs. Install and Remove only prepare a plan; each plan needs its own Approve.
+ */
+function SessionHostCard({
+  model,
+  state,
+}: {
+  model: InstallationPanelModel;
+  state: ReturnType<InstallationPanelModel["getState"]>;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const install = useCallback(() => {
+    void model.requestSessionHost("session-host-install");
+  }, [model]);
+  const remove = useCallback(() => {
+    void model.requestSessionHost("session-host-remove");
+  }, [model]);
+  const overview = state.sessionHost;
+  if (!overview) return null;
+  const review = { busy: state.busy, unlocked: state.unlocked };
+  return (
+    <>
+      <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="session-host-card">
+        <View style={styles.requestHeader}>
+          <Text style={settingsStyles.rowTitle}>Session host</Text>
+          <StatusBadge
+            label={sessionHostBadge(overview.status)}
+            variant={overview.status?.installed ? "success" : "muted"}
+          />
+        </View>
+        <Text selectable style={styles.text} testID="session-host-status">
+          {sessionHostStatusLines(overview.status).join("\n")}
+        </Text>
+        {state.sessionHostError ? (
+          <>
+            <Text accessibilityRole="alert" style={styles.error}>
+              {state.sessionHostError}
+            </Text>
+            <Button variant="ghost" size={size} onPress={model.dismissSessionHostError}>
+              Dismiss
+            </Button>
+          </>
+        ) : null}
+        <ActionFooter style={styles.actions}>
+          <RestartActionButton
+            testID="session-host-install"
+            size={size}
+            variant="outline"
+            disabledReason={sessionHostRequestDisabledReason(
+              "session-host-install",
+              overview,
+              review,
+            )}
+            onPress={install}
+          >
+            Install
+          </RestartActionButton>
+          <RestartActionButton
+            testID="session-host-remove"
+            size={size}
+            variant="outline"
+            disabledReason={sessionHostRequestDisabledReason(
+              "session-host-remove",
+              overview,
+              review,
+            )}
+            onPress={remove}
+          >
+            Remove
+          </RestartActionButton>
+        </ActionFooter>
+      </View>
+      {visibleSessionHostJobs(overview.jobs).map((job) => (
+        <SessionHostRequest
+          key={`${job.id}:${job.revision}`}
+          job={job}
+          model={model}
+          busy={state.busy}
+        />
+      ))}
+    </>
+  );
+}
+
+function sessionHostBadge(status: SessionHostOverview["status"]): string {
+  if (!status) return "Unknown";
+  return status.installed ? "Installed" : "Not installed";
+}
+
+function SessionHostRequest({
+  job,
+  model,
+  busy,
+}: {
+  job: SessionHostJob;
+  model: InstallationPanelModel;
+  busy: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const size = useVortonTouch() ? "md" : "sm";
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  // An open request shows its whole plan: the owner approves exactly these facts.
+  const reviewing = job.status === "pending" || job.status === "approved";
+  return (
+    <View
+      style={[styles.cardBody, settingsStyles.rowBorder]}
+      testID={`session-host-request-${job.id}`}
+    >
+      <View style={styles.requestHeader}>
+        <Text style={settingsStyles.rowTitle}>{sessionHostOperationTitle(job.operation)}</Text>
+        <StatusBadge label={job.status} variant={job.status === "failed" ? "warning" : "muted"} />
+      </View>
+      <Text style={styles.text}>{sessionHostReviewSummary(job)}</Text>
+      <Text style={styles.text}>{job.reason}</Text>
+      {reviewing ? null : (
+        <Button variant="ghost" size={size} onPress={toggle} {...disclosureProps(expanded)}>
+          Details
+        </Button>
+      )}
+      {reviewing || expanded ? (
+        <Text selectable style={styles.text}>
+          {[job.detail, ...sessionHostPlanLines(job)].join("\n")}
+        </Text>
+      ) : null}
+      {reviewing ? (
+        <ActionFooter style={styles.actions}>
+          {(["approve", "cancel"] as SessionHostAction[]).map((action) => (
+            <SessionHostActionButton
+              key={action}
+              job={job}
+              model={model}
+              action={action}
+              busy={busy}
+            />
+          ))}
+        </ActionFooter>
+      ) : null}
+    </View>
+  );
+}
+
+function SessionHostActionButton({
+  job,
+  model,
+  action,
+  busy,
+}: {
+  job: SessionHostJob;
+  model: InstallationPanelModel;
+  action: SessionHostAction;
+  busy: boolean;
+}) {
+  const size = useVortonTouch() ? "md" : "sm";
+  const onPress = useCallback(() => {
+    void model.decideSessionHost(job, action);
+  }, [model, job, action]);
+  return (
+    <RestartActionButton
+      testID={`session-host-${job.id}-${action}`}
+      size={size}
+      variant={action === "approve" ? "destructive" : "outline"}
+      disabledReason={sessionHostActionDisabledReason(job, action, { busy, unlocked: true })}
+      onPress={onPress}
+    >
+      {action === "approve" ? "Approve" : "Cancel"}
+    </RestartActionButton>
+  );
+}
+
 function RestartActionButton({
   disabledReason,
   ...props
@@ -1070,7 +1437,11 @@ function DevRepairAction({
   );
 }
 
-function RestartActions({
+function isPlainHostRestart(job: RestartJob): boolean {
+  return job.target === "host" && !job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256;
+}
+
+export function RestartActions({
   job,
   model,
   busy,
@@ -1085,6 +1456,7 @@ function RestartActions({
   const pending = job.status === "pending";
   const queued = job.status === "approved" && job.whenIdle;
   const source = Boolean(job.update || job.sourceBatch);
+  const plainHostRestart = isPlainHostRestart(job);
   const install = useCallback(() => {
     void model.decide(job, "approve");
   }, [job, model]);
@@ -1148,6 +1520,7 @@ function RestartActions({
               ? "Finish turns and adopt Factory startup"
               : "Finish turns and restart"}
           </RestartActionButton>
+          {plainHostRestart ? <ForceRestartButton job={job} model={model} busy={busy} /> : null}
           <Button variant="ghost" disabled={busy} onPress={cancel}>
             Cancel
           </Button>
@@ -1384,6 +1757,20 @@ function RestartActivity({ job }: { job: RestartJob }) {
   );
 }
 
+const NO_SUBSCRIPTION = () => () => {};
+
+/**
+ * Restart requests waiting on the owner, for the Settings attention strip.
+ * Locked controls only expose the summary count.
+ */
+export function useRestartsAwaitingApproval(): number {
+  const model = getInstallationPanel(useHostRegistryLoaded());
+  const getState = useCallback(() => model?.getState() ?? null, [model]);
+  const state = useSyncExternalStore(model?.subscribe ?? NO_SUBSCRIPTION, getState, getState);
+  if (!state) return 0;
+  return state.unlocked ? state.pendingJobs.length : (state.restartSummary?.requested ?? 0);
+}
+
 export function InstallationRestartBanner({
   placement = "floating",
 }: {
@@ -1395,6 +1782,7 @@ export function InstallationRestartBanner({
   const claimedRecovery = getClaimedRecoveryPanel();
   return (
     <MaintenanceNoticePlacement.Provider value={placement}>
+      {placement !== "floating" ? <MaintenanceProvisioning banner /> : null}
       {placement !== "floating" ? <ClaimedRepairProvisioning banner /> : null}
       {placement !== "floating" && claimedRecovery ? (
         <ClaimedRecoveryBanner model={claimedRecovery} />
@@ -1404,6 +1792,19 @@ export function InstallationRestartBanner({
       {model ? <RestartBanner model={model} /> : null}
     </MaintenanceNoticePlacement.Provider>
   );
+}
+
+function restartSummaryNeedsAction(summary: RestartSummary) {
+  return [
+    summary.requested,
+    summary.serviceMaintenance?.requested,
+    summary.serviceMaintenance?.attention,
+    summary.nativeHelper?.requested,
+    summary.nativeHelper?.recovery,
+    summary.sessionHost?.requested,
+    summary.previewMonitor?.requested,
+    summary.previewMonitor?.recovery,
+  ].some((count) => (count ?? 0) > 0);
 }
 
 function RestartBanner({ model }: { model: InstallationPanelModel }) {
@@ -1417,18 +1818,18 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
   });
   if (!state.unlocked && state.restartSummary) {
     const summary = state.restartSummary;
+    const serviceCount = summary.serviceMaintenance
+      ? summary.serviceMaintenance.requested +
+        summary.serviceMaintenance.queued +
+        summary.serviceMaintenance.unverified
+      : 0;
     const description = lockedMaintenanceSummary(summary);
     if (!description) return null;
     return (
       <View testID="installation-restart-banner">
         <MaintenanceNotice
-          needsAction={
-            summary.requested > 0 ||
-            (summary.nativeHelper?.requested ?? 0) > 0 ||
-            (summary.nativeHelper?.recovery ?? 0) > 0 ||
-            (summary.previewMonitor?.requested ?? 0) > 0 ||
-            (summary.previewMonitor?.recovery ?? 0) > 0
-          }
+          sidebarOnly={serviceCount > 0}
+          needsAction={restartSummaryNeedsAction(summary)}
           revision={description}
           title="Installation maintenance"
           description={description}
@@ -1446,7 +1847,10 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
     (job) =>
       ["pending", "approved", "running"].includes(job.status) || job.stage === "recovery_required",
   );
-  if (!jobs.length && !helpers.length && !monitors.length) return null;
+  const services = (state.serviceQueue?.jobs ?? []).filter((job) =>
+    ["pending", "approved", "running", "failed"].includes(job.status),
+  );
+  if (!jobs.length && !helpers.length && !monitors.length && !services.length) return null;
   return (
     <View testID="installation-restart-banner">
       {state.error ? (
@@ -1454,6 +1858,23 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
           {state.error}
         </Text>
       ) : null}
+      {services.map((job) => (
+        <MaintenanceNotice
+          sidebarOnly
+          testID={`maintenance-service-notice-${job.id}`}
+          key={job.id}
+          needsAction={job.status === "pending" || job.status === "failed"}
+          revision={`${job.id}:${job.revision}:${job.status}`}
+          title={
+            job.target === "maintenance-controller"
+              ? "Controller maintenance"
+              : "Recovery launcher maintenance"
+          }
+          description={job.status === "running" ? `Outcome unverified. ${job.detail}` : job.detail}
+          reviewLabel="Review maintenance"
+          onReview={open}
+        />
+      ))}
       {monitors.map((job) => (
         <View key={job.id}>
           <MaintenanceNotice
@@ -1479,14 +1900,18 @@ function RestartBanner({ model }: { model: InstallationPanelModel }) {
         </View>
       ))}
       {jobs.map((job) => (
-        <RestartBannerItem key={job.id} job={job} />
+        <RestartBannerItem key={job.id} job={job} model={model} />
       ))}
     </View>
   );
 }
 
-function RestartBannerItem({ job }: { job: RestartJob }) {
+function RestartBannerItem({ job, model }: { job: RestartJob; model: InstallationPanelModel }) {
   const router = useRouter();
+  const delegated = Boolean(job.delegatedTo);
+  const cancel = useCallback(() => {
+    void model.decide(job, job.status === "pending" ? "reject" : "cancel");
+  }, [job, model]);
   const open = useCallback(
     () =>
       router.push({
@@ -1498,8 +1923,16 @@ function RestartBannerItem({ job }: { job: RestartJob }) {
   return (
     <MaintenanceNotice
       title={restartBannerTitle(job)}
-      description={restartRepairGuidance(job) ?? restartRequestSummary(job)}
-      needsAction={job.status === "pending"}
+      description={
+        delegated
+          ? job.reason
+          : [delegationOverdueNote(job), restartRepairGuidance(job) ?? restartRequestSummary(job)]
+              .filter(Boolean)
+              .join(" ")
+      }
+      // A delegate is handling it, so it is status rather than a request for approval.
+      needsAction={job.status === "pending" && !delegated}
+      onCancel={delegated && restartCancellable(job) ? cancel : undefined}
       revision={`${job.id}:${job.revision}:${job.status}:${job.sourceBatch?.status ?? ""}`}
       reviewLabel={job.update || job.sourceBatch ? "Review update" : "Review restart"}
       onReview={open}
@@ -1544,6 +1977,16 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
   },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  diffAdded: {
+    color: theme.colors.diffAddition,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
+  diffRemoved: {
+    color: theme.colors.diffDeletion,
+    fontSize: theme.fontSize.sm,
+    fontFamily: "monospace",
+  },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));

@@ -31,7 +31,9 @@ import {
   mapACPUsage,
   resolveACPModeSelection,
   resolveACPModelSelection,
+  stripSessionInstructions,
   summarizeACPRequestError,
+  withSessionInstructions,
 } from "./acp-agent.js";
 import type { ProcessTerminator, TreeKillTarget } from "../../../utils/tree-kill.js";
 import {
@@ -4218,5 +4220,133 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
       cwd: "/tmp/paseo-acp-test",
       mcpServers: [],
     });
+  });
+});
+
+describe("ACP session instructions", () => {
+  function sessionWithInstructions(prompt: ReturnType<typeof vi.fn>) {
+    const child = createProbeChildStub();
+    class InstructedSession extends ACPAgentSession {
+      protected override async spawnProcess(): Promise<SpawnedACPProcess> {
+        return {
+          child,
+          connection: {
+            newSession: vi.fn().mockResolvedValue({ sessionId: "session-1" }),
+            prompt,
+          } as unknown as ClientSideConnection,
+          initialize: { agentCapabilities: {} },
+        };
+      }
+    }
+    return new InstructedSession(
+      {
+        provider: "copilot",
+        cwd: "/tmp/paseo-acp-test",
+        systemPrompt: "Agent prompt.",
+        daemonAppendSystemPrompt: "Shared installation instructions.",
+      },
+      {
+        provider: "copilot",
+        logger: createTestLogger(),
+        defaultCommand: ["copilot", "--acp"],
+        defaultModes: [],
+        capabilities: { supportsStreaming: true, supportsSessionPersistence: true },
+        terminateProcess: new FakeTerminator().terminate,
+      },
+    );
+  }
+
+  test("a new session's first prompt carries the agent and shared instructions once", async () => {
+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+    const session = sessionWithInstructions(prompt);
+    await session.initializeNewSession();
+    await session.startTurn("hello");
+    const first = prompt.mock.calls[0][0] as { prompt: Array<{ type: string; text: string }> };
+    expect(first.prompt).toHaveLength(2);
+    expect(first.prompt[0].text).toContain("Agent prompt.\n\nShared installation instructions.");
+    expect(first.prompt[1]).toEqual({ type: "text", text: "hello" });
+    asInternals<ACPSessionInternals>(session).activeForegroundTurnId = null;
+    await session.startTurn("again");
+    expect((prompt.mock.calls[1][0] as { prompt: unknown }).prompt).toEqual([
+      { type: "text", text: "again" },
+    ]);
+  });
+
+  test("replayed history hides the instruction block", () => {
+    const [block] = withSessionInstructions([], "Shared instructions.");
+    const text = (block as { text: string }).text;
+    expect(stripSessionInstructions(`${text}hello`)).toBe("hello");
+    expect(stripSessionInstructions("hello")).toBe("hello");
+    expect(withSessionInstructions([{ type: "text", text: "hi" }], undefined)).toEqual([
+      { type: "text", text: "hi" },
+    ]);
+    const session = createSession();
+    const internals = asInternals<ACPSessionInternals>(session);
+    internals.translateSessionUpdate({
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: `${text}hello` },
+    } as SessionUpdate);
+    const flushed = asInternals<{ flushPendingUserMessage(): AgentStreamEvent[] }>(
+      session,
+    ).flushPendingUserMessage();
+    expect(flushed).toEqual([
+      expect.objectContaining({
+        item: expect.objectContaining({ type: "user_message", text: "hello" }),
+      }),
+    ]);
+  });
+
+  test("a failed first prompt keeps the instructions for the next turn", async () => {
+    let rejectFirst!: (error: Error) => void;
+    const prompt = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<PromptResponse>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementation(() => new Promise<PromptResponse>(() => {}));
+    const session = sessionWithInstructions(prompt);
+    await session.initializeNewSession();
+    await session.startTurn("hello");
+    rejectFirst(new Error("rate limited"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    asInternals<ACPSessionInternals>(session).activeForegroundTurnId = null;
+    await session.startTurn("retry");
+    const second = prompt.mock.calls[1][0] as { prompt: Array<{ text: string }> };
+    expect(second.prompt).toHaveLength(2);
+    expect(second.prompt[0].text).toContain("Shared installation instructions.");
+  });
+
+  test("a first-turn slash command stays first and defers the instructions", async () => {
+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+    const session = sessionWithInstructions(prompt);
+    await session.initializeNewSession();
+    await session.startTurn("/compact");
+    expect((prompt.mock.calls[0][0] as { prompt: unknown }).prompt).toEqual([
+      { type: "text", text: "/compact" },
+    ]);
+    asInternals<ACPSessionInternals>(session).activeForegroundTurnId = null;
+    await session.startTurn("hello");
+    const second = prompt.mock.calls[1][0] as { prompt: Array<{ text: string }> };
+    expect(second.prompt[0].text).toContain("Agent prompt.");
+  });
+
+  test("replay strips trimmed instruction blocks and drops an instructions-only message", () => {
+    const [block] = withSessionInstructions([], "Shared instructions.");
+    const text = (block as { text: string }).text;
+    expect(stripSessionInstructions(`${text.trim()}hello`)).toBe("hello");
+    const session = createSession();
+    const internals = asInternals<ACPSessionInternals>(session);
+    internals.translateSessionUpdate({
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: text.trim() },
+    } as SessionUpdate);
+    expect(
+      asInternals<{ flushPendingUserMessage(): AgentStreamEvent[] }>(
+        session,
+      ).flushPendingUserMessage(),
+    ).toEqual([]);
   });
 });

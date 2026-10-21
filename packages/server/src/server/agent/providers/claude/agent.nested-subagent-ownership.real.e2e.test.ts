@@ -3,11 +3,27 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import pino from "pino";
-import { expect, test } from "vitest";
+import { beforeAll, beforeEach, expect, test } from "vitest";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+import { canRunRealProvider } from "../../../daemon-e2e/real-provider-test-config.js";
 import { collectSessionTurnEvents } from "../test-utils/session-stream-adapter.js";
 import { ClaudeAgentClient } from "./agent.js";
+
+// Real provider test: skipped unless real-provider runs are enabled, like the other Claude real
+// e2e tests. When enabled it still uses this machine's default Claude login, not the OpenRouter
+// settings from createRealProviderClient.
+let canRun = false;
+
+beforeAll(async () => {
+  canRun = await canRunRealProvider("claude");
+});
+
+beforeEach((context) => {
+  if (!canRun) {
+    context.skip();
+  }
+});
 
 const ROOT_PROMPT = `You are ROOT_OWNER. Use Claude Code's native Agent tool exactly once, never Paseo tools.
 Name the agent direct_owner and give it this complete task:

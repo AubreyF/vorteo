@@ -121,3 +121,37 @@ export function buildSidebarProjectRowModel(input: {
     ),
   };
 }
+
+/**
+ * Where a project row's plus opens New workspace. When the active workspace belongs to the row,
+ * its folder is the natural default: a shared group can span several folders on one host, and
+ * the owner expects the new workspace beside the one they are working in.
+ */
+export function resolveSidebarNewWorkspaceRoute(input: {
+  project: Pick<SidebarProjectEntry, "viewKey" | "workspaces">;
+  displayName: string;
+  target: SidebarProjectHostTarget;
+  activeWorkspace: {
+    serverId: string;
+    workspaceId: string;
+    projectId: string;
+    projectRootPath: string;
+  } | null;
+}) {
+  const active = input.activeWorkspace;
+  const activeInProject =
+    active &&
+    active.projectId &&
+    active.projectRootPath.trim() &&
+    input.project.workspaces.some(
+      (workspace) =>
+        workspace.serverId === active.serverId && workspace.workspaceId === active.workspaceId,
+    );
+  return {
+    serverId: activeInProject ? active.serverId : input.target.serverId,
+    sourceDirectory: activeInProject ? active.projectRootPath.trim() : input.target.iconWorkingDir,
+    displayName: input.displayName,
+    projectId: activeInProject ? active.projectId : input.target.projectId,
+    projectViewKey: input.project.viewKey,
+  };
+}

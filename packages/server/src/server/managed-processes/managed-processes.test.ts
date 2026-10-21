@@ -206,6 +206,51 @@ describe("managed process registry", () => {
     expect(await restartedRegistry.list()).toHaveLength(1);
   });
 
+  test("retains an uncertain termination across reopening until inspection proves exit", async () => {
+    tempHome = await mkdtemp(path.join(tmpdir(), "paseo-managed-uncertain-"));
+    let attempts = 0;
+    const terminate: ProcessTerminator = async () => {
+      attempts++;
+      return "kill-timeout";
+    };
+    const registry = createManagedProcessRegistry({
+      paseoHome: tempHome,
+      processTable: new FakeProcessTable([
+        { pid: 4106, commandLine: "opencode serve --port 4106", startedAt: "birth" },
+      ]),
+      terminateProcess: terminate,
+      logger: createTestLogger(),
+    });
+    const record = await registry.record({
+      owner: { provider: "opencode", kind: "helper-server" },
+      pid: 4106,
+      command: "opencode",
+      args: ["serve", "--port", "4106"],
+    });
+    const uncertain = await registry.reapStale();
+    expect(uncertain).toMatchObject({ checked: 1, removed: 0, terminated: 0, dead: 0 });
+    expect(uncertain.errors).toEqual([
+      { id: record.id, message: "Managed helper process exit remains unverified" },
+    ]);
+    expect(attempts).toBe(1);
+    const reopened = createManagedProcessRegistry({
+      paseoHome: tempHome,
+      processTable: new FakeProcessTable([]),
+      terminateProcess: terminate,
+      logger: createTestLogger(),
+    });
+    expect(await reopened.list()).toEqual([record]);
+    expect(await reopened.reapStale()).toMatchObject({
+      checked: 1,
+      removed: 1,
+      dead: 1,
+      terminated: 0,
+      errors: [],
+    });
+    expect(attempts).toBe(1);
+    expect(await reopened.list()).toEqual([]);
+  });
+
   test("does not terminate a reused PID whose command line only mentions the tokens", async () => {
     tempHome = await mkdtemp(path.join(tmpdir(), "paseo-managed-processes-"));
     const terminator = new FakeProcessTerminator();
@@ -304,6 +349,44 @@ describe("system managed process table", () => {
       },
     ]);
   });
+
+  test.each([
+    [{ code: 1, stdout: "", stderr: "", signal: null, killed: false }, "not-found"],
+    [{ code: 1, stdout: "", stderr: "permission denied" }, "error"],
+    [{ code: 2, stdout: "", stderr: "" }, "error"],
+    [{ code: 1, stdout: "", stderr: "", killed: true }, "error"],
+    [{ code: "ENOENT", stdout: "", stderr: "" }, "error"],
+    [{ code: 1, stdout: "unexpected output", stderr: "" }, "error"],
+  ] as const)(
+    "distinguishes verified missing PID from failed POSIX inspection: %j",
+    async (failure, status) => {
+      const processTable = createSystemManagedProcessTable({
+        platform: "darwin",
+        commandRunner: {
+          exec: async () => {
+            throw failure;
+          },
+        },
+      });
+      const inspection = await processTable.inspect(4101);
+      expect(inspection.status).toBe(status);
+    },
+  );
+
+  test.runIf(process.platform !== "win32")(
+    "recognizes an exited owned fixture through real POSIX inspection",
+    async () => {
+      const child = spawnProcess(process.execPath, ["-e", ""], { stdio: "ignore" });
+      if (!child.pid) throw new Error("Fixture PID unavailable");
+      const pid = child.pid;
+      await new Promise<void>((resolve, reject) => {
+        child.once("close", () => resolve());
+        child.once("error", reject);
+      });
+      const table = createSystemManagedProcessTable();
+      expect(await table.inspect(pid)).toEqual({ status: "not-found" });
+    },
+  );
 
   test("reads Windows process identity from PowerShell", async () => {
     const commandRunner = new FakeCommandRunner([

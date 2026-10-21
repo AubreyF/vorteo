@@ -66,7 +66,7 @@ that a model or command ran.
 
 As the viewport narrows, hide the supporting cards before reducing left navigation to its 64px project rail. Below the compact breakpoint, hide navigation behind its menu. Restore the left sidebar before the right when space returns. Treat responsive changes as presentation constraints, preserving saved widths and manual collapse choices. Explicit opens override the constraint until the next width change.
 
-Supporting card disclosure preferences live in the device-local panel store and apply across every workspace, with separate maps for the right-hand stack and inline cards in the primary content view. Select by actual card placement before rendering; resizing restores that layout's choices without copying over the other map. Existing saved choices seed both maps once on upgrade. Keep Goal, Tasks, Journal, Queue, managed subagents, provider subagents, Files and Changes independent. Workspace selection must not reopen a folded card; explicit navigation or review commands may reveal it. Preserve height-only animation and reduced-motion behavior.
+Supporting card disclosure preferences live in the device-local panel store and apply across every workspace, with separate maps for the right-hand stack and inline cards in the primary content view. Select by actual card placement before rendering; resizing restores that layout's choices without copying over the other map. Existing saved choices seed both maps once on upgrade. Keep Goal, Tasks, Journal, managed subagents, provider subagents, Files and Changes independent. The message queue always stays at the bottom of the primary conversation, outside the details sidebar, and uses its inline disclosure preference. Workspace selection must not reopen a folded card; explicit navigation or review commands may reveal it. Preserve height-only animation and reduced-motion behavior.
 
 Both sidebar resizers use `SidebarResizeHandle` and the same pointer lifecycle.
 Match Freed's centered 2px neutral gap indicator, transparent at rest, with
@@ -189,7 +189,7 @@ Five primitives. The pick is determined by option count, the need to search, and
 
 `<ContextMenu>` is for right-click and long-press on a target. The row is the trigger; there is no visible affordance. Used for incidental actions on workspace rows in the sidebar (`packages/app/src/components/sidebar-workspace-list.tsx`).
 
-`<AdaptiveModalSheet>` is for a focused task. Multi-field forms (`packages/app/src/components/add-host-modal.tsx`, `packages/app/src/components/pair-link-modal.tsx`, `packages/app/src/components/project-picker-modal.tsx`), confirmations with detail, anything that earns a backdrop. Bottom sheet on compact, centered card on desktop. Raw `Modal` is wrong for any of these.
+`<AdaptiveModalSheet>` is for a focused task. Multi-field forms (`packages/app/src/components/add-host-modal.tsx`, `packages/app/src/components/pair-link-modal.tsx`, `packages/app/src/components/project-picker-modal.tsx`), confirmations with detail, anything that earns a backdrop. Bottom sheet on compact, centered card on desktop. Editors whose changes the user compares against the page behind them, such as the profile editor, pass `desktopPlacement="end"` to dock a full-height panel at the trailing edge instead. Raw `Modal` is wrong for any of these.
 
 `<AdaptiveModalSheet>` owns the presentation. Its content inset — the gutter that puts sheet content on the same rails as the sheet header — and compact bottom safe-area padding are the sheet's, not the caller's. A caller declares layout intent through `contentStyle` and never branches on form factor to add its own margins. If a sheet's first snap point is shorter than its header, content, and safe-area clearance, raise that snap point rather than moving the sheet container.
 
@@ -411,5 +411,9 @@ Question cards are content-sized at every viewport width. Use `scrollBody={false
 ### Journal cards
 
 Thread journals use the shared `TaskCard`, `TaskCardHeader`, `TaskCardIcon` and `CardDisclosure`. Show a narrow, muted timestamp column on the left and selectable entry text in the remaining width. Keep entries in server append order, oldest first, even if timestamps repeat or the clock moves backward. Do not add edit, delete, drag or clear controls. The card appears after its first entry; its fixed heading and bounded scrolling body follow the conversation card layout contract.
+
+### Open questions cards
+
+Open questions sit above Tasks in the thread details. Each open question shows its text, why it matters, linked blocked tasks, when it was asked, and a highlighted recommended default with a primary Use recommended button; a text field answers differently. Answered questions collapse into an Answered (n) disclosure below, newest first; withdrawn questions are hidden. The card disappears when nothing is open or answered. The sidebar shows a static warm question badge with the open count; it never pulses because it stays until the owner answers.
 
 Maintenance that is awaiting dispatch or running belongs in compact two-line status rows at the bottom of the left sidebar. Keep a spinner on the left and Review on the right. Approval and recovery notices remain floating and dismissible; dismissing a notice does not cancel its request. Queued messages stays last in the supporting card group, after Files and Changes.

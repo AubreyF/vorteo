@@ -7,6 +7,8 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   clockTicksFromAuxv,
   inspectLinuxProcess,
+  inspectLinuxProcessSnapshot,
+  type LinuxProcessReader,
   inspectLinuxProcessCgroup,
   inspectRunningLinuxProcess,
   inspectStoppedLinuxProcess,
@@ -240,5 +242,52 @@ describe.runIf(process.platform === "linux")("live Linux process inspection", ()
     const { observation, cgroup } = await inspectLinuxProcessCgroup(child.pid);
     expect(observation.pid).toBe(child.pid);
     expect(cgroup).toBe(own);
+  });
+});
+
+describe("process state changes during inspection", () => {
+  function reader(finalState: string): LinuxProcessReader {
+    let reads = 0;
+    return {
+      async readStat(pid) {
+        reads++;
+        return { pid, parentPid: 2, startTicks: 12345n, state: reads < 3 ? "S" : finalState };
+      },
+      async requireInspectable() {},
+      async readChildren() {
+        return [];
+      },
+      async readArguments() {
+        return Buffer.from(["/usr/bin/sleep", "30", ""].join("\0"));
+      },
+      async readExecutable() {
+        return "/usr/bin/sleep";
+      },
+      async readCgroup() {
+        return "0::/fixture\n";
+      },
+    };
+  }
+
+  function running(finalState: string) {
+    return inspectLinuxProcessSnapshot({
+      pid: 42,
+      uid: 1000,
+      mode: "running",
+      bootId: "4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      ticksPerSecond: 100n,
+      reader: reader(finalState),
+    });
+  }
+
+  test.each(["T", "t", "Z", "X"])(
+    "refuses final state %s after initially running",
+    async (state) => {
+      await expect(running(state)).rejects.toThrow("not running");
+    },
+  );
+
+  test.each(["R", "S", "D"])("accepts a final running state %s", async (state) => {
+    await expect(running(state)).resolves.toMatchObject({ observation: { pid: 42 } });
   });
 });

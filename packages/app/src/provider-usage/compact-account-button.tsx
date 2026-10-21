@@ -1,5 +1,4 @@
-import { useMemo, type ComponentProps } from "react";
-import { View } from "react-native";
+import { type ComponentProps } from "react";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { useVortonTouch } from "@/vorton-touch";
@@ -12,32 +11,24 @@ export function CompactAccountButton({
   tone = "default",
   dense = false,
   ...props
-}: ComponentProps<typeof Button> & { tone?: "default" | "danger"; dense?: boolean }) {
+}: ComponentProps<typeof Button> & {
+  tone?: "default" | "danger";
+  dense?: boolean;
+}) {
   const touch = useVortonTouch();
-  const outline = useMemo(
-    () => (
-      <View
-        pointerEvents="none"
-        style={[
-          styles.outline,
-          dense && styles.denseOutline,
-          tone === "danger" && styles.dangerOutline,
-        ]}
-        testID={`${testID}-outline`}
-      />
-    ),
-    [testID, tone, dense],
-  );
   return (
     <Button
       {...props}
       testID={testID}
       variant="outline"
       size="xs"
-      style={[styles.target, dense && styles.denseTarget, style]}
-      hitSlop={dense && touch ? 12 : undefined}
+      style={[
+        styles.target,
+        dense && !touch && styles.denseTarget,
+        tone === "danger" && styles.dangerOutline,
+        style,
+      ]}
       textStyle={[tone === "danger" && styles.dangerText, textStyle]}
-      trailing={outline}
     />
   );
 }
@@ -45,32 +36,20 @@ export function CompactAccountButton({
 const styles = StyleSheet.create((theme) => ({
   dangerText: { color: theme.colors.destructive },
   dangerOutline: { borderColor: theme.colors.destructive },
-  // Dense badges paint hover within their outline; touch-only hit slop keeps them easy to tap.
+  // Paint the border on the control itself so touch sizing cannot separate it from its label.
   target: {
     height: CONTROL_HEIGHTS.field,
     minHeight: CONTROL_HEIGHTS.field,
     minWidth: CONTROL_HEIGHTS.field,
-    borderWidth: 0,
+    borderWidth: 1,
     paddingHorizontal: theme.spacing[2],
+    paddingVertical: 0,
     gap: theme.spacing[2],
   },
   denseTarget: {
-    height: 20,
-    minHeight: 20,
+    height: CONTROL_HEIGHTS.tight,
+    minHeight: CONTROL_HEIGHTS.tight,
     borderRadius: theme.borderRadius.md,
     paddingVertical: 0,
-  },
-  denseOutline: { height: 20, transform: [{ translateY: -10 }] },
-  outline: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    // Touch accessibility may enlarge the target; center within its actual height.
-    top: "50%",
-    transform: [{ translateY: -CONTROL_HEIGHTS.tight / 2 }],
-    height: CONTROL_HEIGHTS.tight,
-    borderWidth: 1,
-    borderRadius: theme.borderRadius.md,
-    borderColor: theme.colors.borderAccent,
   },
 }));

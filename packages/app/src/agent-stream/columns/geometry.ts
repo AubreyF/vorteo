@@ -80,22 +80,64 @@ export interface CardGridDemand {
   row?: number;
 }
 
+export interface GridLine {
+  ids: string[];
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Group collapsed tiles into flex lines. Rows are measured against the grid in one pass (see
+ * grid-row), so tiles on one line agree; this guard still joins tiles whose tops differ by less
+ * than half a tile height, while genuinely wrapped lines sit a full tile plus a gap apart. A
+ * joined line reserves its full extent, so a real visual offset is never clipped.
+ */
+export function groupGridLines(
+  tiles: Iterable<{ id: string; top: number; height: number }>,
+): GridLine[] {
+  const lines: GridLine[] = [];
+  for (const { id, top, height } of tiles) {
+    const bottom = top + height;
+    const line = lines.find(
+      (candidate) =>
+        Math.abs(candidate.top - top) < Math.min(height, candidate.bottom - candidate.top) / 2,
+    );
+    if (!line) {
+      lines.push({ ids: [id], top, bottom });
+      continue;
+    }
+    line.ids.push(id);
+    line.top = Math.min(line.top, top);
+    line.bottom = Math.max(line.bottom, bottom);
+  }
+  return lines;
+}
+
+/** Changes only when tiles change lines or a line's reserved extent changes. */
+export function gridLineSignature(lines: readonly GridLine[]): string {
+  return lines
+    .map((line) => `${[...line.ids].sort().join(",")}:${Math.round(line.bottom - line.top)}`)
+    .sort()
+    .join("|");
+}
+
 export function allocateGridCardHeights(
   available: number,
   demands: ReadonlyMap<string, CardGridDemand>,
 ): ReadonlyMap<string, number> {
-  const fixedRows = new Map<number, number>();
+  const tiles: { id: string; top: number; height: number }[] = [];
   const flexible: [string, number][] = [];
   const heights = new Map<string, number>();
   for (const [id, demand] of demands) {
     if (demand.row === undefined) flexible.push([id, demand.height]);
     else {
-      fixedRows.set(demand.row, Math.max(fixedRows.get(demand.row) ?? 0, demand.height));
+      tiles.push({ id, top: demand.row, height: demand.height });
       heights.set(id, demand.height);
     }
   }
-  const fixedHeight = [...fixedRows.values()].reduce((sum, height) => sum + height, 0);
-  const gaps = Math.max(0, fixedRows.size + flexible.length - 1) * CARD_GAP;
+  const lines = groupGridLines(tiles);
+  const fixedHeight = lines.reduce((sum, line) => sum + line.bottom - line.top, 0);
+  const gaps = Math.max(0, lines.length + flexible.length - 1) * CARD_GAP;
   const remaining = Math.max(0, available - fixedHeight - gaps);
   // The existing allocator accounts for gaps between the flexible cards itself.
   const allocations = allocateCardHeights(

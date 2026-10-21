@@ -180,6 +180,7 @@ export function validateProviderAccountSetup(definition: InstallationProvider): 
   const providerId = `${setup.provider}-account-${setup.creationId}`;
   if (
     definition.providerType !== setup.provider ||
+    (setup.signIn !== undefined && setup.provider !== "claude") ||
     Object.values(definition.bindings).some((id) => id !== providerId)
   )
     throw new Error(

@@ -1,4 +1,7 @@
 import { SidebarStateChangeSchema, SidebarStateSnapshotSchema } from "./sidebar-state.js";
+import { HeldRestartSchema } from "./maintenance-interruption.js";
+export { HeldRestartSchema } from "./maintenance-interruption.js";
+export type { HeldRestart } from "./maintenance-interruption.js";
 import {
   AgentTaskItemSchema,
   ChecklistGetRequestSchema,
@@ -114,6 +117,11 @@ import { TerminalProfileSchema } from "./terminal-profile.js";
 export { TerminalProfileSchema, type TerminalProfile } from "./terminal-profile.js";
 import { z } from "zod";
 import { AgentJournalEntrySchema } from "./agent-journal.js";
+import {
+  AgentQuestionSchema,
+  QuestionAnswerRequestSchema,
+  QuestionAnswerResponseSchema,
+} from "./agent-questions.js";
 import {
   AgentGoalSetInputSchema,
   AgentGoalStateSchema,
@@ -1008,6 +1016,8 @@ const AgentActiveTurnPayloadSchema = z.object({
 
 export const AgentSnapshotPayloadSchema = z.object({
   journal: z.array(AgentJournalEntrySchema).optional(),
+  // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; older daemons omit it.
+  questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
   id: z.string(),
@@ -1208,6 +1218,9 @@ export const WorkspaceProjectSetRequestSchema = z.object({
   type: z.literal("workspace.project.set.request"),
   workspaceId: z.string(),
   membership: WorkspaceProjectMembershipSchema.nullable(),
+  // COMPAT(workspaceProjectPlacement): send only when advertised; older daemons move the group only.
+  /** The group's single local project on this host, moved along with the group. */
+  projectId: z.string().min(1).optional(),
   requestId: z.string(),
 });
 
@@ -2072,6 +2085,8 @@ export const RestartServerRequestMessageSchema = z.object({
   type: z.literal("restart_server_request"),
   idleMode: z.enum(["inspect", "restart", "drain", "cancel-drain"]).optional(),
   restartDrainId: z.string().uuid().optional(),
+  heldRestart: HeldRestartSchema.optional(),
+  restartContinuation: z.enum(["capture", "ready", "cancelled"]).optional(),
   reason: z.string().optional(),
   requestId: z.string(),
 });
@@ -3546,6 +3561,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   QueueSubscribeRequestSchema,
   ChecklistGetRequestSchema,
   ChecklistMutateRequestSchema,
+  QuestionAnswerRequestSchema,
   AgentGoalGetRequestSchema,
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
@@ -3941,6 +3957,8 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceMultiplicity: z.boolean().optional(),
         // COMPAT(workspaceProjectMembership): added in v0.11.0-beta.3.vorteo.124; retain the gate for older daemons.
         workspaceProjectMembership: z.boolean().optional(),
+        // COMPAT(workspaceProjectPlacement): added October 2026; gate until the daemon floor includes it.
+        workspaceProjectPlacement: z.boolean().optional(),
         // COMPAT(workspaceCreateProjectMembership): added in v0.11.0-beta.3.vorteo.280; retain until all supported daemons assign membership atomically.
         workspaceCreateProjectMembership: z.boolean().optional(),
         // COMPAT(workspaceTaskEnvironments): gate bindings on daemons that persist them.
@@ -3948,6 +3966,12 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(idleRestart): added in v0.11.0-beta.3.vorteo.131; retain until the daemon floor supports the admission barrier.
         idleRestart: z.boolean().optional(),
         gracefulRestart: z.boolean().optional(),
+        // COMPAT(restartDrainObservation): added v558; retain until 2027-04-15.
+        restartDrainObservation: z.boolean().optional(),
+        // COMPAT(restartContinuation): added after v688; retain until 2027-04-18.
+        restartContinuation: z.boolean().optional(),
+        // COMPAT(heldIdleRestart): added v574; retain until daemon floor includes v574.
+        heldIdleRestart: z.boolean().optional(),
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: z.boolean().optional(),
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -3968,6 +3992,7 @@ export const ServerInfoStatusPayloadSchema = z
         providerAccountLogin: z.boolean().optional(),
         codexAccountCreation: z.boolean().optional(),
         claudeAccountCreation: z.boolean().optional(),
+        claudeFullSignIn: z.boolean().optional(),
         providerCredentialRemoval: z.boolean().optional(),
         providerOrdering: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.
@@ -4011,7 +4036,11 @@ export const ServerInfoStatusPayloadSchema = z
         checklistBlockedStatus: z.boolean().optional(),
         sidebarState: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
+        // COMPAT(checklistProgress): added October 2026; send progress and checks only when advertised.
+        checklistProgress: z.boolean().optional(),
         agentJournal: z.boolean().optional(),
+        // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; gate the Open questions card until the daemon floor includes it.
+        agentQuestions: z.boolean().optional(),
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain wire field.
         projectedSubagentTimeline: z.boolean().optional(),
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.
@@ -4168,11 +4197,15 @@ export const RestartRequestedStatusPayloadSchema = z.object({
     .object({
       agents: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
       pendingStarts: z.number().int().nonnegative(),
+      restartDrainId: z.string().uuid().nullable().optional(),
+      workerInstanceId: z.string().uuid().optional(),
+      workerPid: z.number().int().positive().optional(),
     })
     .optional(),
   clientId: z.string(),
   reason: z.string().optional(),
   requestId: z.string(),
+  heldRestart: HeldRestartSchema.optional(),
 });
 
 export const ShutdownRequestedStatusPayloadSchema = z.object({
@@ -7373,6 +7406,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   QueueChangedSchema,
   ChecklistGetResponseSchema,
   ChecklistMutateResponseSchema,
+  QuestionAnswerResponseSchema,
   AgentGoalGetResponseSchema,
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,

@@ -9,6 +9,7 @@ import type {
   BootstrapClaimedRecoveryRequestView,
   BootstrapPreclaimRecoveryRequestView as BootstrapPreclaimRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
+import { MaintenanceProvisioning } from "./maintenance-provisioning";
 import { ClaimedRepairProvisioning } from "./claimed-repair-provisioning";
 import { BootstrapPanelModel } from "./bootstrap-model";
 import { BootstrapReview, PreclaimRecoveryReview, ClaimedRecoveryReview } from "./bootstrap-panel";
@@ -674,6 +675,115 @@ test.each([1280, 390])(
       ]);
       await expect.element(page.getByTestId("claimed-repair-provisioning")).not.toBeInTheDocument();
     } finally {
+      act(() => root.unmount());
+      container.remove();
+      repairInstallation.enabled = false;
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test.each([1280, 390])(
+  "independent maintenance setup preserves exact review without dispatch at %ipx",
+  async (width) => {
+    vi.stubGlobal("React", React);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    repairInstallation.enabled = true;
+    await page.viewport(width, 1000);
+    const original = requestFixture();
+    const request = {
+      ...original,
+      reason: "Fixture compatible coordinator maintenance",
+      plan: {
+        ...original.plan,
+        installationId: "22222222-2222-4222-8222-222222222222",
+        sourceUpdateTooling: undefined,
+        compatibleRecovery: original.plan.previous,
+        automaticRecovery: "restore-compatible" as const,
+      },
+    };
+    let phase = "unprovisioned";
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const sent: Record<string, unknown>[] = [];
+    const proposal = {
+      admissionSha256: "a".repeat(64),
+      sourceCommit: "b".repeat(40),
+      artifactSha256: "c".repeat(64),
+      requestId: request.id,
+    };
+    const json = (value: unknown) =>
+      new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      if (url.endsWith("/status"))
+        return json({
+          version: 1,
+          installationId: request.plan.installationId,
+          available: phase === "ready",
+          requests: phase === "ready" ? 1 : 0,
+          phase,
+          provisioning: proposal,
+        });
+      const message = JSON.parse(String(init.body));
+      sent.push(message);
+      if (message.type === "installation.maintenance.provision.request") {
+        phase = "validating";
+        entered.resolve();
+        await release.promise;
+        phase = "ready";
+        return json({ provisioned: true });
+      }
+      if (message.type !== "installation.bootstrap.list_requests.request")
+        throw new Error("Unexpected fixture lifecycle decision");
+      return json({
+        type: "installation.bootstrap.list_requests.response",
+        payload: { requestId: message.requestId, requests: [request], error: null },
+      });
+    });
+    const container = document.createElement("div");
+    container.style.cssText = "max-width:720px;margin:0 auto;padding:16px;box-sizing:border-box";
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<MaintenanceProvisioning />));
+      await expect
+        .element(page.getByRole("button", { name: "Enable maintenance controls" }))
+        .toBeVisible();
+      expect(sent).toEqual([]);
+      await page.getByLabelText("Maintenance setup owner password").fill("fixture-owner");
+      await act(async () =>
+        page.getByRole("button", { name: "Enable maintenance controls" }).click(),
+      );
+      await entered.promise;
+      await expect
+        .element(page.getByRole("button", { name: "Verifying maintenance runtime" }))
+        .toBeDisabled();
+      expect(sent).toHaveLength(1);
+      await act(async () => {
+        release.resolve();
+      });
+      await expect.element(page.getByTestId("coordinator-bootstrap-review")).toBeVisible();
+      await expect.element(page.getByTestId("maintenance-provisioning")).not.toBeInTheDocument();
+      expect(sent[0]).toMatchObject({
+        type: "installation.maintenance.provision.request",
+        admissionSha256: proposal.admissionSha256,
+      });
+      expect(
+        sent.filter((message) => message.type !== "installation.bootstrap.list_requests.request"),
+      ).toHaveLength(1);
+      await act(async () => page.getByRole("button", { name: "Details", exact: true }).click());
+      expect(container.textContent).toContain(request.reason);
+      expect(container.textContent).toContain(request.id);
+      expect(container.textContent).toContain(request.revision);
+      await page.getByText("Installation coordinator", { exact: true }).hover();
+      // Let hover overlays exit before removing their DOM targets.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await page.screenshot({
+        path: `../../../../output/playwright/maintenance-review-${width}.png`,
+        fullPage: true,
+      });
+    } finally {
+      release.resolve();
       act(() => root.unmount());
       container.remove();
       repairInstallation.enabled = false;

@@ -165,6 +165,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  maintenanceRestart?: SessionOptions["maintenanceRestart"];
   coordinatorBootstrap?: SessionOptions["coordinatorBootstrap"];
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
@@ -472,6 +473,7 @@ type SessionConnection = ReconnectableSessionConnection | PluginSessionConnectio
 
 interface SocketSessionOptions {
   principalId?: string | null;
+  clientType?: WSHelloMessage["clientType"];
   clientId: string;
   appVersion: string | null;
   clientCapabilities: Record<string, unknown> | null;
@@ -601,6 +603,7 @@ export class VoiceAssistantWebSocketServer {
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
   private readonly coordinatorBootstrap: SessionOptions["coordinatorBootstrap"];
+  private readonly maintenanceRestart: SessionOptions["maintenanceRestart"];
   private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private lastRuntimeMetricsSnapshot: WebSocketRuntimeDiagnosticPayload | null = null;
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
@@ -697,6 +700,7 @@ export class VoiceAssistantWebSocketServer {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.coordinatorBootstrap = wsConfig.coordinatorBootstrap;
+    this.maintenanceRestart = wsConfig.maintenanceRestart;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
     this.advertiseRelayConfig = wsConfig.relayConfig !== false;
     this.connectionLifecycle = wsConfig.startPaused === true ? "starting" : "accepting";
@@ -1504,6 +1508,7 @@ export class VoiceAssistantWebSocketServer {
     connectionLogger: pino.Logger;
     lifecycle: { kind: "reconnectable" } | { kind: "ephemeral-plugin"; pluginId: string };
     admission: SessionAdmission;
+    clientType: WSHelloMessage["clientType"];
   }): SessionConnection {
     const { ws, clientId, appVersion, clientCapabilities, connectionLogger, lifecycle, admission } =
       params;
@@ -1511,6 +1516,7 @@ export class VoiceAssistantWebSocketServer {
 
     const session = this.createSocketSession({
       clientId,
+      clientType: params.clientType,
       principalId: lifecycle.kind === "reconnectable" ? admission.principalId : null,
       appVersion,
       clientCapabilities,
@@ -1593,8 +1599,10 @@ export class VoiceAssistantWebSocketServer {
     return new Session({
       sidebarState: this.supportsSidebarState() ? this.sidebarState : undefined,
       coordinatorBootstrap: this.coordinatorBootstrap,
+      maintenanceRestart: this.maintenanceRestart,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
+      clientType: options.clientType,
       principalId: options.principalId,
       appVersion: options.appVersion,
       clientCapabilities: options.clientCapabilities,
@@ -1775,6 +1783,7 @@ export class VoiceAssistantWebSocketServer {
       connectionLogger,
       lifecycle: pluginId ? { kind: "ephemeral-plugin", pluginId } : { kind: "reconnectable" },
       admission: admitted,
+      clientType: message.clientType,
     });
     this.sessions.set(ws, connection);
     if (connection.lifecycle === "reconnectable") {
@@ -2028,10 +2037,14 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
         workspaceMultiplicity: true,
         workspaceProjectMembership: true,
+        workspaceProjectPlacement: true,
         workspaceCreateProjectMembership: true,
         workspaceTaskEnvironments: true,
         idleRestart: true,
         gracefulRestart: true,
+        restartDrainObservation: true,
+        restartContinuation: this.agentManager.supportsRestartContinuation(),
+        heldIdleRestart: this.maintenanceRestart?.supported() === true,
         // COMPAT(projectRemove): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectRemove: true,
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
@@ -2052,6 +2065,7 @@ export class VoiceAssistantWebSocketServer {
         providerResetCreditSelection: true,
         codexAccountCreation: true,
         claudeAccountCreation: true,
+        claudeFullSignIn: true,
         providerCredentialRemoval: true,
         providerOrdering: true,
         providerAccountLogin: Object.values(
@@ -2079,7 +2093,10 @@ export class VoiceAssistantWebSocketServer {
         checklistBlockedStatus: true,
         sidebarState: this.supportsSidebarState(),
         checklistReviewStatus: true,
+        checklistProgress: true,
         agentJournal: true,
+        // COMPAT(agentQuestions): added in v0.11.0-beta.3.vorteo.690; retain until the client floor includes it.
+        agentQuestions: true,
         // COMPAT(projectedSubagentTimeline): added after v0.8.0, remove gates after 2027-03-14; retain advertisement.
         projectedSubagentTimeline: true,
         // COMPAT(providerSubagentNesting): added in v0.7, remove gate after 2027-03-04.

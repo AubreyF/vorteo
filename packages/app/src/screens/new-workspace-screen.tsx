@@ -92,11 +92,12 @@ import {
   getWorktreeSupportForHostProject,
   hostProjectFromRoute,
   hostProjectFromWorkspace,
-  resolveHostProjectCandidate,
+  resolveRoutedHostProject,
   useHostProjects,
   type HostProjectListItem,
 } from "@/projects/host-projects";
 import { useProjectIcons } from "@/projects/icons";
+import { useNewWorkspaceProjectStore } from "@/stores/new-workspace-project-store";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import type { ComposerAttachment } from "@/attachments/types";
 import { useDraftWorkspaceAttachmentScopeKey } from "@/attachments/workspace-attachments-store";
@@ -199,6 +200,7 @@ interface NewWorkspaceScreenProps {
   serverId: string;
   sourceDirectory?: string;
   projectId?: string;
+  projectViewKey?: string;
   displayName?: string;
   draftId?: string;
 }
@@ -1372,6 +1374,7 @@ function useNewWorkspaceInitialContext({
   serverId,
   sourceDirectory: sourceDirectoryProp,
   projectId,
+  projectViewKey,
   displayName: displayNameProp,
 }: NewWorkspaceScreenProps): NewWorkspaceInitialContextState {
   const allHosts = useHosts();
@@ -1388,16 +1391,16 @@ function useNewWorkspaceInitialContext({
       }),
     [projectId, routeDisplayName, serverId, sourceDirectoryProp],
   );
-  const routeProject = useMemo(() => {
-    if (!routePlacement) return null;
-    return (
-      resolveHostProjectCandidate({
-        candidate: routePlacement,
+  const routeProject = useMemo(
+    () =>
+      resolveRoutedHostProject({
+        projectViewKey,
+        placement: routePlacement,
         projects,
         serverId,
-      }) ?? routePlacement
-    );
-  }, [projects, routePlacement, serverId]);
+      }),
+    [projectViewKey, projects, routePlacement, serverId],
+  );
   const lastWorkspaceSelection = useLastWorkspaceSelection();
   const lastWorkspaceServerId = useMemo(
     () =>
@@ -1441,7 +1444,7 @@ function useNewWorkspaceInitialContext({
     openHostPicker,
     projects,
     routeProject,
-    routeProjectContextViewKey: routePlacement?.viewKey ?? null,
+    routeProjectContextViewKey: projectViewKey?.trim() || routePlacement?.viewKey || null,
     lastActiveProject,
   };
 }
@@ -1658,6 +1661,7 @@ export function NewWorkspaceScreen({
   serverId,
   sourceDirectory: sourceDirectoryProp,
   projectId,
+  projectViewKey,
   displayName: displayNameProp,
   draftId,
 }: NewWorkspaceScreenProps) {
@@ -1687,6 +1691,7 @@ export function NewWorkspaceScreen({
     serverId,
     sourceDirectory: sourceDirectoryProp,
     projectId,
+    projectViewKey,
     displayName: displayNameProp,
   });
   // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
@@ -1766,6 +1771,8 @@ export function NewWorkspaceScreen({
   const { workspace } = creationResult;
   const client = useHostRuntimeClient(selectedServerId);
   const isConnected = useHostRuntimeIsConnected(selectedServerId);
+  const lastManualProjectViewKey = useNewWorkspaceProjectStore((state) => state.lastManualViewKey);
+  const rememberManualProject = useNewWorkspaceProjectStore((state) => state.rememberManualProject);
   const {
     selectedProject,
     selectedSourceDirectory,
@@ -1780,6 +1787,8 @@ export function NewWorkspaceScreen({
     routeProject,
     routeProjectContextViewKey,
     lastActiveProject,
+    lastManualProjectViewKey,
+    onManualProjectSelected: rememberManualProject,
     allowAllProjects: supportsWorkspaceMultiplicity,
   });
   const projectIconTargets = useMemo(

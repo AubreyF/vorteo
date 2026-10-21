@@ -9,6 +9,8 @@ import {
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
 
+import { DevRegistrationReferenceSchema } from "./maintenance/dev-registration.js";
+
 const DaemonConnectionSchema = z.strictObject({
   endpoint: z.string().min(1),
   password: z.string().min(1),
@@ -56,6 +58,8 @@ export const InstallationConfigSchema = z.strictObject({
   previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
+  /** Off by default. Enables full sign-in Claude accounts with Host-owned refresh. */
+  claudeHostRefresh: z.boolean().optional(),
   sourceUpdates: z
     .strictObject({
       sourceRepository: z.string().startsWith("/"),
@@ -89,6 +93,7 @@ export const InstallationConfigSchema = z.strictObject({
     HostDaemonSchema.extend({ systemdService: SystemdUserServiceSchema }),
   ]),
   container: DaemonConnectionSchema.extend({
+    persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({
@@ -103,7 +108,7 @@ export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 
 export function hostLaunchdService(config: InstallationConfig): string {
   if (!("launchdService" in config.host))
-    throw new Error("Host restart through systemd is not supported yet");
+    throw new Error("Host operations through systemd are not supported yet");
   return config.host.launchdService;
 }
 

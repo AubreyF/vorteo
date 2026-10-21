@@ -3,8 +3,10 @@ import path from "node:path";
 import { writePrivateFileAtomicSync } from "../private-files.js";
 import { PreviewMonitorJobSchema } from "@getpaseo/protocol/preview-monitor-maintenance";
 import { z } from "zod";
-import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
+import { RestartJobSchema, type SupervisorEffect } from "@getpaseo/protocol/execution-installation";
 import { NativeHelperJobSchema } from "@getpaseo/protocol/native-helper-maintenance";
+import { MaintenanceServiceJobSchema } from "@getpaseo/protocol/maintenance-service";
+import { SessionHostJobSchema } from "@getpaseo/protocol/session-host-maintenance";
 
 // The existing coordinator owns this single ledger. Legacy readers reject helper
 // entries rather than dropping their operation and executing a daemon restart.
@@ -12,9 +14,21 @@ const LifecycleJobSchema = z.discriminatedUnion("target", [
   RestartJobSchema,
   NativeHelperJobSchema,
   PreviewMonitorJobSchema,
+  MaintenanceServiceJobSchema,
+  SessionHostJobSchema,
 ]);
 const LifecycleJournalSchema = z.array(LifecycleJobSchema);
 export type LifecycleJob = z.infer<typeof LifecycleJobSchema>;
+
+/** A failed parent can still own a live registration executor. Only its
+ * independently verified terminal settlement removes that lifecycle fence. */
+export function isSupervisorEffectSettled(effect: SupervisorEffect): boolean {
+  return (
+    effect.phase === "observed" &&
+    effect.observation.settled &&
+    effect.observation.outcome !== "unresolved"
+  );
+}
 
 export function parseLifecycleJournal(input: unknown): LifecycleJob[] {
   const jobs = LifecycleJournalSchema.parse(input);

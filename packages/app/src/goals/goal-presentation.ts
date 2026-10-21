@@ -13,7 +13,10 @@ export const GOAL_STATUS_LABELS: Record<AgentGoal["status"], string> = {
 
 export function formatGoalElapsed(seconds: number, narrow = false): string {
   const total = Math.floor(seconds);
-  if (narrow) return total < 60 ? "<1m" : `${Math.floor(total / 60)}m`;
+  if (narrow) {
+    if (total >= 3600) return `${Math.floor(total / 3600)}h`;
+    return total < 60 ? "<1m" : `${Math.floor(total / 60)}m`;
+  }
   if (total < 60) return `${total}s`;
   const minutes = Math.floor(total / 60);
   if (minutes < 60) return `${minutes}m ${total % 60}s`;

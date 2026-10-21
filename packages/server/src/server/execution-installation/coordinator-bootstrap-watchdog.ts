@@ -73,7 +73,7 @@ export async function recoverAbandonedBootstrap(
       try {
         requests.promoteDispatch(request);
       } catch {
-        return request;
+        return recordPromotionRefusal(requests, request, ownership.generation);
       }
     }
     const advance = (
@@ -117,6 +117,20 @@ export async function recoverAbandonedBootstrap(
     }
     return advance("resumed");
   });
+}
+
+function recordPromotionRefusal(
+  requests: CoordinatorBootstrapRequests,
+  request: CoordinatorBootstrapRequest,
+  generation: string,
+) {
+  // Refusal grants no effects and consumes no rollback authority. Record the
+  // failure with compare-and-swap; changed ownership or storage must still fail.
+  if (request.execution?.stage === "recovery_required") return request;
+  return requests.advanceDispatch(
+    { id: request.id, revision: request.revision, planSha256: request.planSha256, generation },
+    "recovery_required",
+  );
 }
 
 async function replacementVerified(

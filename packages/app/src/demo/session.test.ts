@@ -22,8 +22,14 @@ it("serves populated projects, workspaces, checklists and timelines through the 
     await terminals.release();
     expect((await client.fetchWorkspaces()).entries).toHaveLength(6);
     const agents = await client.fetchAgents();
-    expect(agents.entries).toHaveLength(6);
-    expect(new Set(agents.entries.map(({ agent }) => agent.title)).size).toBe(6);
+    // Six demo threads plus two simulated workers under the first thread.
+    expect(agents.entries).toHaveLength(8);
+    expect(new Set(agents.entries.map(({ agent }) => agent.title)).size).toBe(8);
+    expect(
+      agents.entries
+        .filter(({ agent }) => agent.labels?.["paseo.parent-agent-id"] === "demo-agent-0")
+        .map(({ agent }) => agent.id),
+    ).toEqual(["demo-subagent-0", "demo-subagent-1"]);
     expect(
       (
         await client.fetchAgents({ filter: { projectKeys: ["demo-project-observatory"] } })

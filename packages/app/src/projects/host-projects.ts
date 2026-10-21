@@ -11,6 +11,7 @@ export {
   hostProjectFromRoute,
   hostProjectFromWorkspace,
   resolveHostProjectCandidate,
+  resolveRoutedHostProject,
   resolveExactHostProjectCandidate,
   resolveEquivalentHostProjectCandidate,
   resolveInitialWorkspaceProject,

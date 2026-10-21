@@ -15,6 +15,8 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { openChecklistForm, updateChecklistForm, checklistFormMutation } from "./form-model";
+import { TaskProgressDetails } from "./task-progress";
+import { taskProgressSummary } from "./task-progress-summary";
 
 interface ChecklistEditorProps {
   task: AgentTaskItem | null;
@@ -191,6 +193,11 @@ export function ChecklistEditor({
             accessibilityLabel="Progress label"
           />
         </Field>
+        {task && taskProgressSummary(task) ? (
+          <Field label="Done so far">
+            <TaskProgressDetails task={task} />
+          </Field>
+        ) : null}
         {task ? (
           <Field label="Status">
             <View style={styles.actions}>

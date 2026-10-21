@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { basename } from "node:path";
 import { connectToDaemon } from "../../utils/client.js";
+import type { AgentSnapshotPayload, PaseoWorktreeListResponse } from "@getpaseo/protocol/messages";
 import type { CommandOptions, ListResult, OutputSchema, CommandError } from "../../output/index.js";
 
 /** Worktree list item for display */
@@ -50,7 +51,9 @@ export async function runLsCommand(
 
   try {
     const agentsPayload = await client.fetchAgents({ filter: { includeArchived: true } });
-    const agents = agentsPayload.entries.map((entry) => entry.agent);
+    const agents = agentsPayload.entries.map(
+      (entry: { agent: AgentSnapshotPayload }) => entry.agent,
+    );
 
     // Get worktree list from daemon
     const response = await client.getPaseoWorktreeList({});
@@ -71,12 +74,14 @@ export async function runLsCommand(
       worktreeAgentMap.set(agent.cwd, agent.id.slice(0, 7));
     }
 
-    const items: WorktreeListItem[] = response.worktrees.map((wt) => ({
-      name: extractWorktreeName(wt.worktreePath),
-      branch: wt.branchName ?? "-",
-      cwd: shortenPath(wt.worktreePath),
-      agent: worktreeAgentMap.get(wt.worktreePath) ?? "-",
-    }));
+    const items: WorktreeListItem[] = response.worktrees.map(
+      (wt: PaseoWorktreeListResponse["payload"]["worktrees"][number]) => ({
+        name: extractWorktreeName(wt.worktreePath),
+        branch: wt.branchName ?? "-",
+        cwd: shortenPath(wt.worktreePath),
+        agent: worktreeAgentMap.get(wt.worktreePath) ?? "-",
+      }),
+    );
 
     return {
       type: "list",

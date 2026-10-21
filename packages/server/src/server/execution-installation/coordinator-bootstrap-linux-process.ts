@@ -188,6 +188,13 @@ function sameLifetime(a: ProcStat, b: ProcStat): boolean {
   return a.pid === b.pid && a.parentPid === b.parentPid && a.startTicks === b.startTicks;
 }
 
+function requireProcessState(stat: ProcStat, mode: InspectionMode): void {
+  if (mode === "stopped" && stat.state !== "T")
+    throw new BootstrapRequestConflict("Process is not stopped");
+  if (mode === "running" && !["R", "S", "D"].includes(stat.state))
+    throw new BootstrapRequestConflict("Process is not running");
+}
+
 /** The guest may share the Host uid, so the namespaces, not the owner,
  * establish that the executable path names a Host file. */
 async function requireInspectable(input: {
@@ -203,10 +210,7 @@ async function requireInspectable(input: {
     throw new BootstrapRequestConflict("Process identifier names a thread");
   if (!status.uids.every((value) => value === uid))
     throw new BootstrapRequestConflict("Process owner does not match Host");
-  if (mode === "stopped" && stat.state !== "T")
-    throw new BootstrapRequestConflict("Process is not stopped");
-  if (mode === "running" && !["R", "S", "D"].includes(stat.state))
-    throw new BootstrapRequestConflict("Process is not running");
+  requireProcessState(stat, mode);
   for (const namespace of ["pid", "mnt"]) {
     const [own, target] = await Promise.all([
       readlink(`/proc/self/ns/${namespace}`),
@@ -223,6 +227,24 @@ async function readExecutable(pid: number): Promise<string> {
   return executable;
 }
 
+export interface LinuxProcessReader {
+  readStat(pid: number): Promise<ProcStat>;
+  requireInspectable: typeof requireInspectable;
+  readChildren(pid: number): Promise<number[]>;
+  readArguments(pid: number): Promise<Buffer>;
+  readExecutable(pid: number): Promise<string>;
+  readCgroup(pid: number): Promise<string>;
+}
+
+const nativeProcessReader: LinuxProcessReader = {
+  readStat,
+  requireInspectable,
+  readChildren,
+  readArguments: (pid) => readFile(`/proc/${pid}/cmdline`),
+  readExecutable,
+  readCgroup: (pid) => readFile(`/proc/${pid}/cgroup`, "utf8"),
+};
+
 async function inspect(pid: number, mode: InspectionMode): Promise<ProcessInspection> {
   z.number().int().positive().parse(pid);
   if (process.platform !== "linux" || !process.getuid)
@@ -230,27 +252,53 @@ async function inspect(pid: number, mode: InspectionMode): Promise<ProcessInspec
   const uid = process.getuid();
   await requireOwnProcfs();
   try {
-    const before = await readStat(pid);
-    await requireInspectable({ pid, stat: before, mode, uid });
-    const children = mode === "stopped" ? await readChildren(pid) : null;
     const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
     const ticksPerSecond = await readClockTicks();
-    const digest = procArgumentsDigest(await readFile(`/proc/${pid}/cmdline`));
-    const executable = await readExecutable(pid);
-    const cgroup = await readFile(`/proc/${pid}/cgroup`, "utf8");
+    return await inspectLinuxProcessSnapshot({
+      pid,
+      mode,
+      uid,
+      bootId,
+      ticksPerSecond,
+      reader: nativeProcessReader,
+    });
+  } catch (error) {
+    if (error instanceof BootstrapRequestConflict) throw error;
+    throw new BootstrapRequestConflict("Coordinator process identity could not be verified");
+  }
+}
+
+/** Repeated procfs reads must agree on identity and the requested final state. */
+export async function inspectLinuxProcessSnapshot(input: {
+  pid: number;
+  mode: InspectionMode;
+  uid: number;
+  bootId: string;
+  ticksPerSecond: bigint;
+  reader: LinuxProcessReader;
+}): Promise<ProcessInspection> {
+  const { pid, mode, uid, bootId, ticksPerSecond, reader } = input;
+  try {
+    const before = await reader.readStat(pid);
+    await reader.requireInspectable({ pid, stat: before, mode, uid });
+    const children = mode === "stopped" ? await reader.readChildren(pid) : null;
+    const digest = procArgumentsDigest(await reader.readArguments(pid));
+    const executable = await reader.readExecutable(pid);
+    const cgroup = await reader.readCgroup(pid);
     // exec changes the executable and argv without changing PID or birth time.
     if (
-      procArgumentsDigest(await readFile(`/proc/${pid}/cmdline`)) !== digest ||
-      (await readExecutable(pid)) !== executable ||
-      (await readFile(`/proc/${pid}/cgroup`, "utf8")) !== cgroup ||
-      !sameLifetime(await readStat(pid), before)
+      procArgumentsDigest(await reader.readArguments(pid)) !== digest ||
+      (await reader.readExecutable(pid)) !== executable ||
+      (await reader.readCgroup(pid)) !== cgroup ||
+      !sameLifetime(await reader.readStat(pid), before)
     )
       throw new BootstrapRequestConflict("Process identity changed during inspection");
-    if (children && (await readChildren(pid)).join(",") !== children.join(","))
+    if (children && (await reader.readChildren(pid)).join(",") !== children.join(","))
       throw new BootstrapRequestConflict("Process children changed during inspection");
-    const after = await readStat(pid);
-    if (!sameLifetime(after, before) || (mode === "stopped" && after.state !== "T"))
+    const after = await reader.readStat(pid);
+    if (!sameLifetime(after, before))
       throw new BootstrapRequestConflict("Process identity changed after child inspection");
+    requireProcessState(after, mode);
     const observation = ProcessObservationSchema.parse({
       pid,
       parentPid: before.parentPid,

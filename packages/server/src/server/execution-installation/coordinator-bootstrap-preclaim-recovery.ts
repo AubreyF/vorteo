@@ -331,6 +331,56 @@ const legacyPreclaimFiles = {
 };
 const legacyPreclaimOwner = "c7022f08433113bc66f72cdec2ca9f7f9142decb4fa790e4d183099f06cc42c4";
 
+// COMPAT(preclaimRecovery): this reviewed runner performs native validation
+// before claimDispatch. Watchdog registration and lifecycle effects follow the
+// durable claim, so an exact unclaimed executor can use the same retirement fence.
+const reviewedPreclaimRunners: Record<
+  string,
+  { files: Record<string, string>; owner: string; artifactSha256: string | null }
+> = {
+  "9573f48eb2fcf9c3a9270c03ce6e553b5c933978": {
+    artifactSha256: "a95739b25d7f3ad24b2e1e181bdc8c3d139050fdb43316787174a538563182a8",
+    files: {
+      "coordinator-bootstrap-runner.js":
+        "9194131e11e8ba8a8253f4c508f720d7183c1c8cf711228bd31e64dea8df399b",
+      "coordinator-bootstrap-executor.js":
+        "66a965331d427ebbb1782eda4c3c29822f32dbe9c9f50bea0136e1bac0bf9eaf",
+      "coordinator-bootstrap.js":
+        "2893e504698ef1c4a0f584dd689874be4805e364da035f2033c5777f65a368e2",
+      "coordinator-bootstrap-journal.js":
+        "bc1a4d585b2010b4c0373b424845cb2b92d6b5f88b0bfc004bb30608beca9e34",
+      "coordinator-bootstrap-runtime.js":
+        "3731a0a0061c71db080a83077ed751eac996b53abba912d7773cded3122cab3d",
+      "coordinator-bootstrap-maintenance-runtime.js":
+        "f7524f14bc6208251ef71a5277b340bdb85838f062f21b23c6c83bc7bc503e30",
+      "coordinator-bootstrap-maintenance-controller.js":
+        "bbc95de8cbf27f2d7080d94a9465b254ca9f7b4209627126955ba3f66a98044f",
+    },
+    owner: "3a1569bfc8c51340af2f818b1e74f431ef8b71359a4c3c457fc1196d204b1bc8",
+  },
+  [legacyPreclaimSource]: {
+    files: legacyPreclaimFiles,
+    owner: legacyPreclaimOwner,
+    artifactSha256: null,
+  },
+  e9922b953658ad7873bf921bb5837a84686f9475: {
+    artifactSha256: "3a52708b9bab4d78e7257c06c478a91d00d91c848e7338a21a1a68a827fcb0eb",
+    files: {
+      "coordinator-bootstrap-runner.js":
+        "a83d7b508c48c424c1fc8a067d7c14b525300a3497ac7201a9975c37374783b3",
+      "coordinator-bootstrap-executor.js":
+        "66a965331d427ebbb1782eda4c3c29822f32dbe9c9f50bea0136e1bac0bf9eaf",
+      "coordinator-bootstrap.js":
+        "267fdff559a5ae881fa1a111fdce7fd189421cb637002451ba277acd0dea220c",
+      "coordinator-bootstrap-journal.js":
+        "5ed14905b94b5ccfc0480080e6317f285f84bb23fd04e2a14ecb0413919de320",
+      "coordinator-bootstrap-runtime.js":
+        "3731a0a0061c71db080a83077ed751eac996b53abba912d7773cded3122cab3d",
+    },
+    owner: "3a1569bfc8c51340af2f818b1e74f431ef8b71359a4c3c457fc1196d204b1bc8",
+  },
+};
+
 /** The canceled journal no longer contains the old approval. Retain its full
  * protected bytes and bind them to the old setup and audited observation below. */
 export async function verifyPreclaimOriginalApproval(
@@ -361,22 +411,27 @@ export async function verifySupportedPreclaimRunner(input: {
 }): Promise<void> {
   const plan = validatePreclaimRecoveryPlan(input.plan);
   await verifyPreclaimOriginalApproval(plan, input.writableMountRoots);
-  if (plan.runner.sourceCommit !== legacyPreclaimSource || !plan.retainedObservation)
+  const supported = reviewedPreclaimRunners[plan.runner.sourceCommit];
+  if (!supported || !plan.retainedObservation)
     throw new BootstrapRequestConflict(
       "Target runner release is not supported for preclaim recovery",
+    );
+  if (supported.artifactSha256 !== null && plan.runner.artifactSha256 !== supported.artifactSha256)
+    throw new BootstrapRequestConflict(
+      "Target runner artifact is not the reviewed preclaim release",
     );
   const directory = path.join(
     plan.runner.directory,
     "packages/server/dist/server/server/execution-installation",
   );
-  for (const [name, sha256] of Object.entries(legacyPreclaimFiles))
+  for (const [name, sha256] of Object.entries(supported.files))
     await readBootstrapPreparedFile(
       { path: path.join(directory, name), sha256 },
       input.writableMountRoots,
     );
   const owner = {
     path: path.join(plan.runner.directory, "scripts/run-coordinator-owner.py"),
-    sha256: legacyPreclaimOwner,
+    sha256: supported.owner,
   };
   if (!isDeepStrictEqual(plan.ownerLauncher, owner))
     throw new BootstrapRequestConflict("Target runner ownership launcher is not supported");
@@ -399,25 +454,41 @@ export async function verifySupportedPreclaimRunner(input: {
   for (const key of Object.keys(expected) as (keyof typeof expected)[])
     if (!isDeepStrictEqual(setup[key], expected[key]))
       throw new BootstrapRequestConflict("Target runner setup differs from its reviewed runtime");
+  await verifyPreclaimRenewal(setup, input);
+  await verifyBootstrapReleaseArtifacts(plan.runner, input.writableMountRoots);
+}
+
+async function verifyPreclaimRenewal(
+  setup: z.infer<typeof import("./coordinator-bootstrap-runner.js").BootstrapRunnerSetupSchema>,
+  input: Parameters<typeof verifySupportedPreclaimRunner>[0],
+): Promise<void> {
+  const plan = input.plan;
   const renewal = setup.renewal;
+  const parentRenewal = setup.maintenance
+    ? await import("./coordinator-bootstrap-maintenance-runtime.js").then(
+        ({ verifyMaintenancePreclaimParent }) =>
+          verifyMaintenancePreclaimParent(setup, plan.hostProcess),
+      )
+    : renewal;
   if (
     !renewal ||
     !isDeepStrictEqual(renewal.originalSetup, input.anchor.originalSetup) ||
     !isDeepStrictEqual(renewal.originalAdmission, input.anchor.originalAdmission) ||
     !isDeepStrictEqual(renewal.terminal, input.anchor.terminal) ||
-    !isDeepStrictEqual(renewal.hostProcess, plan.hostProcess) ||
+    !isDeepStrictEqual(renewal.hostProcess, parentRenewal?.hostProcess) ||
+    (!setup.maintenance && !isDeepStrictEqual(renewal.hostProcess, plan.hostProcess)) ||
     !isDeepStrictEqual(renewal.configuration, plan.selectedConfiguration) ||
     !isDeepStrictEqual(renewal.request, {
       id: plan.original.id,
       revision: plan.original.revision,
       planSha256: plan.original.planSha256,
     }) ||
-    renewal.sourceCommit !== plan.runner.sourceCommit
+    renewal.sourceCommit !==
+      (setup.maintenance ? parentRenewal?.sourceCommit : plan.runner.sourceCommit)
   )
     throw new BootstrapRequestConflict("Target runner renewal provenance changed");
   for (const file of [renewal.originalSetup, renewal.originalAdmission, renewal.source])
     await readBootstrapPreparedFile(file, input.writableMountRoots);
-  await verifyBootstrapReleaseArtifacts(plan.runner, input.writableMountRoots);
 }
 
 /** Checks the live native identities, not artifact integrity or authorization.
@@ -564,21 +635,28 @@ async function verifyRetainedPreclaimObservation(
   };
   if (!isDeepStrictEqual(retained, expected))
     throw new BootstrapRequestConflict("Retained preclaim observation binding changed");
+  const rawSetup = JSON.parse(
+    (await readBootstrapPreparedFile(plan.setup, context.writableMountRoots)).toString("utf8"),
+  );
   const setup = z
     .object({
       node: file,
       entrypoint: file,
       renewal: z.object({ hostProcess: BootstrapProcessIdentitySchema, request }),
     })
-    .parse(
-      JSON.parse(
-        (await readBootstrapPreparedFile(plan.setup, context.writableMountRoots)).toString("utf8"),
-      ),
+    .parse(rawSetup);
+  if (!isDeepStrictEqual(setup.renewal.hostProcess, plan.hostProcess)) {
+    const { BootstrapRunnerSetupSchema } = await import("./coordinator-bootstrap-runner.js");
+    const { verifyMaintenancePreclaimParent } =
+      await import("./coordinator-bootstrap-maintenance-runtime.js");
+    await verifyMaintenancePreclaimParent(
+      BootstrapRunnerSetupSchema.parse(rawSetup),
+      plan.hostProcess,
     );
+  }
   if (
     !isDeepStrictEqual(setup.node, plan.runner.node) ||
     !isDeepStrictEqual(setup.entrypoint, plan.executorEntrypoint) ||
-    !isDeepStrictEqual(setup.renewal.hostProcess, plan.hostProcess) ||
     !isDeepStrictEqual(setup.renewal.request, expectedRequest)
   )
     throw new BootstrapRequestConflict("Retained preclaim renewal parent changed");

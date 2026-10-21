@@ -136,19 +136,30 @@ export function shouldBypassBearerAuth(method: string, path: string): boolean {
 export async function isAgentMcpRequestAuthorized(input: {
   password: string | undefined;
   capabilityToken: string | null;
+  /**
+   * Further capability tokens, such as the durable session host's, whose providers outlive this
+   * daemon run and keep the token they were started with.
+   */
+  additionalCapabilityTokens?: readonly string[];
   authorizationHeader: string | undefined;
 }): Promise<boolean> {
   if (!input.password) {
     return true;
   }
   const token = extractHttpBearerToken(input.authorizationHeader);
-  if (input.capabilityToken !== null && token !== null) {
-    // Constant-time compare; length-guard first because timingSafeEqual throws
-    // on differing buffer lengths.
+  if (token !== null) {
+    const accepted = [
+      ...(input.capabilityToken !== null ? [input.capabilityToken] : []),
+      ...(input.additionalCapabilityTokens ?? []),
+    ];
     const provided = Buffer.from(token);
-    const expected = Buffer.from(input.capabilityToken);
-    if (provided.length === expected.length && timingSafeEqual(provided, expected)) {
-      return true;
+    for (const capability of accepted) {
+      // Constant-time compare; length-guard first because timingSafeEqual throws
+      // on differing buffer lengths.
+      const expected = Buffer.from(capability);
+      if (provided.length === expected.length && timingSafeEqual(provided, expected)) {
+        return true;
+      }
     }
   }
   return isBearerTokenValidAsync({ password: input.password, token });

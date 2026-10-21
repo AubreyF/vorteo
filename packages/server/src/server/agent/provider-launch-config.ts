@@ -1,4 +1,5 @@
 import { managedClaudeCli, isPackagedClaudeCommand } from "./providers/claude/packaged-cli.js";
+import { applyClaudeSignInEnvironment } from "./providers/claude/sign-in-mode.js";
 import { isAbsolute } from "node:path";
 import {
   executableExists,
@@ -249,6 +250,7 @@ export function createProviderEnvSpec(options: ProviderEnvOptions = {}): Provide
   for (const key of PARENT_SESSION_ENV_VARS) {
     envOverlay[key] = undefined;
   }
+  applyClaudeSignInEnvironment(envOverlay);
   return {
     ...(options.baseEnv ? { baseEnv: options.baseEnv } : {}),
     envOverlay,

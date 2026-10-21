@@ -6,7 +6,12 @@ import {
 import { shortenPath } from "@/utils/shorten-path";
 import type { AddProjectHost, GithubRepositoryChoice } from "./model";
 
-export type AddProjectMethodId = "directory-search" | "browse" | "github" | "new-directory";
+export type AddProjectMethodId =
+  | "open-folder"
+  | "directory-search"
+  | "browse"
+  | "github"
+  | "new-directory";
 
 export interface AddProjectMethodOption {
   id: AddProjectMethodId;
@@ -36,31 +41,41 @@ export function filterAddProjectHosts(hosts: AddProjectHost[], query: string): A
 export function buildAddProjectMethods(host: AddProjectHost): AddProjectMethodOption[] {
   if (!host.canAddProject) return [];
   const options: AddProjectMethodOption[] = [];
-  options.push({
-    id: "directory-search",
-    label: "Search for directory",
-    description: `Find a directory on ${host.label}`,
-  });
+  // Hosts that can list folders get one browser for every destination. Older
+  // hosts keep the search pages, which cannot confirm a parent exists.
+  if (host.canBrowseFolders) {
+    options.push({
+      id: "open-folder",
+      label: "Open a folder",
+      description: `Browse folders on ${host.label}`,
+    });
+  } else {
+    options.push({
+      id: "directory-search",
+      label: "Search for directory",
+      description: `Find a directory on ${host.label}`,
+    });
+  }
   if (host.canBrowse) {
     options.push({
       id: "browse",
-      label: "Browse",
-      description: "Choose or create a directory in Finder",
+      label: "Choose in Finder",
+      description: "Pick or create a folder with the system dialog",
     });
   }
+  options.push({
+    id: "new-directory",
+    label: "New project folder",
+    description: host.canCreateDirectory
+      ? `Create an empty folder on ${host.label}`
+      : "Update this host to create folders",
+    disabled: !host.canCreateDirectory,
+  });
   options.push({
     id: "github",
     label: "Clone from GitHub",
     description: githubMethodDescription(host),
     disabled: !host.canCloneGithubRepositories,
-  });
-  options.push({
-    id: "new-directory",
-    label: "New directory",
-    description: host.canCreateDirectory
-      ? `Create an empty directory on ${host.label}`
-      : "Update this host to create directories",
-    disabled: !host.canCreateDirectory,
   });
   return options;
 }

@@ -3,7 +3,7 @@
     "target": "ES2020",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": ["ES2023"],
     "types": ["node"],
     "strict": true,
     "skipLibCheck": true,
@@ -19,6 +19,11 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["scripts/supervisor-entrypoint.ts", "scripts/dev-runner.ts", "scripts/supervisor.ts"],
+  "include": [
+    "scripts/supervisor-entrypoint.ts",
+    "scripts/dev-runner.ts",
+    "scripts/supervisor.ts",
+    "scripts/session-host-entrypoint.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

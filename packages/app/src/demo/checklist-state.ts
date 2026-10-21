@@ -13,7 +13,7 @@ const SnapshotSchema = z.object({
     .max(Number.MAX_SAFE_INTEGER - 1),
   agents: z
     .array(z.object({ id: z.string(), tasks: z.array(AgentTaskItemSchema).max(500) }))
-    .max(6),
+    .max(8), // Six demo threads plus two simulated workers.
 });
 export type DemoChecklistSnapshot = z.infer<typeof SnapshotSchema>;
 export interface DemoChecklistPersistence {

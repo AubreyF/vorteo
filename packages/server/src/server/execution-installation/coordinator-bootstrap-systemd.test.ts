@@ -1,8 +1,12 @@
+import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap.js";
 import {
   createSystemdBootstrapServiceReader,
+  assertPrivateRuntimeDirectory,
   isStoppedSystemdCandidate,
   parseSystemdServiceRecord,
   SystemdCommandFailure,
@@ -448,4 +452,29 @@ describe("systemd service ownership", () => {
       ).verifyServiceOwnership(RUNNING_SERVICE, OBSERVATION.pid),
     ).rejects.toThrow("not owned");
   });
+});
+
+describe("Host user bus mount isolation", () => {
+  test.each(["ancestor", "directory", "descendant"] as const)(
+    "refuses a guest mount at the runtime %s",
+    async (overlap) => {
+      const root = await realpath(await mkdtemp(path.join(tmpdir(), "systemd-runtime-")));
+      const directory = path.join(root, "user");
+      const child = path.join(directory, "shared");
+      await mkdir(child, { recursive: true, mode: 0o700 });
+      const mounts = { ancestor: root, directory, descendant: child };
+      const mount = mounts[overlap];
+      try {
+        await expect(
+          assertPrivateRuntimeDirectory({
+            directory,
+            uid: process.getuid?.() ?? 1000,
+            writableMountRoots: [mount],
+          }),
+        ).rejects.toThrow("overlaps a writable container mount");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 });

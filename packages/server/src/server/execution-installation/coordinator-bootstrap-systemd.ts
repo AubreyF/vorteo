@@ -452,7 +452,14 @@ export async function assertRootOwnedExecutable(file: string): Promise<void> {
 }
 
 /** The user bus socket lives in the account's private runtime directory. */
-async function assertPrivateRuntimeDirectory(directory: string, uid: number): Promise<void> {
+export async function assertPrivateRuntimeDirectory(input: {
+  directory: string;
+  uid: number;
+  writableMountRoots: readonly string[];
+}): Promise<void> {
+  const { directory, uid, writableMountRoots } = input;
+  // Guest processes may share the Host uid, so mode bits alone do not protect the bus.
+  await assertBootstrapPathsProtected([directory], writableMountRoots);
   if ((await realpath(directory)) !== directory)
     throw new BootstrapRequestConflict("Host runtime directory requires its canonical path");
   const info = await lstat(directory);
@@ -470,7 +477,11 @@ export async function createHostSystemdCommandRunner(input: {
   const runtimeDirectory = `/run/user/${input.uid}`;
   for (const tool of Object.values(TOOLS)) await assertRootOwnedExecutable(tool);
   await assertBootstrapPathsProtected(Object.values(TOOLS), input.writableMountRoots);
-  await assertPrivateRuntimeDirectory(runtimeDirectory, input.uid);
+  await assertPrivateRuntimeDirectory({
+    directory: runtimeDirectory,
+    uid: input.uid,
+    writableMountRoots: input.writableMountRoots,
+  });
   // No inherited bus address: busctl --user resolves $XDG_RUNTIME_DIR/bus.
   // LC_ALL=C keeps the absence message exact.
   const env = { PATH: "/usr/bin:/bin", XDG_RUNTIME_DIR: runtimeDirectory, LC_ALL: "C" };

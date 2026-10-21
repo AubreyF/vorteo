@@ -72,6 +72,27 @@ describe("PersistedConfigSchema daemon browser tools config", () => {
 
     expect(parsed.daemon?.browserTools?.enabled).toBe(true);
   });
+
+  test("accepts the daemon-owned headless host and rejects unknown host fields", () => {
+    const parsed = PersistedConfigSchema.parse({
+      daemon: {
+        browserTools: {
+          enabled: true,
+          headlessHost: { enabled: true, deniedOrigins: ["https://owner.example.com"] },
+        },
+      },
+    });
+
+    expect(parsed.daemon?.browserTools?.headlessHost).toEqual({
+      enabled: true,
+      deniedOrigins: ["https://owner.example.com"],
+    });
+    expect(
+      PersistedConfigSchema.safeParse({
+        daemon: { browserTools: { headlessHost: { enabled: true, profile: "owner" } } },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("PersistedConfigSchema daemon relay config", () => {

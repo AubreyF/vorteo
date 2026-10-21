@@ -1,5 +1,6 @@
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { createContext, useCallback, useId, useMemo, useReducer, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useReducer, type ReactNode } from "react";
+import { StreamColumnWidthContext } from "./column-width";
 import { Text, View, type LayoutChangeEvent } from "react-native";
 import { useWindowDimensions } from "@/appearance/interface-geometry";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -23,7 +24,7 @@ import {
   type ColumnWidths,
 } from "./geometry";
 
-export const StreamColumnWidthContext = createContext<number | undefined>(undefined);
+export { StreamColumnWidthContext, useStreamColumnWidthStyle } from "./column-width";
 
 interface ColumnLayoutState {
   containerWidth: number;

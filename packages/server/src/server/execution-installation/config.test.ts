@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { readInstallationConfig } from "./config.js";
+import { readInstallationConfig, hostLaunchdService, InstallationConfigSchema } from "./config.js";
 
 const SYSTEMD_SERVICE = {
   kind: "systemd-user",
@@ -91,4 +91,15 @@ describe("Host service descriptor", () => {
       "macOS Host requires its launchd service",
     );
   });
+});
+
+test("launchd consumers preserve the configured service and refuse unwired systemd operations", () => {
+  const launchdService = "gui/501/local.vorteo.fixture.host";
+  expect(hostLaunchdService(InstallationConfigSchema.parse(config({ launchdService })))).toBe(
+    launchdService,
+  );
+  const systemd = InstallationConfigSchema.parse(config({ systemdService: SYSTEMD_SERVICE }));
+  expect(() => hostLaunchdService(systemd)).toThrow(
+    "Host operations through systemd are not supported yet",
+  );
 });

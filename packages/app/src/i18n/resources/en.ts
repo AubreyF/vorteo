@@ -374,6 +374,7 @@ export const en = {
       empty: "No tasks yet.",
       tasksProgress: "{{completed}}/{{total}} tasks",
       activeCount: "{{count}} active",
+      blockedCount: "{{count}} blocked",
       activity: {
         created: "Created {{count}} tasks",
         added: "Added",

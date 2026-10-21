@@ -51,6 +51,12 @@ const entries = [
 // Files read at runtime via fs APIs rather than `require`. nft only
 // traces the module graph; data files have to be listed explicitly.
 const additionalInputs = [
+  // Initial native Host module contract is generated after server and CLI builds.
+  ...(process.platform === "darwin"
+    ? [
+        "packages/server/dist/server/server/execution-installation/maintenance/host-startup-contract.json",
+      ]
+    : []),
   // Agent orchestration skill catalog loaded through filesystem paths
   "packages/server/dist/server/skills/**",
   "packages/server/dist/server/builtin-plugins/**",

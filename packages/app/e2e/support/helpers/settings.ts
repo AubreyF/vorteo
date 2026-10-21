@@ -2,11 +2,8 @@ import { expect, type Page } from "@playwright/test";
 import { buildCreateAgentPreferences, buildSeededHost } from "./daemon-registry";
 import { getServerId } from "./server-id";
 import { expectAppRoute } from "./route-assertions";
-import {
-  buildSettingsHostSectionRoute,
-  buildSettingsRoute,
-  buildSettingsSectionRoute,
-} from "@/utils/host-routes";
+import { buildSettingsHostSectionRoute, buildSettingsRoute } from "@/utils/host-routes";
+import { getSection, resolveSettingsTarget } from "@/settings-catalog/catalog";
 
 const DISABLE_DEFAULT_SEED_ONCE_KEY = "@paseo:e2e-disable-default-seed-once";
 const SEED_NONCE_KEY = "@paseo:e2e-seed-nonce";
@@ -18,21 +15,22 @@ interface SavedSettingsHostInput {
   endpoint: string;
 }
 
-const SECTION_LABELS = {
-  general: "General",
-  chat: "Chat",
-  appearance: "Appearance",
-  sidebar: "Sidebar",
-  editor: "Editor",
-  terminal: "Terminal",
-  browser: "Browser",
-  shortcuts: "Shortcuts",
-  integrations: "Integrations",
-  permissions: "Permissions",
-  diagnostics: "Diagnostics",
-} as const;
+/** Old settings page names that specs open; the catalog maps each to its new place. */
+const OLD_SETTINGS_PAGES = [
+  "general",
+  "chat",
+  "appearance",
+  "sidebar",
+  "editor",
+  "terminal",
+  "browser",
+  "shortcuts",
+  "integrations",
+  "permissions",
+  "diagnostics",
+] as const;
 
-export type SettingsSection = keyof typeof SECTION_LABELS;
+export type SettingsSection = (typeof OLD_SETTINGS_PAGES)[number];
 
 type HostSection =
   | "projects"
@@ -47,12 +45,25 @@ type HostSection =
   | "plugins"
   | "host";
 
+/**
+ * Opens a settings location by its old page name. Settings is one scrolling
+ * page now; the catalog maps each old name to its section and pane.
+ */
 export async function openSettingsSection(page: Page, section: SettingsSection): Promise<void> {
   const sidebar = page.getByTestId("settings-sidebar");
   await expect(sidebar).toBeVisible();
+  await revealSettingsLocation(page, section);
+}
 
-  await sidebar.getByRole("button", { name: SECTION_LABELS[section], exact: true }).click();
-  await expectAppRoute(page, buildSettingsSectionRoute(section));
+/** Scrolls the settings page to the pane that an old settings page name now opens. */
+export async function revealSettingsLocation(page: Page, slug: string): Promise<void> {
+  const target = resolveSettingsTarget(slug);
+  await page.getByTestId(`settings-section-${target.section}`).click();
+  const anchor = page.getByTestId(
+    target.pane ? `settings-pane-${target.pane}` : `settings-page-section-${target.section}`,
+  );
+  await expect(anchor).toBeVisible();
+  await anchor.scrollIntoViewIfNeeded();
 }
 
 export async function openSettingsHost(page: Page, serverId: string): Promise<void> {
@@ -67,21 +78,25 @@ export async function openSettingsHostSection(
   _serverId: string,
   section: HostSection,
 ): Promise<void> {
-  const sharedSection = section === "host" ? "environments" : section;
-  await page.getByTestId(`settings-section-${sharedSection}`).click();
-  await expectAppRoute(page, buildSettingsSectionRoute(sharedSection));
+  await revealSettingsLocation(page, section === "host" ? "environments" : section);
   await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
 }
 
+/** A section or pane title is visible in the settings page, or a drill-in page's title. */
 export async function expectSettingsHeader(page: Page, title: string): Promise<void> {
+  const scrollPage = page.getByTestId("settings-scroll-page");
+  if (await scrollPage.isVisible()) {
+    await expect(scrollPage.getByText(title, { exact: true }).first()).toBeVisible();
+    return;
+  }
   await expect(page.getByTestId("page-title")).toHaveText(title);
 }
 
 export async function openAddHostFlow(page: Page): Promise<void> {
   if (!(await page.getByTestId("settings-add-host").isVisible())) {
-    const section = page.getByTestId("settings-section-connections");
+    const section = page.getByTestId("settings-section-environments");
     if (!(await section.isVisible())) await goBackInSettings(page);
-    await section.click();
+    await revealSettingsLocation(page, "connections");
   }
   await page.getByTestId("settings-add-host").click();
   await expect(page.getByRole("dialog").filter({ hasText: "Add connection" })).toBeVisible();
@@ -191,9 +206,8 @@ export async function expectSettingsSidebarSections(
 ): Promise<void> {
   const sidebar = page.getByTestId("settings-sidebar");
   for (const section of sections) {
-    await expect(
-      sidebar.getByRole("button", { name: SECTION_LABELS[section], exact: true }),
-    ).toBeVisible();
+    const label = getSection(resolveSettingsTarget(section).section).label;
+    await expect(sidebar.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
 }
 
@@ -221,8 +235,12 @@ export async function clickSettingsBackToWorkspace(page: Page): Promise<void> {
   await page.getByTestId("settings-back-to-workspace").click();
 }
 
+/**
+ * Connections lives in the Environments section. Its own address is kept when
+ * opened directly; compact navigation opens the section's address.
+ */
 export async function expectHostSettingsUrl(page: Page, _serverId: string): Promise<void> {
-  await expectAppRoute(page, buildSettingsSectionRoute("connections"));
+  await expect(page).toHaveURL(/\/settings\/(connections|environments)$/);
 }
 
 export async function verifyLegacyHostSettingsRedirect(page: Page): Promise<void> {
@@ -302,10 +320,9 @@ export async function expectHostLabelEditMode(page: Page, expectedLabel: string)
 export async function expectHostConnectionsCard(page: Page, port: string): Promise<void> {
   const card = page.getByTestId("host-page-connections-card");
   await expect(card).toBeVisible();
-  // "Connections" appears three times on this page: the sidebar section row, the
-  // detail header title, and the SettingsSection heading above the card. Match
-  // the first to keep the heading assertion without tripping Playwright strict
-  // mode.
+  // "Connections" can appear more than once on this page (pane heading and
+  // card heading). Match the first to keep the heading assertion without
+  // tripping Playwright strict mode.
   await expect(page.getByText("Connections", { exact: true }).first()).toBeVisible();
   await expect(
     card.getByText(new RegExp(`TCP \\((localhost|127\\.0\\.0\\.1):${port}\\)`)),
@@ -388,20 +405,14 @@ export async function expectRetiredSidebarSectionsAbsent(page: Page): Promise<vo
   const sidebar = page.getByTestId("settings-sidebar");
   await expect(sidebar).toBeVisible();
 
-  // App group rows remain top-level.
-  await expect(sidebar.getByRole("button", { name: "General", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Diagnostics", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "About", exact: true })).toHaveCount(0);
+  // One entry per section; old pages are panes inside them.
+  for (const id of ["general", "accounts", "agents", "environments", "maintenance", "about"]) {
+    await expect(sidebar.getByTestId(`settings-section-${id}`)).toBeVisible();
+  }
   await expect(sidebar.getByRole("button", { name: "Daemon", exact: true })).toHaveCount(0);
-
-  // Shared sections have a single entry for the whole installation.
-  await expect(sidebar.getByTestId("settings-section-connections")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-projects")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-agents")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-workspaces")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-providers")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-usage")).toBeVisible();
-  await expect(sidebar.getByTestId("settings-section-environments")).toBeVisible();
+  for (const retired of ["connections", "projects", "providers", "usage", "diagnostics"]) {
+    await expect(sidebar.getByTestId(`settings-section-${retired}`)).toHaveCount(0);
+  }
 
   // No host selection changes the meaning of these settings.
   await expect(sidebar.locator('[data-testid^="settings-host-entry-"]')).toHaveCount(0);
@@ -414,7 +425,7 @@ export async function expectHostPageVisible(page: Page, _serverId: string): Prom
 export async function expectLocalHostEntryFirst(page: Page, _serverId: string): Promise<void> {
   await expect(page.getByTestId("settings-sidebar")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("settings-host-picker")).toHaveCount(0);
-  await expect(page.getByTestId("settings-section-connections")).toBeVisible();
+  await expect(page.getByTestId("settings-section-environments")).toBeVisible();
 }
 
 export async function expectHostRejectedWithReAddGuidance(

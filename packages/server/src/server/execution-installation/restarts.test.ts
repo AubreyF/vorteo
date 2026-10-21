@@ -1,3 +1,4 @@
+import { installContainerSource } from "./container-updates.js";
 import * as lifecycleJournal from "./lifecycle-journal.js";
 import { z } from "zod";
 import {
@@ -12,14 +13,27 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { createInstallationRestartExecutor, validateHostStartup } from "./daemon.js";
+import {
+  createInstallationRestartExecutor,
+  createInstallationRegistrationAdmission,
+  validateHostStartup,
+} from "./daemon.js";
 import type { InstallationConfig } from "./config.js";
-import type { RestartImpact, RestartJob } from "@getpaseo/protocol/execution-installation";
+import {
+  RestartJobSchema,
+  type RestartImpact,
+  type RestartJob,
+} from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts, type RestartJournal, type RestartExecutor } from "./restarts.js";
+import {
+  createSessionHostReleaseGuard,
+  setReleaseSelectionGuard,
+} from "./release-selection-guard.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
 
 class MemoryJournal implements RestartJournal {
@@ -33,6 +47,456 @@ class MemoryJournal implements RestartJournal {
     this.jobs = structuredClone(jobs);
   }
 }
+
+test("force restart persists continuation intent before capture and releases only after readiness", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (_target, id) => {
+      expect(journal.jobs.find((job) => job.id === id)?.continuationCaptureRequested).toBe(true);
+      calls.push("capture");
+      await captured;
+    },
+    releaseRestartContinuation: async (_target, _id, outcome) => {
+      calls.push(outcome);
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Resume active tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(calls).toEqual(["capture"]));
+  finishCapture();
+  await draining;
+  expect(queue.list()[0]?.status).toBe("succeeded");
+  expect(calls).toEqual(["capture", "restart"]);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+  await queue.drain();
+  expect(calls).toEqual(["capture", "restart", "ready"]);
+});
+
+test("cancellation during durable capture prevents force dispatch", async () => {
+  let finishCapture!: () => void;
+  const captured = new Promise<void>((resolve) => {
+    finishCapture = resolve;
+  });
+  const capture = vi.fn(async () => captured);
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    captureRestartContinuation: capture,
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Capture cancellation" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  const draining = queue.drain();
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+  queue.decide(request.id, approved.revision, "cancel");
+  finishCapture();
+  await draining;
+  expect(restart).not.toHaveBeenCalled();
+  expect(queue.list()[0]?.status).toBe("rejected");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(queue.list()[0]?.holdReleased).toBe(true);
+});
+
+test("failed restart retains uncertain continuation when replacement refuses cancellation", async () => {
+  const journal = new MemoryJournal();
+  const release = vi.fn(async () => false);
+  const restart = vi.fn(async () => {
+    throw new Error("replacement readiness unknown");
+  });
+  const executor: RestartExecutor = {
+    captureRestartContinuation: async () => {},
+    releaseRestartContinuation: release,
+    restart,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain uncertain tasks" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("failed");
+  const reopened = new InstallationRestarts(journal, executor);
+  await reopened.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(restart).toHaveBeenCalledTimes(1);
+});
+
+test("lost capture acknowledgement never dispatches and keeps the exact cause cancellable", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const release = vi.fn(async () => true);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain capture intent" }, "owner");
+  const approved = queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  expect(journal.jobs[0]?.status).toBe("approved");
+  expect(restart).not.toHaveBeenCalled();
+  queue.decide(request.id, approved.revision, "cancel");
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+});
+
+test("a legacy executor cannot bypass recorded continuation capture", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async () => {
+      throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async () => false,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Retain exact capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  const reopened = new InstallationRestarts(journal, { restart });
+  await reopened.drain();
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]?.continuationCaptureRequested).toBe(true);
+  expect(reopened.list()[0]?.status).toBe("failed");
+  expect(reopened.list()[0]?.holdReleased).toBeUndefined();
+});
+
+test("retained approved idle capture refuses a missing adapter before dispatch", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const inspect = vi.fn(
+    async (): Promise<RestartImpact> => ({
+      target: "host",
+      checkedAt: new Date().toISOString(),
+      agents: [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      error: null,
+    }),
+  );
+  const executor: RestartExecutor = {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+    captureRestartContinuation: async () => {
+      throw new Error("lost capture acknowledgment");
+    },
+    releaseRestartContinuation: async () => false,
+  };
+  const queue = new InstallationRestarts(journal, executor);
+  const request = queue.request({ target: "host", reason: "Retain idle capture" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBe(true);
+  const reopened = new InstallationRestarts(journal, {
+    restart,
+    restartWhenIdle: restart,
+    inspect,
+  });
+  await reopened.drain();
+  expect(inspect).toHaveBeenCalledTimes(2);
+  expect(restart).not.toHaveBeenCalled();
+  expect(reopened.list()[0]).toMatchObject({
+    status: "approved",
+    continuationCaptureRequested: true,
+  });
+  expect(reopened.list()[0]?.detail).toContain("compatible executor");
+});
+
+test("a target without durable continuation keeps legacy restarts and never records intent", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("release");
+      return true;
+    },
+    restart: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["restart"]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("finishing current turns on a target without durable continuation uses the legacy hold", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => false,
+    captureRestartContinuation: async () => {
+      calls.push("capture");
+    },
+    releaseRestartContinuation: async () => {
+      calls.push("continuation-release");
+      return true;
+    },
+    inspect: async () => idleImpact("host"),
+    holdCurrentTurns: async () => {
+      calls.push("hold");
+    },
+    releaseCurrentTurns: async () => {
+      calls.push("legacy-release");
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => {
+      calls.push("restart");
+      return "replacement verified";
+    },
+  });
+  const request = queue.request({ target: "host", reason: "Older daemon drain" }, "owner");
+  queue.decide(request.id, request.revision, "finish-current-turns");
+  await queue.drain();
+  await queue.drain();
+  expect(calls).toEqual(["hold", "restart", "legacy-release"]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+});
+
+test("recorded continuation on a target that lost support settles through legacy dispatch", async () => {
+  const journal = new MemoryJournal();
+  let supported = true;
+  const release = vi.fn(async () => true);
+  const restart = vi.fn(async () => "replacement verified");
+  const queue = new InstallationRestarts(journal, {
+    restartContinuationAvailable: async () => supported,
+    captureRestartContinuation: async () => {
+      throw new Error("Update this daemon to preserve tasks across restarts");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const request = queue.request({ target: "host", reason: "Downgraded daemon" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", continuationCaptureRequested: true });
+  supported = false;
+  await queue.drain();
+  await queue.drain();
+  expect(restart).toHaveBeenCalledTimes(1);
+  expect(release).toHaveBeenCalledWith("host", request.id, "ready");
+  expect(queue.list()[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+});
+
+test("a terminal continuation awaiting release does not fence another target's restart", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "replacement verified");
+  const release = vi.fn(async () => false);
+  const queue = new InstallationRestarts(journal, {
+    captureRestartContinuation: async (target) => {
+      if (target === "host") throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: release,
+    restart,
+  });
+  const stuck = queue.request({ target: "host", reason: "Unreleasable" }, "owner");
+  const approved = queue.decide(stuck.id, stuck.revision, "approve");
+  await queue.drain();
+  queue.decide(stuck.id, approved.revision, "cancel");
+  const other = queue.request({ target: "container-daemon", reason: "Unrelated" }, "owner");
+  queue.decide(other.id, other.revision, "approve");
+  await queue.drain();
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", stuck.id, "cancelled");
+  expect(restart).toHaveBeenCalledWith("container-daemon");
+  expect(queue.list().map((job) => [job.target, job.status, job.holdReleased])).toEqual([
+    ["host", "rejected", undefined],
+    ["container-daemon", "succeeded", undefined],
+  ]);
+});
+
+// v689 parses lifecycle jobs strictly and predates per-attempt capture causes.
+const V689RestartJobSchema = RestartJobSchema.omit({ continuationCaptureId: true });
+
+function v689Readable(journal: MemoryJournal): boolean {
+  return journal.jobs.every(
+    (job) => V689RestartJobSchema.safeParse(JSON.parse(JSON.stringify(job))).success,
+  );
+}
+
+test("an idle restart releases its capture while waiting and recaptures under a fresh cause", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  let idleAttempts = 0;
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => (++idleAttempts === 1 ? null : "replacement verified"),
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  expect(first).not.toBe(request.id);
+  expect(calls).toEqual([`capture:${first}`, `cancelled:${first}`]);
+  // Waiting for idleness neither holds admission nor fences other lifecycle work.
+  expect(journal.jobs[0]).toMatchObject({ status: "approved", whenIdle: true });
+  expect(journal.jobs[0]?.continuationCaptureRequested).toBeUndefined();
+  expect(v689Readable(journal)).toBe(true);
+  await queue.drain();
+  await queue.drain();
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+    `ready:${second}`,
+  ]);
+  expect(journal.jobs[0]).toMatchObject({ status: "succeeded", holdReleased: true });
+  // A rollback to v689 must still read the journal once the hold is released.
+  expect(journal.jobs[0]).not.toHaveProperty("continuationCaptureId");
+  expect(v689Readable(journal)).toBe(true);
+  const retained = { ...journal.jobs[0], continuationCaptureId: randomUUID() };
+  expect(V689RestartJobSchema.safeParse(retained).success).toBe(false);
+});
+
+test("a lost idle capture receipt is released before a fresh attempt", async () => {
+  const journal = new MemoryJournal();
+  const calls: string[] = [];
+  const queue = new InstallationRestarts(journal, {
+    inspect: async () => idleImpact("host"),
+    captureRestartContinuation: async (_target, id) => {
+      calls.push(`capture:${id}`);
+      if (calls.length === 1) throw new Error("acknowledgment lost");
+    },
+    releaseRestartContinuation: async (_target, id, outcome) => {
+      calls.push(`${outcome}:${id}`);
+      return true;
+    },
+    restart: async () => "wrong",
+    restartWhenIdle: async () => "replacement verified",
+  });
+  const request = queue.request({ target: "host", reason: "Restart when idle" }, "owner");
+  queue.decide(request.id, request.revision, "approve-when-idle");
+  await queue.drain();
+  await queue.drain();
+  const first = calls[0]!.slice("capture:".length);
+  const second = calls[2]!.slice("capture:".length);
+  expect(second).not.toBe(first);
+  expect(calls.slice(0, 3)).toEqual([
+    `capture:${first}`,
+    `cancelled:${first}`,
+    `capture:${second}`,
+  ]);
+  expect(journal.jobs[0]?.status).toBe("succeeded");
+});
+
+test("the daemon adapter probes continuation support and releases older targets' legacy holds", async () => {
+  const config = {
+    public: { environments: [{ kind: "container", serverId: "test-container" }] },
+    container: { endpoint: "127.0.0.1:1", password: "test-only" },
+  } as unknown as InstallationConfig;
+  const connect = vi.spyOn(DaemonClient.prototype, "connect").mockResolvedValue();
+  const close = vi.spyOn(DaemonClient.prototype, "close").mockResolvedValue();
+  const info = vi
+    .spyOn(DaemonClient.prototype, "getLastServerInfoMessage")
+    .mockReturnValue({ features: { idleRestart: true } } as never);
+  const restartServer = vi
+    .spyOn(DaemonClient.prototype, "restartServer")
+    .mockResolvedValue({ accepted: true } as never);
+  const id = randomUUID();
+  try {
+    const executor = createInstallationRestartExecutor(config);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+    expect(await executor.releaseRestartContinuation!("container-daemon", id, "cancelled")).toBe(
+      true,
+    );
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+    });
+    info.mockReturnValue({ features: { restartContinuation: true } } as never);
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(true);
+    await executor.releaseRestartContinuation!("container-daemon", id, "ready");
+    expect(restartServer).toHaveBeenLastCalledWith(undefined, undefined, {
+      timeout: 5000,
+      idleMode: "cancel-drain",
+      restartDrainId: id,
+      restartContinuation: "ready",
+    });
+    connect.mockRejectedValueOnce(new Error("offline"));
+    expect(await executor.restartContinuationAvailable!("container-daemon")).toBe(false);
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+    info.mockRestore();
+    restartServer.mockRestore();
+  }
+});
+
+test("a restart that never verifies readiness fails at its deadline, releases its hold and ignores a late result", async () => {
+  const journal = new MemoryJournal();
+  const progress: string[] = [];
+  const release = vi.fn(async () => true);
+  let finish!: (detail: string) => void;
+  const queue = new InstallationRestarts(
+    journal,
+    {
+      captureRestartContinuation: async () => {},
+      releaseRestartContinuation: release,
+      restart: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    },
+    Date.now,
+    {},
+    { fenced: false, dispatchDeadlineMs: 50, progress: (message) => progress.push(message) },
+  );
+  const request = queue.request({ target: "host", reason: "Frozen predecessor" }, "owner");
+  queue.decide(request.id, request.revision, "approve");
+  await queue.drain();
+  expect(queue.list()[0]).toMatchObject({ status: "failed" });
+  expect(queue.list()[0]?.detail).toContain("No verified readiness within");
+  expect(progress).toEqual([
+    "Restart dispatched; waiting for verified readiness",
+    "Restart readiness deadline expired",
+  ]);
+  await queue.drain();
+  expect(release).toHaveBeenCalledWith("host", request.id, "cancelled");
+  finish("Replacement worker 42 is ready");
+  await vi.waitFor(() =>
+    expect(progress).toContain("Restart outcome arrived after its deadline and was not applied"),
+  );
+  expect(queue.list()[0]?.status).toBe("failed");
+});
 
 test("Factory adoption requires its own exact approval and never shares a plain restart", async () => {
   const plan = "c".repeat(64);
@@ -823,7 +1287,118 @@ function restartTestConfig(root: string, entrypoint: string): InstallationConfig
   };
 }
 
-test("source builds fail before activation, failed readiness restores selection, and publication follows readiness", async () => {
+test("interruption outcome requires the exact installed candidate and published interface", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "interruption-publication-")));
+  try {
+    const job: RestartJob = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Verify retained update",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "running",
+      detail: "Outcome unverified",
+      update: {
+        sourceCommit: "c".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "d".repeat(64),
+        bytes: 42,
+      },
+    };
+    const work = path.join(root, job.id),
+      release = path.join(work, "runtime"),
+      exported = path.join(work, "export"),
+      web = path.join(root, "web");
+    for (const dir of [work, release, exported, web]) await mkdir(dir, { mode: 0o700 });
+    const json = async (file: string, value: unknown) =>
+      writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await json(path.join(release, ".installation-source.json"), {
+      sourceCommit: job.update!.sourceCommit,
+    });
+    const files = {
+      "index.html": "<script src='/app.js'></script>",
+      "app.js": "export const ready = true;",
+    };
+    const hashes: Record<string, string> = {};
+    for (const [name, value] of Object.entries(files)) {
+      hashes[name] = createHash("sha256").update(value).digest("hex");
+      await writeFile(path.join(exported, name), value, { mode: 0o600 });
+      await writeFile(path.join(web, name), value, { mode: 0o600 });
+    }
+    await json(path.join(exported, ".build-manifest.json"), {
+      version: 1,
+      buildId: "fixture",
+      sourceCommit: job.update!.sourceCommit,
+      files: hashes,
+      deployment: { destination: web },
+    });
+    await json(path.join(web, "release.json"), {
+      buildId: "fixture",
+      sourceCommit: job.update!.sourceCommit,
+      sha256: hashes["index.html"],
+    });
+    await json(path.join(work, "prepared.json"), { release, exported });
+    const artifactSha256 = await digestBootstrapArtifact(release);
+    await json(path.join(work, "admission.json"), {
+      previous: path.join(root, "previous"),
+      sourceSha256: job.update!.sha256,
+      webReceipt: "fixture",
+      webIndex: "fixture",
+      candidateArtifactSha256: artifactSha256,
+      exportedArtifactSha256: await digestBootstrapArtifact(exported),
+    });
+    const activation = { candidate: release, update: job.update, status: "succeeded" };
+    const activationFile = path.join(work, "activation.json");
+    await json(activationFile, activation);
+    const link = path.join(root, "current");
+    await symlink(release, link);
+    const config = restartTestConfig(root, path.join(root, "unused-entry"));
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: web,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const input = {
+      job,
+      expected: { release, sourceCommit: job.update!.sourceCommit, artifactSha256 },
+      writableMountRoots: [],
+    };
+    const receiptBefore = await readFile(activationFile);
+    const assertCurrent = await updates.verifyInstalledInterruption(input);
+    assertCurrent();
+    expect(await readFile(activationFile)).toEqual(receiptBefore);
+    await writeFile(path.join(web, "app.js"), "changed", { mode: 0o600 });
+    expect(assertCurrent).toThrow("Published interface changed");
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow("digest changed");
+    await writeFile(path.join(web, "app.js"), files["app.js"], { mode: 0o600 });
+    await json(activationFile, { ...activation, status: "interface-failed" });
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow();
+    await json(activationFile, activation);
+    await expect(
+      updates.verifyInstalledInterruption({
+        ...input,
+        expected: { ...input.expected, artifactSha256: "f".repeat(64) },
+      }),
+    ).rejects.toThrow("retained interruption");
+    await json(path.join(web, "release.json"), {
+      buildId: "wrong",
+      sourceCommit: job.update!.sourceCommit,
+      sha256: hashes["index.html"],
+    });
+    await expect(updates.verifyInstalledInterruption(input)).rejects.toThrow();
+    expect(await readFile(activationFile)).toEqual(receiptBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("source builds fail before activation, uncertain dispatch retains selection, and publication follows readiness", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-activation-")));
   try {
     const previous = path.join(root, "previous");
@@ -907,14 +1482,78 @@ test("source builds fail before activation, failed readiness restores selection,
     expect(restart).not.toHaveBeenCalled();
     await writeFile(prepareScript, validPrepareScript);
     await writeFile(path.join(root, "index.html"), "old interface");
-    const failedActivation = (await dispatch())!;
-    expect(failedActivation.detail).toContain("Previous launcher restored");
+    const integrityJob = {
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host" as const,
+      requestedBy: "host-agent" as const,
+      reason: "Check candidate integrity",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved" as const,
+      detail: "Prepared",
+      update,
+      updatePreparation: "prepared" as const,
+    };
+    await updates.prepareInstallation(integrityJob);
+    await updates.verifyPreparedInstallation(integrityJob);
+    const candidateProof = updates.standingCandidate(integrityJob);
+    const candidateAdmission = JSON.parse(
+      await readFile(path.join(root, integrityJob.id, "admission.json"), "utf8"),
+    );
+    expect(candidateProof).toEqual({
+      sourceCommit: update.sourceCommit,
+      artifactSha256: candidateAdmission.candidateArtifactSha256,
+      release: path.join(root, integrityJob.id, "release"),
+    });
+    await expect(
+      updates.install(integrityJob, restart, async () => {
+        throw new Error("New work or changed daemon before selection");
+      }),
+    ).rejects.toThrow("before selection");
     expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
+    await expect(readFile(path.join(root, integrityJob.id, "activation.json"))).rejects.toThrow();
+    const candidate = JSON.parse(
+      await readFile(path.join(root, integrityJob.id, "prepared.json"), "utf8"),
+    );
+    await writeFile(
+      path.join(candidate.release, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      "throw new Error('changed candidate')",
+    );
+    await expect(updates.verifyPreparedInstallation(integrityJob)).rejects.toThrow(
+      "content changed",
+    );
+    expect(() => updates.standingCandidate(integrityJob)).toThrow("Fresh built candidate evidence");
+    await expect(updates.install(integrityJob, restart)).rejects.toThrow("content changed");
+    expect(await realpath(link)).toBe(previous);
+    expect(restart).not.toHaveBeenCalled();
+    const failedActivation = (await dispatch())!;
+    expect(failedActivation.detail).toContain("outcome is unverified");
+    const uncertainCandidate = await realpath(link);
+    expect(uncertainCandidate).not.toBe(previous);
+    expect(
+      JSON.parse(await readFile(path.join(root, failedActivation.id, "activation.json"), "utf8")),
+    ).toMatchObject({
+      status: "activating",
+      previous,
+      candidate: uncertainCandidate,
+    });
     await expect(readFile(path.join(root, "published"))).rejects.toThrow();
     await expect(
       updates.install({ ...failedActivation, updatePreparation: "prepared" }, restart),
     ).rejects.toThrow("Activation was already attempted");
     expect(restart).toHaveBeenCalledTimes(1);
+    const prepareReplay = vi.spyOn(updates, "prepareInstallation");
+    await expect(
+      updates.install({ ...failedActivation, updatePreparation: undefined }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(prepareReplay).not.toHaveBeenCalled();
+    prepareReplay.mockRestore();
+    // Reset the disposable fixture for independent preparation cases. Production
+    // selection cannot roll back an uncertain effect without native proof.
+    await rm(link);
+    await symlink(previous, link);
 
     const prepared = {
       ...failedActivation,
@@ -1006,6 +1645,107 @@ test("source builds fail before activation, failed readiness restores selection,
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// Release seals rely on macOS immutable file flags.
+test.runIf(process.platform === "darwin")(
+  "sealed source preparation keeps the candidate digest and refuses later candidate writes",
+  async () => {
+    const { execFileSync } = await import("node:child_process");
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-seal-")));
+    process.env.VORTEO_RELEASE_SEALS = "enabled";
+    try {
+      const previous = path.join(root, "previous");
+      await mkdir(previous);
+      const baseCommit = "b".repeat(40);
+      await writeFile(
+        path.join(previous, ".installation-source.json"),
+        JSON.stringify({ sourceCommit: baseCommit }),
+      );
+      await writeFile(
+        path.join(root, "release.json"),
+        JSON.stringify({ sourceCommit: baseCommit }),
+      );
+      await writeFile(path.join(root, "index.html"), "old interface");
+      const link = path.join(root, "current");
+      await symlink(previous, link);
+      const config = restartTestConfig(
+        root,
+        path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+      );
+      config.sourceUpdates = {
+        sourceRepository: root,
+        releaseRoot: root,
+        currentReleaseLink: link,
+        webDirectory: root,
+        toolingDirectory: root,
+        integrationRef: "refs/heads/main",
+      };
+      const updates = new InstallationSourceUpdates(config);
+      const bundle = Buffer.from("approved inert source");
+      const update = {
+        sourceCommit: "a".repeat(40),
+        baseCommit,
+        sha256: createHash("sha256").update(bundle).digest("hex"),
+        bytes: bundle.length,
+      };
+      updates.stage(update, bundle);
+      await writeFile(
+        path.join(root, "prepare-installation-update.mjs"),
+        `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+      );
+      const job = {
+        id: randomUUID(),
+        revision: randomUUID(),
+        target: "host" as const,
+        requestedBy: "host-agent" as const,
+        reason: "Check sealed candidate",
+        createdAt: new Date().toISOString(),
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        status: "approved" as const,
+        detail: "Prepared",
+        update,
+        updatePreparation: "prepared" as const,
+      };
+      await updates.prepareInstallation(job);
+      const release = path.join(root, job.id, "release");
+      const admission = JSON.parse(
+        await readFile(path.join(root, job.id, "admission.json"), "utf8"),
+      );
+      delete process.env.VORTEO_RELEASE_SEALS;
+      expect(admission.candidateArtifactSha256).toBe(await digestBootstrapArtifact(release));
+      process.env.VORTEO_RELEASE_SEALS = "enabled";
+      expect(admission.candidateSeal).toEqual({
+        observedSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        manifestSha256: admission.candidateArtifactSha256,
+      });
+      await expect(readFile(`${release}.release-seal.json`, "utf8")).resolves.toContain(
+        admission.candidateArtifactSha256,
+      );
+      await updates.verifyPreparedInstallation(job);
+      const entrypoint = path.join(
+        release,
+        "packages/server/dist/scripts/supervisor-entrypoint.js",
+      );
+      await expect(writeFile(entrypoint, "throw new Error('changed')")).rejects.toThrow("EPERM");
+      execFileSync("/usr/bin/chflags", ["nouchg", entrypoint]);
+      await writeFile(entrypoint, "throw new Error('changed candidate')");
+      await expect(updates.verifyPreparedInstallation(job)).rejects.toThrow(
+        "modified after it was sealed: packages/server/dist/scripts/supervisor-entrypoint.js",
+      );
+    } finally {
+      delete process.env.VORTEO_RELEASE_SEALS;
+      execFileSync("/usr/bin/chflags", ["-R", "nouchg", root]);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("finishing current turns holds admission before inspection and restarts only after idle", async () => {
   const events: string[] = [];
@@ -2404,6 +3144,80 @@ test("automatic source approval binds its prepared digest and remains cancellabl
   expect(f.queue.list()[0]?.status).toBe("rejected");
 });
 
+function delegatedServiceRestartFixture(input: {
+  enabled: boolean;
+  cancellationDelayMs?: number;
+  /** Changes the owner setting after the last policy refresh, just before install. */
+  flipBeforeInstall?: boolean;
+}) {
+  const f = automaticFixture();
+  const installs: boolean[] = [];
+  let enabled = input.enabled;
+  const executor: RestartExecutor = {
+    ...f.executor,
+    verifyDispatch: async () => {
+      if (input.flipBeforeInstall) enabled = !enabled;
+    },
+    installUpdate: async (_job, options) => {
+      installs.push(options.serviceRestart);
+      f.events.push("install");
+      return "installed";
+    },
+  };
+  const queue = new InstallationRestarts(f.journal, executor, () => 2000, {
+    ...f.policy,
+    cancellationDelayMs: input.cancellationDelayMs,
+    hostUpdateServiceRestart: () => enabled,
+    // As in production, the setting is part of the automatic grant's authority.
+    authority: () => (enabled ? "authority-with-service-restart" : "authority"),
+  });
+  queue.contribute(
+    { target: "host", reason: "Routine Host update", requester: "Nova integration" },
+    "host-agent",
+    { sourceCommit: "a".repeat(40), baseCommit: "b".repeat(40), sha256: "c".repeat(64), bytes: 12 },
+    "10000000-0000-4000-8000-000000000031",
+  );
+  return { ...f, queue, installs };
+}
+
+test.each([true, false])(
+  "an automatic Host source update replaces the whole service only when the owner allows it: %s",
+  async (enabled) => {
+    const f = delegatedServiceRestartFixture({ enabled });
+    await f.queue.drain();
+    // Running turns are held and finish first, exactly as for any automatic update.
+    expect(f.queue.list()[0]).toMatchObject({ status: "approved", whenIdle: true });
+    expect(f.events).toEqual(["hold"]);
+    f.idle();
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+    expect(f.queue.list()[0]?.status).toBe("succeeded");
+    await f.queue.drain();
+    expect(f.installs).toEqual([enabled]);
+  },
+);
+
+test("enabling the setting during preparation never upgrades an existing grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: false, flipBeforeInstall: true });
+  await f.queue.drain();
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([false]);
+});
+
+test("an owner-allowed service restart keeps the cancellation window and its exact grant", async () => {
+  const f = delegatedServiceRestartFixture({ enabled: true, cancellationDelayMs: 30_000 });
+  await f.queue.drain();
+  const approved = f.queue.list()[0]!;
+  expect(approved.automaticApproval?.requestRevision).toBe(approved.revision);
+  expect(f.events).toEqual([]);
+  f.queue.decide(approved.id, approved.revision, "cancel");
+  f.idle();
+  await f.queue.drain();
+  expect(f.installs).toEqual([]);
+  expect(f.queue.list()[0]?.status).toBe("rejected");
+});
+
 test("automatic approval does not retroactively authorize older Host requests", async () => {
   const f = automaticFixture();
   const old = new InstallationRestarts(f.journal, f.executor, () => 500, f.policy);
@@ -3364,4 +4178,962 @@ test("a supervisor dispatch interrupted by coordinator restart remains fenced an
     "Supervisor maintenance did not verify completion",
   );
   expect(f.events).toEqual(["release"]);
+});
+
+function standingFixture() {
+  const f = automaticFixture();
+  f.executor.verifyPreparedInstallation = vi.fn(async () => undefined);
+  let enabled = true;
+  let holdId: string | null = null;
+  let loseHoldReply = false;
+  let inspectSupported = true;
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => ({
+    ...(await inspect(target)),
+    restartDrainObservationSupported: inspectSupported,
+    restartDrainId: holdId,
+    heldIdleRestartSupported: true,
+  });
+  f.executor.holdCurrentTurns = async (_target, id) => {
+    f.events.push("hold");
+    holdId = id;
+    if (loseHoldReply) throw new Error("Lost hold reply");
+  };
+  f.executor.releaseCurrentTurns = async () => {
+    f.events.push("release");
+    holdId = null;
+  };
+  const decision = {
+    grantId: randomUUID(),
+    grantRevision: randomUUID(),
+    manifestSha256: "1".repeat(64),
+    planSha256: "2".repeat(64),
+    targetIdentitySha256: "3".repeat(64),
+    authoritySha256: "4".repeat(64),
+    policyActivatedAt: new Date(1000).toISOString(),
+  };
+  const workerInstanceId = randomUUID();
+  f.executor.prepareInterruption = async (job) => ({
+    held: {
+      requestId: job.id,
+      generation: randomUUID(),
+      workerPid: 42,
+      workerInstanceId,
+      terminateAt: 12_000,
+    },
+    approvedRevision: job.revision,
+    grantRevision: decision.grantRevision,
+    holdGeneration: job.standingHold!.generation,
+    decisionSha256: createHash("sha256").update(JSON.stringify(job.standingDecision)).digest("hex"),
+    planSha256: decision.planSha256,
+    reservedAt: new Date(2000).toISOString(),
+    finishDeadlineAt: new Date(62_000).toISOString(),
+    native: {
+      identitySha256: decision.targetIdentitySha256,
+      serverId: "fixture",
+      sourceCommit: job.update?.baseCommit ?? "b".repeat(40),
+      selectedRelease: "/fixture/old",
+      observedAt: new Date(2000).toISOString(),
+      worker: {
+        pid: 42,
+        parentPid: 41,
+        uid: 501,
+        bootId: "boot",
+        startIdentity: "birth",
+        executable: "/fixture/node",
+        argumentsSha256: "a".repeat(64),
+      },
+      supervisor: {
+        pid: 41,
+        parentPid: 1,
+        uid: 501,
+        bootId: "boot",
+        startIdentity: "parent",
+        executable: "/fixture/node",
+        argumentsSha256: "a".repeat(64),
+      },
+    },
+    candidate: job.update
+      ? {
+          sourceCommit: job.update.sourceCommit,
+          artifactSha256: "e".repeat(64),
+          release: "/fixture/candidate",
+        }
+      : null,
+  });
+  f.executor.restartHeld = async (job) => {
+    const detail = await f.executor.restartWhenIdle!(job.target);
+    if (detail === null) throw new Error("Fixture worker did not accept restart");
+    return detail;
+  };
+  f.executor.observeInterruption = async (job) => (job.update ? "installed" : "ready");
+  const policy = { ...f.policy, standingDecision: () => (enabled ? decision : null) };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, policy);
+  return {
+    ...f,
+    queue,
+    policy,
+    decision,
+    revoke: () => {
+      enabled = false;
+    },
+    loseReply: () => {
+      loseHoldReply = true;
+    },
+    unsupported: () => {
+      inspectSupported = false;
+    },
+    forgetHold: () => {
+      holdId = null;
+    },
+  };
+}
+
+test("retained interruption is persisted before dispatch and reopening observes without replay after revocation", async () => {
+  const f = standingFixture();
+  f.idle();
+  let executed = 0,
+    observed = 0;
+  f.executor.restartHeld = async (job) => {
+    executed++;
+    expect(f.journal.read().find((item) => item.id === job.id)).toMatchObject({
+      status: "running",
+      standingInterruption: job.standingInterruption,
+    });
+    throw new Error("Lost supervisor acknowledgement");
+  };
+  f.executor.observeInterruption = async () => {
+    observed++;
+    return null;
+  };
+  f.queue.request({ target: "host", reason: "Exact restart" }, "container-agent");
+  await f.queue.drain();
+  const retained = f.queue.list()[0];
+  expect(retained.status).toBe("running");
+  expect(retained.standingInterruption?.approvedRevision).toBe(retained.revision);
+  f.revoke();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  await reopened.drain();
+  expect(executed).toBe(1);
+  expect(observed).toBe(1);
+  expect(reopened.list()[0].standingInterruption).toEqual(retained.standingInterruption);
+  f.executor.observeInterruption = async () => "Independent candidate and old worker exit verified";
+  const ready = new InstallationRestarts(f.journal, f.executor, () => 9000, f.policy);
+  await ready.drain();
+  expect(ready.list()[0].status).toBe("succeeded");
+  expect(executed).toBe(1);
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("interruption reservation rechecks permission after asynchronous preparation", async () => {
+  const f = standingFixture();
+  f.idle();
+  const prepare = f.executor.prepareInterruption!;
+  f.executor.prepareInterruption = async (job) => {
+    f.revoke();
+    return prepare(job);
+  };
+  f.queue.request({ target: "host", reason: "Revoke before reservation" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.queue.list()[0].standingInterruption).toBeUndefined();
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("enrolled restart verifies supervisor support before placing a hold", async () => {
+  const f = standingFixture();
+  f.idle();
+  const inspect = f.executor.inspect!;
+  f.executor.inspect = async (target) => ({
+    ...(await inspect(target)),
+    heldIdleRestartSupported: false,
+  });
+  f.queue.request({ target: "host", reason: "Old supervisor" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.queue.list()[0].standingHold).toBeUndefined();
+  expect(f.events).toEqual([]);
+});
+
+test("enrolled restart never falls back when independent observation is unavailable", async () => {
+  const f = standingFixture();
+  f.idle();
+  f.executor.observeInterruption = undefined;
+  f.queue.request({ target: "host", reason: "Missing native verification" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.queue.list()[0].detail).toContain("verification is unavailable");
+  expect(f.events).toEqual([]);
+});
+
+test("uncertain interruption checks retain bounded backoff across reopening without another dispatch", async () => {
+  const f = standingFixture();
+  f.idle();
+  let now = 2000,
+    executed = 0,
+    observed = 0;
+  f.executor.restartHeld = async () => {
+    executed++;
+    throw new Error("Uncertain dispatch");
+  };
+  f.executor.observeInterruption = async () => {
+    observed++;
+    return null;
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => now, f.policy);
+  queue.request({ target: "host", reason: "Bound observations" }, "container-agent");
+  await queue.drain();
+  await queue.drain();
+  await queue.drain();
+  expect(observed).toBe(1);
+  now = 7000;
+  await queue.drain();
+  expect(observed).toBe(2);
+  now = 22000;
+  await queue.drain();
+  expect(observed).toBe(3);
+  now = 100000;
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => now, f.policy);
+  await reopened.drain();
+  expect(executed).toBe(1);
+  expect(observed).toBe(3);
+  expect(reopened.list()[0]).toMatchObject({
+    status: "running",
+    interruptionChecks: { attempts: 3 },
+  });
+  expect(reopened.list()[0].detail).toContain("unverified after three checks");
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("interruption execution timeout retains uncertainty and discards late completion", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = standingFixture();
+    f.idle();
+    const pending = Promise.withResolvers<string>();
+    let executed = 0;
+    f.executor.restartHeld = async () => {
+      executed++;
+      return pending.promise;
+    };
+    f.executor.observeInterruption = async () => "Independent outcome verified";
+    f.queue.request({ target: "host", reason: "Bound native callback" }, "container-agent");
+    const draining = f.queue.drain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(executed).toBe(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await draining;
+    expect(f.queue.list()[0].status).toBe("running");
+    const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await reopened.drain();
+    expect(reopened.list()[0].status).toBe("succeeded");
+    pending.resolve("Late callback success");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.journal.read()[0].detail).toBe("Independent outcome verified");
+    expect(executed).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("uncertain interruption blocks another target in the same drain and after reopening", async () => {
+  const f = standingFixture();
+  f.idle();
+  let executions = 0;
+  f.executor.restartHeld = async () => {
+    executions++;
+    throw new Error("Uncertain native outcome");
+  };
+  f.executor.observeInterruption = async () => null;
+  const first = f.queue.request({ target: "host", reason: "First" }, "container-agent");
+  const other = f.queue.request(
+    { target: "container-daemon", reason: "Second" },
+    "container-agent",
+  );
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === first.id)?.status).toBe("running");
+  expect(f.queue.list().find((job) => job.id === other.id)?.standingInterruption).toBeUndefined();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 3000, f.policy);
+  await reopened.drain();
+  expect(executions).toBe(1);
+  expect(f.events).toEqual(["hold"]);
+});
+
+test("standing decisions bind the approved revision and preserve Dev source provenance", async () => {
+  const f = standingFixture();
+  const update = {
+    sourceCommit: "a".repeat(40),
+    baseCommit: "b".repeat(40),
+    sha256: "c".repeat(64),
+    bytes: 12,
+  };
+  const receipt = f.queue.contribute(
+    { target: "host", reason: "Validated Dev proposal" },
+    "container-agent",
+    update,
+    randomUUID(),
+  );
+  await f.queue.drain();
+  const job = f.queue.contribution(receipt.contribution.id)!.batch;
+  expect(job.status).toBe("approved");
+  expect(job.standingDecision).toEqual({ ...f.decision, requestRevision: job.revision });
+  expect(job.revision).not.toBe(receipt.batch.revision);
+  expect(job.requestedBy).toBe("container-agent");
+  expect(job.sourceBatch?.contributions[0].requestedBy).toBe("container-agent");
+  expect(job.standingHold?.observedAt).toBeDefined();
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "install"]);
+  expect(f.queue.list()[0].standingHold).toEqual(job.standingHold);
+});
+
+test("standing revocation cancels queued permission without legacy fallback", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  f.queue.request({ target: "host", reason: "Wait for native capability" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("approved");
+  expect(f.events).toEqual([]);
+  f.revoke();
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.events).not.toContain("hold");
+  expect(f.events).not.toContain("restart");
+});
+
+test("a lost standing hold reply reconciles the actual hold without replay after recovery", async () => {
+  const f = standingFixture();
+  f.loseReply();
+  f.queue.request({ target: "host", reason: "Recover a reserved hold" }, "container-agent");
+  await f.queue.drain();
+  expect(f.queue.list()[0].standingHold?.observedAt).toBeUndefined();
+  expect(f.events).toEqual(["hold"]);
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  f.idle();
+  await recovered.drain();
+  expect(f.events).toEqual(["hold", "restart"]);
+  expect(recovered.list()[0].status).toBe("succeeded");
+  expect(recovered.list()[0].standingHold?.observedAt).toBeDefined();
+});
+
+test("an unobserved standing hold remains fenced instead of being dispatched again", async () => {
+  const f = standingFixture();
+  f.loseReply();
+  f.queue.request({ target: "host", reason: "Uncertain hold" }, "host-agent");
+  await f.queue.drain();
+  f.forgetHold();
+  f.idle();
+  const recovered = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  await recovered.drain();
+  await recovered.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(recovered.list()[0].status).toBe("approved");
+  expect(recovered.list()[0].standingHold?.observedAt).toBeUndefined();
+});
+
+test("failed standing hold reservation places no native hold", async () => {
+  const f = standingFixture();
+  const write = f.journal.write.bind(f.journal);
+  f.journal.write = (jobs) => {
+    if (jobs.some((job) => job.standingHold)) throw new Error("Hold admission refused");
+    write(jobs);
+  };
+  f.queue.request({ target: "host", reason: "Rejected reservation" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  expect(f.journal.jobs[0].standingHold).toBeUndefined();
+});
+
+function initialLegacyFixture() {
+  const f = standingFixture();
+  f.unsupported();
+  f.policy.standingDecision = () => ({
+    ...f.decision,
+    activationStep: {
+      stepId: randomUUID(),
+      generation: randomUUID(),
+      candidateArtifactSha256: "a".repeat(64),
+    },
+  });
+  // The exact manifest reservation is stable across every policy read.
+  const decision = f.policy.standingDecision();
+  f.policy.standingDecision = () => decision;
+  let instance = "a".repeat(64);
+  f.executor.initialActivationInstance = async () => instance;
+  return {
+    ...f,
+    replaceDaemon: () => {
+      instance = "b".repeat(64);
+    },
+  };
+}
+
+test("only an exact initial child can acknowledge a legacy hold and waits for preparation", async () => {
+  const f = initialLegacyFixture();
+  f.queue.request({ target: "host", reason: "Initial migration" }, "host-agent");
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold"]);
+  expect(f.queue.list()[0].standingHold).toMatchObject({
+    initialDaemonInstanceSha256: "a".repeat(64),
+    acknowledgedAt: new Date(2000).toISOString(),
+  });
+  expect(f.queue.list()[0].standingHold?.observedAt).toBeUndefined();
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual(["hold", "restart"]);
+  expect(f.queue.list()[0].status).toBe("succeeded");
+});
+
+test.each(["lost-ack", "new-lifetime"])(
+  "initial legacy hold remains fenced after %s without replay",
+  async (failure) => {
+    const f = initialLegacyFixture();
+    if (failure === "lost-ack") f.loseReply();
+    f.queue.request({ target: "host", reason: "Initial uncertainty" }, "host-agent");
+    await f.queue.drain();
+    if (failure === "new-lifetime") f.replaceDaemon();
+    f.idle();
+    const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+    await reopened.drain();
+    await reopened.drain();
+    expect(f.events).toEqual(["hold"]);
+    expect(reopened.list()[0].status).toBe("approved");
+  },
+);
+
+test("a later standing request cannot use the initial legacy hold adapter", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  f.executor.initialActivationInstance = async () => "a".repeat(64);
+  f.queue.request({ target: "host", reason: "Later maintenance" }, "host-agent");
+  f.idle();
+  await f.queue.drain();
+  expect(f.events).toEqual([]);
+  expect(f.queue.list()[0].standingHold).toBeUndefined();
+});
+
+test("legacy acknowledgment is durably invalidated before a lost hold-release response", async () => {
+  const f = initialLegacyFixture();
+  f.queue.request({ target: "host", reason: "Cancel migration" }, "host-agent");
+  await f.queue.drain();
+  const job = f.queue.list()[0];
+  f.queue.decide(job.id, job.revision, "cancel");
+  f.executor.releaseCurrentTurns = async () => {
+    const retained = f.queue.list()[0];
+    expect(retained.standingHold?.releaseRequestedAt).toBeDefined();
+    expect(retained.status).toBe("rejected");
+    f.events.push("release");
+    throw new Error("Release response lost");
+  };
+  await f.queue.drain();
+  expect(f.queue.list()[0].standingHold?.releaseRequestedAt).toBeDefined();
+  expect(f.queue.list()[0].holdReleased).not.toBe(true);
+  f.idle();
+  const reopened = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  await reopened.drain();
+  expect(f.events).toEqual(["hold", "release", "release"]);
+  expect(reopened.list()[0].status).toBe("rejected");
+});
+
+test.each(["changed", "revoked"])(
+  "standing source evidence %s during verification places no hold",
+  async (outcome) => {
+    const f = standingFixture();
+    f.executor.verifyPreparedInstallation = async () => {
+      if (outcome === "changed") throw new Error("Candidate content changed");
+      f.revoke();
+    };
+    f.queue.contribute(
+      { target: "host", reason: "Verify before hold" },
+      "container-agent",
+      {
+        sourceCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+        sha256: "c".repeat(64),
+        bytes: 12,
+      },
+      randomUUID(),
+    );
+    await f.queue.drain();
+    expect(f.events).toEqual([]);
+    expect(f.queue.list()[0].standingHold).toBeUndefined();
+    expect(f.queue.list()[0].status).toBe(outcome === "changed" ? "failed" : "rejected");
+  },
+);
+
+test.each([
+  [false, "approve"],
+  [true, "approve"],
+  [false, "finish-current-turns"],
+  [true, "finish-current-turns"],
+] as const)(
+  "owner %s/%s supersedes standing permission without losing hold history",
+  async (held, decision) => {
+    const f = standingFixture();
+    f.executor.restart = async () => {
+      f.events.push("immediate");
+      return "ready";
+    };
+    if (!held) f.unsupported();
+    const pending = f.queue.request(
+      { target: "host", reason: "Exact owner override" },
+      "container-agent",
+    );
+    await f.queue.drain();
+    const approved = f.queue.list().find((job) => job.id === pending.id)!;
+    const manual = f.queue.decide(approved.id, approved.revision, decision);
+    expect(manual.standingDecision).toEqual(approved.standingDecision);
+    expect(manual.standingHold).toEqual(approved.standingHold);
+    expect(manual.standingManualApprovals).toMatchObject([
+      { previousRevision: approved.revision, revision: manual.revision, decision },
+    ]);
+    expect(manual.automaticApproval).toBeUndefined();
+    f.revoke();
+    f.idle();
+    await f.queue.drain();
+    expect(f.queue.list()[0].standingDecision).toEqual(approved.standingDecision);
+    if (decision === "approve" || held) expect(f.queue.list()[0].status).toBe("succeeded");
+    else expect(f.events).toEqual([]);
+  },
+);
+
+test.each([false, true])(
+  "only an exact reserved activation child admits a request older than enrollment: %s",
+  async (child) => {
+    const f = standingFixture();
+    f.unsupported();
+    f.decision.policyActivatedAt = new Date(3000).toISOString();
+    if (child)
+      Object.assign(f.decision, {
+        activationStep: {
+          stepId: randomUUID(),
+          generation: randomUUID(),
+          candidateArtifactSha256: "a".repeat(64),
+        },
+      });
+    const request = f.queue.request(
+      { target: "host", reason: "Prepared before enrollment" },
+      "container-agent",
+    );
+    expect(Date.parse(request.createdAt)).toBeLessThan(Date.parse(f.decision.policyActivatedAt));
+    await f.queue.drain();
+    expect(f.queue.list()[0].status).toBe(child ? "approved" : "pending");
+    expect(f.events).toEqual([]);
+  },
+);
+
+test("unresolved activation admits only its exact child while the global lifecycle gate stays closed", async () => {
+  const f = standingFixture();
+  f.unsupported();
+  const child = f.queue.request({ target: "host", reason: "Initial migration" }, "container-agent");
+  const unrelated = f.queue.request(
+    { target: "container-daemon", reason: "Other maintenance" },
+    "host-agent",
+  );
+  Object.assign(f.decision, {
+    activationStep: {
+      stepId: randomUUID(),
+      generation: randomUUID(),
+      candidateArtifactSha256: "a".repeat(64),
+    },
+  });
+  Object.assign(f.journal, {
+    admissionAvailable: () => false,
+    activationChildAdmissionAvailable: (job: RestartJob) => job.id === child.id,
+  });
+  await f.queue.drain();
+  expect(f.queue.list().find((job) => job.id === child.id)?.status).toBe("approved");
+  expect(f.queue.list().find((job) => job.id === unrelated.id)?.status).toBe("pending");
+  expect(
+    (f.journal as MemoryJournal & { admissionAvailable(): boolean }).admissionAvailable(),
+  ).toBe(false);
+  expect(f.events).toEqual([]);
+});
+
+test("owner cancellation aborts a candidate check without overwriting its retained decision", async () => {
+  const f = standingFixture();
+  f.executor.verifyPreparedInstallation = async (job, options) => {
+    f.queue.decide(job.id, job.revision, "cancel");
+    expect(options?.signal?.aborted).toBe(true);
+    throw new Error("Verification aborted after owner cancellation");
+  };
+  f.queue.contribute(
+    { target: "host", reason: "Cancelable verification" },
+    "container-agent",
+    {
+      sourceCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 12,
+    },
+    randomUUID(),
+  );
+  await f.queue.drain();
+  expect(f.queue.list()[0].status).toBe("rejected");
+  expect(f.events).toEqual([]);
+});
+
+test("Dev update retains its candidate and intent after a lost restart reply without restoring or replaying", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dev-update-uncertain-"));
+  try {
+    const config = restartTestConfig(root, path.join(root, "unused-host-entry"));
+    const docker = path.join(root, "fixture-docker.mjs");
+    const selected = path.join(root, "selected.json"),
+      actions = path.join(root, "actions.json");
+    const previous = "/fixture/releases/previous",
+      candidate = "/fixture/releases/candidate";
+    const update = {
+      baseCommit: "a".repeat(40),
+      sourceCommit: "b".repeat(40),
+      sha256: "c".repeat(64),
+      bytes: 1,
+    };
+    config.containerSourceUpdates = {
+      sourceRepository: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+      receiptFile: path.join(root, "installed.json"),
+      docker,
+      containerId: "d".repeat(64),
+      user: "fixture",
+      node: "/fixture/node",
+      home: "/fixture/home",
+      releaseRoot: "/fixture/releases",
+      currentReleaseLink: "/fixture/current",
+    };
+    const id = randomUUID(),
+      work = path.join(root, "container-source-updates", id);
+    await mkdir(work, { recursive: true });
+    await writeFile(
+      path.join(work, "prepared.json"),
+      JSON.stringify({ release: candidate, previous, update }),
+    );
+    await writeFile(
+      selected,
+      JSON.stringify({ release: previous, sourceCommit: update.baseCommit }),
+    );
+    await writeFile(
+      config.containerSourceUpdates.receiptFile,
+      JSON.stringify({ sourceCommit: update.baseCommit }),
+    );
+    await writeFile(actions, "[]");
+    await writeFile(
+      path.join(root, "installation-container-runtime.mjs"),
+      "// Disposable native port fixture",
+    );
+    await writeFile(
+      docker,
+      `#!${process.execPath}
+import fs from 'node:fs'; import path from 'node:path'; import {fileURLToPath} from 'node:url';
+const root=path.dirname(fileURLToPath(import.meta.url)), input=JSON.parse(process.argv.at(-1));
+const selected=path.join(root,'selected.json'), actions=path.join(root,'actions.json');
+const log=JSON.parse(fs.readFileSync(actions,'utf8')); log.push(input.action); fs.writeFileSync(actions,JSON.stringify(log));
+if(input.action==='activate')fs.writeFileSync(selected,JSON.stringify({release:input.release,sourceCommit:input.update.sourceCommit}));
+if(input.action==='restore')fs.writeFileSync(selected,JSON.stringify({release:input.previous,sourceCommit:input.update.baseCommit}));
+process.stdout.write(fs.readFileSync(selected,'utf8'));
+`,
+    );
+    await chmod(docker, 0o700);
+    const job: RestartJob = {
+      id,
+      revision: randomUUID(),
+      target: "container-daemon",
+      requestedBy: "host-agent",
+      reason: "Install the exact reviewed Dev source",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "running",
+      detail: "Reserved",
+      update,
+    };
+    const restart = vi.fn(async (): Promise<string> => {
+      throw new Error("Restart reply was lost");
+    });
+    const invoke = () =>
+      installContainerSource({
+        config,
+        job,
+        bundleFile: path.join(root, "unused.bundle"),
+        restart,
+      });
+    await expect(invoke()).rejects.toThrow("outcome is unverified");
+    expect(JSON.parse(await readFile(selected, "utf8"))).toEqual({
+      release: candidate,
+      sourceCommit: update.sourceCommit,
+    });
+    expect(JSON.parse(await readFile(actions, "utf8"))).toEqual(["inspect", "activate"]);
+    expect(JSON.parse(await readFile(path.join(work, "activation.json"), "utf8"))).toMatchObject({
+      status: "activating",
+      release: candidate,
+      previous,
+    });
+    expect(JSON.parse(await readFile(config.containerSourceUpdates.receiptFile, "utf8"))).toEqual({
+      sourceCommit: update.baseCommit,
+    });
+    await expect(invoke()).rejects.toThrow("Dev activation was already attempted");
+    const publicUpdater = new InstallationSourceUpdates(config, "container-daemon");
+    const prepareReplay = vi.spyOn(publicUpdater, "prepareInstallation");
+    await expect(
+      publicUpdater.install({ ...job, updatePreparation: undefined }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+    expect(prepareReplay).not.toHaveBeenCalled();
+    prepareReplay.mockRestore();
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await readFile(actions, "utf8"))).toEqual(["inspect", "activate"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("worker launch hints retain one controller receipt and never dispatch ordinary restart", async () => {
+  const journal = new MemoryJournal();
+  const atomicJournal: RestartJournal = {
+    read: () => journal.read(),
+    write: (jobs) =>
+      journal.write(
+        jobs.filter(
+          (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+        ),
+      ),
+    mutate: (update) =>
+      journal.write(
+        update(journal.read()).filter(
+          (job): job is RestartJob => job.target === "host" || job.target === "container-daemon",
+        ),
+      ),
+  };
+  let effects = 0;
+  const queue = new InstallationRestarts(atomicJournal, {
+    restart: async () => {
+      effects += 1;
+      return "wrong effect";
+    },
+  });
+  const request = {
+    target: "container-daemon" as const,
+    reason: "Recover exact predecessor",
+    workerLaunchRequest: {
+      profileSha256: "a".repeat(64),
+      supervisorPid: 123,
+      cause: { kind: "predecessor" as const, generation: randomUUID() },
+    },
+  };
+  const first = queue.request(request, "container-agent");
+  expect(queue.request(request, "container-agent").id).toBe(first.id);
+  expect(() =>
+    queue.request({ target: "container-daemon", reason: "ordinary restart" }, "owner"),
+  ).toThrow("cannot share");
+  queue.decide(first.id, first.revision, "approve");
+  await queue.drain();
+  expect(effects).toBe(0);
+  expect(queue.list().find((job) => job.id === first.id)?.detail).toContain(
+    "capability is unavailable",
+  );
+});
+
+test("worker launch cannot borrow Host, Factory or source-update authority", () => {
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async () => "wrong effect",
+  });
+  const input = {
+    target: "container-daemon" as const,
+    reason: "worker recovery",
+    workerLaunchRequest: {
+      profileSha256: "a".repeat(64),
+      supervisorPid: 123,
+      cause: { kind: "predecessor" as const, generation: randomUUID() },
+    },
+  };
+  expect(() => queue.request(input, "host-agent")).toThrow("separate Dev requester");
+  expect(() =>
+    queue.request({ ...input, factoryRuntimePlanSha256: "a".repeat(64) }, "container-agent"),
+  ).toThrow("separate Dev requester");
+});
+
+function registrationReadinessConfig(): InstallationConfig {
+  const config = restartTestConfig("/fixture/installation", "/fixture/entrypoint");
+  config.container.persistentRegistration = {
+    receiptFile: "/fixture/registration.json",
+    sha256: "a".repeat(64),
+  };
+  return config;
+}
+
+test("configured Dev registration refuses outbound effects without independent readiness", async () => {
+  const executor = createInstallationRestartExecutor(registrationReadinessConfig());
+  await expect(executor.restart("container-daemon")).rejects.toThrow("readiness");
+  await expect(executor.restartWhenIdle!("container-daemon")).rejects.toThrow("readiness");
+  await expect(executor.holdCurrentTurns!("container-daemon", "fixture-request")).rejects.toThrow(
+    "readiness",
+  );
+});
+
+test("Dev readiness admission retains configuration across its original callback", () => {
+  const config = registrationReadinessConfig();
+  let calls = 0;
+  const check = createInstallationRegistrationAdmission(config, () => {
+    calls++;
+    config.container.endpoint = "replacement.example";
+  });
+  expect(() => check("container-daemon")).toThrow("readiness");
+  expect(calls).toBe(1);
+  expect(() => check("container-daemon")).toThrow("configuration changed");
+  expect(calls).toBe(1);
+});
+
+test("removing a configured receipt cannot disable Dev readiness admission", () => {
+  const config = registrationReadinessConfig();
+  const check = createInstallationRegistrationAdmission(config, () => undefined);
+  delete config.container.persistentRegistration;
+  expect(() => check("container-daemon")).toThrow("configuration changed");
+  expect(() => check("host")).not.toThrow();
+});
+
+test("Dev readiness admission remains fresh on every call and preserves legacy targets", () => {
+  let ready = true;
+  const check = createInstallationRegistrationAdmission(registrationReadinessConfig(), () => {
+    if (!ready) throw new Error("native custody expired");
+  });
+  expect(() => check("container-daemon")).not.toThrow();
+  ready = false;
+  expect(() => check("container-daemon")).toThrow("native custody expired");
+  expect(() =>
+    createInstallationRegistrationAdmission(restartTestConfig("/fixture", "/entry"))(
+      "container-daemon",
+    ),
+  ).not.toThrow();
+});
+
+test("configured Dev transitions refuse before selection, staging or supervisor launch", async () => {
+  const config = registrationReadinessConfig();
+  const job: RestartJob = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    target: "container-daemon",
+    requestedBy: "owner",
+    reason: "Test unavailable phase transition",
+    createdAt: new Date().toISOString(),
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "approved",
+    detail: "No effect permitted",
+  };
+  let restarts = 0;
+  await expect(
+    installContainerSource({
+      config,
+      job,
+      bundleFile: "/unread/bundle",
+      assertRegistrationReadiness: () => undefined,
+      restart: async () => {
+        restarts++;
+        return "unexpected";
+      },
+    }),
+  ).rejects.toThrow("transition-phase readiness");
+  const executor = createInstallationRestartExecutor(config, () => undefined);
+  await expect(executor.adoptFactoryRuntime!(job)).rejects.toThrow("transition-phase readiness");
+  await expect(executor.restartSupervisor!(job)).rejects.toThrow("independently bound operation");
+  expect(restarts).toBe(0);
+});
+
+test("source updates refuse a release without the session host while its job is installed", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-session-host-")));
+  const link = path.join(root, "current");
+  const plist = path.join(root, "session-host.plist");
+  setReleaseSelectionGuard(
+    createSessionHostReleaseGuard({ currentReleaseLink: link, plistPath: plist }),
+  );
+  try {
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
+    );
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    );
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    updates.stage(update, bundle);
+    // The candidate carries the session host entrypoint only when the marker file exists.
+    await writeFile(
+      path.join(root, "prepare-installation-update.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      if (await fs.stat(path.join(input.toolingDirectory, 'with-session-host')).then(() => true, () => false))
+        await fs.writeFile(path.join(scripts, 'session-host-entrypoint.js'), '');
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const restart = vi.fn(async () => "ready");
+    const job = (): RestartJob => ({
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host",
+      requestedBy: "host-agent",
+      reason: "Install fixture",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved",
+      detail: "Approved",
+      update,
+      updatePreparation: "prepared",
+    });
+    await writeFile(plist, "installed");
+    await expect(updates.prepareInstallation(job())).rejects.toThrow(
+      "Remove the session host job first: release release has no session host support.",
+    );
+    // The job may be installed after preparation: selection checks again before the hold.
+    await rm(plist);
+    const late = job();
+    await updates.prepareInstallation(late);
+    await writeFile(plist, "installed");
+    const beforeSelection = vi.fn(async () => {});
+    await expect(updates.install(late, restart, beforeSelection)).rejects.toThrow(
+      "Remove the session host job first",
+    );
+    expect(beforeSelection).not.toHaveBeenCalled();
+    expect(restart).not.toHaveBeenCalled();
+    expect(await realpath(link)).toBe(previous);
+    await expect(readFile(path.join(root, late.id, "activation.json"))).rejects.toThrow();
+    await writeFile(path.join(root, "with-session-host"), "");
+    const supported = job();
+    await updates.prepareInstallation(supported);
+    await expect(updates.install(supported, restart, beforeSelection)).resolves.toContain(
+      "Installed source",
+    );
+    expect(beforeSelection).toHaveBeenCalledOnce();
+    expect(await realpath(link)).toBe(path.join(root, supported.id, "release"));
+  } finally {
+    setReleaseSelectionGuard(null);
+    await rm(root, { recursive: true, force: true });
+  }
 });

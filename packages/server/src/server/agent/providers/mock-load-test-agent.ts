@@ -40,6 +40,7 @@ const MOCK_LOAD_TEST_MODE_ID = "load-test";
 const MOCK_LOAD_TEST_DURATION_MS = 5 * 60 * 1000;
 const MOCK_LOAD_TEST_INTERVAL_MS = 40;
 
+const MAX_BLOCKING_CLOSE_MS = 10 * 60_000;
 function getPositiveFeatureInteger(value: unknown): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
@@ -751,6 +752,7 @@ export class MockLoadTestAgentSession implements AgentSession {
   private readonly rewindError: string | null;
   private remainingPromptRejections: number;
   private remainingSteerFailures: number;
+  private readonly blockingCloseMs: number;
 
   constructor(options: { config: AgentSessionConfig; sessionId: string; logger?: Logger }) {
     this.id = options.sessionId;
@@ -789,6 +791,10 @@ export class MockLoadTestAgentSession implements AgentSession {
         : 0;
     this.remainingSteerFailures = getPositiveFeatureInteger(
       options.config.featureValues?.mockSteerAmbiguousFailures,
+    );
+    this.blockingCloseMs = Math.min(
+      getPositiveFeatureInteger(options.config.featureValues?.mockBlockingCloseMs),
+      MAX_BLOCKING_CLOSE_MS,
     );
   }
 
@@ -1060,6 +1066,11 @@ export class MockLoadTestAgentSession implements AgentSession {
   }
 
   async close(): Promise<void> {
+    if (this.blockingCloseMs > 0) {
+      // Freezes the whole event loop, as a native or synchronous teardown hang does,
+      // so restart tests can prove a worker still dies when shutdown cannot run.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.blockingCloseMs);
+    }
     await this.interrupt();
     this.listeners.clear();
   }

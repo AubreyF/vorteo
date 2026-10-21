@@ -382,6 +382,7 @@ export const ja: TranslationResources = {
       empty: "タスクがまだありません。",
       tasksProgress: "{{completed}}/{{total}}タスク",
       activeCount: en.message.todo.activeCount,
+      blockedCount: en.message.todo.blockedCount,
       activity: {
         created: "{{count}}件のタスクを作成",
         added: "追加",

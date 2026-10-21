@@ -1,15 +1,371 @@
 import { createBootstrapRunnerEvidence } from "./coordinator-bootstrap-evidence.js";
-import { mkdtempSync, realpathSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import {
+  CoordinatorBootstrapPlanSchema,
+  type CoordinatorBootstrapPlan,
+} from "@getpaseo/protocol/coordinator-bootstrap";
+import { digestBootstrapArtifact } from "./coordinator-bootstrap-artifact.js";
+import { bootstrapRecoveryLauncher } from "./coordinator-bootstrap-boot-recovery.js";
 import { test, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  selectIndependentCoordinatorRollback,
+  inspectIndependentCoordinatorRollbackRequest,
+} from "./coordinator-bootstrap-maintenance-recovery-rollback.js";
+import { coordinatorPlanDigest } from "./coordinator-bootstrap.js";
+
+import {
   observeBootstrapExecutorExit,
   observeBootstrapReadiness,
+  verifyBootstrapExecutionRuntime,
+  BootstrapRunnerSetupSchema,
 } from "./coordinator-bootstrap-runner.js";
+
+interface ReopeningFixture {
+  mode: string;
+  records: unknown[];
+  plan: CoordinatorBootstrapPlan;
+  installation: Parameters<typeof selectIndependentCoordinatorRollback>[0]["installation"];
+  file: CoordinatorBootstrapPlan["candidate"]["configuration"];
+  release(source: string): CoordinatorBootstrapPlan["candidate"];
+}
+function exerciseRollbackReopening({
+  mode,
+  records,
+  plan,
+  installation,
+  file,
+  release,
+}: ReopeningFixture) {
+  if (!plan.compatibleRecovery) throw new Error("Fixture fallback missing");
+  const runtime = { ...release("e"), setup: { ...file, path: "/fixture/e/setup.json" } };
+  const id = randomUUID();
+  const directory = path.join(installation.stateDirectory, `coordinator-recovery-${id}`);
+  const home = "/fixture/home";
+  const service = `${installation.service}-recovery-${id}`;
+  const { compatibleRecovery: _fallback, ...basePlan } = plan;
+  const rollbackPlan = CoordinatorBootstrapPlanSchema.parse({
+    ...basePlan,
+    previous: plan.candidate,
+    candidate: plan.compatibleRecovery,
+    automaticRecovery: "restore-previous",
+    bootRecovery: {
+      requestId: id,
+      service,
+      launcher: { ...file, path: path.join(directory, "boot-recovery.plist") },
+      installedLauncher: path.join(
+        home,
+        "Library/LaunchAgents",
+        `${service.split("/").slice(2).join("/")}.plist`,
+      ),
+      setup: { ...file, path: path.join(directory, "setup.json") },
+      node: runtime.node,
+      entrypoint: {
+        ...file,
+        path: "/fixture/e/packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+      },
+      ownerLauncher: { ...file, path: "/fixture/e/scripts/run-coordinator-owner.py" },
+    },
+  });
+  if (mode === "reopen-plan") rollbackPlan.hostRequestsAfter = new Date().toISOString();
+  if (mode === "reopen-candidate") rollbackPlan.candidate = plan.previous;
+  const pending = {
+    id,
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Retained rollback",
+    createdAt: new Date().toISOString(),
+    plan: rollbackPlan,
+    planSha256: coordinatorPlanDigest(rollbackPlan),
+    status: mode === "reopen-approved" ? "approved" : "pending",
+    ...(mode === "reopen-privilege"
+      ? {
+          automaticSubmission: {
+            credentialBinding: "a".repeat(64),
+            policyActivatedAt: new Date().toISOString(),
+            submittedAt: new Date().toISOString(),
+          },
+        }
+      : {}),
+  };
+  records.push(pending);
+  if (mode === "reopen-runtime") runtime.directory = "/fixture/changed-executor";
+  if (mode === "reopen-other") records.push({ ...pending, id: randomUUID() });
+  const beforeReopen = structuredClone(records);
+  const reopen = () =>
+    inspectIndependentCoordinatorRollbackRequest({
+      records,
+      requestId: id,
+      installation,
+      runtime,
+      home,
+    });
+  if (mode === "reopen-valid") expect(reopen().request).toEqual(pending);
+  else expect(reopen).toThrow();
+  expect(records).toEqual(beforeReopen);
+}
+
+test.each([
+  "valid",
+  "open",
+  "uncertain",
+  "rolled-back",
+  "missing",
+  "changed-config",
+  "same-source",
+  "digest",
+  "foreign",
+  "reopen-valid",
+  "reopen-approved",
+  "reopen-privilege",
+  "reopen-runtime",
+  "reopen-plan",
+  "reopen-other",
+  "reopen-candidate",
+])("independent rollback selects only exact retained compatibility: %s", (mode) => {
+  const installation = {
+    installationId: randomUUID(),
+    stateDirectory: "/fixture/state",
+    service: `gui/501/local.vorteo.${randomUUID()}.installation`,
+  };
+  const file = { path: "/fixture/config.json", sha256: "a".repeat(64) };
+  const release = (source: string) => ({
+    sourceCommit: source.repeat(40),
+    directory: `/fixture/${source}`,
+    artifactSha256: source.repeat(64),
+    node: { ...file, path: `/fixture/${source}/node` },
+    entrypoint: { ...file, path: `/fixture/${source}/main.js` },
+    configuration: file,
+    launcher: { ...file, path: `/fixture/${source}/launch.plist` },
+  });
+  const plan = CoordinatorBootstrapPlanSchema.parse({
+    version: 1,
+    operation: "coordinator-bootstrap",
+    installationId: installation.installationId,
+    service: installation.service,
+    expectedProcess: {
+      pid: 12,
+      bootId: randomUUID(),
+      startIdentity: "12:34",
+      argumentsSha256: "a".repeat(64),
+    },
+    previous: release("a"),
+    candidate: release("b"),
+    compatibleRecovery: release("c"),
+    automaticRecovery: "restore-compatible",
+    state: {
+      directory: installation.stateDirectory,
+      restartJournal: "/fixture/state/restart-jobs.json",
+      ownerSessions: "/fixture/state/owner-sessions.json",
+    },
+    hostRequestsAfter: null,
+  });
+  if (mode === "missing") {
+    delete plan.compatibleRecovery;
+    plan.automaticRecovery = "restore-previous";
+  }
+  if (!plan.compatibleRecovery && mode !== "missing") throw new Error("Fixture fallback missing");
+  if (mode === "changed-config" && plan.compatibleRecovery)
+    plan.compatibleRecovery.configuration = { ...file, sha256: "d".repeat(64) };
+  if (mode === "same-source" && plan.compatibleRecovery)
+    plan.compatibleRecovery.sourceCommit = plan.candidate.sourceCommit;
+  const request = {
+    id: randomUUID(),
+    revision: randomUUID(),
+    requestedBy: "host-agent",
+    reason: "Reviewed fixture",
+    createdAt: new Date().toISOString(),
+    plan,
+    planSha256: coordinatorPlanDigest(plan),
+    status: "approved",
+    decisionAt: new Date().toISOString(),
+    execution: {
+      generation: randomUUID(),
+      stage: "succeeded",
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  if (mode === "uncertain") request.execution.stage = "recovery_required";
+  if (mode === "rolled-back") request.execution.stage = "rolled_back";
+  if (mode === "digest") request.planSha256 = "0".repeat(64);
+  if (mode === "foreign") installation.installationId = randomUUID();
+  const records: unknown[] = [request];
+  if (mode.startsWith("reopen-")) {
+    exerciseRollbackReopening({ mode, records, plan, installation, file, release });
+    return;
+  }
+  if (mode === "open")
+    records.push({ ...request, id: randomUUID(), status: "pending", execution: undefined });
+  const before = structuredClone(records);
+  const select = () => selectIndependentCoordinatorRollback({ records, installation });
+  if (mode === "valid")
+    expect(select()).toEqual({
+      previous: plan.candidate,
+      candidate: plan.compatibleRecovery,
+      state: plan.state,
+    });
+  else expect(select).toThrow();
+  expect(records).toEqual(before);
+});
+
+test
+  .skipIf(process.platform !== "darwin")
+  .each([
+    "valid",
+    "changed-runtime",
+    "changed-setup",
+    "wrong-request",
+    "mixed-renewal",
+    "guest-mount",
+    "automatic-authority",
+    "unsupported-runtime",
+  ] as const)(
+  "independent coordinator executor requires its exact reviewed runtime: %s",
+  async (mode) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "independent-bootstrap-")));
+    try {
+      const pin = (file: string, bytes: string) => {
+        mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+        writeFileSync(file, bytes, { mode: 0o600 });
+        return { path: file, sha256: createHash("sha256").update(bytes).digest("hex") };
+      };
+      const runtime = path.join(root, "executor");
+      const node = pin(path.join(runtime, "node"), "fixture executable");
+      const entrypoint = pin(
+        path.join(
+          runtime,
+          "packages/server/dist/server/server/execution-installation/coordinator-bootstrap-runner.js",
+        ),
+        "fixture runner",
+      );
+      const ownerLauncher = pin(
+        path.join(runtime, "scripts/run-coordinator-owner.py"),
+        "fixture launcher",
+      );
+      const ownershipVerifier = pin(
+        path.join(runtime, "scripts/verify-coordinator-owner.py"),
+        "fixture verifier",
+      );
+      pin(
+        path.join(runtime, "packages/server/package.json"),
+        JSON.stringify({
+          name: "@getpaseo/server",
+          ...(mode === "unsupported-runtime"
+            ? {}
+            : {
+                vorteoRuntimeContracts: { independentCoordinatorExecutor: 1 },
+              }),
+        }),
+      );
+      const setup = BootstrapRunnerSetupSchema.parse({
+        admissionSetupFile: path.join(root, "admission.json"),
+        daemonId: "fixture-host",
+        node,
+        entrypoint,
+        ownerLauncher,
+        ownershipVerifier,
+        runtimeDirectory: runtime,
+        runtimeSha256: await digestBootstrapArtifact(runtime),
+      });
+      const setupFile = pin(path.join(root, "setup.json"), JSON.stringify(setup));
+      const target = path.join(root, "target");
+      const targetNode = pin(path.join(target, "node"), "older compatible target");
+      const targetEntrypoint = pin(path.join(target, "main.js"), "fixture target");
+      const configuration = pin(path.join(root, "configuration.json"), "{}");
+      const launcher = pin(path.join(root, "target.plist"), "{}");
+      const candidate = {
+        sourceCommit: "a".repeat(40),
+        directory: target,
+        artifactSha256: await digestBootstrapArtifact(target),
+        node: targetNode,
+        entrypoint: targetEntrypoint,
+        configuration,
+        launcher,
+      };
+      const id = randomUUID(),
+        account = userInfo();
+      const service = `gui/${account.uid}/local.vorteo.${randomUUID()}.installation`;
+      const label = `${service.split("/")[2]}-recovery-${id}`;
+      const plan = CoordinatorBootstrapPlanSchema.parse({
+        version: 1,
+        operation: "coordinator-bootstrap",
+        installationId: randomUUID(),
+        service,
+        expectedProcess: {
+          pid: 123,
+          bootId: randomUUID(),
+          startIdentity: "123:456",
+          argumentsSha256: "b".repeat(64),
+        },
+        previous: candidate,
+        candidate,
+        state: {
+          directory: root,
+          restartJournal: path.join(root, "restart-jobs.json"),
+          ownerSessions: path.join(root, "owner-sessions.json"),
+        },
+        hostRequestsAfter: null,
+        bootRecovery: {
+          requestId: id,
+          service: `${service}-recovery-${id}`,
+          launcher: { path: path.join(root, "recovery.plist"), sha256: "c".repeat(64) },
+          installedLauncher: path.join(account.homedir, "Library/LaunchAgents", `${label}.plist`),
+          setup: setupFile,
+          ownerLauncher,
+          node,
+          entrypoint,
+        },
+      });
+      if (!plan.bootRecovery) throw new Error("Fixture recovery missing");
+      plan.bootRecovery.launcher = pin(
+        plan.bootRecovery.launcher.path,
+        JSON.stringify(bootstrapRecoveryLauncher(plan)),
+      );
+      if (mode === "changed-runtime") pin(path.join(runtime, "changed.js"), "unreviewed code");
+      if (mode === "changed-setup")
+        pin(setupFile.path, JSON.stringify({ ...setup, daemonId: "changed-host" }));
+      if (mode === "mixed-renewal")
+        setup.maintenance = { installationRoot: root, admissionSha256: "d".repeat(64) };
+      const request = {
+        id: mode === "wrong-request" ? randomUUID() : id,
+        plan,
+        ...(mode === "automatic-authority"
+          ? {
+              automaticSubmission: {
+                credentialBinding: "d".repeat(64),
+                policyActivatedAt: new Date().toISOString(),
+                submittedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+      };
+      const result = verifyBootstrapExecutionRuntime({
+        request,
+        setupFile: setupFile.path,
+        setup,
+        writableMountRoots: mode === "guest-mount" ? [runtime] : [],
+      });
+      if (mode === "valid") await expect(result).resolves.toBeUndefined();
+      else if (mode === "unsupported-runtime")
+        await expect(result).rejects.toThrow("does not support independent coordinator execution");
+      else await expect(result).rejects.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test.each([false, true])("dispatch notification survives a closed observer: %s", async (closed) => {
   const moduleUrl = new URL("./coordinator-bootstrap-runner.ts", import.meta.url).href;

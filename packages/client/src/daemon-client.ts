@@ -1,4 +1,5 @@
 import type { SidebarStateChange } from "@getpaseo/protocol/sidebar-state";
+import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type {
   CoordinatorBootstrapPreparation,
   CoordinatorSubmissionProof,
@@ -778,6 +779,31 @@ export interface AgentForkContextOptions {
 type AgentRefreshedStatusPayload = z.infer<typeof AgentRefreshedStatusPayloadSchema>;
 type RestartRequestedStatusPayload = z.infer<typeof RestartRequestedStatusPayloadSchema>;
 type ShutdownRequestedStatusPayload = z.infer<typeof ShutdownRequestedStatusPayloadSchema>;
+export interface RestartServerOptions {
+  timeout?: number;
+  idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
+  restartDrainId?: string;
+  heldRestart?: HeldRestart;
+  restartContinuation?: "capture" | "ready" | "cancelled";
+}
+
+function assertHeldRestartAcknowledgement(
+  result: RestartRequestedStatusPayload,
+  expected: HeldRestart,
+): void {
+  const actual = result.heldRestart;
+  if (
+    result.accepted !== true ||
+    !actual ||
+    actual.requestId !== expected.requestId ||
+    actual.generation !== expected.generation ||
+    actual.workerPid !== expected.workerPid ||
+    actual.workerInstanceId !== expected.workerInstanceId ||
+    actual.terminateAt !== expected.terminateAt
+  )
+    throw new Error("Exact supervisor acceptance is unconfirmed; observe without replay");
+}
+
 export interface ShutdownServerOptions {
   requestId?: string;
   timeout?: number;
@@ -3159,13 +3185,19 @@ export class DaemonClient {
       SessionInboundMessage,
       { type: "workspace.project.set.request" }
     >["membership"];
+    /** Also move the workspace's local project. Dropped for daemons without the capability. */
+    projectId?: string;
   }): Promise<void> {
+    const movesPlacement =
+      options.projectId !== undefined &&
+      this.lastServerInfoMessage?.features?.workspaceProjectPlacement === true;
     const payload =
       await this.sendNamespacedCorrelatedSessionRequest<"workspace.project.set.response">({
         message: {
           type: "workspace.project.set.request",
           workspaceId: options.workspaceId,
           membership: options.membership ?? null,
+          ...(movesPlacement ? { projectId: options.projectId } : {}),
         },
       });
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to move workspace");
@@ -3791,6 +3823,21 @@ export class DaemonClient {
     return result.tasks;
   }
 
+  async answerAgentQuestion(
+    agentId: string,
+    questionId: string,
+    answer: string,
+  ): Promise<import("@getpaseo/protocol/agent-questions").AgentQuestion[]> {
+    if (this.lastServerInfoMessage?.features?.agentQuestions !== true)
+      throw new Error("Update the daemon before answering open questions.");
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.questions.answer.response">({
+        message: { type: "agent.questions.answer.request", agentId, questionId, answer },
+      });
+    if (result.error || !result.questions) throw new Error(result.error ?? "Answer unconfirmed");
+    return result.questions;
+  }
+
   private assertChecklistSupport(): void {
     if (this.lastServerInfoMessage?.features?.agentChecklistMutations !== true) {
       throw new Error("Update the daemon before editing thread checklists.");
@@ -4309,15 +4356,33 @@ export class DaemonClient {
     return payload.notice ?? null;
   }
 
+  private requireHeldRestart(options: RestartServerOptions | undefined): HeldRestart | undefined {
+    if (!options?.heldRestart) return undefined;
+    if (this.lastServerInfoMessage?.features?.heldIdleRestart !== true)
+      throw new Error("Update the daemon and running supervisor for acknowledged held restarts");
+    const held = { ...options.heldRestart };
+    if (options.idleMode !== "restart" || options.restartDrainId !== held.requestId)
+      throw new Error("Acknowledged restart requires the exact held request");
+    return held;
+  }
+
+  private requireRestartContinuation(options?: RestartServerOptions): void {
+    if (options?.restartContinuation) {
+      if (this.lastServerInfoMessage?.features?.restartContinuation !== true)
+        throw new Error("Update this daemon to preserve tasks across restarts");
+      const expectedMode = options.restartContinuation === "capture" ? "drain" : "cancel-drain";
+      if (!options.restartDrainId || options.idleMode !== expectedMode || options.heldRestart)
+        throw new Error("Restart continuation requires its exact request and control mode");
+    }
+  }
+
   async restartServer(
     reason?: string,
     requestId?: string,
-    options?: {
-      timeout?: number;
-      idleMode?: "inspect" | "restart" | "drain" | "cancel-drain";
-      restartDrainId?: string;
-    },
+    options?: RestartServerOptions,
   ): Promise<RestartRequestedStatusPayload> {
+    this.requireRestartContinuation(options);
+    const heldRestart = this.requireHeldRestart(options);
     if (options?.idleMode && this.lastServerInfoMessage?.features?.idleRestart !== true) {
       throw new Error("Update this daemon to support idle restarts");
     }
@@ -4330,12 +4395,14 @@ export class DaemonClient {
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
       type: "restart_server_request",
-      ...(options?.restartDrainId ? { restartDrainId: options.restartDrainId } : {}),
-      ...(options?.idleMode ? { idleMode: options.idleMode } : {}),
+      heldRestart,
+      restartDrainId: options?.restartDrainId,
+      restartContinuation: options?.restartContinuation,
+      idleMode: options?.idleMode,
       ...(reason && reason.trim().length > 0 ? { reason } : {}),
       requestId: resolvedRequestId,
     });
-    return this.sendRequest({
+    const result = await this.sendRequest({
       requestId: resolvedRequestId,
       message,
       timeout: options?.timeout,
@@ -4354,6 +4421,8 @@ export class DaemonClient {
         return restarted.data;
       },
     });
+    if (heldRestart) assertHeldRestartAcknowledgement(result, heldRestart);
+    return result;
   }
 
   async shutdownServer(options?: ShutdownServerOptions): Promise<ShutdownRequestedStatusPayload> {
@@ -6073,9 +6142,14 @@ export class DaemonClient {
     });
   }
 
-  async createClaudeAccount(creationId: string, name: string) {
+  async createClaudeAccount(creationId: string, name: string, signIn?: "full") {
     return this.sendNamespacedCorrelatedSessionRequest<"provider.claude.create_account.response">({
-      message: { type: "provider.claude.create_account.request", creationId, name },
+      message: {
+        type: "provider.claude.create_account.request",
+        creationId,
+        name,
+        ...(signIn ? { signIn } : {}),
+      },
     });
   }
 

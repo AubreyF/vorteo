@@ -253,6 +253,17 @@ export const PersistedConfigSchema = z
         browserTools: z
           .object({
             enabled: z.boolean().optional(),
+            // Daemon-owned headless Chromium host. Nested under the passthrough
+            // browserTools object so older daemons still load the config.
+            headlessHost: z
+              .object({
+                enabled: z.boolean().optional(),
+                deniedOrigins: z.array(z.string()).optional(),
+                // Private destinations to permit, as "host" or "host:port".
+                allowedHosts: z.array(z.string()).optional(),
+              })
+              .strict()
+              .optional(),
           })
           .passthrough()
           .optional(),

@@ -31,6 +31,11 @@ import {
 } from "@/agent-stream/task-card";
 import { taskCardStyles } from "@/agent-stream/task-card-styles";
 import { ChecklistProgressFlower } from "./progress-flower";
+import {
+  taskProgressDescription,
+  taskProgressLabel,
+  taskProgressSummary,
+} from "./task-progress-summary";
 import { checklistProgress } from "./progress";
 import { canClearTask, clearCompletedTasks } from "./clear-completed";
 import { ChecklistEditor } from "./editor";
@@ -99,12 +104,21 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       <ChecklistProgressFlower
         completed={progress.completed}
         active={progress.active}
+        blocked={progress.blocked}
+        credit={progress.credit}
         total={progress.total}
         testID="checklist-progress"
         tooltip={expanded}
       />
     ),
-    [progress.completed, progress.active, progress.total, expanded],
+    [
+      progress.completed,
+      progress.active,
+      progress.blocked,
+      progress.credit,
+      progress.total,
+      expanded,
+    ],
   );
   const countBadge = useMemo(
     () => (
@@ -302,6 +316,22 @@ function ChecklistRows({
   );
 }
 
+function taskProgressTooltip(task: AgentTaskItem): string | undefined {
+  const summary = taskProgressSummary(task);
+  return summary ? taskProgressDescription(summary) : undefined;
+}
+
+/** A muted percentage for partly done work; nothing for finished or untracked items. */
+function ChecklistRowProgress({ task }: { task: AgentTaskItem }) {
+  const summary = taskProgressSummary(task);
+  if (!summary) return null;
+  return (
+    <Text style={styles.progress} testID={`checklist-progress-${task.id}`}>
+      {taskProgressLabel(summary)}
+    </Text>
+  );
+}
+
 function ChecklistRow({
   info,
   canMutate,
@@ -367,7 +397,12 @@ function ChecklistRow({
       <TruncatedText
         numberOfLines={1}
         tooltipLabel={task.text}
-        tooltipDescription={[title !== task.text ? title : undefined, task.description, task.owner]
+        tooltipDescription={[
+          title !== task.text ? title : undefined,
+          taskProgressTooltip(task),
+          task.description,
+          task.owner,
+        ]
           .filter(Boolean)
           .join("\n\n")}
         style={[
@@ -379,6 +414,7 @@ function ChecklistRow({
       >
         {title}
       </TruncatedText>
+      <ChecklistRowProgress task={task} />
       {blocked ? <BlockedTaskBadge task={task} /> : null}
       {review ? <ReviewTaskBadge task={task} /> : null}
       <Button
@@ -395,6 +431,12 @@ function ChecklistRow({
 
 const styles = StyleSheet.create((theme) => ({
   title: { flex: 1, minWidth: 0 },
+  progress: {
+    flexShrink: 0,
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontVariant: ["tabular-nums"],
+  },
   running: { color: theme.colors.foreground },
   completed: { color: theme.colors.foregroundExtraMuted, textDecorationLine: "line-through" },
   active: { backgroundColor: theme.colors.surface2 },

@@ -1,16 +1,120 @@
 import { helperReviewFixture } from "./helper-review.fixture";
+import type { InstallationEnrollmentStatus } from "@getpaseo/protocol/installation-enrollment";
 import { expect, test } from "vitest";
-import { OwnerAccessExpired } from "./client";
+import { OwnerAccessExpired, type InstallationClient } from "./client";
+import type { MaintenanceServiceView } from "@getpaseo/protocol/maintenance-service-status";
 import {
   InstallationPanelModel,
   restartExplanation,
   restartRequestSummary,
   restartBannerTitle,
+  restartCancellable,
+  delegationOverdueNote,
   restartNoticeVisible,
   restartBlockingReason,
   restartActionDisabledReason,
 } from "./panel-model";
 import type { RestartJob } from "@getpaseo/protocol/execution-installation";
+
+function enrollmentStatusModel(
+  read: () => Promise<InstallationEnrollmentStatus | null>,
+  restartSummary: () => Promise<null> = async () => null,
+  services: Partial<
+    Pick<InstallationClient, "maintenanceServices" | "cancelMaintenanceService" | "recoveryAccess">
+  > = {},
+) {
+  return new InstallationPanelModel({
+    restartSummary,
+    restoreSession: async () => true,
+    lock: async () => {},
+    unlock: async () => {},
+    passwordFile: null,
+    sessionsSupported: true,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    listRestarts: async () => [],
+    listHelpers: async () => [],
+    decide: async () => {
+      throw new Error("Unexpected maintenance decision");
+    },
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
+    enrollmentStatus: read,
+    ...services,
+  });
+}
+
+const enrollmentStatusFixture: InstallationEnrollmentStatus = {
+  version: 1,
+  installationId: "00000000-0000-4000-8000-000000000001",
+  checkedAt: "2026-10-15T12:00:00.000Z",
+  authority: "not-enrolled",
+  grantRevision: null,
+  activation: "not-enrolled",
+  completedSteps: 0,
+  totalSteps: 0,
+  services: [],
+  steps: [],
+};
+
+test("enrollment status retains its last observation on refresh failure and clears the error on recovery", async () => {
+  let unavailable = false;
+  const model = enrollmentStatusModel(async () => {
+    if (unavailable) throw new Error("Connection failed");
+    return enrollmentStatusFixture;
+  });
+  await model.initialize();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  unavailable = true;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  expect(model.getState().enrollmentError).toContain("Last known");
+  expect(model.getState().enrollmentRefreshing).toBe(false);
+  unavailable = false;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState().enrollmentError).toBeNull();
+});
+
+test("enrollment status refresh cannot restore private state after locking owner controls", async () => {
+  let wait = false;
+  const pending = Promise.withResolvers<InstallationEnrollmentStatus | null>();
+  let reads = 0;
+  const model = enrollmentStatusModel(async () => {
+    reads++;
+    return wait ? pending.promise : enrollmentStatusFixture;
+  });
+  await model.initialize();
+  wait = true;
+  const first = model.refreshEnrollmentStatus();
+  await model.refreshEnrollmentStatus();
+  expect(reads).toBe(2);
+  expect(model.getState().enrollmentRefreshing).toBe(true);
+  await model.lock();
+  pending.resolve(enrollmentStatusFixture);
+  await first;
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    enrollmentStatus: null,
+    enrollmentRefreshing: false,
+  });
+});
+
+test("enrollment status authentication expiry clears observations instead of retaining private readiness", async () => {
+  let expired = false;
+  const model = enrollmentStatusModel(async () => {
+    if (expired) throw new OwnerAccessExpired("Owner session expired");
+    return enrollmentStatusFixture;
+  });
+  await model.initialize();
+  expired = true;
+  await model.refreshEnrollmentStatus();
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    enrollmentStatus: null,
+    enrollmentRefreshing: false,
+  });
+});
 
 test("saved connections skip setup on reload without unlocking owner controls", async () => {
   let queries = 0;
@@ -666,4 +770,217 @@ test("Dev repair prepares the current revision without approving and prevents du
   await model.prepareDevRepair(job);
   expect(prepared).toBe(1);
   expect(model.getState().notice).toContain("no restart is approved");
+});
+
+test("enrollment status refresh still runs when restart summary fails", async () => {
+  let reads = 0;
+  let summaryFails = false;
+  const model = enrollmentStatusModel(
+    async () => {
+      reads++;
+      if (summaryFails) throw new Error("Status unavailable");
+      return enrollmentStatusFixture;
+    },
+    async () => {
+      if (summaryFails) throw new Error("Restart summary unavailable");
+      return null;
+    },
+  );
+  await model.initialize();
+  expect(model.getState().enrollmentStatus).toEqual(enrollmentStatusFixture);
+  const previousReads = reads;
+  summaryFails = true;
+  await model.refresh();
+  expect(reads).toBe(previousReads + 1);
+  expect(model.getState().enrollmentError).toContain("Last known");
+});
+
+test("service queue refresh survives summary failure and cancellation retains actionable errors", async () => {
+  const job = serviceViewFixture();
+  let cancelled = false;
+  let fail = true;
+  let reads = 0;
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => {
+      throw new Error("Summary unavailable");
+    },
+    {
+      maintenanceServices: async () => {
+        reads++;
+        return {
+          installationId: enrollmentStatusFixture.installationId,
+          available: true,
+          jobs: [{ ...job, status: cancelled ? "rejected" : "approved", cancelable: !cancelled }],
+        };
+      },
+      cancelMaintenanceService: async () => {
+        if (fail) throw new Error("Connection lost during cancellation");
+        cancelled = true;
+        return { ...job, status: "rejected", cancelable: false };
+      },
+    },
+  );
+  await model.initialize();
+  expect(reads).toBe(1);
+  expect(model.getState().serviceQueue?.jobs[0]?.id).toBe(job.id);
+  await model.cancelMaintenanceService(job);
+  expect(model.getState().serviceQueueError).toContain("Connection lost");
+  expect(model.getState().busy).toBe(false);
+  fail = false;
+  await model.refreshServiceQueue();
+  await model.cancelMaintenanceService(job);
+  expect(model.getState().serviceQueue?.jobs[0]?.status).toBe("rejected");
+  expect(model.getState().notice).toContain("cancelled before dispatch");
+  await model.lock();
+  expect(model.getState().serviceQueue).toBeNull();
+});
+
+function serviceViewFixture(): MaintenanceServiceView {
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    revision: "00000000-0000-4000-8000-000000000002",
+    target: "maintenance-controller",
+    operation: "replacement",
+    reason: "Update controller",
+    createdAt: "2026-10-15T20:00:00.000Z",
+    status: "approved",
+    detail: "Waiting",
+    cancelable: true,
+    dispatchAfter: null,
+    generation: null,
+    outcome: null,
+    observedAt: null,
+  };
+}
+
+test("service cancellation expiry clears private state and permits unlocking again", async () => {
+  const job = serviceViewFixture();
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      maintenanceServices: async () => ({
+        installationId: enrollmentStatusFixture.installationId,
+        available: true,
+        jobs: [job],
+      }),
+      cancelMaintenanceService: async () => {
+        throw new OwnerAccessExpired("Owner session expired");
+      },
+    },
+  );
+  await model.initialize();
+  await model.cancelMaintenanceService(job);
+  expect(model.getState()).toMatchObject({
+    unlocked: false,
+    busy: false,
+    serviceQueue: null,
+    serviceQueueError: null,
+    serviceQueueRefreshing: false,
+  });
+  model.setPassword("owner-password");
+  await model.unlock();
+  expect(model.getState().unlocked).toBe(true);
+  expect(model.getState().busy).toBe(false);
+  expect(model.getState().serviceQueue?.jobs).toEqual([job]);
+});
+
+test("recovery bookmark refresh clears failed proof and expires private state on lock", async () => {
+  let unavailable = false;
+  const recovery = {
+    version: 1 as const,
+    installationId: enrollmentStatusFixture.installationId,
+    checkedAt: new Date().toISOString(),
+    status: "verified" as const,
+    url: "https://machine.tail123.ts.net:8443",
+    validUntil: new Date(Date.now() + 30_000).toISOString(),
+  };
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      recoveryAccess: async () => {
+        if (unavailable) throw new Error("native refused");
+        return recovery;
+      },
+    },
+  );
+  await model.initialize();
+  expect(model.getState().recoveryAccess).toEqual(recovery);
+  unavailable = true;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessError).toContain("Unable to verify");
+  unavailable = false;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().recoveryAccess).toEqual(recovery);
+  await model.lock();
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessRefreshing).toBe(false);
+});
+
+test("expired recovery owner access clears bookmark and does not leave controls busy", async () => {
+  let expire = false;
+  const model = enrollmentStatusModel(
+    async () => enrollmentStatusFixture,
+    async () => null,
+    {
+      recoveryAccess: async () => {
+        if (expire) throw new OwnerAccessExpired("Owner access expired");
+        return null;
+      },
+    },
+  );
+  await model.initialize();
+  expire = true;
+  await model.refreshRecoveryAccess();
+  expect(model.getState().unlocked).toBe(false);
+  expect(model.getState().recoveryAccess).toBeNull();
+  expect(model.getState().recoveryAccessRefreshing).toBe(false);
+  expect(model.getState().busy).toBe(false);
+});
+
+test("a delegated request reads as handled by its delegate and stays cancellable until dispatch", () => {
+  const job: RestartJob = {
+    id: "10000000-0000-4000-8000-000000000001",
+    revision: "10000000-0000-4000-8000-000000000002",
+    target: "host",
+    reason: "Routine Host update",
+    requester: "Nova integration",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(1).toISOString(),
+    status: "pending",
+    detail: "Waiting",
+    delegatedTo: "Nova integration",
+  };
+  expect(restartBannerTitle(job)).toBe("Being handled by Nova integration");
+  expect(restartCancellable(job)).toBe(true);
+  expect(restartCancellable({ ...job, status: "approved", whenIdle: true })).toBe(true);
+  // An owner approve dispatches without a hold, so nothing is left to withdraw.
+  expect(restartCancellable({ ...job, status: "approved" })).toBe(false);
+  expect(restartCancellable({ ...job, status: "running" })).toBe(false);
+  const { delegatedTo: _handled, ...owned } = job;
+  expect(restartBannerTitle(owned)).not.toContain("Being handled");
+});
+
+test("an overdue delegated request returns to the owner with an explanation", () => {
+  const job: RestartJob = {
+    id: "10000000-0000-4000-8000-000000000001",
+    revision: "10000000-0000-4000-8000-000000000002",
+    target: "host",
+    reason: "Routine Host update",
+    requester: "Nova integration",
+    requestedBy: "host-agent",
+    createdAt: new Date(0).toISOString(),
+    expiresAt: new Date(1).toISOString(),
+    status: "pending",
+    detail: "Waiting",
+    delegationOverdue: "Nova integration",
+  };
+  expect(delegationOverdueNote(job)).toBe("Waiting longer than expected for Nova integration.");
+  expect(restartBannerTitle(job)).not.toContain("Being handled");
+  const { delegationOverdue: _late, ...owned } = job;
+  expect(delegationOverdueNote(owned)).toBeNull();
 });

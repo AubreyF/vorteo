@@ -28,6 +28,7 @@ import type { ManagedAgent } from "./agent-manager.js";
 import type { WorkspaceGitService } from "../workspace-git-service.js";
 import type { ManagedProcessRegistry } from "../managed-processes/managed-processes.js";
 import type { OpenCodeBridge } from "./providers/opencode/bridge.js";
+import type { HostedSessionRouting } from "../session-host/hosted-agent-client.js";
 import type {
   AgentProviderRuntimeSettingsMap,
   ProviderOverride,
@@ -122,6 +123,8 @@ export interface ProviderSnapshotManagerOptions {
   refreshTimeoutMs?: number;
   diagnosticTimeoutMs?: number;
   openCodeBridge?: OpenCodeBridge;
+  /** Routes eligible sessions through the durable session host. */
+  sessionHost?: HostedSessionRouting;
 }
 
 interface ProviderSnapshotRefreshOptions {
@@ -247,6 +250,7 @@ export class ProviderSnapshotManager {
   private readonly workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   private readonly managedProcesses?: ManagedProcessRegistry;
   private readonly openCodeBridge?: OpenCodeBridge;
+  private readonly sessionHost?: HostedSessionRouting;
   private readonly isDev: boolean;
   private readonly extraClients: Partial<Record<AgentProvider, AgentClient>>;
   private runtimeSettings: AgentProviderRuntimeSettingsMap | undefined;
@@ -266,6 +270,7 @@ export class ProviderSnapshotManager {
     this.workspaceGitService = options.workspaceGitService;
     this.managedProcesses = options.managedProcesses;
     this.openCodeBridge = options.openCodeBridge;
+    this.sessionHost = options.sessionHost;
     this.isDev = options.isDev === true;
     this.extraClients = options.extraClients ?? {};
     this.runtimeSettings = options.runtimeSettings;
@@ -725,6 +730,7 @@ export class ProviderSnapshotManager {
       workspaceGitService: this.workspaceGitService,
       managedProcesses: this.managedProcesses,
       openCodeBridge: this.openCodeBridge,
+      sessionHost: this.sessionHost,
       isDev: this.isDev,
     });
 

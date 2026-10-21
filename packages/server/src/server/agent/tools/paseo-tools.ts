@@ -106,6 +106,7 @@ import { createThreadGoalTools } from "./thread-goal.js";
 import { createPauseGoalTool } from "./pause-goal.js";
 import { createJournalTools } from "../journal/tools.js";
 import { createChecklistTools } from "../task-checklist/tools.js";
+import { createQuestionTools } from "../questions/tools.js";
 
 export interface PaseoToolHostDependencies {
   agentManager: AgentManager;
@@ -1245,10 +1246,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   }
 
   if (callerAgentId) {
-    for (const tool of createJournalTools(agentManager, callerAgentId)) {
-      registerTool(tool.name, tool, tool.handler);
-    }
-    for (const tool of createChecklistTools(agentManager, callerAgentId)) {
+    for (const tool of [
+      ...createJournalTools(agentManager, callerAgentId),
+      ...createChecklistTools(agentManager, callerAgentId),
+      ...createQuestionTools(agentManager, callerAgentId),
+    ]) {
       registerTool(tool.name, tool, tool.handler);
     }
     for (const tool of createThreadGoalTools(agentManager, callerAgentId)) {

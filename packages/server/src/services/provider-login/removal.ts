@@ -4,10 +4,65 @@ import { existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
-import { ProviderOverrideSchema } from "@getpaseo/protocol/provider-config";
+import {
+  ProviderOverrideSchema,
+  type ProviderRuntimeSettings,
+} from "@getpaseo/protocol/provider-config";
 import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
+import {
+  checkProviderLaunchAvailable,
+  createProviderEnvSpec,
+  resolveProviderLaunch,
+} from "../../server/agent/provider-launch-config.js";
+import { claudeSignInMode } from "../../server/agent/providers/claude/sign-in-mode.js";
+import { execCommand } from "../../utils/spawn.js";
+import { claudeKeychainServiceForConfigDir } from "../quota-fetcher/providers/claude.js";
 
 export class ProviderRemovalError extends Error {}
+
+/**
+ * A full sign-in Claude account keeps its OAuth grant in CLI storage derived from its config
+ * directory; on macOS that Keychain item survives deleting the directory. Run the account's own
+ * CLI logout before deletion. Returns a warning instead of throwing: sign-out failure must not
+ * block removal. Nothing runs unless the reviewed plan is still current and the home is managed.
+ */
+export async function signOutClaudeFullSignIn(
+  input: RemovalInput,
+  expectedRevision: string,
+): Promise<string | null> {
+  const configured = input.providers[input.providerId];
+  if (!configured) return null;
+  const provider = ProviderOverrideSchema.parse(configured);
+  if (provider.extends !== "claude" || claudeSignInMode(provider.env) !== "full") return null;
+  const plan = planProviderRemoval(input);
+  if (plan.revision !== expectedRevision || plan.credentials !== "managed") return null;
+  const configDir = provider.env?.CLAUDE_CONFIG_DIR;
+  const failure =
+    process.platform === "darwin" && configDir
+      ? `Claude sign-out did not finish for ${plan.name}. Its saved sign-in may remain in the Keychain item “${claudeKeychainServiceForConfigDir(configDir)}”.`
+      : `Claude sign-out did not finish for ${plan.name}.`;
+  // Same override conversion as the provider registry: a configured argv replaces the binary.
+  const runtimeSettings: ProviderRuntimeSettings = {
+    command: provider.command ? { mode: "replace", argv: provider.command } : undefined,
+    env: provider.env,
+  };
+  try {
+    const launch = await resolveProviderLaunch({
+      commandConfig: runtimeSettings.command,
+      defaultBinary: "claude",
+    });
+    const available = await checkProviderLaunchAvailable(launch);
+    if (!available.resolvedPath) return failure;
+    await execCommand(available.resolvedPath, [...launch.args, "auth", "logout"], {
+      ...createProviderEnvSpec({ runtimeSettings }),
+      timeout: 15_000,
+      maxBuffer: 64 * 1024,
+    });
+    return null;
+  } catch {
+    return failure;
+  }
+}
 
 interface RemovalInput {
   paseoHome: string;

@@ -22,6 +22,54 @@ Settings → General has **Prepare host update task** and **Prepare host merge t
 
 The trusted installation interface disables agent browser automation and rejects client plugin bundles from the container or any unrecognized daemon. Client plugins from the explicitly configured native host remain trusted. This restriction protects the host credentials held by the installation interface. Ordinary interfaces retain their existing behavior.
 
+### Browser tools for Host agents
+
+Host agents get browser tools from a disposable headless Chromium instead of the installation interface. Enable the daemon-owned host in the Host daemon's `config.json`:
+
+```json
+{
+  "daemon": {
+    "browserTools": {
+      "enabled": true,
+      "headlessHost": {
+        "enabled": true,
+        "deniedOrigins": ["https://<protected-interface-origin>"],
+        "allowedHosts": ["localhost:8081"]
+      }
+    }
+  }
+}
+```
+
+The daemon reads `headlessHost` at startup, so a change needs a daemon restart. Older daemons ignore the setting. Only enable it on the Host daemon. An invalid `allowedHosts` entry stops the browser host from starting rather than loosening its policy.
+
+Chromium never runs inside the daemon. On the first browser request the daemon starts a separate browser host process and talks to it over Node IPC. After a crash, browser requests fail fast while a backoff of 1 to 30 seconds runs, then the next request starts a new process; open tabs are lost. The daemon stops the process when it shuts down. `paseo browser host` uses the same process, so the CLI never loads Playwright either.
+
+That process entry, `headless-host-process.js`, is deliberately outside the initial Host module contract. That contract covers the daemon worker, CLI and other startup entries, and a test checks that their traces never reach Playwright.
+
+To run a host without a restart, start it as the macOS account that runs the Host daemon:
+
+```sh
+paseo browser host --deny-origin https://<protected-interface-origin> --allow-host localhost:8081
+```
+
+The browser host process receives only `PATH`, `HOME`, `TMPDIR`, locale and `PLAYWRIGHT_BROWSERS_PATH` from its parent; SSH agent sockets, provider tokens and other variables stay behind. Each side validates every IPC message and drops malformed ones, so a misbehaving browser process cannot crash the daemon.
+
+The command connects only to the local daemon through its local credential and refuses `--host`. Both forms register as `headless chromium`; the Settings → Agents **Browser tools** switch still decides whether agents receive the tools. Each run starts with an empty in-memory profile, with no cookies, storage or saved logins from any owner interface. Downloads are refused, service workers are blocked and each tab is visible only to agents in the workspace that opened it. Popups join their opener's workspace.
+
+The browser cannot reach this machine or private networks by default. Every request, including loopback, goes through a filtering proxy inside the browser host process. The proxy resolves each name itself, refuses private destinations and connects to the exact address it checked, so redirects and DNS rebinding cannot reach a refused address. It refuses:
+
+- loopback, link-local, private (RFC 1918), CGNAT and Tailscale (`100.64.0.0/10`) and other reserved IPv4 ranges
+- IPv6 loopback, link-local, unique local (including Tailscale) and multicast addresses; IPv4-mapped, IPv4-compatible and NAT64 (`64:ff9b::/96`) forms of refused IPv4 addresses; and all 6to4 (`2002::/16`) and Teredo (`2001::/32`) addresses
+- `localhost`, single-label names, and names ending in `.localhost`, `.local`, `.internal`, `.home.arpa` or `.ts.net`
+- any public name that resolves to one of those addresses
+
+WebRTC cannot send UDP outside the proxy. `allowedHosts` and `--allow-host` open a specific private destination, as `host` or `host:port`; use them for a local preview server, never for the protected interface or daemon ports.
+
+`deniedOrigins` and `--deny-origin` block a host on every scheme and port, even when it is also allowed. They apply to navigation, redirects, popups, frames, fetches and WebSockets. Always deny the protected interface and any `redirectOrigins`. Host agents can already read owner-account files, so this guard limits accidents and prompt injection; it does not contain a hostile Host agent. Never register this host with the Dev container daemon. Guest agents could then use a browser on the host network.
+
+To capture Vorteo itself, point the browser at an isolated preview or the e2e harness daemon and Metro server, never the protected interface. `--viewport 390x844` starts tabs at phone size, and `browser_resize` changes one tab. Use `--headed` to watch the browser. The command needs `playwright-core` and a Playwright Chromium build; run `npm run browser:setup` in the checkout when they are missing. Chromium comes from the account's Playwright cache, outside release custody: release installation neither pins nor verifies that executable. The command stops when its process exits and reconnects after daemon restarts.
+
 ### Change the protected interface address
 
 An owner-managed HTTPS domain can serve the full protected interface through a trusted reverse proxy. Keep the proxy configuration, TLS keys, interface files and coordinator credentials outside guest-writable mounts. Proxy to the host coordinator, preserve the canonical Host header and verify the upstream certificate. Do not serve the privileged bundle from the development container.
@@ -119,6 +167,36 @@ A queued plain restart authorizes restarting the installed runtime at the select
 
 A coordinator restart preserves an idle approval that has not been dispatched, but marks other previously approved or running jobs as interrupted. It never replays an ambiguous restart. Inspect the target and submit a new request if another attempt is necessary. These controls do not update release files, roll back databases, or promise to preserve an in-progress provider turn.
 
+#### Owner delegation
+
+A Host operator can delegate routine requests with `<stateDir>/owner-delegation.json`:
+
+```json
+{
+  "version": 1,
+  "delegatedRequesterPrefixes": ["Nova "],
+  "hostUpdateServiceRestart": true,
+  "graceMinutes": 15
+}
+```
+
+A missing or invalid file delegates nothing. Prefixes are display only, not authentication: approval never reads them, and they match only requests made with the Host agent credential. A Dev request that names itself the delegate still needs the owner. A delegated request appears in the sidebar and Installation controls as "Being handled by <requester>" with its reason and a Cancel action, not as an approval toast, while it is automatically approved, running, or pending for less than `graceMinutes` (default 15, at most 60). After that it returns to the normal owner prompt and toast, noting that the delegate is taking longer than expected, so a mislabeled or stalled request cannot expire unseen. Every owner decision stays available, and the locked summary counts only handled requests as queued. Coordinator update requests carry no requester yet, so they are not delegated.
+
+`hostUpdateServiceRestart` lets an automatically approved Host source update replace the whole service, like an owner approve, instead of restarting only the worker. The update still waits out the cancellation window, prepares its candidate, holds new turns and waits for running turns to finish before the launchd restart. It keeps its exact revision and digest binding and is never replayed. The setting is part of the automatic grant's authority, so changing it cancels automatic grants that have not dispatched, and dispatch uses a full service restart only for a grant issued under the current setting. Standing interruptions and Dev updates keep their existing restart paths.
+
+#### Rolling the coordinator back to vorteo.689
+
+Vorteo.689 reads `<stateDir>/restart-jobs.json` with a strict schema that predates `continuationCaptureId`. Later coordinators record that field only while a Restart when idle request holds a task capture, remove it when the hold is released, and never send it to clients. A job keeps it only in a short window: between capture and the idle check, or while the target is unreachable and the release keeps failing. A rollback during that window makes vorteo.689's startup fence reject the journal.
+
+Before rolling back, cancel or finish every approved Restart when idle request, then confirm that no job in `restart-jobs.json` contains `continuationCaptureId`. If a rollback has already failed on that field:
+
+1. Make sure no coordinator is running; the running one holds `coordinator-bootstrap.lock` and owns the file.
+2. Copy `restart-jobs.json` to a dated backup outside the state directory.
+3. Delete only the `continuationCaptureId` key from each job that has it. Keep `continuationCaptureRequested` and every other field, and keep the file valid JSON.
+4. Start vorteo.689 and confirm its startup fence passes.
+
+Tasks captured under the deleted cause stay held, because vorteo.689 releases holds under the job ID. To release them, run a newer coordinator against the backup until the job's hold shows as released, then roll back again. Do not edit the journal while a coordinator is running, and do not change job status, revisions or approvals by hand.
+
 LaunchAgents keep the new components running while the owner is logged in. Operation before login, complete Docker outages and host shutdown recovery require separate acceptance or future work. A guest daemon that cannot accept its restart RPC needs host diagnosis; this version does not expose general Docker control.
 
 ## Agent management
@@ -136,6 +214,12 @@ Prepare and obtain approval for disruption before stopping a host daemon with ac
 The extra container origin admission and generated guest request skill remain after removal. The request endpoint is then unavailable; the token has no authority over either daemon. Review and remove that installation's origin and guest client files in the host session if permanent removal is intended, preserving concurrent configuration changes.
 
 For a failed setup, inspect the private logs and installation receipt before retrying. Setup refuses to overwrite an existing receipt or reuse credentials automatically. Do not delete state to force a retry. Restoring a previous protected release requires a prepared host deployment and rollback plan; automatic release upgrades are outside this first installer.
+
+### Sealed releases
+
+Release seals are off unless both the coordinator and Host services run with `VORTEO_RELEASE_SEALS=enabled`, and they require macOS. With seals on, preparation refuses a release that contains tool caches (`.cache`, `.vite`, `.vitest` and similar) directly under a `node_modules` directory or at its root, or a linked `node_modules`. It also refuses while any process of the account still holds a release file open for writing. It then sets the user-immutable flag on the whole tree, digests it in full and writes `<release>.release-manifest`, `<release>.release-seal.observed` and `<release>.release-seal.json` beside it. The admission receipt binds those seal digests. Approval checks file metadata instead of re-reading bytes. A change falls back to a full byte check, and the refusal names the changed path.
+
+Never point a worktree's dependencies at an installed release: writes into it fail with "Operation not permitted". Cleanup code must remove releases through `removeBootstrapRelease`, because a plain recursive delete fails on flagged files. To remove a sealed release by hand, first clear the flags on the tree and its seal files: `chflags -R nouchg <release> <release>.release-*`. Then delete them. Sealing does not detect writable shared memory mappings opened before sealing.
 
 ## Validation
 
@@ -203,6 +287,28 @@ The provisioned controller verifies the genuine selected Host and the complete n
 The controller serves a loopback-only repair endpoint. Existing Installation controls can discover it through a narrowly registered same-origin path and must verify the installation identity. Owner authentication, exact review revisions, cancellation before dispatch and retained observation use the existing recovery service. Starting or reopening the controller never replays approval. A previously supported endpoint disappearing is an error, not permission to clear known recovery status or use another lifecycle route.
 
 Provisioning, transport registration and installed acceptance are separate delivery steps. Disposable native, transport and browser tests do not establish live recovery or Factory activation.
+
+If the primary coordinator cannot serve the review page but a compatible Host is still available, a protected operator launcher can serve an independent review on Host loopback using `createBootstrapOwnerReviewApp`. Pin the existing request ID, review revision and plan digest. The launcher must verify its immutable review bundle and protected configuration before connecting to the installed Host; it must not prepare a replacement request or obtain owner credentials from disk. Open its local URL on the Host Mac, review the complete plan and use the password and exact decision button. An existing authenticated SSH local forward can provide remote access without screen sharing or changing private routing; this temporary operator route is not the permanent recovery bookmark. The existing Host review service records and dispatches that decision. Opening the listener performs no installation effect. After a lost reply, observe the retained request without repeating the decision. This route requires a compatible Host review capability and does not authorize shell restarts or journal repair.
+
+### Independent remote recovery access
+
+The recovery access entry point is implemented in source; permanent installed access and remote owner acceptance remain separate delivery gates. It uses the existing recovery-launcher setup with an explicit `control.recoveryAccess` configuration: installation identity, exact HTTPS origin, fixed loopback listen port and protected owner configuration path. Its compiled module opens the page without loading lifecycle or enrollment history. Authentication uses the protected owner configuration rather than a main-app browser session. A failed journal parser leaves the page available but cannot grant effect authority.
+
+After owner authentication, the page can inspect retained reviews and prepare an exact compatible coordinator rollback from the selected coordinator's reviewed fallback. Preparation creates a pending manual request without restarting anything. Approval and cancellation bind its current revision and full plan digest; reopening approved or uncertain work permits observation rather than another dispatch. Native review custody is separate from the independently pinned executor, which still consumes the existing exclusive reservation under shared lifecycle exclusion. Compiled native and browser fixtures cover this composition, not permanent routing or the owner's remote browser.
+
+Application diagnostics remain available without parsing maintenance history. They check the configured installation health, authenticated owner API, HTML document and entry scripts, with response-byte limits and an eight-second probe budget. Owner authentication is sent only to the fixed configured API after installation health matches; redirects and browser-selected destinations are refused. These are checks from the recovery machine, so the report always leaves remote browser rendering unverified. Green health or successful probes never veto an exact owner-requested compatible rollback. Lock and rejected authentication clear private results.
+
+The existing launcher plan binds the standalone access entry point and verifies its setup, native identity, source, protected owner configuration and shared lifecycle directory. Compatible access slots must retain the same bookmark origin and listener port. The page receives throttled OS restart supervision; this does not repeat lifecycle effects. Existing controller launch semantics remain unchanged, and listener custody cannot be substituted for lifecycle executor authority.
+
+Permanent registration must bind the protected configuration and immutable runtime through the tracked installation workflow. Serve it at the installation's verified private HTTPS origin with independent OS supervision and preserve the original Host header through TLS termination. The first release may use the same machine; after-login availability is required, while pre-login service and access during machine or VPN failure are outside that release. Neither a guessed hostname nor an ephemeral operator review URL satisfies bookmark delivery.
+
+Source preparation supports an optional `recoveryRoute` in the existing launcher plan. It pins the protected Tailscale executable and a complete previous Serve document, so both enter the plan digest alongside the candidate setup. Preparation requires the current routing document to match that snapshot, a running backend with the exact private machine name, and an unused HTTPS port across TCP, web and public exposure settings. Unknown settings remain in the retained snapshot. Preparation produces only the exact additive command; it does not run it, reserve an effect or prove the page is reachable. Native routing execution, durable uncertainty handling and installed acceptance remain required.
+
+The initial registration executor uses that plan and the existing reserved enrollment step. It consumes one exclusive activation intent before publishing either service file, rechecks authority and synchronous native custody under shared exclusion, and runs service registration and routing outside the lock. Its total call budget is sixty seconds; each production native command has a ten-second limit. A timeout, lost reply or partial file publication retains the generation for observation, never automatic replay. Read-only observation has a ten-second budget and remains available after revocation. It verifies the exact selected process lifetime, native listener proof and complete additive routing result without terminalizing enrollment or claiming remote owner acceptance. Native adapters are implemented in source; production invocation, complete compiled registration and installed acceptance remain unfinished. No recovery capability is enabled by this executor.
+
+Native registration requires a private immutable Node executable so the existing process inventory can detect orphaned runtimes. Only independently verified lifetimes in the actual activation lineage may be excluded. Listener inspection binds kernel birth, boot, owner, executable and arguments to the exact loopback socket, then checks the standalone document and script with bounded reads and the configured Host header. Routing inspection pins the native CLI and repeats the complete Serve snapshot check under exclusion; peer traffic and presence do not authorize routing. Headless macOS calls set `TAILSCALE_BE_CLI=1` to select [Tailscale's documented CLI mode](https://tailscale.com/docs/reference/tailscale-cli?tab=macos). The command adapter receives the activation deadline and checks it again after asynchronous validation and before dispatch. These local checks do not establish owner authentication or remote browser usability.
+
+The completed feature must expose the actual non-secret URL in General settings with Open, Copy and bookmark guidance, and include a concise primary README feature paragraph. Keep those availability claims pending until permanent routing, independent authentication, compatible owner-triggered rollback and remote-browser acceptance pass. Acceptance must include an unusable main interface while basic health stays green, independent owner access without the main app session, truthful fallback failure and availability after login. Basic health must never veto an exact owner-requested compatible rollback; all effect admission, exclusion and uncertain-generation reconciliation still apply.
 
 ### Bootstrap runner renewal
 
@@ -347,7 +453,7 @@ Scoped capabilities report `ownerApprovalRequired` and `hostAutomaticRestarts` f
 
 Host activation receipts distinguish `activating`, `daemon-ready`, `interface-failed` and `succeeded`. The readiness and interface-failure phases retain the prepared export path. A publication failure keeps the verified daemon selected and reports partial delivery; inspect the retained export and current publication ancestry before any separately authorized repair. Receipt-write failure reports the known daemon update without claiming that the phase was saved. The activation intent still prevents replay.
 
-Prepared updates retain durable admission and activation receipts. Queue recovery can reuse a fully prepared update, but an activation intent prevents another activation attempt. A changed installed base or interface receipt refuses selection and requires fresh preparation. Failed replacement retains the previous selection; it does not authorize another daemon restart.
+Prepared updates retain durable admission and activation receipts. Queue recovery can reuse a fully prepared update, but an activation intent prevents another activation attempt. A changed installed base or interface receipt refuses selection and requires fresh preparation. Build and validation failures before activation leave the previous selection unchanged. After selection, a failed restart reply or readiness check does not prove that replacement stopped. Host and Dev retain the reviewed candidate selection and activation intent for native reconciliation instead of racing startup with an unverified selector rollback. A compatible rollback requires independent native evidence and tracked recovery; uncertainty authorizes neither another restart nor another selection attempt.
 
 Lifecycle admission writes and coordinator claim or promotion checks share the existing protected bootstrap journal lock. Approved, running, held or preparing installation work prevents a new coordinator claim. An unresolved coordinator execution prevents new installation work and queue dispatch. Cancellation, interrupted-operation receipts and completed hold release remain writable. Native freeze, process and preservation checks still apply; journal admission does not prove process quiescence.
 
@@ -383,13 +489,15 @@ The native Host launcher may supply `VORTEO_COORDINATOR_BOOTSTRAP_SETUP` pointin
 
 An exact owner approval starts the fixed runner under its inherited kernel lock. The decision response waits for acknowledgement that dispatch is durably claimed and the watchdog is armed; this does not mean installation has completed. Refresh the recorded request to observe completion or recovery. A timeout or lost response never automatically relaunches the runner. Existing approvals are not replayed when Host starts. Cancellation remains available until dispatch claims the request.
 
-A plan with `automaticRecovery: "restore-previous"` includes one automatic rollback in the exact owner approval. Its independent native watchdog observes durable stage changes. After three minutes without a stage change, it signals only the recorded updater process generation, first with SIGTERM and then, if necessary after ten seconds, SIGKILL. macOS audit tokens bind signals to the PID version. Neither a recycled PID nor an observation timeout establishes ownership; restoration starts only after the updater exits and the watchdog acquires the same kernel lock.
+A plan with `automaticRecovery: "restore-previous"` includes one automatic rollback in the exact owner approval. Its independent native watchdog observes durable stage changes and the recorded executor's own runner activity. After three minutes without either, it signals only the recorded updater process generation, first with SIGTERM and then, if necessary after ten seconds, SIGKILL. Runner activity is diagnostic, so it can postpone this for at most 15 minutes after the watchdog starts; unreadable or foreign runner files do not count. macOS audit tokens bind signals to the PID version. Neither a recycled PID nor an observation timeout establishes ownership; restoration starts only after the updater exits and the watchdog acquires the same kernel lock.
 
 After a failed post-unload update, the watchdog verifies the retained previous release, current selection, process identities and preserved state before restoring the coordinator. It can remove only the exact approved candidate service. A different running service or changed rollback artifacts require inspection. The receipt records rollback intent before any effect, then reports the verified result. A failed or interrupted rollback is not retried automatically. Task databases, credentials, settings and owner sessions are never restored from backups.
 
 When the previous executable cannot read the next journal format, use `automaticRecovery: "restore-compatible"` with an exact `compatibleRecovery` release. `previous` still identifies the running process. Recovery must preserve its configuration and service settings; the plan digest binds the separate recovery source, artifact, Node, entrypoint, configuration and launcher. Older clients can read a reload notice and cancel, but cannot approve hidden recovery changes.
 
 Compatible requests stay in `coordinator-bootstrap-pending.json` through review and dispatch claim. The executor acquires execution ownership and arms its independent watchdog before promoting the real claim into the main journal. Both journals use a persistent inode at the existing journal lock path. Its kernel lock releases on writer death; old exclusive-create writers refuse the retained inode. An existing legacy lock is never removed automatically. Promotion retains the complete claim, replaces main and fsyncs its directory before lifecycle effects. A stale sidecar cannot cancel or reclaim a promoted request; uncertain promotion requires reconciliation. Completed generations and their verified recovery ancestry remain readable without blocking later maintenance.
+
+Startup authority reads validate the promoted records and only the exact pending recovery ancestry they reference, including related promotion evidence. A newer Host's unrelated pending plan cannot disable the current web interface just because its body adds unsupported fields. Pending envelopes and record identities remain checked; required authority is always parsed strictly. Full journal reads and new lifecycle effect writes still reject unsupported plans. This separation never strips unknown fields, rewrites stored evidence or grants authority to a pending request.
 
 After promotion, resuming the old executable cannot establish recovery. The watchdog either verifies the approved compatible release or leaves the request unresolved. If the old process remains loaded, recovery verifies its exact identity, freezes it when necessary, checks idleness and completes missing preservation before replacement. A completed matching receipt can be reconciled; changed state, active children or an unverified process refuse restoration. Prepare and exercise the recovery executable against the full retained journal before submitting the request. Source validation does not establish installed acceptance.
 
@@ -410,3 +518,19 @@ The coordinator advertises `nativeHelper.available` only to Host clients when it
 Helper receipts share the existing lifecycle journal. Legacy coordinators reject those records, including terminal history. Before enabling helper requests, prepare and verify a rollback coordinator that reads the complete journal, accepts the helper configuration schema and preserves helper recovery fences. Keep the original release and journal intact; never remove helper records to make an older coordinator start. A tracked coordinator plan can declare `nativeHelperConfiguration` to enable or replace the exact protected configuration, or `null` to disable new helper requests. Omitting it preserves existing configuration. Its digest binds the change and the review details identify it; Docker executable, socket and container identity must retain the protected Host pairing. Older bootstrap implementations reject this field. Install compatible maintenance support before submitting such a plan, and obtain its own exact approval before activation.
 
 If compatible recovery positively identifies busy lifecycle work or active children on the exact frozen original coordinator, it may resume that process once to let work settle. Parsing, identity, preservation and ownership failures do not authorize this fallback. The durable recovery attempt remains `recovery_required`, never `resumed` or `rolled_back`. The previous coordinator is running, but maintenance remains unresolved. A new approved update is required to restore restart-safe operation. If the legacy process exits before that update, the promoted journal can prevent its restart. The owner reviews this limitation before dispatch.
+
+Supervision recovery after a manual restoration is a separate tracked delivery path. Its optional `supervisionRecovery` plan field binds the exact canceled migration, retains the failed predecessor through `recoveredFrom`, and explicitly reviews frozen-coordinator termination. It does not claim that either earlier migration succeeded. Both the candidate and compatible recovery runtime must use a different source from the manually restored release and preserve configuration. A different source digest alone does not prove reader or executor compatibility. The original reader may ignore an unrelated new pending proposal but cannot read this field after promotion, so it must never be selected as the compatible fallback.
+
+The dedicated review parent authenticates the owner, records the exact decision and reserves one launch under the existing lock. Its native child verifies the selected runtime, process lineage and retained plan before claiming effects. Full read-only preparation runs in a separate child with a 120-second deadline and forced termination on timeout; missing or incorrect acknowledgement refuses admission. No execution lock descriptor is inherited by that verifier. The effect path freezes only the reviewed coordinator, refuses active preparation children, preserves state, retires that exact frozen lifetime and starts the reviewed OS service. A separately pinned compatible fallback and watchdog reconcile the same generation after failure without replaying dispatch. Disposable compiled native fixtures cover successful supervision, unhealthy-candidate fallback and login registration. Those fixtures do not establish installed supervision, an actual reboot or authenticated remote workspace acceptance.
+
+## Session host job
+
+The coordinator owns the durable session host's launchd job, `local.vorteo.<installation id>.session-host`, on Host. It advertises `sessionHostJob.available` only to the Host client, and only when source updates select Host releases through the current link and Host startup validation is configured. Dev clients see whether the job exists, never its details. Never load, unload or edit the job with launchctl directly.
+
+- `request-session-host --install` or `--remove` asks the coordinator for a plan; `session-host-status` reports the job, its host and the durable sessions setting. The coordinator derives the plan from its own configuration: the session host entrypoint through the current link, the Host job's node, and the Host job's `HOME` and `PATH` beside `PASEO_HOME`, with no other environment.
+- The owner approves the exact operation and plan digest in Installation controls. Restart decisions and the trusted Host approval policy never approve it. An approved operation waits for pending restarts and other lifecycle work, then dispatch recomputes the plan and changes nothing when it differs. A coordinator restart marks an approved or running operation failed and never replays it; check the status before requesting again.
+- Install writes the plist with mode 0600 and requires the new host to answer with launchd's pid within 60 seconds and without a watchdog kill, or removes the job again. A watchdog kill during that check fails the install even though launchd starts another host. It never writes the durable sessions setting; the owner enables that separately.
+- Removal is refused while the setting is on or the host runs sessions. A host that stopped answering is stopped once the setting has stayed off past the workers' five-minute alive window, and the receipt records that forced stop. A host that refuses the connection, answers in another protocol version or never sends its session list is alive and is never stopped by force; after five minutes of that, removal fails without changes. A process that survives bootout is killed only after its command is verified as the session host.
+- Host restarts and source updates never touch the job. While it is installed, source updates and supervisor maintenance refuse to select a Host release without the session host entrypoint; the lifecycle queue registers this guard whenever source updates are configured, and `install-execution-host.mjs remove` refuses to run: remove the job first. No Host release selection is automatic today. A future automatic selection must stop the job with the same forced-stop sequence rather than refuse, so a failed update cannot leave the Host down.
+
+Session host records share the lifecycle journal. Coordinators without session host support reject that journal once such a record exists, including terminal history. After the first request, keep a coordinator with session host support as the rollback target, and never remove records to start an older coordinator.
