@@ -704,7 +704,11 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 21, 2026: Recorded the published focused-tab card fix in installation history so Host updates from main combine cleanly. Code is unchanged; README overview and onboarding are unchanged.
+
 October 21, 2026: Merged GitHub main into the installed Host source for delivery; the code matches main and installed release notes are retained. README overview and onboarding are unchanged.
+
+October 21, 2026: The right-hand card column now draws a conversation's cards only while its tab is focused. The portal library behind the column edits its state in place and could keep a previous tab's cards after a tab switch, stacking two conversations' cards. CLI list callbacks gained explicit types so typecheck passes again. No protocol or daemon change; README onboarding is unchanged.
 
 October 20, 2026: Settings now renders as one scrolling page built from a catalog of eleven sections, their panes and searchable entries, replacing 24 separate pages. Existing settings components render inside the panes unchanged. Device pairing stays retired; its address opens Connections. General leads with a Needs attention list, and its defaults omit uninstalled accounts. Accounts & profiles merges profile families into one list and shows account quota inline; older profile copies are folded, not merged, because merging would rewrite legacy launch bindings on every environment. README Power Tools describes Settings. Polish fixed nested provider row buttons, duplicated update-check text and jump targets that ignored scripted or keyboard scrolling.
 
