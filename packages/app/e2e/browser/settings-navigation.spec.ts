@@ -61,20 +61,23 @@ test.describe("Settings sidebar navigation", () => {
       for (const node of nodes) sectionIds.push(node.getAttribute("data-testid"));
       return sectionIds;
     });
-    const profileIndex = ids.indexOf("settings-section-profiles");
-    expect(ids.slice(profileIndex, profileIndex + 5)).toEqual([
-      "settings-section-profiles",
+    expect(ids).toEqual([
+      "settings-section-general",
+      "settings-section-accounts",
+      "settings-section-agents",
+      "settings-section-chat",
+      "settings-section-terminal",
+      "settings-section-appearance",
+      "settings-section-workspaces",
       "settings-section-environments",
-      "settings-section-providers",
-      "settings-section-projects",
-      "settings-section-connections",
+      "settings-section-plugins",
+      "settings-section-maintenance",
+      "settings-section-about",
     ]);
     await expect(sidebar.getByTestId("settings-section-pair-device")).toHaveCount(0);
-    const profilesBox = await sidebar.getByTestId("settings-section-profiles").boundingBox();
-    const environmentsBox = await sidebar
-      .getByTestId("settings-section-environments")
-      .boundingBox();
-    expect(environmentsBox!.y - profilesBox!.y - profilesBox!.height).toBeLessThanOrEqual(8);
+    const generalBox = await sidebar.getByTestId("settings-section-general").boundingBox();
+    const accountsBox = await sidebar.getByTestId("settings-section-accounts").boundingBox();
+    expect(accountsBox!.y - generalBox!.y - generalBox!.height).toBeLessThanOrEqual(8);
     await openSettingsSection(page, "editor");
     await expect(page.getByText(/Press i to enter Insert mode/)).toBeVisible();
 
@@ -97,7 +100,9 @@ test.describe("Settings sidebar navigation", () => {
     await expect(back).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
     await back.hover();
     await expect(back).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await page.screenshot({ path: test.info().outputPath("settings-back-hover.png") });
+    await page.screenshot({
+      path: test.info().outputPath("settings-back-hover.png"),
+    });
     await clickSettingsBackToWorkspace(page);
     await expect(page).not.toHaveURL(/\/settings(\/|$)/);
   });
@@ -183,7 +188,7 @@ test.describe("Settings — compact master-detail", () => {
 
     await test.step("open app details and return to the list", async () => {
       await openSettingsSection(page, "diagnostics");
-      await expectAppRoute(page, buildSettingsSectionRoute("diagnostics"));
+      await expectAppRoute(page, buildSettingsSectionRoute("maintenance"));
       await expectDiagnosticsContent(page);
       await expectSettingsSidebarHidden(page);
       await expectSettingsBackButton(page);
@@ -208,14 +213,20 @@ test.describe("Settings — compact master-detail", () => {
     page,
     withWorkspace,
   }) => {
-    const workspace = await withWorkspace({ prefix: "host-picker-settings-back-" });
+    const workspace = await withWorkspace({
+      prefix: "host-picker-settings-back-",
+    });
     const workspaceRoute = buildHostWorkspaceRoute(getServerId(), workspace.workspaceId);
 
     await openWorkspace(page, workspace);
     await openCompactSettings(page, workspaceRoute);
     await openSettingsHostSection(page, getServerId(), "host");
     await expectAppRoute(page, buildSettingsSectionRoute("environments"));
-    await expect(page.getByTestId(`settings-environment-${getServerId()}`)).toBeVisible();
+    await expect(
+      page
+        .getByTestId("settings-environment-scroll")
+        .getByTestId(`settings-environment-${getServerId()}`),
+    ).toBeVisible();
 
     await goBackInSettings(page);
     await expectCompactSettingsList(page);
@@ -245,12 +256,13 @@ test.describe("Settings — compact master-detail", () => {
     await expectSettingsSidebarVisible(page);
 
     await openSettingsHostSection(page, secondaryServerId, "connections");
-    await expect(page.getByTestId(`settings-environment-${primaryServerId}`)).toContainText(
+    const connections = page.getByTestId("settings-pane-environments.connections");
+    await expect(connections.getByTestId(`settings-environment-${primaryServerId}`)).toContainText(
       "First horse",
     );
-    await expect(page.getByTestId(`settings-environment-${secondaryServerId}`)).toContainText(
-      secondaryHostLabel,
-    );
+    await expect(
+      connections.getByTestId(`settings-environment-${secondaryServerId}`),
+    ).toContainText(secondaryHostLabel);
   });
 
   test("removing the last active host returns to welcome after settings closes", async ({
@@ -281,12 +293,17 @@ for (const width of [1280, 390]) {
       { serverId: secondary, label: "Dev container", endpoint },
     ]);
     await page.goto(buildSettingsSectionRoute("environments"));
+    // Environment cards also appear in other sections' panes; scope to this one.
+    const pane = page.getByTestId("settings-environment-scroll");
     const tabs = page.getByTestId("settings-environment-tabs");
     const hostTab = page.getByRole("tab", { name: "Host", exact: true });
-    const devTab = page.getByRole("tab", { name: "Dev container", exact: true });
+    const devTab = page.getByRole("tab", {
+      name: "Dev container",
+      exact: true,
+    });
     await expect(hostTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId(`settings-environment-${primary}`)).toBeVisible();
-    await expect(page.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
+    await expect(pane.getByTestId(`settings-environment-${primary}`)).toBeVisible();
+    await expect(pane.getByTestId(`settings-environment-${secondary}`)).toHaveCount(0);
     const tabBar = page.getByTestId("settings-environment-tabs-bar");
     await expect(tabBar).toHaveCSS("border-bottom-width", "1px");
     await expect(tabBar).toHaveCSS("border-bottom-style", "solid");
@@ -297,25 +314,28 @@ for (const width of [1280, 390]) {
       await expect(tab).not.toHaveCSS("border-top-right-radius", "0px");
     }
     const barBounds = await tabBar.boundingBox();
-    const contentBounds = await page.getByTestId(`settings-environment-${primary}`).boundingBox();
+    const contentBounds = await pane.getByTestId(`settings-environment-${primary}`).boundingBox();
     expect(barBounds).not.toBeNull();
     expect(contentBounds).not.toBeNull();
     expect(barBounds!.x).toBeCloseTo(contentBounds!.x, 0);
     expect(barBounds!.width).toBeCloseTo(contentBounds!.width, 0);
-    const initialTabs = await tabs.boundingBox();
-    expect(initialTabs).not.toBeNull();
-    const scroll = page.getByTestId("settings-environment-scroll");
+    // The settings page scrolls; the tabs stick while this environment's details pass under them.
+    const scroll = page.getByTestId("settings-scroll-page");
     await scroll.hover();
-    await page.mouse.wheel(0, 900);
+    await page.mouse.wheel(0, 200);
     await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    const stuck = await tabs.boundingBox();
+    await page.mouse.wheel(0, 120);
     await expect(tabs).toBeVisible();
-    expect((await tabs.boundingBox())!.y).toBe(initialTabs!.y);
+    await expect.poll(async () => (await tabs.boundingBox())!.y).toBe(stuck!.y);
     await devTab.click();
     await expect(devTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId(`settings-environment-${secondary}`)).toBeAttached();
-    await expect(page.getByTestId(`settings-environment-${primary}`)).toHaveCount(0);
+    await expect(pane.getByTestId(`settings-environment-${secondary}`)).toBeAttached();
+    await expect(pane.getByTestId(`settings-environment-${primary}`)).toHaveCount(0);
     await hostTab.click();
     await expect(hostTab).toHaveAttribute("aria-selected", "true");
-    await page.screenshot({ path: test.info().outputPath(`environment-tabs-${width}.png`) });
+    await page.screenshot({
+      path: test.info().outputPath(`environment-tabs-${width}.png`),
+    });
   });
 }

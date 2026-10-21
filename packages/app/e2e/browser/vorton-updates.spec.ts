@@ -140,7 +140,7 @@ test("Vorteo checks main and requires a connected installation host before prepa
   await expect(page.getByTestId("settings-vorton-mode")).toHaveCount(0);
   await expect(page.getByTestId("settings-sidebar-version")).toHaveCount(1);
   await page.getByTestId("settings-sidebar-version").click();
-  await expect(page).toHaveURL(/\/settings\/general$/);
+  await expect(page).toHaveURL(/\/settings\/maintenance$/);
   await expect(page.getByTestId("vorton-update-status")).toHaveText(
     "3 new commits are available on main.",
   );
@@ -149,7 +149,7 @@ test("Vorteo checks main and requires a connected installation host before prepa
   await expect(
     page.getByText("Connect this installation's host environment before preparing an update task."),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/settings\/general$/);
+  await expect(page).toHaveURL(/\/settings\/maintenance$/);
   const oldDraft = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("paseo-drafts") ?? "{}").state.drafts["new-workspace"].input
@@ -233,7 +233,7 @@ test("manual checks show lasting feedback and the version footer starts a fresh 
   await page.getByTestId("settings-sidebar").getByText("General", { exact: true }).click();
   const before = requests;
   await page.getByTestId("settings-sidebar-version").click();
-  await expect(page).toHaveURL(/\/settings\/general$/);
+  await expect(page).toHaveURL(/\/settings\/maintenance$/);
   await expect.poll(() => requests).toBeGreaterThan(before);
   await expect(page.getByTestId("vorton-check-success")).toHaveText("You're up to date");
 });

@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState, type ReactElement } from "react";
-import { Pressable, View } from "react-native";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { Pressable, View, type TextInputProps } from "react-native";
 import { Search, X } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
@@ -27,6 +27,10 @@ export interface SearchFieldProps {
   clearAccessibilityLabel: string;
   testID?: string;
   clearTestID?: string;
+  /** Arrow and Escape handling for a result list the field drives. */
+  onKeyPress?: TextInputProps["onKeyPress"];
+  onSubmitEditing?: TextInputProps["onSubmitEditing"];
+  autoFocus?: boolean;
 }
 
 /**
@@ -44,11 +48,20 @@ export function SearchField({
   clearAccessibilityLabel,
   testID,
   clearTestID,
+  onKeyPress,
+  onSubmitEditing,
+  autoFocus,
 }: SearchFieldProps): ReactElement {
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<EditingTextInputHandle>(null);
   const handleFocus = useCallback(() => setIsFocused(true), []);
   const handleBlur = useCallback(() => setIsFocused(false), []);
+  // The input is uncontrolled; follow a value the caller resets, such as
+  // clearing the query after jumping to a result.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input && input.getText() !== value) input.replaceText(value);
+  }, [value]);
   const handleClear = useCallback(() => {
     inputRef.current?.replaceText("");
     onChangeText("");
@@ -69,6 +82,9 @@ export function SearchField({
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"
+        onKeyPress={onKeyPress}
+        onSubmitEditing={onSubmitEditing}
+        autoFocus={autoFocus}
         style={styles.input}
       />
       {value.length > 0 ? (

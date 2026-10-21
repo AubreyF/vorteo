@@ -208,7 +208,10 @@ test("provider drag order persists, reports save failures, and plugin deletion s
         "over droppable area claude",
       );
       await page.keyboard.press("Space");
-      await expect(page.getByRole("alert")).toContainText(/EISDIR|directory/);
+      // Other settings panes on the same page have their own alerts.
+      await expect(
+        page.getByTestId("settings-pane-accounts.providers").getByRole("alert"),
+      ).toContainText(/EISDIR|directory/);
       await expect(handles.first()).toHaveAttribute("data-testid", "provider-drag-codex");
     } finally {
       await rm(configPath, { recursive: true });
@@ -225,7 +228,9 @@ test("provider drag order persists, reports save failures, and plugin deletion s
     await expect
       .poll(async () => (await client.getDaemonConfig()).config.providers.codex?.order)
       .toBe(1);
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(
+      page.getByTestId("settings-pane-accounts.providers").getByRole("alert"),
+    ).toHaveCount(0);
     for (const id of ["antigravity", "muse"]) {
       const confirmation = page.waitForEvent("dialog").then((dialog) => dialog.accept());
       await Promise.all([page.getByTestId(`provider-remove-${id}`).click(), confirmation]);
