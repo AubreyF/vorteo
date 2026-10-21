@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { connectToDaemon, resolveAgentId } from "../../utils/client.js";
+import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import type {
   CommandOptions,
   SingleResult,
@@ -52,7 +53,9 @@ export async function runReloadCommand(
 
   try {
     const agentsPayload = await client.fetchAgents({ filter: { includeArchived: true } });
-    const agents = agentsPayload.entries.map((entry) => entry.agent);
+    const agents = agentsPayload.entries.map(
+      (entry: { agent: AgentSnapshotPayload }) => entry.agent,
+    );
     const agentId = resolveAgentId(agentIdArg, agents);
     if (!agentId) {
       const error: CommandError = {
