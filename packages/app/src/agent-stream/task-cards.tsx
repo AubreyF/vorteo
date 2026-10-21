@@ -10,7 +10,7 @@ import { SharedQueueView } from "@/message-queue/queue-view";
 import { useMessageQueue } from "@/message-queue/use-message-queue";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
-import { PanePortal } from "@/panels/pane-context";
+import { WorkspaceCardsPortal } from "@/screens/workspace/supporting-cards-context";
 
 const ignoreCreatedDraft = () => {};
 
@@ -69,9 +69,9 @@ export function AgentTaskCards({
       ) : null}
       {/* The portal transport captures its host on mount; remount when moving the queue. */}
       {queueHostName ? (
-        <PanePortal key={queueHostName} hostName={queueHostName}>
+        <WorkspaceCardsPortal key={queueHostName} hostName={queueHostName} agentId={agentId}>
           {queueCards}
-        </PanePortal>
+        </WorkspaceCardsPortal>
       ) : (
         queueCards
       )}
