@@ -1328,7 +1328,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         visibleMessageIds={visibleMessageIds}
       >
         <ToolCallSheetProvider>
-          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost}>
+          <WorkspaceCardsPortal key={cardsPortalHost} hostName={cardsPortalHost} agentId={agentId}>
             {taskCards}
             {pendingActionPermissionsNode}
           </WorkspaceCardsPortal>

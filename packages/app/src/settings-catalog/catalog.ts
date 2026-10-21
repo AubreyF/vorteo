@@ -711,6 +711,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     scope: installation,
   },
   {
+    id: "environments.connections.check",
+    pane: "environments.connections",
+    label: "Connection check",
+    keywords: ["connection check", "host", "dev", "dns", "tailscale", "latency", "reachability"],
+    scope: device,
+  },
+  {
     id: "environments.connections.list",
     pane: "environments.connections",
     label: "Connections",
@@ -766,17 +773,17 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     scope: installation,
   },
   {
-    id: "maintenance.installation.instructionChanges",
+    id: "maintenance.installation.instructions",
     pane: "maintenance.installation",
     label: "Agent instruction changes",
-    keywords: ["instruction proposals", "AGENTS.md", "review instructions"],
+    keywords: ["system prompt", "instruction request", "approve instructions"],
     scope: installation,
   },
   {
     id: "maintenance.installation.sessionHost",
     pane: "maintenance.installation",
     label: "Session host",
-    keywords: ["session host job", "native sessions"],
+    keywords: ["durable sessions", "session host install"],
     scope: installation,
   },
   {
