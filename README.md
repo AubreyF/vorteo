@@ -55,7 +55,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 - **Run tasks in either environment within one workspace.** Choose Host or Dev container in a new task while retaining draft text and uploaded files. Task tabs identify their environment; mapped directories and remembered folder choices keep later tasks in the same visible workspace. Updated daemons are required.
 
-- **Let Host agents use a browser.** Enable the Host daemon's headless Chromium, or run `paseo browser host`, so Host agents can open pages, read them, click and take screenshots. It starts with an empty profile, never touches your logged-in browser state and blocks origins you deny, such as the protected interface. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).
+- **Let agents use a browser.** Enable the Host or Dev daemon's headless Chromium, or run `paseo browser host`, so agents can open pages, read them, click and take screenshots. Dev's browser runs inside the container. It starts with an empty profile and never touches your logged-in browser state. It cannot reach this machine, your private networks or your tailnet unless you allow a specific address or preview port range, and it always refuses origins you deny, such as the protected interface. See [browser tools for Host agents](docs/execution-installation.md#browser-tools-for-host-agents).
 
 See the [Vorteo customizations](docs/vorteo-customizations.md) for the full feature inventory and the [Vorteo changelog](VORTEO_CHANGELOG.md) for changes by version.
 
