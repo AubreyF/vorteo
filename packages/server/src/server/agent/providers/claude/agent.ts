@@ -153,6 +153,8 @@ import {
   type ResolvedProviderLaunch,
 } from "../../provider-launch-config.js";
 import { withTimeout } from "../../../../utils/promise-timeout.js";
+import type { AgentContextBreakdown } from "@getpaseo/protocol/agent-context";
+import { toContextBreakdown } from "./context-breakdown.js";
 import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
 import { execCommand } from "../../../../utils/spawn.js";
 import { composeSystemPromptParts } from "../../system-prompt.js";
@@ -2250,6 +2252,22 @@ class ClaudeAgentSession implements AgentSession {
       modelId: this.config.model,
       fastModeEnabled: this.config.featureValues?.fast_mode === true,
     });
+  }
+
+  /**
+   * Claude's /context breakdown, read on demand. Upstream stopped reading it after every turn
+   * because each read costs a request (#1701), so clients ask only while the details are open.
+   * Null when no query is running yet.
+   */
+  async getContextBreakdown(): Promise<AgentContextBreakdown | null> {
+    const activeQuery = this.query;
+    if (!activeQuery) return null;
+    const usage = await withTimeout(
+      activeQuery.getContextUsage(),
+      10_000,
+      "Claude did not report its context usage in time",
+    );
+    return toContextBreakdown(usage, new Date());
   }
 
   async getRuntimeInfo(): Promise<AgentRuntimeInfo> {

@@ -1945,6 +1945,20 @@ export const ar: TranslationResources = {
     tokens: "رموز{{used}}/{{max}}",
     sessionCost: "تكلفة الجلسة{{cost}}",
     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
+    breakdown: {
+      used: "مستخدم",
+      free: "مساحة فارغة",
+      loading: "جارٍ تحميل التفصيل",
+      totalsOnly: "يُبلغ هذا المزوّد عن الإجماليات فقط.",
+      error: "تعذّر تحميل التفصيل.",
+      overLimit: "تجاوز النافذة بمقدار {{tokens}} رمزًا",
+      groups: {
+        mcpTools: "أدوات MCP",
+        memoryFiles: "ملفات الذاكرة",
+        skills: "المهارات",
+        agents: "وكلاء مخصّصون",
+      },
+    },
   },
   review: {
     comment: {

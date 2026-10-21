@@ -1978,6 +1978,20 @@ export const ru: TranslationResources = {
     tokens: "Токены: {{used}} / {{max}}",
     sessionCost: "Стоимость сессии: {{cost}}",
     accessibility: "Использовано {{percentage}}% контекстного окна",
+    breakdown: {
+      used: "Использовано",
+      free: "Свободно",
+      loading: "Загрузка разбивки",
+      totalsOnly: "Этот провайдер сообщает только итоги.",
+      error: "Не удалось загрузить разбивку.",
+      overLimit: "Окно превышено на {{tokens}} токенов",
+      groups: {
+        mcpTools: "Инструменты MCP",
+        memoryFiles: "Файлы памяти",
+        skills: "Навыки",
+        agents: "Пользовательские агенты",
+      },
+    },
   },
   review: {
     comment: {

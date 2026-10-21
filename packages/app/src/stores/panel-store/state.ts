@@ -18,6 +18,8 @@ export const SUPPORTING_CARD_DEFAULTS = {
   providerSubagents: true,
   files: false,
   changes: false,
+  // Collapsed by default: expanding it reads the provider's context breakdown.
+  context: false,
 } as const;
 export type SupportingCardLayout = "sidebar" | "inline";
 export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
@@ -33,6 +35,7 @@ const SupportingCardStateSchema = z
     providerSubagents: z.boolean(),
     files: z.boolean(),
     changes: z.boolean(),
+    context: z.boolean(),
   })
   .partial();
 

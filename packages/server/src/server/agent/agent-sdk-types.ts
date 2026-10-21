@@ -1,5 +1,6 @@
 import type { CompactionInspection } from "@getpaseo/protocol/messages";
 import type { SkillSnapshot } from "@getpaseo/protocol/skill-library";
+import type { AgentContextBreakdown } from "@getpaseo/protocol/agent-context";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { ProviderLoginSession } from "../../services/provider-login/session.js";
 import type {
@@ -792,6 +793,8 @@ export interface AgentSession {
   readonly capabilities: AgentCapabilityFlags;
   readonly features?: AgentFeature[];
   readonly goals?: AgentGoals;
+  /** Provider-reported breakdown of the context window; omitted when the provider has none. */
+  getContextBreakdown?(): Promise<AgentContextBreakdown | null>;
   /** New provider-owned rows to commit on registration. streamHistory must also
    * replay them at their original timestamps; restored sessions omit old rows. */
   readonly initialTimeline?: ImportedTimelineEntry[];

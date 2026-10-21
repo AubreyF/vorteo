@@ -1998,6 +1998,20 @@ export const fr: TranslationResources = {
     tokens: "Jetons{{used}}/{{max}}",
     sessionCost: "Coût de la séance{{cost}}",
     accessibility: "Fenêtre contextuelle{{percentage}}% utilisé",
+    breakdown: {
+      used: "Utilisé",
+      free: "Espace libre",
+      loading: "Chargement de la répartition",
+      totalsOnly: "Ce fournisseur ne communique que les totaux.",
+      error: "Impossible de charger la répartition.",
+      overLimit: "{{tokens}} jetons au-delà de la fenêtre",
+      groups: {
+        mcpTools: "Outils MCP",
+        memoryFiles: "Fichiers mémoire",
+        skills: "Compétences",
+        agents: "Agents personnalisés",
+      },
+    },
   },
   review: {
     comment: {

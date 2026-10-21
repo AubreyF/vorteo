@@ -3436,6 +3436,14 @@ export class AgentManager {
     return notice;
   }
 
+  /** Null when the agent's provider does not report a context breakdown. */
+  async readContextBreakdown(
+    agentId: string,
+  ): Promise<import("@getpaseo/protocol/agent-context").AgentContextBreakdown | null> {
+    const agent = this.requireSessionAgent(agentId);
+    return (await agent.session.getContextBreakdown?.()) ?? null;
+  }
+
   async readAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
