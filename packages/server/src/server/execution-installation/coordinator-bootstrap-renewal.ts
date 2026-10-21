@@ -38,6 +38,7 @@ import {
   loadedCoordinatorPid,
   readBootstrapLauncher,
   verifyLoadedBootstrapService,
+  verifyRetainedProcessExited,
   type BootstrapServiceReader,
   type NativeBootstrapServiceReader,
 } from "./coordinator-bootstrap-service.js";
@@ -493,20 +494,8 @@ async function verifyTerminalProcess(
     throw new BootstrapRequestConflict(
       "Terminal coordinator renewal executor receipt is incomplete",
     );
-  await ports.reader.inspectProcess(record.pid).then(
-    () => {
-      throw new BootstrapRequestConflict("Terminal coordinator updater is still live");
-    },
-    async () => {
-      // Native exit proof is mandatory; a failed identity observation is not exit.
-      const native = ports.reader as BootstrapServiceReader & {
-        verifyProcessExited?(pid: number): Promise<void>;
-      };
-      if (!native.verifyProcessExited)
-        throw new BootstrapRequestConflict("Renewal executor exit proof is unavailable");
-      await native.verifyProcessExited(record.pid);
-    },
-  );
+  // Native absence, or a stable later birth at a reused PID in the same boot, proves exit.
+  await verifyRetainedProcessExited(ports.reader, record.process!);
   if (terminal.request.execution!.stage !== "resumed") {
     const transfer = z
       .strictObject({
