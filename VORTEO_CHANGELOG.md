@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.727 - 2026-10-21
+
+### Fixes
+
+- Coordinator maintenance no longer treats an unrelated process that later reused the previous updater's PID as that updater still running. Renewal and recovery now prove the updater exited with the reviewed retained-process check: native absence, or a stable later birth at the same PID under the same boot and user. A reused PID no longer blocks coordinator renewal or recovery.
 
 ## 0.11.0-beta.3.vorteo.726 - 2026-10-20
 

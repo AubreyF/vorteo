@@ -35,6 +35,7 @@ import {
   readBootstrapLauncher,
   verifyBootstrapLaunchers,
   verifyLoadedBootstrapService,
+  verifyRetainedProcessExited,
   verifyUnregisteredBootstrapCoordinator,
 } from "./coordinator-bootstrap-service.js";
 
@@ -426,7 +427,10 @@ async function verifyRecoveredBootstrapExit(
       throw new BootstrapRequestConflict("Previous updater record changed");
     if (!reader.verifyProcessExited)
       throw new BootstrapRequestConflict("Native updater exit proof is unavailable");
-    await reader.verifyProcessExited(record.pid);
+    // A reused PID must not keep a retained updater lifetime alive.
+    await (record.process
+      ? verifyRetainedProcessExited(reader, record.process)
+      : reader.verifyProcessExited(record.pid));
     return;
   }
   const { readClaimedSuccessorEvidence, verifyClaimedSuccessorExit } =
