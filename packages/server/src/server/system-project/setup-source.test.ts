@@ -101,6 +101,11 @@ describe("Vorteo source setup", () => {
     expect(existsSync(path.join(systemPaths(home).source, ".git"))).toBe(false);
   });
 
+  test("refuses to clone when the installation's own checkout is configured", async () => {
+    writeSettings({ source: { checkout: "/elsewhere/vorteo" } });
+    await expect(setup()).rejects.toThrow("already uses the checkout it was installed from");
+  });
+
   test("never touches a folder that already has files", async () => {
     writeSettings({ source: { repository: upstream } });
     writeFileSync(path.join(systemPaths(home).source, "notes.txt"), "mine\n");

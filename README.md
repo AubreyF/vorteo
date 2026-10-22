@@ -55,7 +55,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 <img width="400" alt="Protected and scheduled workspaces" src="https://github.com/user-attachments/assets/757352aa-a2e7-457d-b95f-7ded601444f7" />
 
-- **Tailor your own installation.** Every daemon keeps a protected Vorteo System project for its standing upkeep, such as the Optimization Runner, which agents and bulk actions cannot archive or move. Set up Vorteo source from Maintenance settings to clone your installation's own source into the project, then branch from it to change Vorteo itself; changes go live through your reviewed source update. Requires the updated daemon. See [Vorteo System project](docs/system-project.md).
+- **Tailor your own installation.** Every daemon keeps a Vorteo System project that sits with your other projects under the Vorteo mark. Point it at the checkout your installation was built from, and new workspaces branch from the code that is running; changes go live through your reviewed source update. It also holds standing upkeep such as the Optimization Runner, and it can't be removed. Requires the updated daemon. See [Vorteo System project](docs/system-project.md).
 
 - **Run tasks in either environment within one workspace.** Choose Host or Dev container in a new task while retaining draft text and uploaded files. Task tabs identify their environment; mapped directories and remembered folder choices keep later tasks in the same visible workspace. Updated daemons are required.
 

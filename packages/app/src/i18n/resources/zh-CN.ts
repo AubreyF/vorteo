@@ -1181,6 +1181,7 @@ export const zhCN: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "移除 project",
         removing: "正在移除...",
+        removeBlockedSystem: "Vorteo System 包含此安装自身的源代码和维护工作区，因此无法移除。",
       },
       confirmations: {
         removeTitle: "移除 project？",
@@ -2656,6 +2657,12 @@ export const zhCN: TranslationResources = {
         imageUrl: "图片或网站 URL",
         save: "保存更改",
         savedToast: "Project 已更新",
+        nameLockedSystem: "此项目的名称由守护进程决定，因此无法重命名。",
+      },
+      system: {
+        title: "关于 Vorteo System",
+        description:
+          "此项目用于改进此 Vorteo 安装。它基于构建此安装所用的检出代码，同时包含由守护进程管理的维护工作区，例如 Optimization Runner。守护进程会重新创建并依赖它，因此无法移除或重命名。",
       },
       readFailures: {
         invalidTitle: "无法解析 paseo.json",

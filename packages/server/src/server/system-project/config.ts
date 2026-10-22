@@ -10,11 +10,26 @@ export const SystemProjectConfigSchema = z
   .object({
     /** Existing workspace to move into a role instead of creating a new one, by exact ID. */
     adopt: z.record(z.string().min(1), z.string().regex(/^wks_[0-9a-f]+$/u)).optional(),
-    /** Where "Set up Vorteo source" clones from and which commit or branch it checks out. */
+    /**
+     * The installation's source. `checkout` is the working checkout the installation was
+     * built from; when set, it becomes the project root, so new workspaces branch from it.
+     * Without it, "Set up Vorteo source" clones `repository` at `ref` into the project root.
+     */
     source: z
       .object({
-        repository: z.string().min(1),
+        repository: z.string().min(1).optional(),
         ref: z.string().min(1).optional(),
+        checkout: z.string().min(1).optional(),
+      })
+      .optional(),
+    /**
+     * Existing projects and workspaces to fold into the System project, by exact ID.
+     * Every workspace moves, archived ones too, and a listed project left empty is archived.
+     */
+    absorb: z
+      .object({
+        projects: z.array(z.string().regex(/^prj_[0-9a-f]+$/u)).optional(),
+        workspaces: z.array(z.string().regex(/^wks_[0-9a-f]+$/u)).optional(),
       })
       .optional(),
   })

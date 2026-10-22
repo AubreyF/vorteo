@@ -1,8 +1,4 @@
-import {
-  splitFactoryWorkspaces,
-  splitSystemWorkspaces,
-  type SidebarSystemGroup,
-} from "@/workspace/lifecycle/grouping";
+import { splitFactoryWorkspaces } from "@/workspace/lifecycle/grouping";
 import { buildStatusGroups } from "@/hooks/sidebar-status-view-model";
 import {
   splitPinnedSidebarGroups,
@@ -28,8 +24,6 @@ import { statusWorkspaceGroups, type SidebarWorkspaceGroup } from "./sidebar-lab
 export interface SidebarProjection {
   pinnedGroups: PinnedSidebarGroups;
   workspaceGroups: SidebarWorkspaceGroup[];
-  /** The Vorteo System section, rendered after every other group in each mode. */
-  systemGroups: SidebarSystemGroup[];
   /**
    * The project icons this projection needs fetched, keyed by `projectViewKey` — one per project,
    * whatever the mode groups by. It sits here rather than beside `useProjectIcons` in the list
@@ -53,44 +47,17 @@ export interface SidebarProjectionInput {
   collapsedProjectKeys: ReadonlySet<string>;
   collapsedWorkspaceGroupKeys: ReadonlySet<string>;
   factorySupportedHosts?: ReadonlyMap<string, boolean>;
-  systemSupportedHosts?: ReadonlyMap<string, boolean>;
 }
 
-const EMPTY_HOSTS: ReadonlyMap<string, boolean> = new Map();
-
 export function buildSidebarProjection(input: SidebarProjectionInput): SidebarProjection {
-  const splitPinned = splitPinnedSidebarGroups({
+  const pinnedGroups = splitPinnedSidebarGroups({
     projects: input.projects,
     keys: input.pinnedKeys,
     pinnedWorkspaceOrder: input.pinnedWorkspaceOrder,
   });
-  const supportedSystemHosts = input.systemSupportedHosts ?? EMPTY_HOSTS;
-  const systemWorkspaceKeys = new Set(
-    splitSystemWorkspaces(
-      input.projects.flatMap((project) => project.workspaces),
-      input.workspaceEntriesByKey,
-      supportedSystemHosts,
-    ).system.flatMap((group) => group.workspaces.map((workspace) => workspace.workspaceKey)),
-  );
-  // Pinned system workspaces stay pinned; the rest move from their project into the section.
-  const systemSplit = splitSystemWorkspaces(
-    splitPinned.unpinnedProjects.flatMap((project) => project.workspaces),
-    input.workspaceEntriesByKey,
-    supportedSystemHosts,
-  );
-  const pinnedGroups: PinnedSidebarGroups = {
-    pinnedChats: splitPinned.pinnedChats,
-    unpinnedProjects: withoutSystemWorkspaces(
-      input.projects,
-      splitPinned.unpinnedProjects,
-      systemWorkspaceKeys,
-    ),
-  };
   const pinnedWorkspaceKeys = new Set(input.pinnedKeys.pinnedWorkspaceKeys);
   const unpinnedWorkspaces = Array.from(input.workspaceEntriesByKey.values()).filter(
-    (workspace) =>
-      !pinnedWorkspaceKeys.has(workspace.workspaceKey) &&
-      !systemWorkspaceKeys.has(workspace.workspaceKey),
+    (workspace) => !pinnedWorkspaceKeys.has(workspace.workspaceKey),
   );
   // One switch decides both what the list groups by and what the keyboard shortcuts walk, so the
   // two cannot disagree and a new grouping mode is a compile error here rather than a silent
@@ -131,54 +98,13 @@ export function buildSidebarProjection(input: SidebarProjectionInput): SidebarPr
       })),
     );
   }
-  sections.push(
-    ...systemSplit.system.map((group) => ({
-      workspaces: group.workspaces,
-      // Host headings, and so their own collapse, appear only when several hosts contribute.
-      collapsed:
-        input.collapsedWorkspaceGroupKeys.has(SYSTEM_SECTION_KEY) ||
-        (systemSplit.system.length > 1 &&
-          input.collapsedWorkspaceGroupKeys.has(`${SYSTEM_SECTION_KEY}:${group.serverId}`)),
-    })),
-  );
 
   return {
     pinnedGroups,
     workspaceGroups,
-    systemGroups: systemSplit.system,
     projectIconTargets: resolveSidebarProjectIconTargets(input.projects),
     shortcutModel: buildSidebarShortcutSections({ sections }),
   };
-}
-
-export const SYSTEM_SECTION_KEY = "system";
-
-/**
- * A project made only of System project members leaves the project list entirely, even when its
- * remaining members are pinned, so its header never stands empty above the list.
- */
-function withoutSystemWorkspaces(
-  projects: readonly SidebarProjectEntry[],
-  unpinnedProjects: SidebarProjectEntry[],
-  systemWorkspaceKeys: ReadonlySet<string>,
-): SidebarProjectEntry[] {
-  if (systemWorkspaceKeys.size === 0) return unpinnedProjects;
-  const systemProjectKeys = new Set(
-    projects
-      .filter(
-        (project) =>
-          project.workspaces.length > 0 &&
-          project.workspaces.every((workspace) => systemWorkspaceKeys.has(workspace.workspaceKey)),
-      )
-      .map((project) => project.viewKey),
-  );
-  return unpinnedProjects.flatMap((project) => {
-    if (systemProjectKeys.has(project.viewKey)) return [];
-    const workspaces = project.workspaces.filter(
-      (workspace) => !systemWorkspaceKeys.has(workspace.workspaceKey),
-    );
-    return [workspaces.length === project.workspaces.length ? project : { ...project, workspaces }];
-  });
 }
 
 /** Project mode keeps its project headers and groups nothing; status mode groups the rows. */

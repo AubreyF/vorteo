@@ -103,6 +103,8 @@ describe("startup seeding", () => {
       created: [],
       adopted: [],
       retired: [],
+      absorbed: [],
+      archivedProjects: [],
     });
     expect(JSON.stringify([await projects.list(), await workspaces.list()])).toBe(before);
   });
@@ -241,6 +243,128 @@ describe("adoption", () => {
     open();
     const result = await ensure();
     expect(result.adopted).toEqual([]);
+  });
+});
+
+describe("installation checkout", () => {
+  function makeCheckout(name = "vorteo") {
+    const checkout = path.join(home, name);
+    mkdirSync(path.join(checkout, ".git"), { recursive: true });
+    return checkout;
+  }
+
+  test("the configured checkout becomes the project root", async () => {
+    const checkout = makeCheckout();
+    writeConfig({ source: { checkout } });
+    await ensure();
+    expect((await projects.list())[0]).toMatchObject({
+      rootPath: checkout,
+      kind: "git",
+      projectKey: "system:srv_test",
+    });
+  });
+
+  test("an existing project follows a newly configured or renamed checkout", async () => {
+    const { projectId } = await ensure();
+    const checkout = makeCheckout("renamed");
+    writeConfig({ source: { checkout } });
+    open();
+    await ensure();
+    expect(await projects.get(projectId)).toMatchObject({ rootPath: checkout, kind: "git" });
+  });
+
+  test("a checkout that is not a git checkout falls back to the System folder", async () => {
+    mkdirSync(path.join(home, "plain"), { recursive: true });
+    writeConfig({ source: { checkout: path.join(home, "plain") } });
+    await ensure();
+    expect((await projects.list())[0]).toMatchObject({
+      rootPath: systemPaths(home).source,
+      kind: "non_git",
+    });
+  });
+});
+
+describe("absorption", () => {
+  const OLD = "prj_0a0a0a0a0a0a0a0a";
+  const OTHER = "prj_0b0b0b0b0b0b0b0b";
+
+  async function seedProject(projectId: string, rootPath: string) {
+    await projects.upsert(
+      createPersistedProjectRecord({
+        projectId,
+        rootPath,
+        kind: "git",
+        displayName: path.basename(rootPath),
+        projectKey: `remote:${projectId}`,
+        createdAt: T0,
+        updatedAt: T0,
+      }),
+    );
+  }
+
+  async function seedWorkspace(workspaceId: string, projectId: string, archived = false) {
+    const record = createPersistedWorkspaceRecord({
+      workspaceId,
+      projectId,
+      projectMembership: { key: `remote:${projectId}`, name: "Vorteo" },
+      cwd: path.join(home, workspaceId),
+      kind: "local_checkout",
+      displayName: "main",
+      title: workspaceId,
+      branch: "main",
+      worktreeRoot: path.join(home, workspaceId),
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    await workspaces.upsert(archived ? { ...record, archivedAt: T0 } : record);
+  }
+
+  test("moves every listed workspace, archived ones too, and archives the emptied project", async () => {
+    await seedProject(OLD, path.join(home, "paseo"));
+    await seedProject(OTHER, path.join(home, "other"));
+    await seedWorkspace("wks_01", OLD);
+    await seedWorkspace("wks_02", OLD, true);
+    await seedWorkspace("wks_03", OTHER);
+    await seedWorkspace("wks_04", OTHER);
+    writeConfig({ absorb: { projects: [OLD], workspaces: ["wks_03"] } });
+
+    const result = await ensure();
+
+    expect(result.absorbed.sort()).toEqual(["wks_01", "wks_02", "wks_03"]);
+    expect(result.archivedProjects).toEqual([OLD]);
+    for (const id of ["wks_01", "wks_02", "wks_03"]) {
+      expect(await workspaces.get(id)).toMatchObject({
+        projectId: result.projectId,
+        projectMembership: null,
+        cwd: path.join(home, id),
+        kind: "local_checkout",
+      });
+    }
+    expect((await workspaces.get("wks_02"))?.archivedAt).toBe(T0);
+    expect(await workspaces.get("wks_04")).toMatchObject({ projectId: OTHER });
+    expect((await projects.get(OLD))?.archivedAt).toBe(T0);
+    expect((await projects.get(OTHER))?.archivedAt).toBeNull();
+  });
+
+  test("a second start finds nothing left to absorb", async () => {
+    await seedProject(OLD, path.join(home, "paseo"));
+    await seedWorkspace("wks_01", OLD);
+    writeConfig({ absorb: { projects: [OLD] } });
+    await ensure();
+    open();
+    const second = await ensure();
+    expect(second).toMatchObject({ absorbed: [], archivedProjects: [] });
+  });
+
+  test("absorbed workspaces stay ordinary operator workspaces", async () => {
+    await seedProject(OLD, path.join(home, "paseo"));
+    await seedWorkspace("wks_01", OLD);
+    writeConfig({ absorb: { projects: [OLD] } });
+    await ensure();
+    await workspaces.update("wks_01", (current) => ({ ...current, title: "Renamed" }));
+    await workspaces.archive("wks_01", T0);
+    expect(await workspaces.get("wks_01")).toMatchObject({ title: "Renamed", archivedAt: T0 });
+    expect((await workspaces.get("wks_01"))?.systemMembership).toBeUndefined();
   });
 });
 

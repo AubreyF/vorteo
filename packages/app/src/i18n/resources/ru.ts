@@ -1208,6 +1208,8 @@ export const ru: TranslationResources = {
         openFolderFailed: "Не удалось открыть папку",
         remove: "Удалить проект",
         removing: "Удаление...",
+        removeBlockedSystem:
+          "Vorteo System содержит исходный код и служебные рабочие пространства этой установки, поэтому его нельзя удалить.",
       },
       confirmations: {
         removeTitle: "Удалить проект?",
@@ -2740,6 +2742,12 @@ export const ru: TranslationResources = {
         imageUrl: "URL изображения или сайта",
         save: "Сохранить изменения",
         savedToast: "Проект обновлён",
+        nameLockedSystem: "Имя этому проекту задаёт демон, поэтому его нельзя переименовать.",
+      },
+      system: {
+        title: "О Vorteo System",
+        description:
+          "Этот проект нужен для развития этой установки Vorteo. Он основан на копии исходного кода, из которой собрана установка, и также содержит служебные рабочие пространства, которыми управляет демон, например Optimization Runner. Демон пересоздаёт его и полагается на него, поэтому проект нельзя удалить или переименовать.",
       },
       readFailures: {
         invalidTitle: "Не удалось разобрать paseo.json",

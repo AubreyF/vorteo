@@ -232,7 +232,7 @@ function ProjectSettingsBody({
 
   const data = readQuery.data;
   const supportsCustomIcon = useHostFeature(selectedHost.serverId, "projectCustomIcon");
-  // The daemon owns the System project's name and icon.
+  // The daemon owns the System project's name; its icon stays the operator's choice.
   const systemProject = useIsSystemProject(selectedHost.serverId, selectedHost.projectId);
   const customIconRevision = selectedHost.customIconRevision ?? null;
   const projectIconTargets = useMemo(() => {
@@ -282,7 +282,7 @@ function ProjectSettingsBody({
           <Text style={styles.projectTitle} numberOfLines={1}>
             {selectedHost.projectName}
           </Text>
-          {systemProject ? null : (
+          {systemProject && !supportsCustomIcon ? null : (
             <Pressable
               testID="project-edit-button"
               accessibilityRole="button"
@@ -295,6 +295,15 @@ function ProjectSettingsBody({
             </Pressable>
           )}
         </View>
+        {systemProject ? (
+          <Alert
+            size="sm"
+            variant="info"
+            testID="system-project-note"
+            title={t("settings.project.system.title")}
+            description={t("settings.project.system.description")}
+          />
+        ) : null}
       </View>
 
       <ProjectEditSheet
@@ -307,6 +316,7 @@ function ProjectSettingsBody({
         projectViewKey={project.viewKey}
         client={client}
         supportsCustomIcon={supportsCustomIcon}
+        nameLockedReason={systemProject ? t("settings.project.edit.nameLockedSystem") : null}
         snapshot={editSnapshot}
       />
 
