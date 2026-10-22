@@ -137,6 +137,11 @@ import {
   AgentContextGetBreakdownResponseSchema,
 } from "./agent-context.js";
 import {
+  AgentUsageLimitSetResumeRequestSchema,
+  AgentUsageLimitSetResumeResponseSchema,
+  UsageLimitHoldSchema,
+} from "./usage-limit.js";
+import {
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -293,6 +298,8 @@ const MutableDaemonProviderConfigSchema = z
     installationAccountId: z.string().uuid().optional(),
     paseoTools: ProviderPaseoToolsPolicySchema.optional(),
     enabled: z.boolean().optional(),
+    // COMPAT(usageLimitResume): added 2026-10-22; absent means on.
+    autoResumeAfterUsageLimit: z.boolean().optional(),
     additionalModels: z.array(MutableDaemonProviderModelSchema).optional(),
   })
   .passthrough();
@@ -873,6 +880,22 @@ export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
 
 export { AgentTaskItemSchema } from "./task-checklist.js";
 
+const ProfileSwitchEndpointSchema = z.object({
+  provider: z.string(),
+  model: z.string().nullable().optional(),
+  profileId: z.string().optional(),
+  profileName: z.string().optional(),
+});
+
+export const ProfileSwitchTimelineItemSchema = z.object({
+  type: z.literal("profile_switch"),
+  switchId: z.string(),
+  reason: z.enum(["manual", "quota", "auto"]),
+  from: ProfileSwitchEndpointSchema,
+  to: ProfileSwitchEndpointSchema,
+  carriedContextChars: z.number().nonnegative(),
+});
+
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
 export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknown> = z.union([
@@ -916,6 +939,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     compactionId: z.string().optional(),
     inspection: CompactionInspectionSchema.optional(),
   }),
+  ProfileSwitchTimelineItemSchema,
   z.object({
     type: z.literal("plugin"),
     id: z.string(),
@@ -1030,6 +1054,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
   quotaPausedAt: z.string().optional(),
+  // COMPAT(usageLimitResume): added 2026-10-22; older daemons omit it.
+  usageLimitHold: UsageLimitHoldSchema.optional(),
   provider: AgentProviderSchema,
   cwd: z.string(),
   workspaceId: z.string().optional(),
@@ -2291,6 +2317,27 @@ export const AgentConfigApplyRequestMessageSchema = z.object({
 
 export const AgentConfigApplyResponseMessageSchema = z.object({
   type: z.literal("agent.config.apply.response"),
+  payload: AgentActionResponsePayloadSchema,
+});
+
+/**
+ * Moves an idle thread to another account or profile. The daemon starts a new
+ * native session with recorded context and keeps the thread's identity, goal,
+ * checklist and journal. Gated on `server_info.features.agentProfileSwitch`.
+ */
+export const AgentProfileSwitchRequestMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.request"),
+  agentId: z.string(),
+  provider: z.string(),
+  profileId: z.string().optional(),
+  model: z.string().nullable().optional(),
+  thinkingOptionId: z.string().nullable().optional(),
+  reason: z.enum(["manual", "quota"]).optional(),
+  requestId: z.string(),
+});
+
+export const AgentProfileSwitchResponseMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.response"),
   payload: AgentActionResponsePayloadSchema,
 });
 
@@ -3608,6 +3655,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
   AgentContextGetBreakdownRequestSchema,
+  AgentUsageLimitSetResumeRequestSchema,
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -3620,6 +3668,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
+  AgentProfileSwitchRequestMessageSchema,
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
@@ -4043,6 +4092,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentGoals: z.boolean().optional(),
         // COMPAT(agentContextBreakdown): added 2026-10-21; gate the on-demand context breakdown request.
         agentContextBreakdown: z.boolean().optional(),
+        // COMPAT(usageLimitResume): added 2026-10-22; gate the usage-limit resume controls.
+        usageLimitResume: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
         // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
         coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
@@ -4167,6 +4218,8 @@ export const ServerInfoStatusPayloadSchema = z
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        agentProfileSwitch: z.boolean().optional(),
         // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
         // The daemon merges untracked paseo.local.json script entries over paseo.json.
         localProjectConfig: z.boolean().optional(),
@@ -7471,6 +7524,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
   AgentContextGetBreakdownResponseSchema,
+  AgentUsageLimitSetResumeResponseSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
   BootstrapClaimedRecoveryListResponseSchema,
@@ -7483,6 +7537,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
+  AgentProfileSwitchResponseMessageSchema,
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
@@ -7701,6 +7756,9 @@ export type SetAgentModelResponseMessage = z.infer<typeof SetAgentModelResponseM
 export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingResponseMessageSchema>;
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
+export type AgentProfileSwitchResponseMessage = z.infer<
+  typeof AgentProfileSwitchResponseMessageSchema
+>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
@@ -7876,6 +7934,9 @@ export type SetAgentModelRequestMessage = z.infer<typeof SetAgentModelRequestMes
 export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequestMessageSchema>;
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentConfigApplyRequestMessage = z.infer<typeof AgentConfigApplyRequestMessageSchema>;
+export type AgentProfileSwitchRequestMessage = z.infer<
+  typeof AgentProfileSwitchRequestMessageSchema
+>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;

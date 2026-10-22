@@ -301,7 +301,8 @@ type ScheduleAgentManager = Pick<
     | "runAgent"
     | "waitForAgentEvent"
     | "waitForAgentClose"
-  >;
+  > &
+  Partial<Pick<AgentManager, "usageLimitedUntil">>;
 
 interface ScheduleWorkspaceCreateInput {
   cwd: string;
@@ -1406,6 +1407,15 @@ export class ScheduleService {
     requireSchedule(updatedSchedule, params.scheduleId);
   }
 
+  /** A run on an account known to be limited would only stop at the limit again. */
+  private async assertAccountHasRoom(agentId: string, provider: string): Promise<void> {
+    const limitedUntil = await this.agentManager.usageLimitedUntil?.(provider);
+    if (limitedUntil)
+      throw new Error(
+        `Agent ${agentId} is waiting for its account's usage limit to reset at ${limitedUntil}`,
+      );
+  }
+
   private async executeSchedule(
     schedule: StoredSchedule,
     runId: string,
@@ -1428,6 +1438,7 @@ export class ScheduleService {
       if (this.agentManager.hasInFlightRun(agent.id)) {
         throw new Error(`Agent ${agent.id} already has an active run`);
       }
+      await this.assertAccountHasRoom(agent.id, agent.provider);
       await startAgentRun(this.agentManager, agent.id, wrappedPrompt, this.logger, {
         replaceRunning: true,
         activeTurnBehavior: "steer",

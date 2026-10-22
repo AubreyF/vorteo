@@ -170,6 +170,7 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type {
   AgentConfigApply,
+  AgentProfileSwitchRequestMessage,
   MutableDaemonConfig,
   MutableDaemonConfigPatch,
 } from "@getpaseo/protocol/messages";
@@ -1135,6 +1136,14 @@ function toTimeoutError(error: unknown, label: string, timeoutMs: number): Error
 
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1500;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30000;
+// Closing one native session and starting another can take longer than an ordinary RPC.
+const PROFILE_SWITCH_TIMEOUT_MS = 120_000;
+
+export type AgentProfileSwitchTarget = Omit<
+  AgentProfileSwitchRequestMessage,
+  "type" | "agentId" | "requestId"
+>;
+
 const DEFAULT_SESSION_RPC_TIMEOUT_MS = 60_000;
 const PUSH_TOKEN_REVOCATION_TIMEOUT_MS = 2_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
@@ -4282,6 +4291,22 @@ export class DaemonClient {
     return result.breakdown;
   }
 
+  /**
+   * Resumes a thread held at a usage limit now, or stops it from resuming automatically.
+   * Gate on the daemon's `usageLimitResume` feature.
+   */
+  async setAgentUsageLimitResume(
+    agentId: string,
+    action: import("@getpaseo/protocol/usage-limit").AgentUsageLimitResumeAction,
+  ): Promise<import("@getpaseo/protocol/usage-limit").UsageLimitHold | null> {
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.usage_limit.set_resume.response">({
+        message: { type: "agent.usage_limit.set_resume.request", agentId, action },
+      });
+    if (result.error) throw new Error(result.error);
+    return result.hold;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
@@ -4413,6 +4438,35 @@ export class DaemonClient {
       throw new Error(payload.error ?? "applyAgentConfig rejected");
     }
     return payload.notice ?? null;
+  }
+
+  /**
+   * Moves an idle thread to another account or profile in place. The daemon
+   * closes the current native session and starts the target with recorded
+   * context. Gated on `server_info.features.agentProfileSwitch`.
+   */
+  async switchAgentProfile(agentId: string, target: AgentProfileSwitchTarget): Promise<void> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.profile.switch.request",
+      agentId,
+      ...target,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: PROFILE_SWITCH_TIMEOUT_MS,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.profile.switch.response") return null;
+        if (msg.payload.requestId !== requestId) return null;
+        return msg.payload;
+      },
+    });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "switchAgentProfile rejected");
+    }
   }
 
   private requireHeldRestart(options: RestartServerOptions | undefined): HeldRestart | undefined {

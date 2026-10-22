@@ -78,6 +78,7 @@ export function buildConfigOverrides(record: StoredAgentRecord): Partial<AgentSe
     profileLaunch: config.profileLaunch,
     quotaPausedAt: config.quotaPausedAt,
     quotaResetAt: config.quotaResetAt,
+    usageLimitHold: config.usageLimitHold,
     quotaReserve: config.quotaReserve,
     mcpServers: config.mcpServers ?? undefined,
   });
@@ -104,6 +105,7 @@ export function buildSessionConfig(
     profileLaunch: overrides.profileLaunch,
     quotaPausedAt: overrides.quotaPausedAt,
     quotaResetAt: overrides.quotaResetAt,
+    usageLimitHold: overrides.usageLimitHold,
     quotaReserve: overrides.quotaReserve,
     mcpServers: overrides.mcpServers,
   });

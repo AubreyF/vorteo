@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together. When an account hits its limit, switch the thread to another account, even another provider, without leaving it; a marker shows where the model changed. See [profile switching](docs/plans/profile-switching.md).
 
 <img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
@@ -39,6 +39,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
+- **Pick up after usage limits.** When a Claude or Codex account hits its limit, stopped threads wait for the reset and then continue one at a time, checking what they already finished first. Each thread shows when it will resume, with Resume now and Don't resume, and each account has a switch to turn it off. See [quota behavior](docs/agent-presets.md#quota-stops-and-explicit-successors).
 - **Put local workers to work.** Choose a worker account and profile on each supervisor, including accounts from another provider or Pi models on local or private endpoints. Set a finite concurrency limit or choose Uncapped on an updated installation, and follow each worker beneath its originating task, even when it uses a separate worktree. Provider and quota limits still apply.
 
 <img width="400" alt="Frontier delegation to local workers" src="https://github.com/user-attachments/assets/fb255faa-8e19-4f28-8ec8-55a8b253ed2a" />

@@ -1,5 +1,9 @@
 import { BlockedTaskReviewService } from "./agent/task-checklist/review-service.js";
 import {
+  readingFromProviderUsage,
+  UsageLimitResumeService,
+} from "./agent/usage-limit/resume-service.js";
+import {
   createConfiguredBootstrapReview,
   deferBootstrapReview,
 } from "./execution-installation/coordinator-bootstrap-launch.js";
@@ -1647,6 +1651,20 @@ export async function createPaseoDaemon(
     archiveWorkspace: archiveScheduleWorkspaceExternal,
   });
   const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
+  const usageLimitResumes = new UsageLimitResumeService({
+    agentManager,
+    agentStorage,
+    logger,
+    autoResumeEnabled: (provider) =>
+      daemonConfigStore.get().providers?.[provider]?.autoResumeAfterUsageLimit !== false,
+    readUsage: async (provider) => {
+      const usage = await providerUsageService.listUsage({ forceRefresh: true });
+      return readingFromProviderUsage(
+        usage.providers.find((entry) => entry.providerId === provider),
+        Date.now(),
+      );
+    },
+  });
   quotaReservePolling.start();
   // Hosted sessions still running a turn are attached and registered for adoption before any
   // service can load their agents (the scheduler included), so nobody starts a second provider.
@@ -2137,8 +2155,10 @@ export async function createPaseoDaemon(
       speechService.start();
       scriptHealthMonitor.start();
       blockedTaskReviews.start();
+      usageLimitResumes.start();
     } catch (error) {
       blockedTaskReviews.stop();
+      usageLimitResumes.stop();
       factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
@@ -2184,6 +2204,7 @@ export async function createPaseoDaemon(
   const stop = async (options?: { onStep?: (step: string) => void }) => {
     const step = options?.onStep ?? (() => {});
     blockedTaskReviews.stop();
+    usageLimitResumes.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
     // Close ingress before waiting for metadata processes or other teardown.

@@ -402,6 +402,7 @@ export const ja: TranslationResources = {
       withTokens: "コンテキストを圧縮しました（{{tokens}}Kトークン）",
       completed: "コンテキストを圧縮しました",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,

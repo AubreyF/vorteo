@@ -716,6 +716,30 @@ describe("ReplicaCache", () => {
     expect((await createCache(storage).readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([item]);
   });
 
+  it("retains profile switch markers across a cache reload", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const item: StreamItem = {
+      kind: "profile_switch",
+      id: "profile_switch_switch-1",
+      switchId: "switch-1",
+      reason: "manual",
+      from: { provider: "claude", model: null, profileName: "Claude 1" },
+      to: { provider: "codex", model: "gpt-5.5", profileId: "profile-2", profileName: "Codex 2" },
+      carriedContextChars: 1200,
+      timestamp: new Date("2026-10-22T08:00:00Z"),
+      timelineCursor: { epoch: "epoch-1", seq: 7 },
+    };
+    writer.commitTimeline(SERVER_ID, "agent-1", {
+      agentId: "agent-1",
+      items: [item],
+      range: { epoch: "epoch-1", startSeq: 7, endSeq: 7 },
+      hasOlder: false,
+    });
+    await writer.flush();
+    expect((await createCache(storage).readTimeline(SERVER_ID, "agent-1"))?.items).toEqual([item]);
+  });
+
   it("round-trips plugin timeline items", async () => {
     const storage = new MemoryStorage();
     const writer = createCache(storage);

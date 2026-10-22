@@ -2677,6 +2677,172 @@ test("Redline persists before interrupting the team while Cruise Reserve lets tu
   }
 });
 
+function usageLimitQueue(queued: Array<{ agentId: string; key: string; text: string }>) {
+  return {
+    queueRestartContinuation: async () => {},
+    wake() {},
+    pause: async () => {},
+    acceptedHistory: async () => [],
+    reconcileHistory: async () => {},
+    recordProviderMessageId: async () => {},
+    suppressHistoryRestoration: async () => {},
+    read: async () => ({ paused: false, items: [] }) as never,
+    queueUsageLimitContinuation: async (agentId: string, key: string, text: string) => {
+      queued.push({ agentId, key, text });
+      return "queued" as const;
+    },
+  };
+}
+
+test("the blocked-work review skips a thread waiting for its usage limit to reset", () => {
+  const now = Date.parse("2026-10-22T12:00:00.000Z");
+  const base = {
+    id: "held",
+    provider: "claude",
+    labels: {},
+    createdAt: "2026-10-22T09:00:00.000Z",
+    persistence: { provider: "claude", sessionId: "session" },
+    tasks: [{ id: "t", text: "Blocked", completed: false, status: "blocked" }],
+  } as unknown as StoredAgentRecord;
+  expect(blockedReviewDue(base, now)).toBe(true);
+  const stoppedAt = "2026-10-22T10:00:00.000Z";
+  expect(
+    blockedReviewDue({ ...base, config: { usageLimitHold: { stoppedAt, attempts: 0 } } }, now),
+  ).toBe(false);
+  const released = { stoppedAt, attempts: 1, releasedAt: "2026-10-22T11:00:00.000Z" };
+  expect(blockedReviewDue({ ...base, config: { usageLimitHold: released } }, now)).toBe(true);
+});
+
+test("a usage limit holds a standalone thread for its reset without pausing it", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "paseo-usage-limit-hold-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const sessions: SteeringTestSession[] = [];
+  class LimitClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const session = new SteeringTestSession(config);
+      sessions.push(session);
+      return session;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { claude: new LimitClient() },
+    registry: storage,
+    logger,
+  });
+  const queued: Array<{ agentId: string; key: string; text: string }> = [];
+  manager.setMessageQueueControl(usageLimitQueue(queued));
+  try {
+    const agent = await manager.createAgent({ provider: "claude", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+    });
+    const resetsAt = "2026-10-22T18:00:00.000Z";
+    sessions[0].pushEvent({
+      type: "turn_failed",
+      provider: "claude",
+      code: "quota_exhausted",
+      error: "You've hit your session limit",
+      usageLimit: { resetsAt, window: "five_hour" },
+    });
+    await vi.waitFor(() =>
+      expect(manager.getAgent(agent.id)?.config.usageLimitHold).toMatchObject({
+        resetsAt,
+        window: "five_hour",
+        attempts: 0,
+      }),
+    );
+    expect(manager.getAgent(agent.id)?.config.quotaPausedAt).toBeUndefined();
+    expect(() => manager.assertQuotaNotPaused(agent.id)).not.toThrow();
+    expect(await manager.usageLimitedUntil("claude")).toBe(
+      Date.parse(resetsAt) > Date.now() ? resetsAt : null,
+    );
+
+    // A reset credit ends the wait; Don't resume and Resume now are the owner's controls.
+    const creditAt = new Date().toISOString();
+    await manager.recoverQuotaAfterReset("claude", creditAt);
+    expect(manager.getAgent(agent.id)?.config.usageLimitHold?.resetsAt).toBe(creditAt);
+    await manager.setUsageLimitResume(agent.id, "dont_resume");
+    expect(manager.getAgent(agent.id)?.config.usageLimitHold?.optOut).toBe(true);
+    const released = await manager.setUsageLimitResume(agent.id, "resume_now");
+    expect(released).toMatchObject({ attempts: 0, releasedAt: expect.any(String) });
+    expect(queued).toEqual([
+      expect.objectContaining({
+        agentId: agent.id,
+        text: expect.stringMatching(/^The owner resumed this thread/),
+      }),
+    ]);
+    await vi.waitFor(async () =>
+      expect((await storage.get(agent.id))?.config?.usageLimitHold?.releasedAt).toBeTruthy(),
+    );
+
+    sessions[0].pushEvent({ type: "turn_completed", provider: "claude" });
+    await vi.waitFor(() =>
+      expect(manager.getAgent(agent.id)?.config.usageLimitHold).toBeUndefined(),
+    );
+  } finally {
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
+test("resuming a held worker team releases the team pause before queueing the continuation", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "paseo-usage-limit-team-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const sessions: SteeringTestSession[] = [];
+  class QuotaClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      const session = new SteeringTestSession(config);
+      sessions.push(session);
+      return session;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new QuotaClient() },
+    registry: storage,
+    logger,
+  });
+  const queued: Array<{ agentId: string; key: string; text: string }> = [];
+  manager.setMessageQueueControl(usageLimitQueue(queued));
+  try {
+    const root = await manager.createAgent(
+      {
+        provider: "codex",
+        cwd: workdir,
+        profileLaunch: {
+          profile: { id: "team", name: "Team", provider: "codex", maxWorkers: 1 },
+          worker: { id: "worker", name: "Worker", provider: "codex", model: "gpt-5.4" },
+        },
+      },
+      undefined,
+      { workspaceId: undefined },
+    );
+    const worker = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+      workspaceId: undefined,
+      labels: { [PARENT_AGENT_ID_LABEL]: root.id },
+    });
+    sessions[0].pushEvent({
+      type: "turn_failed",
+      provider: "codex",
+      code: "quota_exhausted",
+      error: "Quota exhausted",
+    });
+    await vi.waitFor(() => expect(manager.getAgent(worker.id)?.config.quotaPausedAt).toBeTruthy());
+    expect(() => manager.streamAgent(root.id, "too soon")).toThrow("paused");
+
+    const released = await manager.resumeAfterUsageLimit(root.id, {
+      manual: false,
+      text: "Continue.",
+    });
+    expect(released).toMatchObject({ attempts: 1, releasedAt: expect.any(String) });
+    expect(queued.map((entry) => entry.agentId)).toEqual([root.id]);
+    expect(manager.getAgent(root.id)?.config.quotaPausedAt).toBeUndefined();
+    expect(manager.getAgent(worker.id)?.config.quotaPausedAt).toBeUndefined();
+    expect(() => manager.assertQuotaNotPaused(root.id)).not.toThrow();
+  } finally {
+    await manager.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  }
+});
+
 test("quota exhaustion persistently pauses the supervisor and managed workers", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "paseo-quota-stop-"));
   const storage = new AgentStorage(join(workdir, "agents"), logger);
@@ -2739,6 +2905,10 @@ test("quota exhaustion persistently pauses the supervisor and managed workers", 
   await consumeChild;
   expect(manager.listRunningWorkerCounts()).toEqual({});
   expect(manager.getAgent(idleChild.id)?.config.quotaPausedAt).toBeTruthy();
+  // The stopped supervisor and the interrupted worker wait to continue; the idle worker does not.
+  expect(manager.getAgent(root.id)?.config.usageLimitHold).toMatchObject({ attempts: 0 });
+  expect(manager.getAgent(child.id)?.config.usageLimitHold).toMatchObject({ attempts: 0 });
+  expect(manager.getAgent(idleChild.id)?.config.usageLimitHold).toBeUndefined();
   expect(() => manager.streamAgent(root.id, "resume")).toThrow("paused");
   expect(() => manager.streamAgent(child.id, "continue")).toThrow("paused");
   expect(() => manager.tryRunOutOfBand(root.id, "/compact")).toThrow("paused");

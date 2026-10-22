@@ -305,6 +305,37 @@ it("recovers held goals without a stored message queue after daemon replacement"
   }
 });
 
+it("queues one usage-limit continuation, survives restart and leaves paused queues alone", async () => {
+  const root = await mkdtemp(join(tmpdir(), "paseo-usage-limit-continuation-"));
+  const service = new MessageQueueService(
+    new MessageQueueStore(root),
+    new QueueAttachmentStore(root),
+  );
+  try {
+    expect(await service.queueUsageLimitContinuation("thread", "stop-0", "Continue.")).toBe(
+      "queued",
+    );
+    // Queued work already continues the thread, so a second release adds nothing.
+    expect(await service.queueUsageLimitContinuation("thread", "stop-1", "Continue.")).toBe(
+      "existing",
+    );
+    await service.pause("paused-thread");
+    expect(await service.queueUsageLimitContinuation("paused-thread", "stop-0", "Continue.")).toBe(
+      "paused",
+    );
+    service.close();
+    const recovered = new MessageQueueService(
+      new MessageQueueStore(root),
+      new QueueAttachmentStore(root),
+    );
+    expect((await recovered.read("thread")).items.map((item) => item.text)).toEqual(["Continue."]);
+    expect((await recovered.read("paused-thread")).items).toHaveLength(0);
+    recovered.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("persists one restart continuation and respects a manually paused queue", async () => {
   const root = await mkdtemp(join(tmpdir(), "paseo-restart-continuation-"));
   const service = new MessageQueueService(

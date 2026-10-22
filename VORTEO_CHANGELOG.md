@@ -4,9 +4,57 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Maintenance
+
+- Merge main at 0.11.0-beta.3.vorteo.787 into the CI repair branch so it integrates cleanly with the next batch.
+
+## 0.11.0-beta.3.vorteo.787 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
 ## 0.11.0-beta.3.vorteo.786 - 2026-10-22
 
 ### Maintenance
+
+- Merge automatic resume after usage limits
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Added
+
+- Threads stopped by a Claude or Codex usage limit now continue automatically after the limit resets. The daemon waits two minutes past the reported reset, then queues one continuation per account every two minutes, oldest first, asking the thread to check what it already finished. Waits longer than a day are mentioned in the continuation. A spent reset credit ends the wait too. After three repeated limits the thread stays held for you.
+- Held threads show when they will resume, with Resume now and Don't resume. Each account has a Resume after usage limits switch in Settings, on by default.
+- Threads continued elsewhere, archived threads, opted-out threads and threads with a paused message queue are never resumed. The hourly blocked-work review and agent-target schedules skip accounts known to be limited.
+
+### Fixed
+
+- Claude usage limits no longer look like finished turns. Claude's rejected usage window and its synthetic rate-limit reply now end the turn as a usage limit with the reported reset time and window.
+
+### Changed
+
+- A usage limit no longer pauses a thread that has no workers, so you can still message it. Worker teams keep their pause, which the resume clears. Quota reserve stops are unchanged and still need an explicit continuation.
+
+### Known limitations
+
+- The account switch is saved per environment, not installation-wide.
+- Codex and setup-token Claude accounts without a usage reading rely on a 30-minute probe when the provider reports no reset time.
+- The raw order of Claude's rate-limit event and result was not captured live; detection is tested against the recorded synthetic reply.
+
+## 0.11.0-beta.3.vorteo.785 - 2026-10-22
+
+### Maintenance
+
+- Merge the Claude sign-out guard for accounts without their own directory
+
+## 0.11.0-beta.3.vorteo.784 - 2026-10-22
+
+### Fixed
+
+- Removing a full sign-in Claude account no longer runs Claude's sign-out when the account has no configuration directory of its own. A daemon started from an agent shell inherits another account's directory, so that sign-out could have signed out a different account.
 
 - Stop two server test races. The Host module contract pins every ancestor directory, so its tests retry when a parallel suite touches a shared ancestor mid-inspection. A message queue test waits for its last write before deleting its directory.
 - The browser test helper opens New workspace from the sidebar overflow menu, since it is no longer a default sidebar row.
@@ -27,6 +75,20 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ## 0.11.0-beta.3.vorteo.784 - 2026-10-22
 
 ### Maintenance
+
+- Merge the Codex fix that lets account-isolated threads launch with built-in skills
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Fixed
+
+- New Codex threads on isolated accounts no longer fail with "Provider did not discover selected skill imagegen". Each Codex account has its own home, so its built-in skills such as imagegen, openai-docs and skill-creator are listed from that home instead of the path the daemon recorded. A selected skill now also matches a copy with the same name and byte-identical package content. A copy whose content differs is still refused.
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 - Skip server suites for POSIX-only Vorteo features on Windows CI: the installation coordinator, session host, Host account delivery and Host process custody, plus `*.posix.test.ts` as the testing guide already promised. Upstream suites keep running there; individual Vorteo cases inside them that need POSIX modes, signals or symlink swaps are gated case by case.
 - Two bootstrap suites now start daemons without the System project, like every other test daemon. On Windows a handle stayed open on its directory after the daemon stopped.
@@ -51,6 +113,23 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ## 0.11.0-beta.3.vorteo.782 - 2026-10-22
 
 ### Maintenance
+
+- Merge in-thread account and profile switching
+
+## 0.11.0-beta.3.vorteo.775 - 2026-10-22
+
+### Maintenance
+
+- The client hello test expects the new profile switch timeline capability, which the client now advertises by default
+
+## 0.11.0-beta.3.vorteo.774 - 2026-10-22
+
+### Added
+
+- Switch a thread to another account or profile without leaving it. Choosing a profile on another account for an existing thread now offers Switch in this thread by default, with a warning that switching uses extra tokens; New task instead keeps the reviewed successor. The quota notice gains a Switch account button.
+- The daemon closes the thread's native session, starts one on the target account with up to 30 recent messages as session instructions, clears the quota pause and keeps the thread's ID, goal, checklist, journal and questions. Busy threads are refused.
+- A compaction-style marker names both accounts and models. History before each switch is retained, so reloads replay every segment in order.
+- Requires the daemon's `agentProfileSwitch` capability; older interfaces don't receive the marker. Tool results and provider-private state don't carry over, and automatic pooled switching remains planned. See the [profile switching plan](docs/plans/profile-switching.md).
 
 - Merge main at 0.11.0-beta.3.vorteo.781 into the CI repair branch so it integrates cleanly with the next batch; the authorization test keeps main's stronger unknown-observation check.
 
