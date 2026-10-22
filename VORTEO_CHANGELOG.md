@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Fixed
+
+- New Codex threads on isolated accounts no longer fail with "Provider did not discover selected skill imagegen". Each Codex account has its own home, so its built-in skills such as imagegen, openai-docs and skill-creator are listed from that home instead of the path the daemon recorded. A selected skill now also matches a copy with the same name and byte-identical package content. A copy whose content differs is still refused.
 
 ## 0.11.0-beta.3.vorteo.781 - 2026-10-22
 

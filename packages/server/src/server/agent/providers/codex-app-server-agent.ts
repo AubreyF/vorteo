@@ -3997,7 +3997,7 @@ export class CodexAppServerAgentSession implements AgentSession {
             "Provider skill catalog changed during this task. Reconnect before continuing with its frozen selection.",
           );
         this.skillCatalogSignature = signature;
-        this.skillFilter = codexSkillFilter(snapshot, catalog);
+        this.skillFilter = await codexSkillFilter(snapshot, catalog);
         const selected = new Set(
           this.skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
         );
