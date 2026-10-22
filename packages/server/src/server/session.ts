@@ -148,6 +148,7 @@ import type {
   ManagedAgent,
 } from "./agent/agent-manager.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
+import { switchAgentProfileCommand } from "./agent/profile-switch/command.js";
 import { normalizeClientMessageId } from "./client-message-id.js";
 import { createAgentForMessage, AgentCreationRequestError } from "./agent/create-agent/requests.js";
 import { resolveCreateAgentIntent, type CreateAgentIntent } from "./agent/create-agent/intent.js";
@@ -1409,6 +1410,7 @@ export class Session {
     let capability: ClientCapability;
     if (item.type === "notification") capability = CLIENT_CAPS.timelineNotifications;
     else if (item.type === "plugin") capability = CLIENT_CAPS.pluginTimelineItems;
+    else if (item.type === "profile_switch") capability = CLIENT_CAPS.profileSwitchTimeline;
     else return true;
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }
@@ -2833,6 +2835,8 @@ export class Session {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
+      case "agent.profile.switch.request":
+        return this.handleAgentProfileSwitchRequest(msg);
       default:
         return undefined;
     }
@@ -4848,6 +4852,44 @@ export class Session {
       );
     } finally {
       await progress?.release();
+    }
+  }
+
+  private async handleAgentProfileSwitchRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.profile.switch.request" }>,
+  ): Promise<void> {
+    const { agentId, requestId } = msg;
+    const logFields = { agentId, requestId, provider: msg.provider, profileId: msg.profileId };
+    this.sessionLogger.info(logFields, "session: agent.profile.switch.request");
+    try {
+      await switchAgentProfileCommand(
+        {
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          logger: this.sessionLogger,
+          providerSnapshotManager: this.providerSnapshotManager,
+          getAgentProfiles: () => this.daemonConfigStore.get().agentProfiles ?? [],
+          getSharedProviderConfig: () => this.daemonConfigStore.get(),
+          validateSharedConfiguration: (selection) =>
+            this.providerSnapshotManager.validateAgentConfiguration(selection),
+        },
+        msg,
+      );
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: { requestId, agentId, accepted: true, error: null },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, ...logFields }, "session: agent.profile.switch error");
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: {
+          requestId,
+          agentId,
+          accepted: false,
+          error: getErrorMessageOr(error, "Failed to switch the thread's account"),
+        },
+      });
     }
   }
 

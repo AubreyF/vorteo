@@ -10,6 +10,7 @@ import type {
   AgentProviderNotice,
   AgentTaskItem,
   JsonValue,
+  ProfileSwitchTimelineItem,
   ProviderOptions,
   ToolPolicy,
 } from "@getpaseo/protocol/agent-types";
@@ -437,6 +438,7 @@ export type AgentTimelineItem =
       message: string;
     }
   | CompactionTimelineItem
+  | ProfileSwitchTimelineItem
   | PluginTimelineItem;
 
 export type AgentStreamEvent =

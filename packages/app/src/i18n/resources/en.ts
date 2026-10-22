@@ -412,6 +412,26 @@ export const en = {
       failed: "Compaction failed",
       aborted: "Compaction cancelled",
     },
+    profileSwitch: {
+      caption: "Switched from {{from}} to {{to}}",
+      captionQuota: "Switched from {{from}} to {{to}} after quota limit",
+      fromProfile: "Previous profile: {{name}}",
+      toProfile: "New profile: {{name}}",
+      carriedContext: "Carried {{chars}} characters of recent conversation as context.",
+      confirm: {
+        title: "Switch to {{name}}",
+        warning:
+          "Switching moves this thread to the selected account and starts a new session there. The new model receives up to 30 recent messages as context, which uses extra tokens and loses tool results and other provider-private state, so avoid switching routinely. It is a good option when one of your accounts reaches its limit.",
+        switch: "Switch in this thread",
+        switching: "Switching...",
+        newTask: "New task instead",
+      },
+      quota: {
+        message:
+          "Account usage limit reached. Switch to another account to continue in this thread, or open the preset picker to reset utilization and send your next message here.",
+        action: "Switch account",
+      },
+    },
   },
   importSession: {
     title: "Import session",

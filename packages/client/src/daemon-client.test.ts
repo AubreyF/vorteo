@@ -1079,6 +1079,7 @@ test("advertises client capabilities in hello", async () => {
       terminal_reflowable_snapshot: true,
       timeline_notifications: true,
       plugin_timeline_items: true,
+      profile_switch_timeline: true,
       workspace_setup_blocked: true,
       checklist_blocked_status: true,
       checklist_review_status: true,
