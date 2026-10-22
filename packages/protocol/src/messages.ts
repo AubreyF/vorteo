@@ -1218,6 +1218,19 @@ export const WorkspaceFactoryMembershipSchema = z.object({
   role: z.enum(["factory", "builds", "worker"]),
 });
 
+/**
+ * Daemon-owned marker for the Vorteo System project. Only the daemon's startup
+ * seeding writes it; `kind` stays an open string so future kinds still parse.
+ */
+export const ProjectSystemMarkerSchema = z.object({
+  kind: z.string().min(1).max(100),
+});
+
+/** Daemon-owned role of a system-managed workspace inside the Vorteo System project. */
+export const WorkspaceSystemMembershipSchema = z.object({
+  role: z.string().min(1).max(100),
+});
+
 export const WorkspaceProjectSetRequestSchema = z.object({
   type: z.literal("workspace.project.set.request"),
   workspaceId: z.string(),
@@ -1244,6 +1257,27 @@ export const WorkspaceTitleSetRequestSchema = z.object({
   // Null or empty string clears the title and reverts to the derived name.
   title: z.string().nullable(),
   requestId: z.string(),
+});
+
+/**
+ * Clones Vorteo source into the System project's root. The daemon takes the
+ * repository and ref only from its own operator settings, never from the request.
+ */
+export const SystemSourceSetupRequestSchema = z.object({
+  type: z.literal("system.source.setup.request"),
+  requestId: z.string(),
+});
+
+export const SystemSourceSetupResponseSchema = z.object({
+  type: z.literal("system.source.setup.response"),
+  payload: z.object({
+    requestId: z.string(),
+    accepted: z.boolean(),
+    /** Open string so newer outcomes still parse: "cloned" or "already_set_up" today. */
+    outcome: z.string().nullable(),
+    workspaceId: z.string().nullable(),
+    error: z.string().nullable(),
+  }),
 });
 
 export const WorkspaceLifecycleSetRequestSchema = z.object({
@@ -3465,6 +3499,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceProjectSetRequestSchema,
   WorkspacePinSetRequestSchema,
   WorkspaceLifecycleSetRequestSchema,
+  SystemSourceSetupRequestSchema,
   WorkspaceLabelListRequestSchema,
   WorkspaceLabelAssignmentSetRequestSchema,
   WorkspaceLabelUpdateRequestSchema,
@@ -4057,6 +4092,10 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(workspaceLifecycle): added in v0.11.0-beta.3.vorteo.153, remove after 2027-04-06 once the daemon floor includes it.
         workspaceLifecycle: z.boolean().optional(),
         factoryWorkspaceMembership: z.boolean().optional(),
+        // COMPAT(systemProject): added 2026-10-22, remove after 2027-04-22 once the daemon floor includes it.
+        systemProject: z.boolean().optional(),
+        // COMPAT(systemProjectSource): added 2026-10-22, remove after 2027-04-22 once the daemon floor includes it.
+        systemProjectSource: z.boolean().optional(),
         // COMPAT(workspaceMarkUnread): added in v0.5.0, remove after 2027-08-20.
         workspaceMarkUnread: z.boolean().optional(),
         // COMPAT(hubRelationship): added in v0.1.X, drop the gate when floor >= v0.1.X.
@@ -4410,6 +4449,11 @@ export const WorkspaceDescriptorPayloadSchema = z
     projectId: z.string(),
     projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
     factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
+    // COMPAT(systemProject): added 2026-10-22, remove optional after 2027-04-22 once the daemon floor includes it.
+    // Present when the workspace's project is the daemon-owned Vorteo System project.
+    projectSystem: ProjectSystemMarkerSchema.optional(),
+    // Present only for system-managed workspaces; operator workspaces in the project omit it.
+    systemMembership: WorkspaceSystemMembershipSchema.optional(),
     projectDisplayName: z.string(),
     // COMPAT(projectCustomName): added in v0.1.76, drop the optional gate when floor >= v0.1.76.
     // When the user has renamed a project, projectDisplayName carries the resolved
@@ -7441,6 +7485,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceProjectSetResponseSchema,
   WorkspacePinSetResponseSchema,
   WorkspaceLifecycleSetResponseSchema,
+  SystemSourceSetupResponseSchema,
   WorkspaceRecoveryInspectResponseSchema,
   WorkspaceRecoveryRestoreResponseSchema,
   WaitForFinishResponseMessageSchema,

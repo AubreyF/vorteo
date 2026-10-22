@@ -3219,6 +3219,21 @@ export class DaemonClient {
     if (!payload.accepted) throw new Error(payload.error ?? "Failed to update workspace");
   }
 
+  /** Clones Vorteo source into this host's System project from its operator settings. */
+  async setupSystemSource(): Promise<{ outcome: string | null; workspaceId: string | null }> {
+    if (this.lastServerInfoMessage?.features?.systemProjectSource !== true) {
+      throw new Error("Update this host to set up Vorteo source.");
+    }
+    const payload =
+      await this.sendNamespacedCorrelatedSessionRequest<"system.source.setup.response">({
+        message: { type: "system.source.setup.request" },
+        // Cloning a remote repository can take minutes.
+        timeout: 10 * 60_000,
+      });
+    if (!payload.accepted) throw new Error(payload.error ?? "Failed to set up Vorteo source");
+    return { outcome: payload.outcome, workspaceId: payload.workspaceId };
+  }
+
   async setWorkspacePinned(
     workspaceId: string,
     pinned: boolean,

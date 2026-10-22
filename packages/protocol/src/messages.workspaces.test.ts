@@ -706,6 +706,35 @@ describe("workspace message schemas", () => {
     ).toBe(archivingAt);
   });
 
+  test("system project fields are optional in both directions", () => {
+    const legacy = {
+      id: "ws-runner",
+      projectId: "prj-system",
+      projectDisplayName: "Vorteo System",
+      projectRootPath: "/home/.paseo/system/vorteo",
+      projectKind: "non_git",
+      workspaceKind: "directory",
+      name: "Optimization Runner",
+      status: "done",
+      activityAt: null,
+      scripts: [],
+    } as const;
+    // An older daemon omits them.
+    const fromOldDaemon = WorkspaceDescriptorPayloadSchema.parse(legacy);
+    expect(fromOldDaemon.projectSystem).toBeUndefined();
+    expect(fromOldDaemon.systemMembership).toBeUndefined();
+    // A newer daemon may send a kind or role this client does not know yet.
+    const fromNewDaemon = WorkspaceDescriptorPayloadSchema.parse({
+      ...legacy,
+      projectSystem: { kind: "vorteo-system-v2" },
+      systemMembership: { role: "monitoring" },
+    });
+    expect(fromNewDaemon).toMatchObject({
+      projectSystem: { kind: "vorteo-system-v2" },
+      systemMembership: { role: "monitoring" },
+    });
+  });
+
   // The protocol `statusEnteredAt` field is optional and defaults to null.
   // Old daemons omit it entirely and old clients must keep accepting that.
   test("defaults statusEnteredAt to null for legacy descriptors", () => {

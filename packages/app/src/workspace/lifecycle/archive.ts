@@ -6,6 +6,11 @@ import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 import { queryClient } from "@/data/query-client";
 import { useWorkspaceScheduleState } from "./scheduled";
 import { scheduledWorkspaceStates } from "./scheduled-workspaces";
+import {
+  SYSTEM_MANAGED_EXPLANATION,
+  selectSystemManaged,
+  useSystemManaged,
+} from "./system-membership";
 
 export function useWorkspaceArchiveBlockReason(
   serverId: string,
@@ -15,6 +20,8 @@ export function useWorkspaceArchiveBlockReason(
     (state) => selectWorkspace(state, serverId, workspaceId)?.protected === true,
   );
   const scheduled = useWorkspaceScheduleState(serverId, workspaceId) !== undefined;
+  const systemManaged = useSystemManaged(serverId, workspaceId);
+  if (systemManaged) return SYSTEM_MANAGED_EXPLANATION;
   return workspaceArchiveBlockReason({ protected: protectedWorkspace, scheduled });
 }
 
@@ -23,6 +30,7 @@ export function getWorkspaceArchiveBlockReason(
   workspaceId: string,
 ): string | null {
   const state = useSessionStore.getState();
+  if (selectSystemManaged(state, serverId, workspaceId)) return SYSTEM_MANAGED_EXPLANATION;
   const workspace = selectWorkspace(state, serverId, workspaceId);
   const schedules =
     queryClient.getQueryData<ScheduleSummary[]>(["schedules", "workspace-indicators", serverId]) ??

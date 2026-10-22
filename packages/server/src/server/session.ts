@@ -11,11 +11,14 @@ import {
 import { assertInstallationProviderRemoval } from "./execution-installation/settings/provider-admission.js";
 import {
   assertWorkspaceNotFactoryManaged,
+  assertWorkspaceNotSystemManaged,
   assertWorkspaceUnprotected,
   factoryMembershipForDescriptor,
   setWorkspaceLifecycle,
+  systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import { setupSystemSource } from "./system-project/setup-source.js";
 import {
   planProviderRemoval,
   defaultProviderAccountHomes,
@@ -2463,12 +2466,18 @@ export class Session {
     }
   }
 
+  private dispatchSystemProjectMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    if (msg.type === "system.source.setup.request") return this.handleSystemSourceSetupRequest(msg);
+    return undefined;
+  }
+
   private dispatchWorkspaceLifecycleMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     return (
       this.dispatchSidebarStateMessage(msg) ??
       this.dispatchWorkspaceStateMessage(msg) ??
       this.dispatchWorkspaceLabelMessage(msg) ??
       this.dispatchWorkspaceSetupMessage(msg) ??
+      this.dispatchSystemProjectMessage(msg) ??
       this.dispatchWorkspaceAndProjectMessage(msg)
     );
   }
@@ -3679,6 +3688,13 @@ export class Session {
       (await this.agentStorage.get(agentId))?.workspaceId ??
       null;
 
+    // System workspace threads are the installation's maintenance history; archive
+    // is refused there too, so deletion must not be the way around it.
+    if (knownWorkspaceId) {
+      const workspace = await this.workspaceRegistry.get(knownWorkspaceId);
+      if (workspace) assertWorkspaceNotSystemManaged(workspace);
+    }
+
     // File-backed storage still needs an early delete fence before closeAgent().
     beginAgentDeleteIfSupported(this.agentStorage, agentId);
 
@@ -4392,6 +4408,34 @@ export class Session {
       },
     });
     if (error === null) await this.emitWorkspaceUpdatesForWorkspaceIds([msg.workspaceId]);
+  }
+
+  private async handleSystemSourceSetupRequest(
+    msg: Extract<SessionInboundMessage, { type: "system.source.setup.request" }>,
+  ): Promise<void> {
+    let result: { outcome: string; workspaceId: string } | null = null;
+    let error: string | null = null;
+    try {
+      result = await setupSystemSource({
+        paseoHome: this.paseoHome,
+        projectRegistry: this.projectRegistry,
+        workspaceRegistry: this.workspaceRegistry,
+        logger: this.sessionLogger,
+      });
+    } catch (cause) {
+      error = getErrorMessageOr(cause, "Failed to set up Vorteo source");
+    }
+    this.emit({
+      type: "system.source.setup.response",
+      payload: {
+        requestId: msg.requestId,
+        accepted: error === null,
+        outcome: result?.outcome ?? null,
+        workspaceId: result?.workspaceId ?? null,
+        error,
+      },
+    });
+    if (result) await this.emitWorkspaceUpdatesForWorkspaceIds([result.workspaceId]);
   }
 
   private async handleWorkspacePinSetRequest(
@@ -6549,6 +6593,7 @@ export class Session {
       projectId: workspace.projectId,
       projectMembership: workspace.projectMembership,
       ...factoryMembershipForDescriptor({ workspace, serverId: this.serverId }),
+      ...systemFieldsForDescriptor(workspace, resolvedProjectRecord),
       projectDisplayName: resolvedProjectRecord
         ? resolveProjectDisplayName(resolvedProjectRecord)
         : workspace.projectId,
