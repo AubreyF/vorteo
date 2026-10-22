@@ -14,6 +14,7 @@ import { bootoutJob, LaunchctlError, type CommandRunner } from "../session-host/
 import type { InstallationConfig } from "./config.js";
 import {
   FORCED_STOP_AFTER_MS,
+  RESTART_ANSWER_DEADLINE_MS,
   SESSION_HOST_ENTRYPOINT,
   SessionHostJobError,
   deriveSessionHostPlan,
@@ -22,6 +23,7 @@ import {
   readLaunchdJob,
   removeSessionHost,
   renderPlannedPlist,
+  restartSessionHost,
   sessionHostLabel,
   type SessionHostPorts,
 } from "./session-host-job.js";
@@ -114,6 +116,10 @@ function fakeInstallation() {
     /** What a bootstrap starts; null starts a host that never answers. */
     starts: { pid: 4242, sessions: 0, answers: true } as FakeHost | null,
     setting: false,
+    /** What a SIGTERM from launchctl kill does to the host: exit and relaunch, or nothing. */
+    ignoresTerm: false,
+    /** The pid launchd gives the next relaunch after a kill. */
+    nextPid: 4343,
     clock: 1_000_000,
     calls: [] as string[],
     commands: new Map<number, string>([[4242, HOST_COMMAND]]),
@@ -151,6 +157,19 @@ function fakeInstallation() {
       if (state.host && !state.host.survivesBootout) state.host = null;
       return { stdout: "" };
     }
+    if (verb === "kill" || verb === "kickstart") {
+      // A SIGTERM the host honours, or a SIGKILL, ends it; KeepAlive relaunches it under a new pid.
+      const signal = verb === "kill" ? args[2] : null;
+      if (verb === "kickstart" || signal === "SIGKILL" || !state.ignoresTerm) {
+        const started = state.starts ? { ...state.starts, pid: state.nextPid } : null;
+        state.nextPid += 1;
+        loaded.pid = started?.pid ?? null;
+        loaded.runs += 1;
+        state.host = started;
+        if (started) state.commands.set(started.pid, HOST_COMMAND);
+      }
+      return { stdout: "" };
+    }
     if (verb !== "print") throw new Error(`Unexpected launchctl ${verb}`);
     const pid = loaded.pid === null ? "" : `\tpid = ${loaded.pid}\n`;
     const exit = loaded.lastExit === null ? "(never exited)" : String(loaded.lastExit);
@@ -164,6 +183,10 @@ function fakeInstallation() {
   const run: CommandRunner = async (file, args) => {
     if (file === "/usr/bin/plutil") return plutil(args);
     if (file !== "/bin/launchctl") throw new Error(`Unexpected command ${file}`);
+    if (args[0] === "kill") {
+      state.calls.push(`launchctl kill ${args[1]} ${args[2]}`);
+      return loadedJob([args[0], args[2]!, args[1]!]);
+    }
     if (args[0] !== "print") state.calls.push(`launchctl ${args[0]} ${args[1]}`);
     return args[0] === "bootstrap" ? bootstrap(args) : loadedJob(args);
   };
@@ -197,7 +220,17 @@ function fakeInstallation() {
     processCommand: async (pid) => state.commands.get(pid) ?? null,
     kill: (pid, signal) => {
       state.calls.push(`kill ${pid} ${signal}`);
-      if (signal === "SIGKILL" && state.host?.pid === pid) state.host = null;
+      if (signal === "SIGKILL" && state.host?.pid === pid) {
+        // Direct SIGKILL of a job's process: launchd relaunches it like a kill through launchctl.
+        if (state.loaded) {
+          const started = state.starts ? { ...state.starts, pid: state.nextPid } : null;
+          state.nextPid += 1;
+          state.loaded.pid = started?.pid ?? null;
+          state.loaded.runs += 1;
+          state.host = started;
+          if (started) state.commands.set(started.pid, HOST_COMMAND);
+        } else state.host = null;
+      }
     },
     settingEnabled: async (paseoHome) => {
       expect(paseoHome).toBe(HOME);
@@ -218,7 +251,7 @@ function sha256(value: Buffer | string): string {
 
 async function plan(
   ports: SessionHostPorts,
-  operation: "session-host-install" | "session-host-remove",
+  operation: "session-host-install" | "session-host-remove" | "session-host-restart",
 ) {
   return deriveSessionHostPlan({ config: testConfig(), operation, ports });
 }
@@ -434,6 +467,95 @@ test("remove is refused while the setting is on, sessions run or the plist chang
   await expect(attempt()).rejects.toThrow("The session host plist changed.");
   expect(fake.state.calls).toEqual([]);
   expect(fake.state.loaded).not.toBeNull();
+});
+
+const MARKER = `${HOME}/session-host/restarting`;
+
+test("restart stops the host through launchd, marks the restart for workers and waits for the new host", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.host!.sessions = 3;
+  const progress = stages();
+  const result = await restartSessionHost({
+    plan: await plan(fake.ports, "session-host-restart"),
+    ports: fake.ports,
+    ...progress,
+  });
+  expect(result.host).toEqual({ pid: 4343, release: "fixture" });
+  expect(result.previousHost).toEqual({ pid: 4242, release: "fixture", sessions: 3 });
+  expect(result.detail).toContain("process 4242 on release fixture stopped with 3 hosted sessions");
+  expect(result.detail).toContain("process 4343 on release fixture answers");
+  expect(progress.reported).toEqual(["applying", "verifying"]);
+  // The marker goes down before the signal and comes up again once the new host answers; the
+  // plist and the job are untouched.
+  expect(fake.state.calls).toEqual([
+    `write ${MARKER}`,
+    `launchctl kill SIGTERM gui/${UID}/${LABEL}`,
+    `remove ${MARKER}`,
+  ]);
+  expect(fake.state.files.has(PLIST)).toBe(true);
+  expect(fake.state.loaded).toMatchObject({ pid: 4343, runs: 2 });
+});
+
+test("a host that ignores the stop is killed once verified, and the restart still completes", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.ignoresTerm = true;
+  const result = await restartSessionHost({
+    plan: await plan(fake.ports, "session-host-restart"),
+    ports: fake.ports,
+    reportStage: () => {},
+  });
+  expect(result.host).toEqual({ pid: 4343, release: "fixture" });
+  expect(result.detail).toContain("by force after ignoring the stop");
+  expect(fake.state.calls).toEqual([
+    `write ${MARKER}`,
+    `launchctl kill SIGTERM gui/${UID}/${LABEL}`,
+    "kill 4242 SIGKILL",
+    `remove ${MARKER}`,
+  ]);
+});
+
+test("a restart whose new host never answers removes the marker and fails, leaving the job loaded", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.starts = null;
+  const started = fake.state.clock;
+  await expect(
+    restartSessionHost({
+      plan: await plan(fake.ports, "session-host-restart"),
+      ports: fake.ports,
+      reportStage: () => {},
+    }),
+  ).rejects.toThrow("did not answer under a new process within 90 seconds");
+  expect(fake.state.clock - started).toBeGreaterThanOrEqual(RESTART_ANSWER_DEADLINE_MS);
+  expect(fake.state.files.has(MARKER)).toBe(false);
+  expect(fake.state.files.has(PLIST)).toBe(true);
+  expect(fake.state.loaded).not.toBeNull();
+});
+
+test("restart is refused without an installed, loaded job on a release with the session host", async () => {
+  const fake = fakeInstallation();
+  await expect(
+    restartSessionHost({
+      plan: await plan(fake.ports, "session-host-restart"),
+      ports: fake.ports,
+      reportStage: () => {},
+    }),
+  ).rejects.toThrow("not installed, so there is nothing to restart");
+  await installed(fake);
+  const restart = await plan(fake.ports, "session-host-restart");
+  fake.state.entrypointPresent = false;
+  await expect(
+    restartSessionHost({ plan: restart, ports: fake.ports, reportStage: () => {} }),
+  ).rejects.toThrow("has no session host");
+  fake.state.entrypointPresent = true;
+  fake.state.files.set(PLIST, Buffer.from("edited"));
+  await expect(
+    restartSessionHost({ plan: restart, ports: fake.ports, reportStage: () => {} }),
+  ).rejects.toThrow("The session host plist changed.");
+  expect(fake.state.calls).toEqual([]);
+  expect(fake.state.host).toMatchObject({ pid: 4242 });
 });
 
 test("a silent host is stopped only after the workers' alive window, and the stop is recorded", async () => {

@@ -846,6 +846,8 @@ export function createInstallationServer(
             sessionHostJob: {
               available: host && restarts.sessionHostAvailable(),
               ownerApprovalRequired: true,
+              // COMPAT(sessionHostRestart): clients send the restart operation only when this is set.
+              restart: true,
             },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
@@ -1615,9 +1617,10 @@ export function createInstallationServer(
       res.status(404).json({ error: "Session host maintenance is unavailable" });
       return;
     }
+    // COMPAT(sessionHostRestart): the app shows the Restart control only when this is set.
     void sessionHostStatus(true).then(
-      (status) => res.json({ jobs, status }),
-      () => res.json({ jobs, status: null }),
+      (status) => res.json({ jobs, status, restartSupported: true }),
+      () => res.json({ jobs, status: null, restartSupported: true }),
     );
   });
   app.post("/api/installation/owner/session-host/request", (req, res, next) => {

@@ -339,7 +339,11 @@ test("HTTP routes keep requests on the Host token and decisions on owner buttons
     expect((await request("session-host-requests", "guest", input)).status).toBe(401);
     expect((await request("owner/session-host/query", "host", {})).status).toBe(401);
     const capability = await (await request("capabilities", "host")).json();
-    expect(capability.sessionHostJob).toEqual({ available: true, ownerApprovalRequired: true });
+    expect(capability.sessionHostJob).toEqual({
+      available: true,
+      ownerApprovalRequired: true,
+      restart: true,
+    });
     const guestCapability = await (await request("capabilities", "guest")).json();
     expect(guestCapability.sessionHostJob.available).toBe(false);
     // Dev sees whether the job exists, never its detail; the host is asked only for detail.
@@ -470,7 +474,7 @@ test("owner status is null, not an error, when the job cannot be inspected", asy
       },
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ jobs: [], status: null });
+    expect(await response.json()).toEqual({ jobs: [], status: null, restartSupported: true });
   } finally {
     await new Promise<void>((resolve, reject) =>
       listener.close((error) => {

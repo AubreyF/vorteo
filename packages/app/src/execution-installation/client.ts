@@ -288,6 +288,8 @@ export class InstallationClient {
           jobs: z.array(SessionHostJobSchema),
           // Null when the coordinator could not inspect the job; its jobs still need decisions.
           status: SessionHostStatusSchema.nullable(),
+          // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
+          restartSupported: z.boolean().optional(),
         })
         .parse(await this.request("session-host/query", {}));
       this.sessionHostSupported = true;

@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "vitest";
 import type { DaemonClient } from "../test-utils/daemon-client.js";
@@ -17,6 +25,8 @@ import {
   type Installation,
   type ReleaseTree,
 } from "./durable-sessions.harness.e2e.js";
+import { sessionHostPaths } from "./host-files.js";
+import { signalJob } from "./launchd.js";
 
 /**
  * Durable sessions, proven against real processes: a session host run by launchd, and a real
@@ -343,6 +353,56 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     expect((await client.readMessageQueue(agentId)).snapshot?.items ?? []).toEqual([]);
     expectProviderProcesses(install, restarted.pid, 1);
     report(`[host kill] host back after ${hostBackMs} ms, continuation done after ${doneMs} ms`);
+  }, 300_000);
+
+  test("a tracked session host restart interrupts the turn, and the continuation opens on the new host", async () => {
+    const install = await freshInstallation();
+    const host = await install.startHost(THIS_TREE);
+    await install.startSupervisor(THIS_TREE);
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS);
+    await waitForChunks(client, agentId, RESTART_AFTER_CHUNKS);
+
+    // What the coordinator does for an approved restart: the marker first, then the stop signal.
+    const restartedAt = Date.now();
+    writeFileSync(
+      sessionHostPaths(install.home).restartMarkerPath,
+      JSON.stringify({ requestedAt: new Date().toISOString(), pid: host.pid }),
+      { mode: 0o600 },
+    );
+    await signalJob(install.label, "SIGTERM");
+    await waitUntil(
+      "the stopped host's provider to exit",
+      () => providersOf(install, host.pid) === 0,
+      30_000,
+    );
+    const restarted = await install.host({ notPid: host.pid });
+    const hostBackMs = Date.now() - restartedAt;
+
+    const { agent, summary } = await waitUntil(
+      "the continuation turn to finish",
+      async () => {
+        const current = (await client.fetchAgent(agentId))?.agent;
+        const timeline = await summarizeTimeline(client, agentId);
+        return current?.status === "idle" && timeline.chunks.size === 2
+          ? { agent: current, summary: timeline }
+          : null;
+      },
+      120_000,
+      500,
+    );
+    expect(
+      summary.userMessages.filter((text) => text.includes(HOST_LOSS_CONTINUATION)),
+    ).toHaveLength(1);
+    const [original, continuation] = [...summary.chunks.values()];
+    expect(original!.length).toBeLessThan(TURN_CHUNKS);
+    expect(continuation).toEqual([1, 2, 3]);
+    expect(summary.systemErrors).toEqual([]);
+    expect((agent as { lastError?: unknown }).lastError ?? null).toBeNull();
+    // The continuation ran in the new host, not in the worker, and the host cleared the marker.
+    expectProviderProcesses(install, restarted.pid, 1);
+    expect(existsSync(sessionHostPaths(install.home).restartMarkerPath)).toBe(false);
+    report(`[host restart] host back after ${hostBackMs} ms, continuation hosted on the new host`);
   }, 300_000);
 
   // Phase 2: the same host runs Codex-shaped sessions, whose goal state and commands live in the

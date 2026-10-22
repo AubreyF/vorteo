@@ -6,6 +6,7 @@ import {
   sessionHostOperationTitle,
   sessionHostPlanLines,
   sessionHostRequestDisabledReason,
+  sessionHostRestartWarning,
   sessionHostReviewSummary,
   sessionHostStatusLines,
   visibleSessionHostJobs,
@@ -29,6 +30,52 @@ const installed: SessionHostStatus = {
 test("operations are named for the owner", () => {
   expect(sessionHostOperationTitle("session-host-install")).toBe("Install the session host job");
   expect(sessionHostOperationTitle("session-host-remove")).toBe("Remove the session host job");
+  expect(sessionHostOperationTitle("session-host-restart")).toBe("Restart the session host");
+});
+
+test("restart is offered for a loaded job on a supporting release, and says what it interrupts", () => {
+  const present = { jobs: [], status: installed };
+  expect(sessionHostRequestDisabledReason("session-host-restart", present, unlocked)).toBeNull();
+  const absent = { jobs: [], status: sessionHostStatusFixture };
+  expect(sessionHostRequestDisabledReason("session-host-restart", absent, unlocked)).toBe(
+    "The session host job is not installed.",
+  );
+  const unsupported = { jobs: [], status: { ...installed, supported: false } };
+  expect(sessionHostRequestDisabledReason("session-host-restart", unsupported, unlocked)).toContain(
+    "no session host",
+  );
+  const unloaded = {
+    jobs: [],
+    status: { ...installed, detail: { ...installed.detail!, loaded: false } },
+  };
+  expect(sessionHostRequestDisabledReason("session-host-restart", unloaded, unlocked)).toContain(
+    "not loaded",
+  );
+  expect(sessionHostRestartWarning(installed)).toBe(
+    "No hosted session is running now, so a restart interrupts nothing.",
+  );
+  expect(
+    sessionHostRestartWarning({
+      ...installed,
+      detail: { ...installed.detail!, host: { ...installed.detail!.host!, sessions: 17 } },
+    }),
+  ).toBe("Restarting interrupts 17 hosted turns; each continues on the new host.");
+  expect(sessionHostRestartWarning(null)).toContain("interrupts every hosted turn");
+  const restart = { ...sessionHostJobFixture, operation: "session-host-restart" as const };
+  expect(sessionHostReviewSummary(restart)).toContain("Every hosted turn running at that moment");
+  expect(
+    sessionHostReviewSummary({
+      ...restart,
+      status: "succeeded",
+      stage: "succeeded",
+      previousHost: { pid: 4242, sessions: 1 },
+    }),
+  ).toBe(
+    "The session host restarted on the installed release; 1 hosted turn was interrupted and continue there.",
+  );
+  expect(sessionHostReviewSummary({ ...restart, status: "running", stage: "applying" })).toContain(
+    "waiting for its replacement",
+  );
 });
 
 test("the plan summary shows every reviewed fact and binds to the plan digest", () => {

@@ -19,6 +19,8 @@ export interface SessionHostConnector {
   current(): SessionHostClient | null;
   /** Whether a host socket exists, checked without connecting or logging. */
   present(): Promise<boolean>;
+  /** Whether the coordinator marked the host as restarting, so it is expected back shortly. */
+  restarting?(): Promise<boolean>;
   /** What the host lock proves: "gone" only when no lock exists or its holder pid is dead. */
   hostState(): Promise<"gone" | "alive">;
   /**
@@ -115,6 +117,10 @@ export function createSessionHostConnector(
       return stats?.isSocket() === true;
     },
     hostState: async () => (await readSessionHostLock(options.paths.socketPath)).state,
+    restarting: async () => {
+      const stats = await lstat(options.paths.restartMarkerPath).catch(() => null);
+      return stats?.isFile() === true;
+    },
     knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {
       closed = true;

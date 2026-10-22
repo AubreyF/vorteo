@@ -320,6 +320,20 @@ test("a provider process recorded by an earlier host is stopped before the new h
   expect(await host.client.list()).toEqual([]);
 }, 30_000);
 
+test("a host that starts removes the restart marker a tracked restart left for workers", async () => {
+  const home = mkdtempSync("/tmp/dsh-svc-");
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const paths = sessionHostPaths(home);
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(paths.directory, { mode: 0o700 });
+  writeFileSync(paths.restartMarkerPath, JSON.stringify({ requestedAt: "2026-10-22T00:00:00Z" }), {
+    mode: 0o600,
+  });
+  const host = await startHost(home);
+  expect(await host.client.list()).toEqual([]);
+  expect(existsSync(paths.restartMarkerPath)).toBe(false);
+}, 30_000);
+
 test("a second host started by mistake does not stop the running host's provider processes", async () => {
   const host = await startHost();
   const paths = sessionHostPaths(host.home);
