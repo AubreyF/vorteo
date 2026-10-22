@@ -49,6 +49,7 @@ import { OpenLocationSection } from "@/screens/settings/open-location/open-locat
 import { TerminalSection } from "@/screens/settings/terminal/terminal-section";
 import { ChatSection } from "@/screens/settings/chat/chat-section";
 import { SendingSection } from "@/screens/settings/general/sending-section";
+import { ProviderDetailPage, providerTypeLabel } from "@/screens/settings/provider-detail-page";
 import {
   useAppSettings,
   useSettings,
@@ -197,6 +198,7 @@ const HOST_SECTION_ITEMS: HostSectionItem[] = [
 /** The section a drill-in page belongs to, for the sidebar highlight. */
 function sectionForView(view: SettingsView): SettingsSectionId | null {
   if (view.kind === "project") return "workspaces";
+  if (view.kind === "provider") return "accounts";
   if (view.kind === "plugin") return "plugins";
   if (view.kind === "host") {
     if (view.section === "host") return "environments";
@@ -1154,6 +1156,7 @@ function resolveDetailTitle(
     return item ? t(item.labelKey) : undefined;
   }
   if (view.kind === "project") return t("settings.projects");
+  if (view.kind === "provider") return providerTypeLabel(view.providerType);
   return undefined;
 }
 
@@ -1177,6 +1180,7 @@ function renderDetailContent(
     );
   }
   if (view.kind === "host") return renderHostSettingsContent(view, options.onHostRemoved);
+  if (view.kind === "provider") return <ProviderDetailPage providerType={view.providerType} />;
   if (view.kind === "project") {
     return (
       <ProjectSettingsScreen

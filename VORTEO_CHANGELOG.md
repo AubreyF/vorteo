@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Changed
+
+- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom.
+- The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone. Per-environment controls live under Environment access in each connection's menu, for the rare case where one environment must not use a connection.
+- Add provider and Add connection install and sign in on Host by default, with a quiet option to use the Dev container instead.
+
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
 ### Changed

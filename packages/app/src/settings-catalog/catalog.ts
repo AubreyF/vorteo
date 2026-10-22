@@ -41,6 +41,8 @@ export interface SettingsAvailability {
   requiresHost?: boolean;
   /** Needs a configured execution installation. */
   requiresInstallation?: boolean;
+  /** Replaced by an installation-wide page when an installation exists. */
+  withoutInstallation?: boolean;
 }
 
 export interface SettingsSectionDefinition {
@@ -181,7 +183,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   {
     id: "accounts.providers",
     section: "accounts",
-    label: "Accounts",
+    label: "Providers",
     legacySlugs: ["providers"],
     requiresHost: true,
   },
@@ -191,6 +193,8 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     label: "Profiles",
     legacySlugs: ["profiles"],
     requiresHost: true,
+    // Each provider's page shows its profiles when an installation exists.
+    withoutInstallation: true,
   },
   {
     id: "accounts.usage",
@@ -198,6 +202,8 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     label: "Usage",
     legacySlugs: ["usage"],
     requiresHost: true,
+    // Usage sits on each connection of a provider's page when an installation exists.
+    withoutInstallation: true,
   },
 
   {
@@ -465,14 +471,30 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
   {
     id: "accounts.providers.list",
     pane: "accounts.providers",
-    label: "Accounts",
-    keywords: ["providers", "claude", "codex", "copilot", "opencode", "pi", "connect", "sign in"],
+    label: "Providers",
+    keywords: [
+      "accounts",
+      "connections",
+      "claude",
+      "codex",
+      "copilot",
+      "opencode",
+      "pi",
+      "connect",
+      "sign in",
+      "profiles",
+      "default profile",
+      "model defaults",
+      "usage",
+      "plan usage",
+      "environment access",
+    ],
     scope: environment,
   },
   {
     id: "accounts.providers.order",
     pane: "accounts.providers",
-    label: "Account order",
+    label: "Provider order",
     keywords: ["reorder", "drag", "priority"],
     scope: installation,
   },
@@ -965,6 +987,7 @@ export function isAvailable(
   if (item.nativeOnly && !context.isNative) return false;
   if (item.requiresHost && !context.hasHosts) return false;
   if (item.requiresInstallation && !context.hasInstallation) return false;
+  if (item.withoutInstallation && context.hasInstallation) return false;
   return true;
 }
 
