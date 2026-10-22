@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): a unit test covers the worker waiting through a marked session host restart whose new host holds the lock before listening; no behaviour changed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the tracked session host restart now stays compatible with older interfaces, bounds and cleans up its restart marker, and falls back to starting the job when the stop finds no process, following independent review. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the installation coordinator gains a tracked session host restart with owner approval, so the live host can move to the installed release; interrupted hosted turns continue on the new host through a restart marker the worker waits on. README overview and onboarding are unchanged.

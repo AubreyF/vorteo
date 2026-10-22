@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Validation
+
+- The hosted session suite covers a marked session host restart whose new host already holds the lock but does not listen yet: the worker keeps waiting and the session opens in the host, which closes the one path the independent review found untested.
+
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 
 ### Fixed
