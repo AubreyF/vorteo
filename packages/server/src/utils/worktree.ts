@@ -8,7 +8,7 @@ import {
   rmSync,
   statSync,
 } from "fs";
-import { copyFile, rm, stat } from "fs/promises";
+import { copyFile, readFile, rm, stat } from "fs/promises";
 import { join, basename, dirname, isAbsolute, resolve, sep } from "path";
 import net from "node:net";
 import { createHash } from "node:crypto";
@@ -41,6 +41,8 @@ import {
 import { runGitCommand } from "./run-git-command.js";
 import { spawnProcess } from "./spawn.js";
 import { resolvePaseoHome } from "../server/paseo-home.js";
+import { logicalProjectsPath } from "../server/projects-folder.js";
+import { writeFileAtomic } from "../server/atomic-file.js";
 import { createExternalProcessEnv } from "../server/paseo-env.js";
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
 import { expandTilde, getRealpathAwareRelativePath, isPathInsideRoot } from "./path.js";
@@ -846,16 +848,31 @@ function deriveShortAlphanumericHash(value: string): string {
   return hashValue.toString(36).padStart(13, "0").slice(0, WORKTREE_PROJECT_HASH_LENGTH);
 }
 
-export async function deriveWorktreeProjectHash(cwd: string): Promise<string> {
+/** The repository's real path, before any Projects folder alias maps it to its logical form. */
+async function resolveWorktreeProjectRealPath(cwd: string): Promise<string> {
   try {
-    const commonDir = await getGitCommonDir(cwd);
-    const normalizedCommonDir = normalizePathForOwnership(commonDir);
-    const repoRoot =
-      basename(normalizedCommonDir) === ".git" ? dirname(normalizedCommonDir) : normalizedCommonDir;
-    return deriveShortAlphanumericHash(repoRoot);
+    const commonDir = realPathOrResolved(await getGitCommonDir(cwd));
+    return basename(commonDir) === ".git" ? dirname(commonDir) : commonDir;
   } catch {
-    return deriveShortAlphanumericHash(normalizePathForOwnership(cwd));
+    return realPathOrResolved(cwd);
   }
+}
+
+/** Hashes the logical repository path, so the Host and Dev agree on a project's worktrees. */
+export async function deriveWorktreeProjectHash(cwd: string): Promise<string> {
+  return deriveShortAlphanumericHash(
+    logicalProjectsPath(await resolveWorktreeProjectRealPath(cwd)),
+  );
+}
+
+/** The current hash, then the hash an alias path produced before the folder had aliases. */
+async function deriveWorktreeProjectHashes(cwd: string): Promise<string[]> {
+  const realPath = await resolveWorktreeProjectRealPath(cwd);
+  const hashes = [
+    deriveShortAlphanumericHash(logicalProjectsPath(realPath)),
+    deriveShortAlphanumericHash(realPath),
+  ];
+  return [...new Set(hashes)];
 }
 
 export function resolvePaseoWorktreesBaseRoot(options?: WorktreeRootOptions): string {
@@ -932,12 +949,17 @@ export function mapWorkspaceRelativeCwdToWorktree(input: {
   return mappedCwd;
 }
 
-function normalizePathForOwnership(input: string): string {
+function realPathOrResolved(input: string): string {
   try {
     return realpathSync(input);
   } catch {
     return resolve(input);
   }
+}
+
+/** The real path, in its logical form when it is under a Projects folder alias. */
+function normalizePathForOwnership(input: string): string {
+  return logicalProjectsPath(realPathOrResolved(input));
 }
 
 function resolveRepoRootFromGitCommonDir(commonDir: string): string {
@@ -1051,10 +1073,11 @@ export async function listPaseoWorktrees({
   paseoHome?: string;
   worktreesRoot?: string;
 }): Promise<PaseoWorktreeInfo[]> {
-  const projectHash = await deriveWorktreeProjectHash(cwd);
-  const projectWorktreesRoots = resolvePaseoWorktreesBaseRoots({ paseoHome, worktreesRoot }).map(
-    (baseRoot) => join(baseRoot, projectHash),
-  );
+  const projectHashes = await deriveWorktreeProjectHashes(cwd);
+  const projectWorktreesRoots = resolvePaseoWorktreesBaseRoots({
+    paseoHome,
+    worktreesRoot,
+  }).flatMap((baseRoot) => projectHashes.map((projectHash) => join(baseRoot, projectHash)));
   const { stdout } = await runGitCommand(["worktree", "list", "--porcelain"], {
     cwd,
     envOverlay: READ_ONLY_GIT_ENV,
@@ -1254,6 +1277,7 @@ export const createWorktree = async ({
     timeout: 120_000,
   });
   worktreePath = normalizePathForOwnership(finalWorktreePath);
+  await rewriteWorktreeLinksToLogicalPaths(worktreePath);
 
   if (sourcePlan.pushRemote) {
     await configureWorktreePushRemote({
@@ -1297,6 +1321,34 @@ export const createWorktree = async ({
         : (sourcePlan.metadataBaseRef ?? sourcePlan.metadataBaseRefName),
   };
 };
+
+/**
+ * Git records a linked worktree's two link files with real paths: `<worktree>/.git` says
+ * `gitdir: <admin dir>`, and `<admin dir>/gitdir` names `<worktree>/.git`. Inside a Dev
+ * container that reaches the Projects folder through an alias those are paths the Host
+ * cannot open, so both are rewritten to the logical path, which resolves in both
+ * environments. Relative links and links outside the folder's aliases are left alone.
+ */
+export async function rewriteWorktreeLinksToLogicalPaths(worktreePath: string): Promise<void> {
+  const adminDir = await rewriteGitdirLink(join(worktreePath, ".git"));
+  if (adminDir) await rewriteGitdirLink(join(adminDir, "gitdir"));
+}
+
+/** Rewrites one link file in place and returns the absolute path it points to. */
+async function rewriteGitdirLink(linkFile: string): Promise<string | null> {
+  const content = await readFile(linkFile, "utf8").catch((error: NodeJS.ErrnoException) => {
+    // A main checkout's .git is a directory, not a link.
+    if (error.code === "EISDIR" || error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (content === null) return null;
+  const prefix = content.startsWith("gitdir: ") ? "gitdir: " : "";
+  const target = content.slice(prefix.length).trim();
+  if (!isAbsolute(target)) return resolve(dirname(linkFile), target);
+  const logical = logicalProjectsPath(target);
+  if (logical !== target) await writeFileAtomic(linkFile, `${prefix}${logical}\n`);
+  return logical;
+}
 
 interface ResolveWorktreeSourcePlanOptions {
   cwd: string;

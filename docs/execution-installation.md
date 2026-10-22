@@ -153,23 +153,33 @@ Profile and settings admission still verifies the coordinator response against t
 
 ## Projects folder
 
-An installation can name one Projects folder, such as `~/dev`, that holds every newly added, created or cloned project. The Host and the Dev container see it at the same absolute path, so a project path means the same folder in both environments and needs no translation.
+An installation can name one Projects folder, such as `~/dev`, that holds every newly added, created or cloned project. The Host and the Dev container see it at the same absolute path, so a project path means the same folder in both environments and needs no translation. The container sees that path through an identical bind mount, or, in a container created before the folder existed, through a symlink to the folder's older mount.
 
 Each daemon reads `$PASEO_HOME/projects-folder.json`:
 
 ```json
-{ "root": "/Users/<owner>/dev", "migrateFrom": ["/Users/<old guest user>/dev"] }
+{
+  "root": "/Users/<owner>/dev",
+  "migrateFrom": ["/Users/<old guest user>/dev"],
+  "aliases": ["/Users/<old guest user>/dev"]
+}
 ```
 
-`PASEO_PROJECTS_ROOT` overrides `root`. `migrateFrom` lists earlier container paths of the same folder, and `allowOutside` lists folders outside the root, such as installation-managed worktrees, that may still become projects. Unknown keys are ignored, and an invalid file leaves the daemon without a Projects folder. Settings take effect at the daemon's next start.
+`PASEO_PROJECTS_ROOT` overrides `root`, which is the folder's logical path: the one both environments share. `aliases` lists other absolute paths that reach the same folder, such as the container's older mount. `migrateFrom` lists earlier container paths and is treated as aliases too. The root's real path counts as an alias when a symlink leads to it. `allowOutside` lists folders outside the root, such as installation-managed worktrees, that may still become projects. Unknown keys are ignored, and an invalid file leaves the daemon without a Projects folder. Settings take effect at the daemon's next start.
+
+An alias is permanent. Inside a container that reaches the root through a symlink, `realpath`, `getcwd` and git report the physical alias path. The daemon maps any path equal to or under an alias to the same place under the root before it records or compares it.
 
 With a Projects folder, the daemon:
 
-- Accepts a new project from Add project, Open project, New folder and Clone from GitHub only when its real path is strictly inside the folder. Symlinks and `..` cannot leave it, and the folder itself cannot be added. Projects and workspaces registered earlier keep working wherever they are, including the Vorteo System project.
+- Accepts a new project from Add project, Open project, New folder and Clone from GitHub only when its real path is strictly inside the folder's real path. A path through the root or an alias is accepted; symlinks and `..` cannot leave the folder, and the folder itself cannot be added. Projects and workspaces registered earlier keep working wherever they are, including the Vorteo System project.
+- Records project roots, project keys, workspace directories, worktree roots and main checkout roots by their logical path, whether they arrive from a client, a git query or a worktree it creates. Registries never store an alias path.
 - Browses only the Projects folder and starts directory search there. Listings mark git checkouts and registered projects, and never show `.vorteo`.
-- Creates new Paseo-owned worktrees in `<root>/.vorteo/worktrees/<repository hash>/<name>` unless `worktrees.root` is set. Worktrees in the earlier `$PASEO_HOME/worktrees` stay Paseo-owned, so they still list, archive and clean up.
-- Moves registry paths under a `migrateFrom` prefix to the identical path once, at startup, after copying `projects.json` and `workspaces.json` to `*.before-projects-folder-<time>`. The step is idempotent; a failure keeps the earlier paths.
-- Advertises `features.projectsRoot` and `server_info.projectsRoot`. Clients use them to show the simpler Add project flow.
+- Creates new Paseo-owned worktrees in `<root>/.vorteo/worktrees/<repository hash>/<name>` unless `worktrees.root` is set. The hash comes from the repository's logical path, so both daemons use the same folder. Worktrees in the earlier `$PASEO_HOME/worktrees` stay Paseo-owned, so they still list, archive and clean up, including those hashed from an alias path.
+- Rewrites a new worktree's two git link files, `<worktree>/.git` and `<main checkout git dir>/worktrees/<name>/gitdir`, from an alias path to the logical path. Git writes real paths, which the Host cannot open when they are the container's alias. The logical path resolves in both environments. Links outside the folder's aliases are unchanged.
+- Moves registry paths under an alias or `migrateFrom` prefix to the logical path at startup, after copying `projects.json` and `workspaces.json` to `*.before-projects-folder-<time>`. The step is idempotent: once no record uses an alias it changes nothing. A failure keeps the earlier paths, which the daemon still maps when it reads them.
+- Advertises `features.projectsRoot` and `server_info.projectsRoot`, always the logical root. Clients use them to show the simpler Add project flow. Browsing lists logical paths, and a browse path through an alias opens the same folder.
+
+Processes inside the container, such as agents, terminals and `pwd`, may still print the physical alias path. Paths they hand back to the daemon are mapped, but text in their output is not.
 
 ### Projects in every environment
 
@@ -199,17 +209,18 @@ The Host's runtime, state, releases and install source must stay outside the fol
 
 New container installations take the folder from `PASEO_PROJECTS_FOLDER=/absolute/path ./docker/multiplex/install.sh <deployment>`. The installer mounts it at its own path and sets `PASEO_PROJECTS_ROOT`. `share-folder.sh` keeps working for other folders, but projects no longer need it.
 
-For an existing installation, the Dev container needs the identical-path mount first:
+An existing Dev container that mounts the folder at another path does not need to be recreated. Give it the folder's own path as a symlink to that mount, which the daemon records as an alias:
 
-1. Add a writable bind mount of the folder at its own path to the Dev container's Compose file. Keep any earlier mount of the same folder at its old path as an alias: running agents, terminals and git worktree links still name the old path.
-2. Recreate the container through the tracked installation workflow. Recreation discards the container's writable layer, including releases installed there by Dev updates and the updater's Node runtime, so run Dev update setup again and reinstall the current Dev release before relying on it.
-3. Run `node scripts/install-execution-host.mjs configure-projects-folder --root <installation root> --folder <projects folder> --migrate-from <old container path>`. Add `--allow-outside <folder>` for each extra location. It writes both settings files and adds `<projects folder>/*` to the Dev daemon user's `safe.directory`, moving earlier entries under the old path. It refuses to write the Dev file unless the container mounts the folder at the identical path.
-4. Deliver source with Projects folder support to both daemons through the tracked update workflow. The restart applies the settings and runs the registry move.
-5. Verify that both daemons advertise `projectsRoot`, that Dev registry paths use the identical path, and that Add project opens in the Projects folder.
+1. **Create the alias once.** Builds runs, as root in the existing container, `mkdir -p <parent of projects folder> && test ! -e <projects folder> && ln -s <old container path> <projects folder>`. The container needs no extra capability. Running `configure-projects-folder` before this step prints the exact command, with a `docker exec --user root` form, and writes nothing to Dev.
+2. **Verify it** as the Dev daemon user in the container: `readlink <projects folder> && test "$(cd <projects folder> && pwd -P)" = <old container path>`. Both must succeed.
+3. **Configure** with `node scripts/install-execution-host.mjs configure-projects-folder --root <installation root> --folder <projects folder> --migrate-from <old container path>`. Add `--alias <container path>` for any other path of the same folder and `--allow-outside <folder>` for each extra location. The command inspects the container read-only: it accepts an identical-path bind mount, or a folder path whose real path in the container is the folder's mount, and records that mount path in `aliases`. It writes both settings files and adds `<projects folder>/*` to the Dev daemon user's `safe.directory`, moving earlier entries under the old path. It refuses to write the Dev file, and prints the commands from step 1, when the container reaches the folder by neither route.
+4. **Update both daemons** with source that has Projects folder alias support, through tracked Host and Dev source updates. Each restart applies the settings, and the Dev restart moves registry paths to the logical path.
+5. **Verify** that both daemons advertise the same `projectsRoot`, that Dev's `projects.json` and `workspaces.json` hold no alias paths, that Add project opens in the Projects folder, and that a worktree created by Dev opens on the Host, where `git -C <worktree> status` succeeds.
+6. **Roll back** by removing `projects-folder.json` from both daemon homes. To undo the registry move, restore the `*.before-projects-folder-<time>` copies while the Dev daemon is stopped by a tracked restart. The symlink can stay: it is harmless without settings, and the old mount keeps restored paths valid. Projects added inside the folder stay registered. Registry paths and worktree links that use the logical path keep resolving in Dev while the symlink exists.
 
-Docker Desktop shows bind-mounted files as owned by the reading user, so git trusts them without `safe.directory`. On Linux hosts with different user IDs, git 2.46 or later reads `<folder>/*`; earlier git needs one entry per repository.
+The symlink lives in the container's writable layer, so it does not survive recreation. Recreating the container with an identical-path bind mount, as new installations do, also works and needs no symlink. Recreation discards the container's writable layer, including releases installed there by Dev updates and the updater's Node runtime, so run Dev update setup again and reinstall the current Dev release before relying on it. Keep the earlier mount as an alias.
 
-To roll back, remove `projects-folder.json` from both daemon homes and, if the registry move must be undone, restore the `*.before-projects-folder-<time>` copies while the Dev daemon is stopped by a tracked restart. The old-path alias keeps restored paths valid. Projects added inside the folder stay registered.
+Docker Desktop shows bind-mounted files as owned by the reading user, so git trusts them without `safe.directory`. On Linux hosts with different user IDs, git 2.46 or later reads `<folder>/*`; earlier git needs one entry per repository, named by its real path, which is the alias path when the container reaches the folder through a symlink.
 
 ## Restart and recovery
 

@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Added
+
+- Projects folder aliases. `projects-folder.json` accepts `aliases`, other absolute paths of the same folder; `migrateFrom` entries and the root's real path count as aliases too. An existing Dev container can now use the shared Projects folder through a symlink at the folder's own path to its older mount, without being recreated.
+- Daemons record every project, workspace, worktree and main checkout path, and local project keys, by the folder's logical path, mapping alias paths from clients, git and new worktrees. The startup registry move covers alias paths and stays idempotent. Browsing and `server_info.projectsRoot` always use the logical root.
+- New worktrees in the Projects folder have their git link files rewritten from an alias path to the logical path, so a worktree created by Dev opens on the Host. Worktree folders are named from the logical repository path, and worktrees named from an alias path stay listed.
+- `configure-projects-folder` accepts a container that reaches the folder's own path through a symlink to its mount, found by read-only inspection, and records the mount path as an alias. Without the symlink it writes nothing to Dev and prints the root command to create it and a command to verify it. `--alias` adds further aliases.
+
+### Changed
+
+- The Projects folder guide describes the no-recreate setup for existing Dev containers: create the symlink, verify, configure, update both daemons, verify and roll back.
+
+### Known limitations
+
+- Processes inside Dev, such as agents, terminals and `pwd`, may still print the physical alias path. Agent records outside the project and workspace registries are not rewritten. Git before 2.46 needs one `safe.directory` entry per repository, named by its alias path. Nothing is installed yet.
+
 ## 0.11.0-beta.3.vorteo.767 - 2026-10-22
 
 ### Added

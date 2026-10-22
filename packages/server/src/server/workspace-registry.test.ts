@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 
 import { beforeEach, afterEach, describe, expect, test } from "vitest";
 
@@ -18,6 +18,7 @@ import { captureFactoryCoordinatorAuthority } from "./factory/coordinator-author
 import { AgentStorage, type StoredAgentRecord } from "./agent/agent-storage.js";
 import { FactoryInstallCheckpointError } from "./factory/install-checkpoint.js";
 import { setWorkspaceLifecycle } from "./workspace-lifecycle/policy.js";
+import { setActiveProjectsFolder } from "./projects-folder.js";
 import {
   createPersistedProjectRecord,
   createPersistedWorkspaceRecord,
@@ -123,6 +124,63 @@ describe("workspace registries", () => {
       },
     });
   }
+
+  test("stores paths under a Projects folder alias in their logical form", async () => {
+    const physical = "/Users/guest/dev";
+    const logical = "/Users/owner/dev";
+    setActiveProjectsFolder({ root: logical, aliases: [physical], allowOutside: [] });
+    try {
+      const project = await projectRegistry.getOrCreateActiveByRoot({
+        rootPath: `${physical}/app`,
+        kind: "git",
+        displayName: "app",
+        projectKey: `host:srv_1:${physical}/app`,
+        timestamp: "2026-10-22T00:00:00.000Z",
+      });
+      expect(project).toMatchObject({
+        rootPath: `${logical}/app`,
+        projectKey: `host:srv_1:${logical}/app`,
+      });
+      // The logical path finds the same project.
+      const again = await projectRegistry.getOrCreateActiveByRoot({
+        rootPath: `${logical}/app`,
+        kind: "git",
+        displayName: "app",
+        projectKey: `host:srv_1:${logical}/app`,
+        timestamp: "2026-10-22T00:00:01.000Z",
+      });
+      expect(again.projectId).toBe(project.projectId);
+      await workspaceRegistry.upsert(
+        createPersistedWorkspaceRecord({
+          workspaceId: "tree",
+          projectId: project.projectId,
+          cwd: `${physical}/.vorteo/worktrees/abc/x/web`,
+          kind: "worktree",
+          displayName: "x",
+          worktreeRoot: `${physical}/.vorteo/worktrees/abc/x`,
+          mainRepoRoot: `${physical}/app`,
+          createdAt: "2026-10-22T00:00:00.000Z",
+          updatedAt: "2026-10-22T00:00:00.000Z",
+        }),
+      );
+      const reloaded = new FileBackedWorkspaceRegistry(
+        path.join(tmpDir, "projects", "workspaces.json"),
+        logger,
+      );
+      expect(await reloaded.get("tree")).toMatchObject({
+        cwd: `${logical}/.vorteo/worktrees/abc/x/web`,
+        worktreeRoot: `${logical}/.vorteo/worktrees/abc/x`,
+        mainRepoRoot: `${logical}/app`,
+      });
+    } finally {
+      setActiveProjectsFolder(undefined);
+    }
+    const stored = JSON.stringify([
+      readFileSync(path.join(tmpDir, "projects", "projects.json"), "utf8"),
+      readFileSync(path.join(tmpDir, "projects", "workspaces.json"), "utf8"),
+    ]);
+    expect(stored).not.toContain("/Users/guest");
+  });
 
   test.each(["archive", "remove"] as const)(
     "%s preserves the workspace when native archive preflight refuses",

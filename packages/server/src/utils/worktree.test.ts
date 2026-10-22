@@ -5,6 +5,7 @@ import {
   deletePaseoWorktree,
   isPaseoOwnedWorktreeCwd,
   mapWorkspaceCwdToWorktree,
+  rewriteWorktreeLinksToLogicalPaths,
   slugify,
   type CreateWorktreeOptions,
   type WorktreeConfig,
@@ -15,6 +16,7 @@ import {
   mkdirSync,
   rmSync,
   existsSync,
+  readFileSync,
   realpathSync,
   symlinkSync,
   writeFileSync,
@@ -23,6 +25,7 @@ import { join } from "path";
 import { createServer, type AddressInfo, type Socket } from "net";
 import { tmpdir } from "os";
 import { createRealpathAwarePathMatcher } from "./path";
+import { setActiveProjectsFolder } from "../server/projects-folder";
 
 interface LegacyCreateWorktreeTestOptions {
   branchName: string;
@@ -154,6 +157,68 @@ describe("paseo worktree manager", () => {
     });
     expect(existsSync(legacy.worktreePath)).toBe(false);
     expect(existsSync(moved.worktreePath)).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "records worktree links through the Projects folder's logical path",
+    async () => {
+      // As in Dev: the logical root is a symlink to the folder's physical mount.
+      const physical = join(tempDir, "physical-dev");
+      const logical = join(tempDir, "logical-dev");
+      mkdirSync(physical);
+      symlinkSync(physical, logical);
+      execFileSync("git", ["clone", "-q", repoDir, join(physical, "app")]);
+      setActiveProjectsFolder({ root: logical, aliases: [physical], allowOutside: [] });
+      try {
+        const created = await createWorktreePrimitive({
+          cwd: join(logical, "app"),
+          worktreeSlug: "linked",
+          source: { kind: "branch-off", baseBranch: "main", branchName: "linked" },
+          runSetup: false,
+          paseoHome,
+          worktreesRoot: join(logical, ".vorteo", "worktrees"),
+        });
+        expect(created.worktreePath.startsWith(join(logical, ".vorteo", "worktrees"))).toBe(true);
+        const dotGit = readFileSync(join(created.worktreePath, ".git"), "utf8");
+        expect(dotGit).toBe(`gitdir: ${join(logical, "app", ".git", "worktrees", "linked")}\n`);
+        const backLink = readFileSync(
+          join(logical, "app", ".git", "worktrees", "linked", "gitdir"),
+          "utf8",
+        );
+        expect(backLink).toBe(`${join(created.worktreePath, ".git")}\n`);
+        // Git still recognizes the worktree through the rewritten links.
+        const list = execFileSync("git", ["worktree", "list", "--porcelain"], {
+          cwd: join(physical, "app"),
+          encoding: "utf8",
+        });
+        expect(list).toContain(`worktree ${created.worktreePath}\n`);
+        expect(
+          execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+            cwd: created.worktreePath,
+            encoding: "utf8",
+          }).trim(),
+        ).toBe("linked");
+        // Both environments hash the logical path, so the worktree lands in the same folder.
+        expect(await deriveWorktreeProjectHash(join(physical, "app"))).toBe(
+          await deriveWorktreeProjectHash(join(logical, "app")),
+        );
+      } finally {
+        setActiveProjectsFolder(undefined);
+      }
+    },
+  );
+
+  it("leaves worktree links outside a Projects folder alias unchanged", async () => {
+    const created = await createLegacyWorktreeForTest({
+      branchName: "plain-links",
+      cwd: repoDir,
+      baseBranch: "main",
+      worktreeSlug: "plain-links",
+      paseoHome,
+    });
+    const before = readFileSync(join(created.worktreePath, ".git"), "utf8");
+    await rewriteWorktreeLinksToLogicalPaths(created.worktreePath);
+    expect(readFileSync(join(created.worktreePath, ".git"), "utf8")).toBe(before);
   });
 
   it("rejects paths that are not under the paseo worktrees root", async () => {

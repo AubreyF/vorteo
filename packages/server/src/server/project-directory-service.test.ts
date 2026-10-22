@@ -133,7 +133,7 @@ describe("project directory creation", () => {
   it("checks the parent against the Projects folder before creating anything", async () => {
     const root = await createRoot();
     const outside = await createRoot();
-    const policy = createProjectsFolderPolicy({ root, migrateFrom: [], allowOutside: [] });
+    const policy = createProjectsFolderPolicy({ root, aliases: [], allowOutside: [] });
     await expect(
       createProjectDirectory(
         { parentPath: outside, name: "escape" },

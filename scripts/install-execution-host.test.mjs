@@ -1217,14 +1217,19 @@ test("configure-system-source records the checkout for the Host and the Dev cont
 test("Projects folder settings keep operator keys and earlier locations", () => {
   const merged = JSON.parse(
     mergeProjectsFolderSettings(
-      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], note: "kept" }),
-      { root: "/Users/owner/dev", migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"] },
+      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], aliases: ["/mnt/dev"], note: "kept" }),
+      {
+        root: "/Users/owner/dev",
+        migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"],
+        aliases: ["/Users/guest/dev", "/Users/owner/dev"],
+      },
     ),
   );
   expect(merged).toEqual({
     note: "kept",
     root: "/Users/owner/dev",
     migrateFrom: ["/Users/guest/dev"],
+    aliases: ["/mnt/dev", "/Users/guest/dev"],
   });
   expect(() => mergeProjectsFolderSettings("[]", { root: "/dev" })).toThrow("JSON object");
   expect(() => mergeProjectsFolderSettings(null, { root: "dev" })).toThrow("absolute");
@@ -1257,7 +1262,7 @@ test("only an identical-path writable bind mount shares the Projects folder", ()
 
 test("configure-projects-folder writes both daemons and trusts the folder in Dev", async () => {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-projects-root-")));
-  const keys = ["FAKE_INSPECT", "REAL_NODE", "FAKE_GIT_LOG", "FAKE_GIT_EXISTING"];
+  const keys = ["FAKE_INSPECT", "REAL_NODE", "FAKE_GIT_LOG", "FAKE_GIT_EXISTING", "FAKE_REALPATHS"];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
     const folder = path.join(root, "dev");
@@ -1273,6 +1278,8 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
       [
         "#!/bin/sh",
         'if [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi',
+        // The container's real paths, when a test stands in for a symlink inside it.
+        'case "$*" in *realpathSync*) if [ -n "$FAKE_REALPATHS" ]; then printf "%s" "$FAKE_REALPATHS"; exit 0; fi;; esac',
         'if [ "$5" = git ]; then echo "$*" >> "$FAKE_GIT_LOG";',
         '  case "$*" in *--get-all*) printf "%s" "$FAKE_GIT_EXISTING";; esac; exit 0; fi',
         "shift 5",
@@ -1311,15 +1318,49 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
         { Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }] },
       ]),
     );
-    const unmounted = await configureProjectsFolder(root, {
+    const unaliased = await configureProjectsFolder(root, {
       folder,
       migrateFrom: ["/Users/guest/dev"],
     });
-    expect(unmounted.dev.written).toBe(false);
-    expect(unmounted.dev.reason).toContain("same path");
+    expect(unaliased.dev.written).toBe(false);
+    expect(unaliased.dev.reason).toContain("no symlink");
+    expect(unaliased.dev.commands.root).toBe(
+      `mkdir -p '${root}' && test ! -e '${folder}' && ln -s '/Users/guest/dev' '${folder}'`,
+    );
+    expect(unaliased.dev.commands.verify).toBe(
+      `readlink '${folder}' && test "$(cd '${folder}' && pwd -P)" = '/Users/guest/dev'`,
+    );
+    expect(unaliased.dev.commands.dockerRoot).toContain("exec --user root 'dev' sh -c");
+    expect(existsSync(path.join(devHome, "projects-folder.json"))).toBe(false);
     expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
       root: folder,
     });
+
+    // Once the folder's own path leads to the mount inside the container, it is an alias.
+    process.env.FAKE_REALPATHS = JSON.stringify(["/Users/guest/dev", "/Users/guest/dev"]);
+    const aliased = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(aliased.dev).toEqual({
+      written: true,
+      root: folder,
+      aliases: ["/Users/guest/dev"],
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
+    });
+    rmSync(path.join(devHome, "projects-folder.json"));
+    rmSync(process.env.FAKE_GIT_LOG);
+    delete process.env.FAKE_REALPATHS;
+
+    writeFileSync(inspect, JSON.stringify([{ Mounts: [] }]));
+    const unmounted = await configureProjectsFolder(root, { folder });
+    expect(unmounted.dev.written).toBe(false);
+    expect(unmounted.dev.reason).toContain("does not mount");
 
     writeFileSync(
       inspect,
@@ -1332,6 +1373,7 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
     expect(result.dev).toEqual({
       written: true,
       root: folder,
+      aliases: [],
       trusted: [`${folder}/*`, `${folder}/app`],
     });
     expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({

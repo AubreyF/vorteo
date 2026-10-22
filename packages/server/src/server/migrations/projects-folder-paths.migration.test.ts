@@ -49,7 +49,7 @@ describe("Projects folder registry path migration", () => {
     migrateRegistryPathsToProjectsFolder({
       paseoHome: home,
       root: ROOT,
-      migrateFrom: [`${OLD}/`],
+      aliases: [`${OLD}/`],
       logger,
       now: () => new Date("2026-10-22T00:00:00.000Z"),
     });

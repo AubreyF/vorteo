@@ -1339,7 +1339,7 @@ describe("project command-center RPCs", () => {
       );
       return createSessionForTest({
         messages: input.messages,
-        projectsFolder: { root: input.root, migrateFrom: [], allowOutside: [] },
+        projectsFolder: { root: input.root, aliases: [], allowOutside: [] },
         projectRegistry: {
           list: vi.fn().mockResolvedValue(registered),
           getOrCreateActiveByRoot:
