@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.764 - 2026-10-22
+
+### Features
+
+- Tool relay for hosted sessions. A provider running in the durable session host now reaches the daemon's agent tools through the host instead of connecting to the daemon directly. The host serves one private socket per hosted session and gives the provider the shipped stdio-to-socket bridge as its tool server; each tool message becomes a request to the daemon's tool endpoint with the host's own token. While no worker listens, which lasts seconds after a worker kill or during a graceful swap, the host holds the message and retries until a worker answers or a minute passes, so a tool call made at that moment completes instead of failing the model's turn. A failure after the daemon started answering is never retried, since the tool may already have run. The worker recognises the relay form when it stores or resumes a session, so a relay socket of an earlier host never reaches a provider. A release without the bridge runs hosted providers with their direct connection, as before.
+
+### Validation
+
+- Unit tests cover the relay against a stand-in daemon: a request, an SSE reply and a notification pass through unchanged, a message is held while nothing listens and delivered once to the daemon that appears, a held request gets an error at the hold bound, a failure after reply bytes is not retried, a rejected token is answered at once, malformed lines and queue caps close the connection, reopening a session replaces its socket, a too-long socket path falls back, and the shipped bridge carries a request end to end. The host's session factory is covered for the relay replacing only the injected server at create and resume, a stale relay dropped from a saved handle, no relay without the direct server, and a failed open leaving no relay behind. The isolated end-to-end suite gains a scenario in which the scripted provider lists the daemon's tools three seconds after the worker is killed: the host log shows the hold, the call returns the tool list once the replacement worker attaches, and the turn finishes uninterrupted.
+
 ## 0.11.0-beta.3.vorteo.763 - 2026-10-22
 
 ### Fixed

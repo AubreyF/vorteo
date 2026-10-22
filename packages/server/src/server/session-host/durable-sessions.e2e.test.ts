@@ -294,6 +294,44 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     report(`[permission across restart] turn done ${doneMs} ms after the kill`);
   }, 300_000);
 
+  // Phase 3: a hosted provider reaches the daemon's tools through the host, so a call made while
+  // no worker listens is held and answered by the replacement instead of failing.
+  test("a tool call issued while the worker is being replaced completes through the relay", async () => {
+    const install = await freshInstallation({ password: true });
+    const host = await install.startHost(THIS_TREE);
+    const supervisor = await install.startSupervisor(THIS_TREE);
+    const firstWorker = supervisor.workers[0]!;
+    const client = await connected(install);
+    // The provider starts its tool call a few seconds after chunk 2, with the worker gone by then.
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS, {
+      toolAt: RESTART_AFTER_CHUNKS,
+    });
+    await waitForChunks(client, agentId, RESTART_AFTER_CHUNKS);
+    await client.close();
+
+    const killedAt = Date.now();
+    process.kill(firstWorker, "SIGKILL");
+    await supervisor.waitForWorker([firstWorker]);
+    const next = await connected(install);
+    await expectUninterruptedTurn(next, agentId);
+    const doneMs = Date.now() - killedAt;
+    // Text deltas can share one timeline message, so the tool line is searched, not matched whole.
+    const summary = await summarizeTimeline(next, agentId);
+    const toolLines = summary.assistantTexts.join("\n").match(/\[tool [^\]]*\]/g) ?? [];
+    expect(toolLines).toHaveLength(1);
+    expect(toolLines[0]).toMatch(/^\[tool ok [1-9]\d* tools\]$/);
+    // The call went out while no worker listened: the host held it rather than failing it.
+    const hostLog = readFileSync(
+      path.join(sessionHostPaths(install.home).directory, "host.log"),
+      "utf8",
+    );
+    expect(hostLog).toContain("holding it for a worker");
+    expect(hostLog).not.toContain("not retried");
+    expect((await install.host()).pid).toBe(host.pid);
+    expectProviderProcesses(install, host.pid, 1);
+    report(`[tool relay] ${toolLines[0]} across the worker swap, turn done after ${doneMs} ms`);
+  }, 300_000);
+
   test("the replacement worker accepts the session host's tool token at the agent endpoint", async () => {
     // Only a password-protected daemon checks tokens at the endpoint.
     const install = await freshInstallation({ password: true });

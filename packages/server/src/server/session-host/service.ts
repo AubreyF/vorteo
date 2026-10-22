@@ -18,6 +18,7 @@ import {
 import { startSessionHost, type SessionHost, type SessionHostLimits } from "./host.js";
 import { SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js";
 import { createProviderSessionFactory, type HostedClientFactory } from "./provider-sessions.js";
+import { createToolRelay, type ToolRelay } from "./tool-relay.js";
 import { DEFAULT_RELEASE_CHECK_MS, readDurableSessionsSettings } from "./settings.js";
 import { DEFAULT_HANG_TIMEOUT_MS, startSessionHostWatchdog } from "./watchdog.js";
 
@@ -198,6 +199,7 @@ export async function startSessionHostService(
   });
 
   let host: SessionHost | null = null;
+  let toolRelay: ToolRelay | null = null;
   let upgradePending = false;
   let shuttingDown: Promise<void> | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
@@ -221,6 +223,7 @@ export async function startSessionHostService(
       let code = 0;
       try {
         await host?.close();
+        await toolRelay?.closeAll();
       } catch (error) {
         code = 1;
         logger.error({ err: error }, "Session host failed to close");
@@ -294,16 +297,19 @@ export async function startSessionHostService(
   }
 
   const sessionLogger = logger.child({ module: "session-host-provider" });
+  // Memory only: workers learn it at hello, and a new host run means a new token.
+  const mcpToken = randomBytes(32).toString("base64url");
+  toolRelay = startToolRelay(paths.directory, mcpToken, logger);
   host = await startSessionHost({
     socketPath: paths.socketPath,
     // Rotated only once this host holds the lock, so a second host started by mistake fails
     // without invalidating the running host's token.
     token: () => rotateSessionHostToken(paths),
-    // Memory only: workers learn it at hello, and a new host run means a new token.
-    mcpToken: randomBytes(32).toString("base64url"),
+    mcpToken,
     openSession: createProviderSessionFactory({
       logger: sessionLogger,
       createClient,
+      toolRelay,
     }),
     audit,
     release,
@@ -329,6 +335,22 @@ export async function startSessionHostService(
     process.once(signal, () => void shutdown(signal));
 
   return { host, logger, shutdown };
+}
+
+/**
+ * The tool relay for this host's sessions. A release without the shipped bridge runs without the
+ * relay: providers keep their direct connection to the daemon, as before the relay existed.
+ */
+function startToolRelay(directory: string, token: string, logger: Logger): ToolRelay | null {
+  try {
+    return createToolRelay({ directory, token, logger });
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Tool relay unavailable; hosted providers call the daemon directly",
+    );
+    return null;
+  }
 }
 
 /**

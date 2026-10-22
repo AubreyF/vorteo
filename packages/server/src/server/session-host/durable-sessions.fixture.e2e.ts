@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline";
 import type {
   AgentClient,
   AgentPersistenceHandle,
@@ -26,6 +27,14 @@ const DEFAULT_CHUNKS = 3;
  * as a tool call would, and resumes once it is allowed.
  */
 const PERMISSION_PATTERN = /PERMISSION_AT=(\d+)/;
+/**
+ * A prompt containing `TOOL_AT=<k>` pauses the turn after chunk k, waits a moment so a restart
+ * started at that chunk is under way, then lists the daemon's tools through the configured paseo
+ * server, as a provider's tool call would, and reports the outcome as a line before resuming.
+ */
+const TOOL_PATTERN = /TOOL_AT=(\d+)/;
+const TOOL_DELAY_MS = Number(process.env.DURABLE_SESSIONS_FAKE_TOOL_DELAY_MS ?? 3_000);
+const TOOL_TIMEOUT_MS = 90_000;
 const CHUNK_INTERVAL_MS = Number(process.env.DURABLE_SESSIONS_FAKE_CHUNK_MS ?? 1_000);
 /** Marks this run's stand-in CLI processes, so the test finds exactly its own. */
 const CLI_MARKER = process.env.DURABLE_SESSIONS_FAKE_CLI_MARKER ?? "durable-sessions-fake-cli";
@@ -50,6 +59,56 @@ function chunkText(sessionTag: string, chunk: number): string {
   return `[chunk ${sessionTag}:${chunk}]`;
 }
 
+/**
+ * Lists the daemon's tools through the paseo server in the session config. Only the relay's
+ * stdio form is spoken here: the bridge is run as the provider would run it, and the MCP stdio
+ * framing goes over its stdin and stdout. The direct http form the worker injects means the host
+ * did not rewrite the config, which the test reports as an error.
+ */
+async function listDaemonTools(config: AgentSessionConfig): Promise<number> {
+  const server = config.mcpServers?.paseo;
+  if (!server) throw new Error("no paseo server configured");
+  if (server.type !== "stdio") throw new Error(`paseo server is ${server.type}, not the relay`);
+  const bridge = spawn(server.command, server.args ?? [], { stdio: ["pipe", "pipe", "pipe"] });
+  const lines = createInterface({ input: bridge.stdout });
+  const send = (message: unknown) => bridge.stdin.write(`${JSON.stringify(message)}\n`);
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("tool call timed out")), TOOL_TIMEOUT_MS);
+      lines.on("line", (line) => {
+        const message = JSON.parse(line) as {
+          id?: number;
+          result?: { tools?: unknown[] };
+          error?: { message?: string };
+        };
+        if (message.id !== 2) return;
+        clearTimeout(timer);
+        if (message.error) reject(new Error(message.error.message ?? "tool call failed"));
+        else resolve(message.result?.tools?.length ?? 0);
+      });
+      bridge.once("exit", (code) => {
+        clearTimeout(timer);
+        reject(new Error(`bridge exited with ${code}`));
+      });
+      send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "durable-sessions-fixture", version: "0" },
+        },
+      });
+      send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    });
+  } finally {
+    lines.close();
+    bridge.kill("SIGKILL");
+  }
+}
+
 class ScriptedSession extends ControlledSession {
   private readonly cli: ChildProcess;
   private timer: NodeJS.Timeout | null = null;
@@ -69,6 +128,7 @@ class ScriptedSession extends ControlledSession {
     const match = /CHUNKS=(\d+)/.exec(text);
     const total = match ? Number(match[1]) : DEFAULT_CHUNKS;
     const permissionAt = Number(PERMISSION_PATTERN.exec(text)?.[1] ?? 0);
+    const toolAt = Number(TOOL_PATTERN.exec(text)?.[1] ?? 0);
     let sent = 0;
     const tick = (): void => {
       sent += 1;
@@ -76,6 +136,11 @@ class ScriptedSession extends ControlledSession {
       if (sent >= total) {
         this.stopTimer();
         this.complete();
+        return;
+      }
+      if (sent === toolAt) {
+        this.stopTimer();
+        void this.pauseForTool(tick);
         return;
       }
       if (sent !== permissionAt) return;
@@ -91,6 +156,18 @@ class ScriptedSession extends ControlledSession {
     const response = await this.requestPermission(`perm-${this.tag}`);
     if (response.behavior === "allow") this.timer = setInterval(resume, CHUNK_INTERVAL_MS);
     else this.complete();
+  }
+
+  /** Calls the daemon's tools the way the provider would, through the server the host configured. */
+  private async pauseForTool(resume: () => void): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, TOOL_DELAY_MS));
+    try {
+      const count = await listDaemonTools(this.config);
+      this.text(`[tool ok ${count} tools]`);
+    } catch (error) {
+      this.text(`[tool error ${error instanceof Error ? error.message : String(error)}]`);
+    }
+    this.timer = setInterval(resume, CHUNK_INTERVAL_MS);
   }
 
   override async interrupt(): Promise<void> {

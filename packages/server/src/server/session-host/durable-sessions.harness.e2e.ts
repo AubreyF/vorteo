@@ -294,9 +294,15 @@ export async function createInstallation(options: InstallationOptions): Promise<
     mkdirSync(codexHome);
     providers.codex = { command: [fakeCodex], env: { CODEX_HOME: codexHome } };
   }
+  // The daemon's own tools are injected into every agent, as the installation configures them,
+  // so a hosted provider carries the tool server the host relays.
   writeFileSync(
     path.join(home, "config.json"),
-    JSON.stringify({ version: 1, agents: { providers } }),
+    JSON.stringify({
+      version: 1,
+      agents: { providers },
+      daemon: { mcp: { enabled: true, injectIntoAgents: true } },
+    }),
   );
 
   // The real provider needs the owner's Claude login, so it keeps HOME and CLAUDE_CONFIG_DIR.
@@ -708,16 +714,17 @@ export async function startScriptedAgent(
   installation: Installation,
   client: DaemonClient,
   chunks: number,
-  options: { permissionAt?: number } = {},
+  options: { permissionAt?: number; toolAt?: number } = {},
 ): Promise<string> {
   const permission = options.permissionAt ? ` PERMISSION_AT=${options.permissionAt}` : "";
+  const tool = options.toolAt ? ` TOOL_AT=${options.toolAt}` : "";
   const agent = await client.createAgent({
     config: {
       provider: installation.agentProvider,
       cwd: path.join(installation.root, "work"),
       title: "durable sessions e2e",
     },
-    initialPrompt: `Stream your scripted turn. CHUNKS=${chunks}${permission}`,
+    initialPrompt: `Stream your scripted turn. CHUNKS=${chunks}${permission}${tool}`,
   });
   await client.waitForAgentUpsert(agent.id, (snapshot) => snapshot.status === "running", 60_000);
   return agent.id;
