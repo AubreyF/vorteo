@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): update status now reports source batch conflicts to agents, naming the contribution and file, instead of asking them to reload Vorteo. Takes effect after a coordinator renewal and refreshed agent tool. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-21): headless browser allowed hosts accept port ranges for managed preview ports, and the browser host validates its own settings so a typo keeps the browser off instead of stopping the daemon. Docs, skills and the README cover running the browser in the Dev container with its safety settings. The deferred [signed-in browser profiles](plans/execution-environments/browser-profiles.md) plan joins the roadmap. Host release 736 already runs this browser code; Dev does not yet.
 
 Maintenance review (2026-10-21): the left sidebar toolbar keeps History, Schedules and Settings visible until they would overlap, measuring its real width instead of using fixed breakpoints. README overview and onboarding are unchanged.

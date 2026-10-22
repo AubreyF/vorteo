@@ -2952,6 +2952,99 @@ test("owner HTTP repair captures and stages real Git source without approving or
   }
 });
 
+test("a conflicted source batch reports its conflict to agents instead of asking for a reload", async () => {
+  const prepareBatch = vi
+    .spyOn(InstallationSourceUpdates.prototype, "prepare")
+    .mockImplementation(async (contributions) => ({
+      batch: { status: "conflict", contributions },
+    }));
+  const id = randomUUID();
+  const contributionId = randomUUID();
+  const configRoot = mkdtempSync(path.join(tmpdir(), "conflict-status-config-"));
+  try {
+    const f = await fixture(
+      undefined,
+      undefined,
+      undefined,
+      "both",
+      false,
+      undefined,
+      undefined,
+      undefined,
+      (config) => {
+        writeFileSync(
+          path.join(config.stateDir, "restart-jobs.json"),
+          JSON.stringify([
+            {
+              id,
+              revision: randomUUID(),
+              target: "host",
+              reason: "Fixture conflict",
+              requestedBy: "host-agent",
+              createdAt: new Date().toISOString(),
+              expiresAt: "9999-12-31T23:59:59.999Z",
+              status: "pending",
+              detail: "Contributions need correction before this batch can be approved",
+              sourceBatch: {
+                status: "conflict",
+                contributions: [
+                  {
+                    id: contributionId,
+                    update: {
+                      baseCommit: "b".repeat(40),
+                      sourceCommit: "c".repeat(40),
+                      sha256: "a".repeat(64),
+                      bytes: 10,
+                    },
+                    reason: "Conflicting notes",
+                    requestedBy: "host-agent",
+                    createdAt: new Date().toISOString(),
+                    status: "conflict",
+                    detail:
+                      "docs/vorteo-customizations.md\n\nCONFLICT (content): Merge conflict in docs/vorteo-customizations.md",
+                  },
+                ],
+              },
+            },
+          ]),
+          { mode: 0o600 },
+        );
+      },
+    );
+    await f.drain();
+    // A client without batch support still learns the batch cannot be approved yet.
+    const legacy = await (
+      await fetch(`${f.url}/api/installation/restart-requests/${id}`, {
+        headers: { Authorization: "Bearer host-agent-test-token" },
+      })
+    ).json();
+    expect(legacy).not.toHaveProperty("sourceBatch");
+    expect(legacy.detail).toBe("Contributions need correction before this batch can be approved");
+
+    const config = path.join(configRoot, "client.json");
+    writeFileSync(
+      config,
+      JSON.stringify({ origin: f.url, kind: "host-agent", token: "host-agent-test-token" }),
+      { mode: 0o600 },
+    );
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, [
+      path.resolve(import.meta.dirname, "../../../../../scripts/installation-agent.mjs"),
+      "--config",
+      config,
+      "restart-status",
+      id,
+    ]);
+    expect(JSON.parse(stdout).sourceBatch.status).toBe("conflict");
+    expect(stderr).toContain(
+      `Source batch conflict: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+    );
+    expect(stderr).toContain(`--replaces ${contributionId}`);
+  } finally {
+    prepareBatch.mockRestore();
+    rmSync(configRoot, { recursive: true, force: true });
+  }
+});
+
 test("maintenance readiness separates legacy authority, broad opt-in and source readiness", async () => {
   const f = await fixture(undefined, undefined, undefined, false, true);
   const route = "/api/installation/maintenance-status";

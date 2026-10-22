@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.736 - 2026-10-22
+
+### Fixed
+
+- Report a conflicted source batch to agents instead of asking them to reload Vorteo. The coordinator's fallback status for clients without batch support now shows its own detail, such as "Contributions need correction before this batch can be approved", while a batch is preparing or conflicted; the reload prompt stays for ready batches an old owner tab cannot review
+- `installation-agent restart-status` requests batch details, and it and `request-restart` print each conflicting contribution, the file it conflicts in and the `--replaces` command that corrects it. A conflicted batch can never be approved, automatically or by the owner, until it is corrected
+
+### Maintenance
+
+- The installation maintenance skill explains conflicted batches and how to replace a contribution. These changes take effect after a coordinator renewal and a refreshed agent tool; a Host update alone does not install them
+
 ## 0.11.0-beta.3.vorteo.735 - 2026-10-21
 
 ### Added
