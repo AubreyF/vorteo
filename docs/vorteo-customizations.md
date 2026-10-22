@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): server test suites were repaired for Linux CI, matching deliberate behaviour changes; installation account delivery routes now mount through one provider-neutral function outside the daemon bootstrap, with no behaviour change. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the Builds push guard script and test were reformatted for the CI format check; no feature changed.
 
 Maintenance review (2026-10-22): seven stale tests for the coordinator launcher, queued attachments and plugin settings were repaired to match current behaviour on the path to green CI; no feature changed. README overview and onboarding are unchanged.

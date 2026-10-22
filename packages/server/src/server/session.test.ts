@@ -2205,7 +2205,7 @@ test("push token revocation only acknowledges durable removal", async () => {
   });
 });
 
-describe("daemon status + pairing RPC", () => {
+describe("daemon status RPC", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
@@ -2290,41 +2290,6 @@ describe("daemon status + pairing RPC", () => {
           listen: null,
           relay: null,
           providers: [],
-        },
-      },
-    ]);
-  });
-
-  test("daemon.get_pairing_offer.request returns an empty offer when relay is disabled", async () => {
-    const messages: unknown[] = [];
-    const session = createSessionForTest({
-      messages,
-      paseoHome: makeHome(),
-      daemonRuntimeConfig: {
-        listen: "127.0.0.1:6767",
-        getRelayConfig: () => ({
-          enabled: false,
-          endpoint: "relay.paseo.sh:443",
-          publicEndpoint: "relay.paseo.sh:443",
-          useTls: true,
-          publicUseTls: true,
-        }),
-      },
-    });
-
-    await session.handleMessage({
-      type: "daemon.get_pairing_offer.request",
-      requestId: "pairing-1",
-    });
-
-    expect(messages).toEqual([
-      {
-        type: "daemon.get_pairing_offer.response",
-        payload: {
-          requestId: "pairing-1",
-          url: "",
-          qr: null,
-          relayEnabled: false,
         },
       },
     ]);

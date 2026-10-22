@@ -588,6 +588,8 @@ function createSessionForWorkspaceTests(
     listAgents: () => [],
     listProviderSubagentActivity: () => [],
     getAgent: () => null,
+    assertAgentArchiveAllowed: async () => {},
+    assertWorkspaceArchiveAllowed: async () => {},
     archiveAgent: async () => ({ archivedAt: new Date().toISOString() }),
     archiveSnapshot: async () => ({}),
     unarchiveSnapshot: async () => true,
@@ -1588,6 +1590,7 @@ test("archive emits an authoritative agent_update upsert for subscribed clients"
         subscribe: () => () => {},
         listAgents: () => [],
         getAgent: () => null,
+        assertAgentArchiveAllowed: async () => {},
         archiveAgent: async () => {
           const archivedAt = new Date().toISOString();
           Object.assign(archivedRecord, {
@@ -2074,6 +2077,7 @@ test("close_items_request archives agents and kills terminals in one batch", asy
         getAgent: (agentId: string) => (agentId === "agent-1" ? { id: agentId } : null),
         hasInFlightRun: (agentId: string) => agentId === "agent-1",
         cancelAgentRun,
+        assertAgentArchiveAllowed: async () => {},
         archiveAgent: async () => ({ archivedAt }),
         clearAgentAttention: async () => {},
         notifyAgentState: () => {},
@@ -2243,6 +2247,7 @@ test("close_items_request archives stored agents that are not currently loaded",
         listAgents: () => [],
         getAgent: (agentId: string) => (agentId === "agent-live" ? { id: agentId } : null),
         hasInFlightRun: () => false,
+        assertAgentArchiveAllowed: async () => {},
         archiveAgent: async (agentId: string) => {
           if (agentId !== "agent-live") {
             throw new Error(`Unexpected live archive: ${agentId}`);
@@ -2405,6 +2410,7 @@ test("close_items_request continues after an archive failure", async () => {
         getAgent: (agentId: string) =>
           agentId === "agent-bad" || agentId === "agent-good" ? { id: agentId } : null,
         hasInFlightRun: () => false,
+        assertAgentArchiveAllowed: async () => {},
         archiveAgent: async (agentId: string) => {
           if (agentId === "agent-bad") {
             throw new Error("archive failed");

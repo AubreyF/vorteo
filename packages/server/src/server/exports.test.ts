@@ -53,6 +53,15 @@ async function runtimeDependencies(entry: string): Promise<string[]> {
     platform: "node",
     // Server unit CI builds dependency workspaces, then tests server source.
     conditions: ["source"],
+    // These export "source" targets sit outside the package, which esbuild rejects.
+    alias: {
+      "@getpaseo/server/factory-contracts": fileURLToPath(
+        new URL("../../../../plugins/factory/shared/contracts.ts", import.meta.url),
+      ),
+      "@getpaseo/server/factory-operations": fileURLToPath(
+        new URL("../../../../plugins/factory/shared/operations.ts", import.meta.url),
+      ),
+    },
     format: "esm",
     logLevel: "silent",
     plugins: [

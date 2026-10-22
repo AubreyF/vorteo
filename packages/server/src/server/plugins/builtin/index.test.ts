@@ -36,6 +36,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -207,10 +208,13 @@ import {
   type FactoryQualificationSelectedSource,
 } from "../../../../../../plugins/factory/server/controller/qualification-reader.mjs";
 
+// Factory custody refuses non-canonical paths; macOS tmpdir() sits behind a /var symlink.
+const TMP_ROOT = realpathSync(os.tmpdir());
+
 const roots: string[] = [];
 
 async function buildJournalFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-build-core-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-build-core-"));
   roots.push(root);
   await chmod(root, 0o700);
   const authority = { assertCurrent: vi.fn() };
@@ -656,7 +660,7 @@ async function nativeInstallFixture(
   controls?: Parameters<typeof createNativeFactoryInstallAdapter>[0]["controls"],
 ) {
   const f = attachmentFixture();
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-install-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-install-"));
   roots.push(root);
   const logger = createTestLogger();
   const projects = new FileBackedProjectRegistry(path.join(root, "projects.json"), logger, {
@@ -1610,7 +1614,7 @@ async function fixture(root: string, id: string, client = false): Promise<string
 
 test("bundled Factory observes serving identity without creating or adopting work", async () => {
   const version = "0.11.0-beta.3.vorteo.254";
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-observation-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-observation-"));
   roots.push(root);
   const daemon = await createTestPaseoDaemon({
     daemonVersion: version,
@@ -1688,7 +1692,7 @@ test("bundled Factory observes serving identity without creating or adopting wor
 }, 60_000);
 
 test("native Factory setup retains checkpoint holds and never treats attached metadata as live installation", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-setup-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-setup-"));
   roots.push(root);
   const projects = new FileBackedProjectRegistry(
     path.join(root, "projects.json"),
@@ -1779,7 +1783,7 @@ test("listed built-ins resolve to matching manifests and compile", async () => {
 });
 
 test("listed client bundle is published while plugins are disabled; unlisted directory is inert", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "paseo-builtin-fixture-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "paseo-builtin-fixture-"));
   roots.push(root);
   await fixture(root, "listed", true);
   await fixture(root, "unlisted", true);
@@ -1802,7 +1806,7 @@ test("listed client bundle is published while plugins are disabled; unlisted dir
 }, 60_000);
 
 test("directory, Git, and npm installs reject a built-in ID", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "paseo-builtin-install-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "paseo-builtin-install-"));
   roots.push(root);
   const directory = await fixture(root, "reserved");
   const gitDirectory = await fixture(root, "git-source");
@@ -2339,7 +2343,7 @@ interface QualificationReaderFixtureState {
 async function qualificationReaderFixture(
   readerOptions: Partial<FactoryQualificationReaderOptions> = {},
 ) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-intake-reader-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-intake-reader-"));
   roots.push(root);
   const git = async (...args: string[]) =>
     (await executeReaderGit("git", ["-C", root, ...args])).stdout.trim();
@@ -2673,7 +2677,7 @@ test("bundled qualification reader refuses capped GitHub evidence rather than re
 });
 
 async function qualificationRecordFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publication-record-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-publication-record-"));
   roots.push(root);
   await chmod(root, 0o700);
   let current = true;
@@ -2784,7 +2788,7 @@ interface QualificationAuditComment {
 async function qualificationPublisherFixture() {
   const f = qualificationFixture();
   const decision = prepareQualification(f);
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publisher-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-publisher-"));
   roots.push(root);
   await chmod(root, 0o700);
   const controls = {
@@ -4772,8 +4776,8 @@ test("bundled recovery records reject coercible base identity and custody digest
 });
 
 async function nativeClaimFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-native-claims-"));
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "factory-native-workspace-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-native-claims-"));
+  const workspace = await mkdtemp(path.join(TMP_ROOT, "factory-native-workspace-"));
   roots.push(root, workspace);
   await chmod(root, 0o700);
   await chmod(workspace, 0o700);
@@ -6923,7 +6927,7 @@ test("Factory execution observation preserves native write rejection and rejects
 
 test("Factory execution observation uses the actual native store without inventing hourly usage", async () => {
   const f = executionObservationFixture();
-  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-observation-store-"));
+  const directory = await mkdtemp(path.join(TMP_ROOT, "factory-observation-store-"));
   try {
     const store = new QuotaGovernorStore(directory, { nowMs: () => f.fixture.now });
     f.options.store = store;
@@ -7040,7 +7044,7 @@ test("Factory native recovery rejects owner-method drift while custody reconcili
 
 test("Factory native recovery uses the actual native lock protocol without creating accounting history", async () => {
   const f = factoryRecoveryFixture();
-  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-recovery-store-"));
+  const directory = await mkdtemp(path.join(TMP_ROOT, "factory-recovery-store-"));
   try {
     const store = new QuotaGovernorStore(directory);
     f.options.store = store;

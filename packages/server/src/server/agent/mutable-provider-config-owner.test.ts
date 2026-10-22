@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
 import { createTestLogger } from "../../test-utils/test-logger.js";
+import { expectUncertainConfigWrite } from "../test-utils/config-writer.js";
 import { DaemonConfigStore } from "../daemon-config-store.js";
 import type { PersistedConfig } from "../persisted-config.js";
 import type {
@@ -133,7 +134,8 @@ describe("mutable provider config owner", () => {
       const unsubscribeFailure = store.onApply(() => {
         throw new Error("later owner failed");
       });
-      expect(() => store.patch({ providers: { codex: { enabled: true } } })).toThrow(
+      expectUncertainConfigWrite(
+        () => store.patch({ providers: { codex: { enabled: true } } }),
         "later owner failed",
       );
       unsubscribeFailure();
@@ -311,9 +313,10 @@ describe("mutable provider config owner", () => {
       expect(events).toEqual([]);
 
       const before = manager.getSnapshot(cwd);
-      expect(() =>
-        store.patch({ providers: { codex: { enabled: true, label: "Rejected Codex" } } }),
-      ).toThrow("later owner failed");
+      expectUncertainConfigWrite(
+        () => store.patch({ providers: { codex: { enabled: true, label: "Rejected Codex" } } }),
+        "later owner failed",
+      );
       expect(events).toEqual([]);
       expect(observedDuringApply).toEqual([{ label: "Codex", snapshot: before }]);
       expect(observedDuringApply[0]!.snapshot).toBe(before);

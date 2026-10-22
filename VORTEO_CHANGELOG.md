@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.776 - 2026-10-22
+
+### Maintenance
+
+- Repair the server test suites that failed CI on Linux. The server's own Factory contract imports now resolve to source in tests, so suites load without a server build. Test fakes gain the archive guards, origin admission and per-client capability checks the server now calls. Tests follow deliberate changes: uncertain config writes, saved compaction summaries, shared skill selection, retired device pairing. Built-in plugin fixtures use canonical temporary paths, which the Factory custody checks require on macOS.
+
+### Changed
+
+- Installation account delivery routes mount through one provider-neutral function, keeping Claude-specific wiring out of the daemon bootstrap.
+
 ## 0.11.0-beta.3.vorteo.775 - 2026-10-22
 
 ### Maintenance

@@ -202,6 +202,7 @@ function connectClient(server: VoiceAssistantWebSocketServer, subscribed = true)
     session: {
       delivery,
       wantsSourceNotification: () => true,
+      supportsForSource: () => true,
       getClientActivity: vi.fn(() => null),
       subscribesToTerminalDirectory: vi.fn(async () => subscribed),
     },

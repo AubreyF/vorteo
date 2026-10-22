@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { MutableDaemonConfigSchema } from "@getpaseo/protocol/messages";
 import { DaemonConfigStore } from "../../daemon-config-store.js";
 import { loadPersistedConfig } from "../../persisted-config.js";
+import { expectUncertainConfigWrite } from "../../test-utils/config-writer.js";
 
 const homes: string[] = [];
 afterEach(() => {
@@ -109,12 +110,14 @@ test("migration backs up first, survives restart, and rejects concurrent edits w
   restarted.onApply(() => {
     throw new Error("Configuration owner refused the change");
   });
-  expect(() =>
-    restarted.patch({
-      sharedProviderPreferences: migrated,
-      expectedProviderPreferencesRevision: 2,
-    }),
-  ).toThrow("Configuration owner refused");
+  expectUncertainConfigWrite(
+    () =>
+      restarted.patch({
+        sharedProviderPreferences: migrated,
+        expectedProviderPreferencesRevision: 2,
+      }),
+    "Configuration owner refused",
+  );
   expect(restarted.get().sharedProviderPreferences).toEqual({ ...next, revision: 2 });
   expect(loadPersistedConfig(home).daemon?.sharedProviderPreferences).toEqual({
     ...next,

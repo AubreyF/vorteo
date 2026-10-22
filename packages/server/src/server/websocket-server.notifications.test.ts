@@ -94,6 +94,7 @@ function createServer(
 ) {
   const pushNotifications = new RecordingPushNotificationSender();
   const agentManager = {
+    supportsRestartContinuation: vi.fn(() => false),
     subscribe: vi.fn(() => () => {}),
     setAgentAttentionCallback: vi.fn(),
     getAgent: vi.fn(() => ({ workspaceId: WORKSPACE_ID, pendingPermissions: new Map() })),
