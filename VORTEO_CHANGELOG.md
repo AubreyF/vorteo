@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- The Host stores nested sidebar folders in the shared sidebar state and advertises `sidebarFolders`. Root folders hold projects; project folders hold that project's workspaces. A removed folder hands its contents to its parent, and conflicting moves are repaired the same way on every device, so concurrent edits cannot form a cycle or put a project inside a project folder.
+- Folder moves also rewrite the flat project and workspace orders, so clients without folder support keep a matching order. The app does not show folders yet; that follows in the next change.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed

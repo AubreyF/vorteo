@@ -4077,6 +4077,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
         sidebarState: z.boolean().optional(),
+        // COMPAT(sidebarFolders): added 2026-10-22; gate folder writes until the daemon floor includes them.
+        sidebarFolders: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
         // COMPAT(checklistProgress): added October 2026; send progress and checks only when advertised.
         checklistProgress: z.boolean().optional(),
