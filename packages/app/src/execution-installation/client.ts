@@ -291,8 +291,9 @@ export class InstallationClient {
           // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
           restartSupported: z.boolean().optional(),
         })
-        // The restart flag asks a coordinator that knows restarts to say so; older ones ignore it.
-        .parse(await this.request("session-host/query", { restart: true }));
+        // The flags declare what this interface can parse: restart jobs and the hosted indicator.
+        // Older coordinators ignore them; newer ones withhold those additions from clients without them.
+        .parse(await this.request("session-host/query", { restart: true, indicator: true }));
       this.sessionHostSupported = true;
       return overview;
     } catch (error) {

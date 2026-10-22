@@ -1024,9 +1024,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
-  // COMPAT(hostedAgents): added in v0.11.0-beta.3.vorteo.760; true when the agent's provider
-  // session runs in the durable session host, so its turn survives a daemon restart. Older daemons
-  // omit it and older clients ignore it.
+  // True when the agent's provider session runs in the durable session host, so its turn survives
+  // a daemon restart. Optional on a non-strict schema: older daemons omit it, older clients ignore it.
   hosted: z.boolean().optional(),
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),

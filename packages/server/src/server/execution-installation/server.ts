@@ -1617,17 +1617,36 @@ export function createInstallationServer(
       res.status(404).json({ error: "Session host maintenance is unavailable" });
       return;
     }
-    // COMPAT(sessionHostRestart): only an app that asks about restarts receives the field; older
-    // apps parse this response strictly and would otherwise fail on the extra key.
-    const extra =
-      (req.body as { restart?: unknown } | undefined)?.restart === true
-        ? { restartSupported: true }
-        : {};
+    // COMPAT(sessionHostRestart, hostedIndicator): apps parse this response strictly, so anything
+    // added after v712 is sent only to an app that declares it understands it. A client sending {}
+    // gets the v712 shape: no restart jobs, no previousHost, no installed release or provider
+    // counts. Remove once every interface in use declares both flags.
+    const body = (req.body ?? {}) as { restart?: unknown; indicator?: unknown };
+    const wantsRestart = body.restart === true;
+    const wantsIndicator = body.indicator === true;
+    const visibleJobs = wantsRestart
+      ? jobs
+      : jobs
+          .filter((job) => job.operation !== "session-host-restart")
+          .map(({ previousHost: _previousHost, ...job }) => job);
+    const extra = wantsRestart ? { restartSupported: true } : {};
     void sessionHostStatus(true).then(
-      (status) => res.json({ jobs, status, ...extra }),
-      () => res.json({ jobs, status: null, ...extra }),
+      (status) =>
+        res.json({
+          jobs: visibleJobs,
+          status: wantsIndicator ? status : withoutIndicator(status),
+          ...extra,
+        }),
+      () => res.json({ jobs: visibleJobs, status: null, ...extra }),
     );
   });
+  /** The v712 status shape: no installed release and no per-provider counts. */
+  function withoutIndicator(status: SessionHostStatus): SessionHostStatus {
+    if (!status.detail) return status;
+    const { installedRelease: _installedRelease, host, ...detail } = status.detail;
+    const plainHost = host ? (({ providers: _providers, ...rest }) => rest)(host) : host;
+    return { ...status, detail: { ...detail, host: plainHost } };
+  }
   app.post("/api/installation/owner/session-host/request", (req, res, next) => {
     void restarts
       .requestSessionHost(req.body, "owner")

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the owner's session host query sends restart jobs and indicator fields only to interfaces that declare them, and the interface no longer lets a session host query failure take down the rest of Installation controls; a contract test freezes the earlier strict shape. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): durable sessions phase 3 begins with the hosted indicator: hosted agents carry an optional flag and a "Survives restarts" badge, and the session host status names the installed release and hosted sessions by provider. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): a hosted turn that finishes while no worker is attached keeps the end of its output, because the next worker adopts a session that still holds unapplied events instead of closing it at startup. README overview and onboarding are unchanged.
