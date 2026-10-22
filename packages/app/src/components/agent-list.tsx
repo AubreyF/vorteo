@@ -133,6 +133,7 @@ function SessionRowBadges({
           tone="warning"
         />
       ) : null}
+      {agent.hosted ? <SessionBadge label={t("agentList.badges.hosted")} /> : null}
       {showDesktopAttention ? (
         <SessionBadge label={t("agentList.badges.attention")} tone="danger" />
       ) : null}

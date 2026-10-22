@@ -491,6 +491,8 @@ function expectedBootstrapConfiguration(
   if (plan.previewMonitorConfiguration === null) delete expected.previewMonitor;
   else if (plan.previewMonitorConfiguration !== undefined)
     expected.previewMonitor = plan.previewMonitorConfiguration;
+  if (plan.claudeHostRefreshConfiguration === null) delete expected.claudeHostRefresh;
+  else if (plan.claudeHostRefreshConfiguration === true) expected.claudeHostRefresh = true;
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;

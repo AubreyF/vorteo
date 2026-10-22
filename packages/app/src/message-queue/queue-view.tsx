@@ -28,6 +28,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isQueueGoalError } from "./goal-error";
+import { useReportActionError } from "@/hooks/use-action-error";
+import { toErrorMessage } from "@/utils/error-messages";
 import { useCallback, useState, useRef, useContext, useEffect, useMemo } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -128,7 +130,7 @@ function QueueViewContent({
         ) : null}
         {edits.error ? (
           <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-            {edits.error.message}
+            {toErrorMessage(edits.error)}
           </Text>
         ) : null}
         {control.error ? (
@@ -221,7 +223,7 @@ function QueueRows({
 }) {
   const snapshot = control.snapshot;
   const [savingOrder, setSavingOrder] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const startedRevision = useRef<number | null>(null);
   const edits = useQueueEditDrafts();
   const onDragActive = useContext(QueueDragScrollContext);
@@ -237,7 +239,6 @@ function QueueRows({
     snapshot.items.every((item) => item.delivery.status === "queued");
   const begin = useCallback(() => {
     startedRevision.current = snapshot?.revision ?? null;
-    setError(null);
     onDragActive(true);
   }, [snapshot, onDragActive]);
   const drop = useCallback(
@@ -251,10 +252,10 @@ function QueueRows({
         setSavingOrder(true);
         return control.mutate(action).finally(() => setSavingOrder(false));
       } catch (failure) {
-        setError(failure instanceof Error ? failure.message : "Could not reorder the queue.");
+        reportError(failure);
       }
     },
-    [snapshot, control, release],
+    [snapshot, control, release, reportError],
   );
   const renderRow = useCallback(
     (info: DraggableRenderItemInfo<QueueDisplayItem>) => (
@@ -285,24 +286,17 @@ function QueueRows({
     if (!rows.some((row) => row.id === id)) rows.push({ id, shared: null, local: record });
   }
   return (
-    <>
-      <DraggableList
-        data={rows}
-        keyExtractor={queueItemKey}
-        renderItem={renderRow}
-        onDragBegin={begin}
-        onDragEnd={drop}
-        onDragRelease={release}
-        scrollEnabled={false}
-        useDragHandle
-        touchActivation="movement"
-      />
-      {error ? (
-        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {error}
-        </Text>
-      ) : null}
-    </>
+    <DraggableList
+      data={rows}
+      keyExtractor={queueItemKey}
+      renderItem={renderRow}
+      onDragBegin={begin}
+      onDragEnd={drop}
+      onDragRelease={release}
+      scrollEnabled={false}
+      useDragHandle
+      touchActivation="movement"
+    />
   );
 }
 
@@ -345,7 +339,7 @@ function QueueDeliveryError({ control }: { control: MessageQueueControl }) {
   return (
     <View style={styles.row}>
       <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-        {snapshot.deliveryError}
+        {toErrorMessage(snapshot.deliveryError)}
       </Text>
       {!isQueueGoalError(snapshot.deliveryError) ? (
         <Button
@@ -395,31 +389,16 @@ function PendingRecovery({
   record: OutboxRecord;
   control: MessageQueueControl;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const keepCopy = useCallback(() => {
-    setError(null);
-    void control
-      .keepLocalCopy(record)
-      .catch((failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : "Could not keep the local copy."),
-      );
-  }, [control, record]);
+    void control.keepLocalCopy(record).catch(reportError);
+  }, [control, record, reportError]);
   const removeCopy = useCallback(() => {
-    setError(null);
-    void control
-      .removeLocalCopy(record)
-      .catch((failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : "Could not remove the local copy."),
-      );
-  }, [control, record]);
+    void control.removeLocalCopy(record).catch(reportError);
+  }, [control, record, reportError]);
   const retry = useCallback(() => {
-    setError(null);
-    void control
-      .retry(record)
-      .catch((failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : "Retry failed."),
-      );
-  }, [record, control]);
+    void control.retry(record).catch(reportError);
+  }, [record, control, reportError]);
   return (
     <View>
       {record.error && !record.dismissed ? (
@@ -432,12 +411,7 @@ function PendingRecovery({
       ) : null}
       {record.error && !record.dismissed ? (
         <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {record.error.message}
-        </Text>
-      ) : null}
-      {error ? (
-        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {error}
+          {toErrorMessage(record.error.message)}
         </Text>
       ) : null}
       {record.error && !record.dismissed ? (
@@ -474,7 +448,7 @@ function ReviewRejectedEdit({
   control: MessageQueueControl;
 }) {
   const { refresh } = useQueueEditDrafts();
-  const [error, setError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const [busy, setBusy] = useState(false);
   const operation = record.operation;
   const current =
@@ -485,25 +459,16 @@ function ReviewRejectedEdit({
     setBusy(true);
     void reviewRejectedQueueEdit(record, current)
       .then(refresh)
-      .catch((failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : "Could not recover this edit."),
-      )
+      .catch(reportError)
       .finally(() => setBusy(false));
-  }, [record, current, refresh]);
+  }, [record, current, refresh, reportError]);
   if (!record.error || operation.kind !== "edit") return null;
   return (
-    <View>
-      <Button size="sm" variant="outline" disabled={busy} onPress={review}>
-        {current?.delivery.status === "queued"
-          ? "Review against current message"
-          : "Review saved copy"}
-      </Button>
-      {error ? (
-        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {error}
-        </Text>
-      ) : null}
-    </View>
+    <Button size="sm" variant="outline" disabled={busy} onPress={review}>
+      {current?.delivery.status === "queued"
+        ? "Review against current message"
+        : "Review saved copy"}
+    </Button>
   );
 }
 
@@ -552,15 +517,11 @@ function QueueRow({
   const text = row.shared ? describeQueuedMessage(row.shared) : describePendingChange(row.local);
   const edits = useQueueEditDrafts();
   const editing = edits.drafts.filter((draft) => draft.original.id === row.id);
-  const [editError, setEditError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const edit = useCallback(() => {
     if (!item) return;
-    void edits
-      .open(item)
-      .catch((failure: unknown) =>
-        setEditError(failure instanceof Error ? failure.message : "Could not open queue edit."),
-      );
-  }, [edits, item]);
+    void edits.open(item).catch(reportError);
+  }, [edits, item, reportError]);
   const [details, setDetails] = useState(false);
   const toggleDetails = useCallback(() => setDetails((value) => !value), []);
   return (
@@ -617,17 +578,12 @@ function QueueRow({
       ) : null}
       {item && "reason" in item.delivery ? (
         <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {item.delivery.reason}
+          {toErrorMessage(item.delivery.reason)}
         </Text>
       ) : null}
       {item?.delivery.status === "uncertain" ? (
         <Text style={[styles.secondary, taskCardStyles.proseInset]}>
           The host could not confirm delivery. Retrying may send this message again.
-        </Text>
-      ) : null}
-      {editError ? (
-        <Text style={[styles.error, taskCardStyles.proseInset]} accessibilityRole="alert">
-          {editError}
         </Text>
       ) : null}
       {editing.map((draft) => (

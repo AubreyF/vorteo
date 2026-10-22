@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import pino, { type Logger } from "pino";
@@ -17,6 +18,7 @@ import {
 import { startSessionHost, type SessionHost, type SessionHostLimits } from "./host.js";
 import { SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js";
 import { createProviderSessionFactory, type HostedClientFactory } from "./provider-sessions.js";
+import { DEFAULT_RELEASE_CHECK_MS, readDurableSessionsSettings } from "./settings.js";
 import { DEFAULT_HANG_TIMEOUT_MS, startSessionHostWatchdog } from "./watchdog.js";
 
 /** File in the session host directory that receives the service log as JSON lines. */
@@ -46,6 +48,25 @@ export interface SessionHostServiceOptions {
   limits?: Partial<SessionHostLimits>;
   /** Defaults to process.exit. */
   exit?: (code: number) => void;
+  /**
+   * The release the installation would start a new host on: the server package version reached
+   * through the entrypoint path launchd ran, which goes through the current release link. Defaults
+   * to resolving it from process.argv; tests inject it. Undefined means it cannot be told.
+   */
+  installedRelease?: () => Promise<string | undefined>;
+  /** Defaults to the setting file's releaseCheckMs, else one minute. */
+  releaseCheckMs?: number;
+}
+
+/** The version of the release that process.argv names once links are resolved. */
+async function installedReleaseFromArgv(): Promise<string | undefined> {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return undefined;
+  try {
+    return resolveDaemonVersion(pathToFileURL(await realpath(entrypoint)).href);
+  } catch {
+    return undefined;
+  }
 }
 
 export interface SessionHostService {
@@ -142,6 +163,11 @@ export async function startSessionHostService(
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const shutdownDeadlineMs = options.shutdownDeadlineMs ?? DEFAULT_SHUTDOWN_DEADLINE_MS;
   const release = options.release ?? resolveDaemonVersion(import.meta.url);
+  const installedRelease = options.installedRelease ?? installedReleaseFromArgv;
+  const releaseCheckMs =
+    options.releaseCheckMs ??
+    readDurableSessionsSettings(paseoHome).releaseCheckMs ??
+    DEFAULT_RELEASE_CHECK_MS;
   await preparePrivateDirectory(paths.directory);
   const children = createProviderChildRegistry(paths.directory);
   // A broken install fails here, before it can rotate the token of anything.
@@ -175,11 +201,23 @@ export async function startSessionHostService(
   let upgradePending = false;
   let shuttingDown: Promise<void> | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
+  let releaseTimer: NodeJS.Timeout | null = null;
 
   function shutdown(reason: string): Promise<void> {
     shuttingDown ??= (async () => {
       watchdog.armDeadline(Date.now() + shutdownDeadlineMs);
+      if (releaseTimer) clearInterval(releaseTimer);
       logger.info({ reason }, "Session host stopping");
+      // launchd relaunches the host on the installed release; until it listens, workers must treat
+      // the missing socket as a host that is returning, not one that was removed.
+      if (reason === "upgrade_at_idle")
+        await writeFile(
+          paths.restartMarkerPath,
+          JSON.stringify({ requestedAt: new Date().toISOString(), reason }),
+          { mode: 0o600 },
+        ).catch((error: unknown) =>
+          logger.warn({ err: error }, "Could not write the restart marker before the upgrade exit"),
+        );
       let code = 0;
       try {
         await host?.close();
@@ -191,6 +229,36 @@ export async function startSessionHostService(
       exit(code);
     })();
     return shuttingDown;
+  }
+
+  /**
+   * Marks an upgrade as pending once, so idle sessions get released by their workers and the host
+   * exits at zero sessions; the marker file is how workers and the coordinator learn of it.
+   */
+  function markUpgradePending(why: string, detail: Record<string, unknown>): void {
+    if (!upgradePending) {
+      logger.info(detail, why);
+      void writeFile(
+        paths.upgradeMarkerPath,
+        JSON.stringify({ ...detail, markedAt: new Date().toISOString() }),
+        { mode: 0o600 },
+      ).catch((error: unknown) =>
+        logger.warn({ err: error }, "Could not write the upgrade pending marker"),
+      );
+    }
+    upgradePending = true;
+    exitIfIdle();
+  }
+
+  /** A newer release under the current link means this host should give way once idle. */
+  async function checkInstalledRelease(): Promise<void> {
+    if (upgradePending || shuttingDown) return;
+    const installed = await installedRelease();
+    if (installed && installed !== release)
+      markUpgradePending("A newer release is installed; exiting once no session runs", {
+        installed,
+        running: release,
+      });
   }
 
   /** Exits for an upgrade only when no session runs, rechecking after the grace period. */
@@ -217,10 +285,9 @@ export async function startSessionHostService(
       typeof record.protocolVersion === "number" &&
       record.protocolVersion > SESSION_HOST_PROTOCOL_VERSION
     ) {
-      if (!upgradePending)
-        logger.info("A worker needs a newer session host; exiting once no session runs");
-      upgradePending = true;
-      exitIfIdle();
+      markUpgradePending("A worker needs a newer session host; exiting once no session runs", {
+        protocolVersion: record.protocolVersion,
+      });
     } else if (record.event === "session_closed" || record.event === "open_failed") {
       exitIfIdle();
     }
@@ -244,9 +311,17 @@ export async function startSessionHostService(
     afterLock: reapOrphans,
   });
   watchdog.markListening();
+  // A tracked restart or an upgrade exit left these for workers; the host that answers again
+  // removes them.
+  for (const marker of [paths.restartMarkerPath, paths.upgradeMarkerPath])
+    await rm(marker, { force: true }).catch((error: unknown) =>
+      logger.warn({ err: error, marker }, "Could not remove a session host marker"),
+    );
   logger.info({ hostId: host.identity.id, release }, "Session host started");
   // A mismatched hello can arrive before startSessionHost returns.
   exitIfIdle();
+  releaseTimer = setInterval(() => void checkInstalledRelease(), releaseCheckMs);
+  releaseTimer.unref();
 
   // once: a second SIGTERM or SIGINT during shutdown takes the default action and kills the host
   // at once. That is intended; launchd itself escalates to SIGKILL after its exit timeout.
@@ -254,6 +329,21 @@ export async function startSessionHostService(
     process.once(signal, () => void shutdown(signal));
 
   return { host, logger, shutdown };
+}
+
+/**
+ * Lets a test pretend the installed release differs from the running one. Honored only when
+ * NODE_ENV is "test"; an installed host always reads the release through its own entrypoint path.
+ */
+export const SESSION_HOST_TEST_INSTALLED_RELEASE_ENV = "PASEO_SESSION_HOST_TEST_INSTALLED_RELEASE";
+
+/** Test-only service options from the environment; empty outside tests. */
+export function loadTestServiceOptions(
+  env: NodeJS.ProcessEnv,
+): Pick<SessionHostServiceOptions, "installedRelease"> {
+  const installed = env[SESSION_HOST_TEST_INSTALLED_RELEASE_ENV];
+  if (!installed || env.NODE_ENV !== "test") return {};
+  return { installedRelease: async () => installed };
 }
 
 /** The test-only client override for the entrypoint, or undefined to use Claude. */

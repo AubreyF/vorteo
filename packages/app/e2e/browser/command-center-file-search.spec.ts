@@ -127,7 +127,7 @@ test("unscoped command search keeps commands visible and reports file-search fai
     await expect(panel.getByRole("button", { name: "Home", exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: /Home failure 08/ })).toBeVisible();
     await expect(panel.getByTestId("command-center-file-search-error")).toHaveText(
-      "Error: Test file search transport failure.",
+      "Test file search transport failure.",
     );
     await expect(panel.getByTestId("command-center-file-search-error")).toBeInViewport({
       ratio: 1,

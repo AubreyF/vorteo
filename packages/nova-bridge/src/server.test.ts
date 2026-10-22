@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LoadedReleaseIdentity } from "./release-manifest.js";
-import { createBridgeServer, PROTOCOL_VERSION } from "./server.js";
+import { createBridgeServer, HANDSHAKE_PROTOCOL_VERSIONS, PROTOCOL_VERSION } from "./server.js";
 
 const servers: ReturnType<typeof createBridgeServer>[] = [];
 afterEach(async () => {
@@ -181,4 +181,95 @@ it("drains an admitted tool call while refusing later calls", async () => {
   expect((await pending).status).toBe(200);
   await drained;
   expect(calls).toBe(1);
+});
+
+describe("handshake MCP clients", () => {
+  const auth = {
+    authorization: "Bearer test-token",
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+  };
+  const rpc = (url: string, body: unknown, extra: Record<string, string> = auth) =>
+    fetch(url, { method: "POST", headers: extra, body: JSON.stringify(body) });
+
+  it("negotiates initialize, acknowledges notifications and serves tools without sessions", async () => {
+    const url = await start();
+    const init = await rpc(url, {
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "probe", version: "1" },
+      },
+    });
+    expect(init.status).toBe(200);
+    expect(init.headers.get("mcp-session-id")).toBeNull();
+    expect(await init.json()).toMatchObject({
+      id: 0,
+      result: {
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {} },
+        serverInfo: { name: "vorteo" },
+      },
+    });
+    const unknownVersion = await rpc(url, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "1999-01-01", capabilities: {} },
+    });
+    expect((await unknownVersion.json()).result.protocolVersion).toBe(
+      HANDSHAKE_PROTOCOL_VERSIONS[0],
+    );
+    const initialized = await rpc(url, { jsonrpc: "2.0", method: "notifications/initialized" });
+    expect(initialized.status).toBe(202);
+    expect(await (await rpc(url, { jsonrpc: "2.0", id: 2, method: "ping" })).json()).toEqual({
+      jsonrpc: "2.0",
+      id: 2,
+      result: {},
+    });
+    expect(
+      await (await rpc(url, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} })).json(),
+    ).toEqual({ jsonrpc: "2.0", id: 3, result: { tools: [] } });
+    const call = await (
+      await rpc(url, {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "fixture", arguments: {} },
+      })
+    ).json();
+    expect(call.result.structuredContent).toEqual({ result: { observed: true } });
+    expect(call.result.resultType).toBeUndefined();
+    const unknown = await rpc(url, { jsonrpc: "2.0", id: 5, method: "events/list" });
+    expect(unknown.status).toBe(200);
+    expect(await unknown.json()).toMatchObject({ id: 5, error: { code: -32601 } });
+  });
+
+  it("still requires the bearer token and refuses browser origins", async () => {
+    const url = await start();
+    const body = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    const { authorization: _, ...anonymous } = auth;
+    expect((await rpc(url, body, anonymous)).status).toBe(401);
+    expect((await rpc(url, body, { ...auth, authorization: "Bearer wrong" })).status).toBe(401);
+    expect((await rpc(url, body, { ...auth, origin: "https://example.com" })).status).toBe(403);
+    expect(
+      (await rpc(url, { jsonrpc: "2.0", method: "notifications/initialized" }, anonymous)).status,
+    ).toBe(401);
+  });
+
+  it("answers OAuth metadata probes with a plain 404 before authentication", async () => {
+    const base = (await start()).replace("/mcp", "");
+    for (const path of [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server",
+    ]) {
+      expect((await fetch(base + path)).status).toBe(404);
+    }
+    expect((await fetch(`${base}/.well-known/x`, { method: "POST" })).status).toBe(401);
+    expect((await fetch(`${base}/health`)).status).toBe(401);
+  });
 });

@@ -94,6 +94,8 @@ import {
 } from "@/composer/actions";
 import { useVoiceOptional } from "@/contexts/voice-context";
 import { useToast } from "@/contexts/toast-context";
+import { useReportActionError, useResetOnReconnect } from "@/hooks/use-action-error";
+import { toErrorMessage } from "@/utils/error-messages";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Shortcut } from "@/components/ui/shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
@@ -494,8 +496,10 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
   );
 }
 
+function ignoreSubmitFailure(): void {}
+
 function resolveErrorMessage(error: unknown): string | null {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) return toErrorMessage(error);
   if (typeof error === "string") return error;
   return null;
 }
@@ -1237,6 +1241,7 @@ function ComposerContentImpl({
   const toast = useToast();
   const toastErrorRef = useRef(toast.error);
   toastErrorRef.current = toast.error;
+  const reportActionError = useReportActionError();
   const voice = useVoiceOptional();
   const voiceToggleKeys = useShortcutKeys("voice-toggle");
   const agentInterruptKeys = useShortcutKeys("agent-interrupt");
@@ -1262,7 +1267,6 @@ function ComposerContentImpl({
     () => textSource.getSnapshot().trim().length > 0,
     () => textSource.getSnapshot().trim().length > 0,
   );
-  const setUserInput = onChangeText;
   const workspaceAttachments = useWorkspaceAttachmentsForScopes(attachmentScopeKeys);
   const {
     selectedAttachments,
@@ -1327,6 +1331,16 @@ function ComposerContentImpl({
   const isUploadingFile = pendingFiles.length > 0;
   const [pendingNativeImagePastes, setPendingNativeImagePastes] = useState(0);
   const [sendError, setSendError] = useState<string | null>(null);
+  const clearSendError = useCallback(() => setSendError(null), []);
+  useResetOnReconnect(serverId, clearSendError);
+  // A host rejection stays visible until the owner edits the draft it describes.
+  const editUserInput = useCallback(
+    (text: string) => {
+      setSendError(null);
+      onChangeText(text);
+    },
+    [onChangeText],
+  );
   const [isMessageInputFocused, setIsMessageInputFocused] = useState(false);
   const [isGithubPickerOpen, setIsGithubPickerOpen] = useState(false);
   const [githubSearchQuery, setGithubSearchQuery] = useState("");
@@ -1387,7 +1401,7 @@ function ComposerContentImpl({
       void onClientSlashCommand(command)
         .catch((error) => {
           console.error("[Composer] Failed to run client slash command:", error);
-          setSendError(error instanceof Error ? error.message : String(error));
+          reportActionError(error);
         })
         .finally(() => {
           setIsProcessing(false);
@@ -1398,6 +1412,7 @@ function ComposerContentImpl({
       blurOnSubmit,
       clearDraft,
       onClientSlashCommand,
+      reportActionError,
       resetSuppression,
       setSelectedAttachments,
       replaceUserInput,
@@ -1417,12 +1432,19 @@ function ComposerContentImpl({
         args: resolved.args,
         onError(error) {
           console.error("[Composer] Failed to run plugin client slash command:", error);
-          toastErrorRef.current(error instanceof Error ? error.message : String(error));
+          reportActionError(error);
         },
       });
       return true;
     },
-    [blurOnSubmit, clearDraft, replaceUserInput, resetSuppression, setSelectedAttachments],
+    [
+      blurOnSubmit,
+      clearDraft,
+      replaceUserInput,
+      reportActionError,
+      resetSuppression,
+      setSelectedAttachments,
+    ],
   );
 
   const { pickImages } = useImageAttachmentPicker();
@@ -1589,6 +1611,8 @@ function ComposerContentImpl({
       outgoingAttachments: ComposerAttachment[],
       forceSend?: boolean,
     ) => {
+      // A parent-managed submit reports its own failures; the composer only restores the draft.
+      const isParentManagedSubmit = Boolean(onSubmitMessageRef.current);
       const result = await submitAgentInput({
         message: outgoingMessage,
         attachments: outgoingAttachments,
@@ -1616,7 +1640,8 @@ function ComposerContentImpl({
         setAttachments: (nextAttachments) => {
           setSelectedAttachments(composerWorkspaceAttachment.userAttachmentsOnly(nextAttachments));
         },
-        setSendError,
+        setSendError: isParentManagedSubmit ? ignoreSubmitFailure : setSendError,
+        reportConnectionError: isParentManagedSubmit ? ignoreSubmitFailure : reportActionError,
         setIsProcessing,
         onSubmitError: (error) => {
           console.error("[AgentInput] Failed to send message:", error);
@@ -1637,6 +1662,7 @@ function ComposerContentImpl({
       hasExternalContent,
       isAgentRunning,
       queueMessage,
+      reportActionError,
       setSelectedAttachments,
       replaceUserInput,
       submitBehavior,
@@ -1789,7 +1815,7 @@ function ComposerContentImpl({
       } catch (error) {
         console.error("[Composer] Failed to upload file:", error);
         toastErrorRef.current(
-          error instanceof Error ? error.message : t("composer.errors.uploadFailed"),
+          error instanceof Error ? toErrorMessage(error) : t("composer.errors.uploadFailed"),
         );
       } finally {
         setPendingFiles((pending) => pending.filter((entry) => !placeholders.includes(entry)));
@@ -1810,7 +1836,7 @@ function ComposerContentImpl({
     } catch (error) {
       console.error("[Composer] Failed to upload file:", error);
       toastErrorRef.current(
-        error instanceof Error ? error.message : t("composer.errors.uploadFailed"),
+        error instanceof Error ? toErrorMessage(error) : t("composer.errors.uploadFailed"),
       );
     }
   }, [client, pickFiles, t, uploadSelectedFiles]);
@@ -1828,7 +1854,7 @@ function ComposerContentImpl({
       } catch (error) {
         console.error("[Composer] Failed to upload dropped files:", error);
         toastErrorRef.current(
-          error instanceof Error ? error.message : t("composer.errors.uploadFailed"),
+          error instanceof Error ? toErrorMessage(error) : t("composer.errors.uploadFailed"),
         );
       }
     },
@@ -1928,7 +1954,9 @@ function ComposerContentImpl({
       try {
         await queueMessage(payload.text, outgoingAttachments);
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Could not save the queued message.");
+        setSendError(
+          error instanceof Error ? toErrorMessage(error) : "Could not save the queued message.",
+        );
       } finally {
         setIsProcessing(false);
       }
@@ -2460,7 +2488,7 @@ function ComposerContentImpl({
                 <StableMessageInput
                   ref={messageInputRef}
                   value={textSource.getSnapshot()}
-                  onChangeText={setUserInput}
+                  onChangeText={editUserInput}
                   onSubmit={handleSubmit}
                   hasExternalContent={hasExternalContent}
                   allowEmptySubmit={allowEmptySubmit}

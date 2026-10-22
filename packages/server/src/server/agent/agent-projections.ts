@@ -81,6 +81,7 @@ export function toStoredAgentRecord(
     ...(agent.journal === undefined ? {} : { journal: agent.journal }),
     ...(agent.questions === undefined ? {} : { questions: agent.questions }),
     goalSubmissions: agent.goalSubmissions,
+    profileSwitches: agent.profileSwitches,
     blockedGoalReviewNeeded: agent.blockedGoalReviewNeeded,
     queueGoalHold: agent.queueGoalHold,
     id: agent.id,
@@ -112,9 +113,12 @@ export function toStoredAgentRecord(
 
 function projectLaunchMetadata(
   config: StoredAgentRecord["config"],
-): Pick<AgentSnapshotPayload, "profile" | "quotaPausedAt"> {
+): Pick<AgentSnapshotPayload, "profile" | "quotaPausedAt" | "usageLimitHold"> {
   const profile = config?.profileLaunch?.profile;
-  const quota = config?.quotaPausedAt ? { quotaPausedAt: config.quotaPausedAt } : {};
+  const quota = {
+    ...(config?.quotaPausedAt ? { quotaPausedAt: config.quotaPausedAt } : {}),
+    ...(config?.usageLimitHold ? { usageLimitHold: config.usageLimitHold } : {}),
+  };
   if (!profile) return quota;
   const modelChanged = Boolean(profile.model && profile.model !== config?.model);
   const thinkingChanged = Boolean(
@@ -125,6 +129,11 @@ function projectLaunchMetadata(
     profile: { id: profile.id, name },
     ...quota,
   };
+}
+
+/** Only a session the durable session host runs reports this; local sessions leave it out. */
+function hostedFlag(agent: ManagedAgent): Pick<AgentSnapshotPayload, "hosted"> {
+  return agent.session?.isDurablyHosted?.() === true ? { hosted: true } : {};
 }
 
 export function toAgentPayload(
@@ -165,6 +174,7 @@ export function toAgentPayload(
     ...(agent.goalState
       ? { goalState: projectQueueGoalState(agent.goalState, agent.queueGoalHold) }
       : {}),
+    ...hostedFlag(agent),
     currentModeId: agent.currentModeId,
     availableModes: cloneAvailableModes(agent.availableModes),
     features: normalizeFeatures(agent.features),
@@ -365,6 +375,7 @@ function buildSerializableConfig(config: AgentSessionConfig): SerializableAgentC
     serializable.controllerExecutionId = config.controllerExecutionId;
   if (config.quotaPausedAt) serializable.quotaPausedAt = config.quotaPausedAt;
   if (config.quotaResetAt) serializable.quotaResetAt = config.quotaResetAt;
+  if (config.usageLimitHold) serializable.usageLimitHold = config.usageLimitHold;
   if (config.quotaReserve) serializable.quotaReserve = config.quotaReserve;
   if (config.mcpServers) {
     serializable.mcpServers = config.mcpServers;

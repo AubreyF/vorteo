@@ -2086,6 +2086,7 @@ export class VoiceAssistantWebSocketServer {
         agentDetach: true,
         agentGoals: true,
         agentContextBreakdown: true,
+        usageLimitResume: true,
         ...bootstrapReviewFeatures(this.coordinatorBootstrap),
         durableMessageQueue: true,
         // COMPAT(agentThinkingUpdate): added in v0.2.4, remove gate after 2027-01-28.
@@ -2104,6 +2105,7 @@ export class VoiceAssistantWebSocketServer {
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
         sidebarState: this.supportsSidebarState(),
+        sidebarFolders: this.supportsSidebarState(),
         checklistReviewStatus: true,
         checklistProgress: true,
         agentJournal: true,
@@ -2176,6 +2178,8 @@ export class VoiceAssistantWebSocketServer {
         installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
+        // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        agentProfileSwitch: true,
       },
     };
   }

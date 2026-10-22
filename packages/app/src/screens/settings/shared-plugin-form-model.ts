@@ -8,10 +8,13 @@ import type {
   InstallationPlugin,
   ResolvedPluginSource,
 } from "@getpaseo/protocol/plugin-installation";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 interface SharedPluginFormPorts {
   resolve(input: { source: string }): Promise<ResolvedPluginSource>;
   save(update: InstallationSettingsUpdate): Promise<unknown>;
+  /** Reports a lost connection outside the form, which keeps no error text for it. */
+  reportConnectionLost(error: unknown): void;
 }
 export type SharedPluginSourceKind = "managed" | "directory";
 type PluginSourceReview = ResolvedPluginSource | { kind: "directory"; id: string };
@@ -45,6 +48,11 @@ export function openSharedPluginForm(
     plugins: InstallationPlugin[];
     definition: InstallationPlugin;
   } | null = null;
+  function failure(error: unknown): string | null {
+    if (!isConnectionError(error)) return toErrorMessage(error);
+    ports.reportConnectionLost(error);
+    return null;
+  }
   function publish(patch: Partial<SharedPluginFormState>) {
     if (closed) return;
     state = { ...state, ...patch };
@@ -104,7 +112,7 @@ export function openSharedPluginForm(
         prepared = { revision, plugins, definition };
         publish({ phase: "review", resolved });
       } catch (error) {
-        if (!closed && operation === generation) publish({ phase: "edit", error: message(error) });
+        if (!closed && operation === generation) publish({ phase: "edit", error: failure(error) });
       }
     },
     async submit(): Promise<boolean> {
@@ -127,15 +135,11 @@ export function openSharedPluginForm(
         return true;
       } catch (error) {
         if (!closed && operation === generation)
-          publish({ phase: "review", error: message(error) });
+          publish({ phase: "review", error: failure(error) });
         return false;
       }
     },
   };
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : "Unable to save the shared plugin.";
 }
 
 function prepareDefinition(

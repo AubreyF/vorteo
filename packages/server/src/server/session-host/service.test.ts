@@ -7,7 +7,11 @@ import { afterEach, expect, test } from "vitest";
 import { connectSessionHost, type SessionHostClient } from "./client.js";
 import { readSessionHostToken, sessionHostPaths } from "./host-files.js";
 import { SESSION_HOST_PROTOCOL_VERSION } from "./protocol.js";
-import { DEFAULT_SHUTDOWN_DEADLINE_MS, SESSION_HOST_TEST_CLIENT_MODULE_ENV } from "./service.js";
+import {
+  DEFAULT_SHUTDOWN_DEADLINE_MS,
+  SESSION_HOST_TEST_CLIENT_MODULE_ENV,
+  SESSION_HOST_TEST_INSTALLED_RELEASE_ENV,
+} from "./service.js";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const entrypointPath = path.join(serverRoot, "scripts/session-host-entrypoint.ts");
@@ -78,7 +82,7 @@ interface HostChild {
 }
 
 /** Runs the real entrypoint for home in a child on the fake provider. */
-function spawnHost(home: string): HostChild {
+function spawnHost(home: string, extraEnv: Record<string, string> = {}): HostChild {
   const fakeClientPath = path.join(home, "fake-client.ts");
   writeFileSync(fakeClientPath, FAKE_CLIENT_MODULE);
   // node with the tsx loader rather than the tsx wrapper, so signals reach the host directly.
@@ -92,6 +96,7 @@ function spawnHost(home: string): HostChild {
       [SESSION_HOST_TEST_CLIENT_MODULE_ENV]: fakeClientPath,
       FAKE_CLOSE_LOG: path.join(home, "closed.log"),
       FAKE_UMASK_LOG: path.join(home, "umask.log"),
+      ...extraEnv,
     },
     stdio: ["ignore", "inherit", "pipe"],
   });
@@ -318,6 +323,71 @@ test("a provider process recorded by an earlier host is stopped before the new h
     "Stopped provider processes left by an earlier session host",
   );
   expect(await host.client.list()).toEqual([]);
+}, 30_000);
+
+test("a host that finds a newer installed release marks the upgrade and exits once idle, leaving the restart marker", async () => {
+  // Under /tmp, not the per-user temp directory, so the socket path stays within its limit.
+  const home = mkdtempSync("/tmp/dsh-svc-");
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const paths = sessionHostPaths(home);
+  // The host compares releases every 200 ms here; workers would release idle sessions meanwhile.
+  writeFileSync(
+    path.join(home, "durable-sessions.json"),
+    JSON.stringify({ enabled: true, releaseCheckMs: 200 }),
+  );
+  const { child, exited } = spawnHost(home, {
+    [SESSION_HOST_TEST_INSTALLED_RELEASE_ENV]: "0.11.0-beta.3.vorteo.999",
+  });
+  const { client } = await waitFor(async () => {
+    const current = await readSessionHostToken(paths);
+    const connected = await connectSessionHost({
+      socketPath: paths.socketPath,
+      token: current,
+      connectTimeoutMs: 1_000,
+    });
+    return { client: connected };
+  }, 20_000);
+  // A session keeps the host alive past the check; the marker appears while it waits.
+  const session = await client.open({
+    sessionId: "s1",
+    provider: "claude",
+    config: { kind: "create", config: { provider: "claude", cwd: home } },
+  });
+  // waitFor retries only on a throw, so the probe throws until the marker is there.
+  await waitFor(async () => {
+    if (!existsSync(paths.upgradeMarkerPath)) throw new Error("no upgrade marker yet");
+  }, 10_000);
+  expect(JSON.parse(readFileSync(paths.upgradeMarkerPath, "utf8"))).toMatchObject({
+    installed: "0.11.0-beta.3.vorteo.999",
+  });
+  expect(child.exitCode).toBeNull();
+  await session.call({ method: "close" });
+  client.close();
+  // Zero sessions: the host exits for the upgrade and tells workers it is returning.
+  expect(await exited).toEqual({ code: 0, signal: null });
+  expect(existsSync(paths.restartMarkerPath)).toBe(true);
+  expect(readFileSync(path.join(paths.directory, "host.log"), "utf8")).toContain(
+    "A newer release is installed; exiting once no session runs",
+  );
+  // The host that starts next clears both markers.
+  const next = await startHost(home);
+  expect(await next.client.list()).toEqual([]);
+  expect(existsSync(paths.upgradeMarkerPath)).toBe(false);
+  expect(existsSync(paths.restartMarkerPath)).toBe(false);
+}, 40_000);
+
+test("a host that starts removes the restart marker a tracked restart left for workers", async () => {
+  const home = mkdtempSync("/tmp/dsh-svc-");
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const paths = sessionHostPaths(home);
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(paths.directory, { mode: 0o700 });
+  writeFileSync(paths.restartMarkerPath, JSON.stringify({ requestedAt: "2026-10-22T00:00:00Z" }), {
+    mode: 0o600,
+  });
+  const host = await startHost(home);
+  expect(await host.client.list()).toEqual([]);
+  expect(existsSync(paths.restartMarkerPath)).toBe(false);
 }, 30_000);
 
 test("a second host started by mistake does not stop the running host's provider processes", async () => {

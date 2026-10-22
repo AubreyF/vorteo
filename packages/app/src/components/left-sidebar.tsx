@@ -24,6 +24,7 @@ import { DemoControls } from "@/demo/controls";
 import {
   Search,
   FolderPlus,
+  Folder,
   Plus,
   History,
   CalendarClock,
@@ -123,6 +124,8 @@ import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
 import { SidebarGlobalCards } from "@/components/sidebar/global-cards";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { useCreateSidebarFolderAction } from "@/sidebar-folders/actions";
+import { ROOT_FOLDER_SCOPE } from "@/sidebar-folders/tree";
 
 type SidebarTheme = Theme;
 
@@ -492,6 +495,7 @@ function SidebarToolbar({
   onBeforeNavigate?: () => void;
 }) {
   const handleNewWorkspace = useOpenNewWorkspace(onBeforeNavigate);
+  const handleNewFolder = useCreateSidebarFolderAction(ROOT_FOLDER_SCOPE, null);
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
   const handleSearch = useCallback(() => {
     onBeforeNavigate?.();
@@ -526,6 +530,7 @@ function SidebarToolbar({
       project: <FolderPlus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       help: <CircleHelp size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       workspace: <Plus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
+      folder: <Folder size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       display: <Settings2 size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
@@ -612,6 +617,15 @@ function SidebarToolbar({
             >
               {t("sidebar.actions.newWorkspace")}
             </DropdownMenuItem>
+            {handleNewFolder ? (
+              <DropdownMenuItem
+                testID="sidebar-new-folder"
+                onSelect={handleNewFolder}
+                leading={menuIcons.folder}
+              >
+                {t("sidebar.folders.actions.newFolder")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Appearance</DropdownMenuLabel>
             <View style={styles.themeMenu}>
@@ -651,6 +665,7 @@ function SidebarToolbar({
       openHistory,
       handleOpenProject,
       handleNewWorkspace,
+      handleNewFolder,
       labels.addProject,
       t,
       openDisplay,

@@ -14,6 +14,7 @@ import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { toErrorMessage } from "@/utils/error-messages";
 import { SkillSelectionSheet } from "./selection-sheet";
 import { useAgentSkills } from "./use-agent-skills";
 
@@ -150,7 +151,7 @@ export function AgentSkillsSection({ serverId }: { serverId: string }) {
   return (
     <SettingsSection title={t("settings.host.skills.sectionTitle")} trailing={trailing}>
       <SkillLibraryButton />
-      {skills.error ? <Alert variant="error" description={skills.error.message} /> : null}
+      {skills.error ? <Alert variant="error" description={toErrorMessage(skills.error)} /> : null}
       <View style={settingsStyles.card} testID="host-agent-skills-card">
         <View style={settingsStyles.row}>
           <View style={settingsStyles.rowContent}>

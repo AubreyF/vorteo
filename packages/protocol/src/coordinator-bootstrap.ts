@@ -116,6 +116,9 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
   sourceUpdateTooling: z.literal(true).optional(),
   nativeHelperConfiguration: NativeHelperConfigurationSchema.nullable().optional(),
   previewMonitorConfiguration: PreviewMonitorConfigurationSchema.nullable().optional(),
+  // COMPAT(bootstrapClaudeHostRefresh): added 2026-10-22. true turns on Host-owned
+  // Claude refresh in the coordinator configuration, null turns it off.
+  claudeHostRefreshConfiguration: z.literal(true).nullable().optional(),
   // COMPAT(factoryRuntimeAdoption): added in v0.11.0-beta.3.vorteo.285.
   factoryRuntimeAdoptionConfiguration:
     FactoryRuntimeAdoptionConfigurationSchema.nullable().optional(),
@@ -338,6 +341,7 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
+  claudeHostRefresh: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -353,6 +357,7 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
+  claudeHostRefresh: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -365,6 +370,7 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   factoryRuntimeAdoption: z.literal(true).optional(),
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
+  claudeHostRefresh: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),

@@ -26,7 +26,8 @@ import { AgentProfileEditModal } from "./agent-profile-edit-modal";
 import { AgentProfileRow } from "./agent-profile-row";
 import type { AgentProfileValue } from "../internal/profile-form-model";
 import { generateAgentProfileId } from "../internal/profile-id";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 interface EditTarget {
   serverId: string;
@@ -55,6 +56,18 @@ export function SharedProviderSection({
   const [operation, setOperation] = useState<
     { status: "idle" } | { status: "saving" } | { status: "error"; message: string }
   >({ status: "idle" });
+  const reportActionError = useReportActionError();
+  const failOperation = useCallback(
+    (error: unknown) => {
+      if (isConnectionError(error)) {
+        reportActionError(error);
+        setOperation({ status: "idle" });
+      } else {
+        setOperation({ status: "error", message: toErrorMessage(error) });
+      }
+    },
+    [reportActionError],
+  );
   const shared = useMemo(() => {
     const local = config?.sharedProviderPreferences;
     if (!installation) return local;
@@ -184,10 +197,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, defaultWorkflowId: id });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
   );
 
   // Deleting a migrated workflow must retain its legacy launch and worker bindings.
@@ -213,10 +226,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, workflows, defaultWorkflowId });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, providerType, saveGroup],
+    [shared, group, providerType, saveGroup, failOperation],
   );
   // Older copies are folded under their current profile, so moving a profile
   // swaps it with its visible neighbor rather than with a hidden copy.
@@ -236,10 +249,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, workflows });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
   );
   const moveUp = useCallback(
     (id: string) => {
@@ -265,10 +278,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, [field]: values });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
   );
   const toggleModel = useCallback(
     (id: string) => {
@@ -351,7 +364,7 @@ export function SharedProviderSection({
     <>
       <SettingsSection title={`${providerLabel} profiles`} trailing={addButton}>
         {installationError ? (
-          <Alert variant="error" description={installationError.message} />
+          <Alert variant="error" description={toErrorMessage(installationError)} />
         ) : null}
         {operation.status === "error" ? (
           <Alert variant="error" title="Unable to save" description={operation.message} />

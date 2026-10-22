@@ -3724,7 +3724,11 @@ function prepareNativeRegistrationFixture(f: Awaited<ReturnType<typeof recoveryR
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
   const helper = pin(
     path.join(state, "inspector.py"),
-    readFileSync(path.resolve("scripts/inspect-coordinator-process.py")),
+    readFileSync(
+      fileURLToPath(
+        new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+      ),
+    ),
   );
   const containerId = "d".repeat(64);
   const dockerState = pin(
@@ -4078,6 +4082,9 @@ test.each(["known", "unknown"] as const)(
     const result = spawnSync(
       process.execPath,
       [
+        // Newer Node versions warn that tsx uses module.register(); the
+        // assertion below covers only the runner's own refusal text.
+        "--no-deprecation",
         "--import",
         "tsx",
         fileURLToPath(new URL("./coordinator-bootstrap-runner.ts", import.meta.url)),

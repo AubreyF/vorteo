@@ -100,6 +100,10 @@ import {
 } from "@/agent-profiles";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { PresetControls, activePresetPicker } from "@/agent-profiles/preset-controls";
+import {
+  clearProfilePickerRequest,
+  useIsProfilePickerRequested,
+} from "@/profile-switch/picker-request";
 import { useAgentProfiles } from "@/agent-profiles/internal/use-agent-profiles";
 
 interface AgentControlOption {
@@ -1581,6 +1585,7 @@ export const AgentControls = memo(function AgentControls({
   const quotaPausedAt = useSessionStore(
     (state) => state.sessions[serverId]?.agents.get(agentId)?.quotaPausedAt,
   );
+  const pickerRequested = useIsProfilePickerRequested({ serverId, agentId });
   const agent = useSessionStore(
     useShallow((state) => selectAgentControlsSlice(state, serverId, agentId)),
   );
@@ -1837,6 +1842,8 @@ export const AgentControls = memo(function AgentControls({
           selectedProfileName={selectedProfileName}
           activeProfileId={selectedProfileId}
           quotaPausedAt={quotaPausedAt}
+          openRequested={pickerRequested}
+          onOpenRequestHandled={clearProfilePickerRequest}
           currentProvider={agent.provider}
           currentModel={modelSelection.activeModelId}
           currentThinkingOptionId={modelSelection.selectedThinkingId}

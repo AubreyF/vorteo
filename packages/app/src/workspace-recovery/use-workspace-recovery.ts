@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useFetchQuery } from "@/data/query";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -49,6 +50,7 @@ export function useWorkspaceRecovery(input: {
     retry: false,
   });
 
+  const reportActionError = useReportActionError();
   const restoreMutation = useMutation({
     mutationFn: async () => {
       if (!client || !isConnected) {
@@ -58,6 +60,7 @@ export function useWorkspaceRecovery(input: {
       await waitForMinimumRecoveryLoadingTime();
       await client.restoreWorkspace(input.workspaceId);
     },
+    onError: reportActionError,
   });
 
   const state = useMemo(
@@ -75,7 +78,7 @@ export function useWorkspaceRecovery(input: {
         },
         restore: {
           pending: restoreMutation.isPending,
-          error: restoreMutation.isError ? toErrorMessage(restoreMutation.error) : null,
+          failed: restoreMutation.isError,
         },
       }),
     [
@@ -86,7 +89,6 @@ export function useWorkspaceRecovery(input: {
       inspection.isError,
       inspection.isPending,
       isConnected,
-      restoreMutation.error,
       restoreMutation.isError,
       restoreMutation.isPending,
       serverInfo,

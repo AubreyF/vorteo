@@ -8,6 +8,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { AgentRouteResolution } from "@/navigation/agent-route-resolution";
 import { formatConnectionStatus } from "@/utils/daemons";
 import type { Theme } from "@/styles/theme";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 type VisibleAgentRouteResolution = Extract<
   AgentRouteResolution,
@@ -55,7 +56,7 @@ export function AgentRouteResolutionView({
       <View style={styles.emptyState} testID="agent-route-lookup-error">
         <View style={styles.textStack}>
           <Text style={styles.title}>{t("agentPanel.states.failedToLoad")}</Text>
-          <Text style={styles.error}>{resolution.error}</Text>
+          <Text style={styles.error}>{toErrorMessage(resolution.error)}</Text>
         </View>
         <ActionFooter style={styles.actions}>
           <Button size="sm" variant="default" leftIcon={RotateCw} onPress={onRetry}>
@@ -71,6 +72,9 @@ export function AgentRouteResolutionView({
 
   const isConnecting =
     resolution.connectionStatus === "connecting" || resolution.connectionStatus === "idle";
+  // The heading already says the host is unreachable; only a different cause adds detail.
+  const hostError =
+    lastHostError && !isConnectionError(lastHostError) ? toErrorMessage(lastHostError) : null;
   let title = t("workspace.route.cannotReachHost", { hostName });
   if (isConnecting) {
     title = t("agentPanel.unavailable.connecting", { serverLabel: hostName });
@@ -92,7 +96,7 @@ export function AgentRouteResolutionView({
                 status: formatConnectionStatus(resolution.connectionStatus),
               })}
         </Text>
-        {lastHostError ? <Text style={styles.error}>{lastHostError}</Text> : null}
+        {hostError ? <Text style={styles.error}>{hostError}</Text> : null}
       </View>
       {!isConnecting ? (
         <ActionFooter style={styles.actions}>

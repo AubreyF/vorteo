@@ -5,7 +5,7 @@
 
 ## Intelligent Frontier Account Pooling
 
-Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together.
+Connect multiple Codex and Claude accounts and distribute tasks across them. See usage and reset windows beside reusable profiles that keep your model, reasoning, permissions and instructions together. When an account hits its limit, switch the thread to another account, even another provider, without leaving it; a marker shows where the model changed. See [profile switching](docs/plans/profile-switching.md).
 
 <img width="800" alt="Vorteo environment and profile switcher" src="https://github.com/user-attachments/assets/b2489333-cb9a-4f2f-9d0b-8ee1c319923c" />
 
@@ -21,7 +21,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 - **Try a workspace before connecting.** Choose Demo on the browser welcome page to explore simulated projects, tasks, conversations, files and changes. Try Vorton's six themes from the sidebar menu, with Dark Star as the default. The adjacent zoom slider, also driven by Cmd or Ctrl with plus and minus, scales the whole browser interface and remembers your preferred size. Demo edits stay in the current browser tab and Reset restores the samples. See [appearance and demo behavior](docs/vorteo-customizations.md#projects-devices-and-interface).
 
-- **Keep your sidebar across devices.** Project and workspace order, expanded sections, grouping and filters follow you between connected devices. Offline edits sync after reconnection. Requires the updated Host daemon.
+- **Keep your sidebar across devices.** Project and workspace order, nested folders, expanded sections, grouping and filters follow you between connected devices. Folders group projects, or a project's workspaces, without touching disk. Offline edits sync after reconnection. Requires the updated Host daemon.
 
 - **Find any setting.** Settings is one scrolling page of eleven sections, led by what needs your attention. Search forgives typos, jumps to the exact row and shows whether a value belongs to this device, every environment or one environment. Accounts show their remaining quota, and every provider's profiles share one list. See [settings navigation and search](docs/vorteo-customizations.md#projects-devices-and-interface).
 
@@ -39,6 +39,7 @@ For a configured Host and Dev installation, open its HTTPS address on your new d
 
 <img width="400" alt="Queued daemon upgrades" src="https://github.com/user-attachments/assets/3a1c344d-42ac-4da7-8fb0-b5059b3c280f" />
 
+- **Pick up after usage limits.** When a Claude or Codex account hits its limit, stopped threads wait for the reset and then continue one at a time, checking what they already finished first. Each thread shows when it will resume, with Resume now and Don't resume, and each account has a switch to turn it off. See [quota behavior](docs/agent-presets.md#quota-stops-and-explicit-successors).
 - **Put local workers to work.** Choose a worker account and profile on each supervisor, including accounts from another provider or Pi models on local or private endpoints. Set a finite concurrency limit or choose Uncapped on an updated installation, and follow each worker beneath its originating task, even when it uses a separate worktree. Provider and quota limits still apply.
 
 <img width="400" alt="Frontier delegation to local workers" src="https://github.com/user-attachments/assets/fb255faa-8e19-4f28-8ec8-55a8b253ed2a" />

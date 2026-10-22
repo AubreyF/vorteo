@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { PairingTargetTracker } from "./pair-link-credentials";
 
 import { hostedConnectionDefaults } from "@/utils/hosted-connection-defaults";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 import { isWeb } from "@/constants/platform";
 import { isElectronRuntime } from "@/desktop/host";
 
@@ -406,21 +407,14 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
         onSaved?.({ profile, serverId, hostname, isNewHost });
         handleClose();
       } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : directConnectionLabels.invalidConnection,
-        );
+        // Pairing with a host that cannot be reached is a test result, not a lost session.
+        if (isConnectionError(error)) setErrorMessage(directConnectionLabels.unableToConnect);
+        else setErrorMessage(toErrorMessage(error));
       } finally {
         setIsSaving(false);
       }
     },
-    [
-      daemons,
-      directConnectionLabels.invalidConnection,
-      handleClose,
-      linkPairing,
-      onSaved,
-      password,
-    ],
+    [daemons, directConnectionLabels.unableToConnect, handleClose, linkPairing, onSaved, password],
   );
 
   const handleSave = useCallback(async () => {
@@ -468,10 +462,13 @@ function AddHostModalContent({ visible, onClose, onCancel, onSaved }: AddHostMod
         error,
         labels: directConnectionLabels,
       });
+      // Transport diagnostics such as "Transport closed (code 1006)" add nothing to the
+      // plain detail, so only other technical details are shown.
+      const technicalDetail = rawDetail && !isConnectionError(rawDetail) ? rawDetail : null;
       let combined: string;
-      if (rawDetail && detail && rawDetail !== detail) {
+      if (technicalDetail && detail && technicalDetail !== detail) {
         combined = `${title}\n${detail}\n${t("pairing.direct.errors.details", {
-          detail: rawDetail,
+          detail: technicalDetail,
         })}`;
       } else if (detail) {
         combined = `${title}\n${detail}`;

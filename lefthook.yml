@@ -19,3 +19,6 @@ pre-push:
   jobs:
     - name: secrets
       run: npm run security:secrets
+    - name: builds-only-main
+      run: node scripts/guard-main-push.mjs
+      use_stdin: true

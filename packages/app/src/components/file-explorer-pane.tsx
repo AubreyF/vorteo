@@ -82,6 +82,7 @@ import { confirmDialog } from "@/utils/confirm-dialog";
 import { useToast } from "@/contexts/toast-context";
 import { openDesktopTarget, useDesktopOpenTargets } from "@/workspace/desktop-open-targets";
 import { useOpenDirectoryInEditor } from "@/workspace/open-in-editor/directory";
+import { toErrorMessage } from "@/utils/error-messages";
 
 const SORT_OPTIONS: { value: SortOption }[] = [
   { value: "name" },
@@ -620,7 +621,9 @@ export function FileExplorerPane({
         });
       } catch (cause) {
         toast.error(
-          cause instanceof Error ? cause.message : t("workspace.fileExplorer.errors.revealFailed"),
+          cause instanceof Error
+            ? toErrorMessage(cause)
+            : t("workspace.fileExplorer.errors.revealFailed"),
         );
       }
     },
@@ -700,7 +703,7 @@ export function FileExplorerPane({
           onOpenFile?.(payload.path);
         }
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : String(cause));
+        toast.error(toErrorMessage(cause));
       }
     },
     [createEntry, onOpenFile, pendingEdit, selectExplorerEntry, t, toast],
@@ -762,7 +765,7 @@ export function FileExplorerPane({
           }
         }
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : String(cause));
+        toast.error(toErrorMessage(cause));
       }
     },
     [
@@ -793,7 +796,7 @@ export function FileExplorerPane({
         }
         selectExplorerEntry(payload.duplicatedPath);
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : String(cause));
+        toast.error(toErrorMessage(cause));
       }
     },
     [duplicateEntry, selectExplorerEntry, t, toast],
@@ -827,7 +830,7 @@ export function FileExplorerPane({
           selectExplorerEntry(null);
         }
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : String(cause));
+        toast.error(toErrorMessage(cause));
       }
     },
     [deleteEntry, selectExplorerEntry, selectedEntryPath, t, toast],

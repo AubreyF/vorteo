@@ -44,6 +44,8 @@ export class BlockedTaskReviewService {
     this.running = true;
     try {
       const records = await this.options.agentStorage.list();
+      // Prompting an account that is known to be limited only produces another limit stop.
+      const limited = new Map<string, boolean>();
       for (const record of records) {
         if (this.stopped || this.options.agentManager.isRestartDraining()) return;
         const now = this.now();
@@ -51,6 +53,12 @@ export class BlockedTaskReviewService {
         const recentlyAttempted =
           attempted !== undefined && now - attempted < BLOCKED_REVIEW_INTERVAL_MS;
         if (recentlyAttempted || !blockedReviewDue(record, now)) continue;
+        if (!limited.has(record.provider))
+          limited.set(
+            record.provider,
+            (await this.options.agentManager.usageLimitedUntil(record.provider)) !== null,
+          );
+        if (limited.get(record.provider)) continue;
         this.attempts.set(record.id, now);
         await this.review(record.id);
       }

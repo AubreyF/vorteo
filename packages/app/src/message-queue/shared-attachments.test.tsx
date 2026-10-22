@@ -19,8 +19,10 @@ const state = vi.hoisted(() => {
     read: vi.fn(),
     token: vi.fn(),
     download: vi.fn(),
+    reportError: vi.fn(),
   };
 });
+vi.mock("@/hooks/use-action-error", () => ({ useReportActionError: () => state.reportError }));
 vi.mock("./commit-composer", () => ({ commitComposerQueue: state.commit }));
 vi.mock("./runtime", () => ({
   messageOutbox: { list: async () => state.imports },
@@ -129,11 +131,12 @@ it("loads a captured image by stable queue identity only when opened", async () 
   expect(state.read).toHaveBeenCalledWith("/captured", "content", undefined, 4);
   expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,YWJj");
 });
-it("shows host errors without trying an unchecked file path", async () => {
+it("reports host errors without trying an unchecked file path", async () => {
   state.get.mockResolvedValue({ file: null, error: { message: "Attachment was removed" } });
   await render();
   await act(async () => container.querySelector("button")!.click());
-  expect(container.textContent).toContain("Attachment was removed");
+  expect(state.reportError).toHaveBeenCalledWith(new Error("Attachment was removed"));
+  expect(container.textContent).not.toContain("Attachment was removed");
   expect(state.read).not.toHaveBeenCalled();
 });
 it("uses the existing download flow with captured attachment metadata", async () => {
@@ -227,7 +230,9 @@ it("imports old pending messages once across remounts and preserves them until a
       root.render(<LegacyQueueImport serverId="legacy-host" agentId="agent" cwd="/repo" />),
     );
     await act(async () => container.querySelector("button")!.click());
-    expect(container.textContent).toContain("Connection lost before acknowledgement");
+    expect(state.reportError).toHaveBeenCalledWith(
+      new Error("Connection lost before acknowledgement"),
+    );
     expect(state.commit).toHaveBeenCalledTimes(2);
     expect(state.imports.map(({ operation }) => operation)).toEqual(
       oldMessages.map((message) => ({

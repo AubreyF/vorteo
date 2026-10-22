@@ -31,14 +31,12 @@ import { openPluginInstallForm } from "@/screens/settings/plugin-install-form-mo
 import { pluginRegistry, useInstalledPlugins } from "@/plugins/registry";
 import { settingsStyles } from "@/styles/settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 const pluginQueryKey = (serverId: string) => ["plugins", serverId] as const;
 const PLUGIN_SOURCE_DOCS_URL = "https://paseo.sh/docs/plugins/reference#plugin-sources";
 type PluginRowAction = "reload" | "enable" | "disable" | "remove";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function pluginRowAction(action: string | undefined): PluginRowAction | undefined {
   if (action === "reload" || action === "enable" || action === "disable" || action === "remove") {
@@ -233,7 +231,7 @@ export function PluginLogsSheet({
         size="sm"
         variant="error"
         title={t("settings.plugins.logs.errorTitle")}
-        description={errorMessage(logs.error)}
+        description={toErrorMessage(logs.error)}
       >
         <Button variant="outline" size="sm" onPress={refresh}>
           {t("settings.plugins.logs.refresh")}
@@ -335,6 +333,7 @@ export function HostPluginsPage({ serverId }: { serverId: string }) {
         .catch((error) => console.warn("[Plugins] Failed to release settings feed", error));
     };
   }, [client, connected, supported, refresh]);
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: async (operation: {
       action: string;
@@ -345,7 +344,10 @@ export function HostPluginsPage({ serverId }: { serverId: string }) {
       setFeedback({ kind: "success", message });
       await refresh();
     },
-    onError: (error) => setFeedback({ kind: "error", message: errorMessage(error) }),
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
+      else setFeedback({ kind: "error", message: toErrorMessage(error) });
+    },
   });
   const install = useCallback(() => {
     if (!client || !sourceInstallSupported || !installState.canSubmit) return;
@@ -431,7 +433,7 @@ export function HostPluginsPage({ serverId }: { serverId: string }) {
         size="sm"
         variant="error"
         title={t("settings.plugins.states.errorTitle")}
-        description={errorMessage(plugins.error)}
+        description={toErrorMessage(plugins.error)}
       >
         <Button variant="outline" size="sm" onPress={retry}>
           {t("settings.plugins.states.retry")}

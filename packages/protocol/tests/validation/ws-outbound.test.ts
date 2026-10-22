@@ -292,6 +292,45 @@ const SourceSchema = z.object({
     expect(result.success).toBe(true);
   });
 
+  it("accepts sidebar state snapshots with and without folders", () => {
+    const state = {
+      projectOrder: ["p"],
+      pinnedWorkspaceOrder: [],
+      workspaceOrderByProject: {},
+      collapsedProjects: {},
+      collapsedWorkspaceGroups: {},
+      collapsedPinned: false,
+      groupMode: "project",
+      hostFilters: [],
+      projectFilters: [],
+      labelFilters: [],
+    };
+    const folders = {
+      sidebarFolders: {
+        f: {
+          id: "f",
+          name: "Clients",
+          parentId: null,
+          scope: { kind: "project", projectKey: "p" },
+          createdAt: "2026-10-22T00:00:00.000Z",
+        },
+      },
+      itemFolder: { "srv:w": "f" },
+      childOrder: { "project:p": ["folder:f"] },
+      collapsedFolders: { f: true },
+    };
+    for (const snapshotState of [state, { ...state, ...folders }]) {
+      const result = GeneratedWSOutboundMessageSchema.safeParse({
+        type: "session",
+        message: {
+          type: "sidebar.state.read.response",
+          payload: { requestId: "sidebar", snapshot: { revision: 3, state: snapshotState } },
+        },
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
   it("accepts a legacy github_search_response envelope", () => {
     const result = GeneratedWSOutboundMessageSchema.safeParse({
       type: "session",

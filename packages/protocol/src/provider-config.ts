@@ -63,6 +63,8 @@ export const ProviderOverrideSchema = z.object({
   disallowedTools: z.array(z.string()).optional(),
   paseoTools: ProviderPaseoToolsPolicySchema.optional(),
   enabled: z.boolean().optional(),
+  /** Continue threads automatically after this account's usage limit resets. Absent means on. */
+  autoResumeAfterUsageLimit: z.boolean().optional(),
   order: z.number().optional(),
   // Suppress a plugin registration after the user deletes its provider connection.
   removed: z.boolean().optional(),

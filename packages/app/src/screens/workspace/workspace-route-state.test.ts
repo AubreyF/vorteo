@@ -47,7 +47,6 @@ const recoverable = {
     branch: "feature",
   },
   phase: "ready",
-  error: null,
 } as const satisfies WorkspaceRecoveryModel;
 
 describe("resolveWorkspaceRouteState", () => {
@@ -106,14 +105,10 @@ describe("resolveWorkspaceRouteState", () => {
       recovery: { phase: "restoring" },
     });
 
-    const failed = {
-      ...recoverable,
-      phase: "failed" as const,
-      error: "Project root is missing",
-    };
+    const failed = { ...recoverable, phase: "failed" as const };
     expect(resolve({ recovery: failed })).toMatchObject({
       kind: "archived",
-      recovery: { phase: "failed", error: "Project root is missing" },
+      recovery: { phase: "failed" },
     });
   });
 

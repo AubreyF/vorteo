@@ -63,6 +63,7 @@ export const en = {
       daemonClientDisconnected: "Daemon client is disconnected",
       noFileFound: "No file found for {{token}}",
       unexpectedDictationError: "An unexpected error occurred while handling dictation.",
+      hostConnectionLost: "Lost connection to the host. Try again once it reconnects.",
     },
     connectionStatus: {
       online: "Online",
@@ -306,6 +307,7 @@ export const en = {
       archived: "Archived",
       pending: "{{count}} pending",
       attention: "Attention",
+      hosted: "Survives restarts",
     },
     archiveSheet: {
       hostOffline: "Host offline",
@@ -409,6 +411,26 @@ export const en = {
       encrypted: "The provider returned encrypted context that cannot be displayed as text.",
       failed: "Compaction failed",
       aborted: "Compaction cancelled",
+    },
+    profileSwitch: {
+      caption: "Switched from {{from}} to {{to}}",
+      captionQuota: "Switched from {{from}} to {{to}} after quota limit",
+      fromProfile: "Previous profile: {{name}}",
+      toProfile: "New profile: {{name}}",
+      carriedContext: "Carried {{chars}} characters of recent conversation as context.",
+      confirm: {
+        title: "Switch to {{name}}",
+        warning:
+          "Switching moves this thread to the selected account and starts a new session there. The new model receives up to 30 recent messages as context, which uses extra tokens and loses tool results and other provider-private state, so avoid switching routinely. It is a good option when one of your accounts reaches its limit.",
+        switch: "Switch in this thread",
+        switching: "Switching...",
+        newTask: "New task instead",
+      },
+      quota: {
+        message:
+          "Account usage limit reached. Switch to another account to continue in this thread, or open the preset picker to reset utilization and send your next message here.",
+        action: "Switch account",
+      },
     },
   },
   importSession: {
@@ -1207,6 +1229,35 @@ export const en = {
       description:
         "Add setup commands so new worktrees can install dependencies and prepare themselves automatically.",
       openProjectSettings: "Open project settings",
+    },
+    folders: {
+      actions: {
+        menu: "Folder actions",
+        newFolder: "New folder",
+        newWorkspaceFolder: "New workspace folder",
+        newSubfolder: "New folder inside",
+        rename: "Rename folder",
+        delete: "Delete folder",
+        moveToFolder: "Move to folder…",
+      },
+      dialogs: {
+        createTitle: "New folder",
+        renameTitle: "Rename folder",
+        namePlaceholder: "Folder name",
+        create: "Create",
+        rename: "Rename",
+        moveTitle: 'Move "{{name}}"',
+        destination: "Folder",
+        topLevel: "No folder",
+        move: "Move",
+        cancel: "Cancel",
+      },
+      confirmations: {
+        deleteTitle: "Delete folder?",
+        deleteMessage:
+          'Delete "{{folderName}}"? Its contents move up one level. Nothing is archived and files on disk are not changed.',
+        deleteConfirm: "Delete",
+      },
     },
     project: {
       actions: {
@@ -2341,8 +2392,6 @@ export const en = {
         confirmedCurrent: "You're up to date",
         checkComplete: "Check complete",
         title: "Vorteo updates",
-        notice: "Vorteo update available",
-        review: "Review update",
         idle: "Check for new commits on main.",
         current: "This interface is up to date with main.",
         ahead: "This interface was built ahead of main.",

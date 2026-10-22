@@ -1,4 +1,5 @@
 import { i18n } from "@/i18n/i18next";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 export type AgentInputSubmitResult = "noop" | "queued" | "submitted" | "failed";
 
@@ -17,6 +18,8 @@ export interface AgentInputSubmitActionInput<TAttachment> {
   setUserInput: (text: string) => void;
   setAttachments: (attachments: TAttachment[]) => void;
   setSendError: (message: string | null) => void;
+  /** Reports a send that failed because the connection dropped; it leaves no inline error. */
+  reportConnectionError: (error: unknown) => void;
   setIsProcessing: (isProcessing: boolean) => void;
   onSubmitError?: (error: unknown) => void;
   failedToSendMessage?: string;
@@ -65,11 +68,7 @@ export async function submitAgentInput<TAttachment>(
       input.setUserInput(trimmedMessage);
       input.setAttachments(attachments);
     }
-    input.setSendError(
-      error instanceof Error
-        ? error.message
-        : (input.failedToSendMessage ?? i18n.t("composer.errors.failedToSend")),
-    );
+    reportSendFailure(input, error);
     input.setIsProcessing(false);
     return "failed";
   }
@@ -90,13 +89,29 @@ async function queueAgentInput<TAttachment>(
     return "queued";
   } catch (error) {
     input.onSubmitError?.(error);
-    input.setSendError(
-      error instanceof Error
-        ? error.message
-        : (input.failedToSendMessage ?? i18n.t("composer.errors.failedToSend")),
-    );
+    reportSendFailure(input, error);
     return "failed";
   } finally {
     input.setIsProcessing(false);
   }
+}
+
+// A dropped connection is transient, so it becomes a toast while the restored draft waits for
+// a retry. The send action wraps an ambiguous drop in its own message with the transport error
+// as the cause. Host rejections stay inline until the user edits the draft or reconnects.
+function reportSendFailure<TAttachment>(
+  input: AgentInputSubmitActionInput<TAttachment>,
+  error: unknown,
+): void {
+  const isDroppedConnection =
+    isConnectionError(error) || (error instanceof Error && isConnectionError(error.cause));
+  if (isDroppedConnection) {
+    input.reportConnectionError(error);
+    return;
+  }
+  input.setSendError(
+    error instanceof Error
+      ? toErrorMessage(error)
+      : (input.failedToSendMessage ?? i18n.t("composer.errors.failedToSend")),
+  );
 }

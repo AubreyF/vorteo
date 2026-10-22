@@ -10,6 +10,7 @@ import { formatAgo } from "./format";
 import type { ProviderUsage } from "./types";
 import { ProviderUsageWindowBar } from "./window-bar";
 import { ProviderResetControl } from "./reset-control";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface ProviderUsageIconProps {
   iconKey: string;
@@ -91,7 +92,7 @@ export function ProviderUsageCard({
       />
       {usage.error ? (
         <Text style={styles.error} numberOfLines={3}>
-          {usage.error}
+          {toErrorMessage(usage.error)}
         </Text>
       ) : null}
       {serverId && !disconnected ? (

@@ -19,7 +19,6 @@ export type WorkspaceRecoveryModel =
       kind: "recoverable";
       recovery: SupportedRecoverableWorkspace;
       phase: "ready" | "restoring" | "failed";
-      error: string | null;
     }
   | { kind: "unsupportedAction"; action: string }
   | {
@@ -36,12 +35,12 @@ export interface WorkspaceRecoveryController {
 
 function resolveRecoveryPhase(input: {
   pending: boolean;
-  error: string | null;
+  failed: boolean;
 }): "ready" | "restoring" | "failed" {
   if (input.pending) {
     return "restoring";
   }
-  if (input.error) {
+  if (input.failed) {
     return "failed";
   }
   return "ready";
@@ -70,7 +69,8 @@ export function resolveWorkspaceRecoveryModel(input: {
     error: string | null;
     data: AuthoritativeWorkspaceRecoveryState | undefined;
   };
-  restore: { pending: boolean; error: string | null };
+  /** A failed restore is reported as a toast; the model only offers a retry. */
+  restore: { pending: boolean; failed: boolean };
 }): WorkspaceRecoveryModel {
   const supportedRecovery = getSupportedRecovery(input.inspection.data);
   if (input.restore.pending && supportedRecovery) {
@@ -78,7 +78,6 @@ export function resolveWorkspaceRecoveryModel(input: {
       kind: "recoverable",
       recovery: supportedRecovery,
       phase: "restoring",
-      error: null,
     };
   }
   if (!input.enabled || !input.connected || !input.hasClient) {
@@ -107,7 +106,6 @@ export function resolveWorkspaceRecoveryModel(input: {
       kind: "recoverable",
       recovery: supportedRecovery,
       phase: resolveRecoveryPhase(input.restore),
-      error: input.restore.error,
     };
   }
   return { kind: "checking" };

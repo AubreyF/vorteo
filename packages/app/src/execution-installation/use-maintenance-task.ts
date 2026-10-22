@@ -5,6 +5,7 @@ import { useHosts } from "@/runtime/host-runtime";
 import { useDraftStore } from "@/stores/draft-store";
 import { buildNewWorkspaceDraftKey, generateDraftId } from "@/stores/draft-keys";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
+import { toErrorMessage } from "@/utils/error-messages";
 import { readExecutionInstallation } from "./policy";
 import { installationMaintenancePrompt, maintenanceTaskTarget } from "./maintenance-task";
 
@@ -27,7 +28,7 @@ export function useMaintenanceTask() {
         // Saving and navigating prepares an editable draft. It never creates an agent.
         router.push(buildNewWorkspaceRoute({ draftId, serverId }));
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not prepare update task");
+        toast.error(toErrorMessage(error));
       }
     },
     [hosts, router, toast],

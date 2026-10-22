@@ -6,8 +6,14 @@ export const BLOCKED_REVIEW_INTERVAL_MS = 60 * 60 * 1000;
 /** This is an ordinary thread review, never a second governor or worker scheduler. */
 export function hasReviewableBlockedWork(record: StoredAgentRecord): boolean {
   const externallyOwned = record.owner || record.config?.controllerExecutionId;
+  // A thread waiting for a usage limit to reset is resumed by UsageLimitResumeService instead.
+  const usageLimited = record.config?.usageLimitHold && !record.config.usageLimitHold.releasedAt;
   const held =
-    record.archivedAt || record.internal || record.queueGoalHold || record.config?.quotaPausedAt;
+    record.archivedAt ||
+    record.internal ||
+    record.queueGoalHold ||
+    record.config?.quotaPausedAt ||
+    usageLimited;
   const delegated = record.labels[PARENT_AGENT_ID_LABEL];
   if (externallyOwned || held || delegated || !record.persistence?.sessionId) return false;
   return (

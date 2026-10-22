@@ -54,6 +54,8 @@ describe("useDraftAgentCreateFlow", () => {
         useDraftAgentCreateFlow({
           draftId: "draft-1",
           getPendingServerId: () => "server-1",
+          formInputsKey: "inputs",
+          onCreateError: vi.fn(),
           initialAttempt: attempt,
           buildDraftAgent: (currentAttempt) => ({ currentAttempt }),
           createRequest,
@@ -104,6 +106,8 @@ describe("useDraftAgentCreateFlow", () => {
         useDraftAgentCreateFlow({
           draftId: "draft-handoff",
           getPendingServerId: () => "server-1",
+          formInputsKey: "inputs",
+          onCreateError: vi.fn(),
           initialAttempt: attempt,
           buildDraftAgent: () => {
             if (!provider) throw new Error("Select a model");
@@ -126,6 +130,8 @@ describe("useDraftAgentCreateFlow", () => {
       useDraftAgentCreateFlow({
         draftId: "draft-invalid",
         getPendingServerId: () => "server-1",
+        formInputsKey: "inputs",
+        onCreateError: vi.fn(),
         initialAttempt: {
           clientMessageId: "msg-invalid",
           text: "build this",
@@ -144,17 +150,46 @@ describe("useDraftAgentCreateFlow", () => {
     expect(createRequest).not.toHaveBeenCalled();
   });
 
-  it("keeps a manual submission stable and lets a failed request retry with a new selection", async () => {
+  it("clears a validation error once the form inputs change", async () => {
+    const { result, rerender } = renderHook(
+      ({ inputsKey }: { inputsKey: string }) =>
+        useDraftAgentCreateFlow({
+          draftId: "draft-validation",
+          getPendingServerId: () => "server-1",
+          formInputsKey: inputsKey,
+          onCreateError: vi.fn(),
+          validateBeforeSubmit: () => "Choose a model",
+          buildDraftAgent: () => ({}),
+          createRequest: async () => ({ agentId: "agent-1", result: { id: "agent-1" } }),
+          onCreateSuccess: () => undefined,
+        }),
+      { initialProps: { inputsKey: "no-model" } },
+    );
+    const ignoreRejection = () => undefined;
+    await act(async () => {
+      await result.current
+        .handleCreateFromInput({ text: "build this", attachments: [], cwd: "/repo" })
+        .catch(ignoreRejection);
+    });
+    expect(result.current.formErrorMessage).toBe("Choose a model");
+    rerender({ inputsKey: "with-model" });
+    expect(result.current.formErrorMessage).toBe("");
+  });
+
+  it("reports a failed request and retries with a new selection", async () => {
     let failRequest!: (error: Error) => void;
     const request = new Promise<never>((_resolve, reject) => {
       failRequest = reject;
     });
     let requestCount = 0;
+    const onCreateError = vi.fn();
     const { result, rerender } = renderHook(
       ({ provider }: { provider: string | null }) =>
         useDraftAgentCreateFlow({
           draftId: "draft-manual",
           getPendingServerId: () => "server-1",
+          formInputsKey: provider ?? "",
+          onCreateError,
           buildDraftAgent: () => {
             if (!provider) throw new Error("Select a model");
             return { provider };
@@ -183,7 +218,8 @@ describe("useDraftAgentCreateFlow", () => {
     });
     expect(result.current.isSubmitting).toBe(false);
     expect(result.current.draftAgent).toBeNull();
-    expect(result.current.formErrorMessage).toBe("Provider unavailable");
+    expect(result.current.formErrorMessage).toBe("");
+    expect(onCreateError).toHaveBeenCalledWith(new Error("Provider unavailable"));
     rerender({ provider: "claude" });
     await act(async () => {
       await result.current.handleCreateFromInput({
@@ -224,6 +260,8 @@ describe("useDraftAgentCreateFlow", () => {
       useDraftAgentCreateFlow({
         draftId: "draft-1",
         getPendingServerId: () => "server-1",
+        formInputsKey: "inputs",
+        onCreateError: vi.fn(),
         buildDraftAgent: (currentAttempt) => ({ currentAttempt }),
         createRequest,
         onCreateSuccess,

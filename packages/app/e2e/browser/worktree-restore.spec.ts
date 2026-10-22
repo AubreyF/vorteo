@@ -437,14 +437,14 @@ test.describe("Worktree restore", () => {
     ).toMatch(/^restored\//);
   });
 
-  test("restore failure stays visible and permits a successful retry", async ({ page }) => {
+  test("restore failure is reported and permits a successful retry", async ({ page }) => {
     const { agent, worktree } = await openArchivedWorkspaceFromHistory(page, "restore-retry");
     const displacedProjectPath = `${tempRepo.path}-temporarily-unavailable`;
     await rename(tempRepo.path, displacedProjectPath);
 
     try {
       await page.getByTestId("workspace-recovery-action").click();
-      await expect(page.getByTestId("workspace-recovery-error")).toHaveText(
+      await expect(page.getByTestId("app-toast-message")).toHaveText(
         "The source repository needed to restore this worktree no longer exists.",
       );
       await expect(page.getByTestId("workspace-recovery-action")).toHaveText("Retry");

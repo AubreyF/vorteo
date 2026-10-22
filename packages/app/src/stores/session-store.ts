@@ -76,6 +76,9 @@ export interface Agent {
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
   profile?: { id: string; name: string };
   quotaPausedAt?: string;
+  usageLimitHold?: import("@getpaseo/protocol/usage-limit").UsageLimitHold;
+  /** The provider session runs in the durable session host, so a daemon restart will not cut it. */
+  hosted?: boolean;
   serverId: string;
   id: string;
   provider: AgentProvider;
@@ -1907,6 +1910,7 @@ export const useSessionStore = create<SessionStore>()(
             cwd: agent.cwd,
             provider: agent.provider,
             pendingPermissionCount: agent.pendingPermissions.length,
+            ...(agent.hosted ? { hosted: true } : {}),
             requiresAttention: agent.requiresAttention ?? false,
             attentionReason: agent.attentionReason ?? null,
             attentionTimestamp: agent.attentionTimestamp ?? null,

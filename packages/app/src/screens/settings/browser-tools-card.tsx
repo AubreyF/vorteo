@@ -7,6 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import {
   createBrowserToolsPatch,
   getBrowserToolsCardState,
@@ -23,6 +25,7 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
     isConnected: isConnected || Boolean(isShared && shared?.settings),
     config,
   });
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: async (next: boolean) => {
       const result = await patchConfig(createBrowserToolsPatch(next));
@@ -30,6 +33,9 @@ export function BrowserToolsOptInCard({ serverId }: { serverId: string }) {
         throw new Error(t("workspace.terminal.hostDisconnected"));
       }
       return result;
+    },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
     },
   });
   const mutationView = getBrowserToolsMutationViewState({

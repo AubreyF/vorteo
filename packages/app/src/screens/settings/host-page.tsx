@@ -61,6 +61,8 @@ import { useSessionStore } from "@/stores/session-store";
 import { settingsStyles } from "@/styles/settings";
 import type { HostConnection, HostProfile } from "@/types/host-connection";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { isVersionMismatch } from "@/desktop/updates/desktop-updates";
 import { resolveAppVersion } from "@/utils/app-version";
 import { formatConnectionStatus, getConnectionStatusTone } from "@/utils/daemons";
@@ -240,7 +242,7 @@ function HostConnectionError({ serverId }: { serverId: string }) {
       <InlineAlert
         size="sm"
         variant="error"
-        title={connectionError}
+        title={toErrorMessage(connectionError)}
         description={snapshot?.authFailureReason ? t("settings.host.password.guidance") : undefined}
         testID="host-connection-error"
       />
@@ -627,20 +629,20 @@ function RestartDaemonCard({ host }: { host: HostProfile }) {
     [host.serverId, runtime],
   );
 
+  const reportActionError = useReportActionError();
   const waitForDaemonRestart = useCallback(
     async (request: Promise<void>) => {
       try {
         await request;
       } catch (error) {
-        Alert.alert(
-          t("settings.host.daemon.restart.requestFailedTitle"),
-          error instanceof Error ? error.message : String(error),
-        );
+        if (isConnectionError(error)) reportActionError(error);
+        else
+          Alert.alert(t("settings.host.daemon.restart.requestFailedTitle"), toErrorMessage(error));
       } finally {
         if (isMountedRef.current) setIsRestarting(false);
       }
     },
-    [t],
+    [reportActionError, t],
   );
 
   const handleRestart = useCallback(() => {
@@ -839,7 +841,7 @@ function UpdateDaemonCard({ host }: { host: HostProfile }) {
               status: "failed",
               title: t("settings.host.daemon.update.requestFailedTitle"),
               message: t("settings.host.daemon.update.requestFailedMessage", {
-                error: error instanceof Error ? error.message : "Unknown error",
+                error: toErrorMessage(error),
               }),
             });
           });
@@ -925,18 +927,24 @@ function useSettingsAvailable(serverId: string): boolean {
 
 function useSettingsMutation(serverId: string) {
   const { config, patchConfig } = useDaemonConfig(serverId);
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: async (patch: MutableDaemonConfigPatch) => {
       const saved = await patchConfig(patch);
       if (!saved) throw new Error("The environment disconnected. Reconnect and retry.");
       return saved;
     },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
+    },
   });
   return { config, mutation };
 }
 
+/** Lost connections are reported as toasts, so only host rejections stay beside the setting. */
 function SettingsSaveStatus({ error }: { error: Error | null }) {
-  return error ? <InlineAlert variant="error" description={error.message} /> : null;
+  if (!error || isConnectionError(error)) return null;
+  return <InlineAlert variant="error" description={toErrorMessage(error)} />;
 }
 
 function InjectPaseoToolsCard({ serverId }: { serverId: string }) {
@@ -1504,6 +1512,14 @@ function TerminalProfilesSection({ serverId }: { serverId: string }) {
     },
     [patchConfig],
   );
+  const reportActionError = useReportActionError();
+  const reportSaveError = useCallback(
+    (error: unknown) => {
+      if (isConnectionError(error)) reportActionError(error);
+      else Alert.alert(t("common.errors.unableToSave"), toErrorMessage(error));
+    },
+    [reportActionError, t],
+  );
 
   const handleAddOpen = useCallback(() => setIsAdding(true), []);
   const handleAddClose = useCallback(() => setIsAdding(false), []);
@@ -1580,15 +1596,12 @@ function TerminalProfilesSection({ serverId }: { serverId: string }) {
         try {
           await saveProfiles(profiles.filter((p) => p.id !== id));
         } catch (error) {
-          Alert.alert(
-            t("common.errors.unableToSave"),
-            error instanceof Error ? error.message : String(error),
-          );
+          reportSaveError(error);
         }
         return;
       });
     },
-    [profiles, saveProfiles, t],
+    [profiles, saveProfiles, reportSaveError, t],
   );
 
   const handleMoveUp = useCallback(
@@ -1602,13 +1615,10 @@ function TerminalProfilesSection({ serverId }: { serverId: string }) {
       try {
         await saveProfiles(next);
       } catch (error) {
-        Alert.alert(
-          t("common.errors.unableToSave"),
-          error instanceof Error ? error.message : String(error),
-        );
+        reportSaveError(error);
       }
     },
-    [profiles, saveProfiles, t],
+    [profiles, saveProfiles, reportSaveError],
   );
 
   const handleMoveDown = useCallback(
@@ -1622,13 +1632,10 @@ function TerminalProfilesSection({ serverId }: { serverId: string }) {
       try {
         await saveProfiles(next);
       } catch (error) {
-        Alert.alert(
-          t("common.errors.unableToSave"),
-          error instanceof Error ? error.message : String(error),
-        );
+        reportSaveError(error);
       }
     },
-    [profiles, saveProfiles, t],
+    [profiles, saveProfiles, reportSaveError],
   );
 
   const addButton = useMemo(

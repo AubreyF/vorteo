@@ -1,5 +1,9 @@
 import { BlockedTaskReviewService } from "./agent/task-checklist/review-service.js";
 import {
+  readingFromProviderUsage,
+  UsageLimitResumeService,
+} from "./agent/usage-limit/resume-service.js";
+import {
   createConfiguredBootstrapReview,
   deferBootstrapReview,
 } from "./execution-installation/coordinator-bootstrap-launch.js";
@@ -156,9 +160,10 @@ import { createAgentProviderRuntime } from "./agent/provider-runtime.js";
 import { createSessionHostConnector } from "./session-host/connector.js";
 import type { HostedSessionRouting } from "./session-host/hosted-agent-client.js";
 import { sessionHostPaths } from "./session-host/host-files.js";
-import { readDurableSessionsSettings } from "./session-host/settings.js";
+import { DEFAULT_RELEASE_CHECK_MS, readDurableSessionsSettings } from "./session-host/settings.js";
 import { createAppliedSeqStore } from "./session-host/applied-store.js";
 import { loadAdoptedAgents, planHostedStartup } from "./session-host/boot-attach.js";
+import { startHostedIdleRelease } from "./session-host/idle-release.js";
 import { ensureAgentLoaded } from "./agent/agent-loading.js";
 import type { SessionHostConnector } from "./session-host/connector.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
@@ -657,6 +662,24 @@ function migrateLegacyProviderPreferences(store: DaemonConfigStore, logger: Logg
 
 function configureDaemonGitPolicy(config: PaseoDaemonConfig): void {
   configureGitProcessPolicy(config.git ?? resolveGitProcessPolicy({ env: process.env }));
+}
+
+/** While the host waits to exit for an upgrade, idle hosted sessions are released so it can. */
+function startIdleReleaseForUpgrade(
+  paseoHome: string,
+  manager: AgentManager,
+  connector: SessionHostConnector,
+  logger: Logger,
+) {
+  const settings = readDurableSessionsSettings(paseoHome);
+  return startHostedIdleRelease({
+    manager,
+    connector,
+    logger: logger.child({ module: "session-host" }),
+    idleMs: settings.idleReleaseMs,
+    // The same cadence the host uses to look for a newer release.
+    intervalMs: settings.releaseCheckMs ?? DEFAULT_RELEASE_CHECK_MS,
+  });
 }
 
 export async function createPaseoDaemon(
@@ -1642,6 +1665,20 @@ export async function createPaseoDaemon(
     archiveWorkspace: archiveScheduleWorkspaceExternal,
   });
   const blockedTaskReviews = new BlockedTaskReviewService({ agentManager, agentStorage, logger });
+  const usageLimitResumes = new UsageLimitResumeService({
+    agentManager,
+    agentStorage,
+    logger,
+    autoResumeEnabled: (provider) =>
+      daemonConfigStore.get().providers?.[provider]?.autoResumeAfterUsageLimit !== false,
+    readUsage: async (provider) => {
+      const usage = await providerUsageService.listUsage({ forceRefresh: true });
+      return readingFromProviderUsage(
+        usage.providers.find((entry) => entry.providerId === provider),
+        Date.now(),
+      );
+    },
+  });
   quotaReservePolling.start();
   // Hosted sessions still running a turn are attached and registered for adoption before any
   // service can load their agents (the scheduler included), so nobody starts a second provider.
@@ -1660,6 +1697,12 @@ export async function createPaseoDaemon(
   sessionHostRouting.onSessionLost = (agentId) => {
     void agentManager.continueAfterHostedSessionLoss(agentId);
   };
+  const hostedIdleRelease = startIdleReleaseForUpgrade(
+    config.paseoHome,
+    agentManager,
+    sessionHostConnector,
+    logger,
+  );
   await scheduleService.start();
   factoryScheduleInspection.activate(scheduleService);
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -2127,8 +2170,10 @@ export async function createPaseoDaemon(
       speechService.start();
       scriptHealthMonitor.start();
       blockedTaskReviews.start();
+      usageLimitResumes.start();
     } catch (error) {
       blockedTaskReviews.stop();
+      usageLimitResumes.stop();
       factoryScheduleInspection.revoke();
       localCredential = null;
       await deleteLocalCredential(config.paseoHome);
@@ -2174,6 +2219,7 @@ export async function createPaseoDaemon(
   const stop = async (options?: { onStep?: (step: string) => void }) => {
     const step = options?.onStep ?? (() => {});
     blockedTaskReviews.stop();
+    usageLimitResumes.stop();
     factoryScheduleInspection.revoke();
     quotaPreflight.stop();
     // Close ingress before waiting for metadata processes or other teardown.
@@ -2209,6 +2255,7 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     step("quota reserve polling");
     await quotaReservePolling.stop();
+    hostedIdleRelease.stop();
     step("detach hosted sessions");
     // Durably hosted turns keep running in the session host; the next worker takes them over.
     await withTimeout({

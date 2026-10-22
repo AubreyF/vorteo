@@ -20,13 +20,21 @@ import {
 } from "@/execution-installation/skills";
 import { settingsStyles } from "@/styles/settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { openSharedSkillForm } from "./shared-form-model";
 
 function useSharedSkillForm(skill?: InstallationSkill) {
   const { save } = useInstallationSettings();
+  const reportActionError = useReportActionError();
   const [model] = useState(() =>
     openSharedSkillForm(
-      { prepare: prepareInstallationSkill, read: readInstallationSkillPackage, save },
+      {
+        prepare: prepareInstallationSkill,
+        read: readInstallationSkillPackage,
+        save,
+        reportConnectionLost: reportActionError,
+      },
       skill,
     ),
   );
@@ -216,7 +224,7 @@ function SkillDetails({ skill, onClose }: { skill: InstallationSkill; onClose():
         {query.isPending ? <Text style={settingsStyles.rowHint}>Loading package...</Text> : null}
         {query.error ? (
           <>
-            <Alert variant="error" description={query.error.message} />
+            <Alert variant="error" description={toErrorMessage(query.error)} />
             <Button variant="outline" onPress={retry}>
               Retry
             </Button>
@@ -273,9 +281,14 @@ export function SharedSkillCatalog() {
   const { data, error, save, installation } = useInstallationSettings();
   const [form, setForm] = useState<{ skill?: InstallationSkill } | null>(null);
   const [details, setDetails] = useState<InstallationSkill | null>(null);
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: (update: InstallationSettingsUpdate) => save(update),
+    onError: (failure) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
   });
+  const isRejected = mutation.error !== null && !isConnectionError(mutation.error);
   const add = useCallback(() => setForm({}), []);
   const edit = useCallback((skill: InstallationSkill) => setForm({ skill }), []);
   const close = useCallback(() => setForm(null), []);
@@ -327,8 +340,8 @@ export function SharedSkillCatalog() {
   return (
     <View testID="shared-skill-catalog">
       <SettingsSection title="Personal skills" trailing={addButton}>
-        {error ? <Alert variant="error" description={error.message} /> : null}
-        {mutation.error ? <Alert variant="error" description={mutation.error.message} /> : null}
+        {error ? <Alert variant="error" description={toErrorMessage(error)} /> : null}
+        {isRejected ? <Alert variant="error" description={toErrorMessage(mutation.error)} /> : null}
         {!data?.settings?.skillLibrary ? (
           <Text style={settingsStyles.rowHint}>Reading shared skills...</Text>
         ) : (

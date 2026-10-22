@@ -57,6 +57,7 @@ import {
 } from "@/workspace-tabs/model";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 const EMPTY_PENDING_PERMISSIONS = new Map();
 const DRAFT_CAPABILITIES: AgentCapabilityFlags = {
@@ -455,6 +456,14 @@ export function WorkspaceDraftAgentTab({
     [composerState.workingDir, isCompactFormFactor, openInSidePane, serverId, workspaceId],
   );
 
+  const reportActionError = useReportActionError();
+  const formInputsKey = [
+    environment.state.status,
+    executionServerId,
+    composerState.selectedProvider,
+    composerState.effectiveModelId,
+    draftInput.attachments.length,
+  ].join("|");
   const {
     formErrorMessage,
     isSubmitting,
@@ -466,6 +475,7 @@ export function WorkspaceDraftAgentTab({
   } = useDraftAgentCreateFlow<Agent, AgentSnapshotPayload>({
     draftId,
     getPendingServerId: () => serverId,
+    formInputsKey,
     initialAttempt: initialCreateAttempt,
     allowEmptyText: allowsEmptyAutoSubmit,
     validateBeforeSubmit: ({ text, attachments }) => {
@@ -546,6 +556,7 @@ export function WorkspaceDraftAgentTab({
         selectModelMessage: t("workspaceSetup.errors.selectModel"),
       });
     },
+    onCreateError: reportActionError,
     onCreateSuccess: ({ result }) => {
       clearDraftInput("sent");
       clearWorkspaceAttachments({ scopeKey: draftAttachmentScopeKey });

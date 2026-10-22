@@ -6,6 +6,7 @@ Use this index to find the document that owns your task. Read relevant subjects 
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | [Vorteo customizations](vorteo-customizations.md)                     | Cumulative fork features, limitations and comparison with integrated Paseo                                                     |
 | [docs/roadmap.md](roadmap.md)                                         | Planned fork work, separate from shipped capabilities                                                                          |
+| [Profile switching](plans/profile-switching.md)                       | Move a thread to another account or profile in place; later, pooled automatic switching                                        |
 | [Execution environment plans](plans/execution-environments/README.md) | Proposed two-day unified host/container installation and separately scoped future projects                                     |
 | [docs/product.md](product.md)                                         | What Vorteo is, who it's for, where it's going                                                                                 |
 | [docs/architecture.md](architecture.md)                               | System design, package layering, WebSocket protocol, agent lifecycle, data flow                                                |

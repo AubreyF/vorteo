@@ -74,6 +74,7 @@ function sourceTimelineItem(item: StreamItem): AgentTimelineItem | null {
         ...(item.trigger ? { trigger: item.trigger } : {}),
         ...(item.preTokens !== undefined ? { preTokens: item.preTokens } : {}),
       };
+    case "profile_switch":
     case "plugin":
       return null;
   }

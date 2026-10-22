@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
 import { MaintenanceNotice } from "./maintenance-notice";
 import { settingsStyles } from "@/styles/settings";
+import { toErrorMessage } from "@/utils/error-messages";
 import { readExecutionInstallation } from "./policy";
 
 import { MaintenanceClient } from "./maintenance-client";
@@ -70,7 +71,7 @@ export function MaintenanceProvisioning({ banner = false }: { banner?: boolean }
       await client.provision(proposal.admissionSha256, ownerPassword);
       await refresh();
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Provisioning was not confirmed");
+      setError(toErrorMessage(failure));
     } finally {
       setBusy(false);
     }

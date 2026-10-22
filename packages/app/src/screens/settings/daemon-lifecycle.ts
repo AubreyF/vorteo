@@ -1,3 +1,5 @@
+import { toErrorMessage } from "@/utils/error-messages";
+
 interface WorkerStatus {
   pid: number;
   serverId: string;
@@ -28,7 +30,9 @@ export async function restartDaemonFromSettings(
   try {
     await observeReplacement(previous, deps);
   } catch (error) {
-    throw new Error(`Restart acknowledged: ${acknowledged}. ${String(error)}`, { cause: error });
+    throw new Error(`Restart acknowledged: ${acknowledged}. ${toErrorMessage(error)}`, {
+      cause: error,
+    });
   }
 }
 
@@ -55,7 +59,7 @@ export async function updateDaemonFromSettings(
     return { workerVersion: worker.version };
   } catch (error) {
     throw new Error(
-      `Package installed; replacement worker version was not confirmed. ${String(error)}`,
+      `Package installed; replacement worker version was not confirmed. ${toErrorMessage(error)}`,
       { cause: error },
     );
   }

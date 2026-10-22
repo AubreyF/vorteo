@@ -29,6 +29,7 @@ import {
 import { HostPluginsPage } from "./plugins-page";
 import { SharedPluginsPage } from "./shared-plugins-page";
 import { MetadataGenerationPage } from "./metadata-generation-page";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export const INSTALLATION_SETTINGS_SECTIONS = [
   "projects",
@@ -66,7 +67,7 @@ function ProfilesSettings({ serverId }: { serverId: string }) {
   const { config: hostConfig } = useDaemonConfig(serverId);
   const { config: containerConfig } = useDaemonConfig(containerId);
   if (!profiles.installation) return <AgentProfilesSection serverId={serverId} />;
-  if (profiles.error) return <Alert variant="error" description={profiles.error.message} />;
+  if (profiles.error) return <Alert variant="error" description={toErrorMessage(profiles.error)} />;
   if (profiles.isPending) return <Text style={settingsStyles.rowHint}>Loading profiles...</Text>;
   if (!profiles.data) return null;
   const sections = selectProfileCatalogSources([

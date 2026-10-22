@@ -81,6 +81,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapFactoryAdoption: available,
     coordinatorBootstrapCompatibleRecovery: available,
     coordinatorBootstrapPreviewMonitor: available,
+    coordinatorBootstrapClaudeHostRefresh: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
     coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
@@ -269,14 +270,7 @@ export async function handleBootstrapReview(
         throw new BootstrapRequestConflict(
           "Reload the client to review the compatible recovery executable before approval.",
         );
-      if (
-        message.input.decision === "approve" &&
-        request?.plan.previewMonitorConfiguration !== undefined &&
-        message.previewMonitor !== true
-      )
-        throw new BootstrapRequestConflict(
-          "Reload the client to review this preview monitor configuration before approval.",
-        );
+      assertServiceConfigurationReview(message, request);
       await service.decide(message.input, message.ownerPassword);
     }
     const requests = service.list().map((request) => publicBootstrapReply(request, message));
@@ -301,6 +295,7 @@ function publicBootstrapReply(
   visible = bootstrapReviewReply(visible, message.factoryRuntimeAdoption === true);
   visible = compatibleRecoveryReply(visible, message.compatibleRecovery === true);
   visible = previewMonitorReply(visible, message.previewMonitor === true);
+  visible = claudeHostRefreshReply(visible, message.claudeHostRefresh === true);
   visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
   visible = bootRecoveryReply(visible, message.bootRecovery === true);
   if (!message.automaticStatus) return visible;
@@ -340,6 +335,22 @@ function compatibleRecoveryReply(
   };
 }
 
+// COMPAT(bootstrapClaudeHostRefresh): added 2026-10-22; remove after 2027-04-22
+// once all supported clients negotiate Claude refresh configuration review.
+function claudeHostRefreshReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.claudeHostRefreshConfiguration === undefined) return request;
+  const { claudeHostRefreshConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this Claude refresh configuration. Cancellation remains available.",
+  };
+}
+
 // COMPAT(bootstrapPreviewMonitor): added 2026-10-11; remove after 2027-04-11
 // once all supported clients negotiate monitor configuration review.
 function previewMonitorReply(
@@ -354,6 +365,25 @@ function previewMonitorReply(
     reason:
       "Reload the client to review this preview monitor configuration. Cancellation remains available.",
   };
+}
+
+/** Configuration changes a client must be able to display before approving them. */
+function assertServiceConfigurationReview(
+  message: Extract<CoordinatorBootstrapInbound, { type: "installation.bootstrap.decide.request" }>,
+  request: CoordinatorBootstrapRequest | undefined,
+): void {
+  if (message.input.decision !== "approve") return;
+  if (request?.plan.previewMonitorConfiguration !== undefined && message.previewMonitor !== true)
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this preview monitor configuration before approval.",
+    );
+  if (
+    request?.plan.claudeHostRefreshConfiguration !== undefined &&
+    message.claudeHostRefresh !== true
+  )
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this Claude refresh configuration before approval.",
+    );
 }
 
 function assertSourceUpdateToolingReview(

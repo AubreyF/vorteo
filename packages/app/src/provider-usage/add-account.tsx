@@ -13,18 +13,21 @@ import {
 import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useQueryClient } from "@tanstack/react-query";
+import { useFetchQuery } from "@/data/query";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import { useHostFeature } from "@/runtime/host-features";
+import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useSessionStore } from "@/stores/session-store";
 import { refreshAndApplyProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
 
 import { ProviderLoginPanel } from "./login-panel";
+import { claudeFullSignInAvailable } from "./claude-setup-login";
 import { openAccountForm, suggestedAccountName, type CreatedCodexAccount } from "./account-form";
 
 interface AddAccountProps {
@@ -119,17 +122,19 @@ function useAccountForm({
   onCreated,
   initialName,
   provider,
-}: AddAccountProps & { initialName: string }) {
+  signIn,
+}: AddAccountProps & { initialName: string; signIn: "full" | undefined }) {
   const client = useHostRuntimeClient(serverId);
   const cache = useQueryClient();
-  const live = useRef({ client, onCreated });
-  live.current = { client, onCreated };
+  const live = useRef({ client, onCreated, signIn });
+  live.current = { client, onCreated, signIn };
   const [model] = useState(() =>
     openAccountForm(globalThis.crypto.randomUUID(), {
       initialName,
       async create(creationId, name) {
         const current = live.current.client;
         if (!current) throw new Error("Reconnect to the host and try again.");
+        const accountSignIn = provider === "claude" ? live.current.signIn : undefined;
         const installation = readExecutionInstallation();
         if (installation?.environments.some((environment) => environment.serverId === serverId)) {
           const shared = await createSharedAccountDefinition(
@@ -138,6 +143,7 @@ function useAccountForm({
               name,
               provider,
               serverIds: installation.environments.map((environment) => environment.serverId),
+              ...(accountSignIn ? { signIn: accountSignIn } : {}),
             },
             { read: () => requestInstallationSettings(), save: requestInstallationSettings },
           );
@@ -148,7 +154,7 @@ function useAccountForm({
         }
         const account =
           provider === "claude"
-            ? await current.createClaudeAccount(creationId, name)
+            ? await current.createClaudeAccount(creationId, name, accountSignIn)
             : await current.createCodexAccount(creationId, name);
         await cache.invalidateQueries({ queryKey: daemonConfigQueryKey(serverId) });
         await refreshAndApplyProvidersSnapshot({
@@ -178,7 +184,10 @@ function AccountForm({
   initialName: string;
   renderSheet: (body: ReactNode, footer: ReactNode) => ReactNode;
 }) {
-  const { model, state } = useAccountForm(props);
+  const fullAvailable = useClaudeFullSignInAvailable(props.serverId, props.provider);
+  const [signInChoice, setSignInChoice] = useState<"full" | "setup-token">("full");
+  const signIn = fullAvailable && signInChoice === "full" ? "full" : undefined;
+  const { model, state } = useAccountForm({ ...props, signIn });
   const connected = useHostRuntimeIsConnected(props.serverId);
   const size = useIsCompactFormFactor() ? "md" : "sm";
   if (state.phase === "created")
@@ -216,6 +225,24 @@ function AccountForm({
           testID={`${props.provider}-account-name`}
         />
       </Field>
+      {fullAvailable ? (
+        <Field label="Sign-in type">
+          <SegmentedControl
+            options={[
+              { value: "full", label: "Full sign-in", testID: "claude-sign-in-full" },
+              { value: "setup-token", label: "Setup token", testID: "claude-sign-in-setup" },
+            ]}
+            value={signInChoice}
+            onValueChange={setSignInChoice}
+            testID="claude-sign-in-type"
+          />
+          <Text style={styles.muted}>
+            {signInChoice === "full"
+              ? "Shows usage, and the Host keeps the sign-in fresh for Host and Dev. The type can't be changed later."
+              : "Uses a long-lived token without usage readings. The type can't be changed later."}
+          </Text>
+        </Field>
+      ) : null}
       {state.error ? (
         <Text style={styles.error} accessibilityLiveRegion="polite">
           {state.error}
@@ -240,4 +267,32 @@ const styles = StyleSheet.create((theme) => ({
   body: { padding: theme.spacing[4], gap: theme.spacing[4] },
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.base },
+  muted: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.base },
 }));
+
+/**
+ * Full sign-in needs the coordinator's Host refresh and every environment's daemon support:
+ * older daemons reject the whole shared settings authority when a definition carries it.
+ */
+function useClaudeFullSignInAvailable(serverId: string, provider: "codex" | "claude") {
+  const installation = readExecutionInstallation();
+  const sharedClaude =
+    provider === "claude" &&
+    Boolean(installation?.environments.some((environment) => environment.serverId === serverId));
+  // The descriptor is re-read each render; key the list on its contents, not its identity.
+  const serverKey = installation?.environments
+    .map((environment) => environment.serverId)
+    .join("\n");
+  const serverIds = useMemo(() => (serverKey ? serverKey.split("\n") : []), [serverKey]);
+  const support = useHostFeatureMap(serverIds, "claudeFullSignIn");
+  const daemonsReady = serverIds.length > 0 && serverIds.every((id) => support.get(id) === true);
+  const coordinator = useFetchQuery({
+    queryKey: ["claude-full-sign-in", installation?.installationId],
+    queryFn: claudeFullSignInAvailable,
+    enabled: sharedClaude && daemonsReady,
+    staleTimeMs: 60_000,
+    dataShape: "value",
+    retry: false,
+  });
+  return sharedClaude && daemonsReady && coordinator.data === true;
+}
