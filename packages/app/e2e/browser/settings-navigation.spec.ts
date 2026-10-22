@@ -186,8 +186,9 @@ test.describe("Settings — compact master-detail", () => {
     await expectCompactSettingsList(page);
 
     await test.step("open app details and return to the list", async () => {
+      // Diagnostics moved into General's Connected hosts card.
       await openSettingsSection(page, "diagnostics");
-      await expectAppRoute(page, buildSettingsSectionRoute("maintenance"));
+      await expectAppRoute(page, buildSettingsSectionRoute("general"));
       await expectDiagnosticsContent(page);
       await expectSettingsSidebarHidden(page);
       await expectSettingsBackButton(page);
@@ -321,8 +322,19 @@ for (const width of [1280, 390]) {
     // The settings page scrolls; the tabs stick while this environment's details pass under them.
     const scroll = page.getByTestId("settings-scroll-page");
     await scroll.hover();
-    await page.mouse.wheel(0, 200);
-    await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    // Scroll past the section heading so the tabs have reached their sticky
+    // position at every width before measuring it.
+    await page.mouse.wheel(0, 400);
+    // Wheel scrolling can animate; measure once the position has settled.
+    let previousTop = -1;
+    await expect
+      .poll(async () => {
+        const top = await scroll.evaluate((element) => element.scrollTop);
+        const settled = top > 0 && top === previousTop;
+        previousTop = top;
+        return settled;
+      })
+      .toBe(true);
     const stuck = await tabs.boundingBox();
     await page.mouse.wheel(0, 120);
     await expect(tabs).toBeVisible();
