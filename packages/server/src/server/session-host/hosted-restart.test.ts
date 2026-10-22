@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
@@ -16,6 +16,7 @@ import { loadAdoptedAgents, planHostedStartup } from "./boot-attach.js";
 import { connectSessionHost } from "./client.js";
 import { createSessionHostConnector, type SessionHostConnector } from "./connector.js";
 import { createHostedAgentClient, type HostedAdoption } from "./hosted-agent-client.js";
+import { startHostedIdleRelease } from "./idle-release.js";
 import {
   rotateSessionHostToken,
   sessionHostPaths,
@@ -115,6 +116,7 @@ function startWorker(
     current: () => (dead || unreachable ? null : real.current()),
     present: () => real.present(),
     hostState: () => real.hostState(),
+    upgradePending: () => real.upgradePending!(),
     knownMcpTokens: () => real.knownMcpTokens(),
     close: () => real.close(),
   };
@@ -206,6 +208,17 @@ async function hostedLastSeq(paths: SessionHostPaths, agentId: string): Promise<
   const probe = await connectSessionHost({ socketPath: paths.socketPath, token });
   try {
     return (await probe.list()).find((session) => session.sessionId === agentId)?.lastSeq ?? -1;
+  } finally {
+    probe.close();
+  }
+}
+
+/** How many sessions the host runs, asked over its own socket. */
+async function hostedSessionCount(paths: SessionHostPaths): Promise<number> {
+  const token = await import("./host-files.js").then((files) => files.readSessionHostToken(paths));
+  const probe = await connectSessionHost({ socketPath: paths.socketPath, token });
+  try {
+    return (await probe.list()).length;
   } finally {
     probe.close();
   }
@@ -326,6 +339,50 @@ test("a turn that finished while no worker was attached is adopted so its last o
   expect(providers).toHaveLength(1);
   expect(provider.closed).toBe(false);
   expect([...first.local, ...second.local]).toEqual([]);
+});
+
+test("while the host waits to upgrade, the worker releases idle hosted sessions and the agent resumes on demand", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const worker = startWorker(home, paths);
+  const agent = await runningAgent(worker, workdir);
+  providers[0]!.complete();
+  await expect.poll(() => worker.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  await settled(worker, paths, agent.id);
+  const release = startHostedIdleRelease({
+    manager: worker.manager,
+    connector: worker.routing.connector,
+    logger,
+    idleMs: 0,
+  });
+  cleanups.push(() => release.stop());
+
+  // No upgrade pending: a warm idle session stays hosted.
+  expect(await release.runOnce()).toEqual([]);
+  expect(await hostedSessionCount(paths)).toBe(1);
+
+  // The host marks an upgrade: the idle session is released and the host has nothing left to run.
+  writeFileSync(paths.upgradeMarkerPath, "{}", { mode: 0o600 });
+  expect(await release.runOnce()).toEqual([agent.id]);
+  expect(providers[0]!.closed).toBe(true);
+  expect(await hostedSessionCount(paths)).toBe(0);
+  // The agent is unloaded, like an idle agent closed at startup, and waits for a prompt.
+  expect(worker.manager.getAgent(agent.id)).toBeNull();
+  expect(await worker.storage.get(agent.id)).not.toBeNull();
+
+  // A prompt resumes the agent on a fresh session, hosted again.
+  await ensureAgentLoaded(agent.id, {
+    agentManager: worker.manager,
+    agentStorage: worker.storage,
+    logger,
+  });
+  expect(providers).toHaveLength(2);
+  expect(worker.local).toEqual([]);
+  expect(await hostedSessionCount(paths)).toBe(1);
 });
 
 test("an idle hosted session is closed at startup and its agent resumes on demand", async () => {

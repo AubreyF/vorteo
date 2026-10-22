@@ -481,7 +481,54 @@ const V712QuerySchema = z.strictObject({
   status: V712StatusSchema.nullable(),
 });
 
-test("the owner query keeps its v712 shape for clients that do not declare restarts or the indicator", async () => {
+// The owner query as the v761 interface parses it: still strict, with the restart operation,
+// previousHost, the installed release and provider counts, but no pending upgrade. A client that
+// sends { restart: true, indicator: true } must get exactly this shape even while an upgrade is
+// pending.
+const V761OperationSchema = z.enum([
+  "session-host-install",
+  "session-host-remove",
+  "session-host-restart",
+]);
+const V761JobSchema = V712JobSchema.extend({
+  operation: V761OperationSchema,
+  plan: V712PlanSchema.extend({ operation: V761OperationSchema }),
+  previousHost: z
+    .strictObject({ pid: z.number(), release: z.string().optional(), sessions: z.number() })
+    .optional(),
+});
+const V761StatusSchema = z.strictObject({
+  supported: z.boolean(),
+  installed: z.boolean(),
+  detail: z
+    .strictObject({
+      label: z.string(),
+      plist: z.enum(["absent", "matching", "different"]),
+      loaded: z.boolean(),
+      pid: z.number().nullable(),
+      lastExitStatus: z.number().nullable(),
+      runs: z.number().nullable(),
+      host: z
+        .strictObject({
+          pid: z.number(),
+          release: z.string().optional(),
+          sessions: z.number(),
+          providers: z.record(z.string(), z.number()).optional(),
+        })
+        .nullable(),
+      installedRelease: z.string().optional(),
+      settingEnabled: z.boolean(),
+      observedAt: z.string(),
+    })
+    .optional(),
+});
+const V761QuerySchema = z.strictObject({
+  jobs: z.array(V761JobSchema),
+  status: V761StatusSchema.nullable(),
+  restartSupported: z.boolean().optional(),
+});
+
+test("the owner query keeps the v712 and v761 shapes for clients that do not declare later additions", async () => {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), "session-host-compat-")));
   await writeFile(path.join(dir, "index.html"), "<html><head></head></html>");
   const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -525,6 +572,7 @@ test("the owner query keeps its v712 shape for clients that do not declare resta
         providers: { claude: 2, codex: 1 },
       },
       installedRelease: "0.11.0-beta.3.vorteo.760",
+      upgradePending: true,
       settingEnabled: true,
       observedAt: new Date().toISOString(),
     },
@@ -603,12 +651,33 @@ test("the owner query keeps its v712 shape for clients that do not declare resta
     });
     expect("restartSupported" in legacy).toBe(false);
 
-    // A client that declares both flags parses the current schemas and sees everything.
-    const current = await (
+    // A v761 client declares restarts and the indicator and parses strictly: it sees those
+    // additions but never the pending upgrade, even while one is pending.
+    const v761 = await (
       await request("owner/session-host/query", "owner", { restart: true, indicator: true })
+    ).json();
+    const parsed761 = V761QuerySchema.safeParse(v761);
+    expect(
+      parsed761.success,
+      JSON.stringify(parsed761.success ? null : parsed761.error.issues),
+    ).toBe(true);
+    expect(v761.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+    expect(v761.status.detail.host.providers).toEqual({ claude: 2, codex: 1 });
+    expect(v761.status.detail.upgradePending).toBeUndefined();
+    expect(v761.jobs).toHaveLength(2);
+
+    // A client that declares every flag parses the current schemas and sees everything.
+    const current = await (
+      await request("owner/session-host/query", "owner", {
+        restart: true,
+        indicator: true,
+        upgrade: true,
+      })
     ).json();
     expect(current.restartSupported).toBe(true);
     expect(current.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+    expect(current.status.detail.upgradePending).toBe(true);
+    expect(legacy.status.detail.upgradePending).toBeUndefined();
     expect(current.status.detail.host.providers).toEqual({ claude: 2, codex: 1 });
     for (const job of current.jobs) expect(SessionHostJobSchema.safeParse(job).success).toBe(true);
     expect(SessionHostStatusSchema.safeParse(current.status).success).toBe(true);
@@ -624,6 +693,14 @@ test("the owner query keeps its v712 shape for clients that do not declare resta
     ).json();
     expect(indicatorOnly.jobs).toHaveLength(1);
     expect(indicatorOnly.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+    expect(indicatorOnly.status.detail.upgradePending).toBeUndefined();
+    const upgradeOnly = await (
+      await request("owner/session-host/query", "owner", { upgrade: true })
+    ).json();
+    expect(upgradeOnly.jobs).toHaveLength(1);
+    expect(upgradeOnly.status.detail.upgradePending).toBe(true);
+    expect(upgradeOnly.status.detail.installedRelease).toBeUndefined();
+    expect(upgradeOnly.status.detail.host.providers).toBeUndefined();
   } finally {
     await new Promise<void>((resolve) => listener.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });

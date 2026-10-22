@@ -65,7 +65,11 @@ afterEach(async (context) => {
 afterAll(async () => {
   if (!ENABLED) return;
   // Every job, directory and process from this file must be gone, even after a failure.
-  expect(await leftovers()).toEqual({ jobs: [], directories: [], processes: [] });
+  expect(await leftovers()).toEqual({
+    jobs: [],
+    directories: [],
+    processes: [],
+  });
 });
 
 /** Timings go straight to stdout; the console is not reliably shown for passing tests. */
@@ -74,7 +78,11 @@ function report(line: string): void {
 }
 
 async function freshInstallation(
-  options: { password?: boolean; agentProvider?: "claude" | "codex" } = {},
+  options: {
+    password?: boolean;
+    agentProvider?: "claude" | "codex";
+    settings?: Record<string, unknown>;
+  } = {},
 ): Promise<Installation> {
   const created = await createInstallation({ provider: "fake", ...options });
   cleanups.push(() => created.cleanup());
@@ -106,7 +114,9 @@ async function waitForTurnEnd(
       if (done) return { agent, summary };
       // Thrown so a timeout names what the worker saw last, instead of only that it waited.
       throw new Error(
-        `status=${agent?.status ?? "none"} chunks=${JSON.stringify([...summary.chunks.entries()])} errors=${summary.systemErrors.length} users=${summary.userMessages.length}`,
+        `status=${agent?.status ?? "none"} chunks=${JSON.stringify([
+          ...summary.chunks.entries(),
+        ])} errors=${summary.systemErrors.length} users=${summary.userMessages.length}`,
       );
     },
     timeoutMs,
@@ -251,7 +261,9 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     const supervisor = await install.startSupervisor(THIS_TREE);
     const firstWorker = supervisor.workers[0]!;
     const client = await connected(install);
-    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS, { permissionAt: 3 });
+    const agentId = await startScriptedAgent(install, client, TURN_CHUNKS, {
+      permissionAt: 3,
+    });
     const asked = await waitUntil(
       "the permission request",
       async () => (await client.fetchAgent(agentId))?.agent?.pendingPermissions?.[0]?.id,
@@ -410,6 +422,69 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     report(`[host restart] host back after ${hostBackMs} ms, continuation hosted on the new host`);
   }, 300_000);
 
+  // Phase 3: a host that finds a newer release under the installation's link exits once idle,
+  // launchd relaunches it on that release, and an idle agent reopens on the new host on demand.
+  test("a newer installed release takes over the host once idle, and the agent reopens on it", async () => {
+    const releaseA = cloneRelease("release-a");
+    // Quick cadences: the host checks the link and the worker releases idle sessions every second.
+    const install = await freshInstallation({
+      settings: { releaseCheckMs: 1_000, idleReleaseMs: 1_000 },
+    });
+    const versionA = releaseOf(releaseA);
+    const versionB = releaseOf(THIS_TREE);
+    const host = await install.startHost(releaseA, { viaLink: true });
+    expect(host.release).toBe(versionA);
+    await install.startSupervisor(THIS_TREE);
+    const client = await connected(install);
+    const agentId = await startScriptedAgent(install, client, 2);
+    await waitForTurnEnd(client, agentId, 2);
+    expectProviderProcesses(install, host.pid, 1);
+
+    // The installation moves on; the idle agent is released and the host exits for the upgrade.
+    const movedAt = Date.now();
+    install.repointRelease(THIS_TREE);
+    const upgraded = await install.host({
+      notPid: host.pid,
+      timeoutMs: 90_000,
+    });
+    const upgradedMs = Date.now() - movedAt;
+    expect(upgraded.release).toBe(versionB);
+    expect(existsSync(sessionHostPaths(install.home).restartMarkerPath)).toBe(false);
+    expect(existsSync(sessionHostPaths(install.home).upgradeMarkerPath)).toBe(false);
+    expectProviderProcesses(install, upgraded.pid, 0);
+
+    // The agent was idle, so nothing was interrupted; a prompt reopens it on the new host.
+    await client.sendMessage(agentId, "Stream your scripted turn. CHUNKS=2");
+    const summary = await waitUntil(
+      "the second turn to finish on the new host",
+      async () => {
+        const agent = (await client.fetchAgent(agentId))?.agent;
+        const timeline = await summarizeTimeline(client, agentId);
+        return agent?.status === "idle" && timeline.chunks.size === 2 ? timeline : null;
+      },
+      120_000,
+      500,
+    );
+    expect([...summary.chunks.values()]).toEqual([
+      [1, 2],
+      [1, 2],
+    ]);
+    expect(summary.systemErrors).toEqual([]);
+    expect(
+      summary.userMessages.filter(
+        (text) => text.includes(HOST_LOSS_CONTINUATION) || text.includes(RESTART_CONTINUATION),
+      ),
+    ).toEqual([]);
+    expectProviderProcesses(install, upgraded.pid, 1);
+    const opens = install
+      .auditRecords()
+      .filter((record) => record.event === "open" && record.sessionId === agentId);
+    expect(opens).toHaveLength(2);
+    report(
+      `[host generation] ${versionA} -> ${versionB}, new host answering ${upgradedMs} ms after the link moved`,
+    );
+  }, 300_000);
+
   // Phase 2: the same host runs Codex-shaped sessions, whose goal state and commands live in the
   // provider. The fake is the scripted session with goals on; the real adapter is left to live
   // acceptance.
@@ -426,7 +501,10 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
       objective: "survive the worker kill",
       status: "paused",
     });
-    expect(set.goal).toMatchObject({ objective: "survive the worker kill", status: "paused" });
+    expect(set.goal).toMatchObject({
+      objective: "survive the worker kill",
+      status: "paused",
+    });
     expectProviderProcesses(install, host.pid, 1);
     await client.close();
 
@@ -440,9 +518,16 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     // The replacement worker reads the goal from the provider in the host, not from anything it
     // was told before the kill, and the snapshot it serves agrees.
     const goal = await next.getAgentGoal(agentId);
-    expect(goal.goal).toMatchObject({ objective: "survive the worker kill", status: "paused" });
-    const snapshot = (await next.fetchAgent(agentId))?.agent as { goalState?: unknown };
-    expect(snapshot.goalState).toMatchObject({ goal: { objective: "survive the worker kill" } });
+    expect(goal.goal).toMatchObject({
+      objective: "survive the worker kill",
+      status: "paused",
+    });
+    const snapshot = (await next.fetchAgent(agentId))?.agent as {
+      goalState?: unknown;
+    };
+    expect(snapshot.goalState).toMatchObject({
+      goal: { objective: "survive the worker kill" },
+    });
     expect((await install.host()).pid).toBe(host.pid);
     expectProviderProcesses(install, host.pid, 1);
     report(`[codex worker kill] turn done after ${doneMs} ms with the goal intact`);
@@ -495,7 +580,10 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
       30_000,
     );
     const goal = await next.getAgentGoal(agentId);
-    expect(goal.goal).toMatchObject({ objective: "finish the e2e", status: "active" });
+    expect(goal.goal).toMatchObject({
+      objective: "finish the e2e",
+      status: "active",
+    });
     // Neither command started a turn: no chunk was added.
     const summary = await summarizeTimeline(next, agentId);
     expect([...summary.chunks.values()]).toEqual([...before.chunks.values()]);
@@ -527,7 +615,9 @@ function cloneRelease(name: string): ReleaseTree {
   for (const entry of entries)
     execFileSync("/bin/cp", ["-c", "-R", path.join(thisRepoRoot, entry), path.join(root, entry)]);
   const manifestPath = path.join(root, "packages/server/package.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version: string };
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    version: string;
+  };
   manifest.version = `${manifest.version}-${name}`;
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return { repoRoot: root };
