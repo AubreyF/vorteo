@@ -525,6 +525,7 @@ test("the owner query keeps its v712 shape for clients that do not declare resta
         providers: { claude: 2, codex: 1 },
       },
       installedRelease: "0.11.0-beta.3.vorteo.760",
+      upgradePending: true,
       settingEnabled: true,
       observedAt: new Date().toISOString(),
     },
@@ -609,6 +610,8 @@ test("the owner query keeps its v712 shape for clients that do not declare resta
     ).json();
     expect(current.restartSupported).toBe(true);
     expect(current.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+    expect(current.status.detail.upgradePending).toBe(true);
+    expect(legacy.status.detail.upgradePending).toBeUndefined();
     expect(current.status.detail.host.providers).toEqual({ claude: 2, codex: 1 });
     for (const job of current.jobs) expect(SessionHostJobSchema.safeParse(job).success).toBe(true);
     expect(SessionHostStatusSchema.safeParse(current.status).success).toBe(true);

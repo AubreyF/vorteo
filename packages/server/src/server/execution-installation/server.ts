@@ -1643,7 +1643,12 @@ export function createInstallationServer(
   /** The v712 status shape: no installed release and no per-provider counts. */
   function withoutIndicator(status: SessionHostStatus): SessionHostStatus {
     if (!status.detail) return status;
-    const { installedRelease: _installedRelease, host, ...detail } = status.detail;
+    const {
+      installedRelease: _installedRelease,
+      upgradePending: _upgradePending,
+      host,
+      ...detail
+    } = status.detail;
     const plainHost = host ? (({ providers: _providers, ...rest }) => rest)(host) : host;
     return { ...status, detail: { ...detail, host: plainHost } };
   }

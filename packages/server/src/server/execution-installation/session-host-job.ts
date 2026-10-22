@@ -20,7 +20,10 @@ import {
   signalJob,
   type CommandRunner,
 } from "../session-host/launchd.js";
-import { SESSION_HOST_RESTART_MARKER_NAME } from "../session-host/host-files.js";
+import {
+  SESSION_HOST_RESTART_MARKER_NAME,
+  SESSION_HOST_UPGRADE_MARKER_NAME,
+} from "../session-host/host-files.js";
 import { hostLaunchdService, type InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 
@@ -658,6 +661,9 @@ export async function inspectSessionHost(input: {
   const reply = home && job ? await ports.queryHost(home) : null;
   const answer = reply === "refused" ? null : reply;
   const installedRelease = current ? await readInstalledRelease(current, ports) : undefined;
+  const upgradePending = home
+    ? await ports.exists(path.join(home, "session-host", SESSION_HOST_UPGRADE_MARKER_NAME))
+    : false;
   return {
     supported,
     installed,
@@ -670,6 +676,7 @@ export async function inspectSessionHost(input: {
       runs: job?.runs ?? null,
       host: describeHost(answer),
       ...(installedRelease ? { installedRelease } : {}),
+      ...(upgradePending ? { upgradePending: true } : {}),
       settingEnabled: home ? await ports.settingEnabled(home) : false,
       observedAt: new Date(ports.now()).toISOString(),
     },

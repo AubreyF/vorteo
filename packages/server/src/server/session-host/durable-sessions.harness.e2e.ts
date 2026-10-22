@@ -1,6 +1,15 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -128,8 +137,14 @@ export interface Installation {
   cliMarker: string;
   /** The provider scripted agents use; the fake host runs sessions of this shape. */
   agentProvider: ScriptedProvider;
-  /** Loads the launchd job running the host from tree, and waits until it answers. */
-  startHost(tree: ReleaseTree): Promise<HostIdentity>;
+  /**
+   * Loads the launchd job running the host from tree, and waits until it answers. With viaLink the
+   * job runs the entrypoint through this installation's release link, as the installed job does, so
+   * repointRelease can move the host to another tree.
+   */
+  startHost(tree: ReleaseTree, options?: { viaLink?: boolean }): Promise<HostIdentity>;
+  /** Points the release link at another tree, as installing a release does. */
+  repointRelease(tree: ReleaseTree): void;
   /** The host answering now; waits for one other than notPid when given. */
   host(options?: { notPid?: number; timeoutMs?: number }): Promise<HostIdentity>;
   startSupervisor(tree: ReleaseTree): Promise<Supervisor>;
@@ -165,6 +180,8 @@ export interface InstallationOptions {
   agentProvider?: ScriptedProvider;
   /** Milliseconds between scripted chunks. */
   chunkMs?: number;
+  /** Extra fields for the durable sessions setting file, such as the upgrade tunables. */
+  settings?: Record<string, unknown>;
   /**
    * Protects the daemon with a password. Without one the agent tool endpoint accepts any request,
    * so a check of which tokens it accepts needs this.
@@ -249,7 +266,12 @@ export async function createInstallation(options: InstallationOptions): Promise<
   const agentProvider: ScriptedProvider = options.agentProvider ?? "claude";
   const password = options.password ? randomBytes(16).toString("hex") : null;
 
-  writeFileSync(durableSessionsSettingsPath(home), JSON.stringify({ enabled: true }));
+  writeFileSync(
+    durableSessionsSettingsPath(home),
+    JSON.stringify({ enabled: true, ...options.settings }),
+  );
+  /** The installation's release link; the host job runs through it when started viaLink. */
+  const releaseLink = path.join(root, "current");
   // Only the provider under test is enabled, so nothing else on this machine is ever consulted.
   const providers: Record<string, unknown> = Object.fromEntries(
     ALL_PROVIDERS.filter((id) => id !== agentProvider).map((id) => [id, { enabled: false }]),
@@ -258,7 +280,10 @@ export async function createInstallation(options: InstallationOptions): Promise<
     const fakeClaude = path.join(root, "fake-claude.sh");
     writeFileSync(fakeClaude, FAKE_CLAUDE);
     chmodSync(fakeClaude, 0o755);
-    providers.claude = { command: [fakeClaude], env: { CLAUDE_CONFIG_DIR: claudeConfig } };
+    providers.claude = {
+      command: [fakeClaude],
+      env: { CLAUDE_CONFIG_DIR: claudeConfig },
+    };
   } else if (fake) {
     const fakeCodexModule = path.join(root, "fake-codex.mjs");
     writeFileSync(fakeCodexModule, FAKE_CODEX_APP_SERVER);
@@ -322,7 +347,18 @@ export async function createInstallation(options: InstallationOptions): Promise<
     cliMarker,
     agentProvider,
 
-    async startHost(tree) {
+    repointRelease(tree) {
+      // Replace the link atomically, as a release install does, so a relaunching host never sees
+      // a missing link.
+      const next = `${releaseLink}.next`;
+      rmSync(next, { force: true });
+      symlinkSync(tree.repoRoot, next);
+      renameSync(next, releaseLink);
+    },
+
+    async startHost(tree, startOptions = {}) {
+      if (startOptions.viaLink) installation.repointRelease(tree);
+      const codeRoot = startOptions.viaLink ? { repoRoot: releaseLink } : tree;
       const plistPath = path.join(root, `${label}.plist`);
       writeFileSync(
         plistPath,
@@ -330,10 +366,10 @@ export async function createInstallation(options: InstallationOptions): Promise<
           label,
           nodePath: process.execPath,
           nodeArguments: ["--import", tsxLoader(tree)],
-          entrypointPath: path.join(serverRoot(tree), "scripts/session-host-entrypoint.ts"),
+          entrypointPath: path.join(serverRoot(codeRoot), "scripts/session-host-entrypoint.ts"),
           paseoHome: home,
           logPath: launchdLog,
-          workingDirectory: serverRoot(tree),
+          workingDirectory: serverRoot(codeRoot),
           environment: {
             ...baseEnv,
             ...(fake
@@ -346,7 +382,9 @@ export async function createInstallation(options: InstallationOptions): Promise<
                   DURABLE_SESSIONS_FAKE_CLI_MARKER: cliMarker,
                   [FAKE_PROVIDER_ENV]: agentProvider,
                   ...(options.chunkMs
-                    ? { DURABLE_SESSIONS_FAKE_CHUNK_MS: String(options.chunkMs) }
+                    ? {
+                        DURABLE_SESSIONS_FAKE_CHUNK_MS: String(options.chunkMs),
+                      }
                     : {}),
                 }
               : {}),
@@ -552,7 +590,11 @@ function processTable(): ProcessEntry[] {
     .split("\n")
     .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
     .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3]! }))
+    .map((match) => ({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      command: match[3]!,
+    }))
     .filter((entry) => entry.pid !== process.pid);
 }
 
@@ -623,7 +665,10 @@ export async function summarizeTimeline(
   client: DaemonClient,
   agentId: string,
 ): Promise<TimelineSummary> {
-  const timeline = await client.fetchAgentTimeline(agentId, { direction: "tail", limit: 1_000 });
+  const timeline = await client.fetchAgentTimeline(agentId, {
+    direction: "tail",
+    limit: 1_000,
+  });
   const summary: TimelineSummary = {
     chunks: new Map(),
     assistantTexts: [],
@@ -632,7 +677,11 @@ export async function summarizeTimeline(
     notifications: [],
   };
   for (const entry of timeline.entries) {
-    const item = entry.item as { type: string; text?: string; message?: string };
+    const item = entry.item as {
+      type: string;
+      text?: string;
+      message?: string;
+    };
     if (item.type === "assistant_message" && item.text) {
       summary.assistantTexts.push(item.text);
       if (item.text.startsWith("[System Error]")) summary.systemErrors.push(item.text);

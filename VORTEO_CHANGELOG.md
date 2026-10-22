@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Features
+
+- Session host generations. The host compares its own release with the one the installation's current link selects, once a minute by default, and when a newer release is installed it marks an upgrade as pending and exits as soon as no session runs; launchd relaunches it on the installed release, and workers wait for its return instead of starting providers locally. While the upgrade is pending, workers release hosted sessions that have been idle for five minutes, so the host reaches zero sessions without cutting any running turn or pending permission; a released agent resumes on demand, hosted again on the new host. Idle sessions stay warm whenever no upgrade is pending. The durable sessions setting file accepts optional `idleReleaseMs` and `releaseCheckMs` tunables, and the session host status reports a pending upgrade. The owner-approved restart remains for moving a host immediately.
+
+### Validation
+
+- Tests cover the host writing the upgrade marker and exiting at zero sessions with the restart marker left for workers, the next host clearing both markers, the selection of releasable agents, the worker releasing an idle hosted session only while an upgrade is pending and the agent resuming hosted afterwards, the connector flag, and the status field in the coordinator and the app. An isolated end-to-end scenario runs the host through a release link, repoints the link at a newer release while an agent sits idle, and sees the host relaunch on that release within seconds with both markers cleared and the agent's next turn hosted on the new host.
+
 ## 0.11.0-beta.3.vorteo.761 - 2026-10-22
 
 ### Fixed

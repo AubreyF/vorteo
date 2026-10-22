@@ -18,6 +18,7 @@ export interface SessionHostPaths {
   tokenPath: string;
   auditLogPath: string;
   restartMarkerPath: string;
+  upgradeMarkerPath: string;
 }
 
 /**
@@ -26,6 +27,11 @@ export interface SessionHostPaths {
  * rather than stopped, even though a stopped host leaves no socket or lock behind.
  */
 export const SESSION_HOST_RESTART_MARKER_NAME = "restarting";
+/**
+ * Written by a host that found a newer installed release, removed by the host that starts next.
+ * Workers release idle hosted sessions while it exists, so the host reaches zero sessions and exits.
+ */
+export const SESSION_HOST_UPGRADE_MARKER_NAME = "upgrade-pending";
 
 export function sessionHostPaths(paseoHome: string): SessionHostPaths {
   const directory = path.join(paseoHome, SESSION_HOST_DIRECTORY_NAME);
@@ -35,6 +41,7 @@ export function sessionHostPaths(paseoHome: string): SessionHostPaths {
     tokenPath: path.join(directory, "token"),
     auditLogPath: path.join(directory, "audit.log"),
     restartMarkerPath: path.join(directory, SESSION_HOST_RESTART_MARKER_NAME),
+    upgradeMarkerPath: path.join(directory, SESSION_HOST_UPGRADE_MARKER_NAME),
   };
 }
 
