@@ -136,6 +136,24 @@ describe("NetworkPolicy", () => {
     });
   });
 
+  test("permits allowed hosts within a port range only", async () => {
+    const rules = policy(
+      { allowedHosts: ["preview.tail0000.ts.net:32768-32799"] },
+      { "preview.tail0000.ts.net": ["100.100.1.2"] },
+    );
+    for (const port of [32768, 32789, 32799]) {
+      await expect(rules.check("preview.tail0000.ts.net", port)).resolves.toEqual({
+        allowed: true,
+        addresses: ["100.100.1.2"],
+      });
+    }
+    for (const port of [443, 6767, 32767, 32800]) {
+      await expect(rules.check("preview.tail0000.ts.net", port)).resolves.toMatchObject({
+        allowed: false,
+      });
+    }
+  });
+
   test("denied hosts win over allowed hosts", async () => {
     const rules = policy({
       deniedHosts: ["owner.example.com"],
@@ -148,16 +166,40 @@ describe("NetworkPolicy", () => {
 
 describe("parseAllowedHost", () => {
   test("accepts hosts with optional ports", () => {
-    expect(parseAllowedHost("localhost:8081")).toEqual({ hostname: "localhost", port: 8081 });
+    expect(parseAllowedHost("localhost:8081")).toEqual({
+      hostname: "localhost",
+      ports: { first: 8081, last: 8081 },
+    });
     expect(parseAllowedHost("Preview.Example.com")).toEqual({
       hostname: "preview.example.com",
-      port: null,
+      ports: null,
     });
-    expect(parseAllowedHost("[::1]:3000")).toEqual({ hostname: "::1", port: 3000 });
+    expect(parseAllowedHost("[::1]:3000")).toEqual({
+      hostname: "::1",
+      ports: { first: 3000, last: 3000 },
+    });
+  });
+
+  test("accepts port ranges", () => {
+    expect(parseAllowedHost("preview.tail0000.ts.net:32768-32799")).toEqual({
+      hostname: "preview.tail0000.ts.net",
+      ports: { first: 32768, last: 32799 },
+    });
+    expect(parseAllowedHost("[::1]:3000-3001")).toEqual({
+      hostname: "::1",
+      ports: { first: 3000, last: 3001 },
+    });
+  });
+
+  test("rejects invalid port ranges", () => {
+    expect(() => parseAllowedHost("preview.example.com:32799-32768")).toThrow("port range");
+    expect(() => parseAllowedHost("preview.example.com:0-10")).toThrow("Invalid port");
+    expect(() => parseAllowedHost("preview.example.com:1-70000")).toThrow("Invalid port");
+    expect(() => parseAllowedHost("preview.example.com:1:2-3")).toThrow();
   });
 
   test("rejects paths and empty entries", () => {
-    expect(() => parseAllowedHost("localhost/app")).toThrow("host or host:port");
+    expect(() => parseAllowedHost("localhost/app")).toThrow("host:port");
     expect(() => parseAllowedHost(" ")).toThrow("cannot be empty");
   });
 });

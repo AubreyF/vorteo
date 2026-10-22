@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { z } from "zod";
 import {
   BROWSER_AUTOMATION_COMMAND_NAMES,
   type BrowserAutomationExecuteRequest,
@@ -19,11 +20,20 @@ import { HeadlessHostSupervisor } from "./engine/headless-host-supervisor.js";
 
 export const EMBEDDED_HEADLESS_HOST_ID = "daemon-headless-browser";
 
-export interface EmbeddedHeadlessHostConfig {
-  enabled?: boolean;
-  deniedOrigins?: string[];
-  allowedHosts?: string[];
-}
+// daemon.browserTools.headlessHost. Strict on purpose: a misspelled key such
+// as "deniedOrigin" or a string where a list belongs would otherwise drop a
+// denial silently, so anything unexpected keeps the browser off.
+const EmbeddedHeadlessHostConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    deniedOrigins: z.array(z.string()).optional(),
+    // Private destinations to permit, as "host", "host:port" or a port
+    // range "host:first-last".
+    allowedHosts: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export type EmbeddedHeadlessHostConfig = z.infer<typeof EmbeddedHeadlessHostConfigSchema>;
 
 export interface EmbeddedHeadlessHostInput {
   broker: Pick<BrowserToolsBroker, "registerClient" | "receiveResponse">;
@@ -43,9 +53,19 @@ export interface EmbeddedHeadlessHost {
 // Only the daemon's own agents reach it through the broker.
 export function startEmbeddedHeadlessHost(input: EmbeddedHeadlessHostInput): EmbeddedHeadlessHost {
   const { broker, logger } = input;
-  const config: EmbeddedHeadlessHostConfig | undefined =
-    input.persisted.daemon?.browserTools?.headlessHost;
-  if (config?.enabled !== true) return { stop: async () => {} };
+  const raw = input.persisted.daemon?.browserTools?.headlessHost;
+  if (raw === undefined) return { stop: async () => {} };
+  const parsed = EmbeddedHeadlessHostConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    // Fail closed: an unreadable policy must not start an unrestricted browser.
+    logger.error(
+      { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) },
+      "Headless browser host configuration is invalid; not starting",
+    );
+    return { stop: async () => {} };
+  }
+  const config = parsed.data;
+  if (config.enabled !== true) return { stop: async () => {} };
   let options: HeadlessHostProcessOptions;
   try {
     const allowedHosts = config.allowedHosts ?? [];

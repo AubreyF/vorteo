@@ -5,7 +5,8 @@ import { BlockList, isIP } from "node:net";
 // link-local, CGNAT/tailnet and other non-public destinations are refused by
 // default, both as literals and after DNS resolution, so a page cannot reach
 // services on this machine or its networks. Explicit allow entries open a
-// specific host (and optionally port); denied hosts are refused even then.
+// specific host, optionally limited to one port or a port range; denied hosts
+// are refused even then.
 
 const privateRanges = new BlockList();
 for (const [network, prefix] of [
@@ -44,7 +45,7 @@ const PRIVATE_NAME_SUFFIXES = [".localhost", ".local", ".internal", ".home.arpa"
 export interface NetworkPolicyConfig {
   // Hostnames that are always refused, such as the protected installation interface.
   deniedHosts: readonly string[];
-  // "host" or "host:port" entries that may be reached even when private.
+  // "host", "host:port" or "host:first-last" entries that may be reached even when private.
   allowedHosts: readonly string[];
 }
 
@@ -57,7 +58,8 @@ export type HostLookup = (hostname: string) => Promise<readonly string[]>;
 
 interface AllowEntry {
   hostname: string;
-  port: number | null;
+  // Inclusive port range, or null for any port.
+  ports: { first: number; last: number } | null;
 }
 
 export function normalizeHostname(value: string): string {
@@ -67,9 +69,29 @@ export function normalizeHostname(value: string): string {
   return hostname;
 }
 
+function parsePort(value: string, entry: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid port in allowed host: ${entry}`);
+  }
+  return port;
+}
+
 export function parseAllowedHost(value: string): AllowEntry {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("An allowed host cannot be empty.");
+  // A range such as "preview.example.ts.net:32768-32799" admits a block of
+  // preview ports on one name without opening every service on that host.
+  const range = /^(.+):(\d+)-(\d+)$/.exec(trimmed);
+  if (range) {
+    const [, host = "", firstText = "", lastText = ""] = range;
+    const { hostname, ports } = parseAllowedHost(host);
+    if (ports) throw new Error(`Invalid allowed host: ${value}. Use host:first-last.`);
+    const first = parsePort(firstText, value);
+    const last = parsePort(lastText, value);
+    if (first > last) throw new Error(`Invalid port range in allowed host: ${value}`);
+    return { hostname, ports: { first, last } };
+  }
   let url: URL;
   try {
     url = new URL(trimmed.includes("://") ? trimmed : `http://${trimmed}`);
@@ -77,13 +99,14 @@ export function parseAllowedHost(value: string): AllowEntry {
     throw new Error(`Invalid allowed host: ${value}`);
   }
   if (!url.hostname || url.pathname !== "/" || url.search || url.username) {
-    throw new Error(`Invalid allowed host: ${value}. Use host or host:port.`);
+    throw new Error(`Invalid allowed host: ${value}. Use host, host:port or host:first-last.`);
   }
   // An explicit port in the entry restricts it; URL drops default ports, so read it back.
   const explicitPort = /:(\d+)(?:\/)?$/.exec(trimmed)?.[1];
+  const port = explicitPort ? parsePort(explicitPort, value) : null;
   return {
     hostname: normalizeHostname(url.hostname),
-    port: explicitPort ? Number(explicitPort) : null,
+    ports: port === null ? null : { first: port, last: port },
   };
 }
 
@@ -157,7 +180,12 @@ export class NetworkPolicy {
   public checkName(hostname: string, port: number): NetworkDecision | "resolve" {
     const host = normalizeHostname(hostname);
     if (this.denied.has(host)) return { allowed: false, reason: `${host} is denied` };
-    if (this.allowed.some((entry) => entry.hostname === host && (entry.port ?? port) === port)) {
+    const allowed = this.allowed.some(
+      (entry) =>
+        entry.hostname === host &&
+        (!entry.ports || (port >= entry.ports.first && port <= entry.ports.last)),
+    );
+    if (allowed) {
       return { allowed: true, addresses: isIP(host) ? [host] : [] };
     }
     if (isIP(host)) {
