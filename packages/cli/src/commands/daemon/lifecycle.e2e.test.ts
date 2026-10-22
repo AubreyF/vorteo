@@ -231,7 +231,11 @@ test("an occupied initial or replacement address fails without false readiness o
     const before = await f.liveStatus(a);
     const failed = await f.run(["--json", "start", "--home", b, "--timeout", "30"]);
     expect(failed.code).toBe(1);
-    expect(failed.stderr).toContain("DAEMON_START_FAILED");
+    // A foreign owner is retried with backoff rather than restarting the supervisor in a loop
+    // (listen reclaim), so the start reports a daemon that is running but never ready.
+    expect(failed.stderr).toContain("DAEMON_NOT_READY");
+    expect((await f.liveStatus(a)).workerPid).toBe(before.workerPid);
+    await f.ok(["daemon", "stop", "--home", b]);
     await f.ok(["daemon", "config", "set", "daemon.listen", `127.0.0.1:${portB}`, "--home", b]);
     await f.ok(["start", "--home", b, "--timeout", "30"]);
     await f.ok(["daemon", "config", "set", "daemon.listen", `127.0.0.1:${portA}`, "--home", b]);

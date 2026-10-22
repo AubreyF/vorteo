@@ -213,6 +213,8 @@ posixTest(
         PASEO_LISTEN: "127.0.0.1:0",
         PASEO_RELAY_ENABLED: "0",
         PASEO_MANAGED_WORKER: "1",
+        // The System project's standing agent would otherwise appear in the restart impact.
+        PASEO_SYSTEM_PROJECT: "0",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

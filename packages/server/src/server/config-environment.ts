@@ -62,6 +62,8 @@ export const DAEMON_SETTING_ENV_KEYS = [
 const CONFIG_CONTEXT_ENV_KEYS = [
   "PASEO_NODE_ENV",
   "PASEO_DESKTOP_MANAGED",
+  // Isolated test daemons pass 0 so fixture project lists stay exact; managed launches keep it.
+  "PASEO_SYSTEM_PROJECT",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENAI_STT_API_KEY",

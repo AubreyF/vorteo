@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.785 - 2026-10-22
+
+### Fixed
+
+- `PASEO_SYSTEM_PROJECT=0` now reaches the daemon. The configuration allowlist dropped it, so every test daemon, including the browser test harness, seeded the System project and its standing agent.
+- A daemon config reload no longer reports and reapplies provider settings that only changed key order.
+
+### Maintenance
+
+- CI stops a hung Playwright shard after 90 minutes and the app job after 30, instead of holding runners for hours. The app browser run pre-bundles `react/jsx-dev-runtime` so Vite no longer reloads mid-run.
+- Retire the desktop relay pairing E2E spec; the pairing modal it drove was removed with device pairing.
+- CLI lifecycle tests expect a daemon whose address is held by another process to wait as not ready, as listen reclaim intends, and stop it.
+
 ## 0.11.0-beta.3.vorteo.784 - 2026-10-22
 
 ### Maintenance

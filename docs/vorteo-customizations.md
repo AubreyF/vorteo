@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): test daemons honor `PASEO_SYSTEM_PROJECT=0` again, config reloads ignore provider key order, and CI jobs gained time limits. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): Windows server CI skips suites for POSIX-only Vorteo features through an explicit list and the documented `*.posix.test.ts` rule; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): CLI onboarding stops requesting retired pairing offers, the sidebar no longer re-renders on every status change, plugin dark themes share the built-in status colors, and app, CLI and desktop tests were repaired for CI. README overview and onboarding are unchanged.

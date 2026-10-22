@@ -435,6 +435,7 @@ describe("paseo daemon bootstrap", () => {
     const staticDir = await mkdtemp(path.join(os.tmpdir(), "paseo-static-"));
     await mkdir(paseoHome, { recursive: true });
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -548,6 +549,7 @@ describe("paseo daemon bootstrap", () => {
       },
     };
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -777,6 +779,7 @@ export default function contribute(plugin: unknown) {
     await mkdir(paseoHome, { recursive: true });
 
     const config: PaseoDaemonConfig = {
+      systemProjectEnabled: false,
       listen: "127.0.0.1:0",
       paseoHome,
       corsAllowedOrigins: [],
@@ -913,6 +916,7 @@ export default function contribute(plugin: unknown) {
       const logger = pino({ level: "silent" });
 
       const config: PaseoDaemonConfig = {
+        systemProjectEnabled: false,
         listen: socketPath,
         paseoHome,
         corsAllowedOrigins: [],

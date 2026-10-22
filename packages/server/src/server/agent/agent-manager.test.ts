@@ -68,6 +68,9 @@ import type {
 import type { PaseoToolCatalog } from "./tools/types.js";
 import type { ProviderDefinition } from "./provider-registry.js";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
 const DESKTOP_OPEN_AGENT_TAB_LABEL = getOpenAgentTabLabel("desktop-client");
 const MOBILE_OPEN_AGENT_TAB_LABEL = getOpenAgentTabLabel("mobile-client");
 
@@ -14396,7 +14399,7 @@ test("uncapped frozen profiles admit more than eight managed fake workers and st
   }
 });
 
-test.each([
+posixTest.each([
   ["goal", "ready"],
   ["goal", "cancelled"],
   ["ordinary", "ready"],

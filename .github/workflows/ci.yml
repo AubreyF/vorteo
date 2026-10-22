@@ -326,6 +326,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.app != 'false') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -389,6 +390,8 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-24.04
+    # A hung browser or daemon must fail the shard instead of holding a runner for hours.
+    timeout-minutes: 90
     env:
       PLAYWRIGHT_SHARD: "1/4"
       PLAYWRIGHT_ARTIFACT: "1"
@@ -439,6 +442,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       PLAYWRIGHT_SHARD: "2/4"
       PLAYWRIGHT_ARTIFACT: "2"
@@ -449,6 +453,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       PLAYWRIGHT_SHARD: "3/4"
       PLAYWRIGHT_ARTIFACT: "3"
@@ -459,6 +464,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.full != 'false' || needs.changes.outputs.browser != 'false') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       PLAYWRIGHT_SHARD: "4/4"
       PLAYWRIGHT_ARTIFACT: "4"
