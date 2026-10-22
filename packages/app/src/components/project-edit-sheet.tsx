@@ -34,6 +34,8 @@ export interface ProjectEditSheetProps {
   client: DaemonClient;
   /** False on hosts that predate custom project icons — the icon field is hidden. */
   supportsCustomIcon: boolean;
+  /** Locks the name field and shows why, for a project whose name the daemon owns. */
+  nameLockedReason?: string | null;
   snapshot: ProjectEditFormSnapshot;
 }
 
@@ -45,6 +47,7 @@ export function ProjectEditSheet({
   projectViewKey,
   client,
   supportsCustomIcon,
+  nameLockedReason = null,
   snapshot,
 }: ProjectEditSheetProps) {
   const { t } = useTranslation();
@@ -134,6 +137,7 @@ export function ProjectEditSheet({
     >
       <Field
         label={t("settings.project.edit.name")}
+        hint={nameLockedReason ?? undefined}
         error={state.error?.scope === "name" ? state.error.message : null}
       >
         <FormTextInput
@@ -143,7 +147,7 @@ export function ProjectEditSheet({
           initialValue={state.name}
           onChangeText={form.setName}
           placeholder={snapshot.projectName}
-          editable={!isSaving}
+          editable={!isSaving && nameLockedReason === null}
           autoCapitalize="none"
           autoCorrect={false}
         />

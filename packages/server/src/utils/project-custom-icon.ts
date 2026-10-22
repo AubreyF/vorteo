@@ -6,6 +6,7 @@ import type { ProjectIconSource } from "@getpaseo/protocol/messages";
 
 import { writeFileAtomic } from "../server/atomic-file.js";
 import type { PersistedProjectRecord, ProjectRegistry } from "../server/workspace-registry.js";
+import { SYSTEM_PROJECT_DEFAULT_ICON } from "../server/system-project/default-icon.js";
 import { getImageDimensions, getProjectIcon, type ProjectIcon } from "./project-icon.js";
 
 const MAX_ICON_BYTES = 512 * 1024;
@@ -102,6 +103,12 @@ export async function readProjectIconSnapshot(input: {
         : `custom:none:${input.project.customIconRevision}`,
     };
   }
+  // The System project's folder may be empty or any checkout, so it shows the Vorteo mark.
+  if (input.project.systemProject)
+    return {
+      icon: SYSTEM_PROJECT_DEFAULT_ICON,
+      revision: iconRevision("automatic", SYSTEM_PROJECT_DEFAULT_ICON),
+    };
   const icon = await getProjectIcon(input.project.rootPath);
   if (!icon) return { icon: null, revision: "automatic:none:v1" };
   return { icon, revision: iconRevision("automatic", icon) };

@@ -1,4 +1,5 @@
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
+import path from "node:path";
 import type { Logger } from "pino";
 
 import {
@@ -10,7 +11,7 @@ import {
   type WorkspaceRegistry,
 } from "../workspace-registry.js";
 import { generateProjectId, generateWorkspaceId } from "../workspace-registry-model.js";
-import { readSystemProjectConfig } from "./config.js";
+import { readSystemProjectConfig, type SystemProjectConfig } from "./config.js";
 import {
   SYSTEM_PROJECT_KIND,
   SYSTEM_PROJECT_NAME,
@@ -20,7 +21,7 @@ import {
   type SystemRole,
 } from "./manifest.js";
 
-type SystemProjectRegistry = Pick<ProjectRegistry, "list"> &
+type SystemProjectRegistry = Pick<ProjectRegistry, "list" | "archive"> &
   Required<Pick<ProjectRegistry, "writeSystemProject">>;
 type SystemWorkspaceRegistry = Pick<WorkspaceRegistry, "list"> &
   Required<Pick<WorkspaceRegistry, "writeSystemWorkspace">>;
@@ -41,6 +42,8 @@ export interface EnsureSystemProjectResult {
   created: string[];
   adopted: string[];
   retired: string[];
+  absorbed: string[];
+  archivedProjects: string[];
 }
 
 /**
@@ -95,14 +98,22 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
   for (const role of roles) await fs.mkdir(paths.runner(role.role), { recursive: true });
 
   const config = await readSystemProjectConfig(paths.config, input.logger);
-  const { project, createdProject } = await ensureProject(input, paths.source, now);
+  const { project, createdProject } = await ensureProject(
+    input,
+    systemProjectRoot(config, paths.source, input.logger),
+    now,
+  );
   const result: EnsureSystemProjectResult = {
     projectId: project.projectId,
     createdProject,
     created: [],
     adopted: [],
     retired: [],
+    absorbed: [],
+    archivedProjects: [],
   };
+
+  await absorbConfigured(input, config, project, result, now);
 
   const workspaces = await input.workspaceRegistry.list();
   const members = workspaces.filter(
@@ -157,15 +168,92 @@ async function ensureUnlocked(input: EnsureSystemProjectInput): Promise<EnsureSy
     result.createdProject ||
     result.created.length ||
     result.adopted.length ||
-    result.retired.length
+    result.retired.length ||
+    result.absorbed.length ||
+    result.archivedProjects.length
   )
     input.logger.info(result, "Vorteo System project reconciled");
   return result;
 }
 
+interface SystemProjectRoot {
+  rootPath: string;
+  kind: "git" | "non_git";
+}
+
+/**
+ * The installation's own checkout when the settings name one, so new workspaces branch
+ * from the code this installation was built from. Otherwise the folder under
+ * `$PASEO_HOME/system`, which becomes a git clone once source is set up.
+ */
+function systemProjectRoot(
+  config: SystemProjectConfig,
+  fallback: string,
+  logger: Pick<Logger, "warn">,
+): SystemProjectRoot {
+  const checkout = config.source?.checkout;
+  if (checkout) {
+    const rootPath = path.resolve(checkout);
+    if (existsSync(path.join(rootPath, ".git"))) return { rootPath, kind: "git" };
+    logger.warn(
+      { checkout: rootPath },
+      "The configured Vorteo source checkout is not a git checkout; using the System folder",
+    );
+  }
+  return { rootPath: fallback, kind: existsSync(path.join(fallback, ".git")) ? "git" : "non_git" };
+}
+
+/**
+ * Moves the configured projects' workspaces, archived ones included, into the System
+ * project, then archives each listed project it emptied. A second pass finds nothing
+ * left to move. Workspaces keep their IDs, folders, threads and history.
+ */
+async function absorbConfigured(
+  input: EnsureSystemProjectInput,
+  config: SystemProjectConfig,
+  project: PersistedProjectRecord,
+  result: EnsureSystemProjectResult,
+  now: () => string,
+): Promise<void> {
+  const projectIds = new Set(
+    (config.absorb?.projects ?? []).filter((id) => id !== project.projectId),
+  );
+  const workspaceIds = new Set(config.absorb?.workspaces ?? []);
+  if (projectIds.size === 0 && workspaceIds.size === 0) return;
+
+  const workspaces = await input.workspaceRegistry.list();
+  for (const workspace of workspaces) {
+    if (workspace.projectId === project.projectId) continue;
+    if (!projectIds.has(workspace.projectId) && !workspaceIds.has(workspace.workspaceId)) continue;
+    if (workspace.factoryMembership || workspace.systemMembership) {
+      input.logger.warn(
+        { workspaceId: workspace.workspaceId },
+        "Vorteo System did not absorb a Factory or system workspace",
+      );
+      continue;
+    }
+    await input.workspaceRegistry.writeSystemWorkspace({
+      ...workspace,
+      projectId: project.projectId,
+      projectMembership: null,
+      updatedAt: now(),
+    });
+    result.absorbed.push(workspace.workspaceId);
+  }
+
+  const remaining = await input.workspaceRegistry.list();
+  for (const candidate of await input.projectRegistry.list()) {
+    if (!projectIds.has(candidate.projectId) || candidate.archivedAt) continue;
+    if (candidate.systemProject || candidate.factoryInstallation) continue;
+    if (remaining.some((workspace) => workspace.projectId === candidate.projectId)) continue;
+    await input.projectRegistry.archive(candidate.projectId, now());
+    result.archivedProjects.push(candidate.projectId);
+  }
+}
+
 async function ensureProject(
   input: EnsureSystemProjectInput,
-  rootPath: string,
+  root: SystemProjectRoot,
   now: () => string,
 ): Promise<{ project: PersistedProjectRecord; createdProject: boolean }> {
   const projects = await input.projectRegistry.list();
@@ -182,7 +270,15 @@ async function ensureProject(
       "Found more than one Vorteo System project; keeping the oldest for an operator to review",
     );
   }
-  if (existing[0]) return { project: existing[0], createdProject: false };
+  const current = existing[0];
+  if (current) {
+    if (current.rootPath === root.rootPath && current.kind === root.kind)
+      return { project: current, createdProject: false };
+    // The root follows the settings, so a renamed or newly configured checkout takes effect.
+    const moved = { ...current, rootPath: root.rootPath, kind: root.kind, updatedAt: now() };
+    await input.projectRegistry.writeSystemProject(moved);
+    return { project: moved, createdProject: false };
+  }
 
   const taken = new Set(projects.map((project) => project.projectId));
   let projectId = generateProjectId();
@@ -191,8 +287,8 @@ async function ensureProject(
   const project = {
     ...createPersistedProjectRecord({
       projectId,
-      rootPath,
-      kind: "non_git",
+      rootPath: root.rootPath,
+      kind: root.kind,
       displayName: "vorteo",
       customName: SYSTEM_PROJECT_NAME,
       // A key of its own keeps the project out of any same-remote group, even after

@@ -1216,6 +1216,8 @@ export const en = {
         openFolderFailed: "Couldn't open folder",
         remove: "Remove project",
         removing: "Removing...",
+        removeBlockedSystem:
+          "Vorteo System holds this installation's own source and upkeep workspaces, so it can't be removed.",
       },
       confirmations: {
         removeTitle: "Remove project?",
@@ -2895,6 +2897,12 @@ export const en = {
         imageUrl: "Image or website URL",
         save: "Save changes",
         savedToast: "Project updated",
+        nameLockedSystem: "The daemon names this project, so it can't be renamed.",
+      },
+      system: {
+        title: "About Vorteo System",
+        description:
+          "This project is for evolving this Vorteo installation. It is backed by the checkout the installation was built from, and it also holds upkeep workspaces the daemon manages, such as the Optimization Runner. The daemon recreates and relies on it, so it can't be removed or renamed.",
       },
       readFailures: {
         invalidTitle: "paseo.json couldn't be parsed",

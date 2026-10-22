@@ -3,6 +3,7 @@ import { View, useWindowDimensions } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { GlobalOpenQuestionsCard } from "@/open-questions/global-card";
 import { GlobalQuotaCard } from "@/provider-usage/global-quota-card";
+import { SIDEBAR_OUTER_GAP } from "@/stores/panel-store/state";
 import {
   GlobalCardLayoutContext,
   globalCardLayout,
@@ -11,9 +12,16 @@ import {
 
 /**
  * Global cards between the workspace list and the sidebar footer. Each card hides itself while
- * it has nothing to show, so an idle installation keeps the full list.
+ * it has nothing to show, so an idle installation keeps the full list. On desktop the cards are
+ * `detached`: they sit below the floating navigation card, separated by the panel gap.
  */
-export function SidebarGlobalCards({ onBeforeNavigate }: { onBeforeNavigate?: () => void }) {
+export function SidebarGlobalCards({
+  onBeforeNavigate,
+  detached = false,
+}: {
+  onBeforeNavigate?: () => void;
+  detached?: boolean;
+}) {
   const { height } = useWindowDimensions();
   const [shown, setShownState] = useState<ReadonlySet<GlobalCardKind>>(() => new Set());
   const setShown = useCallback((kind: GlobalCardKind, visible: boolean) => {
@@ -31,7 +39,10 @@ export function SidebarGlobalCards({ onBeforeNavigate }: { onBeforeNavigate?: ()
   );
   return (
     <GlobalCardLayoutContext.Provider value={layout}>
-      <View style={styles.stack} testID="sidebar-global-cards">
+      <View
+        style={[styles.stack, detached && shown.size > 0 && styles.detached]}
+        testID="sidebar-global-cards"
+      >
         <GlobalOpenQuestionsCard onBeforeNavigate={onBeforeNavigate} />
         <GlobalQuotaCard />
       </View>
@@ -41,4 +52,5 @@ export function SidebarGlobalCards({ onBeforeNavigate }: { onBeforeNavigate?: ()
 
 const styles = StyleSheet.create((theme) => ({
   stack: { flexShrink: 0, gap: theme.spacing[2] },
+  detached: { marginTop: SIDEBAR_OUTER_GAP },
 }));

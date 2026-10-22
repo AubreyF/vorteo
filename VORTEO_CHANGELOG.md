@@ -4,6 +4,41 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main (sidebar global cards below navigation, file preview downloads, Vorteo System as an ordinary project backed by its checkout) into the reviewed Host contribution that ports three Dev-only fixes and reports invalid source batch contributions. Labels `vorteo.756` and `vorteo.757` exist on both lines; both sets of notes are kept.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge the file preview Download change from GitHub main into the live interface source, which already carries the sidebar cards change. Both commits used `vorteo.756`; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Changed
+
+- On desktop, the left sidebar's Open questions and Quota cards now sit below the navigation card as separate cards instead of nesting inside it. The mobile sidebar keeps them in its full-height sheet.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Changed
+
+- Show Download in the file preview toolbar for every file, not only images, placed immediately after Copy all. Editable text files download the saved copy on disk; unsaved edits are not included. Binary previews keep their larger Download button in the body.
+
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 
 ### Fixed
