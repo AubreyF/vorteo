@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- Web builds no longer leave about 3 GB behind each. Once the export is sealed, a build deletes its source snapshot and dependencies and keeps only the export; a failed build deletes its whole directory. Each build also prunes abandoned builds and exports beyond the newest five or older than a week, skipping any build whose process is still running. 345 leftover builds filled the Host disk on 2026-10-22.
+
+### Changed
+
+- On macOS, task worktrees, workspace setup and web builds clone a cached dependency install of the same lockfile with APFS copy-on-write instead of running a full `npm ci`. Each checkout still gets its own `node_modules`, so workspace packages resolve inside it, and clones use almost no extra disk. Our own version bumps do not invalidate the cache. A cache miss or failed clone runs `npm ci` as before; `VORTEO_DEPENDENCY_CACHE=0` turns the cache off.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed
