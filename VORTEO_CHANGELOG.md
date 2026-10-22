@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Added
+
+- Write the Vorteo System checkout setting from the installers. The Host installer records the checkout it runs from and the installed commit. Dev update setup records the same checkout as the container sees it, or explains why it cannot. `install-execution-host.mjs configure-system-source --root <root>` updates both for existing installations, keeping every other setting.
+
+### Fixed
+
+- Correct the installation-maintenance skill and agent guidance: Host-originated restarts and source updates are approved automatically for both Host and Dev when the owner's policy allows it, while Dev-originated requests, mixed batches and listed request types stay manual. The skill now explains how to follow an automatic decision and what a coordinator recovery refusal means.
+
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
 ### Changed

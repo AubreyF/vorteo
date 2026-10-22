@@ -11,6 +11,7 @@ import {
   existsSync,
   chmodSync,
   realpathSync,
+  statSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -24,7 +25,14 @@ import {
   assertSessionHostJobRemoved,
   validateInstallPlan,
   configureWebSource,
+  configureSystemSource,
+  writeContainerSystemSource,
 } from "./install-execution-host.mjs";
+import {
+  containerCheckoutPath,
+  mergeSystemSource,
+  writeSystemSource,
+} from "./lib/system-source.mjs";
 
 import {
   digest,
@@ -1075,4 +1083,128 @@ test("installation removal waits until the session host job is removed", async (
   ).resolves.toBeUndefined();
   // Inspection only: the installer never stops the session host job itself.
   expect(calls).toEqual(Array(3).fill(["/bin/launchctl", "print", `gui/501/${label}`]));
+});
+
+test("System settings keep operator keys and refuse a damaged file", () => {
+  const merged = JSON.parse(
+    mergeSystemSource(
+      JSON.stringify({ adopt: { runner: "wks_01" }, source: { repository: "/repo" } }),
+      { checkout: "/src/vorteo", ref: "abc" },
+    ),
+  );
+  expect(merged).toEqual({
+    adopt: { runner: "wks_01" },
+    source: { repository: "/repo", checkout: "/src/vorteo", ref: "abc" },
+  });
+  expect(() => mergeSystemSource("{", { checkout: "/src/vorteo" })).toThrow("not valid JSON");
+  expect(() => mergeSystemSource("[]", { checkout: "/src/vorteo" })).toThrow("JSON object");
+  expect(() => mergeSystemSource(null, { checkout: "relative" })).toThrow("absolute");
+});
+
+test("Host System settings are written privately and only when they change", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-home-"));
+  try {
+    const first = writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" });
+    expect(first.changed).toBe(true);
+    expect((statSync(first.file).mode & 0o777).toString(8)).toBe("600");
+    expect(writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" }).changed).toBe(false);
+    expect(JSON.parse(readFileSync(first.file, "utf8"))).toEqual({
+      source: { checkout: "/src/vorteo" },
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a Host checkout maps into the container through its deepest bind mount", () => {
+  const mounts = [
+    { Type: "bind", Source: "/Users/me", Destination: "/home/me" },
+    { Type: "bind", Source: "/Users/me/dev", Destination: "/Users/guest/dev" },
+    { Type: "volume", Source: "/var/lib/docker/x", Destination: "/data" },
+  ];
+  expect(containerCheckoutPath(mounts, "/Users/me/dev/vorteo")).toBe("/Users/guest/dev/vorteo");
+  expect(containerCheckoutPath(mounts, "/Users/me/dev")).toBe("/Users/guest/dev");
+  expect(containerCheckoutPath(mounts, "/Users/me-else/vorteo")).toBeNull();
+  expect(containerCheckoutPath(mounts, "/opt/vorteo")).toBeNull();
+});
+
+test("configure-system-source records the checkout for the Host and the Dev container", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-root-"));
+  const previous = { inspect: process.env.FAKE_INSPECT, node: process.env.REAL_NODE };
+  try {
+    const checkout = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-checkout-")));
+    mkdirSync(path.join(checkout, ".git"));
+    const hostHome = path.join(root, "state/host");
+    const devHome = path.join(root, "dev-home");
+    mkdirSync(devHome, { recursive: true });
+    mkdirSync(path.join(devHome, "system"));
+    writeFileSync(
+      path.join(devHome, "system/system.json"),
+      JSON.stringify({ absorb: { projects: ["prj_0a"] } }),
+    );
+    // A stand-in Docker: inspect returns the mounts, exec runs the script with this Node.
+    const docker = path.join(root, "docker");
+    writeFileSync(
+      docker,
+      '#!/bin/sh\nif [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi\nshift 5\nexec "$REAL_NODE" "$@"\n',
+    );
+    chmodSync(docker, 0o755);
+    const inspect = path.join(root, "inspect.json");
+    writeFileSync(
+      inspect,
+      JSON.stringify([
+        {
+          Mounts: [
+            { Type: "bind", Source: path.dirname(checkout), Destination: "/Users/guest/tmp" },
+          ],
+        },
+      ]),
+    );
+    process.env.FAKE_INSPECT = inspect;
+    process.env.REAL_NODE = process.execPath;
+    const configFile = path.join(root, "coordinator.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        containerSourceUpdates: {
+          docker,
+          containerId: "dev",
+          user: "paseo",
+          node: "node",
+          home: devHome,
+        },
+      }),
+    );
+    writeFileSync(path.join(root, "installation.json"), JSON.stringify({ hostHome, configFile }));
+
+    const result = await configureSystemSource(root, checkout);
+
+    const guestCheckout = path.posix.join("/Users/guest/tmp", path.basename(checkout));
+    expect(result.dev).toEqual({ written: true, checkout: guestCheckout });
+    expect(JSON.parse(readFileSync(path.join(hostHome, "system/system.json"), "utf8"))).toEqual({
+      source: { checkout },
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "system/system.json"), "utf8"))).toEqual({
+      absorb: { projects: ["prj_0a"] },
+      source: { checkout: guestCheckout },
+    });
+
+    writeFileSync(inspect, JSON.stringify([{ Mounts: [] }]));
+    const unshared = await writeContainerSystemSource(
+      JSON.parse(readFileSync(configFile, "utf8")).containerSourceUpdates,
+      checkout,
+    );
+    expect(unshared.written).toBe(false);
+    expect(unshared.reason).toContain("cannot see");
+    rmSync(checkout, { recursive: true, force: true });
+  } finally {
+    for (const [key, value] of [
+      ["FAKE_INSPECT", previous.inspect],
+      ["REAL_NODE", previous.node],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
 });

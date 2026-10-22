@@ -25,6 +25,13 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
+import {
+  SYSTEM_SETTINGS_PATH,
+  containerCheckoutPath,
+  writeSystemSource,
+  mergeSystemSource,
+} from "./lib/system-source.mjs";
+
 const execute = promisify(execFile);
 const scriptPath = fileURLToPath(import.meta.url);
 const sourceRoot = path.resolve(path.dirname(scriptPath), "..");
@@ -391,6 +398,8 @@ async function install(planFile) {
     },
     features: { webUi: { enabled: false } },
   });
+  // The System project branches new workspaces from the checkout this install came from.
+  writeSystemSource({ paseoHome: hostHome, checkout: sourceRoot, ref: plan.revision });
   const env = {
     HOME: os.homedir(),
     PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -693,6 +702,69 @@ export async function configureWebSource(planFile) {
   }
 }
 
+// Runs inside the Dev container as its daemon user, so the file keeps that owner.
+const CONTAINER_SYSTEM_SETTINGS_SCRIPT = `import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
+const [home, relative, mode, text] = process.argv.slice(1);
+const file = path.join(home, relative);
+if (mode === 'read') process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+else {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = file + '.' + randomUUID() + '.tmp';
+  fs.writeFileSync(temporary, text, { mode: 0o600, flag: 'wx' });
+  fs.renameSync(temporary, file);
+}`;
+
+/**
+ * Records the Host checkout, as the Dev container sees it, in the Dev daemon's System
+ * settings. Skips, with a reason, when no bind mount shares the checkout.
+ */
+export async function writeContainerSystemSource(settings, checkout) {
+  const [container] = JSON.parse(await run(settings.docker, ["inspect", settings.containerId]));
+  const target = containerCheckoutPath(container?.Mounts, checkout);
+  if (!target)
+    return {
+      written: false,
+      reason: `The Dev container cannot see ${checkout}, so its System project keeps its own folder. Share the checkout with the container and run configure-system-source.`,
+    };
+  const exec = (mode, text = "") =>
+    run(settings.docker, [
+      "exec",
+      "--user",
+      settings.user,
+      settings.containerId,
+      settings.node,
+      "--input-type=module",
+      "--eval",
+      CONTAINER_SYSTEM_SETTINGS_SCRIPT,
+      settings.home,
+      SYSTEM_SETTINGS_PATH,
+      mode,
+      text,
+    ]);
+  const existing = await exec("read");
+  const next = mergeSystemSource(existing, { checkout: target });
+  if (next.trim() !== existing.trim()) await exec("write", next);
+  return { written: true, checkout: target };
+}
+
+/**
+ * Points both System projects at the checkout this installer runs from, or `checkout`.
+ * For installations made before installers wrote the setting, and after a checkout moves.
+ * Takes effect at each daemon's next start.
+ */
+export async function configureSystemSource(root, checkout = sourceRoot) {
+  const record = JSON.parse(readFileSync(path.join(root, "installation.json"), "utf8"));
+  const resolved = realpathSync(path.resolve(checkout));
+  if (!existsSync(path.join(resolved, ".git")))
+    throw new Error(`${resolved} is not a git checkout`);
+  const host = writeSystemSource({ paseoHome: record.hostHome, checkout: resolved });
+  const config = JSON.parse(readFileSync(record.configFile, "utf8"));
+  const dev = config.containerSourceUpdates
+    ? await writeContainerSystemSource(config.containerSourceUpdates, resolved)
+    : { written: false, reason: "No Dev container is configured for updates." };
+  return { checkout: resolved, host, dev };
+}
+
 /** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
 export async function configureContainerUpdates(planFile) {
   const input = JSON.parse(readFileSync(planFile, "utf8"));
@@ -798,6 +870,11 @@ console.log(JSON.stringify({expected:path.join(os.homedir(),'.local/share/vorteo
   const backup = `${configFile}.${randomUUID()}.before-dev-updates`;
   privateWrite(backup, readFileSync(configFile));
   privateWrite(path.join(settings.toolingDirectory, "installation-container-runtime.mjs"), helper);
+  const systemSource = await writeContainerSystemSource(settings, sourceRoot).catch((error) => ({
+    written: false,
+    reason: `Could not record the source checkout for the Dev System project: ${error.message}`,
+  }));
+  if (!systemSource.written) process.stderr.write(`${systemSource.reason}\n`);
   json(settings.receiptFile, { sourceCommit: selected.sourceCommit, release: selected.release });
   json(configFile, { ...config, containerSourceUpdates: settings });
   // Refresh request-only tooling in the already paired guest. Never copy Host credentials.
@@ -956,16 +1033,24 @@ async function manage(command, root) {
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { plan: { type: "string" }, root: { type: "string" } },
+    options: {
+      plan: { type: "string" },
+      root: { type: "string" },
+      checkout: { type: "string" },
+    },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
   else if (positionals[0] === "configure-web-source" && values.plan)
     process.stdout.write(JSON.stringify(await configureWebSource(values.plan)) + "\n");
   else if (positionals[0] === "configure-dev-updates" && values.plan)
     await configureContainerUpdates(values.plan);
+  else if (positionals[0] === "configure-system-source" && values.root)
+    process.stdout.write(
+      JSON.stringify(await configureSystemSource(values.root, values.checkout), null, 2) + "\n",
+    );
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json> or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], or status/remove --root <installation-root>",
     );
 }
