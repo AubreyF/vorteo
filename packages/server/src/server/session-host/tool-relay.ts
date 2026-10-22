@@ -34,6 +34,34 @@ export { isToolRelayServer, TOOL_RELAY_BRIDGE_FILE_NAME, TOOL_RELAY_DIRECTORY_NA
 export const TOOL_RELAY_UNAVAILABLE_CODE = -32000;
 export const TOOL_RELAY_UNAVAILABLE_MESSAGE =
   "Vorteo tools are unavailable while the daemon restarts";
+/** JSON-RPC error code for a call the daemon received but may or may not have finished. */
+export const TOOL_RELAY_UNKNOWN_OUTCOME_CODE = -32001;
+export const TOOL_RELAY_UNKNOWN_OUTCOME_MESSAGE =
+  "The daemon restarted during this call; its outcome is unknown. Check before repeating it.";
+/**
+ * Methods that do no work, so repeating one is harmless. Everything else, tools/call above all,
+ * is repeated only when the request certainly never reached a daemon.
+ */
+const READ_ONLY_METHODS = new Set([
+  "initialize",
+  "ping",
+  "tools/list",
+  "resources/list",
+  "resources/templates/list",
+  "resources/read",
+  "prompts/list",
+  "prompts/get",
+  "completion/complete",
+  "logging/setLevel",
+]);
+/** Connection failures that happen before any byte of the request is delivered. */
+const NEVER_DELIVERED_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+]);
 export const DEFAULT_TOOL_RELAY_HOLD_MS = 60_000;
 const DEFAULT_RETRY_MS = 500;
 /** Unix socket paths are limited by the kernel; macOS allows 104 bytes including the terminator. */
@@ -92,6 +120,32 @@ export function toolRelaySocketPath(directory: string, sessionId: string): strin
 }
 
 type JsonRpcId = string | number;
+
+/** Whether repeating the message cannot do work twice: a notification or a read-only method. */
+function isRepeatable(message: JSONRPCMessage): boolean {
+  if (!("method" in message)) return true;
+  if (!("id" in message) || message.id === undefined) return true;
+  return READ_ONLY_METHODS.has(message.method);
+}
+
+/**
+ * Whether a failed send never delivered the request: the connection was refused or the host was
+ * unreachable. fetch wraps the socket error as the cause, sometimes inside an AggregateError when
+ * several addresses were tried.
+ */
+function neverDelivered(error: unknown, depth = 0): boolean {
+  if (!error || typeof error !== "object" || depth > 4) return false;
+  const { code, cause, errors } = error as { code?: unknown; cause?: unknown; errors?: unknown };
+  if (typeof code === "string" && NEVER_DELIVERED_CODES.has(code)) return true;
+  if (Array.isArray(errors) && errors.length > 0)
+    return errors.every((inner) => neverDelivered(inner, depth + 1));
+  return neverDelivered(cause, depth + 1);
+}
+
+type Attempt =
+  | { outcome: "sent" }
+  | { outcome: "retry" }
+  | { outcome: "failed"; code: number; message: string };
 
 function errorReply(id: JsonRpcId | null, code: number, message: string): string {
   return `${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`;
@@ -181,18 +235,37 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     if (andClose) socket.end();
   }
 
-  async function attempt(item: Queued): Promise<"sent" | "retry" | "failed"> {
+  const unavailable: Attempt = {
+    outcome: "failed",
+    code: TOOL_RELAY_UNAVAILABLE_CODE,
+    message: TOOL_RELAY_UNAVAILABLE_MESSAGE,
+  };
+
+  async function attempt(item: Queued): Promise<Attempt> {
     responded = false;
     try {
       await transport.send(item.message);
-      return "sent";
+      return { outcome: "sent" };
     } catch (error) {
       if (responded) {
         options.logger.warn(
           { err: error },
           "The daemon answered a relayed tool message with a failure; not retried",
         );
-        return "failed";
+        return unavailable;
+      }
+      // A request that may have reached a daemon is repeated only when repeating it does no
+      // work. A tool call whose worker died mid-request might have run: the caller must check.
+      if (!isRepeatable(item.message) && !neverDelivered(error)) {
+        options.logger.warn(
+          { err: error, method: (item.message as { method?: string }).method },
+          "A relayed tool call failed after it may have reached a daemon; not retried",
+        );
+        return {
+          outcome: "failed",
+          code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE,
+          message: TOOL_RELAY_UNKNOWN_OUTCOME_MESSAGE,
+        };
       }
       const now = options.now();
       if (item.heldSince === null) {
@@ -202,7 +275,7 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
           "No daemon answered a relayed tool message; holding it for a worker",
         );
       }
-      return now - item.heldSince < options.holdMs ? "retry" : "failed";
+      return now - item.heldSince < options.holdMs ? { outcome: "retry" } : unavailable;
     }
   }
 
@@ -212,18 +285,18 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     try {
       while (queue.length > 0 && !isClosed()) {
         const item = queue[0]!;
-        const outcome = await attempt(item);
-        if (outcome === "retry") {
+        const result = await attempt(item);
+        if (result.outcome === "retry") {
           await new Promise((resolve) => setTimeout(resolve, options.retryMs));
           continue;
         }
         queue.shift();
         queuedBytes -= item.bytes;
         const id = requestId(item.message);
-        if (outcome === "sent") {
+        if (result.outcome === "sent") {
           if (id !== null) pending.add(id);
         } else {
-          fail(id, TOOL_RELAY_UNAVAILABLE_CODE, TOOL_RELAY_UNAVAILABLE_MESSAGE, false);
+          fail(id, result.code, result.message, false);
         }
       }
     } finally {

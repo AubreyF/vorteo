@@ -10,6 +10,7 @@ import {
   createToolRelay,
   isToolRelayServer,
   TOOL_RELAY_UNAVAILABLE_CODE,
+  TOOL_RELAY_UNKNOWN_OUTCOME_CODE,
   toolRelayBridgePath,
   toolRelaySocketPath,
   type ToolRelay,
@@ -31,6 +32,8 @@ interface FakeDaemon {
   unauthorized: number;
   /** Replies as an SSE stream that breaks after the first bytes when set. */
   breakAfterBytes: boolean;
+  /** Accepts this many requests and drops their connections before answering: a worker dying mid-call. */
+  dieBeforeAnswer: number;
   close(): Promise<void>;
 }
 
@@ -41,6 +44,7 @@ async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
     requests: [],
     unauthorized: 0,
     breakAfterBytes: false,
+    dieBeforeAnswer: 0,
     close: async () => {},
   };
   const server = http.createServer((req, res) => {
@@ -60,6 +64,11 @@ async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
     req.on("end", () => {
       const message = JSON.parse(body) as { method?: string; id?: unknown };
       daemon.requests.push({ method: message.method ?? "", id: message.id });
+      if (daemon.dieBeforeAnswer > 0) {
+        daemon.dieBeforeAnswer -= 1;
+        req.socket.destroy();
+        return;
+      }
       if (message.id === undefined) {
         res.writeHead(202).end();
         return;
@@ -224,7 +233,43 @@ describe("tool relay", () => {
     expect(relay.sessionCount()).toBe(0);
   });
 
-  test("holds a message while no daemon answers and delivers it once one does", async () => {
+  test("a tool call the daemon accepted but never answered is not repeated", async () => {
+    const daemon = await startFakeDaemon();
+    cleanups.push(() => daemon.close());
+    daemon.dieBeforeAnswer = 1;
+    const { relay } = await relayFor(daemon.url, { retryMs: 20, holdMs: 5_000 });
+    const session = await relay.open("session-1", daemon.url);
+    const client = await connect(session!.socketPath);
+    client.send({ jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "send" } });
+    const [reply] = await client.next();
+    expect(reply).toMatchObject({
+      id: 21,
+      error: { code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE, message: expect.stringContaining("unknown") },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // The daemon saw the call exactly once; the next call on the connection works as usual.
+    expect(daemon.requests.map((entry) => entry.id)).toEqual([21]);
+    client.send({ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "send" } });
+    expect(await client.next()).toEqual([
+      { jsonrpc: "2.0", id: 22, result: { echo: "tools/call" } },
+    ]);
+  });
+
+  test("a read-only request is repeated after the daemon drops it mid-request", async () => {
+    const daemon = await startFakeDaemon();
+    cleanups.push(() => daemon.close());
+    daemon.dieBeforeAnswer = 1;
+    const { relay } = await relayFor(daemon.url, { retryMs: 20, holdMs: 5_000 });
+    const session = await relay.open("session-1", daemon.url);
+    const client = await connect(session!.socketPath);
+    client.send({ jsonrpc: "2.0", id: 23, method: "tools/list" });
+    expect(await client.next()).toEqual([
+      { jsonrpc: "2.0", id: 23, result: { echo: "tools/list" } },
+    ]);
+    expect(daemon.requests.map((entry) => entry.id)).toEqual([23, 23]);
+  });
+
+  test("holds a tool call while the connection is refused and delivers it once to the daemon that appears", async () => {
     const probe = await startFakeDaemon();
     const { url, port } = probe;
     await probe.close();
