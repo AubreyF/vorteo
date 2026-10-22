@@ -78,6 +78,8 @@ export interface AgentProfilePickerRow {
 
 export interface AgentProfilePicker {
   selectEnvironment?: (serverId: string) => void;
+  /** The folder the task runs in, so project exclusions can hide unavailable choices. */
+  projectPath: string | null;
   refreshStatus?: () => void;
   isRefreshingStatus?: boolean;
   isLoadingStatus?: boolean;
@@ -150,6 +152,13 @@ export function useAgentProfilePicker(
   const supportsLaunch = hostSupportsLaunch;
   const supportsSwitch = useHostFeature(serverId, "agentProfileSwitch");
   const client = useSessionStore((state) => state.sessions[serverId ?? ""]?.client ?? null);
+  const agentCwd = useSessionStore((state) =>
+    target.kind === "agent"
+      ? (state.sessions[serverId ?? ""]?.agents.get(target.agentId)?.cwd ?? null)
+      : null,
+  );
+  const projectPath =
+    target.kind === "draft" ? target.controls.project?.iconWorkingDir || null : agentCwd;
   const toast = useToast();
   const [isApplying, setIsApplying] = useState(false);
   const applyingRef = useRef(false);
@@ -510,6 +519,7 @@ export function useAgentProfilePicker(
       isSupported && profiles !== null
         ? {
             rows,
+            projectPath,
             selectEnvironment:
               target.kind === "draft" ? target.controls.selectEnvironment : undefined,
             applyProfile,
@@ -525,6 +535,7 @@ export function useAgentProfilePicker(
       applyProfile,
       applyDestinationProfile,
       target,
+      projectPath,
       isSupported,
       profiles,
       rows,

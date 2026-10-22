@@ -268,6 +268,12 @@ describe("ProjectsScreen", () => {
     });
   }
 
+  function renderAllEnvironments() {
+    act(() => {
+      root?.render(<ProjectsScreen />);
+    });
+  }
+
   it("renders a row whose visible content is the project name only", () => {
     setProjectsState({
       projects: [
@@ -302,6 +308,31 @@ describe("ProjectsScreen", () => {
 
     expect(push).toHaveBeenCalledTimes(1);
     expect(push).toHaveBeenCalledWith("/settings/hosts/host-a/projects/project-a");
+  });
+
+  it("lists a project placed in several environments once and opens one placement", () => {
+    setProjectsState({
+      projects: [
+        project({
+          viewKey: "host:dev:/Users/me/dev/app",
+          hosts: [
+            hostEntry({ serverId: "dev", projectId: "dev-app" }),
+            hostEntry({ serverId: "host", projectId: "host-app" }),
+          ],
+        }),
+      ],
+    });
+
+    renderAllEnvironments();
+
+    const rows = container?.querySelectorAll('[data-testid^="project-row-"]') ?? [];
+    expect(rows.length).toBe(1);
+    act(() => {
+      findRow(container!, "host:dev:/Users/me/dev/app").dispatchEvent(
+        new window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(push).toHaveBeenCalledWith("/settings/hosts/dev/projects/dev-app");
   });
 
   it("does not render a kebab menu on the row", () => {

@@ -618,6 +618,52 @@ test("shared settings require owner access and persist revisioned writes before 
   expect(guest.config.appendSystemPrompt).toBe(update.settings.appendSystemPrompt);
 });
 
+test("project policies reach only owner clients and daemons that ask for them", async () => {
+  const host = new SettingsEnvironmentFake("host-id");
+  const guest = new SettingsEnvironmentFake("guest-id");
+  const settings = new InstallationSettingsService(new SettingsJournalFake(), [host, guest]);
+  const initial = await settings.reconcile();
+  const policies = { "/Users/me/dev/app": { excludedEnvironments: ["container" as const] } };
+  await settings.update({
+    expectedRevision: initial.revision,
+    settings: { projectPolicies: policies },
+  });
+  const { request, url } = await fixture(undefined, settings);
+  const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  async function readOwnerSettings(headers: Record<string, string>) {
+    const response = await fetch(`${url}/api/installation/owner/settings/read`, {
+      method: "POST",
+      headers: {
+        Host: "owner.example.test",
+        Origin: "https://owner.example.test",
+        Cookie: cookie!,
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: "{}",
+    });
+    return (await response.json()).settings;
+  }
+  expect(await readOwnerSettings({})).not.toHaveProperty("projectPolicies");
+  expect((await readOwnerSettings({ "X-Vorteo-Project-Policies": "1" })).projectPolicies).toEqual(
+    policies,
+  );
+  async function readAdmission(route: string) {
+    const response = await fetch(`${url}${route}`, {
+      headers: { Authorization: "Bearer guest-agent-test-token" },
+    });
+    return (await response.json()).settings;
+  }
+  expect(await readAdmission("/api/installation/settings/admission")).not.toHaveProperty(
+    "projectPolicies",
+  );
+  expect(
+    (await readAdmission("/api/installation/settings/admission?projectPolicies=1")).projectPolicies,
+  ).toEqual(policies);
+});
+
 test("delegated creation resolves a paginated workspace to its working directory", async () => {
   // Isolate directory lookup from provider execution, which requires account credentials.
   const createAgent = vi.fn(async (options: Parameters<DelegationClient["createAgent"]>[0]) => {

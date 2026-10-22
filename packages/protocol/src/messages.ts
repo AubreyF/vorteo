@@ -11,7 +11,10 @@ import {
 } from "./task-checklist.js";
 import { InstallationProviderProjectionSchema } from "./installation-provider.js";
 import { PluginDirectoryBindingSchema, ResolvedPluginSourceSchema } from "./plugin-installation.js";
-import { InstallationResourceBindingsSchema } from "./installation-settings.js";
+import {
+  InstallationProjectPolicySchema,
+  InstallationResourceBindingsSchema,
+} from "./installation-settings.js";
 import {
   SkillLibraryReadSchema,
   SkillLibraryChangeSchema,
@@ -339,6 +342,12 @@ const MutableRelayConfigSchema = z
   })
   .passthrough();
 
+// Loose so a newer daemon's policy fields never break an older client's config read.
+const InstallationProjectPoliciesWireSchema = z.record(
+  z.string(),
+  InstallationProjectPolicySchema.loose(),
+);
+
 export const MutableDaemonConfigSchema = z
   .object({
     // COMPAT(relayConfig): added in v0.2.6, remove after 2027-01-31 when old daemons are unsupported.
@@ -373,6 +382,9 @@ export const MutableDaemonConfigSchema = z
     appendSystemPrompt: z.string().default(""),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     installationResourceBindings: InstallationResourceBindingsSchema.optional(),
+    // COMPAT(projectPolicies): added 2026-10-22. A read-only copy of the installation's project
+    // exclusions for client choosers; launches check the coordinator. Absent on older daemons.
+    installationProjectPolicies: InstallationProjectPoliciesWireSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     sharedProviderPreferences: SharedProviderPreferencesSchema.optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -402,6 +414,7 @@ export const MutableDaemonConfigPatchSchema = z
     appendSystemPrompt: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     installationResourceBindings: InstallationResourceBindingsSchema.optional(),
+    installationProjectPolicies: InstallationProjectPoliciesWireSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
     plugins: z.record(PluginIdSchema, PluginSourceSchema).optional(),
@@ -2925,6 +2938,9 @@ export const ProjectCreateDirectoryRequestSchema = z.object({
   type: z.literal("project.create_directory.request"),
   parentPath: z.string(),
   name: z.string(),
+  // COMPAT(projectsRoot): added 2026-10-22; send false only to hosts advertising projectsRoot.
+  // False creates the folder without adding it as a project. Omitted means true.
+  register: z.boolean().optional(),
   requestId: z.string(),
 });
 
@@ -3941,6 +3957,8 @@ export const ServerInfoStatusPayloadSchema = z
     permissions: z.array(DaemonPermissionSchema).optional(),
     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
     desktopManaged: z.boolean().optional(),
+    // COMPAT(projectsRoot): added 2026-10-22; absent on daemons without a Projects folder.
+    projectsRoot: z.string().optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
@@ -4069,6 +4087,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectAdd: z.boolean().optional(),
         projectDirectoryBrowsing: z.boolean().optional(),
+        // COMPAT(projectsRoot): added 2026-10-22, remove gate after 2027-04-22.
+        // New projects must live inside the advertised server_info.projectsRoot.
+        projectsRoot: z.boolean().optional(),
         // COMPAT(worktreeRestore): added in v0.1.97, drop the gate when floor >= v0.1.97
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
@@ -4214,6 +4235,8 @@ export const ServerInfoStatusPayloadSchema = z
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
+        // COMPAT(projectPolicies): added 2026-10-22, remove gate after 2027-04-22.
+        installationProjectPolicies: z.boolean().optional(),
         installationSettingsAuthority: z.boolean().optional(),
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
@@ -4940,7 +4963,10 @@ export const OpenProjectResponseMessageSchema = z.object({
     workspace: WorkspaceDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
     // Unknown codes from newer daemons degrade to null; clients fall back to `error`.
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4950,7 +4976,10 @@ export const ProjectAddResponseSchema = z.object({
     requestId: z.string(),
     project: WorkspaceProjectDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4961,6 +4990,7 @@ export const ProjectCreateDirectoryErrorCodeSchema = z.enum([
   "permission_denied",
   "registration_failed",
   "filesystem_error",
+  "outside_projects_folder",
 ]);
 
 export const ProjectCreateDirectoryResponseSchema = z.object({

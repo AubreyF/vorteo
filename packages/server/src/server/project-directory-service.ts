@@ -22,7 +22,8 @@ export interface CreateProjectDirectoryInput {
 
 export interface CreateProjectDirectoryResult {
   directoryPath: string;
-  project: PersistedProjectRecord;
+  /** Null when the folder was created without adding it as a project. */
+  project: PersistedProjectRecord | null;
 }
 
 interface ProjectDirectoryFileSystem {
@@ -33,7 +34,10 @@ interface ProjectDirectoryFileSystem {
 
 interface CreateProjectDirectoryDependencies {
   filesystem?: ProjectDirectoryFileSystem;
-  registerProject(directoryPath: string): Promise<PersistedProjectRecord>;
+  /** Rejects a parent outside the allowed area, such as the installation's Projects folder. */
+  assertParentDirectory?: (parentPath: string) => Promise<void>;
+  /** Null creates the folder without registering a project. */
+  registerProject: ((directoryPath: string) => Promise<PersistedProjectRecord>) | null;
 }
 
 const nodeProjectDirectoryFileSystem: ProjectDirectoryFileSystem = {
@@ -68,6 +72,7 @@ export async function createProjectDirectory(
 
   const filesystem = dependencies.filesystem ?? nodeProjectDirectoryFileSystem;
   await requireExistingParent(filesystem, parentDirectory);
+  await dependencies.assertParentDirectory?.(parentDirectory);
 
   try {
     await filesystem.mkdir(directoryPath);
@@ -75,6 +80,7 @@ export async function createProjectDirectory(
     throw mapCreateDirectoryError(error, directoryPath);
   }
 
+  if (!dependencies.registerProject) return { directoryPath, project: null };
   try {
     const project = await dependencies.registerProject(directoryPath);
     return { directoryPath, project };

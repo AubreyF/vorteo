@@ -2739,15 +2739,24 @@ export class DaemonClient {
   }
 
   async createProjectDirectory(
-    input: { parentPath: string; name: string },
+    input: { parentPath: string; name: string; register?: boolean },
     requestId?: string,
   ): Promise<ProjectCreateDirectoryPayload> {
+    // An older daemon ignores the flag and would add the folder as a project.
+    if (
+      input.register === false &&
+      this.getLastServerInfoMessage()?.features?.projectsRoot !== true
+    ) {
+      throw new Error("Update this host to create folders without adding them as projects");
+    }
     return this.sendNamespacedCorrelatedSessionRequest<"project.create_directory.response">({
       requestId,
       message: {
         type: "project.create_directory.request",
         parentPath: input.parentPath,
         name: input.name,
+        // COMPAT(projectsRoot): only hosts advertising projectsRoot honor register: false.
+        ...(input.register === false ? { register: false } : {}),
       },
     });
   }

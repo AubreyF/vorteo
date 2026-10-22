@@ -174,6 +174,7 @@ import {
   FileBackedWorkspaceRegistry,
   type WorkspaceArchiveContext,
 } from "./workspace-registry.js";
+import { setActiveProjectsFolder } from "./projects-folder.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { ScheduleService } from "./schedule/service.js";
 import { QuotaSchedulePreflight } from "./schedule/quota-preflight.js";
@@ -450,6 +451,8 @@ export interface PaseoDaemonConfig {
   daemonVersion?: string;
   desktopManaged?: boolean;
   worktreesRoot?: string;
+  /** The installation's Projects folder, when configured. */
+  projectsFolder?: import("./projects-folder.js").ProjectsFolderConfig;
   corsAllowedOrigins: string[];
   allowedHosts?: HostnamesConfig;
   hostnames?: HostnamesConfig;
@@ -468,6 +471,7 @@ export interface PaseoDaemonConfig {
   agentProfiles?: AgentProfile[];
   sharedProviderPreferences?: MutableDaemonConfig["sharedProviderPreferences"];
   installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
+  installationProjectPolicies?: MutableDaemonConfig["installationProjectPolicies"];
   skillSelection?: AgentSkillSelection;
   pluginsEnabled?: boolean;
   /** Seeds the Vorteo System project at startup. Defaults on; test daemons turn it off. */
@@ -630,6 +634,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
     skills: { selection: config.skillSelection },
     sharedProviderPreferences: config.sharedProviderPreferences,
     installationResourceBindings: config.installationResourceBindings,
+    installationProjectPolicies: config.installationProjectPolicies,
   };
 
   if (config.terminalProfiles !== undefined) {
@@ -1013,6 +1018,8 @@ export async function createPaseoDaemon(
   }
 
   const agentStorage = new AgentStorage(config.agentStoragePath, logger);
+  // Before any registry parses a path, so alias paths load and store in logical form.
+  setActiveProjectsFolder(config.projectsFolder);
   const projectRegistry = new FileBackedProjectRegistry(
     path.join(config.paseoHome, "projects", "projects.json"),
     logger,
@@ -1151,6 +1158,7 @@ export async function createPaseoDaemon(
   await bootstrapWorkspaceRegistries({
     serverId,
     paseoHome: config.paseoHome,
+    projectsFolder: config.projectsFolder,
     agentStorage,
     projectRegistry,
     workspaceRegistry,
@@ -2061,6 +2069,7 @@ export async function createPaseoDaemon(
               {
                 listen: formatListenTarget(boundListenTarget ?? listenTarget),
                 worktreesRoot: config.worktreesRoot,
+                ...(config.projectsFolder ? { projectsFolder: config.projectsFolder } : {}),
                 get appBaseUrl() {
                   return appBaseUrl;
                 },

@@ -7,6 +7,7 @@ import {
   ProjectDirectoryRequestError,
   validateDirectoryName,
 } from "./project-directory-service.js";
+import { createProjectsFolderPolicy } from "./projects-folder.js";
 
 describe("project directory creation", () => {
   const roots: string[] = [];
@@ -118,5 +119,42 @@ describe("project directory creation", () => {
       ),
     ).resolves.toEqual({ directoryPath, project });
     await expect(access(directoryPath)).resolves.toBeUndefined();
+  });
+
+  it("creates a plain folder without registering it when asked", async () => {
+    const root = await createRoot();
+    const directoryPath = join(root, "drafts");
+    await expect(
+      createProjectDirectory({ parentPath: root, name: "drafts" }, { registerProject: null }),
+    ).resolves.toEqual({ directoryPath, project: null });
+    await expect(access(directoryPath)).resolves.toBeUndefined();
+  });
+
+  it("checks the parent against the Projects folder before creating anything", async () => {
+    const root = await createRoot();
+    const outside = await createRoot();
+    const policy = createProjectsFolderPolicy({ root, aliases: [], allowOutside: [] });
+    await expect(
+      createProjectDirectory(
+        { parentPath: outside, name: "escape" },
+        {
+          assertParentDirectory: (parent) => policy.assertParentDirectory(parent),
+          registerProject: null,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "outside_projects_folder" });
+    await expect(access(join(outside, "escape"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    // New folder, then add: the created folder is inside the root, so it is a valid project.
+    const created = await createProjectDirectory(
+      { parentPath: root, name: "nested" },
+      {
+        assertParentDirectory: (parent) => policy.assertParentDirectory(parent),
+        registerProject: null,
+      },
+    );
+    await expect(
+      policy.assertNewProjectDirectory(created.directoryPath, { paths: [] }),
+    ).resolves.toBeUndefined();
   });
 });

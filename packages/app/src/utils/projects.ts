@@ -45,6 +45,7 @@ export interface ProjectSummary {
 export interface ProjectHost {
   serverId: string;
   serverName: string;
+  projectsRoot?: string | null;
   isOnline: boolean;
   workspaces: WorkspaceDescriptor[];
   projects: ProjectDescriptor[];
@@ -123,6 +124,7 @@ function buildHostProjectEntries(hosts: ProjectHost[]): HostProjectListItem[] {
   return buildWorkspaceStructureProjects({
     sessions: hosts.map((host) => ({
       serverId: host.serverId,
+      projectsRoot: host.projectsRoot,
       projects: host.projects,
       workspaces: host.workspaces,
     })),

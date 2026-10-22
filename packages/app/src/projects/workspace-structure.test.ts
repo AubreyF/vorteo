@@ -269,3 +269,76 @@ test("logical project membership does not choose an arbitrary same-host checkout
   });
   expect(result.find((item) => item.viewKey === membership.key)?.hosts).toEqual([]);
 });
+
+describe("shared Projects folder placements", () => {
+  function session(input: { serverId: string; projectsRoot: string | null; root: string }) {
+    const projectId = `${input.serverId}-app`;
+    return {
+      serverId: input.serverId,
+      projectsRoot: input.projectsRoot,
+      projects: [
+        project({
+          id: projectId,
+          key: `host:${input.serverId}:${input.root}`,
+          root: input.root,
+          name: "app",
+        }),
+      ],
+      workspaces: [workspace(`${input.serverId}-ws`, projectId, input.root)],
+    };
+  }
+
+  test("merges remote-less placements at the identical root into one project", () => {
+    const result = buildWorkspaceStructureProjects({
+      sessions: [
+        session({ serverId: "host", projectsRoot: "/Users/me/dev", root: "/Users/me/dev/app" }),
+        session({ serverId: "dev", projectsRoot: "/Users/me/dev", root: "/Users/me/dev/app/" }),
+      ],
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ viewKey: "host:dev:/Users/me/dev/app/" });
+    expect(result[0]!.hosts.map((host) => host.serverId).sort()).toEqual(["dev", "host"]);
+    expect(result[0]!.workspaceKeys.sort()).toEqual(["dev:dev-ws", "host:host-ws"]);
+  });
+
+  test("joins a membership that names either placement's key", () => {
+    const dev = session({
+      serverId: "dev",
+      projectsRoot: "/Users/me/dev",
+      root: "/Users/me/dev/app",
+    });
+    const assigned = workspace("assigned", "dev-app", "/Users/me/dev/app");
+    assigned.projectMembership = { key: "host:host:/Users/me/dev/app", name: "app" };
+    dev.workspaces.push(assigned);
+    const result = buildWorkspaceStructureProjects({
+      sessions: [
+        session({ serverId: "host", projectsRoot: "/Users/me/dev", root: "/Users/me/dev/app" }),
+        dev,
+      ],
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.workspaceKeys).toContain("dev:assigned");
+  });
+
+  test("keeps placements separate when the Projects folder differs or is absent", () => {
+    for (const devRoot of ["/home/guest/dev", null]) {
+      const result = buildWorkspaceStructureProjects({
+        sessions: [
+          session({ serverId: "host", projectsRoot: "/Users/me/dev", root: "/Users/me/dev/app" }),
+          session({ serverId: "dev", projectsRoot: devRoot, root: "/Users/me/dev/app" }),
+        ],
+      });
+      expect(result).toHaveLength(2);
+    }
+  });
+
+  test("keeps placements outside the shared Projects folder separate", () => {
+    const result = buildWorkspaceStructureProjects({
+      sessions: [
+        session({ serverId: "host", projectsRoot: "/Users/me/dev", root: "/Users/me/other/app" }),
+        session({ serverId: "dev", projectsRoot: "/Users/me/dev", root: "/Users/me/other/app" }),
+      ],
+    });
+    expect(result).toHaveLength(2);
+  });
+});
