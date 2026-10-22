@@ -201,6 +201,8 @@ export interface ComposerTrackRowProps {
    * lands inside the panel is not.
    */
   closeOnSelect?: boolean;
+  /** Extra spoken context, such as details a row shows only in its tooltip. */
+  accessibilityHint?: string;
   disabled?: boolean;
   accessibilityLabel?: string;
   testID?: string;
@@ -237,6 +239,7 @@ function TrackRowContent({
   inline,
   disabled = false,
   accessibilityLabel,
+  accessibilityHint,
   testID,
 }: ComposerTrackRowProps): ReactElement {
   const [hovered, setHovered] = useState(false);
@@ -268,6 +271,7 @@ function TrackRowContent({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
         testID={testID}
         disabled={disabled}
         onPress={onPress}

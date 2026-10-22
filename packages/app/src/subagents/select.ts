@@ -16,6 +16,8 @@ export interface PaseoSubagentRow {
   /** Managed agents have a real title, so the union's task line is always absent for them. */
   description: null;
   subtitle: string | null;
+  /** Latest reported token and cost usage, shown in the row's details tooltip. */
+  usage?: Agent["lastUsage"] | null;
   status: Agent["status"];
   turn: Agent["turn"];
   requiresAttention: Agent["requiresAttention"];
@@ -74,6 +76,7 @@ function toSubagentRow(agent: Agent, profiles: readonly AgentProfile[]): Subagen
     title: agent.title,
     description: null,
     subtitle,
+    usage: agent.lastUsage ?? null,
     status: agent.status,
     turn: agent.turn,
     requiresAttention: agent.requiresAttention,

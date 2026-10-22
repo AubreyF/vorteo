@@ -246,6 +246,16 @@ function computePosition({
   return { x, y, actualSide };
 }
 
+/**
+ * Touch layouts open tooltips by press instead of hover. Rows that pair a tooltip with their own
+ * press behavior use this to stay in step with the tooltip.
+ */
+export function useTooltipTouchInteraction(): boolean {
+  const isCompact = useIsCompactFormFactor();
+  const touch = useVortonTouch();
+  return isNative || isCompact || touch;
+}
+
 export function Tooltip({
   open,
   defaultOpen,
@@ -270,9 +280,7 @@ export function Tooltip({
     onOpenChange,
   });
 
-  const isCompact = useIsCompactFormFactor();
-  const touch = useVortonTouch();
-  const useTouchInteraction = isNative || isCompact || touch;
+  const useTouchInteraction = useTooltipTouchInteraction();
   const enabled = useTouchInteraction ? enabledOnMobile : enabledOnDesktop;
 
   useEffect(() => {

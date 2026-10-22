@@ -1,5 +1,10 @@
 import { StyleSheet } from "react-native-unistyles";
 import { FLOATING_PANEL_RADIUS, FLOATING_PANEL_CONTROL_HEIGHT } from "@/styles/floating-panel";
+import {
+  LIST_ROW_HEIGHT,
+  LIST_ROW_SPACING,
+  LIST_ROW_TOUCH_HEIGHT,
+} from "@/styles/list-row-metrics";
 
 // Shared leading centerline for heading icons, row handles and journal markers.
 export const TASK_CARD_ICON_CENTER = FLOATING_PANEL_CONTROL_HEIGHT / 2;
@@ -7,8 +12,9 @@ export const TASK_CARD_TOUCH_ICON_CENTER = TASK_CARD_ICON_CENTER;
 
 export const TASK_CARD_BODY_INSET = 12;
 export const TASK_CARD_BOTTOM_INSET = 8;
-export const TASK_CARD_ROW_HEIGHT = 40;
-export const TASK_CARD_TOUCH_ROW_HEIGHT = 44;
+// Card rows share the sidebar's row rhythm so both columns keep one density.
+export const TASK_CARD_ROW_HEIGHT = LIST_ROW_HEIGHT;
+export const TASK_CARD_TOUCH_ROW_HEIGHT = LIST_ROW_TOUCH_HEIGHT;
 
 export const taskCardStyles = StyleSheet.create((theme) => {
   const surface = {
@@ -24,7 +30,7 @@ export const taskCardStyles = StyleSheet.create((theme) => {
     bodyContent: {
       paddingHorizontal: TASK_CARD_BODY_INSET,
       paddingVertical: theme.spacing[1],
-      gap: 2,
+      gap: LIST_ROW_SPACING,
     },
     // Secondary drag targets stay tall while reserving less horizontal space on touch.
     rowHandle: { width: 24, marginLeft: TASK_CARD_ICON_CENTER - 12, minHeight: 32 },

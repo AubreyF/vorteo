@@ -430,7 +430,8 @@ export function useKeyboardShortcuts({
 function isReorderKey(event: KeyboardEvent): boolean {
   if (!(event.target instanceof Element)) return false;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  const handle = event.target.closest("[data-keyboard-reorder='true']");
+  // Grips use "true" and whole draggable rows use "row".
+  const handle = event.target.closest("[data-keyboard-reorder]");
   const reorderKey = [
     "Space",
     "Enter",

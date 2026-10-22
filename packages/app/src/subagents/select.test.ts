@@ -351,6 +351,7 @@ describe("selectSubagentsForParent", () => {
         title: "Review child",
         description: null,
         subtitle: "No profile · claude-sonnet-5",
+        usage: null,
         status: "running",
         turn: { phase: "idle", cancellationRequestId: null },
         requiresAttention: true,
@@ -368,6 +369,7 @@ describe("selectSubagentsForParent", () => {
       "subtitle",
       "title",
       "turn",
+      "usage",
     ]);
     expect(rows[0]).not.toHaveProperty("onOpen");
     expect(rows[0]).not.toHaveProperty("model");

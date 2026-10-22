@@ -1,4 +1,6 @@
 import type { TFunction } from "i18next";
+import type { AgentUsage } from "@getpaseo/protocol/agent-types";
+import { formatTokenCount } from "@/components/context-window-meter.utils";
 import type { ComposerTrackPillSegment } from "@/composer/tracks";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { deriveSidebarStateBucket, STATUS_BUCKET_ORDER } from "@/utils/sidebar-agent-state";
@@ -52,6 +54,45 @@ export function buildSubagentRowPresentationData(row: SubagentRow): SubagentRowP
       requiresAttention: false,
     }),
   };
+}
+
+/**
+ * Everything a row no longer prints beside its title: state, worker type, profile, model,
+ * effort and usage. The row's tooltip shows these lines in order.
+ */
+export function buildSubagentRowDetails(t: TFunction, row: SubagentRow): string[] {
+  const data = buildSubagentRowPresentationData(row);
+  const status =
+    row.kind === "provider"
+      ? t(`subagents.providerStatus.${row.status}`)
+      : t(`subagents.rowStatus.${data.statusBucket ?? "done"}`);
+  // Provider rows are named by their task; the worker type ("Explore") is the other title.
+  const workerType = row.kind === "provider" ? resolveRowLabel(row.title) : null;
+  const lines = [
+    status,
+    workerType && workerType !== data.label && workerType !== data.subtitle ? workerType : null,
+    data.subtitle || null,
+    ...(row.kind === "paseo" ? describeSubagentUsage(row.usage) : []),
+  ];
+  return lines.filter((line): line is string => Boolean(line));
+}
+
+/** Token, context and cost lines for the latest reported usage. */
+export function describeSubagentUsage(usage: AgentUsage | null | undefined): string[] {
+  if (!usage) return [];
+  const tokens = [
+    usage.inputTokens !== undefined ? `${formatTokenCount(usage.inputTokens)} in` : null,
+    usage.cachedInputTokens ? `${formatTokenCount(usage.cachedInputTokens)} cached` : null,
+    usage.outputTokens !== undefined ? `${formatTokenCount(usage.outputTokens)} out` : null,
+  ].filter(Boolean);
+  const context =
+    usage.contextWindowUsedTokens !== undefined && usage.contextWindowMaxTokens
+      ? `Context ${formatTokenCount(usage.contextWindowUsedTokens)} / ${formatTokenCount(usage.contextWindowMaxTokens)}`
+      : null;
+  const cost = usage.totalCostUsd !== undefined ? `$${usage.totalCostUsd.toFixed(2)}` : null;
+  return [tokens.length ? `Tokens ${tokens.join(" · ")}` : null, context, cost].filter(
+    (line): line is string => Boolean(line),
+  );
 }
 
 type ActiveStatusBucket = Exclude<SidebarStateBucket, "done">;

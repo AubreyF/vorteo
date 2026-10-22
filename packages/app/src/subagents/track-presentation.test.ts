@@ -3,6 +3,7 @@ import { i18n } from "@/i18n/i18next";
 import type { PaseoSubagentRow, ProviderSubagentRow, SubagentRow } from "./select";
 import {
   buildSubagentPillPresentation,
+  buildSubagentRowDetails,
   buildSubagentRowPresentationData,
   countFinishedSubagents,
   resolveRowLabel,
@@ -17,7 +18,8 @@ function row(
     provider: overrides.provider ?? "codex",
     title: overrides.title ?? `Agent ${overrides.id}`,
     description: null,
-    subtitle: null,
+    subtitle: overrides.subtitle ?? null,
+    usage: overrides.usage ?? null,
     status: overrides.status ?? "idle",
     turn:
       overrides.turn ??
@@ -310,5 +312,65 @@ describe("provider-owned row subtitles", () => {
         providerRow({ description: null, subtitle: null, title: "general-purpose" }),
       ).subtitle,
     ).toBe("");
+  });
+});
+
+describe("buildSubagentRowDetails", () => {
+  beforeAll(async () => {
+    if (!i18n.isInitialized) {
+      await i18n.init();
+    }
+    await i18n.changeLanguage("en");
+  });
+
+  it("moves state, profile, model and usage from the row into its tooltip lines", () => {
+    expect(
+      buildSubagentRowDetails(
+        i18n.t,
+        row({
+          id: "a",
+          status: "running",
+          subtitle: "OPUS · claude-opus-5-5 · high",
+          usage: {
+            inputTokens: 120_400,
+            cachedInputTokens: 80_000,
+            outputTokens: 3_200,
+            contextWindowUsedTokens: 45_000,
+            contextWindowMaxTokens: 200_000,
+            totalCostUsd: 1.234,
+          },
+        }),
+      ),
+    ).toEqual([
+      "Working",
+      "OPUS · claude-opus-5-5 · high",
+      "Tokens 120k in · 80k cached · 3k out",
+      "Context 45k / 200k",
+      "$1.23",
+    ]);
+  });
+
+  it("keeps a provider worker's type when its task names the row", () => {
+    const provider: ProviderSubagentRow = {
+      kind: "provider",
+      id: "p",
+      parentAgentId: "parent",
+      provider: "claude",
+      title: "general-purpose",
+      description: "Audit install sub-agents",
+      subtitle: "claude-sonnet-5-5",
+      status: "completed",
+      requiresAttention: false,
+      createdAt: new Date("2026-04-20T00:00:00.000Z"),
+    };
+    expect(buildSubagentRowDetails(i18n.t, provider)).toEqual([
+      "Completed",
+      "general-purpose",
+      "claude-sonnet-5-5",
+    ]);
+  });
+
+  it("reports an idle worker without usage as idle only", () => {
+    expect(buildSubagentRowDetails(i18n.t, row({ id: "b" }))).toEqual(["Idle"]);
   });
 });
