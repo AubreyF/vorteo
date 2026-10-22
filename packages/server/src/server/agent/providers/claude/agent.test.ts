@@ -2282,6 +2282,12 @@ describe("ClaudeAgentSession context window usage", () => {
             description: "Start a new session with empty context",
             argumentHint: "",
           },
+          {
+            name: "__remote-workflow",
+            description:
+              "Run the workflow script delivered in this session environment (server-launched sessions only)",
+            argumentHint: "",
+          },
         ],
         rewindFiles: async () => ({ canRewind: true }),
         [Symbol.asyncIterator]() {
@@ -2299,7 +2305,16 @@ describe("ClaudeAgentSession context window usage", () => {
     const commands = await session.listCommands();
     await session.close();
 
+    // Hidden internal commands are not skills; counting them as skills blocks
+    // restricted launches that require a package for every native default skill.
     expect(commands).toEqual([
+      {
+        name: "__remote-workflow",
+        description:
+          "Run the workflow script delivered in this session environment (server-launched sessions only)",
+        argumentHint: "",
+        kind: "command",
+      },
       {
         name: "claude-api",
         description: "Build, debug, and optimize Claude API apps with this skill.",

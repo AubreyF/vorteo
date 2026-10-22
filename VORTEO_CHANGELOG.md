@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.746 - 2026-10-22
+
+### Fixed
+
+- Treat Claude Code's hidden internal commands, whose names start with `__` (such as `__remote-workflow` since 2.1.285), as commands instead of skills. Restricted skill policies count every listed skill as a native default that needs an inspectable package, so this command made restricted Claude launches fail. Other built-in commands and bundled skills without packages still block restricted launches until a follow-up fix.
+
+### Documentation
+
+- Correct the release that first keeps the daemon running on invalid `headlessHost` settings: Host releases before `vorteo.736` refuse to start on them, not before `vorteo.731`.
+
 ## 0.11.0-beta.3.vorteo.745 - 2026-10-22
 
 ### Maintenance

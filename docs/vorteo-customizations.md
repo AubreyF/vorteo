@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): Claude's hidden internal commands (names starting with `__`) are classified as commands, not skills, so restricted skill policies no longer demand a package for them. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-21): the Context window donut now draws on web, and its details show one loading pulse until the breakdown, account usage and plan usage have all loaded. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-21): the left sidebar toolbar keeps History, Schedules and Settings visible until they would overlap, measuring its real width instead of using fixed breakpoints. README overview and onboarding are unchanged.
