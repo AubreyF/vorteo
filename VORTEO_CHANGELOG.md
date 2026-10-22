@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Fixed
+
+- The agent guide and installation-maintenance skill no longer tell every agent that restarts need the owner's own click. Approval decisions are automatic where the owner's policy allows, otherwise made by the owner or by the installation lead the owner has delegated approvals to, and other agents hand requests to that lead. Shared instruction changes stay with the owner. Agents had been routing Dev updates to the owner because of the old wording.
+
 ## 0.11.0-beta.3.vorteo.761 - 2026-10-22
 
 ### Maintenance

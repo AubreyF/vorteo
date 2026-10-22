@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the agent guide and installation-maintenance skill describe approval delegation: decisions are automatic where policy allows, otherwise the owner's or the delegated installation lead's, so agents stop asking the owner to approve what the lead handles. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the agent tool reports invalid source batch contributions, not only conflicts, and names the requester, so a batch held by a refused contribution never looks silently pending. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): three fixes that had shipped only to Dev now run on the Host too: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile. README overview and onboarding are unchanged.
