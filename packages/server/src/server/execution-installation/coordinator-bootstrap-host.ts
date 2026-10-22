@@ -111,6 +111,8 @@ export function createBootstrapReconciliationLedger(
   return {
     list: () => requests.list(),
     revokeAutomatic: () => requests.revokeAutomatic(),
+    cancelForReplacedHostRelease: (selected, releaseRoot) =>
+      requests.cancelForReplacedHostRelease(selected, releaseRoot),
     reserveAutomaticReconciliation: (value) => requests.reserveAutomaticReconciliation(value),
     finishAutomaticReconciliation: (id, value) => requests.finishAutomaticReconciliation(id, value),
   };

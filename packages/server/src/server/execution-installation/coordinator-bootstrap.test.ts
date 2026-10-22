@@ -4256,6 +4256,78 @@ test("a client that reviews Claude refresh can approve the exact plan", async ()
   expect(reply.payload.requests![0]!.plan.claudeHostRefreshConfiguration).toBe(true);
 });
 
+// A Host install that selects a new release makes coordinator updates prepared
+// for the old one stale (2026-10-22 07:28Z); the renewal prepared minutes after
+// each install targets the new release and must survive.
+test("a Host release change cancels only stale undispatched coordinator updates", async () => {
+  const releaseRoot = "/protected/releases";
+  const replaced = `${releaseRoot}/old-update/build-a`;
+  const selected = `${releaseRoot}/new-update/build-b`;
+  const at = (directory: string) => {
+    const f = fixture();
+    f.plan.candidate = { ...f.plan.candidate, directory };
+    return f;
+  };
+  const stale = at(replaced);
+  const pending = await stale.prepare();
+  expect(stale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([pending.id]);
+  const [canceled] = stale.service().list();
+  expect(canceled).toMatchObject({ id: pending.id, status: "canceled", plan: pending.plan });
+  expect(canceled!.revision).not.toBe(pending.revision);
+  expect(stale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+
+  const approvedStale = at(replaced);
+  const approved = await approvedStale
+    .service()
+    .decide({ ...pickDecision(await approvedStale.prepare()), decision: "approve" }, ownerPassword);
+  expect(approvedStale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([
+    approved.id,
+  ]);
+
+  const renewal = at(selected);
+  const current = await renewal.prepare();
+  expect(renewal.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+  expect(renewal.service().list()).toEqual([current]);
+
+  const elsewhere = at("/protected/supervision-release");
+  const outside = await elsewhere.prepare();
+  expect(elsewhere.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+  expect(elsewhere.service().list()).toEqual([outside]);
+});
+
+test("stale coordinator cancellation never touches executing requests or restart jobs", async () => {
+  const releaseRoot = "/protected/releases";
+  const f = fixture();
+  f.plan.candidate = { ...f.plan.candidate, directory: `${releaseRoot}/old-update/build-a` };
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(await f.prepare()), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  expect(
+    f.service().cancelForReplacedHostRelease(`${releaseRoot}/new-update/build-b`, releaseRoot),
+  ).toEqual([]);
+  expect(f.service().list()).toEqual([claimed]);
+
+  // A pending restart (such as a session host restart awaiting the owner) beside
+  // a stale coordinator update: only the coordinator update is canceled.
+  const g = fixture();
+  g.plan.candidate = { ...g.plan.candidate, directory: `${releaseRoot}/old-update/build-a` };
+  const queue = new InstallationRestarts(
+    { read: () => g.journal.readLifecycle(), write: (next) => g.journal.writeLifecycle(next) },
+    { restart: async () => "unused" },
+  );
+  queue.request({ target: "host", reason: "Awaiting owner" }, "owner");
+  const jobs = g.journal.readLifecycle();
+  const stale = await g.prepare();
+  expect(
+    g.service().cancelForReplacedHostRelease(`${releaseRoot}/new-update/build-b`, releaseRoot),
+  ).toEqual([stale.id]);
+  expect(g.journal.readLifecycle()).toEqual(jobs);
+  expect(jobs[0]).toMatchObject({ status: "pending" });
+});
+
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
   const f = fixture();
   const original = coordinatorPlanDigest(f.plan);
