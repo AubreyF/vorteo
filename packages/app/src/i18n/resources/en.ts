@@ -2341,8 +2341,6 @@ export const en = {
         confirmedCurrent: "You're up to date",
         checkComplete: "Check complete",
         title: "Vorteo updates",
-        notice: "Vorteo update available",
-        review: "Review update",
         idle: "Check for new commits on main.",
         current: "This interface is up to date with main.",
         ahead: "This interface was built ahead of main.",
