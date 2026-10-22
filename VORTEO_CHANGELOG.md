@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.784 - 2026-10-22
+
+### Maintenance
+
+- Skip server suites for POSIX-only Vorteo features on Windows CI: the installation coordinator, session host, Host account delivery and Host process custody, plus `*.posix.test.ts` as the testing guide already promised. Upstream suites keep running there; individual Vorteo cases inside them that need POSIX modes, signals or symlink swaps are gated case by case.
+- Two bootstrap suites now start daemons without the System project, like every other test daemon. On Windows a handle stayed open on its directory after the daemon stopped.
+- The preview monitor test retains its own Node copy, and the Dev installer check runs only for Dev's in-root release layout, matching Linux CI.
+
 ## 0.11.0-beta.3.vorteo.783 - 2026-10-22
 
 ### Fixed

@@ -23,10 +23,13 @@ import {
   sherpaLoaderEnvKey,
 } from "../src/server/speech/providers/local/sherpa/sherpa-runtime-env.js";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
 const loaderKey = sherpaLoaderEnvKey();
 const loaderEnv = resolveSherpaLoaderEnv();
 
-test.each([
+posixTest.each([
   "valid",
   "escape",
   "writable parent",
@@ -81,17 +84,21 @@ test.each([
   }
 });
 
-test("compiled held idle restart reopens its retained queue without dispatch replay", async () => {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-held-native-")));
-  const fixture = path.join(root, "scenario.mjs");
-  const report = path.join(root, "result.json");
-  const supervisor = new URL("../dist/scripts/supervisor.js", import.meta.url).href;
-  const worker = fileURLToPath(new URL("../dist/server/server/daemon-worker.js", import.meta.url));
-  const clientModule = new URL("../../client/dist/daemon-client.js", import.meta.url).href;
-  const execution = new URL("../dist/server/server/execution-installation/", import.meta.url);
-  await writeFile(
-    fixture,
-    `
+posixTest(
+  "compiled held idle restart reopens its retained queue without dispatch replay",
+  async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-held-native-")));
+    const fixture = path.join(root, "scenario.mjs");
+    const report = path.join(root, "result.json");
+    const supervisor = new URL("../dist/scripts/supervisor.js", import.meta.url).href;
+    const worker = fileURLToPath(
+      new URL("../dist/server/server/daemon-worker.js", import.meta.url),
+    );
+    const clientModule = new URL("../../client/dist/daemon-client.js", import.meta.url).href;
+    const execution = new URL("../dist/server/server/execution-installation/", import.meta.url);
+    await writeFile(
+      fixture,
+      `
     import assert from 'node:assert/strict';
     import {writeFile,mkdir} from 'node:fs/promises';
     import {InstallationRestarts} from ${JSON.stringify(new URL("restarts.js", execution).href)};
@@ -194,53 +201,55 @@ test("compiled held idle restart reopens its retained queue without dispatch rep
       console.error(error);await writeFile(${JSON.stringify(report)},JSON.stringify({error:String(error)}));await client?.close();controller.requestShutdown('fixture_failed');
     });
   `,
-  );
-  const child = spawn(process.execPath, [fixture], {
-    cwd: root,
-    env: {
-      PATH: process.env.PATH,
-      TMPDIR: process.env.TMPDIR,
-      HOME: root,
-      USERPROFILE: root,
-      PASEO_HOME: path.join(root, "state"),
-      PASEO_LISTEN: "127.0.0.1:0",
-      PASEO_RELAY_ENABLED: "0",
-      PASEO_MANAGED_WORKER: "1",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let output = "";
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
-  const closed = new Promise<number | null>((resolve, reject) => {
-    child.once("close", resolve);
-    child.once("error", reject);
-  });
-  let timer: ReturnType<typeof setTimeout>;
-  try {
-    const expired = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(output)), 40_000);
+    );
+    const child = spawn(process.execPath, [fixture], {
+      cwd: root,
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: process.env.TMPDIR,
+        HOME: root,
+        USERPROFILE: root,
+        PASEO_HOME: path.join(root, "state"),
+        PASEO_LISTEN: "127.0.0.1:0",
+        PASEO_RELAY_ENABLED: "0",
+        PASEO_MANAGED_WORKER: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    const code = await Promise.race([closed, expired]);
-    expect(code, output).toBe(0);
-    const result = JSON.parse(await readFile(report, "utf8"));
-    expect(result.error, output).toBeUndefined();
-    expect(result.accepted.accepted).toBe(true);
-    expect(result.queueStatus).toBe("succeeded");
-    expect(result.redispatches).toBe(0);
-    expect(() => process.kill(result.oldPid, 0)).toThrow();
-    expect(() => process.kill(result.newPid, 0)).toThrow();
-  } finally {
-    clearTimeout(timer!);
-    if (child.exitCode === null) child.kill("SIGTERM");
-    await closed;
-    await rm(root, { recursive: true, force: true });
-  }
-}, 60_000);
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    const closed = new Promise<number | null>((resolve, reject) => {
+      child.once("close", resolve);
+      child.once("error", reject);
+    });
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      const expired = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(output)), 40_000);
+      });
+      const code = await Promise.race([closed, expired]);
+      expect(code, output).toBe(0);
+      const result = JSON.parse(await readFile(report, "utf8"));
+      expect(result.error, output).toBeUndefined();
+      expect(result.accepted.accepted).toBe(true);
+      expect(result.queueStatus).toBe("succeeded");
+      expect(result.redispatches).toBe(0);
+      expect(() => process.kill(result.oldPid, 0)).toThrow();
+      expect(() => process.kill(result.newPid, 0)).toThrow();
+    } finally {
+      clearTimeout(timer!);
+      if (child.exitCode === null) child.kill("SIGTERM");
+      await closed;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
 
 // Agents and terminals inherit the daemon worker's environment, so the local speech
 // runtime's library directory must stay scoped to the speech worker.
@@ -347,7 +356,7 @@ test("startup preflight accepts disabled providers without creating runtime stat
   }
 });
 
-test.each([false, true])(
+posixTest.each([false, true])(
   "a managed supervisor selects the approved release on restart without replacing itself with external selector %s",
   async (externalSelector) => {
     const root = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-managed-supervisor-")));
@@ -430,8 +439,10 @@ test.each([false, true])(
       }
       expect(workers[0].pid).not.toBe(workers[1].pid);
       // The Dev installer collector uses Linux /proc. Selection, replacement and
-      // native parent arguments above are verified on macOS too.
-      if (process.platform === "linux") {
+      // native parent arguments above are verified on macOS too. Dev keeps its release link
+      // directly inside the release root, which the collector requires; an external selector
+      // is the Host launcher's layout.
+      if (process.platform === "linux" && !externalSelector) {
         const helper = await readFile(
           new URL("../../../scripts/installation-container-runtime.mjs", import.meta.url),
           "utf8",
