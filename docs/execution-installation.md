@@ -171,6 +171,17 @@ With a Projects folder, the daemon:
 - Moves registry paths under a `migrateFrom` prefix to the identical path once, at startup, after copying `projects.json` and `workspaces.json` to `*.before-projects-folder-<time>`. The step is idempotent; a failure keeps the earlier paths.
 - Advertises `features.projectsRoot` and `server_info.projectsRoot`. Clients use them to show the simpler Add project flow.
 
+### Projects in every environment
+
+When the Host and the Dev daemon advertise the same `projectsRoot`, a project inside it needs no per-environment setup:
+
+- Starting a workspace in an environment with no copy of the project, or moving a draft there, uses the identical path. The destination adds the project on demand; there is no folder prompt or path mapping.
+- Placements whose roots are the same path inside the folder appear as one project in the sidebar, the new-workspace picker and Settings > Projects, even without a git remote. The join happens in the client; each daemon's stored project key is unchanged.
+- Settings > Projects opens the Host placement's settings, else the first placement. Both environments read the same `paseo.json`.
+- Each environment keeps its own toolchain. Dependencies installed by one, such as `node_modules` with native binaries, may need reinstalling in the other; moving a draft shows that reminder.
+
+Daemons that do not advertise the same folder keep the earlier behavior: the client maps folders through shared host paths and otherwise asks for the folder.
+
 The Host's runtime, state, releases and install source must stay outside the folder, because the guest can write to it. The installer refuses a folder that contains them. Both daemons can create worktrees for the same repository in `.vorteo/worktrees`; their names never collide, and each lists the other's worktrees for that repository.
 
 ### Configure an installation

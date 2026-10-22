@@ -6,6 +6,8 @@ import { readExecutionInstallation } from "@/execution-installation/policy";
 import { Button } from "@/components/ui/button";
 import { ProjectDirectoryBrowser } from "@/components/project-directory-browser";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import { useSessionStore } from "@/stores/session-store";
+import { sharedProjectDirectory } from "@/projects/projects-root";
 import type { TaskEnvironmentModel, TaskEnvironmentState } from "./model";
 
 export function TaskEnvironmentSelection({
@@ -23,6 +25,17 @@ export function TaskEnvironmentSelection({
   const installation = readExecutionInstallation();
   const [browsing, setBrowsing] = useState(false);
   const client = useHostRuntimeClient(state.serverId);
+  const ownerServerId = model.owner.serverId;
+  const usesSharedFolder = useSessionStore(
+    (store) =>
+      sharedProjectDirectory({
+        source: store.sessions[ownerServerId]?.serverInfo,
+        destination: store.sessions[state.serverId]?.serverInfo,
+        directory: state.directory,
+      }) !== null,
+  );
+  const switchedEnvironment = state.serverId !== ownerServerId && state.status === "ready";
+  const showsFolderChoice = canChooseFolder && !state.workspaceId && !usesSharedFolder;
   const options = useMemo(
     () =>
       hosts.map((host) => {
@@ -62,13 +75,19 @@ export function TaskEnvironmentSelection({
           {state.directory}
         </Text>
       ) : null}
+      {switchedEnvironment ? (
+        <Text style={styles.text} testID="task-environment-toolchain-notice">
+          Dependencies installed in the other environment, such as node_modules, may need
+          reinstalling here.
+        </Text>
+      ) : null}
       {state.error ? <Text style={styles.text}>{state.error}</Text> : null}
       {state.status === "error" ? (
         <Button variant="ghost" onPress={retry}>
           Retry
         </Button>
       ) : null}
-      {canChooseFolder && !state.workspaceId && (
+      {showsFolderChoice && (
         <Button
           variant="ghost"
           disabled={disabled || !client}
@@ -78,6 +97,8 @@ export function TaskEnvironmentSelection({
           Choose folder
         </Button>
       )}
+      {/* COMPAT(projectsRoot): folder browsing remains only for daemons without a shared
+          Projects folder. Remove after 2027-04-22. */}
       {browsing && client ? (
         <AdaptiveModalSheet visible header={header} onClose={close}>
           <ProjectDirectoryBrowser client={client} onSelect={choose} />

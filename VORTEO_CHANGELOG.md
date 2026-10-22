@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Projects in a shared Projects folder work in every environment without setup. When the Host and the Dev container advertise the same Projects folder, starting a workspace or moving a draft to an environment that has no copy of the project uses the identical path there and adds the project on demand, with no folder prompt.
+- The sidebar and new-workspace picker show one project for placements at the same path inside the shared Projects folder, even without a git remote. Stored project keys are unchanged.
+- Settings > Projects lists each project once and opens one settings page, the Host's placement when there is one, because both environments edit the same `paseo.json`.
+- Moving a draft to another environment shows a one-line reminder that dependencies installed in the other environment, such as `node_modules`, may need reinstalling.
+
+### Known limitations
+
+- Daemons without a matching Projects folder keep the earlier folder mapping and folder chooser. Nothing is installed yet.
+
 ## 0.11.0-beta.3.vorteo.765 - 2026-10-22
 
 ### Added

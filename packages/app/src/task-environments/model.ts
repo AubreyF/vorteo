@@ -10,7 +10,7 @@ import { sameWorkspaceReference, type WorkspaceEnvironmentReference } from "./wo
 
 interface EnvironmentClient {
   client: DestinationWorkspaceClient &
-    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace">;
+    Pick<DaemonClient, "browseProjectDirectories" | "createWorkspace" | "getLastServerInfoMessage">;
   supportsBindings: boolean;
 }
 export interface TaskEnvironmentState {
@@ -103,6 +103,7 @@ export function openTaskEnvironment(options: TaskEnvironmentOptions) {
     }
   }
   return {
+    owner: options.owner,
     getState: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);
