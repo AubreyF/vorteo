@@ -24,6 +24,7 @@ import { DemoControls } from "@/demo/controls";
 import {
   Search,
   FolderPlus,
+  Folder,
   Plus,
   History,
   CalendarClock,
@@ -104,7 +105,6 @@ import { useSidebarModel } from "@/components/sidebar/sidebar-model";
 import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
 import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels";
-import type { SidebarSystemGroup } from "@/workspace/lifecycle/grouping";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 
@@ -124,6 +124,8 @@ import { UsageSidebarItem, useHasUsageSummary } from "@/usage";
 import { SidebarGlobalCards } from "@/components/sidebar/global-cards";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { useCreateSidebarFolderAction } from "@/sidebar-folders/actions";
+import { ROOT_FOLDER_SCOPE } from "@/sidebar-folders/tree";
 
 type SidebarTheme = Theme;
 
@@ -132,7 +134,6 @@ const DEV_BUILD_LABEL = process.env.EXPO_PUBLIC_PASEO_DEV_BUILD_LABEL?.trim() ||
 interface SidebarSharedProps {
   theme: SidebarTheme;
   workspaceGroups: SidebarWorkspaceGroup[];
-  systemGroups: SidebarSystemGroup[];
   projectIconTargets: SidebarProjectIconTarget[];
   pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
@@ -199,7 +200,6 @@ const LeftSidebarBase = memo(function LeftSidebarBase({
     isRevalidating,
     refreshAll,
     workspaceGroups,
-    systemGroups,
     projectIconTargets,
     pinnedGroups,
     collapsedProjectKeys,
@@ -285,7 +285,6 @@ const LeftSidebarBase = memo(function LeftSidebarBase({
   const sharedProps = {
     theme,
     workspaceGroups,
-    systemGroups,
     projectIconTargets,
     pinnedGroups,
     projects,
@@ -496,6 +495,7 @@ function SidebarToolbar({
   onBeforeNavigate?: () => void;
 }) {
   const handleNewWorkspace = useOpenNewWorkspace(onBeforeNavigate);
+  const handleNewFolder = useCreateSidebarFolderAction(ROOT_FOLDER_SCOPE, null);
   const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
   const handleSearch = useCallback(() => {
     onBeforeNavigate?.();
@@ -530,6 +530,7 @@ function SidebarToolbar({
       project: <FolderPlus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       help: <CircleHelp size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       workspace: <Plus size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
+      folder: <Folder size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
       display: <Settings2 size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />,
     }),
     [theme.iconSize.sm, theme.colors.foregroundMuted],
@@ -616,6 +617,15 @@ function SidebarToolbar({
             >
               {t("sidebar.actions.newWorkspace")}
             </DropdownMenuItem>
+            {handleNewFolder ? (
+              <DropdownMenuItem
+                testID="sidebar-new-folder"
+                onSelect={handleNewFolder}
+                leading={menuIcons.folder}
+              >
+                {t("sidebar.folders.actions.newFolder")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Appearance</DropdownMenuLabel>
             <View style={styles.themeMenu}>
@@ -655,6 +665,7 @@ function SidebarToolbar({
       openHistory,
       handleOpenProject,
       handleNewWorkspace,
+      handleNewFolder,
       labels.addProject,
       t,
       openDisplay,
@@ -806,7 +817,6 @@ function MobileSidebar({
   active,
   theme,
   workspaceGroups,
-  systemGroups,
   projectIconTargets,
   pinnedGroups,
   projects,
@@ -894,7 +904,6 @@ function MobileSidebar({
               shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
               groupMode={groupMode}
               workspaceGroups={workspaceGroups}
-              systemGroups={systemGroups}
               projectIconTargets={projectIconTargets}
               pinnedGroups={pinnedGroups}
               projects={projects}
@@ -943,7 +952,6 @@ function SidebarPresentation({
 function DesktopSidebar({
   theme,
   workspaceGroups,
-  systemGroups,
   projectIconTargets,
   pinnedGroups,
   projects,
@@ -1206,7 +1214,6 @@ function DesktopSidebar({
                   shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                   groupMode={groupMode}
                   workspaceGroups={workspaceGroups}
-                  systemGroups={systemGroups}
                   projectIconTargets={projectIconTargets}
                   pinnedGroups={pinnedGroups}
                   projects={projects}
@@ -1224,7 +1231,6 @@ function DesktopSidebar({
             </>
           )}
 
-          {!compact ? <SidebarGlobalCards /> : null}
           <SidebarSyncNotice compact={compact} />
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}
@@ -1239,6 +1245,8 @@ function DesktopSidebar({
             testID="left-sidebar-resize-handle"
           />
         </View>
+        {/* Global cards stand beside the navigation card rather than nesting inside it. */}
+        {!compact ? <SidebarGlobalCards detached /> : null}
       </Animated.View>
     </SidebarPresentation>
   );

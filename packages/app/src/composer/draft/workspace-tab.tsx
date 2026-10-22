@@ -18,6 +18,7 @@ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { ComposerImportPill } from "@/composer/draft/import-pill";
 import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
 import { AgentStreamView } from "@/agent-stream/view";
+import { LaunchMessageEntrance } from "@/composer/draft/launch-transition";
 import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useAgentInputDraft } from "@/composer/draft/input-draft";
 import type { CreateAgentInitialValues } from "@/hooks/use-agent-form-state";
@@ -56,6 +57,7 @@ import {
 } from "@/workspace-tabs/model";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 const EMPTY_PENDING_PERMISSIONS = new Map();
 const DRAFT_CAPABILITIES: AgentCapabilityFlags = {
@@ -454,6 +456,14 @@ export function WorkspaceDraftAgentTab({
     [composerState.workingDir, isCompactFormFactor, openInSidePane, serverId, workspaceId],
   );
 
+  const reportActionError = useReportActionError();
+  const formInputsKey = [
+    environment.state.status,
+    executionServerId,
+    composerState.selectedProvider,
+    composerState.effectiveModelId,
+    draftInput.attachments.length,
+  ].join("|");
   const {
     formErrorMessage,
     isSubmitting,
@@ -465,6 +475,7 @@ export function WorkspaceDraftAgentTab({
   } = useDraftAgentCreateFlow<Agent, AgentSnapshotPayload>({
     draftId,
     getPendingServerId: () => serverId,
+    formInputsKey,
     initialAttempt: initialCreateAttempt,
     allowEmptyText: allowsEmptyAutoSubmit,
     validateBeforeSubmit: ({ text, attachments }) => {
@@ -545,6 +556,7 @@ export function WorkspaceDraftAgentTab({
         selectModelMessage: t("workspaceSetup.errors.selectModel"),
       });
     },
+    onCreateError: reportActionError,
     onCreateSuccess: ({ result }) => {
       clearDraftInput("sent");
       clearWorkspaceAttachments({ scopeKey: draftAttachmentScopeKey });
@@ -674,7 +686,7 @@ export function WorkspaceDraftAgentTab({
   const dockContent = (
     <View style={styles.contentContainer}>
       {isSubmitting && draftAgent ? (
-        <View style={styles.streamContainer}>
+        <LaunchMessageEntrance>
           <AgentStreamView
             agentId={tabId}
             serverId={executionServerId}
@@ -685,7 +697,7 @@ export function WorkspaceDraftAgentTab({
             pendingPermissions={EMPTY_PENDING_PERMISSIONS}
             onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
-        </View>
+        </LaunchMessageEntrance>
       ) : (
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.configScrollContent}>
           <View style={styles.configSection}>
@@ -786,9 +798,6 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
   },
   contentContainer: {
-    flex: 1,
-  },
-  streamContainer: {
     flex: 1,
   },
   scrollView: {

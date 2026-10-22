@@ -2097,6 +2097,7 @@ interface NotificationProps {
   level: "info" | "warning" | "error";
   message: string;
   disableOuterSpacing?: boolean;
+  action?: ReactNode;
 }
 
 const notificationStylesheet = StyleSheet.create((theme) => ({
@@ -2133,6 +2134,10 @@ const notificationStylesheet = StyleSheet.create((theme) => ({
   textContainer: {
     flex: 1,
   },
+  action: {
+    flexDirection: "row",
+    paddingTop: theme.spacing[2],
+  },
   messageText: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
@@ -2144,6 +2149,7 @@ export const Notification = memo(function Notification({
   level,
   message,
   disableOuterSpacing,
+  action,
 }: NotificationProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
 
@@ -2187,6 +2193,7 @@ export const Notification = memo(function Notification({
             <Text style={notificationStylesheet.messageText} selectable>
               {message}
             </Text>
+            {action ? <View style={notificationStylesheet.action}>{action}</View> : null}
           </View>
         </View>
       </View>

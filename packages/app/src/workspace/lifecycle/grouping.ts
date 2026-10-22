@@ -2,7 +2,6 @@ import type {
   SidebarWorkspaceEntry,
   SidebarWorkspacePlacement,
 } from "@/hooks/sidebar-workspaces-view-model";
-import { systemWorkspaceKind } from "./system-workspace";
 
 export function splitStandingWorkspaces(
   workspaces: readonly SidebarWorkspacePlacement[],
@@ -66,43 +65,4 @@ export function factoryOverviewTargets(
   return Array.from(targets.entries())
     .filter(([key]) => !ambiguous.has(key))
     .map(([, target]) => target);
-}
-
-export interface SidebarSystemGroup {
-  serverId: string;
-  workspaces: SidebarWorkspacePlacement[];
-}
-
-/**
- * System project members leave their project rows and collect into one section per host, in the
- * order hosts first appear. System-managed workspaces lead; operator workspaces follow.
- */
-export function splitSystemWorkspaces(
-  workspaces: readonly SidebarWorkspacePlacement[],
-  entries: ReadonlyMap<string, SidebarWorkspaceEntry>,
-  supportedHosts: ReadonlyMap<string, boolean>,
-) {
-  const remaining: SidebarWorkspacePlacement[] = [];
-  const byHost = new Map<
-    string,
-    { managed: SidebarWorkspacePlacement[]; operator: SidebarWorkspacePlacement[] }
-  >();
-  for (const workspace of workspaces) {
-    const kind = systemWorkspaceKind(
-      entries.get(workspace.workspaceKey),
-      supportedHosts.get(workspace.serverId) === true,
-    );
-    if (!kind) {
-      remaining.push(workspace);
-      continue;
-    }
-    const host = byHost.get(workspace.serverId) ?? { managed: [], operator: [] };
-    host[kind].push(workspace);
-    byHost.set(workspace.serverId, host);
-  }
-  const system: SidebarSystemGroup[] = Array.from(byHost, ([serverId, host]) => ({
-    serverId,
-    workspaces: [...host.managed, ...host.operator],
-  }));
-  return { remaining, system };
 }

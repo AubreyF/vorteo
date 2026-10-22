@@ -4,6 +4,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { commitComposerQueue } from "./commit-composer";
 import { messageOutbox, flushMessageOutbox } from "./runtime";
 import { isLegacyImportPending, legacyImportOperationId, withLegacyQueueLane } from "./legacy";
@@ -25,10 +26,9 @@ export function LegacyQueueImport({
   );
   const connected = useHostRuntimeIsConnected(serverId);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const importMessages = useCallback(async () => {
     setPending(true);
-    setError(null);
     try {
       for (const message of messages ?? []) {
         await withLegacyQueueLane(serverId, agentId, async () => {
@@ -50,13 +50,11 @@ export function LegacyQueueImport({
       }
       await flushMessageOutbox(serverId);
     } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : "Could not import local queued messages.",
-      );
+      reportError(failure);
     } finally {
       setPending(false);
     }
-  }, [serverId, agentId, cwd, messages]);
+  }, [serverId, agentId, cwd, messages, reportError]);
   if (!messages?.length) return null;
   return (
     <View style={styles.container} testID="legacy-message-queue-import">
@@ -67,11 +65,6 @@ export function LegacyQueueImport({
       {!supported ? (
         <Text style={styles.text}>
           Update the host to import these messages into the shared queue.
-        </Text>
-      ) : null}
-      {error ? (
-        <Text style={styles.error} accessibilityRole="alert">
-          {error}
         </Text>
       ) : null}
       <Button
@@ -90,6 +83,5 @@ export function LegacyQueueImport({
 const styles = StyleSheet.create((theme) => ({
   container: { gap: theme.spacing[2], padding: theme.spacing[2] },
   text: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
   touch: { minHeight: 44, minWidth: 44 },
 }));

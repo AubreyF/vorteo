@@ -266,4 +266,23 @@ describe("removing a full sign-in account", () => {
     await expect(signOutClaudeFullSignIn(full.input, "stale")).resolves.toBeNull();
     expect(existsSync(full.record)).toBe(false);
   });
+
+  it("runs nothing when the account lacks its own directory, even if the default is managed", async () => {
+    const { input, home, record } = removalFixture(0, "full");
+    const { CLAUDE_CONFIG_DIR: _own, ...env } = input.providers[ACCOUNT].env;
+    // A daemon started from an agent shell inherits another managed account's directory,
+    // while the built-in Claude provider points at its own.
+    const inherited = {
+      ...input,
+      defaultClaudeHome: home,
+      providers: {
+        claude: { env: { CLAUDE_CONFIG_DIR: temporary("claude-builtin-") } },
+        [ACCOUNT]: { ...input.providers[ACCOUNT], env },
+      },
+    };
+    const { revision, credentials } = planProviderRemoval(inherited);
+    expect(credentials).toBe("managed");
+    await expect(signOutClaudeFullSignIn(inherited, revision)).resolves.toBeNull();
+    expect(existsSync(record)).toBe(false);
+  });
 });

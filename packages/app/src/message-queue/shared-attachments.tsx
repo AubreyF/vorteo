@@ -5,6 +5,7 @@ import { StyleSheet } from "react-native-unistyles";
 import type { QueueAttachment, QueuePresentation } from "@getpaseo/protocol/message-queue";
 import { AttachmentLightbox } from "@/components/attachment-lightbox";
 import { Button } from "@/components/ui/button";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useHosts } from "@/runtime/host-runtime";
 import { useDownloadStore } from "@/stores/download-store";
 
@@ -83,7 +84,7 @@ function SharedAttachment({
 }) {
   const hosts = useHosts();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const reportError = useReportActionError();
   const [uri, setUri] = useState<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -96,7 +97,6 @@ function SharedAttachment({
   const close = useCallback(() => setUri(null), []);
   const open = useCallback(async () => {
     setBusy(true);
-    setError(null);
     try {
       const client = requireQueueClient(serverId);
       const result = await client.getMessageQueueAttachment({
@@ -146,12 +146,11 @@ function SharedAttachment({
         });
       }
     } catch (failure) {
-      if (mounted.current)
-        setError(failure instanceof Error ? failure.message : "Could not open attachment.");
+      reportError(failure);
     } finally {
       if (mounted.current) setBusy(false);
     }
-  }, [serverId, agentId, messageId, attachment.id, hosts]);
+  }, [serverId, agentId, messageId, attachment.id, hosts, reportError]);
   const press = useCallback(() => {
     void open();
   }, [open]);
@@ -160,11 +159,6 @@ function SharedAttachment({
       <Button variant="ghost" size="sm" style={styles.touch} onPress={press} disabled={busy}>
         {busy ? "Loading..." : attachment.fileName}
       </Button>
-      {error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
       <AttachmentLightbox source={source} onClose={close} />
     </View>
   );
@@ -175,5 +169,4 @@ const styles = StyleSheet.create((theme) => ({
   text: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   list: { gap: theme.spacing[1] },
   touch: { minHeight: 44, minWidth: 44, alignSelf: "flex-start" },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));

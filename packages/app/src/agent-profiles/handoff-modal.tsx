@@ -11,7 +11,8 @@ import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-mod
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 interface HandoffModalProps {
   title?: string;
@@ -36,7 +37,7 @@ interface FormState {
 type Action =
   | { type: "edit"; context: string }
   | { type: "submit" }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string | null };
 function reduce(state: FormState, action: Action): FormState {
   if (action.type === "edit") return { ...state, context: action.context, error: null };
   if (action.type === "submit") return { ...state, pending: true, error: null };
@@ -90,6 +91,7 @@ export function ProfileHandoffModal({
   const close = useCallback(() => {
     if (!state.pending) onClose();
   }, [state.pending, onClose]);
+  const reportActionError = useReportActionError();
   const submit = useCallback(() => {
     if (!canSubmit) return;
     dispatch({ type: "submit" });
@@ -107,9 +109,17 @@ export function ProfileHandoffModal({
         });
       }
       await onConfirm(state.context, workspace);
-    })().catch((error) => dispatch({ type: "error", error: toErrorMessage(error) }));
+    })().catch((error) => {
+      if (!isConnectionError(error)) {
+        dispatch({ type: "error", error: toErrorMessage(error) });
+        return;
+      }
+      reportActionError(error);
+      dispatch({ type: "error", error: null });
+    });
   }, [
     canSubmit,
+    reportActionError,
     destinationClient,
     destinationServerId,
     destinationProject,

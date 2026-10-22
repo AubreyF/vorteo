@@ -35,8 +35,11 @@ import { Alert as InlineAlert } from "@/components/ui/alert";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { filterSelectableModels } from "@/provider-selection/model-catalog";
 import { ChevronRight, GripVertical } from "lucide-react-native";
+import { UsageLimitResumeSwitch } from "@/usage-limit/account-switch";
 
 type ProviderDefinition = ReturnType<typeof buildProviderDefinitions>[number];
 type ProviderEntry = NonNullable<ReturnType<typeof useProvidersSnapshot>["entries"]>[number];
@@ -151,6 +154,7 @@ function ProviderRow({
     () => [
       settingsStyles.row,
       styles.row,
+      styles.stackedRow,
       isCompact && styles.compactRow,
       hovered && styles.rowHovered,
     ],
@@ -179,51 +183,60 @@ function ProviderRow({
       ) : null}
       {/* Controls sit beside the details button, not inside it: a button
           inside a button is invalid HTML and breaks keyboard focus. */}
-      <View style={rowStyle}>
-        <Pressable
-          style={styles.rowContent}
-          onPress={handlePress}
-          onHoverIn={handleHoverIn}
-          onHoverOut={handleHoverOut}
-          accessibilityRole="button"
-          accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
-        >
-          <ChevronRight
-            size={theme.iconSize.sm}
-            color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-          />
-          <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
-          <View style={styles.textColumn}>
-            <View style={styles.titleRow}>
-              <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-                {def.label}
-              </Text>
-              {!isCompact ? <Text style={styles.separator}>·</Text> : null}
-              <StatusIndicator status={visibleStatus} compact={isCompact} />
+      <View style={styles.rowStack}>
+        <View style={rowStyle}>
+          <Pressable
+            style={styles.rowContent}
+            onPress={handlePress}
+            onHoverIn={handleHoverIn}
+            onHoverOut={handleHoverOut}
+            accessibilityRole="button"
+            accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
+          >
+            <ChevronRight
+              size={theme.iconSize.sm}
+              color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+            />
+            <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
+            <View style={styles.textColumn}>
+              <View style={styles.titleRow}>
+                <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+                  {def.label}
+                </Text>
+                {!isCompact ? <Text style={styles.separator}>·</Text> : null}
+                <StatusIndicator status={visibleStatus} compact={isCompact} />
+              </View>
+              {needsCliUpdate && isCompact ? (
+                <Text style={settingsStyles.rowHint}>CLI update needed</Text>
+              ) : null}
+              {providerError && !isCompact ? (
+                <Text style={styles.errorText} numberOfLines={3}>
+                  {providerError}
+                </Text>
+              ) : null}
             </View>
-            {needsCliUpdate && isCompact ? (
-              <Text style={settingsStyles.rowHint}>CLI update needed</Text>
-            ) : null}
-            {providerError && !isCompact ? (
-              <Text style={styles.errorText} numberOfLines={3}>
-                {providerError}
-              </Text>
-            ) : null}
-          </View>
-        </Pressable>
-        <ProviderRowControls
-          custom={entry.source === "custom"}
-          canRemove={canRemove}
-          isRemoving={isRemoving}
-          isToggling={isToggling}
-          enabled={enabled}
-          serverId={serverId}
-          def={def}
-          usage={usage}
-          onRename={handleRename}
-          onRemove={handleRemove}
-          onToggle={handleToggleValueChange}
-        />
+          </Pressable>
+          <ProviderRowControls
+            custom={entry.source === "custom"}
+            canRemove={canRemove}
+            isRemoving={isRemoving}
+            isToggling={isToggling}
+            enabled={enabled}
+            serverId={serverId}
+            def={def}
+            usage={usage}
+            onRename={handleRename}
+            onRemove={handleRemove}
+            onToggle={handleToggleValueChange}
+          />
+        </View>
+        {enabled ? (
+          <UsageLimitResumeSwitch
+            serverId={serverId}
+            providerId={def.id}
+            providerLabel={def.label}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -234,7 +247,7 @@ function providerErrorText(
   enabled: boolean,
 ): string | null {
   const error = entry.error?.trim();
-  return enabled && entry.status === "error" && error ? error : null;
+  return enabled && entry.status === "error" && error ? toErrorMessage(error) : null;
 }
 
 function ProviderRowControls({
@@ -359,6 +372,7 @@ function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
   const client = useHostRuntimeClient(serverId);
   const { patchConfig } = useDaemonConfig(serverId);
   const { refresh } = useProvidersSnapshot(serverId);
+  const reportActionError = useReportActionError();
   const install = useMutation({
     mutationFn: async (entry: AcpProviderCatalogItem) => {
       const patch = buildAcpProviderConfigPatch(entry);
@@ -385,7 +399,11 @@ function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
       }
       await refresh([entry.id]);
     },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
+    },
   });
+  const isRejected = install.isError && !isConnectionError(install.error);
   const handleInstall = useCallback(
     (entry: AcpProviderCatalogItem) => {
       if (!install.isPending) install.mutate(entry);
@@ -395,10 +413,10 @@ function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
   const installingProviderId = install.isPending ? install.variables.id : null;
   return (
     <>
-      {install.isError ? (
+      {isRejected ? (
         <InlineAlert
           variant="error"
-          description={install.error.message}
+          description={toErrorMessage(install.error)}
           testID="provider-install-error"
         />
       ) : null}
@@ -413,6 +431,7 @@ function ProviderCatalogInstallation({ serverId }: { serverId: string }) {
 
 function useProviderOrder(serverId: string) {
   const { patchConfig } = useDaemonConfig(serverId);
+  const reportActionError = useReportActionError();
   const reorder = useMutation({
     mutationFn: async (ordered: ProviderEntry[]) => {
       const providers = Object.fromEntries(
@@ -420,6 +439,9 @@ function useProviderOrder(serverId: string) {
       );
       const result = await patchConfig({ providers });
       if (!result) throw new Error("Reconnect to the host and try again.");
+    },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
     },
   });
   return { reorder, status: reorder.isPending ? "Saving provider order..." : null };
@@ -475,6 +497,7 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
   const removingProviderIdRef = useRef<string | null>(null);
   const [renamingProvider, setRenamingProvider] = useState<ProviderDefinition | null>(null);
   const toast = useToast();
+  const reportActionError = useReportActionError();
 
   const providerDefinitions = useMemo(() => buildProviderDefinitions(entries), [entries]);
   const hasServer = serverId.length > 0;
@@ -503,15 +526,13 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
       try {
         await patchConfig({ providers: { [providerId]: { enabled } } });
       } catch (error) {
-        Alert.alert(
-          t("settings.providers.updateErrorTitle"),
-          error instanceof Error ? error.message : String(error),
-        );
+        if (isConnectionError(error)) reportActionError(error);
+        else Alert.alert(t("settings.providers.updateErrorTitle"), toErrorMessage(error));
       } finally {
         setPendingProviderId((current) => (current === providerId ? null : current));
       }
     },
-    [patchConfig, t],
+    [patchConfig, reportActionError, t],
   );
 
   const handleRemoveProvider = useCallback(
@@ -542,7 +563,7 @@ export function ProvidersSection({ serverId, runtimeOnly = false }: ProvidersSec
         if (!confirmed) return;
         await client.removeProvider(providerId, plan.revision);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : String(error));
+        toast.error(toErrorMessage(error));
       } finally {
         if (removingProviderIdRef.current === providerId) removingProviderIdRef.current = null;
         setRemovingProviderId((current) => (current === providerId ? null : current));
@@ -688,6 +709,7 @@ function ProviderList({
     ],
   );
 
+  const isReorderRejected = reorder.isError && !isConnectionError(reorder.error);
   return (
     <View style={settingsStyles.card}>
       {canReorder ? (
@@ -703,9 +725,9 @@ function ProviderList({
       ) : (
         entries.map((item, index) => renderProvider({ item, index, drag: noop, isActive: false }))
       )}
-      {reorder.isError ? (
+      {isReorderRejected ? (
         <Text accessibilityRole="alert" style={styles.errorText}>
-          {reorder.error.message}
+          {toErrorMessage(reorder.error)}
         </Text>
       ) : null}
     </View>
@@ -719,6 +741,8 @@ function noop() {}
 
 const styles = StyleSheet.create((theme) => ({
   draggableRow: { flexDirection: "row", alignItems: "center" },
+  rowStack: { flex: 1, minWidth: 0 },
+  stackedRow: { flex: 0 },
   dragHandle: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   sectionSpacing: {
     marginBottom: theme.spacing[4],

@@ -560,6 +560,17 @@ test("bootstrap configuration preserves credentials, service targets and state w
   save(candidateFile, f.config);
   expect(verify).not.toThrow();
   delete plan.factoryRuntimeAdoptionConfiguration;
+  // Host-owned Claude refresh changes only through its own reviewed field.
+  save(candidateFile, { ...f.config, claudeHostRefresh: true });
+  expect(verify).toThrow("outside its approved policy");
+  plan.claudeHostRefreshConfiguration = true;
+  expect(verify).not.toThrow();
+  save(candidateFile, { ...f.config, claudeHostRefresh: false });
+  expect(verify).toThrow("outside its approved policy");
+  plan.claudeHostRefreshConfiguration = null;
+  save(candidateFile, f.config);
+  expect(verify).not.toThrow();
+  delete plan.claudeHostRefreshConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -709,7 +720,10 @@ test("coordinator reconciliation revokes protected submissions after credential 
     authority,
   );
   const observer = createBootstrapReconciliationLedger(f.file, "host-id");
+  // The coordinator loop gets bookkeeping and system cancellations only; never
+  // preparation, owner decisions or dispatch claims.
   expect(Object.keys(observer).sort()).toEqual([
+    "cancelForReplacedHostRelease",
     "finishAutomaticReconciliation",
     "list",
     "reserveAutomaticReconciliation",
@@ -1443,6 +1457,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapFactoryAdoption: false,
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
+      coordinatorBootstrapClaudeHostRefresh: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

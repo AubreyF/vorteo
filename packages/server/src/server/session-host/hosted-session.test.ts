@@ -71,6 +71,7 @@ interface HostedFixture {
   /** The next n connection attempts return null, as when the host is slow to answer. */
   failConnects(count: number): void;
   pretendKilled(count: number): void;
+  pretendRestarting(count: number, options?: { lockHeld?: boolean }): void;
   socketPath: string;
   token: string;
 }
@@ -123,6 +124,10 @@ async function hostedFixture(
   let failing = 0;
   /** While set, failed connects look like a killed host: socket and lock left behind, holder dead. */
   let killed = false;
+  /** While set, failed connects look like a tracked restart: nothing left behind but the marker. */
+  let restarting = false;
+  /** With restarting, the new host already holds the lock but does not listen yet. */
+  let lockHeld = false;
   const connector: SessionHostConnector = {
     async connect(options) {
       if (failing > 0) {
@@ -132,8 +137,17 @@ async function hostedFixture(
       return real.connect(options);
     },
     current: () => real.current(),
-    present: async () => (killed && failing > 0 ? true : real.present()),
-    hostState: async () => (killed && failing > 0 ? "gone" : real.hostState()),
+    present: async () => {
+      if (failing > 0 && killed) return true;
+      if (failing > 0 && restarting) return false;
+      return real.present();
+    },
+    hostState: async () => {
+      if (failing > 0 && restarting && lockHeld) return "alive";
+      if (failing > 0 && (killed || restarting)) return "gone";
+      return real.hostState();
+    },
+    restarting: async () => restarting && failing > 0,
     knownMcpTokens: () => real.knownMcpTokens(),
     close: () => real.close(),
   };
@@ -163,6 +177,12 @@ async function hostedFixture(
     pretendKilled(count) {
       failing = count;
       killed = true;
+    },
+    /** The next count connects fail the way they do during a tracked restart: marker only. */
+    pretendRestarting(count, options = {}) {
+      failing = count;
+      restarting = true;
+      lockHeld = options.lockHeld === true;
     },
     host,
     hosted,
@@ -260,6 +280,23 @@ test("a host that was killed rather than stopped is waited for, and the session 
   expect(session).toBeInstanceOf(HostedAgentSession);
   expect(fixture.local).toEqual([]);
   expect(Date.now() - started).toBeGreaterThanOrEqual(60);
+});
+
+test("a host stopped for a tracked restart leaves no socket, but its marker is waited for", async () => {
+  const fixture = await hostedFixture();
+  fixture.pretendRestarting(3);
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  expect(session).toBeInstanceOf(HostedAgentSession);
+  expect(fixture.local).toEqual([]);
+});
+
+test("a marked restart whose new host holds the lock but is not listening yet is still waited for", async () => {
+  const fixture = await hostedFixture();
+  // Without the marker a live lock holder gets a single attempt; the marker keeps the wait going.
+  fixture.pretendRestarting(4, { lockHeld: true });
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  expect(session).toBeInstanceOf(HostedAgentSession);
+  expect(fixture.local).toEqual([]);
 });
 
 test("a killed host that does not return within the window leaves the session in the worker", async () => {

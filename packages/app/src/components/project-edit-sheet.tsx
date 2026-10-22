@@ -23,7 +23,8 @@ import {
   type ProjectIconIntent,
 } from "@/projects/edit-form";
 import { importProjectIconFromUrl } from "@/projects/import-project-icon";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 export interface ProjectEditSheetProps {
   visible: boolean;
@@ -34,6 +35,8 @@ export interface ProjectEditSheetProps {
   client: DaemonClient;
   /** False on hosts that predate custom project icons — the icon field is hidden. */
   supportsCustomIcon: boolean;
+  /** Locks the name field and shows why, for a project whose name the daemon owns. */
+  nameLockedReason?: string | null;
   snapshot: ProjectEditFormSnapshot;
 }
 
@@ -45,6 +48,7 @@ export function ProjectEditSheet({
   projectViewKey,
   client,
   supportsCustomIcon,
+  nameLockedReason = null,
   snapshot,
 }: ProjectEditSheetProps) {
   const { t } = useTranslation();
@@ -55,6 +59,7 @@ export function ProjectEditSheet({
   const [form] = useState(() => openProjectEditForm(snapshot));
   const state = useSyncExternalStore(form.subscribe, form.getState, form.getState);
 
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: (submission: ProjectEditSubmission) =>
       submitProjectEdit({ client, projectId, submission }),
@@ -63,7 +68,11 @@ export function ProjectEditSheet({
       toast.show(t("settings.project.edit.savedToast"), { variant: "success" });
       onClose();
     },
-    onError: (error) => form.setError(toFormError(error)),
+    onError: (error) => {
+      const cause = error instanceof ProjectEditStepError ? error.cause : error;
+      if (isConnectionError(cause)) reportActionError(cause);
+      else form.setError(toFormError(error));
+    },
   });
   const isSaving = mutation.isPending;
 
@@ -134,6 +143,7 @@ export function ProjectEditSheet({
     >
       <Field
         label={t("settings.project.edit.name")}
+        hint={nameLockedReason ?? undefined}
         error={state.error?.scope === "name" ? state.error.message : null}
       >
         <FormTextInput
@@ -143,7 +153,7 @@ export function ProjectEditSheet({
           initialValue={state.name}
           onChangeText={form.setName}
           placeholder={snapshot.projectName}
-          editable={!isSaving}
+          editable={!isSaving && nameLockedReason === null}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -214,7 +224,7 @@ class ProjectEditStepError extends Error {
     readonly scope: ProjectEditFormError["scope"],
     cause: unknown,
   ) {
-    super(toErrorMessage(cause));
+    super(toErrorMessage(cause), { cause });
     this.name = "ProjectEditStepError";
   }
 }

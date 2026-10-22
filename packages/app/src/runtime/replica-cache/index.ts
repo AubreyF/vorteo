@@ -120,6 +120,13 @@ const TaskActivitySchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+const ProfileSwitchEndpointSchema = z.strictObject({
+  provider: z.string(),
+  model: z.string().nullable().optional(),
+  profileId: z.string().optional(),
+  profileName: z.string().optional(),
+});
+
 const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -164,6 +171,15 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
     preTokens: z.number().nonnegative().optional(),
     compactionId: z.string().optional(),
     inspection: CompactionInspectionSchema.optional(),
+  }),
+  z.strictObject({
+    ...TimelineItemBaseShape,
+    kind: z.literal("profile_switch"),
+    switchId: z.string(),
+    reason: z.enum(["manual", "quota", "auto"]),
+    from: ProfileSwitchEndpointSchema,
+    to: ProfileSwitchEndpointSchema,
+    carriedContextChars: z.number().nonnegative(),
   }),
   z.strictObject({
     ...TimelineItemBaseShape,
@@ -503,6 +519,16 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
         ...(item.compactionId !== undefined ? { compactionId: item.compactionId } : {}),
         ...(item.inspection !== undefined ? { inspection: item.inspection } : {}),
       };
+    case "profile_switch":
+      return {
+        ...base,
+        kind: item.kind,
+        switchId: item.switchId,
+        reason: item.reason,
+        from: item.from,
+        to: item.to,
+        carriedContextChars: item.carriedContextChars,
+      };
     case "tool_call":
       if (item.payload.source !== "agent") return null;
       return {
@@ -539,11 +565,25 @@ function deserializeTimelineItem(item: StoredTimelineItem): StreamItem {
       data: item.data,
     };
   }
+  if (item.kind === "profile_switch") {
+    return {
+      id: item.id,
+      ...(item.timelineCursor ? { timelineCursor: item.timelineCursor } : {}),
+      ...(item.turnId ? { turnId: item.turnId } : {}),
+      timestamp: new Date(item.timestamp),
+      kind: item.kind,
+      switchId: item.switchId,
+      reason: item.reason,
+      from: item.from,
+      to: item.to,
+      carriedContextChars: item.carriedContextChars,
+    };
+  }
   return deserializeBuiltinTimelineItem(item);
 }
 
 function deserializeBuiltinTimelineItem(
-  item: Exclude<StoredTimelineItem, { kind: "plugin" }>,
+  item: Exclude<StoredTimelineItem, { kind: "plugin" | "profile_switch" }>,
 ): StreamItem {
   const base = {
     id: item.id,
@@ -690,6 +730,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,
     quotaPausedAt: agent.quotaPausedAt,
+    usageLimitHold: agent.usageLimitHold,
     title: agent.title,
     labels: agent.labels,
     requiresAttention: agent.requiresAttention ?? false,

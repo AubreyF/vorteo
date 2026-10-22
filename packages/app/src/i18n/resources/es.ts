@@ -68,6 +68,8 @@ export const es: TranslationResources = {
       daemonClientDisconnected: "El clienteDaemonestá desconectado",
       noFileFound: "No se encontró ningún archivo para{{token}}",
       unexpectedDictationError: "Se produjo un error inesperado al manejar el dictado.",
+      hostConnectionLost:
+        "Se perdió la conexión con el host. Inténtalo de nuevo cuando se reconecte.",
     },
     connectionStatus: {
       online: "En línea",
@@ -175,6 +177,8 @@ export const es: TranslationResources = {
     },
     errors: {
       failedToSend: "No se pudo enviar el mensaje",
+      connectionLostWhileSending:
+        "Se perdió la conexión al enviar. Comprueba si el mensaje llegó antes de reenviarlo.",
       failedToCreateAgent: "No se pudo crear el agente",
       noHostSelected: "Ningún anfitrión seleccionado",
       initialPromptRequired: "Se requiere aviso inicial",
@@ -312,6 +316,7 @@ export const es: TranslationResources = {
       archived: "Archivado",
       pending: "{{count}}pendiente",
       attention: "Atención",
+      hosted: "Sobrevive a reinicios",
     },
     archiveSheet: {
       hostOffline: "Hostfuera de línea",
@@ -398,6 +403,7 @@ export const es: TranslationResources = {
       withTokens: "Contexto compactado (tokens{{tokens}}K)",
       completed: "Contexto compactado",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1216,6 +1222,35 @@ export const es: TranslationResources = {
         "Agregue comandos de configuración para que los nuevos árboles de trabajo puedan instalar dependencias y prepararse automáticamente.",
       openProjectSettings: "Abrir la configuración del proyecto",
     },
+    folders: {
+      actions: {
+        menu: "Acciones de carpeta",
+        newFolder: "Nueva carpeta",
+        newWorkspaceFolder: "Nueva carpeta de espacios de trabajo",
+        newSubfolder: "Nueva carpeta dentro",
+        rename: "Renombrar carpeta",
+        delete: "Eliminar carpeta",
+        moveToFolder: "Mover a carpeta…",
+      },
+      dialogs: {
+        createTitle: "Nueva carpeta",
+        renameTitle: "Renombrar carpeta",
+        namePlaceholder: "Nombre de la carpeta",
+        create: "Crear",
+        rename: "Renombrar",
+        moveTitle: 'Mover "{{name}}"',
+        destination: "Carpeta",
+        topLevel: "Sin carpeta",
+        move: "Mover",
+        cancel: "Cancelar",
+      },
+      confirmations: {
+        deleteTitle: "¿Eliminar carpeta?",
+        deleteMessage:
+          '¿Eliminar "{{folderName}}"? Su contenido sube un nivel. No se archiva nada y los archivos en disco no cambian.',
+        deleteConfirm: "Eliminar",
+      },
+    },
     project: {
       actions: {
         menu: "Acciones del proyecto",
@@ -1226,6 +1261,8 @@ export const es: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "Eliminar proyecto",
         removing: "Eliminando...",
+        removeBlockedSystem:
+          "Vorteo System contiene el código fuente y los espacios de trabajo de mantenimiento de esta instalación, así que no se puede quitar.",
       },
       confirmations: {
         removeTitle: "¿Quitar proyecto?",
@@ -2748,6 +2785,12 @@ export const es: TranslationResources = {
         imageUrl: "URL de imagen o sitio web",
         save: "Guardar cambios",
         savedToast: "Proyecto actualizado",
+        nameLockedSystem: "El daemon le da nombre a este proyecto, así que no se puede renombrar.",
+      },
+      system: {
+        title: "Acerca de Vorteo System",
+        description:
+          "Este proyecto sirve para hacer evolucionar esta instalación de Vorteo. Se basa en el checkout con el que se construyó la instalación y también contiene espacios de trabajo de mantenimiento que gestiona el daemon, como el Optimization Runner. El daemon lo vuelve a crear y depende de él, así que no se puede quitar ni renombrar.",
       },
       readFailures: {
         invalidTitle: "paseo.json no se pudo analizar",

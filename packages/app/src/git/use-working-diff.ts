@@ -11,6 +11,7 @@ import {
 import { useCheckoutDiffQuery } from "@/git/use-diff-query";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
 import { useWorkingDiffComparison } from "@/git/working-diff-comparison";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface UseWorkingDiffOptions {
   serverId: string;
@@ -38,9 +39,8 @@ export function useWorkingDiff({
   const gitStatus = status && status.isGit ? status : null;
   const isGit = Boolean(gitStatus);
   const notGit = status !== null && !status.isGit && !status.error;
-  const statusErrorMessage =
-    status?.error?.message ??
-    (isStatusError && statusError instanceof Error ? statusError.message : null);
+  const statusErrorSource = status?.error?.message ?? (isStatusError ? statusError : null);
+  const statusErrorMessage = statusErrorSource ? toErrorMessage(statusErrorSource) : null;
   const baseRef = gitStatus?.baseRef ?? undefined;
   const hasUncommittedChanges = Boolean(gitStatus?.isDirty);
   const currentBranchName =

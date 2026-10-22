@@ -11,7 +11,10 @@ import {
 } from "./task-checklist.js";
 import { InstallationProviderProjectionSchema } from "./installation-provider.js";
 import { PluginDirectoryBindingSchema, ResolvedPluginSourceSchema } from "./plugin-installation.js";
-import { InstallationResourceBindingsSchema } from "./installation-settings.js";
+import {
+  InstallationProjectPolicySchema,
+  InstallationResourceBindingsSchema,
+} from "./installation-settings.js";
 import {
   SkillLibraryReadSchema,
   SkillLibraryChangeSchema,
@@ -136,6 +139,11 @@ import {
   AgentContextGetBreakdownRequestSchema,
   AgentContextGetBreakdownResponseSchema,
 } from "./agent-context.js";
+import {
+  AgentUsageLimitSetResumeRequestSchema,
+  AgentUsageLimitSetResumeResponseSchema,
+  UsageLimitHoldSchema,
+} from "./usage-limit.js";
 import {
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
@@ -293,6 +301,8 @@ const MutableDaemonProviderConfigSchema = z
     installationAccountId: z.string().uuid().optional(),
     paseoTools: ProviderPaseoToolsPolicySchema.optional(),
     enabled: z.boolean().optional(),
+    // COMPAT(usageLimitResume): added 2026-10-22; absent means on.
+    autoResumeAfterUsageLimit: z.boolean().optional(),
     additionalModels: z.array(MutableDaemonProviderModelSchema).optional(),
   })
   .passthrough();
@@ -332,6 +342,12 @@ const MutableRelayConfigSchema = z
   })
   .passthrough();
 
+// Loose so a newer daemon's policy fields never break an older client's config read.
+const InstallationProjectPoliciesWireSchema = z.record(
+  z.string(),
+  InstallationProjectPolicySchema.loose(),
+);
+
 export const MutableDaemonConfigSchema = z
   .object({
     // COMPAT(relayConfig): added in v0.2.6, remove after 2027-01-31 when old daemons are unsupported.
@@ -366,6 +382,9 @@ export const MutableDaemonConfigSchema = z
     appendSystemPrompt: z.string().default(""),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     installationResourceBindings: InstallationResourceBindingsSchema.optional(),
+    // COMPAT(projectPolicies): added 2026-10-22. A read-only copy of the installation's project
+    // exclusions for client choosers; launches check the coordinator. Absent on older daemons.
+    installationProjectPolicies: InstallationProjectPoliciesWireSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     sharedProviderPreferences: SharedProviderPreferencesSchema.optional(),
     skills: z.object({ selection: AgentSkillSelectionSchema.optional() }).strict().optional(),
@@ -395,6 +414,7 @@ export const MutableDaemonConfigPatchSchema = z
     appendSystemPrompt: z.string().optional(),
     terminalProfiles: z.array(TerminalProfileSchema).optional(),
     installationResourceBindings: InstallationResourceBindingsSchema.optional(),
+    installationProjectPolicies: InstallationProjectPoliciesWireSchema.optional(),
     agentProfiles: z.array(AgentProfileSchema).optional(),
     pluginsEnabled: z.boolean().optional(),
     plugins: z.record(PluginIdSchema, PluginSourceSchema).optional(),
@@ -873,6 +893,22 @@ export type CompactionInspection = z.infer<typeof CompactionInspectionSchema>;
 
 export { AgentTaskItemSchema } from "./task-checklist.js";
 
+const ProfileSwitchEndpointSchema = z.object({
+  provider: z.string(),
+  model: z.string().nullable().optional(),
+  profileId: z.string().optional(),
+  profileName: z.string().optional(),
+});
+
+export const ProfileSwitchTimelineItemSchema = z.object({
+  type: z.literal("profile_switch"),
+  switchId: z.string(),
+  reason: z.enum(["manual", "quota", "auto"]),
+  from: ProfileSwitchEndpointSchema,
+  to: ProfileSwitchEndpointSchema,
+  carriedContextChars: z.number().nonnegative(),
+});
+
 // zod-aot 0.20.4 miscompiles this as a nested discriminated union by omitting
 // the inner tool_call branch from the generated outer dispatch.
 export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknown> = z.union([
@@ -916,6 +952,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
     compactionId: z.string().optional(),
     inspection: CompactionInspectionSchema.optional(),
   }),
+  ProfileSwitchTimelineItemSchema,
   z.object({
     type: z.literal("plugin"),
     id: z.string(),
@@ -1024,9 +1061,14 @@ export const AgentSnapshotPayloadSchema = z.object({
   questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
+  // True when the agent's provider session runs in the durable session host, so its turn survives
+  // a daemon restart. Optional on a non-strict schema: older daemons omit it, older clients ignore it.
+  hosted: z.boolean().optional(),
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
   quotaPausedAt: z.string().optional(),
+  // COMPAT(usageLimitResume): added 2026-10-22; older daemons omit it.
+  usageLimitHold: UsageLimitHoldSchema.optional(),
   provider: AgentProviderSchema,
   cwd: z.string(),
   workspaceId: z.string().optional(),
@@ -2291,6 +2333,27 @@ export const AgentConfigApplyResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
+/**
+ * Moves an idle thread to another account or profile. The daemon starts a new
+ * native session with recorded context and keeps the thread's identity, goal,
+ * checklist and journal. Gated on `server_info.features.agentProfileSwitch`.
+ */
+export const AgentProfileSwitchRequestMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.request"),
+  agentId: z.string(),
+  provider: z.string(),
+  profileId: z.string().optional(),
+  model: z.string().nullable().optional(),
+  thinkingOptionId: z.string().nullable().optional(),
+  reason: z.enum(["manual", "quota"]).optional(),
+  requestId: z.string(),
+});
+
+export const AgentProfileSwitchResponseMessageSchema = z.object({
+  type: z.literal("agent.profile.switch.response"),
+  payload: AgentActionResponsePayloadSchema,
+});
+
 export const AgentDetachRequestMessageSchema = z.object({
   type: z.literal("agent.detach.request"),
   agentId: z.string(),
@@ -2875,6 +2938,9 @@ export const ProjectCreateDirectoryRequestSchema = z.object({
   type: z.literal("project.create_directory.request"),
   parentPath: z.string(),
   name: z.string(),
+  // COMPAT(projectsRoot): added 2026-10-22; send false only to hosts advertising projectsRoot.
+  // False creates the folder without adding it as a project. Omitted means true.
+  register: z.boolean().optional(),
   requestId: z.string(),
 });
 
@@ -3605,6 +3671,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
   AgentContextGetBreakdownRequestSchema,
+  AgentUsageLimitSetResumeRequestSchema,
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -3617,6 +3684,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideRequestSchema,
   SetAgentFeatureRequestMessageSchema,
   AgentConfigApplyRequestMessageSchema,
+  AgentProfileSwitchRequestMessageSchema,
   AgentDetachRequestMessageSchema,
   AgentRewindRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
@@ -3889,6 +3957,8 @@ export const ServerInfoStatusPayloadSchema = z
     permissions: z.array(DaemonPermissionSchema).optional(),
     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
     desktopManaged: z.boolean().optional(),
+    // COMPAT(projectsRoot): added 2026-10-22; absent on daemons without a Projects folder.
+    projectsRoot: z.string().optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
@@ -4017,6 +4087,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectAdd: z.boolean().optional(),
         projectDirectoryBrowsing: z.boolean().optional(),
+        // COMPAT(projectsRoot): added 2026-10-22, remove gate after 2027-04-22.
+        // New projects must live inside the advertised server_info.projectsRoot.
+        projectsRoot: z.boolean().optional(),
         // COMPAT(worktreeRestore): added in v0.1.97, drop the gate when floor >= v0.1.97
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
@@ -4040,6 +4113,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentGoals: z.boolean().optional(),
         // COMPAT(agentContextBreakdown): added 2026-10-21; gate the on-demand context breakdown request.
         agentContextBreakdown: z.boolean().optional(),
+        // COMPAT(usageLimitResume): added 2026-10-22; gate the usage-limit resume controls.
+        usageLimitResume: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
         // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
         coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
@@ -4053,6 +4128,7 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        coordinatorBootstrapClaudeHostRefresh: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         coordinatorBootstrapBootRecovery: z.boolean().optional(),
@@ -4077,6 +4153,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
         sidebarState: z.boolean().optional(),
+        // COMPAT(sidebarFolders): added 2026-10-22; gate folder writes until the daemon floor includes them.
+        sidebarFolders: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
         // COMPAT(checklistProgress): added October 2026; send progress and checks only when advertised.
         checklistProgress: z.boolean().optional(),
@@ -4157,10 +4235,17 @@ export const ServerInfoStatusPayloadSchema = z
         profileWorkflowAliases: z.boolean().optional(),
         installationProfileAuthority: z.boolean().optional(),
         installationResourceBindings: z.boolean().optional(),
+        // COMPAT(projectPolicies): added 2026-10-22, remove gate after 2027-04-22.
+        installationProjectPolicies: z.boolean().optional(),
         installationSettingsAuthority: z.boolean().optional(),
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        agentProfileSwitch: z.boolean().optional(),
+        // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        // The daemon merges untracked paseo.local.json script entries over paseo.json.
+        localProjectConfig: z.boolean().optional(),
       })
       .optional(),
   })
@@ -4878,7 +4963,10 @@ export const OpenProjectResponseMessageSchema = z.object({
     workspace: WorkspaceDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
     // Unknown codes from newer daemons degrade to null; clients fall back to `error`.
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4888,7 +4976,10 @@ export const ProjectAddResponseSchema = z.object({
     requestId: z.string(),
     project: WorkspaceProjectDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4899,6 +4990,7 @@ export const ProjectCreateDirectoryErrorCodeSchema = z.enum([
   "permission_denied",
   "registration_failed",
   "filesystem_error",
+  "outside_projects_folder",
 ]);
 
 export const ProjectCreateDirectoryResponseSchema = z.object({
@@ -7462,6 +7554,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
   AgentContextGetBreakdownResponseSchema,
+  AgentUsageLimitSetResumeResponseSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
   BootstrapClaimedRecoveryListResponseSchema,
@@ -7474,6 +7567,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   BootstrapClaimedRecoveryDecideResponseSchema,
   SetAgentFeatureResponseMessageSchema,
   AgentConfigApplyResponseMessageSchema,
+  AgentProfileSwitchResponseMessageSchema,
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
@@ -7692,6 +7786,9 @@ export type SetAgentModelResponseMessage = z.infer<typeof SetAgentModelResponseM
 export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingResponseMessageSchema>;
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyResponseMessageSchema>;
+export type AgentProfileSwitchResponseMessage = z.infer<
+  typeof AgentProfileSwitchResponseMessageSchema
+>;
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
@@ -7867,6 +7964,9 @@ export type SetAgentModelRequestMessage = z.infer<typeof SetAgentModelRequestMes
 export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequestMessageSchema>;
 export type SetAgentFeatureRequestMessage = z.infer<typeof SetAgentFeatureRequestMessageSchema>;
 export type AgentConfigApplyRequestMessage = z.infer<typeof AgentConfigApplyRequestMessageSchema>;
+export type AgentProfileSwitchRequestMessage = z.infer<
+  typeof AgentProfileSwitchRequestMessageSchema
+>;
 export type AgentDetachRequestMessage = z.infer<typeof AgentDetachRequestMessageSchema>;
 export type AgentPermissionResponseMessage = z.infer<typeof AgentPermissionResponseMessageSchema>;
 export type CheckoutStatusRequest = z.infer<typeof CheckoutStatusRequestSchema>;

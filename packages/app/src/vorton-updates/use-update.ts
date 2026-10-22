@@ -14,7 +14,7 @@ export const VORTON_BUILD_COMMIT =
 const updatesEnabled = !isDemoSession() && !isIsolatedDemoPreview && VORTON_BUILD_COMMIT !== null;
 const CHECK_INTERVAL = 30 * 60 * 1000;
 
-export function useVortonUpdate(poll = false) {
+export function useVortonUpdate() {
   const feedback = useStore(manualUpdateCheck.store);
   const query = useFetchQuery({
     dataShape: "value",
@@ -25,7 +25,6 @@ export function useVortonUpdate(poll = false) {
     },
     enabled: updatesEnabled,
     staleTimeMs: CHECK_INTERVAL,
-    refetchInterval: poll ? CHECK_INTERVAL : false,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: false,

@@ -68,6 +68,7 @@ export const ja: TranslationResources = {
       daemonClientDisconnected: "デーモンクライアントが切断されています",
       noFileFound: "{{token}}のファイルが見つかりません",
       unexpectedDictationError: "音声入力処理中に予期しないエラーが発生しました。",
+      hostConnectionLost: "ホストとの接続が切れました。再接続後にもう一度お試しください。",
     },
     connectionStatus: {
       online: "オンライン",
@@ -175,6 +176,8 @@ export const ja: TranslationResources = {
     },
     errors: {
       failedToSend: "メッセージの送信に失敗しました",
+      connectionLostWhileSending:
+        "送信中に接続が切れました。再送する前にメッセージが届いたか確認してください。",
       failedToCreateAgent: "エージェントの作成に失敗しました",
       noHostSelected: "ホストが選択されていません",
       initialPromptRequired: "初期プロンプトが必要です",
@@ -312,6 +315,7 @@ export const ja: TranslationResources = {
       archived: "アーカイブ済み",
       pending: "{{count}}件保留中",
       attention: "注意",
+      hosted: "再起動後も継続",
     },
     archiveSheet: {
       hostOffline: "ホストオフライン",
@@ -398,6 +402,7 @@ export const ja: TranslationResources = {
       withTokens: "コンテキストを圧縮しました（{{tokens}}Kトークン）",
       completed: "コンテキストを圧縮しました",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1194,6 +1199,35 @@ export const ja: TranslationResources = {
         "新しいワークツリーが依存関係をインストールして自動的に準備できるようにセットアップコマンドを追加してください。",
       openProjectSettings: "プロジェクト設定を開く",
     },
+    folders: {
+      actions: {
+        menu: "フォルダの操作",
+        newFolder: "新しいフォルダ",
+        newWorkspaceFolder: "新しいワークスペースフォルダ",
+        newSubfolder: "中に新しいフォルダ",
+        rename: "フォルダ名を変更",
+        delete: "フォルダを削除",
+        moveToFolder: "フォルダへ移動…",
+      },
+      dialogs: {
+        createTitle: "新しいフォルダ",
+        renameTitle: "フォルダ名を変更",
+        namePlaceholder: "フォルダ名",
+        create: "作成",
+        rename: "名前を変更",
+        moveTitle: "「{{name}}」を移動",
+        destination: "フォルダ",
+        topLevel: "フォルダなし",
+        move: "移動",
+        cancel: "キャンセル",
+      },
+      confirmations: {
+        deleteTitle: "フォルダを削除しますか？",
+        deleteMessage:
+          "「{{folderName}}」を削除しますか？中身は1つ上の階層に移動します。アーカイブされるものはなく、ディスク上のファイルも変更されません。",
+        deleteConfirm: "削除",
+      },
+    },
     project: {
       actions: {
         menu: "プロジェクトアクション",
@@ -1204,6 +1238,8 @@ export const ja: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "プロジェクトを削除",
         removing: "削除中...",
+        removeBlockedSystem:
+          "Vorteo System にはこのインストール自体のソースと保守用ワークスペースが含まれるため、削除できません。",
       },
       confirmations: {
         removeTitle: "プロジェクトを削除しますか？",
@@ -2716,6 +2752,12 @@ export const ja: TranslationResources = {
         imageUrl: "画像またはサイトのURL",
         save: "変更を保存",
         savedToast: "プロジェクトを更新しました",
+        nameLockedSystem: "このプロジェクトの名前はデーモンが管理するため、変更できません。",
+      },
+      system: {
+        title: "Vorteo System について",
+        description:
+          "このプロジェクトは、この Vorteo インストールを改良するためのものです。インストールのビルド元となったチェックアウトを基にしており、Optimization Runner など、デーモンが管理する保守用ワークスペースも含みます。デーモンが再作成し、依存しているため、削除や名前の変更はできません。",
       },
       readFailures: {
         invalidTitle: "paseo.jsonを解析できませんでした",

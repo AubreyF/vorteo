@@ -3199,6 +3199,100 @@ describe("ClaudeAgentSession context window usage", () => {
     expect(events.some((event) => event.type === "turn_completed")).toBe(true);
   });
 
+  function limitResult(overrides: Record<string, unknown> = {}): SDKMessage {
+    return {
+      type: "result",
+      subtype: "success",
+      result: "You've hit your session limit · resets 11am (America/Los_Angeles)",
+      is_error: true,
+      duration_ms: 2,
+      duration_api_ms: 0,
+      num_turns: 1,
+      stop_reason: null,
+      total_cost_usd: 0,
+      usage: { input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+      permission_denials: [],
+      uuid: "result-limit-1",
+      session_id: "session-1",
+      ...overrides,
+    } as unknown as SDKMessage;
+  }
+
+  test("a rejected usage window ends the turn as a usage limit with its reset time", async () => {
+    const session = await createSessionForTest();
+
+    session.translateMessageToEvents({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", resetsAt: 1_792_000_000, rateLimitType: "five_hour" },
+      uuid: "rate-limit-1",
+      session_id: "session-1",
+    } as unknown as SDKMessage);
+    // Recorded shape of a real stop: a synthetic, zero-token reply flagged as a rate limit.
+    session.translateMessageToEvents({
+      type: "assistant",
+      error: "rate_limit",
+      message: {
+        id: "synthetic-1",
+        model: "<synthetic>",
+        role: "assistant",
+        content: [{ type: "text", text: "You've hit your session limit · resets 11am" }],
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      uuid: "assistant-limit-1",
+      session_id: "session-1",
+    } as unknown as SDKMessage);
+    const events = session.translateMessageToEvents(limitResult());
+
+    expect(events.some((event) => event.type === "turn_completed")).toBe(false);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "turn_failed",
+        code: "quota_exhausted",
+        error: "You've hit your session limit · resets 11am (America/Los_Angeles)",
+        usageLimit: { resetsAt: new Date(1_792_000_000_000).toISOString(), window: "five_hour" },
+      }),
+    );
+  });
+
+  test("an assistant rate-limit error alone stops the turn even when the result reports success", async () => {
+    const session = await createSessionForTest();
+
+    session.translateMessageToEvents({
+      type: "assistant",
+      error: "rate_limit",
+      message: { id: "synthetic-2", role: "assistant", content: [], usage: {} },
+      parent_tool_use_id: null,
+      uuid: "assistant-limit-2",
+      session_id: "session-1",
+    } as unknown as SDKMessage);
+    const events = session.translateMessageToEvents(
+      limitResult({ is_error: false, usage: { input_tokens: 10, output_tokens: 20 } }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "turn_failed", code: "quota_exhausted", usageLimit: {} }),
+    );
+  });
+
+  test("allowed and warning rate-limit events leave a productive turn completed", async () => {
+    const session = await createSessionForTest();
+
+    for (const status of ["allowed", "allowed_warning"])
+      session.translateMessageToEvents({
+        type: "rate_limit_event",
+        rate_limit_info: { status, resetsAt: 1_792_000_000 },
+        uuid: `rate-limit-${status}`,
+        session_id: "session-1",
+      } as unknown as SDKMessage);
+    const events = session.translateMessageToEvents(
+      limitResult({ is_error: false, result: "Done.", usage: { output_tokens: 12 } }),
+    );
+
+    expect(events.some((event) => event.type === "turn_completed")).toBe(true);
+    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
+  });
+
   test("result.result is not duplicated when the model produced output during the turn", async () => {
     const session = await createSessionForTest();
 

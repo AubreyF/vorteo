@@ -67,6 +67,7 @@ export const zhCN: TranslationResources = {
       daemonClientDisconnected: "Daemon client 已断开连接",
       noFileFound: "未找到 {{token}} 对应的文件",
       unexpectedDictationError: "处理听写时发生意外错误。",
+      hostConnectionLost: "与 Host 的连接已断开。重新连接后请重试。",
     },
     connectionStatus: {
       online: "在线",
@@ -174,6 +175,7 @@ export const zhCN: TranslationResources = {
     },
     errors: {
       failedToSend: "发送消息失败",
+      connectionLostWhileSending: "发送时连接中断。重新发送前请确认消息是否已送达。",
       failedToCreateAgent: "创建 Agent 失败",
       noHostSelected: "未选择 Host",
       initialPromptRequired: "初始 prompt 必填",
@@ -307,6 +309,7 @@ export const zhCN: TranslationResources = {
       archived: "已归档",
       pending: "{{count}} 个待处理",
       attention: "需要注意",
+      hosted: "重启后保留",
     },
     archiveSheet: {
       hostOffline: "Host 离线",
@@ -393,6 +396,7 @@ export const zhCN: TranslationResources = {
       withTokens: "上下文已压缩（{{tokens}}K tokens）",
       completed: "上下文已压缩",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1171,6 +1175,35 @@ export const zhCN: TranslationResources = {
       description: "添加 setup 命令，让新的 worktree 自动安装依赖并完成准备。",
       openProjectSettings: "打开 project 设置",
     },
+    folders: {
+      actions: {
+        menu: "文件夹操作",
+        newFolder: "新建文件夹",
+        newWorkspaceFolder: "新建 workspace 文件夹",
+        newSubfolder: "在其中新建文件夹",
+        rename: "重命名文件夹",
+        delete: "删除文件夹",
+        moveToFolder: "移动到文件夹…",
+      },
+      dialogs: {
+        createTitle: "新建文件夹",
+        renameTitle: "重命名文件夹",
+        namePlaceholder: "文件夹名称",
+        create: "创建",
+        rename: "重命名",
+        moveTitle: "移动“{{name}}”",
+        destination: "文件夹",
+        topLevel: "不在文件夹中",
+        move: "移动",
+        cancel: "取消",
+      },
+      confirmations: {
+        deleteTitle: "删除文件夹？",
+        deleteMessage:
+          "删除“{{folderName}}”？其内容会上移一级。不会归档任何内容，磁盘上的文件也不会改变。",
+        deleteConfirm: "删除",
+      },
+    },
     project: {
       actions: {
         menu: "Project 操作",
@@ -1181,6 +1214,7 @@ export const zhCN: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "移除 project",
         removing: "正在移除...",
+        removeBlockedSystem: "Vorteo System 包含此安装自身的源代码和维护工作区，因此无法移除。",
       },
       confirmations: {
         removeTitle: "移除 project？",
@@ -2656,6 +2690,12 @@ export const zhCN: TranslationResources = {
         imageUrl: "图片或网站 URL",
         save: "保存更改",
         savedToast: "Project 已更新",
+        nameLockedSystem: "此项目的名称由守护进程决定，因此无法重命名。",
+      },
+      system: {
+        title: "关于 Vorteo System",
+        description:
+          "此项目用于改进此 Vorteo 安装。它基于构建此安装所用的检出代码，同时包含由守护进程管理的维护工作区，例如 Optimization Runner。守护进程会重新创建并依赖它，因此无法移除或重命名。",
       },
       readFailures: {
         invalidTitle: "无法解析 paseo.json",

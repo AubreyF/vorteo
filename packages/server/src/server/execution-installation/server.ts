@@ -42,7 +42,7 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
@@ -107,12 +107,28 @@ import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./o
 const SESSION_HOST_STATUS_CACHE_MS = 30_000;
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
-function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
-  if (removalAware) return snapshot;
+function ownerSettingsSnapshot(
+  snapshot: InstallationSettingsSnapshot,
+  client: { removalAware: boolean; projectPoliciesAware: boolean },
+) {
   const catalogs = [snapshot.settings, ...Object.values(snapshot.conflicts?.candidates ?? {})];
-  for (const catalog of catalogs)
-    for (const provider of catalog?.providerDefinitions ?? []) delete provider.removed;
+  for (const catalog of catalogs) {
+    if (!catalog) continue;
+    if (!client.removalAware)
+      for (const provider of catalog.providerDefinitions ?? []) delete provider.removed;
+    // COMPAT(projectPolicies): added 2026-10-22, remove after 2027-04-22. Older strict clients
+    // reject the key; newer ones read its presence as the capability.
+    if (client.projectPoliciesAware) catalog.projectPolicies ??= {};
+    else delete catalog.projectPolicies;
+  }
   return snapshot;
+}
+
+function ownerSettingsClient(req: Request) {
+  return {
+    removalAware: req.get("X-Vorteo-Provider-Removal") === "1",
+    projectPoliciesAware: req.get("X-Vorteo-Project-Policies") === "1",
+  };
 }
 
 function matchesToken(token: string | null, hash: string): boolean {
@@ -480,6 +496,26 @@ export function createInstallationServer(
         serviceDiscovery = null;
       });
   }
+  // A Host install that selects a new release leaves coordinator updates
+  // prepared for the old one unverifiable. Cancel them rather than leave them
+  // waiting for the owner; a renewal prepared on the new release is kept.
+  function cancelStaleCoordinatorUpdates() {
+    const hostSourceUpdates = config.sourceUpdates;
+    if (!coordinatorRequests || !hostSourceUpdates) return;
+    try {
+      const canceled = coordinatorRequests.cancelForReplacedHostRelease(
+        realpathSync(hostSourceUpdates.currentReleaseLink),
+        realpathSync(hostSourceUpdates.releaseRoot),
+      );
+      if (canceled.length)
+        logger.info(
+          { canceled },
+          "Canceled coordinator updates prepared for a replaced Host release",
+        );
+    } catch {
+      logger.warn("Stale coordinator update check is pending");
+    }
+  }
   const drainRestarts = async () => {
     if (drainInProgress) return;
     drainInProgress = true;
@@ -496,6 +532,7 @@ export function createInstallationServer(
           if (progress !== "idle" && progress !== "verified") return;
         }
         coordinatorRequests?.revokeAutomatic();
+        cancelStaleCoordinatorUpdates();
         discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
         await restarts.drain();
@@ -846,6 +883,8 @@ export function createInstallationServer(
             sessionHostJob: {
               available: host && restarts.sessionHostAvailable(),
               ownerApprovalRequired: true,
+              // COMPAT(sessionHostRestart): clients send the restart operation only when this is set.
+              restart: true,
             },
             supervisorMaintenance: {
               available: Boolean(supervisorPlan && executor.restartSupervisor),
@@ -1148,6 +1187,9 @@ export function createInstallationServer(
       res.sendStatus(503);
       return;
     }
+    // COMPAT(projectPolicies): added 2026-10-22, remove after 2027-04-22. Older daemons parse
+    // admission strictly, so only readers that ask receive project policies.
+    if (req.query.projectPolicies !== "1") delete snapshot.settings.projectPolicies;
     res.json({
       installationId: config.public.installationId,
       serverId: environment.serverId,
@@ -1609,17 +1651,57 @@ export function createInstallationServer(
   app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
     void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
   });
-  app.post("/api/installation/owner/session-host/query", (_req, res) => {
+  app.post("/api/installation/owner/session-host/query", (req, res) => {
     const jobs = restarts.listSessionHosts();
     if (!restarts.sessionHostAvailable()) {
       res.status(404).json({ error: "Session host maintenance is unavailable" });
       return;
     }
+    // COMPAT(sessionHostRestart, hostedIndicator, sessionHostUpgrade): apps before v762 parse this
+    // response strictly, so anything added after v712 is sent only to an app that declares it
+    // understands it. A client sending {} gets the v712 shape: no restart jobs, no previousHost,
+    // no installed release or provider counts, no pending upgrade. Apps from v762 ignore unknown
+    // keys, so later additions need no flag for them. Remove once every interface in use is v762
+    // or newer.
+    const body = (req.body ?? {}) as { restart?: unknown; indicator?: unknown; upgrade?: unknown };
+    const wantsRestart = body.restart === true;
+    const visible = { indicator: body.indicator === true, upgrade: body.upgrade === true };
+    const visibleJobs = wantsRestart
+      ? jobs
+      : jobs
+          .filter((job) => job.operation !== "session-host-restart")
+          .map(({ previousHost: _previousHost, ...job }) => job);
+    const extra = wantsRestart ? { restartSupported: true } : {};
     void sessionHostStatus(true).then(
-      (status) => res.json({ jobs, status }),
-      () => res.json({ jobs, status: null }),
+      (status) =>
+        res.json({
+          jobs: visibleJobs,
+          status: visibleStatus(status, visible),
+          ...extra,
+        }),
+      () => res.json({ jobs: visibleJobs, status: null, ...extra }),
     );
   });
+  /**
+   * The status as the client can parse it: without the installed release and per-provider counts
+   * unless it declares the indicator (v760), and without the pending upgrade unless it declares
+   * upgrades (v762).
+   */
+  function visibleStatus(
+    status: SessionHostStatus,
+    flags: { indicator: boolean; upgrade: boolean },
+  ): SessionHostStatus {
+    if (!status.detail || (flags.indicator && flags.upgrade)) return status;
+    const { installedRelease, upgradePending, host, ...detail } = status.detail;
+    const visible: SessionHostStatus["detail"] = { ...detail, host };
+    if (flags.indicator) {
+      if (installedRelease !== undefined) visible.installedRelease = installedRelease;
+    } else if (host) {
+      visible.host = (({ providers: _providers, ...rest }) => rest)(host);
+    }
+    if (flags.upgrade && upgradePending !== undefined) visible.upgradePending = upgradePending;
+    return { ...status, detail: visible };
+  }
   app.post("/api/installation/owner/session-host/request", (req, res, next) => {
     void restarts
       .requestSessionHost(req.body, "owner")
@@ -1656,9 +1738,7 @@ export function createInstallationServer(
   });
   app.post("/api/installation/owner/profiles/query", (_req, res) => res.json(profiles.status()));
   app.post("/api/installation/owner/settings/read", (req, res) => {
-    res.json(
-      ownerSettingsSnapshot(settings.snapshot(), req.get("X-Vorteo-Provider-Removal") === "1"),
-    );
+    res.json(ownerSettingsSnapshot(settings.snapshot(), ownerSettingsClient(req)));
   });
   app.post("/api/installation/owner/settings/plugins/resolve", (req, res, next) => {
     const input = PluginSourceResolutionInputSchema.parse(req.body);
@@ -1707,7 +1787,10 @@ export function createInstallationServer(
       throw new InstallationSettingsConflict(current.revision);
     void settings
       .update(input)
-      .then((snapshot) => res.json(ownerSettingsSnapshot(snapshot, removalAware)), next);
+      .then(
+        (snapshot) => res.json(ownerSettingsSnapshot(snapshot, ownerSettingsClient(req))),
+        next,
+      );
   });
   const readProfiles = (_req: Request, res: Response) => {
     const snapshot = profiles.snapshot();

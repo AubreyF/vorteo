@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isPlatform } from "../test-utils/platform.js";
-import { getWorktreeSetupCommands, getWorktreeTeardownCommands } from "./worktree.js";
+import {
+  getWorktreeSetupCommands,
+  getWorktreeTeardownCommands,
+  readPaseoConfig,
+} from "./worktree.js";
 import {
   readPaseoConfigForEdit,
   statPaseoConfigPath,
@@ -187,5 +191,30 @@ describe("paseo config file substrate", () => {
       config: { scripts: { dev: { command: "npm run dev" } } },
       revision: statPaseoConfigPath(join(tempDir, "nested")),
     });
+  });
+
+  it("merges paseo.local.json script entries for runtime but not for editing", () => {
+    const committed = {
+      scripts: {
+        web: { type: "service", command: "npm run dev" },
+        test: { command: "npm test" },
+      },
+    };
+    writeFileSync(join(tempDir, "paseo.json"), JSON.stringify(committed));
+    writeFileSync(
+      join(tempDir, "paseo.local.json"),
+      JSON.stringify({ scripts: { web: { command: "wrapped npm run dev", port: 40001 } } }),
+    );
+
+    expect(readPaseoConfig(tempDir)).toMatchObject({
+      ok: true,
+      config: {
+        scripts: {
+          web: { type: "service", command: "wrapped npm run dev", port: 40001 },
+          test: { command: "npm test" },
+        },
+      },
+    });
+    expect(readPaseoConfigForEdit(tempDir)).toMatchObject({ ok: true, config: committed });
   });
 });

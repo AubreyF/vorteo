@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { quotaReading, limitingWindow } from "./quota-reading";
 import { retainLastKnownUsage } from "./usage-cache";
+import { providerUsageView } from "./usage-view";
 import { selectedPresetPresentation } from "../agent-profiles/selected-preset-presentation";
 import type { ProviderUsageListPayload, ProviderUsageView } from "./types";
 
@@ -74,8 +75,7 @@ it.each([0, 100])("preserves valid boundary value %s", (remainingPct) => {
   ).toBe(remainingPct);
 });
 
-it("keeps cached readings through disconnect and refresh errors, then clears the warning", async () => {
-  const { providerUsageView } = await import("./usage-view");
+it("keeps cached readings through disconnect and refresh errors, then clears the warning", () => {
   const input = {
     hasHost: true,
     connected: true,
@@ -94,6 +94,16 @@ it("keeps cached readings through disconnect and refresh errors, then clears the
   expect(quotaReading(providerUsageView(input), "secondary", 1).statusLabel).toBeNull();
   expect(providerUsageView({ ...input, data: undefined }).kind).toBe("loading");
   expect(providerUsageView({ ...input, data: undefined, connected: false }).kind).toBe("error");
+  expect(
+    providerUsageView({
+      ...input,
+      data: undefined,
+      error: new Error("Transport closed (code 1006)"),
+    }),
+  ).toEqual({
+    kind: "error",
+    message: "Lost connection to the host. Try again once it reconnects.",
+  });
 });
 
 it("shows prepaid credits when either coding allowance is exhausted", () => {

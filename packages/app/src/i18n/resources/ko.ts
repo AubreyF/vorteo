@@ -67,6 +67,7 @@ export const ko: TranslationResources = {
       daemonClientDisconnected: "데몬 클라이언트 연결이 끊어졌습니다",
       noFileFound: "{{token}}에 해당하는 파일을 찾을 수 없습니다",
       unexpectedDictationError: "받아쓰기를 처리하는 중 예기치 않은 오류가 발생했습니다.",
+      hostConnectionLost: "호스트와의 연결이 끊어졌습니다. 다시 연결되면 다시 시도하세요.",
     },
     connectionStatus: {
       online: "온라인",
@@ -174,6 +175,8 @@ export const ko: TranslationResources = {
     },
     errors: {
       failedToSend: "메시지를 보내지 못했습니다",
+      connectionLostWhileSending:
+        "보내는 중 연결이 끊어졌습니다. 다시 보내기 전에 메시지가 도착했는지 확인하세요.",
       failedToCreateAgent: "에이전트를 생성하지 못했습니다",
       noHostSelected: "선택된 호스트가 없습니다",
       initialPromptRequired: "초기 프롬프트가 필요합니다",
@@ -308,6 +311,7 @@ export const ko: TranslationResources = {
       archived: "보관됨",
       pending: "대기 {{count}}개",
       attention: "주의",
+      hosted: "재시작 후에도 유지",
     },
     archiveSheet: {
       hostOffline: "호스트 오프라인",
@@ -394,6 +398,7 @@ export const ko: TranslationResources = {
       withTokens: "컨텍스트가 압축되었습니다 ({{tokens}}K 토큰)",
       completed: "컨텍스트가 압축되었습니다",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1187,6 +1192,35 @@ export const ko: TranslationResources = {
         "새 워크트리가 의존성을 설치하고 자동으로 준비될 수 있도록 설정 명령을 추가하세요.",
       openProjectSettings: "프로젝트 설정 열기",
     },
+    folders: {
+      actions: {
+        menu: "폴더 작업",
+        newFolder: "새 폴더",
+        newWorkspaceFolder: "새 워크스페이스 폴더",
+        newSubfolder: "안에 새 폴더",
+        rename: "폴더 이름 변경",
+        delete: "폴더 삭제",
+        moveToFolder: "폴더로 이동…",
+      },
+      dialogs: {
+        createTitle: "새 폴더",
+        renameTitle: "폴더 이름 변경",
+        namePlaceholder: "폴더 이름",
+        create: "만들기",
+        rename: "이름 변경",
+        moveTitle: "“{{name}}” 이동",
+        destination: "폴더",
+        topLevel: "폴더 없음",
+        move: "이동",
+        cancel: "취소",
+      },
+      confirmations: {
+        deleteTitle: "폴더를 삭제할까요?",
+        deleteMessage:
+          "“{{folderName}}”을(를) 삭제할까요? 내용은 한 단계 위로 이동합니다. 아무것도 보관되지 않으며 디스크의 파일은 변경되지 않습니다.",
+        deleteConfirm: "삭제",
+      },
+    },
     project: {
       actions: {
         menu: "프로젝트 작업",
@@ -1197,6 +1231,8 @@ export const ko: TranslationResources = {
         openFolderFailed: "폴더를 열 수 없습니다.",
         remove: "프로젝트 제거",
         removing: "제거하는 중...",
+        removeBlockedSystem:
+          "Vorteo System에는 이 설치의 소스와 유지 관리 워크스페이스가 들어 있으므로 제거할 수 없습니다.",
       },
       confirmations: {
         removeTitle: "프로젝트를 제거할까요?",
@@ -2704,6 +2740,12 @@ export const ko: TranslationResources = {
         imageUrl: "이미지 또는 웹사이트 URL",
         save: "변경사항 저장",
         savedToast: "프로젝트가 업데이트되었습니다.",
+        nameLockedSystem: "이 프로젝트의 이름은 데몬이 정하므로 변경할 수 없습니다.",
+      },
+      system: {
+        title: "Vorteo System 정보",
+        description:
+          "이 프로젝트는 이 Vorteo 설치를 발전시키기 위한 곳입니다. 설치를 빌드한 체크아웃을 기반으로 하며, Optimization Runner처럼 데몬이 관리하는 유지 관리 워크스페이스도 담고 있습니다. 데몬이 다시 만들고 의존하므로 제거하거나 이름을 바꿀 수 없습니다.",
       },
       readFailures: {
         invalidTitle: "paseo.json을 파싱할 수 없습니다",

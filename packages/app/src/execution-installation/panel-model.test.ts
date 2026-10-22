@@ -193,6 +193,50 @@ test("opening or observing a request never approves it", async () => {
   expect(approvals).toBe(1);
 });
 
+test("a session host query the interface cannot parse never blocks the rest of Installation controls", async () => {
+  const job: RestartJob = {
+    id: "request",
+    revision: "revision",
+    target: "host",
+    requestedBy: "container-agent",
+    reason: "Update",
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    status: "pending",
+    detail: "Approval required",
+  };
+  let answer: () => Promise<null> = async () => {
+    throw new Error("Session host receipt changed. Refresh before another action.");
+  };
+  const model = new InstallationPanelModel({
+    restartSummary: async () => null,
+    restoreSession: async () => false,
+    lock: async () => {},
+    passwordFile: null,
+    sessionsSupported: false,
+    profileSharingStatus: async () => null,
+    resolveProfileConflict: async () => {},
+    unlock: async () => {},
+    listHelpers: async () => [],
+    decideHelper: async () => {
+      throw new Error("Unexpected helper decision");
+    },
+    listRestarts: async () => [job],
+    decide: async () => {},
+    sessionHost: () => answer(),
+  });
+  model.setPassword("owner-password");
+  await model.unlock();
+  // The restart list and its approval buttons arrive; the session host card reports its failure.
+  expect(model.getState().jobs).toEqual([job]);
+  expect(model.getState().sessionHost).toBeNull();
+  expect(model.getState().sessionHostError).toContain("Session host receipt changed");
+  // A later answer the interface can parse replaces the error.
+  answer = async () => null;
+  await model.refresh();
+  expect(model.getState().jobs).toEqual([job]);
+});
+
 test("failed unlock remains visible and can be retried without granting authority", async () => {
   let attempts = 0;
   const model = new InstallationPanelModel({
@@ -825,7 +869,9 @@ test("service queue refresh survives summary failure and cancellation retains ac
   expect(reads).toBe(1);
   expect(model.getState().serviceQueue?.jobs[0]?.id).toBe(job.id);
   await model.cancelMaintenanceService(job);
-  expect(model.getState().serviceQueueError).toContain("Connection lost");
+  expect(model.getState().serviceQueueError).toBe(
+    "Lost connection to the host. Try again once it reconnects.",
+  );
   expect(model.getState().busy).toBe(false);
   fail = false;
   await model.refreshServiceQueue();

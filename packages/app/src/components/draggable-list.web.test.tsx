@@ -95,7 +95,7 @@ describe("asynchronous drop handoff", () => {
     { id: "one", text: "One" },
     { id: "two", text: "Two" },
   ];
-  let drop: (items: typeof original) => void;
+  let drop: (items: typeof original, movedKey: string) => void;
   function Harness({
     data,
     save,
@@ -121,7 +121,7 @@ describe("asynchronous drop handoff", () => {
         resolve = done;
       });
     render(original, save);
-    act(() => drop(original.toReversed()));
+    act(() => drop(original.toReversed(), "two"));
     expect(container?.textContent).toBe("Two,One");
     const refreshed = original.map((item) => ({ ...item, text: item.text + " updated" }));
     render(refreshed, save);
@@ -142,7 +142,7 @@ describe("asynchronous drop handoff", () => {
         reject = fail;
       });
     render(original, save);
-    act(() => drop(original.toReversed()));
+    act(() => drop(original.toReversed(), "two"));
     expect(container?.textContent).toBe("Two,One");
     await act(async () => reject(new Error("Order conflict")));
     expect(container?.textContent).toBe("One,Two");
@@ -155,7 +155,7 @@ describe("asynchronous drop handoff", () => {
         resolve = done;
       });
     render(original, save);
-    act(() => drop(original.toReversed()));
+    act(() => drop(original.toReversed(), "two"));
     render([original[0]!], save);
     expect(container?.textContent).toBe("One");
     await act(async () => resolve());
@@ -169,14 +169,14 @@ describe("asynchronous drop handoff", () => {
         resolve = done;
       });
     render([original[0]!], save);
-    act(() => drop(original.toReversed()));
+    act(() => drop(original.toReversed(), "two"));
     expect(container?.textContent).toBe("One");
     await act(async () => resolve());
   });
 
   it("does not preview rejected gestures or synchronous owners", () => {
     render(original, () => {});
-    act(() => drop(original.toReversed()));
+    act(() => drop(original.toReversed(), "two"));
     expect(container?.textContent).toBe("One,Two");
   });
 });

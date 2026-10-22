@@ -8493,6 +8493,48 @@ test("concurrent first goal mutations create only one native thread", async () =
   }
 });
 
+test("keeps a frozen skill selection when Codex finishes syncing plugin skills later", async () => {
+  const session = createSession({
+    skillSnapshot: { capturedAt: "now", provider: "codex", skills: [] },
+  });
+  const personal = { name: "personal", path: "/tmp/personal/SKILL.md", enabled: true };
+  const plugin = {
+    name: "google-drive",
+    path: "/tmp/plugins/cache/openai-curated-remote/google-drive/skills/google-drive/SKILL.md",
+    enabled: true,
+  };
+  let listings = 0;
+  const request = vi.fn(async (method: string) => {
+    if (method === "skills/list") {
+      // Remote plugin skills appear once Codex's background sync completes.
+      const skills = listings++ === 0 ? [personal] : [personal, plugin];
+      return { data: [{ cwd: "/tmp/codex-question-test", skills, errors: [] }] };
+    }
+    if (method === "thread/loaded/list") return { data: [] };
+    if (method === "thread/resume" || method === "turn/start") return {};
+    throw new Error(`Unexpected request: ${method}`);
+  });
+  session.activeForegroundTurnId = null;
+  session.client = createStub<CodexClientLike>({ request });
+  await session.startTurn("First turn");
+  await expect(session.listCommands()).resolves.not.toContainEqual(
+    expect.objectContaining({ name: "google-drive" }),
+  );
+  session.activeForegroundTurnId = null;
+  await session.startTurn("Second turn");
+  const turns = request.mock.calls.filter(([method]) => method === "turn/start");
+  expect(turns.at(-1)?.[1]).toMatchObject({
+    config: {
+      skills: {
+        config: [
+          { path: personal.path, enabled: false },
+          { path: plugin.path, enabled: false },
+        ],
+      },
+    },
+  });
+});
+
 test("restores a profileless task's frozen skill exclusions into Codex thread config", async () => {
   const session = createSession({
     skillSnapshot: { capturedAt: "now", provider: "codex", skills: [] },

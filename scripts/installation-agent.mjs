@@ -9,6 +9,16 @@ import { fileURLToPath } from "node:url";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
+// Same check as scripts/lib/builds-guard.mjs, kept inline because this client is copied and run
+// on its own (Dev guest, standalone coordinator CLI). Only Vorteo :: Builds submits requests.
+function assertBuildsCoordinator(action) {
+  if (process.env.VORTEO_BUILDS === "1") return;
+  throw new Error(
+    `${action} is reserved for the Vorteo :: Builds thread, the only writer of shared state. ` +
+      "Finish on your task branch and hand it to Builds instead (AGENTS.md, Builds coordinator).",
+  );
+}
+
 /** This client is copied alone into Dev. Use built-ins, not an undeclared
  * dispatcher dependency, to avoid fetch's shorter independent headers timeout.
  * One deadline covers connection, headers and body; failure never retries. */
@@ -55,15 +65,21 @@ export async function postCoordinatorRequest(url, options, timers = { setTimeout
 }
 
 /** Session host job commands need a coordinator that advertises them to this token. */
-async function requireSessionHostJob(base, config) {
+async function requireSessionHostJob(base, config, operation) {
   const response = await fetch(new URL("/api/installation/capabilities", base), {
     headers: { Authorization: `Bearer ${config.token}` },
     redirect: "error",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok || (await response.json()).sessionHostJob?.available !== true)
+  const sessionHostJob = response.ok ? (await response.json()).sessionHostJob : undefined;
+  if (sessionHostJob?.available !== true)
     throw new Error(
       "The coordinator does not advertise session host jobs to this client. No request submitted.",
+    );
+  // COMPAT(sessionHostRestart): older coordinators reject the restart operation outright.
+  if (operation === "session-host-restart" && sessionHostJob.restart !== true)
+    throw new Error(
+      "The installed coordinator does not support session host restarts. Update the Host first; no request submitted.",
     );
 }
 
@@ -89,11 +105,15 @@ if (
       "request-file": { type: "string" },
       install: { type: "boolean" },
       remove: { type: "boolean" },
+      restart: { type: "boolean" },
       reason: { type: "string" },
       "instructions-file": { type: "string" },
       "base-revision": { type: "string" },
     },
   });
+  // Vorteo :: Builds is the only writer of shared state (AGENTS.md, "Builds coordinator").
+  if (positionals[0]?.startsWith("request-"))
+    assertBuildsCoordinator(`installation-agent ${positionals[0]}`);
   if (
     values["supervisor-plan"] &&
     (values.update || values.target !== "container-daemon" || positionals[0] !== "request-restart")
@@ -212,14 +232,17 @@ if (
     case "request-session-host": {
       if (config.kind !== "host-agent")
         throw new Error("Session host job requests require the trusted Host client");
-      if (Boolean(values.install) === Boolean(values.remove))
-        throw new Error("Use exactly one of --install or --remove");
-      await requireSessionHostJob(base, config);
+      if ([values.install, values.remove, values.restart].filter(Boolean).length !== 1)
+        throw new Error("Use exactly one of --install, --remove or --restart");
+      let operation = "session-host-restart";
+      if (values.install) operation = "session-host-install";
+      if (values.remove) operation = "session-host-remove";
+      await requireSessionHostJob(base, config, operation);
       resource = "/api/installation/session-host-requests";
       // The coordinator derives the plan itself; the request names only the operation.
       body = {
         id: randomUUID(),
-        operation: values.install ? "session-host-install" : "session-host-remove",
+        operation,
         reason:
           values.reason?.trim() || "Requested by a Host agent through the installation client.",
       };
@@ -567,21 +590,27 @@ if (
 }
 
 /**
- * A conflicted source batch stays pending and is never approved, automatically or by the owner,
- * until its contribution is corrected. Say so plainly instead of leaving it to the JSON.
+ * A batch with a conflicting or invalid contribution stays pending and is never approved,
+ * automatically or by the owner, until that contribution is corrected. Say so plainly instead of
+ * leaving it to the JSON.
  */
 function reportBatchConflicts(result) {
   const batch = result.batch?.sourceBatch ?? result.sourceBatch;
   if (batch?.status !== "conflict" || !Array.isArray(batch.contributions)) return;
   for (const contribution of batch.contributions) {
-    if (contribution?.status !== "conflict") continue;
-    const where =
-      String(contribution.detail ?? "")
-        .split("\n")[0]
-        .trim() || "the current source";
+    const status = contribution?.status;
+    if (status !== "conflict" && status !== "invalid") continue;
+    const detail = String(contribution.detail ?? "")
+      .split("\n")[0]
+      .trim();
+    const problem =
+      status === "conflict"
+        ? `conflicts in ${detail || "the current source"}`
+        : `was rejected: ${detail || "it failed validation"}`;
+    const owner = contribution.requester ? ` from "${contribution.requester}"` : "";
     process.stderr.write(
-      `Source batch conflict: contribution ${contribution.id} conflicts in ${where}. ` +
-        `Rebase it on the current source and resubmit with --replaces ${contribution.id}.\n`,
+      `Source batch blocked: contribution ${contribution.id}${owner} ${problem}. ` +
+        `Correct it and resubmit with --replaces ${contribution.id}.\n`,
     );
   }
 }

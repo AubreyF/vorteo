@@ -170,6 +170,7 @@ import type {
 } from "@getpaseo/protocol/agent-types";
 import type {
   AgentConfigApply,
+  AgentProfileSwitchRequestMessage,
   MutableDaemonConfig,
   MutableDaemonConfigPatch,
 } from "@getpaseo/protocol/messages";
@@ -1071,10 +1072,18 @@ export class DaemonConnectionError extends Error {
   constructor(
     message: string,
     readonly code: "DAEMON_CONNECTION_LOST" | "DAEMON_REQUEST_TIMEOUT" = "DAEMON_CONNECTION_LOST",
+    /** The request reached the transport before the reply was lost, so the daemon may have
+     * acted on it. Callers must not assume the request failed. */
+    readonly requestMayHaveArrived = false,
   ) {
     super(message);
     this.name = "DaemonConnectionError";
   }
+}
+
+/** True when a request was sent but its reply was lost, leaving its daemon-side outcome unknown. */
+export function isRequestOutcomeUnknown(error: unknown): boolean {
+  return error instanceof DaemonConnectionError && error.requestMayHaveArrived;
 }
 
 class DaemonRpcError extends Error {
@@ -1127,6 +1136,14 @@ function toTimeoutError(error: unknown, label: string, timeoutMs: number): Error
 
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1500;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30000;
+// Closing one native session and starting another can take longer than an ordinary RPC.
+const PROFILE_SWITCH_TIMEOUT_MS = 120_000;
+
+export type AgentProfileSwitchTarget = Omit<
+  AgentProfileSwitchRequestMessage,
+  "type" | "agentId" | "requestId"
+>;
+
 const DEFAULT_SESSION_RPC_TIMEOUT_MS = 60_000;
 const PUSH_TOKEN_REVOCATION_TIMEOUT_MS = 2_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
@@ -2012,7 +2029,17 @@ export class DaemonClient {
     }
 
     try {
-      const result = await promise;
+      let result: RpcWaitResult<T>;
+      try {
+        result = await promise;
+      } catch (error) {
+        // The request already left this client. A dropped connection or missing reply says
+        // nothing about whether the daemon received and acted on it.
+        if (error instanceof DaemonConnectionError) {
+          throw new DaemonConnectionError(error.message, error.code, true);
+        }
+        throw error;
+      }
       if (result.kind === "error") throw result.error;
       return result.value;
     } finally {
@@ -2712,15 +2739,24 @@ export class DaemonClient {
   }
 
   async createProjectDirectory(
-    input: { parentPath: string; name: string },
+    input: { parentPath: string; name: string; register?: boolean },
     requestId?: string,
   ): Promise<ProjectCreateDirectoryPayload> {
+    // An older daemon ignores the flag and would add the folder as a project.
+    if (
+      input.register === false &&
+      this.getLastServerInfoMessage()?.features?.projectsRoot !== true
+    ) {
+      throw new Error("Update this host to create folders without adding them as projects");
+    }
     return this.sendNamespacedCorrelatedSessionRequest<"project.create_directory.response">({
       requestId,
       message: {
         type: "project.create_directory.request",
         parentPath: input.parentPath,
         name: input.name,
+        // COMPAT(projectsRoot): only hosts advertising projectsRoot honor register: false.
+        ...(input.register === false ? { register: false } : {}),
       },
     });
   }
@@ -3868,6 +3904,7 @@ export class DaemonClient {
     factoryRuntimeAdoption?: true;
     compatibleRecovery?: true;
     previewMonitor?: true;
+    claudeHostRefresh?: true;
     sourceUpdateTooling?: true;
     bootRecovery?: true;
     automaticStatus?: true;
@@ -3885,6 +3922,9 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapPreviewMonitor === true
         ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapClaudeHostRefresh === true
+        ? { claudeHostRefresh: true as const }
         : {}),
       ...(features?.coordinatorBootstrapBootRecovery === true
         ? { bootRecovery: true as const }
@@ -3933,6 +3973,20 @@ export class DaemonClient {
     return result.requests;
   }
 
+  private assertServiceConfigurationPreparation(input: CoordinatorBootstrapPreparation): void {
+    const features = this.lastServerInfoMessage?.features;
+    if (
+      input.plan.previewMonitorConfiguration !== undefined &&
+      features?.coordinatorBootstrapPreviewMonitor !== true
+    )
+      throw new Error("Update the Host before preparing preview monitor configuration.");
+    if (
+      input.plan.claudeHostRefreshConfiguration !== undefined &&
+      features?.coordinatorBootstrapClaudeHostRefresh !== true
+    )
+      throw new Error("Update the Host before preparing Claude refresh configuration.");
+  }
+
   private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
     if (
       input.plan.bootRecovery &&
@@ -3963,11 +4017,7 @@ export class DaemonClient {
       this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
     )
       throw new Error("Update the Host before preparing source update tooling selection.");
-    if (
-      input.plan.previewMonitorConfiguration !== undefined &&
-      this.lastServerInfoMessage?.features?.coordinatorBootstrapPreviewMonitor !== true
-    )
-      throw new Error("Update the Host before preparing preview monitor configuration.");
+    this.assertServiceConfigurationPreparation(input);
     if (
       input.plan.compatibleRecovery &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapCompatibleRecovery !== true
@@ -4250,6 +4300,22 @@ export class DaemonClient {
     return result.breakdown;
   }
 
+  /**
+   * Resumes a thread held at a usage limit now, or stops it from resuming automatically.
+   * Gate on the daemon's `usageLimitResume` feature.
+   */
+  async setAgentUsageLimitResume(
+    agentId: string,
+    action: import("@getpaseo/protocol/usage-limit").AgentUsageLimitResumeAction,
+  ): Promise<import("@getpaseo/protocol/usage-limit").UsageLimitHold | null> {
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.usage_limit.set_resume.response">({
+        message: { type: "agent.usage_limit.set_resume.request", agentId, action },
+      });
+    if (result.error) throw new Error(result.error);
+    return result.hold;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
@@ -4381,6 +4447,35 @@ export class DaemonClient {
       throw new Error(payload.error ?? "applyAgentConfig rejected");
     }
     return payload.notice ?? null;
+  }
+
+  /**
+   * Moves an idle thread to another account or profile in place. The daemon
+   * closes the current native session and starts the target with recorded
+   * context. Gated on `server_info.features.agentProfileSwitch`.
+   */
+  async switchAgentProfile(agentId: string, target: AgentProfileSwitchTarget): Promise<void> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.profile.switch.request",
+      agentId,
+      ...target,
+      requestId,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: PROFILE_SWITCH_TIMEOUT_MS,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.profile.switch.response") return null;
+        if (msg.payload.requestId !== requestId) return null;
+        return msg.payload;
+      },
+    });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "switchAgentProfile rejected");
+    }
   }
 
   private requireHeldRestart(options: RestartServerOptions | undefined): HeldRestart | undefined {

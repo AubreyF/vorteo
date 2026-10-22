@@ -72,6 +72,12 @@ export interface PanelState {
     update: SupportingCardUpdate,
     layout?: SupportingCardLayout,
   ) => void;
+  /** Dragged card heights keyed by card; null returns the card to automatic sizing. */
+  cardHeights: Record<string, number>;
+  setCardHeight: (key: string, height: number | null) => void;
+  /** Quota accounts the owner opened or closed; others follow whether they need attention. */
+  quotaAccountExpanded: Record<string, boolean>;
+  setQuotaAccountExpanded: (providerId: string, expanded: boolean) => void;
 
   // Mobile: React's durable target plus the generation that owns it.
   mobilePanel: MobilePanelSelection;
@@ -154,6 +160,22 @@ export const usePanelStore = create<PanelState>()(
                 [key]: { ...state[key], [kind]: expanded },
               };
         }),
+      cardHeights: {},
+      setCardHeight: (key, height) =>
+        set((state) => {
+          if ((state.cardHeights[key] ?? null) === height) return state;
+          const cardHeights = { ...state.cardHeights };
+          if (height === null) delete cardHeights[key];
+          else cardHeights[key] = height;
+          return { cardHeights };
+        }),
+      quotaAccountExpanded: {},
+      setQuotaAccountExpanded: (providerId, expanded) =>
+        set((state) =>
+          state.quotaAccountExpanded[providerId] === expanded
+            ? state
+            : { quotaAccountExpanded: { ...state.quotaAccountExpanded, [providerId]: expanded } },
+        ),
       // Mobile always starts at agent view
       mobilePanel: { target: "agent", revision: 0 },
 
@@ -331,6 +353,8 @@ export const usePanelStore = create<PanelState>()(
       partialize: (state) => ({
         supportingCardExpanded: state.supportingCardExpanded,
         inlineCardExpanded: state.inlineCardExpanded,
+        cardHeights: state.cardHeights,
+        quotaAccountExpanded: state.quotaAccountExpanded,
         desktop: state.desktop,
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,

@@ -58,7 +58,7 @@ jobs:
         run: node --test scripts/agent-lifecycle.test.mjs scripts/agent-instructions.test.mjs
 
       - name: Validate CI contracts
-        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/sync-fdroid-changelogs.test.mjs scripts/upload-release-assets.test.mjs scripts/publish-instance-web.test.mjs
+        run: node --test scripts/ci-workflow.test.mjs scripts/daemon-launch-contract.test.mjs scripts/sync-fdroid-changelogs.test.mjs scripts/upload-release-assets.test.mjs scripts/publish-instance-web.test.mjs scripts/dependency-cache.test.mjs scripts/instance-builds.test.mjs
 
   format:
     name: format

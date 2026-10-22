@@ -11,6 +11,7 @@ import { connectToDaemon, buildDaemonConnectionCommandError } from "../../utils/
 import { withOutput, toCommandError, type CommandOptions } from "../../output/index.js";
 import { addJsonAndDaemonHostOptions } from "../../utils/command-options.js";
 import { describeDaemonTarget, type DaemonTarget } from "../../utils/daemon-target.js";
+import type { ServerInfoStatusPayload } from "@getpaseo/protocol/messages";
 
 export function daemonStatusCommand(): Command {
   return addJsonAndDaemonHostOptions(
@@ -82,7 +83,7 @@ async function probeDaemonStatus(
         "Supervisor exited or was replaced during status observation.",
       );
     const info = client.getLastServerInfoMessage();
-    live = { serverId: info?.serverId, daemonVersion: info?.version };
+    live = describeLiveDaemon(info);
     connectedDaemon = client.isConnected ? "reachable" : "unreachable";
     if (!status) {
       const failure = toCommandError(requestError);
@@ -109,6 +110,15 @@ async function probeDaemonStatus(
     await client.close();
   }
   return { ...live, connectedDaemon, note };
+}
+
+function describeLiveDaemon(info: ServerInfoStatusPayload | null) {
+  return {
+    serverId: info?.serverId,
+    daemonVersion: info?.version,
+    // Lets tools such as the preview helper detect paseo.local.json support.
+    localProjectConfig: info?.features?.localProjectConfig === true,
+  };
 }
 
 function localStatus(home: string, instance: Awaited<ReturnType<typeof readDaemonInstance>>) {

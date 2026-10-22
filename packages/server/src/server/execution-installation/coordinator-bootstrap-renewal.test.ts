@@ -1246,6 +1246,26 @@ test.runIf(process.platform === "darwin")(
     await expect(
       verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
     ).rejects.toThrow("cannot change policy, helper or monitor");
+    // Claude refresh changes only with its exact reviewed field and candidate bytes.
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, claudeHostRefreshConfiguration: true }),
+    ).rejects.toThrow("outside its approved policy");
+    const refreshing = f.save(path.join(f.root, "claude-refresh.json"), {
+      ...JSON.parse(readFileSync(candidateConfig.path, "utf8")),
+      claudeHostRefresh: true,
+    });
+    const refreshPlan = {
+      ...plan,
+      candidate: { ...f.host, configuration: refreshing },
+      claudeHostRefreshConfiguration: true as const,
+    };
+    await expect(verifyRenewalPlan(setup, refreshPlan)).resolves.toBeUndefined();
+    await expect(
+      verifyRenewalPlan(setup, { ...refreshPlan, claudeHostRefreshConfiguration: undefined }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, { ...refreshPlan, claudeHostRefreshConfiguration: null }),
+    ).rejects.toThrow("outside its approved policy");
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {
       ...f.config,
       container: { ...f.config.container, factoryRuntimeAdoption: undefined },

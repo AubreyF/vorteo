@@ -7,6 +7,7 @@ import { notifyOutboxChange, watchOutboxChanges } from "./outbox-notifications";
 import { QueueOutbox } from "./outbox";
 import { useSessionStore } from "@/stores/session-store";
 import { legacyImportOperationId } from "./legacy";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export const messageQueueKey = (serverId: string, agentId: string) =>
   ["messageQueue", serverId, agentId] as const;
@@ -86,7 +87,7 @@ export function applyQueueSnapshot(serverId: string, snapshot: QueueSnapshot): v
     .catch((error: unknown) => {
       queryClient.setQueryData(messageOutboxKey(serverId), {
         records: null,
-        error: error instanceof Error ? error.message : "Queue recovery failed.",
+        error: toErrorMessage(error),
       });
     });
 }
@@ -165,7 +166,7 @@ export function flushMessageOutbox(serverId: string): Promise<void> {
     } while (requested.has(serverId));
   })()
     .catch(async (error: unknown) => {
-      const message = error instanceof Error ? error.message : "Queue synchronization failed.";
+      const message = toErrorMessage(error);
       try {
         await refreshMessageOutbox(serverId, message);
       } catch {
@@ -210,7 +211,7 @@ export function mountMessageQueueClient(serverId: string, client: DaemonClient):
       void subscribeQueue(serverId, agentId, true).catch((error: unknown) => {
         queryClient.setQueryData(
           ["messageQueueSubscriptionError", serverId, agentId],
-          error instanceof Error ? error.message : "Queue subscription failed.",
+          toErrorMessage(error),
         );
       });
     }

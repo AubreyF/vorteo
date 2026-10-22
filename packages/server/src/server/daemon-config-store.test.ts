@@ -576,6 +576,47 @@ describe("DaemonConfigStore", () => {
     expect(store.get().providers["catalog-runtime"]).toEqual(runtime);
   });
 
+  test("project exclusions mirror the installation coordinator and persist", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "vorteo-project-policies-"));
+    tempDirs.push(home);
+    const binding = {
+      installationId: "4c07b582-7d41-4be4-9725-36f975708983",
+      serverId: "host",
+      environment: "host" as const,
+      revision: 1,
+    };
+    const initial = reloadableConfig({});
+    const admission: InstallationSettingsAdmission = {
+      ...binding,
+      installationInstructions: "",
+      settings: { ...readInstallationSettings(initial), projectPolicies: {} },
+    };
+    const store = new DaemonConfigStore(
+      home,
+      {
+        ...initial,
+        installationProjectPolicies: {},
+        sharedProviderPreferences: {
+          version: 1,
+          revision: 1,
+          providers: {},
+          legacyProfiles: {},
+          installation: binding,
+        },
+      },
+      undefined,
+      { installationSettingsReader: { read: async () => admission } },
+    );
+    const policies = { "/Users/me/dev/app": { excludedEnvironments: ["container" as const] } };
+    await expect(store.patchFromClient({ installationProjectPolicies: policies })).rejects.toThrow(
+      "Project exclusions must be edited through the installation coordinator",
+    );
+    admission.settings.projectPolicies = policies;
+    await store.patchFromClient({ installationProjectPolicies: policies });
+    expect(store.get().installationProjectPolicies).toEqual(policies);
+    expect(loadPersistedConfig(home).daemon?.installationProjectPolicies).toEqual(policies);
+  });
+
   test("fresh account exclusions reject delayed binding creation before persistence", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "vorteo-excluded-account-"));
     tempDirs.push(home);
