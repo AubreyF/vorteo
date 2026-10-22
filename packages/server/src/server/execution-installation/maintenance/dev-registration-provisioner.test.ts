@@ -741,7 +741,14 @@ function v682Postimage(prepared: ReturnType<typeof prepareDevRegistrationProvisi
 }
 
 test("Docker pin compatibility preserves the exact captured v682 full postimage", () => {
-  const historical = v682Postimage(prepareDevRegistrationProvisioner(fixture()));
+  // Captured from the generator at the commit that pinned it. Later generator changes must not
+  // alter what a retained v682 provisioner is, so the artifact itself is the fixture.
+  const historical = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/dev-registration-provisioner-v682.json", import.meta.url),
+      "utf8",
+    ),
+  ) as ReturnType<typeof v682Postimage>;
   expect(hash(JSON.stringify(historical))).toBe(
     "d94c6bffaf6513d36c37d6a405a94ef4d8e6a966689c92e8c49ad6ac0591fb1d",
   );

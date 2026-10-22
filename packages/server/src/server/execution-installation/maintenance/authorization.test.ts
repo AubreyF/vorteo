@@ -3651,8 +3651,10 @@ test("unknown and previous service observations cannot masquerade as candidate s
   const f = serviceAdmissionFixture(),
     running = f.claim(f.reserve(f.approve()));
   const unknown = f.observe(running, "unknown", true);
+  // A ready unknown observation records failure, which a claimed job can only reach by proving
+  // unclaimed absence.
   expect(() => f.adapter.journal.write([unknown.job], unknown.evidence)).toThrow(
-    "Unknown service readiness",
+    "Service has no terminal unclaimed absence",
   );
   const previous = f.observe(running, "previous", true);
   expect(() =>

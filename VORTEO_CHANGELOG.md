@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.777 - 2026-10-22
+
+### Maintenance
+
+- Repair the installation test suites that failed on Linux CI. Server tests now use a private temporary root when the system one is shared, because installation custody rightly refuses world-writable ancestors such as Linux /tmp. Tests that read the native macOS launcher, LaunchAgents or Host observer run only on macOS. The server test job builds the server, which the supervisor suites execute. A retained v682 Dev provisioner is now a captured fixture rather than a reconstruction from today's generator, and still verifies.
+
 ## 0.11.0-beta.3.vorteo.776 - 2026-10-22
 
 ### Maintenance
