@@ -97,6 +97,12 @@ vi.mock("@gorhom/bottom-sheet", async () => {
   };
 });
 
+// jsdom reports a zero-width window, which would present the actions menu as a compact sheet.
+vi.mock("@/constants/layout", async () => ({
+  ...(await vi.importActual<typeof import("@/constants/layout")>("@/constants/layout")),
+  useIsCompactFormFactor: () => false,
+}));
+
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));

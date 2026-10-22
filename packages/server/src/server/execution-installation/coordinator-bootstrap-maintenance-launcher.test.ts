@@ -3724,7 +3724,11 @@ function prepareNativeRegistrationFixture(f: Awaited<ReturnType<typeof recoveryR
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
   const helper = pin(
     path.join(state, "inspector.py"),
-    readFileSync(path.resolve("scripts/inspect-coordinator-process.py")),
+    readFileSync(
+      fileURLToPath(
+        new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+      ),
+    ),
   );
   const containerId = "d".repeat(64);
   const dockerState = pin(

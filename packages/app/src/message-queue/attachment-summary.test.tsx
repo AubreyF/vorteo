@@ -162,6 +162,18 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 vi.mock("@/constants/layout", () => ({ useIsCompactFormFactor: () => false }));
+// Card resizing pulls in react-native-gesture-handler, which needs the real UIManager.
+vi.mock("@/components/card-height-handle", () => ({
+  useDraggedCardHeight: () => ({
+    active: false,
+    height: undefined,
+    dragging: false,
+    preview: () => {},
+    commit: () => {},
+    reset: () => {},
+  }),
+  DraggedCardHeightHandle: () => null,
+}));
 vi.mock("@/vorton-touch", () => ({ useVortonTouch: () => false }));
 vi.mock("@/goals/use-goal-elapsed", () => ({ useGoalElapsed: () => 0 }));
 vi.mock("@/goals/use-agent-goal", () => ({
