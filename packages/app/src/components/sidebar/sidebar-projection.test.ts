@@ -220,3 +220,125 @@ it("keeps Factory shortcuts in rendered order and respects its collapsed section
     }).shortcutModel.shortcutTargets.map((w) => w.workspaceId),
   ).toEqual(["first", "standing", "second"]);
 });
+
+function systemGroupIds(projection: ReturnType<typeof buildSidebarProjection>) {
+  return projection.systemGroups.map((group) => [
+    group.serverId,
+    group.workspaces.map((workspace) => workspace.workspaceId),
+  ]);
+}
+
+function groupedRowIds(projection: ReturnType<typeof buildSidebarProjection>) {
+  return projection.workspaceGroups.flatMap((group) => group.rows.map((row) => row.workspaceId));
+}
+
+describe("Vorteo System section", () => {
+  function systemWorkspace(id: string, serverId: string, managed: boolean) {
+    const base = makeWorkspace(id, "attention", [], `system:${serverId}`);
+    const placement = { ...base.placement, serverId, workspaceKey: `${serverId}:${id}` };
+    const entry: SidebarWorkspaceEntry = {
+      ...base.entry,
+      ...placement,
+      projectSystem: { kind: "vorteo-system" },
+      ...(managed ? { systemMembership: { role: "optimization-runner" } } : {}),
+    };
+    return { placement, entry };
+  }
+
+  function systemInput(groupMode: "project" | "status") {
+    const input = twoProjectInput(groupMode);
+    const hostOperator = systemWorkspace("notes", "srv", false);
+    const hostRunner = systemWorkspace("runner", "srv", true);
+    const devRunner = systemWorkspace("dev-runner", "dev", true);
+    for (const item of [hostOperator, hostRunner, devRunner]) {
+      input.workspaceEntriesByKey.set(item.entry.workspaceKey, item.entry);
+    }
+    input.projects.push(
+      makeProject([hostOperator.placement, hostRunner.placement], "system:srv"),
+      makeProject([devRunner.placement], "system:dev"),
+    );
+    return input;
+  }
+
+  const bothHosts = new Map([
+    ["srv", true],
+    ["dev", true],
+  ]);
+
+  for (const groupMode of ["project", "status"] as const) {
+    it(`moves System members out of ${groupMode} rows into per-host groups, managed first`, () => {
+      const projection = buildSidebarProjection({
+        ...systemInput(groupMode),
+        systemSupportedHosts: bothHosts,
+      });
+
+      expect(systemGroupIds(projection)).toEqual([
+        ["srv", ["runner", "notes"]],
+        ["dev", ["dev-runner"]],
+      ]);
+      expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
+        "project",
+        "other-project",
+      ]);
+      expect(groupedRowIds(projection)).not.toContain("runner");
+      expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual(
+        groupMode === "project"
+          ? ["first", "second", "runner", "notes", "dev-runner"]
+          : ["second", "first", "runner", "notes", "dev-runner"],
+      );
+    });
+  }
+
+  it("leaves System members in place on hosts that do not advertise the System project", () => {
+    const projection = buildSidebarProjection({
+      ...systemInput("project"),
+      systemSupportedHosts: new Map([["dev", true]]),
+    });
+
+    expect(projection.systemGroups.map((group) => group.serverId)).toEqual(["dev"]);
+    expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
+      "project",
+      "other-project",
+      "system:srv",
+    ]);
+  });
+
+  it("keeps pinned System workspaces pinned and drops the emptied project header", () => {
+    const input = systemInput("project");
+    const projection = buildSidebarProjection({
+      ...input,
+      pinnedKeys: {
+        pinnedWorkspaceKeys: ["dev:dev-runner"],
+        pinnedAtByKey: { "dev:dev-runner": "2026-10-22T12:00:00.000Z" },
+      },
+      systemSupportedHosts: bothHosts,
+    });
+
+    expect(projection.pinnedGroups.pinnedChats.map((entry) => entry.workspaceId)).toEqual([
+      "dev-runner",
+    ]);
+    expect(projection.systemGroups.map((group) => group.serverId)).toEqual(["srv"]);
+    expect(projection.pinnedGroups.unpinnedProjects.map((project) => project.viewKey)).toEqual([
+      "project",
+      "other-project",
+    ]);
+  });
+
+  it("drops System shortcuts while the section or a host group is collapsed", () => {
+    const input = systemInput("project");
+    input.collapsedWorkspaceGroupKeys.add("system:srv");
+    expect(
+      buildSidebarProjection({
+        ...input,
+        systemSupportedHosts: bothHosts,
+      }).shortcutModel.shortcutTargets.map((target) => target.workspaceId),
+    ).toEqual(["first", "second", "dev-runner"]);
+    input.collapsedWorkspaceGroupKeys.add("system");
+    const projection = buildSidebarProjection({ ...input, systemSupportedHosts: bothHosts });
+
+    expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+});

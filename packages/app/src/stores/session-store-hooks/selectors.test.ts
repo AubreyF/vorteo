@@ -618,4 +618,36 @@ describe("selectWorkspaceStatusesForBadges", () => {
 
     tracked.stop();
   });
+
+  it("leaves system-managed workspaces out only on hosts that advertise the System project", () => {
+    const projectSystem = { kind: "vorteo-system" };
+    const workspaces = new Map(
+      [
+        createWorkspace({ id: "ordinary", status: "attention" }),
+        {
+          ...createWorkspace({ id: "runner", status: "failed" }),
+          projectSystem,
+          systemMembership: { role: "optimization-runner" },
+        },
+        { ...createWorkspace({ id: "operator", status: "needs_input" }), projectSystem },
+      ].map((workspace) => [workspace.id, workspace]),
+    );
+    const serverInfo = (systemProject: boolean) => ({
+      serverId: SERVER_ID,
+      hostname: null,
+      version: null,
+      features: { systemProject },
+    });
+
+    expect(
+      selectWorkspaceStatusesForBadges({
+        sessions: { [SERVER_ID]: { workspaces, serverInfo: serverInfo(true) } },
+      }),
+    ).toEqual(["attention", "needs_input"]);
+    expect(
+      selectWorkspaceStatusesForBadges({
+        sessions: { [SERVER_ID]: { workspaces, serverInfo: serverInfo(false) } },
+      }),
+    ).toEqual(["attention", "failed", "needs_input"]);
+  });
 });

@@ -1,9 +1,12 @@
 import type { WorkspaceDescriptor } from "@/stores/session-store";
 import { getHostProjectId, type HostProjectListItem } from "@/projects/host-projects";
+import { SYSTEM_MANAGED_EXPLANATION } from "@/workspace/lifecycle/system-workspace";
 
 export function projectMoveBlockedReason(
   workspace: Pick<WorkspaceDescriptor, "protected" | "factoryMembership"> | null | undefined,
+  systemManaged = false,
 ): string | null {
+  if (systemManaged) return `${SYSTEM_MANAGED_EXPLANATION}. It stays in the Vorteo System project.`;
   if (workspace?.factoryMembership)
     return "This workspace is managed by Factory and belongs to its installed project. It cannot be moved independently.";
   if (workspace?.protected)

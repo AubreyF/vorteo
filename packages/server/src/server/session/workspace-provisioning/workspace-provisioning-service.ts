@@ -425,11 +425,12 @@ export function createWorkspaceProvisioningService(deps: {
         mainRepoRoot: projectCheckout.mainRepoRoot,
         serverId,
       });
-      if (project.archivedAt || project.kind !== kind || project.projectKey !== projectKey) {
+      const nextKey = project.systemProject ? project.projectKey : projectKey;
+      if (project.archivedAt || project.kind !== kind || project.projectKey !== nextKey) {
         await projectRegistry.upsert({
           ...project,
           kind,
-          projectKey,
+          projectKey: nextKey,
           archivedAt: null,
           updatedAt: timestamp,
         });
@@ -475,11 +476,13 @@ export function createWorkspaceProvisioningService(deps: {
       mainRepoRoot: projectCheckout.mainRepoRoot,
       serverId,
     });
-    if (project.kind === kind && project.projectKey === projectKey) return project;
+    // The system project's key is daemon-owned; only its kind follows the checkout.
+    const nextKey = project.systemProject ? project.projectKey : projectKey;
+    if (project.kind === kind && project.projectKey === nextKey) return project;
     const refreshed = {
       ...project,
       kind,
-      projectKey,
+      projectKey: nextKey,
       updatedAt: new Date().toISOString(),
     };
     await projectRegistry.upsert(refreshed);

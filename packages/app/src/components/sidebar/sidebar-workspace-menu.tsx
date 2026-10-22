@@ -40,6 +40,7 @@ import {
   FACTORY_MANAGED_EXPLANATION,
 } from "@/workspace/lifecycle/factory-membership";
 import { useSessionStore } from "@/stores/session-store";
+import { useSystemManaged } from "@/workspace/lifecycle/system-membership";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import { useProjectMoveRequest } from "@/workspace/project-move/request";
 import { useWorkspaceRenameDoubleClick } from "./workspace-rename-press";
@@ -253,7 +254,12 @@ export function WorkspaceMenuItems({
   openInFileManagerPath,
 }: SidebarWorkspaceMenuItemsProps & { surface: MenuSurface }): ReactNode {
   const { t } = useTranslation();
-  const membership = useFactoryMembership(serverId ?? "", workspaceId ?? "");
+  const { membership, canMove, renameAction, archiveAction } = useManagedWorkspaceActions({
+    serverId,
+    workspaceId,
+    onRename,
+    onArchive,
+  });
   const itemId = (action: string) =>
     testIDPrefix ? `${testIDPrefix}-${action}` : `sidebar-workspace-menu-${action}-${workspaceKey}`;
   const moveProject = useCallback(() => {
@@ -289,17 +295,17 @@ export function WorkspaceMenuItems({
           {t("sidebar.workspace.actions.copyBranchName")}
         </WorkspaceMenuItem>
       ) : null}
-      {onRename ? (
+      {renameAction ? (
         <WorkspaceMenuItem
           surface={surface}
           testID={itemId("rename")}
           leading={renameLeadingIcon}
-          onSelect={onRename}
+          onSelect={renameAction}
         >
           {t("sidebar.workspace.actions.rename")}
         </WorkspaceMenuItem>
       ) : null}
-      {serverId && workspaceId && !membership ? (
+      {canMove ? (
         <WorkspaceMenuItem
           surface={surface}
           testID={itemId("move-project")}
@@ -381,7 +387,7 @@ export function WorkspaceMenuItems({
         serverId={serverId}
         workspaceId={workspaceId}
         membership={membership}
-        onArchive={onArchive}
+        onArchive={archiveAction}
         archiveLabel={archiveLabel}
         archiveStatus={archiveStatus}
         archivePendingLabel={archivePendingLabel}
@@ -389,6 +395,23 @@ export function WorkspaceMenuItems({
       />
     </>
   );
+}
+
+/** Managed workspaces drop the actions their owner refuses: Factory moves, Vorteo System edits. */
+function useManagedWorkspaceActions({
+  serverId,
+  workspaceId,
+  onRename,
+  onArchive,
+}: Pick<SidebarWorkspaceMenuItemsProps, "serverId" | "workspaceId" | "onRename" | "onArchive">) {
+  const membership = useFactoryMembership(serverId ?? "", workspaceId ?? "");
+  const systemManaged = useSystemManaged(serverId ?? "", workspaceId ?? "");
+  return {
+    membership,
+    canMove: Boolean(serverId && workspaceId && !membership && !systemManaged),
+    renameAction: systemManaged ? undefined : onRename,
+    archiveAction: systemManaged ? undefined : onArchive,
+  };
 }
 
 interface FactoryWorkspaceMenuActionsProps extends Pick<
@@ -625,8 +648,9 @@ export function SidebarWorkspaceContextMenu({
     }
 >) {
   const sessionMenu = useWorkspaceSessionMenu(workspace.serverId, workspace.workspaceId);
+  const systemManaged = useSystemManaged(workspace.serverId, workspace.workspaceId);
   const renameTriggerRef = useWorkspaceRenameDoubleClick({
-    enabled: !triggerProps.disabled,
+    enabled: !triggerProps.disabled && !systemManaged,
     onRename,
   });
   const {

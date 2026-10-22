@@ -1,12 +1,18 @@
-import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
+import {
+  assertWorkspaceUnprotected,
+  pinSystemProjectFields,
+  pinSystemWorkspaceFields,
+} from "./workspace-lifecycle/policy.js";
 import { promises as fs } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 
 import type { Logger } from "pino";
 import { z } from "zod";
 import {
+  ProjectSystemMarkerSchema,
   WorkspaceFactoryMembershipSchema,
   WorkspaceProjectMembershipSchema,
+  WorkspaceSystemMembershipSchema,
 } from "@getpaseo/protocol/messages";
 
 import { writeJsonFileAtomic } from "./atomic-file.js";
@@ -58,6 +64,8 @@ const PersistedProjectRecordSchema = z.object({
   updatedAt: z.string(),
   archivedAt: z.string().nullable(),
   factoryInstallation: FactoryInstallCheckpointSchema.optional(),
+  // Daemon startup seeding owns this marker; ordinary requests cannot set or clear it.
+  systemProject: ProjectSystemMarkerSchema.optional(),
 });
 
 const PersistedWorkspaceRecordSchema = z.object({
@@ -66,6 +74,8 @@ const PersistedWorkspaceRecordSchema = z.object({
   projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
   // Native installation lifecycle owns this relationship; ordinary requests cannot set it.
   factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
+  // Daemon startup seeding owns this role; ordinary requests cannot set or clear it.
+  systemMembership: WorkspaceSystemMembershipSchema.optional(),
   cwd: z.string(),
   kind: z.enum(["local_checkout", "worktree", "directory"]),
   displayName: z.string(),
@@ -164,6 +174,8 @@ export interface ProjectRegistry {
   ): Promise<PersistedProjectRecord | null>;
   archive(projectId: string, archivedAt: string): Promise<void>;
   remove(projectId: string): Promise<void>;
+  /** Startup seeding only: writes a record whose system marker ordinary requests cannot set. */
+  writeSystemProject?(record: PersistedProjectRecord): Promise<void>;
   /** Central lifecycle seam for daemon-global project observers. */
   subscribeToMutations?(listener: (mutation: ProjectMutation) => void | Promise<void>): () => void;
 }
@@ -190,6 +202,8 @@ export interface WorkspaceRegistry {
     membership: NonNullable<PersistedWorkspaceRecord["factoryMembership"]>;
     assertCurrent(): void;
   }): Promise<PersistedWorkspaceRecord | null>;
+  /** Startup seeding only: binds, keeps or retires a system role, which ordinary writes cannot change. */
+  writeSystemWorkspace?(record: PersistedWorkspaceRecord): Promise<void>;
   /** Central lifecycle seam for daemon-global workspace observers. */
   subscribeToMutations?(
     listener: (mutation: WorkspaceMutation) => void | Promise<void>,
@@ -466,6 +480,8 @@ export class FileBackedProjectRegistry
             left.projectId.localeCompare(right.projectId),
         )[0];
       if (active) {
+        // The system project keeps its own key so it never joins a same-remote group.
+        if (active.systemProject && active.kind === input.kind) return active;
         if (active.kind === input.kind && active.projectKey === (input.projectKey ?? null))
           return active;
         const refreshed = {
@@ -514,9 +530,17 @@ export class FileBackedProjectRegistry
       const existing = records.get(record.projectId);
       if (!isDeepStrictEqual(existing?.factoryInstallation, record.factoryInstallation))
         throw new Error("Factory installation state requires the native installation operation.");
-      records.set(record.projectId, PersistedProjectRecordSchema.parse(record));
+      records.set(
+        record.projectId,
+        PersistedProjectRecordSchema.parse(pinSystemProjectFields(existing ?? null, record)),
+      );
     });
-    await this.notifyMutation({ kind: "upsert", projectId: record.projectId, project: record });
+    const stored = await this.get(record.projectId);
+    await this.notifyMutation({
+      kind: "upsert",
+      projectId: record.projectId,
+      project: stored ?? record,
+    });
   }
 
   override async update(
@@ -527,7 +551,7 @@ export class FileBackedProjectRegistry
       const next = updater(structuredClone(record));
       if (!isDeepStrictEqual(record.factoryInstallation, next.factoryInstallation))
         throw new Error("Factory installation state requires the native installation operation.");
-      return next;
+      return pinSystemProjectFields(record, next);
     });
     if (!project) return null;
     await this.notifyMutation({ kind: "upsert", projectId, project });
@@ -540,6 +564,7 @@ export class FileBackedProjectRegistry
       if (!current || current.archivedAt) return null;
       if (current.factoryInstallation)
         throw new Error("Factory installation requires reconciled owner disable before archive.");
+      pinSystemProjectFields(current, { ...current, archivedAt });
       const next = PersistedProjectRecordSchema.parse({
         ...current,
         updatedAt: archivedAt,
@@ -558,11 +583,24 @@ export class FileBackedProjectRegistry
       if (!current) return null;
       if (current.factoryInstallation)
         throw new Error("Factory installation requires reconciled owner disable before removal.");
+      pinSystemProjectFields(current, null);
       records.delete(projectId);
       return current;
     });
     if (!project) return;
     await this.notifyMutation({ kind: "remove", projectId, project: null });
+  }
+
+  async writeSystemProject(record: PersistedProjectRecord): Promise<void> {
+    const parsed = PersistedProjectRecordSchema.parse(record);
+    if (!parsed.systemProject) throw new Error("System project records require a system marker.");
+    await this.mutateCache((records) => {
+      const existing = records.get(parsed.projectId);
+      if (existing?.factoryInstallation)
+        throw new Error("Factory projects cannot become the system project.");
+      records.set(parsed.projectId, parsed);
+    });
+    await this.notifyMutation({ kind: "upsert", projectId: parsed.projectId, project: parsed });
   }
 
   /** Startup-owned installer only; any retained checkpoint blocks a new attempt. */
@@ -707,11 +745,28 @@ export class FileBackedWorkspaceRegistry
     workspaceId: string,
     updater: (record: PersistedWorkspaceRecord) => PersistedWorkspaceRecord,
   ): Promise<PersistedWorkspaceRecord | null> {
-    const workspace = await super.update(workspaceId, updater);
+    const workspace = await super.update(workspaceId, (existing) =>
+      pinSystemWorkspaceFields(existing, updater(existing)),
+    );
     if (workspace) {
       await this.notifyMutation({ kind: "upsert", workspaceId, workspace });
     }
     return workspace;
+  }
+
+  async writeSystemWorkspace(record: PersistedWorkspaceRecord): Promise<void> {
+    const parsed = PersistedWorkspaceRecordSchema.parse(record);
+    await this.mutateCache((records) => {
+      const existing = records.get(parsed.workspaceId);
+      if (existing?.factoryMembership)
+        throw new Error("Factory workspaces cannot join the system project.");
+      records.set(parsed.workspaceId, parsed);
+    });
+    await this.notifyMutation({
+      kind: "upsert",
+      workspaceId: parsed.workspaceId,
+      workspace: parsed,
+    });
   }
 
   async bindFactoryMember(input: {
@@ -728,6 +783,8 @@ export class FileBackedWorkspaceRegistry
         throw new Error("Workspace changed before Factory binding.");
       if (current.archivedAt || membership.projectId !== current.projectId)
         throw new Error("Factory workspace is archived or belongs to another project.");
+      if (current.systemMembership)
+        throw new Error("System workspaces cannot join a Factory installation.");
       if (current.factoryMembership) {
         if (!isDeepStrictEqual(current.factoryMembership, membership))
           throw new Error("Workspace already belongs to a different Factory relationship.");
@@ -763,11 +820,17 @@ export class FileBackedWorkspaceRegistry
     record: PersistedWorkspaceRecord,
     context?: WorkspaceMutationContext,
   ): Promise<void> {
-    await super.upsert(record);
+    let stored = record;
+    await this.mutateCache((records) => {
+      stored = PersistedWorkspaceRecordSchema.parse(
+        pinSystemWorkspaceFields(records.get(record.workspaceId) ?? null, record),
+      );
+      records.set(stored.workspaceId, stored);
+    });
     await this.notifyMutation({
       kind: "upsert",
       workspaceId: record.workspaceId,
-      workspace: record,
+      workspace: stored,
       ...(context?.expectsInitialAgent ? { expectsInitialAgent: true } : {}),
     });
   }

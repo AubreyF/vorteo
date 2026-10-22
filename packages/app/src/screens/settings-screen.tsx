@@ -1,5 +1,6 @@
 import { InstallationConnectionCheck } from "@/execution-installation/connection-check-wrapper";
 import { InstallationRestartBanner, InstallationControls } from "@/execution-installation/panel";
+import { SystemProjectCard } from "@/execution-installation/system-project-card";
 import { ActionFooter } from "@/components/ui/action-footer";
 import { WorkspaceDefaultsSection } from "@/screens/settings/general/workspace-defaults-section";
 import { AttentionSection } from "@/screens/settings/general/attention-section";
@@ -1057,7 +1058,10 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "plugins.plugins": installationPane("plugins"),
   "plugins.integrations": () => <IntegrationsSection />,
   "maintenance.installation": (context) => (
-    <InstallationControls requestId={context.restartRequestId} />
+    <>
+      <InstallationControls requestId={context.restartRequestId} />
+      <SystemProjectCard />
+    </>
   ),
   "maintenance.updates": () => <VortonUpdatesSection />,
   "maintenance.upstream": () => <UpstreamUpdatesSection />,

@@ -654,6 +654,55 @@ describe("WorkspaceReconciliationService", () => {
     expect(workspaces.get("w1")?.archivedAt).toEqual(expect.any(String));
   });
 
+  test("never archives protected or system workspaces whose directories are missing", async () => {
+    const projectRoot = realpathSync(
+      mkdtempSync(path.join(tmpdir(), "reconcile-protected-missing-")),
+    );
+    tempDirs.push(projectRoot);
+    const { projects, workspaces, projectRegistry, workspaceRegistry } = createTestRegistries();
+    projects.set(
+      "p1",
+      createPersistedProjectRecord({
+        projectId: "p1",
+        rootPath: projectRoot,
+        projectKey: canonicalLocalProjectKey(projectRoot),
+        kind: "non_git",
+        displayName: "ghost",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+    const missing = (workspaceId: string) =>
+      createPersistedWorkspaceRecord({
+        workspaceId,
+        projectId: "p1",
+        cwd: path.join(projectRoot, workspaceId),
+        kind: "directory",
+        displayName: workspaceId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    workspaces.set("protected", { ...missing("protected"), protected: true });
+    workspaces.set("system", {
+      ...missing("system"),
+      protected: true,
+      systemMembership: { role: "optimization-runner" },
+    });
+    workspaces.set("ordinary", missing("ordinary"));
+
+    const service = new WorkspaceReconciliationService({
+      projectRegistry,
+      workspaceRegistry,
+      logger: createTestLogger(),
+    });
+    const result = await service.runOnce();
+
+    // The ordinary sibling still archives; the pass does not fail on the protected ones.
+    expect(result.changesApplied.map((change) => change.workspaceId)).toEqual(["ordinary"]);
+    expect(workspaces.get("protected")?.archivedAt).toBeNull();
+    expect(workspaces.get("system")?.archivedAt).toBeNull();
+  });
+
   test("keeps workspaces whose project root is missing with them", async () => {
     const mountParent = realpathSync(mkdtempSync(path.join(tmpdir(), "reconcile-unmounted-")));
     tempDirs.push(mountParent);

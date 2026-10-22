@@ -249,16 +249,31 @@ export class WorkspaceReconciliationService {
     //    whole location is unavailable - an unmounted volume, an offline share, a disk
     //    that has not appeared yet - and absence there proves nothing about the
     //    workspace. Projects already persist through that; their workspaces do too.
+    //    Protected, system and Factory workspaces are never archived automatically;
+    //    their owner or the daemon restores the folder instead.
     const missingWorkspaces = workspaceDirectoryStates
       .filter(
         ({ workspace, state }) =>
-          state === "missing" && reachableProjectIds.has(workspace.projectId),
+          state === "missing" &&
+          reachableProjectIds.has(workspace.projectId) &&
+          !workspace.protected &&
+          !workspace.systemMembership &&
+          !workspace.factoryMembership,
       )
       .map(({ workspace }) => workspace);
     await Promise.all(
       missingWorkspaces.map(async (workspace) => {
         const timestamp = new Date().toISOString();
-        await this.workspaceRegistry.archive(workspace.workspaceId, timestamp);
+        try {
+          await this.workspaceRegistry.archive(workspace.workspaceId, timestamp);
+        } catch (error) {
+          // One refusal, such as a schedule added mid-pass, must not fail the whole pass.
+          this.logger.warn(
+            { err: error, workspaceId: workspace.workspaceId },
+            "Skipped archiving a workspace whose directory is missing",
+          );
+          return;
+        }
         await this.onWorkspaceArchived?.(workspace.workspaceId);
         changes.push({
           kind: "workspace_archived",
@@ -371,7 +386,8 @@ export class WorkspaceReconciliationService {
     if (project.kind !== mappedKind) {
       projectUpdates.kind = mappedKind;
     }
-    if (project.projectKey !== projectKey) {
+    // The system project's key is daemon-owned and never follows its git remote.
+    if (!project.systemProject && project.projectKey !== projectKey) {
       projectUpdates.projectKey = projectKey;
     }
 

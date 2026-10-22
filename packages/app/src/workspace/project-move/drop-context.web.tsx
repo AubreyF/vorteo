@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
 import { projectMoveBlockedReason } from "./policy";
+import { selectSystemManaged } from "@/workspace/lifecycle/system-membership";
 import { StyleSheet } from "react-native-unistyles";
 import type {
   SidebarProjectEntry,
@@ -38,6 +39,14 @@ function targetId(projectKey: string) {
   return `move-project:${projectKey}`;
 }
 
+function blockedReasonFor(workspace: SidebarWorkspacePlacement): string | null {
+  const state = useSessionStore.getState();
+  return projectMoveBlockedReason(
+    selectWorkspace(state, workspace.serverId, workspace.workspaceId),
+    selectSystemManaged(state, workspace.serverId, workspace.workspaceId),
+  );
+}
+
 export function ProjectMoveProvider({
   projects,
   children,
@@ -47,13 +56,7 @@ export function ProjectMoveProvider({
   const [blockedReason, setBlockedReason] = useState<string | null>(null);
   const onTargetChange = useCallback((id: string | null, workspace?: SidebarWorkspacePlacement) => {
     setHighlighted(id);
-    setBlockedReason(
-      id && workspace
-        ? projectMoveBlockedReason(
-            selectWorkspace(useSessionStore.getState(), workspace.serverId, workspace.workspaceId),
-          )
-        : null,
-    );
+    setBlockedReason(id && workspace ? blockedReasonFor(workspace) : null);
   }, []);
   const register = useCallback((id: string, element: HTMLDivElement | null) => {
     setTargets((previous) => {
@@ -63,12 +66,7 @@ export function ProjectMoveProvider({
   }, []);
   const onDrop = useCallback(
     (workspace: SidebarWorkspacePlacement, id: string) => {
-      if (
-        projectMoveBlockedReason(
-          selectWorkspace(useSessionStore.getState(), workspace.serverId, workspace.workspaceId),
-        )
-      )
-        return;
+      if (blockedReasonFor(workspace)) return;
       const project = projects.find((entry) => targetId(entry.viewKey) === id);
       if (project && project.viewKey !== workspace.projectViewKey)
         moveWorkspaceToProject(workspace, project.viewKey);

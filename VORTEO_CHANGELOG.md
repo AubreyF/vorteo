@@ -4,6 +4,30 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.752 - 2026-10-22
+
+### Maintenance
+
+- Merge the Vorteo System project from GitHub main into the installed Host source (`vorteo.751`, durable sessions phase 2), so the Host update descends from both and GitHub main can fast-forward to it after installation. GitHub main and the installed source each used `vorteo.748` for a different commit; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.748 - 2026-10-22
+
+### Added
+
+- Add the Vorteo System project. Every daemon creates one protected project at startup under `$PASEO_HOME/system` and keeps its standing upkeep workspaces there, starting with the Optimization Runner on the Host and single-daemon installs. Existing installations get it with their next update.
+- System items are enforced in the project and workspace registries: no client or tool can archive, remove, move, rename or unprotect them, or delete a thread in a system workspace. The project keeps its own key, so a Vorteo clone never merges it into another project group.
+- Adopt an existing workspace into a system role by exact ID from `$PASEO_HOME/system/system.json`. It keeps its ID, threads, journal, checklist and schedules.
+- Set up Vorteo source from Maintenance settings: the daemon clones the repository named in `system.json` into the System project and adds an ordinary Vorteo source workspace for your own changes. Requests cannot name another repository.
+- Show a Vorteo System section in the sidebar, lock its system workspaces' menus with a "Managed by Vorteo System" note, leave them out of the dock badge and favicon state, and add a Vorteo System card under Maintenance.
+
+### Fixed
+
+- Reconciliation no longer archives protected, system or Factory workspaces whose folders are missing, and one refused archive no longer fails the whole pass.
+
+### Maintenance
+
+- Test daemons start without the System project so fixture counts stay exact; server tests opt in with `systemProjectEnabled` and browser specs with `PASEO_SYSTEM_PROJECT=1`.
+- Known limitation: the Vorteo source clone does not follow later updates yet.
 
 ## 0.11.0-beta.3.vorteo.751 - 2026-10-22
 

@@ -51,6 +51,7 @@ interface TestPaseoDaemonOptions {
   agentProfiles?: AgentProfile[];
   autoArchiveAfterMerge?: boolean;
   pluginsEnabled?: PaseoDaemonConfig["pluginsEnabled"];
+  systemProjectEnabled?: boolean;
   builtinPlugins?: BuiltinPluginLoader;
   plugins?: PaseoDaemonConfig["plugins"];
 }
@@ -216,6 +217,8 @@ async function prepareTestDaemonConfig(
     agentProfiles: options.agentProfiles,
     autoArchiveAfterMerge: options.autoArchiveAfterMerge,
     pluginsEnabled: options.pluginsEnabled,
+    // Off by default so existing tests keep exact project and workspace counts.
+    systemProjectEnabled: options.systemProjectEnabled ?? false,
     plugins: options.plugins,
   };
   return { config, paseoHomeRoot, paseoHome, staticDir, createdDirs };
