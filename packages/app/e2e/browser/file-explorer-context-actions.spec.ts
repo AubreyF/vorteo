@@ -111,7 +111,7 @@ test.afterEach(async () => {
   await workspace?.cleanup();
 });
 
-test("downloads the original PNG from the image toolbar", async ({ page }, testInfo) => {
+test("downloads image and text files from the preview toolbar", async ({ page }, testInfo) => {
   const image = await readFile(path.resolve("assets/images/icon.png"));
   await writeFile(path.join(workspace.repoPath, "logo.png"), image);
   await gotoWorkspace(page, workspace.workspaceId);
@@ -130,8 +130,15 @@ test("downloads the original PNG from the image toolbar", async ({ page }, testI
   expect(await readFile(savedPath!)).toEqual(image);
 
   await openFileFromExplorer(page, "README.md");
-  await expect(page.getByTestId("file-copy-all")).toBeVisible();
-  await expect(page.getByTestId("file-download")).toBeHidden();
+  const toolbar = page.getByTestId("file-panel-bar");
+  await expect(toolbar.getByTestId("file-copy-all")).toBeVisible();
+  // Text previews keep Download immediately after Copy.
+  await expect(
+    toolbar.locator('[data-testid="file-copy-all"] + [data-testid="file-download"]'),
+  ).toBeVisible();
+  const textDownloaded = page.waitForEvent("download");
+  await toolbar.getByTestId("file-download").click();
+  expect((await textDownloaded).suggestedFilename()).toBe("README.md");
 });
 
 test("image toolbar download shows pending and persistent failure, then allows retry", async ({

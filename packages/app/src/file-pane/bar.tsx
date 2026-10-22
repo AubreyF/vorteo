@@ -132,6 +132,18 @@ export function FilePanelBar({
                 options={previewModes}
               />
             ) : null}
+            {textContent !== undefined ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                leftIcon={Copy}
+                onPress={handleCopyAll}
+                testID="file-copy-all"
+              >
+                {t("panels.file.editor.copyAll")}
+              </Button>
+            ) : null}
+            {/* Download sits immediately after Copy so every previewed file shares one action order. */}
             {onDownload ? (
               <Button
                 size="xs"
@@ -142,17 +154,6 @@ export function FilePanelBar({
                 testID="file-download"
               >
                 {t("workspace.fileActions.download")}
-              </Button>
-            ) : null}
-            {textContent !== undefined ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                leftIcon={Copy}
-                onPress={handleCopyAll}
-                testID="file-copy-all"
-              >
-                {t("panels.file.editor.copyAll")}
               </Button>
             ) : null}
           </View>
