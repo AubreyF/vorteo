@@ -140,6 +140,16 @@ import {
 } from "./agent-run-state.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
 import { isSystemInjectedEnvelope } from "./agent-prompt.js";
+import {
+  buildSwitchHistory,
+  prependSwitchHistory,
+  type ProfileSwitchRecord,
+} from "./profile-switch/history.js";
+import { readRecordedContext } from "./profile-switch/context.js";
+import type {
+  ProfileSwitchEndpoint,
+  ProfileSwitchTimelineItem,
+} from "@getpaseo/protocol/agent-types";
 import { isStaleProviderSessionError } from "./stale-provider-session-error.js";
 import { stripInternalPaseoMcpServer, withRuntimePaseoMcpServer } from "./runtime-mcp-config.js";
 import { resolveCreateAgentTitles } from "./create-agent-title.js";
@@ -169,6 +179,27 @@ const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
 };
 
 type TimeoutResult = "completed" | "timed_out";
+
+export class ProfileSwitchError extends Error {}
+
+export interface AgentProfileSwitchInput {
+  /** Fully resolved launch configuration for the target account and profile. */
+  config: AgentSessionConfig;
+  reason: ProfileSwitchTimelineItem["reason"];
+  carriedContextChars: number;
+}
+
+function describeProfileEndpoint(
+  config: AgentSessionConfig,
+  model: string | null | undefined,
+): ProfileSwitchEndpoint {
+  const profile = config.profileLaunch?.profile;
+  return {
+    provider: config.provider,
+    model: model ?? null,
+    ...(profile ? { profileId: profile.id, profileName: profile.name } : {}),
+  };
+}
 
 function submittedPromptText(prompt: AgentPromptInput): string {
   if (typeof prompt === "string") {
@@ -503,6 +534,7 @@ interface ManagedAgentBase {
   tasks?: import("./agent-sdk-types.js").AgentTaskItem[];
   queueGoalHold?: import("../message-queue/goal-hold.js").QueueGoalHold;
   goalSubmissions?: import("./agent-storage.js").GoalSubmission[];
+  profileSwitches?: import("./profile-switch/history.js").ProfileSwitchRecord[];
   goalState?: import("@getpaseo/protocol/agent-goals").AgentGoalState;
   blockedGoalReviewNeeded?: boolean;
   id: string;
@@ -3112,6 +3144,131 @@ export class AgentManager {
     }
   }
 
+  /** Recorded text that a profile switch carries into the next session. */
+  async readSwitchContext(agentId: string): Promise<string> {
+    const agent = this.requireSessionAgent(agentId);
+    await this.hydrateTimelineFromLegacyProviderHistory(agent);
+    return readRecordedContext(this.timelineStore.getItems(agentId));
+  }
+
+  /**
+   * Moves an idle thread to another account or profile. Native sessions cannot
+   * cross accounts, so the current one closes and the target starts a new one.
+   * The thread keeps its id, timeline, goal, checklist, journal and questions.
+   */
+  switchAgentProfile(agentId: string, input: AgentProfileSwitchInput): Promise<ManagedAgent> {
+    return this.trackAgentRegistrationOperation(
+      this.runLifecycleMutation(agentId, () => this.switchAgentProfileInternal(agentId, input)),
+    );
+  }
+
+  private async switchAgentProfileInternal(
+    agentId: string,
+    input: AgentProfileSwitchInput,
+  ): Promise<ManagedAgent> {
+    this.assertAcceptingAgentRegistrations();
+    const existing = this.requireSessionAgent(agentId);
+    const isBusy = this.hasInFlightRun(agentId) || existing.pendingPermissions.size > 0;
+    if (isBusy)
+      throw new ProfileSwitchError(
+        "Wait for the current turn and any permission requests to finish before switching.",
+      );
+    if (existing.internal || existing.config.controllerExecutionId)
+      throw new ProfileSwitchError("This thread is managed by Vorteo and cannot switch accounts.");
+    await this.hydrateTimelineFromLegacyProviderHistory(existing);
+
+    this.requireEnabledProvider(input.config.provider);
+    const client = await this.requireAvailableClient({ provider: input.config.provider });
+    const { storedConfig, launchConfig, paseoToolPolicy } = await this.prepareSessionConfig(
+      input.config,
+      agentId,
+    );
+    const hadPreviousPaseoToolPolicy = this.paseoToolPolicies.has(agentId);
+    const previousPaseoToolPolicy = this.paseoToolPolicies.get(agentId);
+    const launchContext = await this.buildLaunchContext(
+      agentId,
+      client,
+      storedConfig.cwd,
+      paseoToolPolicy,
+      undefined,
+      { reason: "create", purpose: "interactive", workspaceId: existing.workspaceId },
+    );
+    const providerLaunchConfig = this.resolveProviderLaunchConfig(launchConfig, launchContext);
+
+    const record: ProfileSwitchRecord = {
+      switchedAt: new Date().toISOString(),
+      marker: {
+        type: "profile_switch",
+        switchId: randomUUID(),
+        reason: input.reason,
+        from: describeProfileEndpoint(
+          existing.config,
+          existing.runtimeInfo?.model ?? existing.config.model,
+        ),
+        to: describeProfileEndpoint(storedConfig, storedConfig.model),
+        carriedContextChars: input.carriedContextChars,
+      },
+    };
+    // The record only references this history once registration commits the switch.
+    await this.requireRegistry().writeSwitchHistory(
+      agentId,
+      buildSwitchHistory(this.timelineStore.getRows(agentId), record),
+    );
+
+    let session: AgentSession | undefined;
+    let closedExisting: ManagedAgentClosed | undefined;
+    let handedToRegistration = false;
+    try {
+      await this.closeReloadedSession(existing.session, agentId);
+      await this.drainSessionEvents(agentId);
+      this.cancelRunningProviderSubagents(agentId);
+      closedExisting = this.prepareAgentForClosure(existing, "agent switched profile");
+      await this.persistSnapshot(closedExisting);
+      this.assertAcceptingAgentRegistrations();
+
+      this.paseoToolPolicies.set(agentId, paseoToolPolicy);
+      session = await client.createSession(providerLaunchConfig, launchContext);
+      await this.requireExternalMcpSupport(session, storedConfig);
+      this.assertAcceptingAgentRegistrations();
+
+      handedToRegistration = true;
+      await this.registerSession(session, storedConfig, agentId, {
+        labels: existing.labels,
+        workspaceId: existing.workspaceId,
+        owner: existing.owner,
+        createdAt: existing.createdAt,
+        updatedAt: existing.updatedAt,
+        lastUserMessageAt: existing.lastUserMessageAt,
+        historyPrimed: true,
+        attention: existing.attention,
+        restoring: true,
+        profileSwitches: [...(existing.profileSwitches ?? []), record],
+      });
+    } catch (error) {
+      if (closedExisting) {
+        this.emitClosedAgent(closedExisting, { persist: false });
+      }
+      throw error;
+    } finally {
+      if (!handedToRegistration) {
+        if (hadPreviousPaseoToolPolicy) {
+          this.paseoToolPolicies.set(agentId, previousPaseoToolPolicy);
+        } else {
+          this.paseoToolPolicies.delete(agentId);
+        }
+        if (session) {
+          await this.closeUnregisteredSession(session);
+        }
+      }
+    }
+    await this.appendTimelineItem(agentId, record.marker);
+    this.logger.info(
+      { agentId, from: record.marker.from.provider, to: record.marker.to.provider },
+      "agent.profile.switched",
+    );
+    return this.requireAgent(agentId);
+  }
+
   private async closeReloadedSession(session: AgentSession, agentId: string): Promise<void> {
     let operation = this.reloadedSessionCloses.get(session);
     if (!operation) {
@@ -5465,7 +5622,11 @@ export class AgentManager {
     });
   }
 
-  private async restoreGoalPersistence(managed: ActiveManagedAgent): Promise<void> {
+  private async restoreGoalPersistence(
+    managed: ActiveManagedAgent,
+    /** A registration that commits a profile switch replaces the stored list. */
+    registration?: { profileSwitches?: ProfileSwitchRecord[] },
+  ): Promise<void> {
     const record = await this.registry?.get(managed.id);
     managed.tasks = record?.tasks;
     managed.journal = record?.journal;
@@ -5477,6 +5638,7 @@ export class AgentManager {
       }
     }
     managed.goalSubmissions = record?.goalSubmissions;
+    managed.profileSwitches = registration?.profileSwitches ?? record?.profileSwitches;
     managed.blockedGoalReviewNeeded = record?.blockedGoalReviewNeeded;
     managed.queueGoalHold = record?.queueGoalHold;
   }
@@ -5504,6 +5666,8 @@ export class AgentManager {
        * activity in it.
        */
       restoring?: boolean;
+      /** Replaces the stored switch list when this registration commits a profile switch. */
+      profileSwitches?: ProfileSwitchRecord[];
       initialTitle?: string | null;
       publishWhenReady?: boolean;
       workspaceId?: string;
@@ -5539,7 +5703,7 @@ export class AgentManager {
         options,
       });
 
-      await this.restoreGoalPersistence(managed);
+      await this.restoreGoalPersistence(managed, options);
       // Read history before publishing the agent: a provider failure must leave the
       // session unregistered so the registration catch closes it.
       const startupHistory: AgentStreamEvent[] = [];
@@ -6078,6 +6242,7 @@ export class AgentManager {
       | AsyncIterable<AgentStreamEvent>
       | Iterable<AgentStreamEvent> = agent.session.streamHistory(),
   ): AsyncGenerator<AgentStreamEvent> {
+    history = prependSwitchHistory(await this.readSwitchHistory(agent), agent.provider, history);
     if (!agent.goalSubmissions?.length && !this.messageQueueControl) {
       yield* history;
       return;
@@ -6088,6 +6253,25 @@ export class AgentManager {
     const queued = (await this.messageQueueControl?.acceptedHistory(agent.id)) ?? [];
     const withGoals = mergeGoalHistory(events, agent.goalSubmissions ?? [], agent.provider);
     yield* mergeQueueHistory(withGoals, queued, agent.provider);
+  }
+
+  private async readSwitchHistory(agent: ActiveManagedAgent) {
+    const latest = agent.profileSwitches?.at(-1);
+    if (!latest || !this.registry) return null;
+    try {
+      return await this.registry.readSwitchHistory(agent.id, latest.marker.switchId);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Keep the thread loadable and the switch visible when its retained history is gone.
+      this.logger.warn(
+        { agentId: agent.id },
+        "Retained history before a profile switch is missing",
+      );
+      return {
+        switchId: latest.marker.switchId,
+        events: [{ timestamp: latest.switchedAt, item: latest.marker }],
+      };
+    }
   }
 
   private async hydrateTimelineFromLegacyProviderHistory(

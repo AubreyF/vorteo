@@ -362,6 +362,24 @@ export interface CompactionTimelineItem {
   inspection?: CompactionInspection;
 }
 
+export interface ProfileSwitchEndpoint {
+  provider: string;
+  model?: string | null;
+  profileId?: string;
+  profileName?: string;
+}
+
+/** Marks where a thread moved to another account or profile and started a new native session. */
+export interface ProfileSwitchTimelineItem {
+  type: "profile_switch";
+  switchId: string;
+  reason: "manual" | "quota" | "auto";
+  from: ProfileSwitchEndpoint;
+  to: ProfileSwitchEndpoint;
+  /** Characters of recorded conversation given to the new session as context. */
+  carriedContextChars: number;
+}
+
 export interface PluginTimelineItem {
   type: "plugin";
   id: string;
@@ -409,6 +427,7 @@ export type AgentTimelineItem =
       message: string;
     }
   | CompactionTimelineItem
+  | ProfileSwitchTimelineItem
   | PluginTimelineItem;
 
 export type AgentStreamEvent =

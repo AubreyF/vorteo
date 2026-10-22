@@ -196,6 +196,38 @@ interface ResolvedCreateAgent {
   createdWorktree?: CreatePaseoWorktreeWorkflowResult;
 }
 
+/** Resolves a profile switch target through the same admission as a new task. */
+export async function resolveProfileSwitchConfig(
+  dependencies: CreateAgentCommandDependencies,
+  config: AgentSessionConfig,
+): Promise<AgentSessionConfig> {
+  const bindings = observeLaunchBindings(dependencies);
+  dependencies = await admitProfileDependencies(bindings.dependencies, config.profileId);
+  const resolved = resolveProfileLaunch(
+    config,
+    dependencies.getAgentProfiles?.() ?? [],
+    Date.now(),
+    dependencies.getSharedProviderConfig?.(),
+  );
+  const created = await dependencies.providerSnapshotManager.resolveCreateConfig({
+    cwd: resolved.cwd,
+    provider: resolved.provider,
+    requestedMode: resolved.modeId,
+    featureValues: resolved.featureValues,
+    parent: null,
+    unattended: false,
+  });
+  const sessionConfig: AgentSessionConfig = {
+    ...resolved,
+    modeId: created.modeId,
+    featureValues: created.featureValues,
+  };
+  await validateSharedLaunch(dependencies, sessionConfig);
+  await captureLaunchPolicy(dependencies, sessionConfig);
+  bindings.assertCurrent();
+  return sessionConfig;
+}
+
 async function validateSharedLaunch(
   dependencies: CreateAgentCommandDependencies,
   config: AgentSessionConfig,
@@ -209,9 +241,8 @@ async function validateSharedLaunch(
 
 async function admitProfileDependencies(
   dependencies: CreateAgentCommandDependencies,
-  input: CreateAgentCommandInput,
+  profileId: string | undefined,
 ): Promise<CreateAgentCommandDependencies> {
-  const profileId = input.kind === "session" ? input.config.profileId : input.profileId;
   if (profileId && dependencies.getSharedProviderConfig) {
     const settings = await readInstallationProfileConfig(
       dependencies.getSharedProviderConfig(),
@@ -255,7 +286,10 @@ export async function createAgentCommand(
   input: CreateAgentCommandInput,
 ): Promise<CreateAgentCommandResult> {
   const bindings = observeLaunchBindings(dependencies);
-  dependencies = await admitProfileDependencies(bindings.dependencies, input);
+  dependencies = await admitProfileDependencies(
+    bindings.dependencies,
+    input.kind === "session" ? input.config.profileId : input.profileId,
+  );
   const resolved =
     input.kind === "session"
       ? await resolveSessionCreateAgent(dependencies, input)

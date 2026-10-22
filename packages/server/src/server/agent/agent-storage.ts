@@ -33,6 +33,11 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { Logger } from "pino";
 import { QueueGoalHoldSchema, type QueueGoalHold } from "../message-queue/goal-hold.js";
+import {
+  ProfileSwitchRecordSchema,
+  SwitchHistorySchema,
+  type SwitchHistory,
+} from "./profile-switch/history.js";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
 import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
@@ -98,6 +103,7 @@ const STORED_AGENT_SCHEMA = z.object({
   questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalSubmissions: z.array(GoalSubmissionSchema).optional(),
+  profileSwitches: z.array(ProfileSwitchRecordSchema).optional(),
   // Discovery hint only. Admission always re-reads the native goal.
   blockedGoalReviewNeeded: z.boolean().optional(),
   queueGoalHold: QueueGoalHoldSchema.optional(),
@@ -224,6 +230,25 @@ export class AgentStorage {
     await this.load();
     const agentId = this.daemonAgentIdsByExecution.get(daemonExecutionKey(owner));
     return agentId ? (this.cache.get(agentId) ?? null) : null;
+  }
+
+  /** Written before the switch commits; an orphan from a failed switch is never read. */
+  async writeSwitchHistory(agentId: string, history: SwitchHistory): Promise<void> {
+    await writeJsonFileAtomic(this.switchHistoryPath(agentId, history.switchId), history);
+  }
+
+  async readSwitchHistory(agentId: string, switchId: string): Promise<SwitchHistory> {
+    const content = await fs.readFile(this.switchHistoryPath(agentId, switchId), "utf8");
+    return SwitchHistorySchema.parse(JSON.parse(content));
+  }
+
+  // Outside baseDir, whose subdirectories are scanned as agent records.
+  private switchHistoryDir(agentId: string): string {
+    return path.join(path.dirname(this.baseDir), "agent-switch-history", agentId);
+  }
+
+  private switchHistoryPath(agentId: string, switchId: string): string {
+    return path.join(this.switchHistoryDir(agentId), `${encodeURIComponent(switchId)}.json`);
   }
 
   async upsert(record: StoredAgentRecord): Promise<void> {
@@ -532,6 +557,7 @@ export class AgentStorage {
         }
       }),
     );
+    await fs.rm(this.switchHistoryDir(agentId), { recursive: true, force: true });
 
     this.cache.delete(agentId);
     this.removeOwnerIndex(agentId);

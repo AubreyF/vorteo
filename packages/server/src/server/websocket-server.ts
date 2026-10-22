@@ -2165,6 +2165,8 @@ export class VoiceAssistantWebSocketServer {
         installationProviderRemoval: true,
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: true,
+        // COMPAT(agentProfileSwitch): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        agentProfileSwitch: true,
       },
     };
   }
