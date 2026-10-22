@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): full sign-in Claude account removal skips CLI sign-out unless the account names its own `CLAUDE_CONFIG_DIR`, so an inherited daemon directory can never be signed out by mistake. A focused test covers the inherited case; README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): seven stale tests for the coordinator launcher, queued attachments and plugin settings were repaired to match current behaviour on the path to green CI; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): seven tests that failed on the installed source now pass or run only where their platform-specific code exists; functionality is unchanged. README overview and onboarding are unchanged.

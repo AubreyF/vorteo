@@ -34,11 +34,14 @@ export async function signOutClaudeFullSignIn(
   if (!configured) return null;
   const provider = ProviderOverrideSchema.parse(configured);
   if (provider.extends !== "claude" || claudeSignInMode(provider.env) !== "full") return null;
+  // Without its own directory, logout would act on whatever CLAUDE_CONFIG_DIR the daemon
+  // inherited, which can be another managed account when it was started from an agent shell.
+  const configDir = provider.env?.CLAUDE_CONFIG_DIR;
+  if (!configDir) return null;
   const plan = planProviderRemoval(input);
   if (plan.revision !== expectedRevision || plan.credentials !== "managed") return null;
-  const configDir = provider.env?.CLAUDE_CONFIG_DIR;
   const failure =
-    process.platform === "darwin" && configDir
+    process.platform === "darwin"
       ? `Claude sign-out did not finish for ${plan.name}. Its saved sign-in may remain in the Keychain item “${claudeKeychainServiceForConfigDir(configDir)}”.`
       : `Claude sign-out did not finish for ${plan.name}.`;
   // Same override conversion as the provider registry: a configured argv replaces the binary.

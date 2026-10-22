@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.784 - 2026-10-22
+
+### Fixed
+
+- Removing a full sign-in Claude account no longer runs Claude's sign-out when the account has no configuration directory of its own. A daemon started from an agent shell inherits another account's directory, so that sign-out could have signed out a different account.
+
 ## 0.11.0-beta.3.vorteo.783 - 2026-10-22
 
 ### Maintenance
