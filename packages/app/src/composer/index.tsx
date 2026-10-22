@@ -75,7 +75,8 @@ import {
   type MessageInputRef,
 } from "./input/input";
 import type { ImageAttachment, MessagePayload, TextReplacement } from "./types";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
+import { LaunchPickerCollapse } from "@/composer/draft/launch-transition";
 import type { DraftCommandTarget } from "@/hooks/use-agent-commands-query";
 import { encodeImages } from "@/utils/encode-images";
 import { focusWithRetries } from "@/utils/web-focus";
@@ -2432,7 +2433,11 @@ function ComposerContentImpl({
               />
             ) : null}
 
-            {agentControls ? leftContent : null}
+            {agentControls ? (
+              <LaunchPickerCollapse collapsed={isSubmitLoading} stackGap={BOTTOM_CARD_STACK_GAP}>
+                {leftContent}
+              </LaunchPickerCollapse>
+            ) : null}
             <View ref={messageInputContainerRef} style={styles.messageInputContainer}>
               <ComposerAutocompleteBinding
                 text={textSource}
@@ -2538,6 +2543,9 @@ const animatedStaticStyles = RNStyleSheet.create({
   },
 });
 
+// Shared with the launch picker collapse, which cancels this gap as it tucks away.
+const BOTTOM_CARD_STACK_GAP = SPACING[4];
+
 const styles = StyleSheet.create((theme: Theme) => ({
   borderSeparator: {
     height: theme.borderWidth[1],
@@ -2577,7 +2585,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     gap: theme.spacing[3],
   },
   bottomCardStack: {
-    gap: theme.spacing[4],
+    gap: BOTTOM_CARD_STACK_GAP,
   },
   messageInputContainer: {
     flexShrink: 1,

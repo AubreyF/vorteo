@@ -18,6 +18,7 @@ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { ComposerImportPill } from "@/composer/draft/import-pill";
 import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
 import { AgentStreamView } from "@/agent-stream/view";
+import { LaunchMessageEntrance } from "@/composer/draft/launch-transition";
 import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useAgentInputDraft } from "@/composer/draft/input-draft";
 import type { CreateAgentInitialValues } from "@/hooks/use-agent-form-state";
@@ -674,7 +675,7 @@ export function WorkspaceDraftAgentTab({
   const dockContent = (
     <View style={styles.contentContainer}>
       {isSubmitting && draftAgent ? (
-        <View style={styles.streamContainer}>
+        <LaunchMessageEntrance>
           <AgentStreamView
             agentId={tabId}
             serverId={executionServerId}
@@ -685,7 +686,7 @@ export function WorkspaceDraftAgentTab({
             pendingPermissions={EMPTY_PENDING_PERMISSIONS}
             onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
-        </View>
+        </LaunchMessageEntrance>
       ) : (
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.configScrollContent}>
           <View style={styles.configSection}>
@@ -786,9 +787,6 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surface0,
   },
   contentContainer: {
-    flex: 1,
-  },
-  streamContainer: {
     flex: 1,
   },
   scrollView: {
