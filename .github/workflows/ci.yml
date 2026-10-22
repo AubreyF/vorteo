@@ -224,6 +224,14 @@ jobs:
             src/server/workspace-git-service.observation.integration.test.ts \
             --bail=1
 
+      - name: Run installation adapter contracts
+        run: |
+          npx vitest run --config packages/server/vitest.config.ts \
+            packages/server/src/server/execution-installation/config.test.ts \
+            packages/server/src/server/execution-installation/coordinator-bootstrap-systemd.test.ts \
+            packages/server/src/server/execution-installation/coordinator-bootstrap-linux-process.test.ts \
+            --bail=1
+
   desktop-tests-ubuntu:
     name: desktop-tests (ubuntu-latest)
     needs: changes

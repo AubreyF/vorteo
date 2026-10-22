@@ -18,7 +18,7 @@ import {
   runLaunchdCommand,
   type CommandRunner,
 } from "../session-host/launchd.js";
-import type { InstallationConfig } from "./config.js";
+import { hostLaunchdService, type InstallationConfig } from "./config.js";
 import { BootstrapRequestConflict } from "./coordinator-bootstrap-errors.js";
 
 /** Where a release keeps the session host entrypoint; a release without it has no support. */
@@ -112,7 +112,7 @@ function requireConfigured<T>(value: T | undefined | null, what: string): T {
 
 /** The Host job's label and its launchd domain uid, from the configured service. */
 function hostService(config: InstallationConfig): { uid: number; label: string } {
-  const match = /^gui\/(\d+)\/(.+)$/.exec(config.host.launchdService);
+  const match = /^gui\/(\d+)\/(.+)$/.exec(hostLaunchdService(config));
   if (!match) throw new SessionHostJobError("The Host service name is not a launchd GUI service.");
   return { uid: Number(match[1]), label: match[2]! };
 }

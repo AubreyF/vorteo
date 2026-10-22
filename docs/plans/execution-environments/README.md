@@ -73,6 +73,7 @@ Each linked document owns a separately deliverable project with its own acceptan
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | [Task containers through Docker](docker-task-containers.md)    | Create and supervise isolated task environments using the Docker installation already available |
 | [Apple Container backend](apple-container.md)                  | Optional macOS backend for new Linux task containers                                            |
+| [Linux Host](linux-host.md)                                    | Run the Host half on Linux as `systemd --user` services with equivalent trust anchors           |
 | [Host directory grants](directory-grants.md)                   | Browse and share folders without manual Docker commands                                         |
 | [Environment and task grants](environment-grants.md)           | Host-issued identities and bounded operations for lower-trust environments                      |
 | [Credential broker and GitHub connector](credential-broker.md) | Protected credentials and typed, approved GitHub operations                                     |

@@ -31,6 +31,27 @@ export const ContainerSourceUpdatesSchema = z.strictObject({
 });
 export type ContainerSourceUpdates = z.infer<typeof ContainerSourceUpdatesSchema>;
 
+/** A unit of the owner account's `systemd --user` manager. The account is
+ * explicit because, unlike a launchd `gui/<uid>` label, a unit name has none. */
+export const SystemdUserServiceSchema = z.strictObject({
+  kind: z.literal("systemd-user"),
+  uid: z.number().int().nonnegative(),
+  unit: z
+    .string()
+    .max(255)
+    .regex(/^local\.vorteo\.[a-zA-Z0-9.-]+\.service$/),
+});
+
+const HostDaemonSchema = DaemonConnectionSchema.extend({
+  startupValidation: z
+    .strictObject({
+      node: z.string().startsWith("/"),
+      entrypoint: z.string().startsWith("/"),
+      home: z.string().startsWith("/"),
+    })
+    .optional(),
+});
+
 export const InstallationConfigSchema = z.strictObject({
   public: ExecutionInstallationSchema,
   nativeHelper: NativeHelperConfigurationSchema.optional(),
@@ -64,16 +85,13 @@ export const InstallationConfigSchema = z.strictObject({
   ownerPasswordHash: z.string().startsWith("$2"),
   hostAgentTokenHash: z.string().regex(/^[a-f0-9]{64}$/),
   containerAgentTokenHash: z.string().regex(/^[a-f0-9]{64}$/),
-  host: DaemonConnectionSchema.extend({
-    launchdService: z.string().regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+$/),
-    startupValidation: z
-      .strictObject({
-        node: z.string().startsWith("/"),
-        entrypoint: z.string().startsWith("/"),
-        home: z.string().startsWith("/"),
-      })
-      .optional(),
-  }),
+  // The Host service is tagged by its manager; exactly one descriptor is present.
+  host: z.union([
+    HostDaemonSchema.extend({
+      launchdService: z.string().regex(/^gui\/\d+\/local\.vorteo\.[a-zA-Z0-9.-]+$/),
+    }),
+    HostDaemonSchema.extend({ systemdService: SystemdUserServiceSchema }),
+  ]),
   container: DaemonConnectionSchema.extend({
     persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
@@ -88,9 +106,17 @@ export const InstallationConfigSchema = z.strictObject({
 });
 export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 
+export function hostLaunchdService(config: InstallationConfig): string {
+  if (!("launchdService" in config.host))
+    throw new Error("Host operations through systemd are not supported yet");
+  return config.host.launchdService;
+}
+
 export function readInstallationConfig(file: string): InstallationConfig {
   const config = InstallationConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
   validateExecutionInstallation(config.public);
+  if (process.platform === "darwin" && !("launchdService" in config.host))
+    throw new Error("A macOS Host requires its launchd service");
   if (config.hostAgentTokenHash === config.containerAgentTokenHash)
     throw new Error("Host and Dev installation request credentials must be distinct");
   if (config.sourceUpdates) {
