@@ -142,6 +142,11 @@ export function setActiveProjectsFolder(config: ProjectsFolderConfig | undefined
   activeProjectsFolder = config ?? null;
 }
 
+/** This daemon's Projects folder, or null when it has none. */
+export function activeProjectsFolderConfig(): ProjectsFolderConfig | null {
+  return activeProjectsFolder;
+}
+
 /** The logical form of `value` under this daemon's Projects folder, or `value` itself. */
 export function logicalProjectsPath(value: string): string {
   return activeProjectsFolder ? toLogicalProjectsPath(activeProjectsFolder, value) : value;

@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.797 - 2026-10-22
+
+### Maintenance
+
+- Merge the Projects folder follow-up: Dev git trusts repositories inside the Projects folder, membership keys and Host sidebar keys move to the folder path
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Fixed
+
+- Dev's git no longer refuses repositories in the Projects folder as dubiously owned. Each daemon git command inside the folder or its aliases trusts that repository's exact physical top level for that command only, found without running git; worktree creation and git status in new worktrees work again. Repositories elsewhere get no override.
+- Agents and terminals in Dev trust new projects and Paseo-owned worktrees too: the daemon appends each exact physical path reached through an alias to its user's global `safe.directory`, once, with no wildcard.
+- Workspaces whose membership key still named the old container path rejoin their project in the sidebar. The startup registry move and every registry write now map `projectMembership.key` to the logical path, respecting kept paths, and the move repairs registries migrated earlier.
+- Projects whose keys moved keep their saved sidebar order, collapse state, filters and folders. The daemon rewrites saved project keys under a Projects folder alias once when it opens `sidebar-state.json`, after a backup, keeping the new key's value when both exist.
+
+### Changed
+
+- `configure-projects-folder` gives the Host the same earlier paths, aliases and kept paths as Dev, including the mount it finds, so shared keys that Dev recorded map alike on the Host. Run it again with the same flags before the Host update.
+
 ## 0.11.0-beta.3.vorteo.796 - 2026-10-22
 
 ### Maintenance
