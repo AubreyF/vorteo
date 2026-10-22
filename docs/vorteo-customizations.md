@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): errors follow one rule. Failed one-off actions report through auto-clearing toasts, connection failures read "Lost connection to the host" instead of transport text, and durable states and validation stay inline with readable wording. Shared helpers live in `utils/error-messages.ts` and `hooks/use-action-error.ts`. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the new-agent launch picker collapses into the composer when the first message is submitted, while the message fades up into place, so the picker and the conversation are never shown together. A browser check covers collapse, restore after a failed launch and drafts opened mid-launch. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): a message whose reply is lost to a dropped connection is no longer reported as failed. The client marks such requests as outcome unknown, and the composer clears the draft once the reconnected timeline shows the message, restoring it only when a resync or a one-minute wait does not. README overview and onboarding are unchanged.

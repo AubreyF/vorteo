@@ -67,6 +67,7 @@ export const ko: TranslationResources = {
       daemonClientDisconnected: "데몬 클라이언트 연결이 끊어졌습니다",
       noFileFound: "{{token}}에 해당하는 파일을 찾을 수 없습니다",
       unexpectedDictationError: "받아쓰기를 처리하는 중 예기치 않은 오류가 발생했습니다.",
+      hostConnectionLost: "호스트와의 연결이 끊어졌습니다. 다시 연결되면 다시 시도하세요.",
     },
     connectionStatus: {
       online: "온라인",

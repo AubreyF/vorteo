@@ -122,6 +122,7 @@ import type { AddProjectFlowRequest } from "@/stores/add-project-flow-store";
 import type { Theme } from "@/styles/theme";
 import { shortenPath } from "@/utils/shorten-path";
 import { buildNewWorkspaceRoute, buildSettingsAddHostRoute } from "@/utils/host-routes";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface AddProjectFlowProps {
   request: AddProjectFlowRequest;
@@ -344,7 +345,7 @@ interface QueryErrorInput {
 function queryErrorText(input: QueryErrorInput): string | null {
   if (input.searchesDirectories && input.directoryFailed) return "Unable to search directories";
   if (input.githubFailed) return "Unable to search GitHub repositories";
-  if (input.githubError) return input.githubError;
+  if (input.githubError) return toErrorMessage(input.githubError);
   if (input.githubAvailable === false) return input.githubError ?? "GitHub search is unavailable";
   return null;
 }
@@ -680,9 +681,9 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
           return;
         }
         const reason = getOpenProjectFailureReason(result);
-        const message =
-          result.error ??
-          (reason === "directory_not_found" ? "Directory not found" : "Unable to add project");
+        const fallback =
+          reason === "directory_not_found" ? "Directory not found" : "Unable to add project";
+        const message = result.error ? toErrorMessage(result.error) : fallback;
         setState((current) =>
           setPageStatus(current, sourceKind, { isSubmitting: false, error: message }),
         );
@@ -779,14 +780,14 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
         setState((current) =>
           setPageStatus(current, input.statusKind, {
             isSubmitting: false,
-            error: result.error ?? "Unable to clone repository",
+            error: result.error ? toErrorMessage(result.error) : "Unable to clone repository",
           }),
         );
       } catch (error) {
         setState((current) =>
           setPageStatus(current, input.statusKind, {
             isSubmitting: false,
-            error: error instanceof Error ? error.message : "Unable to clone repository",
+            error: error instanceof Error ? toErrorMessage(error) : "Unable to clone repository",
           }),
         );
       } finally {

@@ -63,6 +63,7 @@ export const en = {
       daemonClientDisconnected: "Daemon client is disconnected",
       noFileFound: "No file found for {{token}}",
       unexpectedDictationError: "An unexpected error occurred while handling dictation.",
+      hostConnectionLost: "Lost connection to the host. Try again once it reconnects.",
     },
     connectionStatus: {
       online: "Online",

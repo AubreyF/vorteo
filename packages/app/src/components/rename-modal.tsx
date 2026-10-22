@@ -11,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { isWeb } from "@/constants/platform";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
+import { useToast } from "@/contexts/toast-context";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export interface AdaptiveRenameModalProps {
   visible: boolean;
@@ -43,6 +45,7 @@ export function AdaptiveRenameModal({
   const [draft, setDraft] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const toast = useToast();
   const inputRef = useRef<EditingTextInputHandle>(null);
 
   useEffect(() => {
@@ -107,11 +110,11 @@ export function AdaptiveRenameModal({
       onClose();
     } catch (err) {
       setIsPending(false);
-      const message =
-        err instanceof Error && err.message ? err.message : t("common.errors.unableToSave");
-      setError(message);
+      toast.error(
+        err instanceof Error && err.message ? toErrorMessage(err) : t("common.errors.unableToSave"),
+      );
     }
-  }, [isPending, draft, initialValue, computeError, onSubmit, onClose, t]);
+  }, [isPending, draft, initialValue, computeError, onSubmit, onClose, t, toast]);
 
   const handleCancel = useCallback(() => {
     if (isPending) return;

@@ -21,6 +21,7 @@ import type { AgentProfilePickerRow } from "./internal/use-agent-profile-picker"
 import { withUnistyles } from "react-native-unistyles";
 import { type ProviderIconComponent, useProviderIcon } from "@/components/provider-icons";
 import { settingsStyles } from "@/styles/settings";
+import { toErrorMessage } from "@/utils/error-messages";
 import { selectorNavigation, type SelectorSection } from "./selector-navigation";
 
 const ThemedChevronUp = withUnistyles(ChevronUp, (theme) => ({
@@ -284,7 +285,7 @@ function AccountList({
       {loading ? <ProfileLoading label="Loading accounts" /> : null}
       {error ? (
         <Text style={styles.empty} accessibilityRole="alert">
-          {error}
+          {toErrorMessage(error)}
         </Text>
       ) : null}
       {empty ? <Text style={styles.empty}>No matching accounts</Text> : null}
@@ -557,7 +558,7 @@ function AccountChoices(props: AccountChoicesProps) {
       ) : (
         <View style={styles.choices}>
           <Text style={styles.summary} testID="preset-catalog-error">
-            {catalogError}
+            {toErrorMessage(catalogError)}
           </Text>
           <Button
             variant="ghost"

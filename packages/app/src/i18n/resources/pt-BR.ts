@@ -68,6 +68,7 @@ export const ptBR: TranslationResources = {
       daemonClientDisconnected: "O cliente do daemon está desconectado",
       noFileFound: "Nenhum arquivo encontrado para {{token}}",
       unexpectedDictationError: "Ocorreu um erro inesperado ao processar o ditado.",
+      hostConnectionLost: "Conexão com o host perdida. Tente novamente quando reconectar.",
     },
     connectionStatus: {
       online: "Online",

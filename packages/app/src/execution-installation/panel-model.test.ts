@@ -825,7 +825,9 @@ test("service queue refresh survives summary failure and cancellation retains ac
   expect(reads).toBe(1);
   expect(model.getState().serviceQueue?.jobs[0]?.id).toBe(job.id);
   await model.cancelMaintenanceService(job);
-  expect(model.getState().serviceQueueError).toContain("Connection lost");
+  expect(model.getState().serviceQueueError).toBe(
+    "Lost connection to the host. Try again once it reconnects.",
+  );
   expect(model.getState().busy).toBe(false);
   fail = false;
   await model.refreshServiceQueue();

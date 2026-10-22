@@ -67,6 +67,7 @@ export const ar: TranslationResources = {
       daemonClientDisconnected: "تم قطع اتصال عميل Daemon",
       noFileFound: "لم يتم العثور على ملف لـ{{token}}",
       unexpectedDictationError: "حدث خطأ غير متوقع أثناء معالجة الإملاء.",
+      hostConnectionLost: "انقطع الاتصال بالمضيف. حاول مرة أخرى بعد إعادة الاتصال.",
     },
     connectionStatus: {
       online: "متصل",

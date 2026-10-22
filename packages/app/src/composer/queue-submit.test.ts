@@ -32,6 +32,9 @@ function fixture(queueMessage: () => Promise<void>) {
     setSendError: (error) => {
       state.error = error;
     },
+    reportConnectionError: () => {
+      throw new Error("Unexpected connection error");
+    },
   };
   return { state, input };
 }

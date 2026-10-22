@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Changed
+
+- Failed one-off actions now report through a toast that clears itself instead of red text that stays in the control. This covers the Tasks card, Open questions, goals, the message queue, workspace and label menus, recovery, setup runs, rename and project move, and connection failures in settings saves. The control keeps your input so you can retry.
+- Connection failures read "Lost connection to the host. Try again once it reconnects." everywhere instead of raw text such as "Transport closed (code 1006)", and host messages lose their `requestType=… code=…` suffix.
+- The Tasks card no longer opens itself to show an error. The composer shows connection failures as a toast and clears a host rejection when you edit the draft or the host reconnects. The new-workspace screen and setup dialog no longer show the same error twice.
+
+### Maintenance
+
+- Durable states stay inline with readable wording: queue delivery failures and pending recoveries, history and goal load errors, pane load errors, validation, and settings and installation status. Offline screens no longer repeat the raw connection error under "Reconnecting".
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed
