@@ -638,6 +638,7 @@ Source batching preserves complete historical release-note entries, including du
 - **Profile skill selection.** Profiles can inherit defaults with exclusions, select specific packages or disable optional skills. Supported Claude and Codex runtimes freeze restricted selections for each task; unsupported restrictions fail rather than claiming enforcement. Selection limits discovery and invocation, not filesystem or tool access. See [profile policies](skill-library.md#profile-policies).
 - **Environment exclusions.** Disable a personal skill for one environment while retaining its shared definition and installed files. New tasks obey current installation policy; a profile cannot override an environment exclusion. Existing tasks retain their recorded selection. See [environment exceptions](skill-library.md#environment-exceptions).
 - **Task authorization levels.** The [agent guide](../AGENTS.md#authorization-levels) defines four levels, adapted from Freed: Inspect, Build and preview, Ship to `main`, and Ship and install. Clear requests map to a level without asking; otherwise the agent asks once for a number through Open questions and continues Level 1 and 2 work meanwhile. Levels never bypass restart approval, publication hygiene or external-post rules, never carry into another task, and never pass a higher level to a subagent or handoff. Archiving is outside every level. The handoff skill carries the level.
+- **Task delivery scripts.** Adapted from Freed, [task delivery](task-delivery.md) scripts create isolated task worktrees, publish to `main` with a verified fast-forward push, prove archive readiness including cherry-picked and squashed work, clean up only idle published worktrees, and prepare Host updates from the installed source, published interface records and `main`. Agents offer to archive once the readiness check passes. A CI check caps the always-loaded agent instructions. The daemon archive tool does not yet run the readiness check itself.
 
 October 9, 2026: Integrated reviewed Factory runtime and client source with current main, preserving coordinator bootstrap, account setup and worker sidebar changes. Installation, browser authentication and retained controller custody remain separate acceptance gates.
 
@@ -715,6 +716,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 22, 2026: Added task delivery scripts, their tests and guide, and Freed-derived agent rules for freshness, worktrees, archiving, debt, decisions and evidence. No product behavior change; README overview and onboarding are unchanged.
 
 October 21, 2026: Maintenance shows only coordinator recoveries that still need the owner. Finished restarts, coordinator updates and recoveries share one collapsed History, and Shared workflows is now Profile sharing. README overview and onboarding are unchanged.
 

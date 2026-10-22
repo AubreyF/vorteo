@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.734 - 2026-10-22
+
+### Added
+
+- Add task delivery scripts adapted from Freed's agent lifecycle: `task-worktree.mjs` creates an isolated worktree from freshly fetched `origin/main`; `publish-main.mjs` refuses dirty trees, moved bases and a missing Gitleaks, then proves the remote holds the pushed commit; `archive-readiness.mjs` confirms work is committed and on `main`, counting cherry-picked and squashed commits, and optionally installed
+- Add `worktree-cleanup.mjs`, a dry-run-first cleanup that removes only idle worktrees whose work is on `main` and keeps dirty, unpublished, locked, recently used and other-environment worktrees
+- Add `prepare-host-delivery.mjs`, which builds Host updates from the installed source, pending published interface records and `main`, keeping both sides of release-note conflicts
+- Cap the always-loaded agent instructions at 32 KiB, and the app guide at 8 KiB, with a CI check that also verifies their links
+
+### Documentation
+
+- Document the delivery scripts in a task delivery guide and point the agent guide at them
+- Ask agents to read current rules from `origin/main`, work in task worktrees, offer to archive once the readiness check passes, publish installed source to `main` the same day, record debt in one deduplicated issue, give journal decisions statuses, and treat missing evidence as inconclusive
+
+### Known limitations
+
+- The daemon's archive tool does not yet run the readiness check itself; agents run the script before archiving
+
 ## 0.11.0-beta.3.vorteo.733 - 2026-10-21
 
 ### Fixed
