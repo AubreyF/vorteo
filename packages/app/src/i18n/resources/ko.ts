@@ -2171,6 +2171,8 @@ export const ko: TranslationResources = {
       title: "정보",
       appVersion: "앱 버전",
       whatsNewHint: "모든 버전의 릴리스 노트",
+      github: "GitHub",
+      githubHint: "소스 코드, 이슈, 릴리스",
       thisDevice: "이 기기",
       connectedHosts: "연결된 호스트",
       offline: "오프라인",

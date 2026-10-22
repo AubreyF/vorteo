@@ -72,7 +72,6 @@ test.describe("Settings sidebar navigation", () => {
       "settings-section-environments",
       "settings-section-plugins",
       "settings-section-maintenance",
-      "settings-section-about",
     ]);
     await expect(sidebar.getByTestId("settings-section-pair-device")).toHaveCount(0);
     const generalBox = await sidebar.getByTestId("settings-section-general").boundingBox();
@@ -82,7 +81,7 @@ test.describe("Settings sidebar navigation", () => {
     await expect(page.getByText(/Press i to enter Insert mode/)).toBeVisible();
 
     await openSettingsSection(page, "diagnostics");
-    await expectSettingsHeader(page, "Diagnostics");
+    await expectSettingsHeader(page, "Connected hosts");
     await expectDiagnosticsContent(page);
 
     await openSettingsSection(page, "general");

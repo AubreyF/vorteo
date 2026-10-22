@@ -23,7 +23,6 @@ export const SETTINGS_SECTION_IDS = [
   "environments",
   "plugins",
   "maintenance",
-  "about",
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -77,7 +76,18 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
   {
     id: "general",
     label: "General",
-    keywords: ["home", "defaults", "new workspace", "attention", "notifications"],
+    keywords: [
+      "home",
+      "attention",
+      "notifications",
+      "about",
+      "version",
+      "release notes",
+      "changelog",
+      "github",
+      "hosts",
+      "diagnostics",
+    ],
   },
   {
     id: "accounts",
@@ -101,9 +111,22 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
   {
     id: "chat",
     label: "Chat & editor",
-    keywords: ["chat", "timeline", "editor", "vim", "shortcuts", "keyboard", "open location"],
+    keywords: [
+      "chat",
+      "timeline",
+      "editor",
+      "vim",
+      "shortcuts",
+      "keyboard",
+      "open location",
+      "sending",
+    ],
   },
-  { id: "terminal", label: "Terminal", keywords: ["terminal", "shell", "scrollback", "hooks"] },
+  {
+    id: "terminal",
+    label: "Terminal",
+    keywords: ["terminal", "shell", "scrollback", "hooks"],
+  },
   {
     id: "appearance",
     label: "Appearance",
@@ -112,7 +135,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
   {
     id: "workspaces",
     label: "Workspaces & projects",
-    keywords: ["projects", "repositories", "worktrees", "archive"],
+    keywords: ["projects", "repositories", "worktrees", "archive", "new workspace", "defaults"],
   },
   {
     id: "environments",
@@ -129,24 +152,30 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
     label: "Maintenance",
     keywords: ["installation", "restart", "updates", "upstream", "diagnostics", "owner"],
   },
-  { id: "about", label: "About", keywords: ["version", "release notes", "changelog", "github"] },
 ];
 
 export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "general.attention", section: "general", label: "Needs attention" },
-  {
-    id: "general.newWorkspace",
-    section: "general",
-    label: "New workspace",
-    keywords: ["default", "new chat"],
-  },
-  { id: "general.sending", section: "general", label: "Sending" },
   {
     id: "general.notifications",
     section: "general",
     label: "Notifications",
     legacySlugs: ["notifications"],
     desktopOnly: true,
+  },
+  // About was its own section; its routes now open these panes.
+  {
+    id: "general.about",
+    section: "general",
+    label: "About",
+    legacySlugs: ["about"],
+  },
+  {
+    id: "general.hosts",
+    section: "general",
+    label: "Connected hosts",
+    legacySlugs: ["diagnostics"],
+    keywords: ["diagnostics", "connection check"],
   },
 
   {
@@ -178,7 +207,12 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     legacySlugs: ["agents"],
     requiresHost: true,
   },
-  { id: "agents.skills", section: "agents", label: "Skills", legacySlugs: ["skills"] },
+  {
+    id: "agents.skills",
+    section: "agents",
+    label: "Skills",
+    legacySlugs: ["skills"],
+  },
   {
     id: "agents.metadata",
     section: "agents",
@@ -202,8 +236,20 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
 
   { id: "chat.chat", section: "chat", label: "Chat", legacySlugs: ["chat"] },
-  { id: "chat.openLocation", section: "chat", label: "Open location", desktopOnly: true },
-  { id: "chat.editor", section: "chat", label: "Editor", legacySlugs: ["editor"], webOnly: true },
+  { id: "chat.sending", section: "chat", label: "Sending" },
+  {
+    id: "chat.openLocation",
+    section: "chat",
+    label: "Open location",
+    desktopOnly: true,
+  },
+  {
+    id: "chat.editor",
+    section: "chat",
+    label: "Editor",
+    legacySlugs: ["editor"],
+    webOnly: true,
+  },
   {
     id: "chat.shortcuts",
     section: "chat",
@@ -212,7 +258,12 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     desktopOnly: true,
   },
 
-  { id: "terminal.terminal", section: "terminal", label: "Terminal", legacySlugs: ["terminal"] },
+  {
+    id: "terminal.terminal",
+    section: "terminal",
+    label: "Terminal",
+    legacySlugs: ["terminal"],
+  },
   {
     id: "terminal.profiles",
     section: "terminal",
@@ -229,6 +280,12 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "appearance.language", section: "appearance", label: "Language" },
 
+  {
+    id: "workspaces.newWorkspace",
+    section: "workspaces",
+    label: "New workspace",
+    keywords: ["default", "new chat"],
+  },
   {
     id: "workspaces.projects",
     section: "workspaces",
@@ -280,17 +337,16 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     label: "Installation",
     requiresInstallation: true,
   },
-  { id: "maintenance.updates", section: "maintenance", label: "Vorteo updates" },
-  { id: "maintenance.upstream", section: "maintenance", label: "Paseo upstream updates" },
   {
-    id: "maintenance.diagnostics",
+    id: "maintenance.updates",
     section: "maintenance",
-    label: "Diagnostics",
-    legacySlugs: ["diagnostics"],
+    label: "Vorteo updates",
   },
-
-  { id: "about.about", section: "about", label: "About", legacySlugs: ["about"] },
-  { id: "about.hosts", section: "about", label: "Connected hosts", requiresHost: true },
+  {
+    id: "maintenance.upstream",
+    section: "maintenance",
+    label: "Paseo upstream updates",
+  },
 ];
 
 const device = "device" as const;
@@ -299,35 +355,6 @@ const environment = "environment" as const;
 
 export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
   // General
-  {
-    id: "general.newWorkspace.environment",
-    pane: "general.newWorkspace",
-    label: "Default environment",
-    keywords: ["new workspace", "host", "where new chats run"],
-    scope: installation,
-  },
-  {
-    id: "general.newWorkspace.account",
-    pane: "general.newWorkspace",
-    label: "Default account",
-    keywords: ["new chat", "provider", "claude", "codex"],
-    scope: installation,
-  },
-  {
-    id: "general.newWorkspace.profile",
-    pane: "general.newWorkspace",
-    label: "Default profile",
-    keywords: ["new chat", "preset", "model"],
-    scope: installation,
-  },
-  {
-    id: "general.sending.defaultSend",
-    pane: "general.sending",
-    label: "Default send",
-    labelKey: "settings.general.defaultSend.label",
-    keywords: ["enter", "steer", "queue", "interrupt", "submit"],
-    scope: device,
-  },
   {
     id: "general.notifications.permission",
     pane: "general.notifications",
@@ -349,6 +376,88 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     pane: "general.notifications",
     label: "Test notification",
     labelKey: "settings.notifications.test",
+    scope: device,
+  },
+  {
+    id: "general.about.version",
+    pane: "general.about",
+    label: "App version",
+    labelKey: "settings.about.appVersion",
+    keywords: ["build", "version number"],
+    scope: device,
+  },
+  {
+    id: "general.about.whatsNew",
+    pane: "general.about",
+    label: "What's new",
+    labelKey: "changelog.title",
+    keywords: ["changelog", "release notes"],
+    scope: device,
+  },
+  {
+    id: "general.about.github",
+    pane: "general.about",
+    label: "GitHub",
+    labelKey: "settings.about.github",
+    keywords: ["source code", "repository", "issues", "community"],
+    scope: device,
+  },
+  {
+    id: "general.about.releaseChannel",
+    pane: "general.about",
+    label: "Release channel",
+    labelKey: "settings.about.releaseChannel.label",
+    keywords: ["beta", "stable"],
+    desktopOnly: true,
+    scope: device,
+  },
+  {
+    id: "general.about.appUpdates",
+    pane: "general.about",
+    label: "App updates",
+    labelKey: "settings.about.updates.label",
+    keywords: ["desktop update", "install update"],
+    desktopOnly: true,
+    scope: device,
+  },
+  {
+    id: "general.hosts.versions",
+    pane: "general.hosts",
+    label: "Connected hosts",
+    labelKey: "settings.about.connectedHosts",
+    keywords: ["daemon version", "version mismatch"],
+    scope: environment,
+  },
+  {
+    id: "general.hosts.connectionCheck",
+    pane: "general.hosts",
+    label: "Connection check",
+    keywords: ["connection check", "host", "dev", "dns", "tailscale", "latency", "reachability"],
+    scope: device,
+  },
+  {
+    id: "general.hosts.legacyTerminalRenderer",
+    pane: "general.hosts",
+    label: "Use legacy terminal renderer",
+    labelKey: "settings.diagnostics.legacyTerminalRenderer.label",
+    keywords: ["webview", "terminal"],
+    nativeOnly: true,
+    scope: device,
+  },
+  {
+    id: "general.hosts.app",
+    pane: "general.hosts",
+    label: "App diagnostic",
+    labelKey: "settings.diagnostics.app.rowTitle",
+    keywords: ["logs", "debug", "troubleshoot", "support"],
+    scope: device,
+  },
+  {
+    id: "general.hosts.audio",
+    pane: "general.hosts",
+    label: "Test audio",
+    labelKey: "settings.diagnostics.testAudio",
+    keywords: ["sound", "speaker", "voice"],
     scope: device,
   },
 
@@ -505,6 +614,14 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     scope: device,
   },
   {
+    id: "chat.sending.defaultSend",
+    pane: "chat.sending",
+    label: "Default send",
+    labelKey: "settings.general.defaultSend.label",
+    keywords: ["enter", "steer", "queue", "interrupt", "submit"],
+    scope: device,
+  },
+  {
     id: "chat.openLocation.destinations",
     pane: "chat.openLocation",
     label: "Open location",
@@ -536,15 +653,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     label: "Terminal scrollback",
     labelKey: "settings.general.terminalScrollback.label",
     keywords: ["buffer", "lines", "history"],
-    scope: device,
-  },
-  {
-    id: "maintenance.diagnostics.legacyTerminalRenderer",
-    pane: "maintenance.diagnostics",
-    label: "Use legacy terminal renderer",
-    labelKey: "settings.diagnostics.legacyTerminalRenderer.label",
-    keywords: ["webview", "terminal"],
-    nativeOnly: true,
     scope: device,
   },
   {
@@ -639,6 +747,27 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
 
   // Workspaces & projects
   {
+    id: "workspaces.newWorkspace.environment",
+    pane: "workspaces.newWorkspace",
+    label: "Default environment",
+    keywords: ["new workspace", "host", "where new chats run"],
+    scope: installation,
+  },
+  {
+    id: "workspaces.newWorkspace.account",
+    pane: "workspaces.newWorkspace",
+    label: "Default account",
+    keywords: ["new chat", "provider", "claude", "codex"],
+    scope: installation,
+  },
+  {
+    id: "workspaces.newWorkspace.profile",
+    pane: "workspaces.newWorkspace",
+    label: "Default profile",
+    keywords: ["new chat", "preset", "model"],
+    scope: installation,
+  },
+  {
     id: "workspaces.projects.list",
     pane: "workspaces.projects",
     label: "Projects",
@@ -709,13 +838,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     label: "Environment exceptions",
     keywords: ["exclusions", "excluded profiles", "availability"],
     scope: installation,
-  },
-  {
-    id: "environments.connections.check",
-    pane: "environments.connections",
-    label: "Connection check",
-    keywords: ["connection check", "host", "dev", "dns", "tailscale", "latency", "reachability"],
-    scope: device,
   },
   {
     id: "environments.connections.list",
@@ -801,66 +923,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntryDefinition[] = [
     labelKey: "settings.about.upstreamUpdates.title",
     keywords: ["upstream merge", "host merge task", "copy host prompt"],
     scope: installation,
-  },
-  {
-    id: "maintenance.diagnostics.app",
-    pane: "maintenance.diagnostics",
-    label: "App diagnostic",
-    labelKey: "settings.diagnostics.app.rowTitle",
-    keywords: ["logs", "debug", "troubleshoot", "support"],
-    scope: device,
-  },
-  {
-    id: "maintenance.diagnostics.audio",
-    pane: "maintenance.diagnostics",
-    label: "Test audio",
-    labelKey: "settings.diagnostics.testAudio",
-    keywords: ["sound", "speaker", "voice"],
-    scope: device,
-  },
-
-  // About
-  {
-    id: "about.version",
-    pane: "about.about",
-    label: "App version",
-    labelKey: "settings.about.appVersion",
-    keywords: ["build", "version number"],
-    scope: device,
-  },
-  {
-    id: "about.whatsNew",
-    pane: "about.about",
-    label: "What's new",
-    labelKey: "changelog.title",
-    keywords: ["changelog", "release notes"],
-    scope: device,
-  },
-  {
-    id: "about.releaseChannel",
-    pane: "about.about",
-    label: "Release channel",
-    labelKey: "settings.about.releaseChannel.label",
-    keywords: ["beta", "stable"],
-    desktopOnly: true,
-    scope: device,
-  },
-  {
-    id: "about.appUpdates",
-    pane: "about.about",
-    label: "App updates",
-    labelKey: "settings.about.updates.label",
-    keywords: ["desktop update", "install update"],
-    desktopOnly: true,
-    scope: device,
-  },
-  {
-    id: "about.hosts.versions",
-    pane: "about.hosts",
-    label: "Connected hosts",
-    labelKey: "settings.about.connectedHosts",
-    keywords: ["daemon version", "version mismatch"],
-    scope: environment,
   },
 ];
 
