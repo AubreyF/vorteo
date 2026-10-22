@@ -1208,6 +1208,35 @@ export const ptBR: TranslationResources = {
         "Adicione comandos de configuração para que novos worktrees instalem dependências e se preparem automaticamente.",
       openProjectSettings: "Abrir configurações do projeto",
     },
+    folders: {
+      actions: {
+        menu: "Ações da pasta",
+        newFolder: "Nova pasta",
+        newWorkspaceFolder: "Nova pasta de workspaces",
+        newSubfolder: "Nova pasta dentro",
+        rename: "Renomear pasta",
+        delete: "Excluir pasta",
+        moveToFolder: "Mover para pasta…",
+      },
+      dialogs: {
+        createTitle: "Nova pasta",
+        renameTitle: "Renomear pasta",
+        namePlaceholder: "Nome da pasta",
+        create: "Criar",
+        rename: "Renomear",
+        moveTitle: 'Mover "{{name}}"',
+        destination: "Pasta",
+        topLevel: "Sem pasta",
+        move: "Mover",
+        cancel: "Cancelar",
+      },
+      confirmations: {
+        deleteTitle: "Excluir pasta?",
+        deleteMessage:
+          'Excluir "{{folderName}}"? O conteúdo sobe um nível. Nada é arquivado e os arquivos no disco não mudam.',
+        deleteConfirm: "Excluir",
+      },
+    },
     project: {
       actions: {
         menu: "Ações do projeto",

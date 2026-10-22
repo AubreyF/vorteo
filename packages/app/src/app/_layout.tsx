@@ -3,6 +3,7 @@ import { useResponsiveSidebar } from "@/hooks/use-responsive-sidebar";
 import "@/styles/unistyles";
 import { ScheduledWorkspaceProvider } from "@/workspace/lifecycle/scheduled";
 import { ProjectMoveModalHost } from "@/workspace/project-move/modal";
+import { SidebarFolderDialogHost } from "@/sidebar-folders/dialogs";
 import { InstallationSessionHost } from "@/execution-installation/panel";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PortalProvider } from "@gorhom/portal";
@@ -958,6 +959,7 @@ function RuntimeProviders({ children }: { children: ReactNode }) {
         <ProvidersWrapper>
           {children}
           <ProjectMoveModalHost />
+          <SidebarFolderDialogHost />
           <InstallationUpdateToasts />
         </ProvidersWrapper>
       </SidebarCalloutProvider>

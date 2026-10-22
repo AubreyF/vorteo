@@ -1182,6 +1182,35 @@ export const ar: TranslationResources = {
         "أضف أوامر الإعداد حتى تتمكن أشجار العمل الجديدة من تثبيت التبعيات وإعداد نفسها تلقائيًا.",
       openProjectSettings: "افتح إعدادات المشروع",
     },
+    folders: {
+      actions: {
+        menu: "إجراءات المجلد",
+        newFolder: "مجلد جديد",
+        newWorkspaceFolder: "مجلد جديد لمساحات العمل",
+        newSubfolder: "مجلد جديد بداخله",
+        rename: "إعادة تسمية المجلد",
+        delete: "حذف المجلد",
+        moveToFolder: "نقل إلى مجلد…",
+      },
+      dialogs: {
+        createTitle: "مجلد جديد",
+        renameTitle: "إعادة تسمية المجلد",
+        namePlaceholder: "اسم المجلد",
+        create: "إنشاء",
+        rename: "إعادة تسمية",
+        moveTitle: 'نقل "{{name}}"',
+        destination: "المجلد",
+        topLevel: "بدون مجلد",
+        move: "نقل",
+        cancel: "إلغاء",
+      },
+      confirmations: {
+        deleteTitle: "حذف المجلد؟",
+        deleteMessage:
+          'حذف "{{folderName}}"؟ ينتقل محتواه مستوى واحدًا إلى الأعلى. لا تتم أرشفة أي شيء ولا تتغير الملفات على القرص.',
+        deleteConfirm: "حذف",
+      },
+    },
     project: {
       actions: {
         menu: "إجراءات المشروع",

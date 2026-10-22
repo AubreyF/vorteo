@@ -62,6 +62,8 @@ import {
   Trash2,
   Factory,
   LockKeyhole,
+  FolderInput,
+  FolderPlus,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -173,10 +175,37 @@ import type { HostBadgeModel } from "@/hosts/appearance";
 import { useHostBadges } from "@/hosts/use-host-badges";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
+import {
+  reorderSidebarRows,
+  useCreateSidebarFolderAction,
+  useMoveToSidebarFolderAction,
+  useSidebarFoldersSupported,
+} from "@/sidebar-folders/actions";
+import { SidebarFolderDropProvider, useSidebarFolderDrop } from "@/sidebar-folders/drop-context";
+import { SidebarFolderRow, sidebarDepthStyle } from "@/sidebar-folders/folder-row";
+import {
+  EMPTY_SIDEBAR_FOLDER_STATE,
+  useSidebarFolderStore,
+  type SidebarFolderState,
+} from "@/sidebar-folders/store";
+import {
+  ROOT_FOLDER_SCOPE,
+  buildSidebarTreeRows,
+  projectFolderScope,
+  type SidebarTreeRow,
+} from "@/sidebar-folders/tree";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspacePlacement) => workspace.workspaceKey;
 
 const projectViewKeyExtractor = (project: SidebarProjectEntry) => project.viewKey;
+
+function treeRowKeyExtractor<T>(row: SidebarTreeRow<T>): string {
+  return row.key;
+}
+
+function treeRowItems<T>(rows: readonly SidebarTreeRow<T>[]): T[] {
+  return rows.flatMap((row) => (row.kind === "item" ? [row.item] : []));
+}
 
 const WORKSPACE_STATUS_DOT_WIDTH = 14;
 const ThemedExternalLink = withUnistyles(ExternalLink);
@@ -186,6 +215,8 @@ const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedLock = withUnistyles(LockKeyhole);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedFolderPlus = withUnistyles(FolderPlus);
+const ThemedFolderInput = withUnistyles(FolderInput);
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -256,6 +287,8 @@ interface SidebarWorkspaceListProps {
   /** Gesture ref for coordinating with parent gestures (e.g., sidebar close) */
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
+  /** False where the list shows a single project, such as the compact rail's flyout. */
+  rootFolders?: boolean;
 }
 
 interface ProjectHeaderRowProps {
@@ -507,6 +540,7 @@ function ProjectRowTrailingActions({
         >
           <ProjectKebabMenu
             projectViewKey={projectViewKey}
+            projectName={displayName}
             settingsTarget={settingsTarget}
             projectPath={projectPath}
             onRemoveProject={onRemoveProject}
@@ -522,6 +556,10 @@ function ProjectRowTrailingActions({
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const lockedLeadingIcon = <ThemedLock size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
+const newFolderLeadingIcon = <ThemedFolderPlus size={14} uniProps={foregroundMutedColorMapping} />;
+const moveToFolderLeadingIcon = (
+  <ThemedFolderInput size={14} uniProps={foregroundMutedColorMapping} />
+);
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -537,6 +575,7 @@ function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
 
 function ProjectKebabMenu({
   projectViewKey,
+  projectName,
   settingsTarget,
   projectPath,
   onRemoveProject,
@@ -544,6 +583,7 @@ function ProjectKebabMenu({
   removeProjectBlockedReason,
 }: {
   projectViewKey: string;
+  projectName: string;
   settingsTarget: { serverId: string; projectId: string } | null;
   projectPath: string;
   onRemoveProject: () => void;
@@ -581,6 +621,7 @@ function ProjectKebabMenu({
         <ProjectMenuItems
           surface="dropdown"
           projectViewKey={projectViewKey}
+          projectName={projectName}
           settingsTarget={settingsTarget}
           projectPath={projectPath}
           onRemoveProject={onRemoveProject}
@@ -610,6 +651,7 @@ function ProjectMenuItem({
 function ProjectMenuItems({
   surface,
   projectViewKey,
+  projectName,
   settingsTarget,
   projectPath,
   onRemoveProject,
@@ -618,6 +660,7 @@ function ProjectMenuItems({
 }: {
   surface: ProjectMenuSurface;
   projectViewKey: string;
+  projectName: string;
   settingsTarget: { serverId: string; projectId: string } | null;
   projectPath: string;
   onRemoveProject: () => void;
@@ -663,6 +706,13 @@ function ProjectMenuItems({
         toast.error(t("sidebar.project.actions.openNewWindowFailed"));
       });
   }, [projectPath, t, toast]);
+  const workspaceFolderScope = useMemo(() => projectFolderScope(projectViewKey), [projectViewKey]);
+  const createWorkspaceFolder = useCreateSidebarFolderAction(workspaceFolderScope, null);
+  const moveToFolder = useMoveToSidebarFolderAction({
+    scope: ROOT_FOLDER_SCOPE,
+    entry: projectViewKey,
+    title: projectName,
+  });
 
   return (
     <>
@@ -709,6 +759,26 @@ function ProjectMenuItems({
         path={projectPath}
         testID={`sidebar-project-menu-open-folder-${projectViewKey}`}
       />
+      {createWorkspaceFolder ? (
+        <ProjectMenuItem
+          surface={surface}
+          testID={`sidebar-project-menu-new-folder-${projectViewKey}`}
+          leading={newFolderLeadingIcon}
+          onSelect={createWorkspaceFolder}
+        >
+          {t("sidebar.folders.actions.newWorkspaceFolder")}
+        </ProjectMenuItem>
+      ) : null}
+      {moveToFolder ? (
+        <ProjectMenuItem
+          surface={surface}
+          testID={`sidebar-project-menu-move-folder-${projectViewKey}`}
+          leading={moveToFolderLeadingIcon}
+          onSelect={moveToFolder}
+        >
+          {t("sidebar.folders.actions.moveToFolder")}
+        </ProjectMenuItem>
+      ) : null}
       <ProjectMenuItem
         surface={surface}
         testID={`sidebar-project-menu-remove-${projectViewKey}`}
@@ -805,6 +875,8 @@ function WorkspaceRowRightGroup({
                 {...kebab.menuProps}
                 backdrop={backdrop}
                 workspaceKey={workspace.workspaceKey}
+                projectViewKey={workspace.projectViewKey}
+                workspaceTitle={workspace.name}
                 serverId={workspace.serverId}
                 workspaceId={workspace.workspaceId}
                 workspaceLabels={workspace.labels}
@@ -1202,6 +1274,7 @@ function ProjectHeaderRow({
         <ProjectMenuItems
           surface="context"
           projectViewKey={project.viewKey}
+          projectName={displayName}
           settingsTarget={settingsTarget}
           projectPath={projectPath}
           onRemoveProject={onRemoveProject}
@@ -1687,6 +1760,8 @@ function ProjectBlock({
   supportsMultiplicityByServerId,
   supportsPinningByServerId,
   onToggleWorkspacePin,
+  folderState,
+  hideEmptyFolders,
 }: {
   project: SidebarProjectEntry;
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -1712,8 +1787,17 @@ function ProjectBlock({
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;
   supportsPinningByServerId: ReadonlyMap<string, boolean>;
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
+  /** Null when the sidebar host cannot store folders. */
+  folderState: SidebarFolderState | null;
+  hideEmptyFolders: boolean;
 }) {
   const externalDrop = useWorkspaceProjectDrop(project.viewKey);
+  const folderScope = useMemo(() => projectFolderScope(project.viewKey), [project.viewKey]);
+  const workExternalDrop = useSidebarFolderDrop({
+    scope: folderScope,
+    enabled: folderState !== null,
+    existing: externalDrop,
+  });
   const taskSummary = useMemo(
     () => aggregateProjectTasks(project.viewKey, workspaceEntriesByKey),
     [project.viewKey, workspaceEntriesByKey],
@@ -1728,7 +1812,18 @@ function ProjectBlock({
     () => splitFactoryWorkspaces(project.workspaces, workspaceEntriesByKey, supportsFactory),
     [project.workspaces, workspaceEntriesByKey, supportsFactory],
   );
-  const ordinaryWorkspaces = groups.work;
+  // Folders organize ordinary workspaces only; Factory and Standing keep their own sections.
+  const workRows = useMemo(
+    () =>
+      buildSidebarTreeRows({
+        state: folderState ?? EMPTY_SIDEBAR_FOLDER_STATE,
+        scope: folderScope,
+        items: groups.work,
+        getKey: workspaceKeyExtractor,
+        hideEmptyFolders,
+      }),
+    [folderState, folderScope, groups.work, hideEmptyFolders],
+  );
   const standingKey = `standing:${project.viewKey}`;
   const standingCollapsed = useSidebarCollapsedSectionsStore((state) =>
     state.collapsedWorkspaceGroupKeys.has(standingKey),
@@ -1770,11 +1865,11 @@ function ProjectBlock({
   );
 
   const {
-    visibleItems: visibleWorkspaces,
+    visibleItems: visibleWorkRows,
     expanded: workspacesExpanded,
     canToggle: canToggleWorkspaces,
     toggleExpanded: toggleWorkspacesExpanded,
-  } = useLimitedSidebarGroup(ordinaryWorkspaces);
+  } = useLimitedSidebarGroup(workRows);
   const rowModel = useMemo(
     () =>
       buildSidebarProjectRowModel({
@@ -1865,6 +1960,46 @@ function ProjectBlock({
     [onWorkspaceReorder, project.viewKey],
   );
 
+  const renderWorkRow = useCallback(
+    ({
+      item: row,
+      drag: rowDrag,
+      isActive,
+      dragHandleProps: rowDragHandleProps,
+    }: DraggableRenderItemInfo<SidebarTreeRow<SidebarWorkspacePlacement>>) => {
+      if (row.kind === "folder") {
+        return (
+          <SidebarFolderRow
+            row={row}
+            scope={folderScope}
+            drag={rowDrag}
+            isDragging={isActive}
+            dragHandleProps={rowDragHandleProps}
+          />
+        );
+      }
+      const workspaceRow = renderWorkspaceRow(row.item, {
+        drag: rowDrag,
+        isDragging: isActive,
+        dragHandleProps: rowDragHandleProps,
+      });
+      return row.depth > 0 ? (
+        <View style={sidebarDepthStyle(row.depth)}>{workspaceRow}</View>
+      ) : (
+        workspaceRow
+      );
+    },
+    [folderScope, renderWorkspaceRow],
+  );
+
+  const handleWorkRowsDragEnd = useCallback(
+    (rows: SidebarTreeRow<SidebarWorkspacePlacement>[], movedKey: string) => {
+      if (folderState) reorderSidebarRows({ scope: folderScope, rows, movedKey });
+      else onWorkspaceReorder(project.viewKey, treeRowItems(rows));
+    },
+    [folderScope, folderState, onWorkspaceReorder, project.viewKey],
+  );
+
   const toast = useToast();
   const { t } = useTranslation();
   const [isRemovingProject, setIsRemovingProject] = useState(false);
@@ -1934,12 +2069,12 @@ function ProjectBlock({
       projectChildren = (
         <>
           <DraggableList
-            externalDrop={externalDrop}
+            externalDrop={workExternalDrop}
             testID={`sidebar-workspace-list-${project.viewKey}`}
-            data={visibleWorkspaces}
-            keyExtractor={workspaceKeyExtractor}
-            renderItem={renderWorkspace}
-            onDragEnd={handleWorkspaceDragEnd}
+            data={visibleWorkRows}
+            keyExtractor={treeRowKeyExtractor}
+            renderItem={renderWorkRow}
+            onDragEnd={handleWorkRowsDragEnd}
             extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
             scrollEnabled={false}
             useDragHandle
@@ -2116,6 +2251,8 @@ function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlo
     previous.useNestable === next.useNestable &&
     previous.dragGestureHostActive === next.dragGestureHostActive &&
     previous.creatingWorkspaceIds === next.creatingWorkspaceIds &&
+    previous.folderState === next.folderState &&
+    previous.hideEmptyFolders === next.hideEmptyFolders &&
     areProjectBlockSelectionsEqual(previous, next)
   );
 }
@@ -2172,6 +2309,7 @@ export function SidebarWorkspaceList({
   listHeaderComponent,
   parentGestureRef,
   dragGestureHostActive,
+  rootFolders = true,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
@@ -2279,6 +2417,7 @@ export function SidebarWorkspaceList({
         supportsPinningByServerId={supportsPinningByServerId}
         onToggleWorkspacePin={onToggleWorkspacePin}
         onPinnedWorkspaceReorder={handlePinnedWorkspaceReorder}
+        rootFolders={rootFolders}
       />
     );
 
@@ -2361,7 +2500,9 @@ function SidebarGroupedModeList({
 function ProjectModeList(props: Parameters<typeof ProjectModeListContent>[0]) {
   return (
     <ProjectMoveProvider projects={props.projects}>
-      <ProjectModeListContent {...props} />
+      <SidebarFolderDropProvider>
+        <ProjectModeListContent {...props} />
+      </SidebarFolderDropProvider>
     </ProjectMoveProvider>
   );
 }
@@ -2392,6 +2533,7 @@ function ProjectModeListContent({
   supportsPinningByServerId,
   onToggleWorkspacePin,
   onPinnedWorkspaceReorder,
+  rootFolders = true,
 }: Omit<
   SidebarWorkspaceListProps,
   | "workspaceGroups"
@@ -2423,6 +2565,20 @@ function ProjectModeListContent({
   const togglePinnedCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.togglePinnedCollapsed,
   );
+
+  const foldersSupported = useSidebarFoldersSupported();
+  const storedFolders = useSidebarFolderStore();
+  const folderState = foldersSupported ? storedFolders : null;
+  const rootFolderState = rootFolders ? folderState : null;
+  const hasActiveLabelFilter = useSidebarViewStore((state) =>
+    hasActiveSidebarLabelFilter(state.labelFilter),
+  );
+  // A filter narrows what is listed, so folders it leaves empty would be noise.
+  const hideEmptyFolders = hasActiveHostFilter || hasActiveProjectFilter || hasActiveLabelFilter;
+  const rootExternalDrop = useSidebarFolderDrop<SidebarProjectEntry>({
+    scope: ROOT_FOLDER_SCOPE,
+    enabled: rootFolderState !== null,
+  });
 
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);
   const setProjectOrder = useSidebarOrderStore((state) => state.setProjectOrder);
@@ -2502,9 +2658,25 @@ function ProjectModeListContent({
     });
   }, [creatingWorkspaceIds, projects]);
 
+  const rootRows = useMemo(
+    () =>
+      buildSidebarTreeRows({
+        state: rootFolderState ?? EMPTY_SIDEBAR_FOLDER_STATE,
+        scope: ROOT_FOLDER_SCOPE,
+        items: unpinnedProjects,
+        getKey: projectViewKeyExtractor,
+        hideEmptyFolders,
+      }),
+    [rootFolderState, unpinnedProjects, hideEmptyFolders],
+  );
+
   const handleProjectDragEnd = useCallback(
-    (reorderedProjects: SidebarProjectEntry[]) => {
-      const reorderedProjectKeys = reorderedProjects.map((project) => project.viewKey);
+    (rows: SidebarTreeRow<SidebarProjectEntry>[], movedKey: string) => {
+      if (rootFolderState) {
+        reorderSidebarRows({ scope: ROOT_FOLDER_SCOPE, rows, movedKey });
+        return;
+      }
+      const reorderedProjectKeys = treeRowItems(rows).map((project) => project.viewKey);
       const currentProjectOrder = getProjectOrder();
       if (
         !hasVisibleOrderChanged({
@@ -2522,7 +2694,7 @@ function ProjectModeListContent({
         }),
       );
     },
-    [getProjectOrder, setProjectOrder],
+    [getProjectOrder, rootFolderState, setProjectOrder],
   );
 
   const handleWorkspaceReorder = useCallback(
@@ -2611,10 +2783,14 @@ function ProjectModeListContent({
           supportsMultiplicityByServerId={supportsMultiplicityByServerId}
           supportsPinningByServerId={supportsPinningByServerId}
           onToggleWorkspacePin={onToggleWorkspacePin}
+          folderState={folderState}
+          hideEmptyFolders={hideEmptyFolders}
         />
       );
     },
     [
+      folderState,
+      hideEmptyFolders,
       collapsedProjectKeys,
       activeWorkspaceSelection,
       handleWorktreeCreated,
@@ -2637,8 +2813,26 @@ function ProjectModeListContent({
   );
 
   const renderProject = useCallback(
-    ({ item, drag, isActive, dragHandleProps }: DraggableRenderItemInfo<SidebarProjectEntry>) =>
-      renderProjectBlock(item, { drag, isDragging: isActive, dragHandleProps }),
+    ({
+      item: row,
+      drag,
+      isActive,
+      dragHandleProps,
+    }: DraggableRenderItemInfo<SidebarTreeRow<SidebarProjectEntry>>) => {
+      if (row.kind === "folder") {
+        return (
+          <SidebarFolderRow
+            row={row}
+            scope={ROOT_FOLDER_SCOPE}
+            drag={drag}
+            isDragging={isActive}
+            dragHandleProps={dragHandleProps}
+          />
+        );
+      }
+      const block = renderProjectBlock(row.item, { drag, isDragging: isActive, dragHandleProps });
+      return row.depth > 0 ? <View style={sidebarDepthStyle(row.depth)}>{block}</View> : block;
+    },
     [renderProjectBlock],
   );
 
@@ -2694,8 +2888,9 @@ function ProjectModeListContent({
     ) : (
       <DraggableList
         testID="sidebar-project-list"
-        data={unpinnedProjects}
-        keyExtractor={projectViewKeyExtractor}
+        externalDrop={rootExternalDrop}
+        data={rootRows}
+        keyExtractor={treeRowKeyExtractor}
         renderItem={renderProject}
         onDragEnd={handleProjectDragEnd}
         extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}

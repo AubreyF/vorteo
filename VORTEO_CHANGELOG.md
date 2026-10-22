@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Sidebar folders. Group projects into nested folders from New folder in the sidebar's More menu, and group a project's workspaces into nested folders from the project menu's New workspace folder. Folders fold, show a count while folded, and can be renamed, moved or deleted from their own menu. Deleting a folder moves its contents up one level; nothing is archived and nothing changes on disk.
+- Move to folder in project and workspace menus works on phones as well as desktop. On web and desktop, drag a row onto a folder to put it inside, or drop it between rows to place it there; a dropped row joins the folder of the row below it.
+- Folders follow you across devices through the Host and appear only when the Host advertises `sidebarFolders`. Status grouping ignores folders, Pinned is unchanged, Factory and Standing stay as they are inside each project, and filters hide folders left empty. Keyboard shortcuts skip workspaces inside folded folders.
+
+### Changed
+
+- Sortable lists report which row was dragged, so adjacent swaps are no longer ambiguous.
+
+### Known limitations
+
+- The compact project rail and its flyout list projects without root folders. Factory and Standing workspaces stay in their sections even when moved to a folder.
+
 ## 0.11.0-beta.3.vorteo.765 - 2026-10-22
 
 ### Added

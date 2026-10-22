@@ -53,6 +53,7 @@ export function ProjectRailList({
           shortcutIndexByWorkspaceKey={EMPTY_SHORTCUTS}
           groupMode="project"
           onWorkspacePress={onNavigate}
+          rootFolders={false}
         />
       </SidebarInsetContext.Provider>
     </SidebarWidthContext.Provider>

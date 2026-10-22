@@ -1196,6 +1196,35 @@ export const ja: TranslationResources = {
         "新しいワークツリーが依存関係をインストールして自動的に準備できるようにセットアップコマンドを追加してください。",
       openProjectSettings: "プロジェクト設定を開く",
     },
+    folders: {
+      actions: {
+        menu: "フォルダの操作",
+        newFolder: "新しいフォルダ",
+        newWorkspaceFolder: "新しいワークスペースフォルダ",
+        newSubfolder: "中に新しいフォルダ",
+        rename: "フォルダ名を変更",
+        delete: "フォルダを削除",
+        moveToFolder: "フォルダへ移動…",
+      },
+      dialogs: {
+        createTitle: "新しいフォルダ",
+        renameTitle: "フォルダ名を変更",
+        namePlaceholder: "フォルダ名",
+        create: "作成",
+        rename: "名前を変更",
+        moveTitle: "「{{name}}」を移動",
+        destination: "フォルダ",
+        topLevel: "フォルダなし",
+        move: "移動",
+        cancel: "キャンセル",
+      },
+      confirmations: {
+        deleteTitle: "フォルダを削除しますか？",
+        deleteMessage:
+          "「{{folderName}}」を削除しますか？中身は1つ上の階層に移動します。アーカイブされるものはなく、ディスク上のファイルも変更されません。",
+        deleteConfirm: "削除",
+      },
+    },
     project: {
       actions: {
         menu: "プロジェクトアクション",

@@ -1208,6 +1208,35 @@ export const en = {
         "Add setup commands so new worktrees can install dependencies and prepare themselves automatically.",
       openProjectSettings: "Open project settings",
     },
+    folders: {
+      actions: {
+        menu: "Folder actions",
+        newFolder: "New folder",
+        newWorkspaceFolder: "New workspace folder",
+        newSubfolder: "New folder inside",
+        rename: "Rename folder",
+        delete: "Delete folder",
+        moveToFolder: "Move to folder…",
+      },
+      dialogs: {
+        createTitle: "New folder",
+        renameTitle: "Rename folder",
+        namePlaceholder: "Folder name",
+        create: "Create",
+        rename: "Rename",
+        moveTitle: 'Move "{{name}}"',
+        destination: "Folder",
+        topLevel: "No folder",
+        move: "Move",
+        cancel: "Cancel",
+      },
+      confirmations: {
+        deleteTitle: "Delete folder?",
+        deleteMessage:
+          'Delete "{{folderName}}"? Its contents move up one level. Nothing is archived and files on disk are not changed.',
+        deleteConfirm: "Delete",
+      },
+    },
     project: {
       actions: {
         menu: "Project actions",
