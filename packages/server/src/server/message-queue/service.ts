@@ -151,6 +151,32 @@ export class MessageQueueService {
     });
   }
 
+  /**
+   * Continues a thread after its usage limit resets. A paused queue stays paused and reports
+   * it; queued work already supplies continuation, so it is woken instead of adding another.
+   */
+  async queueUsageLimitContinuation(
+    agentId: string,
+    holdKey: string,
+    text: string,
+  ): Promise<"queued" | "existing" | "paused"> {
+    const snapshot = await this.read(agentId);
+    if (snapshot.paused) return "paused";
+    if (snapshot.items.length) {
+      this.wake(agentId);
+      return "existing";
+    }
+    const id = `usage-limit-${holdKey}-${agentId}`;
+    await this.mutate(agentId, {
+      kind: "enqueue",
+      operationId: id,
+      messageId: id,
+      attachments: [],
+      text,
+    });
+    return "queued";
+  }
+
   wake(agentId: string): void {
     if (this.queuedAgents.has(agentId) || this.deliveryPort?.needsCompletion?.(agentId))
       void this.delivery?.wake(agentId);

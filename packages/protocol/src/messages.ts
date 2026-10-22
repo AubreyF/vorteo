@@ -137,6 +137,11 @@ import {
   AgentContextGetBreakdownResponseSchema,
 } from "./agent-context.js";
 import {
+  AgentUsageLimitSetResumeRequestSchema,
+  AgentUsageLimitSetResumeResponseSchema,
+  UsageLimitHoldSchema,
+} from "./usage-limit.js";
+import {
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -293,6 +298,8 @@ const MutableDaemonProviderConfigSchema = z
     installationAccountId: z.string().uuid().optional(),
     paseoTools: ProviderPaseoToolsPolicySchema.optional(),
     enabled: z.boolean().optional(),
+    // COMPAT(usageLimitResume): added 2026-10-22; absent means on.
+    autoResumeAfterUsageLimit: z.boolean().optional(),
     additionalModels: z.array(MutableDaemonProviderModelSchema).optional(),
   })
   .passthrough();
@@ -1030,6 +1037,8 @@ export const AgentSnapshotPayloadSchema = z.object({
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
   quotaPausedAt: z.string().optional(),
+  // COMPAT(usageLimitResume): added 2026-10-22; older daemons omit it.
+  usageLimitHold: UsageLimitHoldSchema.optional(),
   provider: AgentProviderSchema,
   cwd: z.string(),
   workspaceId: z.string().optional(),
@@ -3608,6 +3617,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetRequestSchema,
   AgentGoalClearRequestSchema,
   AgentContextGetBreakdownRequestSchema,
+  AgentUsageLimitSetResumeRequestSchema,
   CoordinatorBootstrapListRequestSchema,
   BootstrapPreclaimRecoveryListRequestSchema,
   BootstrapClaimedRecoveryListRequestSchema,
@@ -4043,6 +4053,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentGoals: z.boolean().optional(),
         // COMPAT(agentContextBreakdown): added 2026-10-21; gate the on-demand context breakdown request.
         agentContextBreakdown: z.boolean().optional(),
+        // COMPAT(usageLimitResume): added 2026-10-22; gate the usage-limit resume controls.
+        usageLimitResume: z.boolean().optional(),
         coordinatorBootstrapReview: z.boolean().optional(),
         // COMPAT(claimedRecovery): added 2026-10-14; keep gates until the daemon floor includes claimed recovery after 2027-04-14.
         coordinatorBootstrapClaimedRecovery: z.boolean().optional(),
@@ -7471,6 +7483,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentGoalSetResponseSchema,
   AgentGoalClearResponseSchema,
   AgentContextGetBreakdownResponseSchema,
+  AgentUsageLimitSetResumeResponseSchema,
   CoordinatorBootstrapListResponseSchema,
   BootstrapPreclaimRecoveryListResponseSchema,
   BootstrapClaimedRecoveryListResponseSchema,

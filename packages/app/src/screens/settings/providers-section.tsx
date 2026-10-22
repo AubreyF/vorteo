@@ -39,6 +39,7 @@ import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 import { useReportActionError } from "@/hooks/use-action-error";
 import { filterSelectableModels } from "@/provider-selection/model-catalog";
 import { ChevronRight, GripVertical } from "lucide-react-native";
+import { UsageLimitResumeSwitch } from "@/usage-limit/account-switch";
 
 type ProviderDefinition = ReturnType<typeof buildProviderDefinitions>[number];
 type ProviderEntry = NonNullable<ReturnType<typeof useProvidersSnapshot>["entries"]>[number];
@@ -153,6 +154,7 @@ function ProviderRow({
     () => [
       settingsStyles.row,
       styles.row,
+      styles.stackedRow,
       isCompact && styles.compactRow,
       hovered && styles.rowHovered,
     ],
@@ -181,51 +183,60 @@ function ProviderRow({
       ) : null}
       {/* Controls sit beside the details button, not inside it: a button
           inside a button is invalid HTML and breaks keyboard focus. */}
-      <View style={rowStyle}>
-        <Pressable
-          style={styles.rowContent}
-          onPress={handlePress}
-          onHoverIn={handleHoverIn}
-          onHoverOut={handleHoverOut}
-          accessibilityRole="button"
-          accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
-        >
-          <ChevronRight
-            size={theme.iconSize.sm}
-            color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
-          />
-          <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
-          <View style={styles.textColumn}>
-            <View style={styles.titleRow}>
-              <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-                {def.label}
-              </Text>
-              {!isCompact ? <Text style={styles.separator}>·</Text> : null}
-              <StatusIndicator status={visibleStatus} compact={isCompact} />
+      <View style={styles.rowStack}>
+        <View style={rowStyle}>
+          <Pressable
+            style={styles.rowContent}
+            onPress={handlePress}
+            onHoverIn={handleHoverIn}
+            onHoverOut={handleHoverOut}
+            accessibilityRole="button"
+            accessibilityLabel={t("settings.providers.providerDetails", { name: def.label })}
+          >
+            <ChevronRight
+              size={theme.iconSize.sm}
+              color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+            />
+            <ProviderIcon size={theme.iconSize.md} color={theme.colors.foreground} />
+            <View style={styles.textColumn}>
+              <View style={styles.titleRow}>
+                <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+                  {def.label}
+                </Text>
+                {!isCompact ? <Text style={styles.separator}>·</Text> : null}
+                <StatusIndicator status={visibleStatus} compact={isCompact} />
+              </View>
+              {needsCliUpdate && isCompact ? (
+                <Text style={settingsStyles.rowHint}>CLI update needed</Text>
+              ) : null}
+              {providerError && !isCompact ? (
+                <Text style={styles.errorText} numberOfLines={3}>
+                  {providerError}
+                </Text>
+              ) : null}
             </View>
-            {needsCliUpdate && isCompact ? (
-              <Text style={settingsStyles.rowHint}>CLI update needed</Text>
-            ) : null}
-            {providerError && !isCompact ? (
-              <Text style={styles.errorText} numberOfLines={3}>
-                {providerError}
-              </Text>
-            ) : null}
-          </View>
-        </Pressable>
-        <ProviderRowControls
-          custom={entry.source === "custom"}
-          canRemove={canRemove}
-          isRemoving={isRemoving}
-          isToggling={isToggling}
-          enabled={enabled}
-          serverId={serverId}
-          def={def}
-          usage={usage}
-          onRename={handleRename}
-          onRemove={handleRemove}
-          onToggle={handleToggleValueChange}
-        />
+          </Pressable>
+          <ProviderRowControls
+            custom={entry.source === "custom"}
+            canRemove={canRemove}
+            isRemoving={isRemoving}
+            isToggling={isToggling}
+            enabled={enabled}
+            serverId={serverId}
+            def={def}
+            usage={usage}
+            onRename={handleRename}
+            onRemove={handleRemove}
+            onToggle={handleToggleValueChange}
+          />
+        </View>
+        {enabled ? (
+          <UsageLimitResumeSwitch
+            serverId={serverId}
+            providerId={def.id}
+            providerLabel={def.label}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -730,6 +741,8 @@ function noop() {}
 
 const styles = StyleSheet.create((theme) => ({
   draggableRow: { flexDirection: "row", alignItems: "center" },
+  rowStack: { flex: 1, minWidth: 0 },
+  stackedRow: { flex: 0 },
   dragHandle: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   sectionSpacing: {
     marginBottom: theme.spacing[4],

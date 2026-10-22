@@ -690,6 +690,7 @@ function serializeAgent(agent: Agent): StoredAgent {
     ...(agent.lastError ? { lastError: agent.lastError } : {}),
     profile: agent.profile,
     quotaPausedAt: agent.quotaPausedAt,
+    usageLimitHold: agent.usageLimitHold,
     title: agent.title,
     labels: agent.labels,
     requiresAttention: agent.requiresAttention ?? false,

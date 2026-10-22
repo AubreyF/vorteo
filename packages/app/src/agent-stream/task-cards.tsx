@@ -12,6 +12,7 @@ import { SharedQueueView } from "@/message-queue/queue-view";
 import { useMessageQueue } from "@/message-queue/use-message-queue";
 import { goalQueueNotice } from "@/goals/goal-presentation";
 import { LegacyQueueImport } from "@/message-queue/legacy-import";
+import { UsageLimitNotice } from "@/usage-limit/notice";
 
 const ignoreCreatedDraft = () => {};
 
@@ -84,6 +85,7 @@ export function AgentQueueCards({
   const goal = useAgentGoal(serverId, agentId);
   return (
     <>
+      <UsageLimitNotice serverId={serverId} agentId={agentId} />
       <LegacyQueueImport serverId={serverId} agentId={agentId} cwd={cwd} />
       <SharedQueueView
         serverId={serverId}
