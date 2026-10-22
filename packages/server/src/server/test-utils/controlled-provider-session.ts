@@ -41,7 +41,11 @@ export class ControlledSession implements AgentSession {
   readonly provider: string;
   readonly goals: AgentGoals | undefined;
   readonly commands: string[] = [];
-  private goalState: GoalState = { status: "ready", goal: null } as unknown as GoalState;
+  private goalState: GoalState = {
+    status: "ready",
+    goal: null,
+    observedAt: new Date(0).toISOString(),
+  };
   private sessionId: string | null = null;
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly pending = new Map<
@@ -72,10 +76,11 @@ export class ControlledSession implements AgentSession {
     return this.sessionId;
   }
 
+  /** Goal states shaped like the Codex adapter's, so they pass the wire schema end to end. */
   private controlledGoals(): AgentGoals {
     const readState = (): GoalState => this.goalState;
-    const settle = (goal: unknown): GoalState => {
-      this.goalState = { status: "ready", goal } as unknown as GoalState;
+    const settle = (goal: GoalState["goal"]): GoalState => {
+      this.goalState = { status: "ready", goal, observedAt: new Date().toISOString() };
       this.emit({ type: "goal_changed", provider: this.provider, state: this.goalState });
       return this.goalState;
     };
@@ -84,8 +89,21 @@ export class ControlledSession implements AgentSession {
         return readState();
       },
       read: async () => readState(),
-      set: async (input) =>
-        settle({ objective: (input as { objective?: string }).objective ?? "", status: "active" }),
+      set: async (input) => {
+        const current = this.goalState.goal;
+        const now = Date.now();
+        return settle({
+          threadId: this.sessionId ?? "controlled-thread",
+          objective: input.objective ?? current?.objective ?? "",
+          status: input.status ?? "active",
+          tokenBudget:
+            input.tokenBudget === undefined ? (current?.tokenBudget ?? null) : input.tokenBudget,
+          tokensUsed: current?.tokensUsed ?? 0,
+          timeUsedSeconds: current?.timeUsedSeconds ?? 0,
+          createdAt: current?.createdAt ?? now,
+          updatedAt: now,
+        });
+      },
       clear: async () => settle(null),
     };
   }
@@ -121,21 +139,22 @@ export class ControlledSession implements AgentSession {
   text(text: string): void {
     this.emit({
       type: "timeline",
-      provider: "claude",
+      provider: this.provider,
       item: { type: "assistant_message", text },
     });
   }
 
   requestPermission(id: string): Promise<AgentPermissionResponse> {
-    const request: AgentPermissionRequest = { id, provider: "claude", name: "Bash", kind: "tool" };
+    const provider = this.provider;
+    const request: AgentPermissionRequest = { id, provider, name: "Bash", kind: "tool" };
     return new Promise((resolve) => {
       this.pending.set(id, { request, resolve });
-      this.emit({ type: "permission_requested", provider: "claude", request });
+      this.emit({ type: "permission_requested", provider, request });
     });
   }
 
   complete(): void {
-    this.emit({ type: "turn_completed", provider: "claude", usage: { outputTokens: 1 } });
+    this.emit({ type: "turn_completed", provider: this.provider, usage: { outputTokens: 1 } });
     this.turnId = null;
   }
 
@@ -147,10 +166,10 @@ export class ControlledSession implements AgentSession {
     this.calls.push(`startTurn:${typeof prompt === "string" ? prompt : "blocks"}`);
     if (!this.sessionId) {
       this.sessionId = "claude-session-1";
-      this.emit({ type: "thread_started", provider: "claude", sessionId: this.sessionId });
+      this.emit({ type: "thread_started", provider: this.provider, sessionId: this.sessionId });
     }
     this.turnId = `turn-${++this.turnOrdinal}`;
-    this.emit({ type: "turn_started", provider: "claude" });
+    this.emit({ type: "turn_started", provider: this.provider });
     return { turnId: this.turnId };
   }
 
@@ -164,7 +183,7 @@ export class ControlledSession implements AgentSession {
   }
 
   async getRuntimeInfo(): Promise<AgentRuntimeInfo> {
-    return { provider: "claude", sessionId: this.sessionId, modeId: this.mode };
+    return { provider: this.provider, sessionId: this.sessionId, modeId: this.mode };
   }
 
   async getAvailableModes(): Promise<AgentMode[]> {
@@ -192,14 +211,19 @@ export class ControlledSession implements AgentSession {
     if (!entry) throw new Error(`No pending permission request with id '${requestId}'`);
     this.pending.delete(requestId);
     entry.resolve(response);
-    this.emit({ type: "permission_resolved", provider: "claude", requestId, resolution: response });
+    this.emit({
+      type: "permission_resolved",
+      provider: this.provider,
+      requestId,
+      resolution: response,
+    });
   }
 
   describePersistence(): AgentPersistenceHandle | null {
     // Like the Claude adapter, the handle's metadata carries the session config.
     return this.sessionId
       ? {
-          provider: "claude",
+          provider: this.provider,
           sessionId: this.sessionId,
           nativeHandle: this.sessionId,
           metadata: { ...this.config },
@@ -210,7 +234,7 @@ export class ControlledSession implements AgentSession {
   async interrupt(): Promise<void> {
     this.calls.push("interrupt");
     if (!this.turnId) return;
-    this.emit({ type: "turn_canceled", provider: "claude", reason: "Interrupted" });
+    this.emit({ type: "turn_canceled", provider: this.provider, reason: "Interrupted" });
     this.turnId = null;
   }
 

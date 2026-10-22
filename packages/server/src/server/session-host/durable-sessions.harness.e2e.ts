@@ -124,8 +124,10 @@ export interface Installation {
   home: string;
   port: number;
   label: string;
-  /** A marker in each stand-in Claude CLI command line, unique to this run. */
+  /** A marker in each stand-in provider CLI command line, unique to this run. */
   cliMarker: string;
+  /** The provider scripted agents use; the fake host runs sessions of this shape. */
+  agentProvider: ScriptedProvider;
   /** Loads the launchd job running the host from tree, and waits until it answers. */
   startHost(tree: ReleaseTree): Promise<HostIdentity>;
   /** The host answering now; waits for one other than notPid when given. */
@@ -156,6 +158,11 @@ export interface InstallationOptions {
    * so without a login.
    */
   provider: "fake" | "real";
+  /**
+   * The provider shape the fake host runs and scripted agents are created with. Codex sessions
+   * carry goal state and run /goal and /compact out of band, as the real adapter does.
+   */
+  agentProvider?: ScriptedProvider;
   /** Milliseconds between scripted chunks. */
   chunkMs?: number;
   /**
@@ -174,7 +181,47 @@ case "$*" in
 esac
 `;
 
-const OTHER_PROVIDERS = ["codex", "copilot", "cursor", "opencode", "pi", "omp"];
+/**
+ * Stands in for the Codex CLI in the worker. The session itself runs in the host, but the worker
+ * still asks the binary for its version and, through a short-lived app-server, for the model
+ * catalog before it creates an agent. The stand-in answers exactly those: one model, empty saved
+ * configuration, and a JSON-RPC error for anything else, so a thread started here would fail loudly.
+ */
+const FAKE_CODEX_APP_SERVER = `
+import readline from "node:readline";
+const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("codex-cli 99.0.0");
+  process.exit(0);
+}
+if (args[0] !== "app-server") {
+  console.error("the fake codex answers only --version and app-server");
+  process.exit(2);
+}
+const results = {
+  initialize: {},
+  "model/list": { data: [{ id: "gpt-5.4", displayName: "GPT-5.4", isDefault: true }] },
+  getUserSavedConfig: { config: {} },
+  "config/read": { config: {} },
+};
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  let message;
+  try { message = JSON.parse(line); } catch { return; }
+  if (message.id === undefined) return;
+  const result = results[message.method];
+  const reply = result
+    ? { id: message.id, result }
+    : { id: message.id, error: { code: -32601, message: "the fake codex runs no threads" } };
+  process.stdout.write(JSON.stringify(reply) + "\\n");
+});
+`;
+
+export type ScriptedProvider = "claude" | "codex";
+
+/** The host fixture reads the provider shape from this variable. */
+export const FAKE_PROVIDER_ENV = "DURABLE_SESSIONS_FAKE_PROVIDER";
+
+const ALL_PROVIDERS = ["claude", "codex", "copilot", "cursor", "opencode", "pi", "omp"];
 
 function tail(file: string, bytes = 6_000): string {
   try {
@@ -199,17 +246,28 @@ export async function createInstallation(options: InstallationOptions): Promise<
   const cliMarker = `dsh-fake-cli-${runId}`;
   const launchdLog = path.join(root, "launchd.log");
   const fake = options.provider === "fake";
+  const agentProvider: ScriptedProvider = options.agentProvider ?? "claude";
   const password = options.password ? randomBytes(16).toString("hex") : null;
 
   writeFileSync(durableSessionsSettingsPath(home), JSON.stringify({ enabled: true }));
+  // Only the provider under test is enabled, so nothing else on this machine is ever consulted.
   const providers: Record<string, unknown> = Object.fromEntries(
-    OTHER_PROVIDERS.map((id) => [id, { enabled: false }]),
+    ALL_PROVIDERS.filter((id) => id !== agentProvider).map((id) => [id, { enabled: false }]),
   );
-  if (fake) {
+  if (fake && agentProvider === "claude") {
     const fakeClaude = path.join(root, "fake-claude.sh");
     writeFileSync(fakeClaude, FAKE_CLAUDE);
     chmodSync(fakeClaude, 0o755);
     providers.claude = { command: [fakeClaude], env: { CLAUDE_CONFIG_DIR: claudeConfig } };
+  } else if (fake) {
+    const fakeCodexModule = path.join(root, "fake-codex.mjs");
+    writeFileSync(fakeCodexModule, FAKE_CODEX_APP_SERVER);
+    const fakeCodex = path.join(root, "fake-codex.sh");
+    writeFileSync(fakeCodex, `#!/bin/sh\nexec "${process.execPath}" "${fakeCodexModule}" "$@"\n`);
+    chmodSync(fakeCodex, 0o755);
+    const codexHome = path.join(root, "codex-home");
+    mkdirSync(codexHome);
+    providers.codex = { command: [fakeCodex], env: { CODEX_HOME: codexHome } };
   }
   writeFileSync(
     path.join(home, "config.json"),
@@ -262,6 +320,7 @@ export async function createInstallation(options: InstallationOptions): Promise<
     port,
     label,
     cliMarker,
+    agentProvider,
 
     async startHost(tree) {
       const plistPath = path.join(root, `${label}.plist`);
@@ -285,6 +344,7 @@ export async function createInstallation(options: InstallationOptions): Promise<
                     "src/server/session-host/durable-sessions.fixture.e2e.ts",
                   ),
                   DURABLE_SESSIONS_FAKE_CLI_MARKER: cliMarker,
+                  [FAKE_PROVIDER_ENV]: agentProvider,
                   ...(options.chunkMs
                     ? { DURABLE_SESSIONS_FAKE_CHUNK_MS: String(options.chunkMs) }
                     : {}),
@@ -550,6 +610,8 @@ export async function leftovers(): Promise<{
 export interface TimelineSummary {
   /** Chunk numbers seen per scripted session id, in timeline order. */
   chunks: Map<string, number[]>;
+  /** Every assistant message text, including replies to out-of-band commands. */
+  assistantTexts: string[];
   userMessages: string[];
   systemErrors: string[];
   notifications: string[];
@@ -564,6 +626,7 @@ export async function summarizeTimeline(
   const timeline = await client.fetchAgentTimeline(agentId, { direction: "tail", limit: 1_000 });
   const summary: TimelineSummary = {
     chunks: new Map(),
+    assistantTexts: [],
     userMessages: [],
     systemErrors: [],
     notifications: [],
@@ -571,6 +634,7 @@ export async function summarizeTimeline(
   for (const entry of timeline.entries) {
     const item = entry.item as { type: string; text?: string; message?: string };
     if (item.type === "assistant_message" && item.text) {
+      summary.assistantTexts.push(item.text);
       if (item.text.startsWith("[System Error]")) summary.systemErrors.push(item.text);
       for (const match of item.text.matchAll(CHUNK_PATTERN)) {
         const list = summary.chunks.get(match[1]!) ?? [];
@@ -587,8 +651,9 @@ export async function summarizeTimeline(
 }
 
 /**
- * Starts a scripted turn of `chunks` numbered chunks and waits until it is running in the host.
- * With permissionAt, the turn pauses on a permission request after that chunk.
+ * Starts a scripted turn of `chunks` numbered chunks on the installation's provider and waits
+ * until it is running in the host. With permissionAt, the turn pauses on a permission request
+ * after that chunk.
  */
 export async function startScriptedAgent(
   installation: Installation,
@@ -599,7 +664,7 @@ export async function startScriptedAgent(
   const permission = options.permissionAt ? ` PERMISSION_AT=${options.permissionAt}` : "";
   const agent = await client.createAgent({
     config: {
-      provider: "claude",
+      provider: installation.agentProvider,
       cwd: path.join(installation.root, "work"),
       title: "durable sessions e2e",
     },

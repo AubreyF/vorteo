@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.749 - 2026-10-22
+
+### Fixed
+
+- A session whose host was killed waits for launchd to bring the host back, up to a return window of fifteen seconds, before it would start in the worker. The continuation of a turn the dead host was running therefore opens on the restarted host and stays durable, instead of running a local provider because the host was not listening yet in the seconds after the kill. A host that was stopped cleanly removes its socket and is not waited for.
+- The session host entrypoint builds again now that it loads the Codex adapter: the installation settings reader no longer passes a browser-only cache option to Node's fetch, which the Node-typed entrypoint build rejected. Behaviour is unchanged; Node keeps no HTTP cache.
+
+### Validation
+
+- The isolated durable sessions end-to-end suite runs a Codex-shaped scripted provider as well as the Claude-shaped one. Two new scenarios prove a goal set before a worker kill still reads through the replacement worker once the hosted turn completes, and that `/compact` and `/goal` run out of band in the host for a worker started after a supervisor restart without starting a turn. Failing scenarios now print the installation's daemon, host, audit and launchd logs and can keep the installation's files for inspection. The scripted provider's goal states now carry every field of the wire schema, which the first Codex scenarios exposed. All eight scenarios pass.
+
 ## 0.11.0-beta.3.vorteo.748 - 2026-10-22
 
 ### Features

@@ -114,13 +114,20 @@ export interface HostedReattachPolicy {
    * second provider beside one that may still run.
    */
   aliveWindowMs?: number;
+  /**
+   * How long an open waits for a host that was killed, not stopped, to be restarted by launchd
+   * before the session starts in the worker instead. Covers launchd's restart throttle and the
+   * host's startup; a stopped host removed its socket and is never waited for.
+   */
+  returnWindowMs?: number;
   initialDelayMs: number;
   maxDelayMs: number;
 }
 
-export const DEFAULT_REATTACH_POLICY: HostedReattachPolicy = {
+export const DEFAULT_REATTACH_POLICY: Required<HostedReattachPolicy> = {
   windowMs: 60_000,
   aliveWindowMs: 300_000,
+  returnWindowMs: 15_000,
   initialDelayMs: 250,
   maxDelayMs: 5_000,
 };

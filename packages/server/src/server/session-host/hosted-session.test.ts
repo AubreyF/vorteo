@@ -70,6 +70,7 @@ interface HostedFixture {
   lost: string[];
   /** The next n connection attempts return null, as when the host is slow to answer. */
   failConnects(count: number): void;
+  pretendKilled(count: number): void;
   socketPath: string;
   token: string;
 }
@@ -120,6 +121,8 @@ async function hostedFixture(
   const real = createSessionHostConnector({ paths, logger, retryAfterMs: 0 });
   cleanups.push(() => real.close());
   let failing = 0;
+  /** While set, failed connects look like a killed host: socket and lock left behind, holder dead. */
+  let killed = false;
   const connector: SessionHostConnector = {
     async connect(options) {
       if (failing > 0) {
@@ -129,6 +132,9 @@ async function hostedFixture(
       return real.connect(options);
     },
     current: () => real.current(),
+    present: async () => (killed && failing > 0 ? true : real.present()),
+    hostState: async () => (killed && failing > 0 ? "gone" : real.hostState()),
+    knownMcpTokens: () => real.knownMcpTokens(),
     close: () => real.close(),
   };
   const { client: inner, local } = localClient();
@@ -141,7 +147,7 @@ async function hostedFixture(
       connector,
       isEnabled: () => enabled,
       logger,
-      reattach: { windowMs: 1_500, initialDelayMs: 20, maxDelayMs: 200 },
+      reattach: { windowMs: 1_500, returnWindowMs: 600, initialDelayMs: 20, maxDelayMs: 200 },
       onSessionLost: (agentId) => lost.push(agentId),
     },
   });
@@ -152,6 +158,11 @@ async function hostedFixture(
     token,
     failConnects(count) {
       failing = count;
+    },
+    /** The next count connects fail the way they do while launchd restarts a killed host. */
+    pretendKilled(count) {
+      failing = count;
+      killed = true;
     },
     host,
     hosted,
@@ -238,6 +249,29 @@ test("an unavailable host leaves the session in the worker", async () => {
   const session = await fixture.client.createSession(config, { agentId: "agent-1" });
   expect(session).not.toBeInstanceOf(HostedAgentSession);
   expect(fixture.local).toHaveLength(1);
+});
+
+test("a host that was killed rather than stopped is waited for, and the session opens in it", async () => {
+  const fixture = await hostedFixture();
+  // Three refusals with the socket still there: launchd is restarting the host.
+  fixture.pretendKilled(3);
+  const started = Date.now();
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  expect(session).toBeInstanceOf(HostedAgentSession);
+  expect(fixture.local).toEqual([]);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(60);
+});
+
+test("a killed host that does not return within the window leaves the session in the worker", async () => {
+  const fixture = await hostedFixture();
+  fixture.pretendKilled(Number.POSITIVE_INFINITY);
+  const started = Date.now();
+  const session = await fixture.client.createSession(config, { agentId: "agent-1" });
+  expect(session).not.toBeInstanceOf(HostedAgentSession);
+  expect(fixture.local).toHaveLength(1);
+  const waited = Date.now() - started;
+  expect(waited).toBeGreaterThanOrEqual(400);
+  expect(waited).toBeLessThan(1_500);
 });
 
 test("opening a session the host still runs takes it over instead of starting another", async () => {

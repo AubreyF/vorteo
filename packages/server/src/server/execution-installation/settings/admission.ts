@@ -135,9 +135,10 @@ export function createInstallationSettingsReader(
         throw new InstallationSettingsAdmissionError(
           "Installation settings environment does not match the daemon launcher.",
         );
+      // Node's fetch keeps no HTTP cache, so no cache mode is needed; the entrypoint builds, which
+      // type against Node alone, reject the DOM-only option.
       const response = await fetch(new URL("/api/installation/settings/admission", config.origin), {
         headers: { Authorization: `Bearer ${config.token}` },
-        cache: "no-store",
         redirect: "error",
         signal: AbortSignal.timeout(5000),
       });

@@ -252,6 +252,45 @@ export function createHostedAgentClient(input: {
     };
   }
 
+  /**
+   * Connects before opening a session. A host that was stopped removed its socket and answers null
+   * at once, so the session runs in the worker. A host whose socket is still there but whose lock
+   * holder is dead was killed, and launchd is bringing it back within seconds; a session started in
+   * the worker meanwhile, such as the continuation of a turn the dead host was running, would lose
+   * its durability for nothing. That host gets the return window. A host that lives but does not
+   * answer is the watchdog's problem, not a reason to wait: it gets one more attempt, in case it
+   * only just took the lock and is about to listen, and then the worker runs the session itself.
+   */
+  async function connectForOpen(agentId: string): Promise<SessionHostClient | null> {
+    const client = await routing.connector.connect();
+    if (client) return client;
+    const policy = routing.reattach ?? DEFAULT_REATTACH_POLICY;
+    const deadline = Date.now() + (policy.returnWindowMs ?? DEFAULT_REATTACH_POLICY.returnWindowMs);
+    let delay = policy.initialDelayMs;
+    let waiting = false;
+    for (;;) {
+      if (!(await routing.connector.present())) return null;
+      const lastAttempt =
+        (await routing.connector.hostState()) === "alive" || Date.now() + delay > deadline;
+      if (!waiting && !lastAttempt) {
+        waiting = true;
+        logger.info({ agentId }, "The session host was killed; waiting for its restart");
+      }
+      await sleep(delay);
+      delay = Math.min(delay * 2, policy.maxDelayMs);
+      const returned = await routing.connector.connect({ force: true });
+      if (returned) return returned;
+      if (lastAttempt) {
+        if (waiting)
+          logger.warn(
+            { agentId },
+            "The session host did not return; the session runs in the worker",
+          );
+        return null;
+      }
+    }
+  }
+
   async function open(
     params: {
       request: HostedOpenRequest;
@@ -261,7 +300,7 @@ export function createHostedAgentClient(input: {
     },
     retried = false,
   ): Promise<AgentSession | null> {
-    const client: SessionHostClient | null = await routing.connector.connect();
+    const client: SessionHostClient | null = await connectForOpen(params.agentId);
     if (!client) return null;
     let channel: HostedSession;
     try {

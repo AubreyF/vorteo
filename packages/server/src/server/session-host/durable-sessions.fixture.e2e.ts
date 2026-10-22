@@ -12,7 +12,7 @@ import {
 } from "../test-utils/controlled-provider-session.js";
 
 /**
- * The session host's fake Claude for durable-sessions.e2e.test.ts, loaded through the host's
+ * The session host's fake provider for durable-sessions.e2e.test.ts, loaded through the host's
  * test client module switch. Each session runs a scripted turn: numbered assistant chunks about
  * once a second, then completion, so a test can restart the daemon in the middle of it. Each
  * session also holds a child process standing in for the Claude CLI, so the test can check that
@@ -29,6 +29,11 @@ const PERMISSION_PATTERN = /PERMISSION_AT=(\d+)/;
 const CHUNK_INTERVAL_MS = Number(process.env.DURABLE_SESSIONS_FAKE_CHUNK_MS ?? 1_000);
 /** Marks this run's stand-in CLI processes, so the test finds exactly its own. */
 const CLI_MARKER = process.env.DURABLE_SESSIONS_FAKE_CLI_MARKER ?? "durable-sessions-fake-cli";
+/**
+ * The provider shape of every session (see FAKE_PROVIDER_ENV in the harness). The Codex shape
+ * carries goal state and runs /goal and /compact out of band, as the real Codex adapter does.
+ */
+const PROVIDER = process.env.DURABLE_SESSIONS_FAKE_PROVIDER === "codex" ? "codex" : "claude";
 
 function promptText(prompt: AgentPromptInput): string {
   if (typeof prompt === "string") return prompt;
@@ -51,8 +56,8 @@ class ScriptedSession extends ControlledSession {
   private readonly tag = randomBytes(4).toString("hex");
 
   constructor(config: AgentSessionConfig) {
-    super(config);
-    // Stands in for the Claude CLI: a plain child in the host's process group, as the real one is.
+    super(config, [], { provider: PROVIDER, goals: PROVIDER === "codex" });
+    // Stands in for the provider CLI: a plain child in the host's process group, as Claude's is.
     this.cli = spawn(process.execPath, ["-e", "setInterval(() => {}, 60_000)", CLI_MARKER], {
       stdio: "ignore",
     });
@@ -107,14 +112,14 @@ class ScriptedSession extends ControlledSession {
 
 export function createClient(): AgentClient {
   return {
-    provider: "claude",
+    provider: PROVIDER,
     capabilities: CONTROLLED_SESSION_CAPABILITIES,
     async createSession(config) {
       return new ScriptedSession(config);
     },
     async resumeSession(_handle: AgentPersistenceHandle, overrides) {
       return new ScriptedSession({
-        provider: "claude",
+        provider: PROVIDER,
         cwd: "/",
         ...overrides,
       } as AgentSessionConfig);
