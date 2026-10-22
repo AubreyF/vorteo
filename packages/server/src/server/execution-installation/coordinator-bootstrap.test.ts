@@ -3750,6 +3750,43 @@ test("compatible recovery keeps review and claim out of legacy startup until pro
   expect(() => f.journal.replace([claimed], [claimed])).toThrow("changed");
 });
 
+// The 2026-10-22 automatic renewal failed at promotion because another process
+// (the coordinator loop or a Host status read) briefly held the journal lock.
+test("promotion waits for another process to release the journal lock", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const holder = nativeChildProcess.spawn(
+    "/usr/bin/python3",
+    [
+      "-I",
+      "-c",
+      "import fcntl, os, sys, time\n" +
+        "fd = os.open(sys.argv[1], os.O_RDWR)\n" +
+        "fcntl.flock(fd, fcntl.LOCK_EX)\n" +
+        "print('locked', flush=True)\n" +
+        "time.sleep(0.5)",
+      path.join(f.root, "coordinator-bootstrap.lock"),
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      holder.once("error", reject);
+      holder.stdout!.once("data", () => resolve());
+    });
+    f.service().promoteDispatch(claimed);
+    expect(f.journal.readPromoted()).toEqual([claimed]);
+  } finally {
+    holder.kill();
+  }
+});
+
 test.each(["reason", "decisionAt", "revision", "generation"])(
   "promotion refuses changed pre-claim evidence: %s",
   async (field) => {

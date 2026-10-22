@@ -22,6 +22,8 @@ import type { AgentSkillSelection, MutableDaemonConfigPatch } from "@getpaseo/pr
 import { InstallationSettingsSnapshotSchema } from "@getpaseo/protocol/installation-settings";
 import { ensurePrivateDirectory, writePrivateFileAtomicSync } from "../../private-files.js";
 import type { InstallationConfig } from "../config.js";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import { nativeHostInstallationInstructions } from "./instructions.js";
 import {
@@ -74,6 +76,9 @@ export function createSettingsJournal(directory: string): SettingsJournal {
 export function createInstallationSettings(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
+  // The coordinator passes shared connections; see daemon-connections.ts.
+  connect: (kind: ExecutionEnvironmentKind) => Promise<DaemonClient> = (kind) =>
+    connectInstallationDaemon(config, kind),
 ): InstallationSettingsService {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   const journal = createSettingsJournal(path.join(config.stateDir, "shared-settings"));
@@ -86,7 +91,7 @@ export function createInstallationSettings(
       environment.kind === "host" ? installationHostInstructions(config) : "",
     async read() {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -105,7 +110,7 @@ export function createInstallationSettings(
     },
     async prepareProviderAccounts(definitions: readonly InstallationProvider[]) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -134,7 +139,7 @@ export function createInstallationSettings(
     },
     async readSkillCatalog() {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -146,7 +151,7 @@ export function createInstallationSettings(
     },
     async skillCatalogSettled(definitions: readonly InstallationSkill[]) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -158,7 +163,7 @@ export function createInstallationSettings(
     },
     async projectSkillCatalog(definitions: readonly InstallationSkill[]) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -180,7 +185,7 @@ export function createInstallationSettings(
     },
     async readPlugins() {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -195,7 +200,7 @@ export function createInstallationSettings(
       excludedIds: readonly string[],
     ) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -230,7 +235,7 @@ export function createInstallationSettings(
     },
     async previewSkills(selection: AgentSkillSelection) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");
@@ -242,7 +247,7 @@ export function createInstallationSettings(
     },
     async patch(patch: MutableDaemonConfigPatch, confirmedSkillRemovals: readonly string[] = []) {
       assertReady(environment.kind === "host" ? "host" : "container-daemon");
-      const client = await connectInstallationDaemon(config, environment.kind);
+      const client = await connect(environment.kind);
       try {
         const assertCurrent = () =>
           assertReady(environment.kind === "host" ? "host" : "container-daemon");

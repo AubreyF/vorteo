@@ -10,9 +10,15 @@ Use these scripts to move a task from a fresh worktree to `main`, the installati
 node scripts/task-worktree.mjs <slug> [--branch fix/<slug>] [--base origin/main]
 ```
 
-The script fetches, then creates `../<repo>-<slug>` on a new `feat/<slug>` branch from the fetched base, with its own `npm ci` install. Set `PASEO_TASK_WORKTREE_ROOT` or pass `--root` to choose another parent directory. Branch names start with `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`, `perf/` or `test/`.
+The script fetches, then creates `../<repo>-<slug>` on a new `feat/<slug>` branch from the fetched base, with its own dependency install. Set `PASEO_TASK_WORKTREE_ROOT` or pass `--root` to choose another parent directory. Branch names start with `feat/`, `fix/`, `chore/`, `docs/`, `refactor/`, `perf/` or `test/`.
 
 Use it for Level 2 and higher work unless you already run in a clean, dedicated worktree at the fetched base. Never edit a shared checkout that holds another task's changes, and never discard those changes to make room.
+
+## Shared dependency installs
+
+`node scripts/install-dependencies.mjs` installs a checkout's dependencies. Task worktrees and the workspace setup in `paseo.json` use it, and web builds use its library with `--mode build`. On macOS it keeps one complete install per lockfile under `~/.cache/vorteo-dependencies` and clones it into each checkout with APFS copy-on-write (`cp -c`). Every checkout gets its own `node_modules` trees, so workspace links such as `node_modules/@getpaseo/server -> ../../packages/server` still resolve inside that checkout, and edits never reach another one. Clones share disk blocks until a file changes.
+
+The cache key covers the lockfile, every workspace `package.json`, `.npmrc`, the Node and npm versions, the platform and the install mode. Worktree mode also covers the dependency patches, because its full `npm ci` applies them. A cache miss runs a normal `npm ci` and then saves the result; a failed clone falls back to `npm ci`. The cache keeps the four most recently used installs. Other platforms, and `VORTEO_DEPENDENCY_CACHE=0`, always run `npm ci`. Do not replace this with one symlinked `node_modules`: Node resolves symlinks to real paths, so every workspace import would load from one checkout.
 
 ## Publish to `main`
 
