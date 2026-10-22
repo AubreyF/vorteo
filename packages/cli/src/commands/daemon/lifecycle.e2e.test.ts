@@ -28,6 +28,8 @@ async function fixture() {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PASEO_"))),
     HOME: root,
     USERPROFILE: root,
+    // Test daemons start without the System project so project counts stay exact.
+    PASEO_SYSTEM_PROJECT: "0",
   };
   const homes = [path.join(root, "a"), path.join(root, "b")];
   const owned = new Map<string, { pid: number; startedAt: string }>();

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { PluginThemeContribution } from "@getpaseo/plugin";
 import { useHostFeatureMap } from "@/runtime/host-features";
 import {
+  appearanceStatusColors,
   buildDarkSemanticColors,
   buildDarkTheme,
   buildLightSemanticColors,
@@ -58,29 +59,37 @@ export function parsePluginThemeContribution(value: unknown): PluginThemeContrib
 function buildDarkPluginTheme(contribution: PluginThemeContribution): Theme {
   const colors = contribution.colors;
   const accent = colors.accent ?? colors.foreground;
-  return buildDarkTheme(
-    buildDarkSemanticColors({
-      surface0: colors.background,
-      surface1: colors.raised,
-      surface2: colors.control,
-      surface3: colors.border,
-      surface4: colors.ring,
-      surfaceDiffEmpty: colors.raised,
-      surfaceSidebar: colors.background,
-      foreground: colors.foreground,
-      foregroundMuted: colors.mutedForeground,
-      foregroundExtraMuted: colors.ring,
-      border: colors.border,
-      borderAccent: colors.border,
-      accent,
-      accentBright: accent,
-      accentForeground: colors.background,
-      destructive: darkTheme.colors.destructive,
-      terminalBlack: colors.control,
-      terminalBrightBlack: colors.ring,
-      ring: colors.ring,
-    }),
+  return withAppearanceStatus(
+    false,
+    buildDarkTheme(
+      buildDarkSemanticColors({
+        surface0: colors.background,
+        surface1: colors.raised,
+        surface2: colors.control,
+        surface3: colors.border,
+        surface4: colors.ring,
+        surfaceDiffEmpty: colors.raised,
+        surfaceSidebar: colors.background,
+        foreground: colors.foreground,
+        foregroundMuted: colors.mutedForeground,
+        foregroundExtraMuted: colors.ring,
+        border: colors.border,
+        borderAccent: colors.border,
+        accent,
+        accentBright: accent,
+        accentForeground: colors.background,
+        destructive: darkTheme.colors.destructive,
+        terminalBlack: colors.control,
+        terminalBrightBlack: colors.ring,
+        ring: colors.ring,
+      }),
+    ),
   );
+}
+
+/** Plugin themes share the built-in appearances' status family. */
+function withAppearanceStatus(light: boolean, theme: Theme): Theme {
+  return { ...theme, colors: { ...theme.colors, ...appearanceStatusColors(light) } };
 }
 
 function buildLightPluginTheme(contribution: PluginThemeContribution): Theme {

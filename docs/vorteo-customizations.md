@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): CLI onboarding stops requesting retired pairing offers, the sidebar no longer re-renders on every status change, plugin dark themes share the built-in status colors, and app, CLI and desktop tests were repaired for CI. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): merged main into the CI repair branch; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): installation test suites now pass on Linux CI through private temporary roots, macOS-only gating and a built server; a captured v682 provisioner fixture confirms retained Dev provisioners still verify. No feature changed. README overview and onboarding are unchanged.

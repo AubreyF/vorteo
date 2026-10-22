@@ -42,17 +42,15 @@ vi.mock("@/runtime/host-runtime", () => ({
   useHostRegistryLoaded: () => true,
 }));
 vi.mock("expo-router", () => ({
+  // The panel's plugin navigation imports these; a missing mock export hangs browser mode.
+  router: { push: vi.fn(), replace: vi.fn(), navigate: vi.fn() },
   usePathname: () => "/settings/general",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useLocalSearchParams: () => ({}),
+  useGlobalSearchParams: () => ({}),
 }));
 vi.mock("@/utils/confirm-dialog", () => ({
   confirmDialog: vi.fn(async () => false),
-}));
-// The existing Unistyles browser stub has no responsive runtime. Keep the real
-// touch hook and supply its compact-form-factor input from the fixture viewport.
-vi.mock("@/constants/layout", async (original) => ({
-  ...(await original<typeof import("@/constants/layout")>()),
-  useIsCompactFormFactor: () => window.innerWidth <= 500,
 }));
 
 // Supply the native absolute-fill constant omitted by the shared style stub,

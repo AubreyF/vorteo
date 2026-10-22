@@ -760,17 +760,6 @@ function buildAppearanceTheme(id: AppearanceId) {
   const appearance = getAppearanceDefinition(id);
   const p = APPEARANCE_PALETTES[id];
   const light = appearance.surface === "light";
-  // The reference themes include warmer, lighter raised surfaces than the
-  // legacy dark palette. Lift the whole status family by the same 16% white
-  // blend so small status text keeps 4.5:1 contrast on every raised surface.
-  const status = light
-    ? lightStatusColors
-    : {
-        statusSuccess: "#84bd90",
-        statusDanger: "#de9890",
-        statusWarning: "#caa77d",
-        statusMerged: "#b6a2dc",
-      };
   const config = {
     surface0: p.root,
     surface1: p.deep,
@@ -802,9 +791,7 @@ function buildAppearanceTheme(id: AppearanceId) {
     colors: {
       ...base.colors,
       surfaceSidebarSelected: id === "starship-light" ? p.root : base.colors.surfaceSidebarSelected,
-      ...status,
-      ...statusTints(status, light ? "1f" : "29"),
-      success: status.statusSuccess,
+      ...appearanceStatusColors(light),
       successForeground: light ? "#ffffff" : "#000000",
       destructiveForeground: light ? "#ffffff" : "#000000",
     },
@@ -814,6 +801,27 @@ function buildAppearanceTheme(id: AppearanceId) {
       ui: appearanceFont(appearance.previewBodyFont),
       display: appearanceFont(appearance.previewDisplayFont),
     },
+  };
+}
+
+/**
+ * The status family every appearance shares, plugin themes included. The reference themes
+ * include warmer, lighter raised surfaces than the legacy dark palette, so the dark family is
+ * lifted by the same 16% white blend to keep small status text at 4.5:1 on raised surfaces.
+ */
+export function appearanceStatusColors(light: boolean) {
+  const status = light
+    ? lightStatusColors
+    : {
+        statusSuccess: "#84bd90",
+        statusDanger: "#de9890",
+        statusWarning: "#caa77d",
+        statusMerged: "#b6a2dc",
+      };
+  return {
+    ...status,
+    ...statusTints(status, light ? "1f" : "29"),
+    success: status.statusSuccess,
   };
 }
 

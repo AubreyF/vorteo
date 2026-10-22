@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Running `paseo` onboarding no longer crashes after starting the daemon. It still asked for a device pairing offer, which the daemon has refused since pairing was retired; it now ends with direct-connection guidance.
+- A workspace status change no longer re-renders the whole sidebar. The sidebar subscribed to every host's workspace map to place managed worktrees; it now subscribes to the placements themselves.
+- What's New keeps distinct list keys when parallel branches publish the same version on the same date.
+
+### Changed
+
+- Plugin dark themes use the same lifted status colors as the built-in appearances, restoring the parity their tests require.
+
+### Maintenance
+
+- Repair app, browser, CLI and desktop tests for CI. Two browser suites hung CI's app job forever: their layout mock awaited a module that now imports itself back through the zoom and shortcut stores. Other suites now wait for entering animations, use desktop viewports where menus became compact sheets, follow retired pairing, the System project, neutral label colors and the status ring, and stop writing screenshots outside the workspace.
+
 ## 0.11.0-beta.3.vorteo.782 - 2026-10-22
 
 ### Maintenance
