@@ -52,7 +52,7 @@ Managed startup may pass a third argument naming a protected release manifest. T
 
 Authenticated readiness includes the verified release commitments, a per-start identifier and draining status. The installation executor must compare these values with its approved plan and independently verify the process, listener, Node executable and protected file ancestry. Readiness does not prove account authority, resource access, tunnel ownership or revocation. During shutdown, new MCP requests are refused while admitted work drains.
 
-The external endpoint implements MCP protocol `2026-07-28`: `server/discover`, tool discovery/calls, and event discovery/subscription. Requests require matching protocol, method and tool-name headers plus MCP metadata. The daemon adapter uses the repository's existing MCP SDK, keeping the protocol change isolated from the application.
+The external endpoint implements MCP protocol `2026-07-28`: `server/discover`, tool discovery/calls, and event discovery/subscription. Requests require matching protocol, method and tool-name headers plus MCP metadata. The daemon adapter uses the repository's existing MCP SDK, keeping the protocol change isolated from the application. Requests without modern protocol metadata use the initialize handshake (`2025-11-25`, `2025-06-18` or `2025-03-26`), which the Secure MCP Tunnel client uses for readiness and forwarding. That path is stateless and serves initialize, ping, tool listing and tool calls only; events require the modern protocol. OAuth metadata paths return 404 without authentication so clients treat the bridge as a server without OAuth.
 
 ## Reads, writes and recovery
 

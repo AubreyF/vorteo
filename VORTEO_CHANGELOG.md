@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- Let the Nova bridge accept the standard MCP initialize handshake used by OpenAI's Secure MCP Tunnel client. Initialize, ping, tool listing and tool calls are served statelessly behind the same bearer token; modern requests keep their existing path.
+- Answer OAuth metadata probes with a plain 404 before authentication, so the tunnel client recognizes the bridge as a server without OAuth instead of reporting broken metadata.
+- Proactive events remain available only to modern protocol clients. Live ChatGPT connection and revocation acceptance remain open. This ports the fix tested on 2026-10-20 (`vorteo.556` on an unpublished branch) onto current main unchanged.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed
