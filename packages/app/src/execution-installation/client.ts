@@ -85,6 +85,15 @@ export interface InstallationClientPorts {
 
 export class OwnerAccessExpired extends Error {}
 export class InstallationRouteUnavailable extends Error {}
+/** A coordinator reply that was not OK, with its HTTP status for callers that branch on it. */
+export class InstallationRequestFailed extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 export class InstallationClient {
   private password: string | null = null;
@@ -566,6 +575,7 @@ export async function requestInstallationOwner(
       "dev-repair/query",
       "session-host/query",
       "instruction-requests/query",
+      "claude/oauth/read",
     ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
@@ -582,8 +592,9 @@ export async function requestInstallationOwner(
     const detail = z
       .object({ error: z.string().max(2000) })
       .safeParse(await response.json().catch(() => null));
-    throw new Error(
+    throw new InstallationRequestFailed(
       detail.success ? detail.data.error : `Installation request failed (${response.status})`,
+      response.status,
     );
   }
   return response.json();

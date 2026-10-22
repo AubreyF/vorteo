@@ -9,6 +9,8 @@ interface SharedAccountInput {
   provider: "codex" | "claude";
   name: string;
   serverIds: readonly string[];
+  /** Claude only. "full" makes the Host keep and refresh a web sign-in for every environment. */
+  signIn?: "full";
 }
 interface SharedAccountPorts {
   read(): Promise<InstallationSettingsSnapshot>;
@@ -30,6 +32,7 @@ export async function createSharedAccountDefinition(
     if (
       existing.accountSetup?.provider !== input.provider ||
       existing.accountSetup.creationId !== input.creationId ||
+      existing.accountSetup.signIn !== input.signIn ||
       input.serverIds.some((serverId) => existing.bindings[serverId] !== providerId)
     )
       throw new Error("This account request already belongs to a different shared binding.");
@@ -38,7 +41,11 @@ export async function createSharedAccountDefinition(
   const definition: InstallationProvider = {
     id,
     providerType: input.provider,
-    accountSetup: { provider: input.provider, creationId: input.creationId },
+    accountSetup: {
+      provider: input.provider,
+      creationId: input.creationId,
+      ...(input.signIn ? { signIn: input.signIn } : {}),
+    },
     bindings: Object.fromEntries(input.serverIds.map((serverId) => [serverId, providerId])),
     policy: { label: input.name, enabled: true },
   };
