@@ -53,6 +53,9 @@ export function windowFromUsedPct(input: {
   utilizationPct: number | null | undefined;
   resetsAt?: string | null;
   tone?: ProviderUsageWindow["tone"];
+  /** The window's full length; enables the pace projection when known. */
+  windowMs?: number | null;
+  now?: number;
 }): ProviderUsageWindow {
   const usedPct = typeof input.utilizationPct === "number" ? input.utilizationPct : null;
   const window: ProviderUsageWindow = {
@@ -65,7 +68,49 @@ export function windowFromUsedPct(input: {
   if (input.tone) {
     window.tone = input.tone;
   }
+  const pace = paceProjection({
+    usedPct,
+    resetsAt: window.resetsAt ?? null,
+    windowMs: input.windowMs,
+    now: input.now ?? Date.now(),
+  });
+  if (pace) {
+    window.runsOutAt = pace.runsOutAt;
+    window.shortfallPct = pace.shortfallPct;
+  }
   return window;
+}
+
+/** Early in a window a few requests swing the rate wildly, so no projection before this. */
+const PACE_MIN_ELAPSED_SHARE = 0.1;
+const PACE_MIN_ELAPSED_MS = 15 * 60_000;
+
+/**
+ * When the limit runs out if usage keeps its average rate since the window opened.
+ * Returns null unless that happens before the reset: a window on track needs no warning.
+ * `shortfallPct` is how far past the limit the same rate would reach by the reset.
+ */
+export function paceProjection(input: {
+  usedPct: number | null;
+  resetsAt: string | null;
+  windowMs: number | null | undefined;
+  now: number;
+}): { runsOutAt: string; shortfallPct: number } | null {
+  const { usedPct, windowMs, now } = input;
+  if (usedPct === null || usedPct <= 0 || usedPct >= 100) return null;
+  if (typeof windowMs !== "number" || !(windowMs > 0) || !input.resetsAt) return null;
+  const resetMs = Date.parse(input.resetsAt);
+  const untilReset = resetMs - now;
+  if (!Number.isFinite(untilReset) || untilReset <= 0 || untilReset > windowMs) return null;
+  const elapsed = windowMs - untilReset;
+  if (elapsed < Math.max(windowMs * PACE_MIN_ELAPSED_SHARE, PACE_MIN_ELAPSED_MS)) return null;
+  const pctPerMs = usedPct / elapsed;
+  const runsOutMs = now + (100 - usedPct) / pctPerMs;
+  if (runsOutMs >= resetMs) return null;
+  const runsOutAt = toIsoStringOrNull(runsOutMs);
+  if (!runsOutAt) return null;
+  const shortfallPct = Math.round((usedPct + pctPerMs * untilReset - 100) * 10) / 10;
+  return { runsOutAt, shortfallPct };
 }
 
 /**

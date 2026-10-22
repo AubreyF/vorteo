@@ -189,6 +189,8 @@ export const PanelPersistedStateSchema = z.strictObject({
   collapsedFilePathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   // Card heights the owner dragged, keyed by card; absent cards size automatically.
   cardHeights: z.record(z.string(), z.number()).optional(),
+  // Sidebar quota accounts the owner expanded or collapsed, keyed by provider account.
+  quotaAccountExpanded: z.record(z.string(), z.boolean()).optional(),
   sidebarWidth: z.number().optional(),
   sidebarCompact: z.boolean().optional(),
   sidebarNarrow: z.boolean().optional(),

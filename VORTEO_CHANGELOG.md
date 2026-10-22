@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Maintenance
+
+- Merge the multi-provider Quotas card and usage pace projection
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Claude and Codex usage windows now carry a pace projection. When the average rate since a window opened would exhaust it before its reset, the window reports when it runs out. Projections start once a tenth of the window, and at least 15 minutes, has passed.
+
+### Changed
+
+- The left sidebar's quota card is titled Quotas when more than one account reports and shows every enforced window as its own remaining-percent bar, plus a bar for each balance with a known limit. Each reset shows its absolute date, time and time zone with a countdown; hovering shows the same moment in UTC.
+- Each account shows its plan, running agent count, the profile selector's Reconnect or reset-credit control, provider details and its sign-in source. A Limiting tag marks the window that will stop work first, and code review is labeled as a separate allowance.
+- Accounts that are failing, below 15% or on pace to run out open expanded; healthy accounts collapse to one summary line. Each account remembers being opened or closed on the device.
+- Known limitation: pace projections cover Claude and Codex only, because other providers do not report their window length.
+
 ## 0.11.0-beta.3.vorteo.766 - 2026-10-22
 
 ### Maintenance
@@ -15,59 +34,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Remove the floating "Vorteo update available" notice. The interface no longer polls GitHub in the background; Settings → General still shows how this build compares with main and offers Check now.
-
-## 0.11.0-beta.3.vorteo.764 - 2026-10-22
-
-### Changed
-
-- Restyle the theme and zoom controls after Freed's view menu. The six theme bubbles share one row; hovering one makes it taller with a soft shadow, and the selected theme stands as a circle. Zoom shows its percentage beside the label and keeps the smaller step, slider and larger step inside one bordered group.
-- Cmd or Ctrl with plus, minus and zero now change Vorteo's interface zoom instead of the browser's, so toolbars reflow instead of cropping. The desktop View menu does the same.
-- Block browser pinch zoom on phones and tablets. It cropped the toolbars without reflowing them; use the Zoom control instead.
-
-## 0.11.0-beta.3.vorteo.763 - 2026-10-22
-
-### Maintenance
-
-- Merge the live interface source (resizable cards, the Open questions Yes button and mobile card spacing) into main, so the next Host update keeps everything already published. That branch labelled its entries `vorteo.758` and `vorteo.759`, which main also used for different commits; both historical entries are kept.
-
-## 0.11.0-beta.3.vorteo.762 - 2026-10-22
-
-### Fixed
-
-- Submitting the first message in a new agent draft no longer leaves the Environment, Account and Profile picker above the composer while the message already shows at the top. The picker tucks into the composer as the message fades up into place, comes back if creation fails, and never appears for a draft opened mid-launch. Reduced-motion settings skip the animation.
-
-## 0.11.0-beta.3.vorteo.761 - 2026-10-22
-
-### Fixed
-
-- Stop sent messages from bouncing back into the composer when a slow connection drops mid-send. When the reply is lost after the message left the client, such as after "Liveness check timed out", the composer now waits up to a minute for the reconnected timeline. It clears the draft if the host received the message, and otherwise restores it with "Connection lost while sending" instead of the raw timeout.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Changed
-
-- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
-- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
-
-### Added
-
-- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
-
-## 0.11.0-beta.3.vorteo.759 - 2026-10-22
-
-### Fixed
-
-- On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Added
-
-- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
-
-### Changed
-
-- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
 ## 0.11.0-beta.3.vorteo.763 - 2026-10-22
 
@@ -142,6 +108,44 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - # Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+  > > > > > > > > > Temporary merge branch 2
+
+## 0.11.0-beta.3.vorteo.764 - 2026-10-22
+
+### Changed
+
+- Restyle the theme and zoom controls after Freed's view menu. The six theme bubbles share one row; hovering one makes it taller with a soft shadow, and the selected theme stands as a circle. Zoom shows its percentage beside the label and keeps the smaller step, slider and larger step inside one bordered group.
+- Cmd or Ctrl with plus, minus and zero now change Vorteo's interface zoom instead of the browser's, so toolbars reflow instead of cropping. The desktop View menu does the same.
+- Block browser pinch zoom on phones and tablets. It cropped the toolbars without reflowing them; use the Zoom control instead.
+
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Maintenance
+
+- Merge the live interface source (resizable cards, the Open questions Yes button and mobile card spacing) into main, so the next Host update keeps everything already published. That branch labelled its entries `vorteo.758` and `vorteo.759`, which main also used for different commits; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Fixed
+
+- Submitting the first message in a new agent draft no longer leaves the Environment, Account and Profile picker above the composer while the message already shows at the top. The picker tucks into the composer as the message fades up into place, comes back if creation fails, and never appears for a draft opened mid-launch. Reduced-motion settings skip the animation.
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Stop sent messages from bouncing back into the composer when a slow connection drops mid-send. When the reply is lost after the message left the client, such as after "Liveness check timed out", the composer now waits up to a minute for the reconnected timeline. It clears the draft if the host received the message, and otherwise restores it with "Connection lost while sending" instead of the raw timeout.
+
 ## 0.11.0-beta.3.vorteo.760 - 2026-10-22
 
 ### Fixed
@@ -177,7 +181,22 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Added
 
 - Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
-  > > > > > > > > > Temporary merge branch 2
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 
