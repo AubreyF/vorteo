@@ -426,7 +426,7 @@ Three-task flowers use the same narrow petal shape and center gap as four-task f
 
 Static question headings share the same icon inset as disclosure headings. Sidebar card headings use fixed 44px controls and 16px rounding on all four hover corners in every spacing tier and input mode. Queue status precedes its count chip. Task chips show completed / total and Journal chips show read / total without status suffixes. Fixed-height disclosure buttons leave horizontal flex sizing to their wrapper so native titles and count text retain their measured height. Count chips and goal elapsed time sit at the right inside the heading disclosure, before separate action buttons, so the heading hover and click target includes them. The left navigation toolbar uses the same control height and keeps its leading icon aligned with project icons. README overview and onboarding are unchanged.
 
-General settings expansions use a shared shaded region within their parent section. Coordinator history, restart history, shared workflows, recovery details and request details have no internal section dividers; nested expansions use a second surface shade. Historical restart links reveal the containing history without moving the request into the active list. This changes presentation only; lifecycle approval requirements remain unchanged. README overview and onboarding are unchanged.
+General settings expansions use a shared shaded region within their parent section. The combined Installation history, profile sharing, recovery details and request details have no internal section dividers; nested expansions use a second surface shade. Historical restart links reveal the containing history without moving the request into the active list. This changes presentation only; lifecycle approval requirements remain unchanged. README overview and onboarding are unchanged.
 
 Queue rows use their action height without extra vertical padding. Sidebar action tooltips are hover-only; touch activates their menus directly. Browser checks cover heading clearance, sidebar icon alignment, action hover feedback, both row-menu tooltips and conditional Settings placement. README overview and onboarding are unchanged.
 
@@ -715,6 +715,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 21, 2026: Maintenance shows only coordinator recoveries that still need the owner. Finished restarts, coordinator updates and recoveries share one collapsed History, and Shared workflows is now Profile sharing. README overview and onboarding are unchanged.
 
 October 22, 2026: Added four task authorization levels to the agent guide and handoff skill. Instructions only; no product behavior change. README overview and onboarding are unchanged.
 
