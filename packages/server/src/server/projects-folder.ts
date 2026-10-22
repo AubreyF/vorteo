@@ -27,6 +27,11 @@ const ProjectsFolderSettingsSchema = z
     aliases: z.array(z.string().min(1)).optional(),
     /** Folders outside the root that may still hold new projects, such as installation worktrees. */
     allowOutside: z.array(z.string().min(1)).optional(),
+    /**
+     * Exact recorded paths left as they are, such as a project root that an older Factory
+     * binding compares by string. Paths below them still map.
+     */
+    keepPaths: z.array(z.string().min(1)).optional(),
   })
   .passthrough();
 
@@ -39,6 +44,8 @@ export interface ProjectsFolderConfig {
    */
   aliases: string[];
   allowOutside: string[];
+  /** Exact recorded paths that are never rewritten to the logical root. */
+  keepPaths?: string[];
 }
 
 export type ProjectsFolderRejection = "outside_projects_folder" | "projects_folder_root";
@@ -82,22 +89,25 @@ export function resolveProjectsFolderConfig(
     ...absoluteList(settings.migrateFrom),
     ...(physicalRoot === root ? [] : [physicalRoot]),
   ];
+  const keepPaths = absoluteList(settings.keepPaths);
   return {
     root,
     aliases: [...new Set(aliases)],
     allowOutside: absoluteList(settings.allowOutside).map(canonicalPathSync),
+    ...(keepPaths.length > 0 ? { keepPaths } : {}),
   };
 }
 
 /**
  * Maps a path equal to or under one of the folder's aliases to the same place under its
- * logical root. Other paths are returned unchanged. Purely lexical: callers that need
- * the real location resolve symlinks before mapping.
+ * logical root. Other paths, and exact matches of `keepPaths`, are returned unchanged.
+ * Purely lexical: callers that need the real location resolve symlinks before mapping.
  */
 export function toLogicalProjectsPath(
-  config: Pick<ProjectsFolderConfig, "root" | "aliases">,
+  config: Pick<ProjectsFolderConfig, "root" | "aliases" | "keepPaths">,
   value: string,
 ): string {
+  if (config.keepPaths?.includes(value)) return value;
   for (const alias of aliasesLongestFirst(config.aliases)) {
     if (value === alias) return config.root;
     if (value.startsWith(`${alias}/`))
@@ -115,7 +125,7 @@ function aliasesLongestFirst(aliases: readonly string[]): string[] {
 
 /** Rewrites the path inside a local project key (`host:<serverId>:<path>` or a bare path). */
 export function toLogicalProjectKey(
-  config: Pick<ProjectsFolderConfig, "root" | "aliases">,
+  config: Pick<ProjectsFolderConfig, "root" | "aliases" | "keepPaths">,
   key: string,
 ): string {
   const match = /^(host:[^:]+:)?(\/.*)$/u.exec(key);

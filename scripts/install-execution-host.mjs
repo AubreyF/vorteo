@@ -922,7 +922,7 @@ async function writeContainerProjectsFolder(settings, input) {
  */
 export async function configureProjectsFolder(
   root,
-  { folder, migrateFrom = [], aliases = [], allowOutside = [] },
+  { folder, migrateFrom = [], aliases = [], allowOutside = [], keepPaths = [] },
 ) {
   if (!folder || !path.isAbsolute(folder)) throw new Error("Use --folder with an absolute path");
   const record = JSON.parse(readFileSync(path.join(root, "installation.json"), "utf8"));
@@ -941,6 +941,7 @@ export async function configureProjectsFolder(
         migrateFrom,
         aliases,
         allowOutside,
+        keepPaths,
       })
     : { written: false, reason: "No Dev container is configured for updates." };
   return { folder: resolved, host, dev };
@@ -1222,6 +1223,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
       "migrate-from": { type: "string", multiple: true },
       alias: { type: "string", multiple: true },
       "allow-outside": { type: "string", multiple: true },
+      "keep-path": { type: "string", multiple: true },
     },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
@@ -1241,6 +1243,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
           migrateFrom: values["migrate-from"],
           aliases: values.alias,
           allowOutside: values["allow-outside"],
+          keepPaths: values["keep-path"],
         }),
         null,
         2,
@@ -1249,6 +1252,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--alias <container path>] [--allow-outside <path>], or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--alias <container path>] [--allow-outside <path>] [--keep-path <exact recorded path>], or status/remove --root <installation-root>",
     );
 }

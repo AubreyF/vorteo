@@ -23,7 +23,7 @@ function absoluteList(values, label) {
  */
 export function mergeProjectsFolderSettings(
   existingText,
-  { root, migrateFrom = [], aliases = [], allowOutside = [] },
+  { root, migrateFrom = [], aliases = [], allowOutside = [], keepPaths = [] },
 ) {
   if (!path.isAbsolute(root)) throw new Error("The Projects folder must be an absolute path");
   let settings = {};
@@ -47,8 +47,9 @@ export function mergeProjectsFolderSettings(
     migrateFrom: merge(settings.migrateFrom, migrateFrom, "Earlier locations")?.filter(notRoot),
     aliases: merge(settings.aliases, aliases, "Aliases")?.filter(notRoot),
     allowOutside: merge(settings.allowOutside, allowOutside, "Allowed folders"),
+    keepPaths: merge(settings.keepPaths, keepPaths, "Kept paths"),
   };
-  for (const key of ["migrateFrom", "aliases", "allowOutside"])
+  for (const key of ["migrateFrom", "aliases", "allowOutside", "keepPaths"])
     if (!next[key]?.length) delete next[key];
   return JSON.stringify(next, null, 2) + "\n";
 }

@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): Projects folder settings gained `keepPaths` and `configure-projects-folder --keep-path`, exact recorded paths that the registry move and path mapping leave untouched, so Factory's string-bound freed project keeps dispatching. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): merged current main into the Projects folder branch. Settings > Projects keeps one row per project together with main's readable host error wording; functionality is otherwise unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): added Projects folder aliases, so an existing Dev container can use the shared Projects folder through a symlink at the folder's own path instead of being recreated. Daemons record alias paths by the logical path, rewrite new worktrees' git links to it, and `configure-projects-folder` accepts and verifies the symlink read-only. Not yet installed. README overview and onboarding are unchanged.

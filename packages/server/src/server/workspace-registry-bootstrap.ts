@@ -64,6 +64,7 @@ export async function bootstrapWorkspaceRegistries(options: {
       paseoHome: options.paseoHome,
       root: options.projectsFolder.root,
       aliases: options.projectsFolder.aliases,
+      keepPaths: options.projectsFolder.keepPaths,
       logger: options.logger,
     }).catch((error: unknown) => {
       options.logger.warn({ err: error }, "Could not move registry paths into the Projects folder");

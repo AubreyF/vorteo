@@ -1250,6 +1250,7 @@ test("Projects folder settings keep operator keys and earlier locations", () => 
         root: "/Users/owner/dev",
         migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"],
         aliases: ["/Users/guest/dev", "/Users/owner/dev"],
+        keepPaths: ["/Users/guest/dev/freed", "/Users/guest/dev/freed"],
       },
     ),
   );
@@ -1258,6 +1259,7 @@ test("Projects folder settings keep operator keys and earlier locations", () => 
     root: "/Users/owner/dev",
     migrateFrom: ["/Users/guest/dev"],
     aliases: ["/mnt/dev", "/Users/guest/dev"],
+    keepPaths: ["/Users/guest/dev/freed"],
   });
   expect(() => mergeProjectsFolderSettings("[]", { root: "/dev" })).toThrow("JSON object");
   expect(() => mergeProjectsFolderSettings(null, { root: "dev" })).toThrow("absolute");

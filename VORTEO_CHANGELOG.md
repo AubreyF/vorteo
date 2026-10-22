@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Added
+
+- Projects folder settings accept `keepPaths`, exact recorded paths that the Dev registry move and the daemon's path mapping leave untouched. `configure-projects-folder --keep-path <path>` records them. This keeps a project root that an older Factory binding compares by string, such as Dev's freed project, dispatchable after the move. Paths below a kept path, and siblings that only share its prefix, still move to the Projects folder.
+
 ## 0.11.0-beta.3.vorteo.788 - 2026-10-22
 
 ### Maintenance

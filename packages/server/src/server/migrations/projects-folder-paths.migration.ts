@@ -18,6 +18,8 @@ export interface ProjectsFolderPathMigrationInput {
   root: string;
   /** Earlier locations and aliases of the folder; records under them move to `root`. */
   aliases: readonly string[];
+  /** Exact recorded paths left in place, such as a root an older Factory binding compares. */
+  keepPaths?: readonly string[];
   logger: Pick<Logger, "info" | "warn">;
   now?: () => Date;
 }
@@ -31,6 +33,7 @@ export interface ProjectsFolderPathMigrationResult {
 interface LogicalFolder {
   root: string;
   aliases: string[];
+  keepPaths: string[];
 }
 
 function rewritePath(value: unknown, folder: LogicalFolder): string | null {
@@ -91,7 +94,11 @@ export async function migrateRegistryPathsToProjectsFolder(
     .filter((prefix) => prefix && prefix !== input.root);
   const result: ProjectsFolderPathMigrationResult = { projects: 0, workspaces: 0, backups: [] };
   if (prefixes.length === 0) return result;
-  const folder: LogicalFolder = { root: input.root, aliases: prefixes };
+  const folder: LogicalFolder = {
+    root: input.root,
+    aliases: prefixes,
+    keepPaths: [...(input.keepPaths ?? [])],
+  };
 
   const directory = path.join(input.paseoHome, "projects");
   const projectsFile = path.join(directory, "projects.json");

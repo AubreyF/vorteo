@@ -147,6 +147,25 @@ describe("Projects folder", () => {
       expect(toLogicalProjectsPath(folder, "/Users/vtn/dev/app")).toBe("/Users/vtn/dev/app");
     });
 
+    it("leaves exact kept paths alone while paths below them still map", () => {
+      const folder = {
+        root: "/Users/vtn/dev",
+        aliases: ["/Users/guest/dev"],
+        keepPaths: ["/Users/guest/dev/freed"],
+      };
+      expect(toLogicalProjectsPath(folder, "/Users/guest/dev/freed")).toBe(
+        "/Users/guest/dev/freed",
+      );
+      expect(toLogicalProjectsPath(folder, "/Users/guest/dev/freed/src")).toBe(
+        "/Users/vtn/dev/freed/src",
+      );
+      expect(toLogicalProjectsPath(folder, "/Users/guest/dev/app")).toBe("/Users/vtn/dev/app");
+      // Kept paths match exactly, never as a string prefix.
+      expect(toLogicalProjectsPath(folder, "/Users/guest/dev/freed-iphone-scroll")).toBe(
+        "/Users/vtn/dev/freed-iphone-scroll",
+      );
+    });
+
     it("treats the root's real path as an alias and keeps the logical root", async () => {
       const home = path.join(temp, "home");
       await mkdir(home);

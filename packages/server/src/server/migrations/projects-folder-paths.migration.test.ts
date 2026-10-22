@@ -96,6 +96,45 @@ describe("Projects folder registry path migration", () => {
     expect(await readdir(path.join(home, "projects"))).toEqual(files);
   });
 
+  it("leaves kept project roots in place while their siblings move", async () => {
+    const projectsFile = path.join(home, "projects", "projects.json");
+    const seeded = JSON.parse(await readFile(projectsFile, "utf8")) as unknown[];
+    // Shares the kept root's prefix, so it proves kept paths match exactly.
+    seeded.push({ projectId: "prj_app_two", rootPath: `${OLD}/app-two`, projectKey: "k" });
+    await writeFile(projectsFile, JSON.stringify(seeded));
+    const runKeeping = () =>
+      migrateRegistryPathsToProjectsFolder({
+        paseoHome: home,
+        root: ROOT,
+        aliases: [OLD],
+        keepPaths: [`${OLD}/app`],
+        logger,
+        now: () => new Date("2026-10-22T00:00:00.000Z"),
+      });
+    const result = await runKeeping();
+    expect(result).toMatchObject({ projects: 3 });
+    const projects = await read("projects.json");
+    expect(projects.find((record) => record.projectId === "prj_app")).toEqual({
+      projectId: "prj_app",
+      rootPath: `${OLD}/app`,
+      projectKey: `${OLD}/app`,
+    });
+    expect(projects.find((record) => record.projectId === "prj_dev")?.rootPath).toBe(ROOT);
+    expect(projects.find((record) => record.projectId === "prj_app_two")?.rootPath).toBe(
+      `${ROOT}/app-two`,
+    );
+    expect(projects.find((record) => record.projectId === "prj_remote")?.rootPath).toBe(
+      `${ROOT}/lib`,
+    );
+    const workspaces = await read("workspaces.json");
+    // Only the exact path is kept; a workspace below it still moves.
+    expect(workspaces[0]).toMatchObject({
+      cwd: `${ROOT}/app/packages/web`,
+      worktreeRoot: `${OLD}/app`,
+    });
+    expect(await runKeeping()).toMatchObject({ projects: 0, workspaces: 0 });
+  });
+
   it("does nothing without an earlier prefix or registry files", async () => {
     await rm(path.join(home, "projects"), { recursive: true });
     expect(await run()).toEqual({ projects: 0, workspaces: 0, backups: [] });
