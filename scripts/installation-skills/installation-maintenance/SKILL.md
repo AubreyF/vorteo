@@ -9,6 +9,8 @@ Use the installed client command below. It carries a scoped agent credential. It
 
 `INSTALLATION_CLIENT_COMMAND`
 
+Only the builds coordinator thread runs this client's `request-*` commands; they refuse without `VORTEO_BUILDS=1`. Every other agent hands its branch to the builds coordinator instead (AGENTS.md, Builds coordinator).
+
 ## Who approves a request
 
 Start with `capabilities`. Each entry in `targets` (`host` and `container-daemon`) reports `ownerApprovalRequired` and `hostAutomaticRestarts`. `hostAutomaticRestarts: true` means the owner has saved automatic maintenance permission for that daemon and the coordinator supports safe admission. `ownerApprovalRequired` describes your own credential.

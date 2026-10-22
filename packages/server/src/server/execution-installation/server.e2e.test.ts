@@ -68,6 +68,9 @@ import {
   InstallationProfilesSnapshotSchema,
 } from "@getpaseo/protocol/execution-installation";
 
+// The installation client refuses request commands outside the builds coordinator.
+process.env.VORTEO_BUILDS = "1";
+
 const cleanups: Array<() => Promise<void>> = [];
 // Validate the allocated source-only optional field without rebuilding shared declarations.
 vi.mock(

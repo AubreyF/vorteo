@@ -1,5 +1,7 @@
 # Task delivery
 
+Only the Vorteo :: Builds thread runs the publishing and installation steps below. Other threads stop when their branch is ready and hand it to Builds; see [Builds coordinator](../AGENTS.md#builds-coordinator).
+
 Use these scripts to move a task from a fresh worktree to `main`, the installation and archive. They enforce rules from the [agent guide](../AGENTS.md); the guide's [authorization levels](../AGENTS.md#authorization-levels) decide how far a task may go. Each script prints what it checked and refuses rather than guessing. Tests live in [`scripts/agent-lifecycle.test.mjs`](../scripts/agent-lifecycle.test.mjs) and run in CI.
 
 ## Start in a task worktree

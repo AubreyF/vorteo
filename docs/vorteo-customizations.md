@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): one builds coordinator writes main, web publication, installs and approvals. Other threads hand their branches to it; the client's request commands, web builds for publication, publish-main and main pushes refuse elsewhere, while the coordinator's own publication step stays unguarded. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the agent guide and installation-maintenance skill describe approval delegation: decisions are automatic where policy allows, otherwise the owner's or the delegated installation lead's, so agents stop asking the owner to approve what the lead handles. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the agent tool reports invalid source batch contributions, not only conflicts, and names the requester, so a batch held by a refused contribution never looks silently pending. README overview and onboarding are unchanged.

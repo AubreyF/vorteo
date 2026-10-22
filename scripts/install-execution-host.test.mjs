@@ -39,6 +39,8 @@ import {
   publicationBindingPath,
   readPublicationBinding,
 } from "./instance-web-artifact.mjs";
+// These tests run the installation client's request commands, which only Vorteo :: Builds may run.
+process.env.VORTEO_BUILDS = "1";
 
 test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
   const expected = "/fixture/.local/share/vorteo-installation-client/client.json";

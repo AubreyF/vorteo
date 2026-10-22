@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Build from a source snapshot with platform-local dependencies. Never reuse
 // the Mac's node_modules from a Linux container or modify the working checkout.
+import { assertBuildsCoordinator } from "./lib/builds-guard.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -38,6 +39,7 @@ if (values["adopt-legacy"] && !values.destination)
 let deployment = null;
 let sourceCommit = git(source, ["rev-parse", "HEAD"]);
 if (values.destination) {
+  assertBuildsCoordinator("Building for web interface publication");
   const destination = await fs.realpath(values.destination);
   const live = await readLiveState(destination);
   if (live.release?.integrationRef && live.release.integrationRef !== integrationRef) {

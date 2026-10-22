@@ -9,6 +9,16 @@ import { fileURLToPath } from "node:url";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
+// Same check as scripts/lib/builds-guard.mjs, kept inline because this client is copied and run
+// on its own (Dev guest, standalone coordinator CLI). Only Vorteo :: Builds submits requests.
+function assertBuildsCoordinator(action) {
+  if (process.env.VORTEO_BUILDS === "1") return;
+  throw new Error(
+    `${action} is reserved for the Vorteo :: Builds thread, the only writer of shared state. ` +
+      "Finish on your task branch and hand it to Builds instead (AGENTS.md, Builds coordinator).",
+  );
+}
+
 /** This client is copied alone into Dev. Use built-ins, not an undeclared
  * dispatcher dependency, to avoid fetch's shorter independent headers timeout.
  * One deadline covers connection, headers and body; failure never retries. */
@@ -94,6 +104,9 @@ if (
       "base-revision": { type: "string" },
     },
   });
+  // Vorteo :: Builds is the only writer of shared state (AGENTS.md, "Builds coordinator").
+  if (positionals[0]?.startsWith("request-"))
+    assertBuildsCoordinator(`installation-agent ${positionals[0]}`);
   if (
     values["supervisor-plan"] &&
     (values.update || values.target !== "container-daemon" || positionals[0] !== "request-restart")

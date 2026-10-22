@@ -24,8 +24,8 @@ Settle each task's authorization level before it changes files. Each level inclu
 
 1. **Inspect.** Read, diagnose, reproduce and plan. No edits outside scratch files.
 2. **Build and preview.** Level 1 plus edits in a task worktree, tests, local builds, managed previews and commits on the task branch.
-3. **Ship to `main`.** Level 2 plus integrating into `main`, pushing `main` to `origin` and guarded interface-only publication to the primary installation, which needs no restart.
-4. **Ship and install.** Level 3 plus Host and Dev source updates, installation changes and the restarts they require, submitted through the tracked installation workflow.
+3. **Ship to `main`.** Level 2 plus handing the task branch to [Vorteo :: Builds](#builds-coordinator) to integrate into `main` and publish interface-only changes, which need no restart.
+4. **Ship and install.** Level 3 plus asking Builds to install the change on the Host and Dev, with the restarts it requires, through the tracked installation workflow.
 
 Map the request to a level without asking when it is clear:
 
@@ -44,6 +44,16 @@ Otherwise ask once through `update_questions`: "What authorization level should 
 - Record the level in the first journal entry's `machineContext` and carry it into handoffs and subagent prompts. A subagent or handoff never receives a higher level than its coordinator holds.
 - At Level 2 and higher, work in a task worktree from `scripts/task-worktree.mjs` unless you already run in a clean dedicated one. Never edit a shared checkout that holds other work.
 - When the work needs more than the granted level, finish what the level allows. Then ask for the specific higher level and say what it would do.
+
+## Builds coordinator
+
+Vorteo :: Builds is the only thread that writes state other threads share: GitHub `main`, web interface publication, Host and Dev installs and restarts, coordinator maintenance, and approval decisions. One writer keeps `main` equal to the live build and stops installs from colliding.
+
+- Every other thread works on its own task branch in its own worktree, started from current `main`, and stops there.
+- To ship, hand the branch to Builds. Send the Builds thread the branch, its head commit, the worktree path, the checks you ran, what the change does and its level (3 or 4). The installed `installation-maintenance` skill gives the Builds thread's agent ID. Builds integrates, installs and publishes in batches, then reports back. A container agent that cannot reach Builds puts the same details in its Host handoff.
+- Do not push `main`, publish the web interface, submit restart, source update, coordinator or instruction requests, or approve requests. `scripts/publish-main.mjs`, `scripts/build-instance-web.mjs --destination`, the installation client's `request-*` commands and the `main` pre-push hook refuse unless they run as Builds (`VORTEO_BUILDS=1`). Never set that variable outside the Builds thread. `scripts/publish-instance-web.mjs` has no guard because the coordinator runs it during installs; never run it yourself.
+- Preview in your own worktree with a dev server or the managed preview helper. Do not run web exports or release builds for previews.
+- Keep heavy commands to what your change needs: one dependency install per worktree, targeted tests while iterating, and the full suite once before handing off.
 
 ## Task status
 
@@ -118,6 +128,8 @@ Use a sealed production build when checking production behavior or when the owne
 
 ### Required restart control path
 
+This subsection describes how the [Builds](#builds-coordinator) thread submits and follows requests. Other threads hand their work to Builds instead.
+
 When the owner has saved automatic maintenance permission for a target and `capabilities` reports `ownerApprovalRequired: false` for it, restart and source-update requests submitted with the Host credential are approved automatically for both Host and Dev targets. Inspect the recorded request decision rather than asking for a click or a chat approval. Requests made with the Dev credential, and batches containing a Dev contribution, still require the owner's button approval. Do not enable the policy yourself, impersonate a Host requester, transfer Host credentials, or treat routine automatic approval as coordinator or supervisor maintenance authority.
 
 For authorized work, prepare and submit required restart or installation requests without asking permission in chat to create them. Present the exact request's review link and a short description of the target and interruption to whoever decides it: the installation lead when the owner has delegated approvals, otherwise the owner. That decision in Installation controls is the approval; do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Only the delegated installation lead approves on the owner's behalf, within its recorded grant. A changed source, plan or request revision requires its own button approval.
@@ -154,10 +166,10 @@ Provider accounts connect to the installation and synchronize to Host and Dev by
 
 ## Finish the task
 
-- “Ship it” grants [Level 4](#authorization-levels). It authorizes committing the requested changes, integrating them into `main`, and pushing `main` to `origin` on GitHub, unless the user explicitly names another destination. Complete any required deployment too. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
-- Publish with `node scripts/publish-main.mjs`, which refuses unsafe pushes and proves the remote contains the commit. Prepare Host updates with `scripts/prepare-host-delivery.mjs`, and publish any installed source that is not on `main` the same day. See [task delivery](docs/task-delivery.md).
-- Before reporting “shipped”, verify the remote branch directly and prove it contains the task commits. Report GitHub publication and deployment separately. A successful deployment, local commit, open PR or pushed feature branch alone does not complete shipping. If either required step is blocked, state what remains instead of claiming completion.
-- In this repository, a request to "push" grants [Level 3](#authorization-levels) and means integrate the requested changes into `main` and push `main` to `origin`, unless the user explicitly names another destination. Do not publish a feature branch instead. Preserve unrelated work and use a normal fast-forward push; never force-push `main`.
+- “Ship it” grants [Level 4](#authorization-levels). Commit the requested changes on your task branch, verify them, and hand the branch to [Builds](#builds-coordinator), which integrates it into `main`, installs it and reports back. Do not push `main` or deploy yourself.
+- Builds alone publishes with `node scripts/publish-main.mjs`, prepares Host updates with `scripts/prepare-host-delivery.mjs`, and keeps `main` equal to the installed source. See [task delivery](docs/task-delivery.md).
+- Before reporting “shipped”, wait for Builds' report, then verify the remote branch directly and prove it contains the task commits. Report GitHub publication and deployment separately. A successful deployment, local commit, open PR or pushed feature branch alone does not complete shipping. If either required step is blocked, state what remains instead of claiming completion.
+- In this repository, a request to "push" grants [Level 3](#authorization-levels) and means hand the branch to Builds to integrate into `main`, unless the user explicitly names another destination. Never force-push `main`.
 
 - Review the README when shipped user-facing behavior changes; update it when the overview or onboarding changes. Keep each Power Tools item to one short paragraph and put detailed behavior in [Vorteo customizations](docs/vorteo-customizations.md). Follow the [writing rules](docs/writing.md); preserve the author's animation and other demos.
 - Report what changed, validation results and remaining limitations. Link the README update or explain why the change does not affect it.

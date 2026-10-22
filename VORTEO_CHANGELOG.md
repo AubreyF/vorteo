@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Changed
+
+- Vorteo :: Builds is the only writer of shared state. AGENTS.md defines the handoff, and the installation client's request commands, web builds for publication, publish-main and pushes to main refuse to run outside Builds (VORTEO_BUILDS=1), guarding against accidental parallel writes. The coordinator's own interface publication step is unaffected, and the client keeps its check inline so copied clients still run on their own.
+
 ## 0.11.0-beta.3.vorteo.762 - 2026-10-22
 
 ### Fixed
