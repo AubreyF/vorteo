@@ -23,7 +23,8 @@ import {
   type ProjectIconIntent,
 } from "@/projects/edit-form";
 import { importProjectIconFromUrl } from "@/projects/import-project-icon";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 export interface ProjectEditSheetProps {
   visible: boolean;
@@ -58,6 +59,7 @@ export function ProjectEditSheet({
   const [form] = useState(() => openProjectEditForm(snapshot));
   const state = useSyncExternalStore(form.subscribe, form.getState, form.getState);
 
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: (submission: ProjectEditSubmission) =>
       submitProjectEdit({ client, projectId, submission }),
@@ -66,7 +68,11 @@ export function ProjectEditSheet({
       toast.show(t("settings.project.edit.savedToast"), { variant: "success" });
       onClose();
     },
-    onError: (error) => form.setError(toFormError(error)),
+    onError: (error) => {
+      const cause = error instanceof ProjectEditStepError ? error.cause : error;
+      if (isConnectionError(cause)) reportActionError(cause);
+      else form.setError(toFormError(error));
+    },
   });
   const isSaving = mutation.isPending;
 
@@ -218,7 +224,7 @@ class ProjectEditStepError extends Error {
     readonly scope: ProjectEditFormError["scope"],
     cause: unknown,
   ) {
-    super(toErrorMessage(cause));
+    super(toErrorMessage(cause), { cause });
     this.name = "ProjectEditStepError";
   }
 }

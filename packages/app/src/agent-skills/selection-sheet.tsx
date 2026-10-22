@@ -11,6 +11,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 import type {
   AgentSkillSelection as SkillSelection,
   AgentSkillsSaveResult as SkillsSaveResult,
@@ -109,7 +110,8 @@ export function SkillSelectionSheet({
         }
         onClose();
       } catch (cause) {
-        setSaveError(cause instanceof Error ? cause.message : t("settings.host.skills.saveFailed"));
+        // The save mutation already toasts its failure; a lost connection leaves no inline text.
+        if (!isConnectionError(cause)) setSaveError(toErrorMessage(cause));
       }
     })();
   }, [draft, onClose, onSave, t]);

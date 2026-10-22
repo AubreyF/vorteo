@@ -9,13 +9,15 @@ Use the installed client command below. It carries a scoped agent credential. It
 
 `INSTALLATION_CLIENT_COMMAND`
 
+Only the builds coordinator thread runs this client's `request-*` commands; they refuse without `VORTEO_BUILDS=1`. Every other agent hands its branch to the builds coordinator instead (AGENTS.md, Builds coordinator).
+
 ## Who approves a request
 
 Start with `capabilities`. Each entry in `targets` (`host` and `container-daemon`) reports `ownerApprovalRequired` and `hostAutomaticRestarts`. `hostAutomaticRestarts: true` means the owner has saved automatic maintenance permission for that daemon and the coordinator supports safe admission. `ownerApprovalRequired` describes your own credential.
 
 - **Host-originated requests.** When your target reports `ownerApprovalRequired: false`, fresh restart and source-update requests you submit with the Host client are approved automatically under the owner's trusted Host approval policy. This applies to both targets, including Dev. Do not ask the owner to click anything.
-- **Dev-originated requests.** Requests made with the Dev container's credential always need the owner's button approval, even when the policy is on. So does a source batch that includes any Dev contribution.
-- **Always manual.** Requests submitted with `--require-owner-approval`, requests created before the permission was enabled, Factory adoption, preview monitor, native helper, session host job and shared instruction requests always need an exact owner approval. Supervisor and coordinator maintenance have their own separate permissions (see below).
+- **Dev-originated requests.** Requests made with the Dev container's credential always need an owner-authorized approval, even when the policy is on: the owner's button, or the delegated installation lead's decision. So does a source batch that includes any Dev contribution.
+- **Always manual.** Requests submitted with `--require-owner-approval`, requests created before the permission was enabled, Factory adoption, preview monitor, native helper, session host job and shared instruction requests always need an exact owner-authorized approval. Supervisor and coordinator maintenance have their own separate permissions (see below).
 
 Origin comes from the credential, never from `--requester`. Do not enable the policy yourself, impersonate a Host requester, move Host credentials into Dev, or treat a daemon permission as coordinator or supervisor authority.
 
@@ -27,9 +29,9 @@ An automatically approved request stays cancellable for at least thirty seconds 
 
 If a Host request stays `pending` after preparation completes, something requires manual review. Read its `detail`, then present the link as an approval request.
 
-### When the owner must approve
+### When a request needs an owner-authorized decision
 
-Present the exact request's `approvalUrl` with a short description of the target and interruption. The owner's click on the matching button in Installation controls is the approval. Do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Never click approval buttons on the owner's behalf. A changed source, plan or request revision needs its own approval.
+If the owner has delegated approvals to an installation lead, give the lead the request ID, the exact `approvalUrl` and a short description of the target and interruption; the lead decides with the owner's authority. Otherwise present them to the owner, whose click on the matching button in Installation controls is the approval. Do not require a verbal reply before or after it. Observe the recorded decision and continue automatically when approved. Only the delegated lead approves on the owner's behalf. A changed source, plan or request revision needs its own approval.
 
 ## Restart requests
 
@@ -69,7 +71,7 @@ Finish local validation first. The checkout must be clean, committed, on the ins
 
 Submissions join the pending unapproved batch for their target. Host and Dev batches have independent bases and approvals. Each new contribution changes the batch revision, so an earlier review no longer applies. Approved or dispatched batches freeze; later uploads form the next batch. Use `contribution-status <contribution-id>` to follow your receipt to its batch and result.
 
-A batch whose `sourceBatch.status` is `conflict`, or that holds a `conflict` or `invalid` contribution, can never be approved, automatically or by the owner, until corrected. The client names each conflicting contribution and file. Rebase your contribution on the current source and resubmit from the same requester with `--replaces <contribution-id>`. Only your own conflicted or invalid contribution can be replaced. Do not guess conflict resolutions or omit another task's contribution.
+A batch whose `sourceBatch.status` is `conflict`, or that holds a `conflict` or `invalid` contribution, can never be approved, automatically or by the owner, until corrected. The client names each conflicting contribution with its file, and each invalid one with its requester and reason. Ask the owning task to correct a contribution that is not yours. Rebase your contribution on the current source and resubmit from the same requester with `--replaces <contribution-id>`. Only your own conflicted or invalid contribution can be replaced. Do not guess conflict resolutions or omit another task's contribution.
 
 Return the link as **Review Host update** or **Review Dev update**, worded for the decision that applies. A manual decision uses **Install update and restart**, which installs immediately and may interrupt running work; updates cannot be approved for when idle. Automatic decisions follow the cancellation window and finish-turns path above. Never split an update into a plain restart to avoid its approval.
 
@@ -108,7 +110,7 @@ Installing the job does not turn on durable sessions; the owner enables that set
 - **Native helper and preview monitor.** Host-only `request-helper` or `request-monitor` with `--request-file`, then `helper-status` or `monitor-status`. Keep the request file to reconcile a lost reply.
 - **Factory startup adoption.** Host-only `request-restart --target container-daemon --factory-runtime-plan <sha256> --reason-file <file>`, with `--factory-runtime-recovery-of <failed-request-id>` for recovery.
 
-All of these need an exact owner approval of the matching plan.
+All of these need an exact owner-authorized approval of the matching plan. Shared instruction changes stay with the owner.
 
 ## Agent communication boundary
 

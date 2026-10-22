@@ -2096,6 +2096,7 @@ export class VoiceAssistantWebSocketServer {
         agentChecklistMutations: true,
         checklistBlockedStatus: true,
         sidebarState: this.supportsSidebarState(),
+        sidebarFolders: this.supportsSidebarState(),
         checklistReviewStatus: true,
         checklistProgress: true,
         agentJournal: true,

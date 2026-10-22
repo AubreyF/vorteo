@@ -287,6 +287,17 @@ function buildAgentRecord(params: {
   };
 }
 
+const heldQuotaPolicy = {
+  version: 1 as const,
+  account: { issuer: "openai", accountId: "account" },
+  requiredWindows: [{ bucketId: "codex", windowId: "primary", durationMinutes: 10080 }],
+  launchFloorPercent: 30,
+  freezeFloorPercent: 25,
+  maxObservationAgeSeconds: 120,
+  consumptionLimits: [],
+  recovery: "automatic_after_reconciliation" as const,
+};
+
 describe("ScheduleService", () => {
   let tempDir: string;
   let agentStorage: AgentStorage;
@@ -609,9 +620,11 @@ describe("ScheduleService", () => {
       const deletion = service.delete(created.id);
       if (stage === "pending") await deleteEntered;
       else await deletion;
-      const refused = expect(tick).rejects.toThrow(
-        stage === "pending" ? "deletion is pending" : "changed before admission",
-      );
+      // A deleted schedule is only stale in this tick's snapshot, so the tick skips it.
+      const refused =
+        stage === "pending"
+          ? expect(tick).rejects.toThrow("deletion is pending")
+          : expect(tick).resolves.toBeUndefined();
       releaseList();
       await refused;
       releaseDelete();
@@ -620,6 +633,221 @@ describe("ScheduleService", () => {
       expect(await new ScheduleStore(join(tempDir, "schedules")).get(created.id)).toBeNull();
     },
   );
+
+  test("skips a tick that starts while another is still admitting", async () => {
+    // Earlier tests leave ScheduleStore spies installed; start from the real store.
+    vi.restoreAllMocks();
+    let checks = 0;
+    const prepare = vi.fn(async () => ({ kind: "deferred" as const, reason: "fixture" }));
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      // Each refusal writes a fresh checkedAt, as the held protected schedule does live.
+      now: () => new Date(now.getTime() + checks++),
+      quotaRunner: { prepare },
+    });
+    const created = await service.create({
+      prompt: "Held protected schedule",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "codex-secondary", cwd: tempDir, quotaPolicy: heldQuotaPolicy },
+      },
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    // The second tick's snapshot is taken before the first tick writes, and its
+    // admission runs after the first tick finishes, as with overlapping intervals.
+    let releaseSecondList!: () => void;
+    const secondListGate = new Promise<void>((resolve) => {
+      releaseSecondList = resolve;
+    });
+    const originalList = ScheduleStore.prototype.list;
+    const list = vi
+      .spyOn(ScheduleStore.prototype, "list")
+      .mockImplementationOnce(async function () {
+        return originalList.call(this);
+      })
+      .mockImplementationOnce(async function () {
+        const snapshot = await originalList.call(this);
+        await secondListGate;
+        return snapshot;
+      });
+    const first = service.tick().finally(() => releaseSecondList());
+    const second = service.tick();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await service.inspect(created.id)).quotaState).toMatchObject({ state: "held" });
+    list.mockRestore();
+  });
+
+  test("releases the guard when a tick fails", async () => {
+    // Earlier tests leave ScheduleStore spies installed; start from the real store.
+    vi.restoreAllMocks();
+    const runner = vi.fn(async () => ({ agentId: null, output: "done" }));
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner,
+    });
+    await service.create({
+      prompt: "Recovers after a failed tick",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    const list = vi
+      .spyOn(ScheduleStore.prototype, "list")
+      .mockRejectedValueOnce(new Error("list failed"));
+
+    await expect(service.tick()).rejects.toThrow("list failed");
+    list.mockRestore();
+    await service.tick();
+
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  test("a hung protected admission does not stop other schedules", async () => {
+    // Reviewer reproduction (2026-10-19): prepare never resolves. Before the admission bound,
+    // the tick guard held forever and the ordinary schedule never ran.
+    vi.restoreAllMocks();
+    const prepare = vi.fn(() => new Promise<never>(() => {}));
+    const ran: string[] = [];
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      admissionDispatchBoundMs: 50,
+      quotaRunner: { prepare },
+      runner: async (schedule) => {
+        ran.push(schedule.prompt);
+        return { agentId: null, output: "done" };
+      },
+    });
+    await service.create({
+      prompt: "Hung",
+      cadence: { type: "every", everyMs: 60_000 },
+      runOnCreate: false,
+      target: {
+        type: "new-agent",
+        config: { provider: "codex-secondary", cwd: tempDir, quotaPolicy: heldQuotaPolicy },
+      },
+    });
+    now = new Date("2026-01-01T00:00:30.000Z");
+    await service.create({
+      prompt: "Plain",
+      cadence: { type: "every", everyMs: 60_000 },
+      runOnCreate: false,
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    void service.tick().catch(() => {});
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+    // Past the bound the first tick releases the guard while its attempt stays running.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    now = new Date("2026-01-01T00:01:30.000Z");
+    await Promise.race([service.tick(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    expect(ran).toEqual(["Plain"]);
+    // The hung attempt stays admitted exactly once.
+    expect(prepare).toHaveBeenCalledTimes(1);
+  });
+
+  test("continues the tick after one schedule changed before admission", async () => {
+    // Earlier tests leave ScheduleStore spies installed; start from the real store.
+    vi.restoreAllMocks();
+    const ran: string[] = [];
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async (schedule) => {
+        ran.push(schedule.id);
+        return { agentId: null, output: "done" };
+      },
+    });
+    const target = { type: "new-agent" as const, config: { provider: "claude", cwd: tempDir } };
+    const first = await service.create({
+      prompt: "First",
+      cadence: { type: "every", everyMs: 60_000 },
+      target,
+    });
+    const second = await service.create({
+      prompt: "Second",
+      cadence: { type: "every", everyMs: 60_000 },
+      target,
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    // Whichever schedule the snapshot lists first changes before its admission.
+    let changedId: string | undefined;
+    const originalList = ScheduleStore.prototype.list;
+    const list = vi.spyOn(ScheduleStore.prototype, "list");
+    list.mockImplementationOnce(async function () {
+      const snapshot = await originalList.call(this);
+      changedId = snapshot[0]?.id;
+      await service.update({ id: changedId!, name: "Renamed" });
+      return snapshot;
+    });
+
+    await service.tick();
+    list.mockRestore();
+
+    const otherId = changedId === first.id ? second.id : first.id;
+    expect(ran).toEqual([otherId]);
+    await service.tick();
+    expect(ran).toEqual([otherId, changedId]);
+  });
+
+  test("does not hold other schedules behind a dispatched run", async () => {
+    // Earlier tests leave ScheduleStore spies installed; start from the real store.
+    vi.restoreAllMocks();
+    let releaseLong!: () => void;
+    const longGate = new Promise<void>((resolve) => {
+      releaseLong = resolve;
+    });
+    const ran: string[] = [];
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async (schedule) => {
+        ran.push(schedule.prompt);
+        if (schedule.prompt === "Long") await longGate;
+        return { agentId: null, output: "done" };
+      },
+    });
+    const target = { type: "new-agent" as const, config: { provider: "claude", cwd: tempDir } };
+    const cadence = { type: "every" as const, everyMs: 60_000 };
+    await service.create({ prompt: "Long", cadence, runOnCreate: false, target });
+    now = new Date("2026-01-01T00:00:30.000Z");
+    await service.create({ prompt: "Short", cadence, runOnCreate: false, target });
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    const longTick = service.tick();
+    await vi.waitFor(() => expect(ran).toEqual(["Long"]));
+    now = new Date("2026-01-01T00:01:30.000Z");
+    await service.tick();
+    expect(ran).toEqual(["Long", "Short"]);
+
+    releaseLong();
+    await longTick;
+  });
 
   test.each(
     [false, true].flatMap((inherited) =>

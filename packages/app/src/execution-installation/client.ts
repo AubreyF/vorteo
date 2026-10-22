@@ -85,6 +85,55 @@ export interface InstallationClientPorts {
 
 export class OwnerAccessExpired extends Error {}
 export class InstallationRouteUnavailable extends Error {}
+/** A coordinator reply that was not OK, with its HTTP status for callers that branch on it. */
+export class InstallationRequestFailed extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The same schema with every object, however nested, accepting unknown keys. The wire schemas
+ * stay strict for the coordinator that writes them; this interface reads with tolerance so a
+ * coordinator that adds a field never breaks an older interface again. Unknown keys are kept, as
+ * the strict parse kept known ones, and never read.
+ */
+function tolerant<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>> {
+  return loosen(schema) as z.ZodType<z.output<T>>;
+}
+
+function loosen(schema: z.ZodType): z.ZodType {
+  switch ((schema.def as { type: string }).type) {
+    case "object": {
+      const shape = (schema as z.ZodObject).shape as Record<string, z.ZodType>;
+      return z.looseObject(
+        Object.fromEntries(Object.entries(shape).map(([key, value]) => [key, loosen(value)])),
+      );
+    }
+    case "array":
+      return z.array(loosen((schema as z.ZodArray<z.ZodType>).element));
+    case "optional":
+      return loosen((schema as z.ZodOptional<z.ZodType>).unwrap()).optional();
+    case "nullable":
+      return loosen((schema as z.ZodNullable<z.ZodType>).unwrap()).nullable();
+    default:
+      return schema;
+  }
+}
+
+/** The owner's session host query as this interface reads it: tolerant of later additions. */
+const SESSION_HOST_OVERVIEW_READER: z.ZodType<SessionHostOverview> = tolerant(
+  z.strictObject({
+    jobs: z.array(SessionHostJobSchema),
+    // Null when the coordinator could not inspect the job; its jobs still need decisions.
+    status: SessionHostStatusSchema.nullable(),
+    // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
+    restartSupported: z.boolean().optional(),
+  }),
+);
 
 export class InstallationClient {
   private password: string | null = null;
@@ -283,13 +332,13 @@ export class InstallationClient {
     const now = this.ports.now ?? Date.now;
     if (!this.sessionHostSupported && now() < this.sessionHostRetryAt) return null;
     try {
-      const overview = z
-        .strictObject({
-          jobs: z.array(SessionHostJobSchema),
-          // Null when the coordinator could not inspect the job; its jobs still need decisions.
-          status: SessionHostStatusSchema.nullable(),
-        })
-        .parse(await this.request("session-host/query", {}));
+      const overview = SESSION_HOST_OVERVIEW_READER.parse(
+        // The flags declare what this interface can parse: restart jobs, the hosted indicator and
+        // pending upgrades. Older coordinators ignore them; newer ones withhold those additions
+        // from clients without them. From v762 the reader ignores unknown keys, so later additions
+        // reach this interface without a flag; the flags remain for older interfaces.
+        await this.request("session-host/query", { restart: true, indicator: true, upgrade: true }),
+      );
       this.sessionHostSupported = true;
       return overview;
     } catch (error) {
@@ -562,6 +611,7 @@ export async function requestInstallationOwner(
       "dev-repair/query",
       "session-host/query",
       "instruction-requests/query",
+      "claude/oauth/read",
     ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
@@ -578,8 +628,9 @@ export async function requestInstallationOwner(
     const detail = z
       .object({ error: z.string().max(2000) })
       .safeParse(await response.json().catch(() => null));
-    throw new Error(
+    throw new InstallationRequestFailed(
       detail.success ? detail.data.error : `Installation request failed (${response.status})`,
+      response.status,
     );
   }
   return response.json();

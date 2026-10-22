@@ -127,6 +127,11 @@ function projectLaunchMetadata(
   };
 }
 
+/** Only a session the durable session host runs reports this; local sessions leave it out. */
+function hostedFlag(agent: ManagedAgent): Pick<AgentSnapshotPayload, "hosted"> {
+  return agent.session?.isDurablyHosted?.() === true ? { hosted: true } : {};
+}
+
 export function toAgentPayload(
   agent: ManagedAgent,
   options?: ProjectionOptions,
@@ -165,6 +170,7 @@ export function toAgentPayload(
     ...(agent.goalState
       ? { goalState: projectQueueGoalState(agent.goalState, agent.queueGoalHold) }
       : {}),
+    ...hostedFlag(agent),
     currentModeId: agent.currentModeId,
     availableModes: cloneAvailableModes(agent.availableModes),
     features: normalizeFeatures(agent.features),

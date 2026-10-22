@@ -36,6 +36,7 @@ describe("submitAgentInput", () => {
         setUserInput,
         setAttachments: vi.fn(),
         setSendError: vi.fn(),
+        reportConnectionError: vi.fn(),
         setIsProcessing: vi.fn(),
       });
       expect(result).toBe("noop");
@@ -69,6 +70,7 @@ describe("submitAgentInput", () => {
       setUserInput,
       setAttachments,
       setSendError,
+      reportConnectionError: vi.fn(),
       setIsProcessing,
     });
 
@@ -114,6 +116,7 @@ describe("submitAgentInput", () => {
       setUserInput,
       setAttachments,
       setSendError,
+      reportConnectionError: vi.fn(),
       setIsProcessing,
     });
 
@@ -155,6 +158,7 @@ describe("submitAgentInput", () => {
         setUserInput,
         setAttachments,
         setSendError,
+        reportConnectionError: vi.fn(),
         setIsProcessing,
       }),
     ).resolves.toBe("queued");
@@ -198,6 +202,7 @@ describe("submitAgentInput", () => {
         setUserInput,
         setAttachments,
         setSendError,
+        reportConnectionError: vi.fn(),
         setIsProcessing,
         onSubmitError,
       }),
@@ -215,8 +220,11 @@ describe("submitAgentInput", () => {
     expect(clearDraft).not.toHaveBeenCalled();
   });
 
-  it("restores a steered active-turn draft after an ambiguous immediate-send error", async () => {
-    const error = new Error("connection lost after delivery");
+  it("restores a steered active-turn draft and toasts an ambiguous connection drop", async () => {
+    const error = new Error("Connection lost while sending.", {
+      cause: new Error("Transport closed (code 1006)"),
+    });
+    const reportConnectionError = vi.fn();
     const setUserInput = vi.fn();
     const setAttachments = vi.fn();
     const setSendError = vi.fn();
@@ -237,6 +245,7 @@ describe("submitAgentInput", () => {
         setUserInput,
         setAttachments,
         setSendError,
+        reportConnectionError,
         setIsProcessing,
       }),
     ).resolves.toBe("failed");
@@ -245,7 +254,8 @@ describe("submitAgentInput", () => {
     expect(setUserInput).toHaveBeenNthCalledWith(2, "steer this turn");
     expect(setAttachments).toHaveBeenNthCalledWith(1, []);
     expect(setAttachments).toHaveBeenNthCalledWith(2, [{ id: "img-1" }]);
-    expect(setSendError).toHaveBeenLastCalledWith("connection lost after delivery");
+    expect(setSendError).not.toHaveBeenCalledWith(expect.any(String));
+    expect(reportConnectionError).toHaveBeenCalledWith(error);
   });
 
   it("submits when empty submit is explicitly allowed", async () => {
@@ -270,6 +280,7 @@ describe("submitAgentInput", () => {
         setUserInput,
         setAttachments,
         setSendError,
+        reportConnectionError: vi.fn(),
         setIsProcessing,
       }),
     ).resolves.toBe("submitted");

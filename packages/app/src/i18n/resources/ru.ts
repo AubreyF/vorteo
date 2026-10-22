@@ -68,6 +68,7 @@ export const ru: TranslationResources = {
       daemonClientDisconnected: "Daemon клиента отключен",
       noFileFound: "Файл для {{token}} не найден",
       unexpectedDictationError: "При обработке диктовки произошла непредвиденная ошибка.",
+      hostConnectionLost: "Соединение с хостом потеряно. Повторите попытку после переподключения.",
     },
     connectionStatus: {
       online: "Онлайн",
@@ -313,6 +314,7 @@ export const ru: TranslationResources = {
       archived: "В архиве",
       pending: "На рассмотрении: {{count}}",
       attention: "Внимание",
+      hosted: "Переживает перезапуски",
     },
     archiveSheet: {
       hostOffline: "Хост не в сети",
@@ -1199,6 +1201,35 @@ export const ru: TranslationResources = {
       description:
         "Добавьте команды настройки для автоматической установки зависимостей и подготовки новых worktree.",
       openProjectSettings: "Открыть настройки проекта",
+    },
+    folders: {
+      actions: {
+        menu: "Действия с папкой",
+        newFolder: "Новая папка",
+        newWorkspaceFolder: "Новая папка рабочих пространств",
+        newSubfolder: "Новая папка внутри",
+        rename: "Переименовать папку",
+        delete: "Удалить папку",
+        moveToFolder: "Переместить в папку…",
+      },
+      dialogs: {
+        createTitle: "Новая папка",
+        renameTitle: "Переименовать папку",
+        namePlaceholder: "Название папки",
+        create: "Создать",
+        rename: "Переименовать",
+        moveTitle: "Переместить «{{name}}»",
+        destination: "Папка",
+        topLevel: "Без папки",
+        move: "Переместить",
+        cancel: "Отмена",
+      },
+      confirmations: {
+        deleteTitle: "Удалить папку?",
+        deleteMessage:
+          "Удалить «{{folderName}}»? Её содержимое поднимется на уровень выше. Ничего не архивируется, файлы на диске не меняются.",
+        deleteConfirm: "Удалить",
+      },
     },
     project: {
       actions: {

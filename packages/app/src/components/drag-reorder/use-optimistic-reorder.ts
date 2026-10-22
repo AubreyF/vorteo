@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 export function useOptimisticReorder<T>(
   data: T[],
   keyExtractor: (item: T, index: number) => string,
-  onDrop: (items: T[]) => void | Promise<unknown>,
+  onDrop: (items: T[], movedKey: string) => void | Promise<unknown>,
 ) {
   const signature = JSON.stringify(data.map(keyExtractor));
   const [preview, setPreview] = useState<{ base: string; keys: string[] } | null>(null);
@@ -19,8 +19,8 @@ export function useOptimisticReorder<T>(
     items = current.keys.map((key) => byKey.get(key)!);
   }
   const drop = useCallback(
-    (ordered: T[]) => {
-      const result = onDrop(ordered);
+    (ordered: T[], movedKey: string) => {
+      const result = onDrop(ordered, movedKey);
       if (!result) return; // Synchronous owners update their data in the drop event.
       const keys = ordered.map(keyExtractor);
       const available = new Set<string>(JSON.parse(signature));

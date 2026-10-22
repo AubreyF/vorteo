@@ -63,6 +63,7 @@ export const en = {
       daemonClientDisconnected: "Daemon client is disconnected",
       noFileFound: "No file found for {{token}}",
       unexpectedDictationError: "An unexpected error occurred while handling dictation.",
+      hostConnectionLost: "Lost connection to the host. Try again once it reconnects.",
     },
     connectionStatus: {
       online: "Online",
@@ -306,6 +307,7 @@ export const en = {
       archived: "Archived",
       pending: "{{count}} pending",
       attention: "Attention",
+      hosted: "Survives restarts",
     },
     archiveSheet: {
       hostOffline: "Host offline",
@@ -1207,6 +1209,35 @@ export const en = {
       description:
         "Add setup commands so new worktrees can install dependencies and prepare themselves automatically.",
       openProjectSettings: "Open project settings",
+    },
+    folders: {
+      actions: {
+        menu: "Folder actions",
+        newFolder: "New folder",
+        newWorkspaceFolder: "New workspace folder",
+        newSubfolder: "New folder inside",
+        rename: "Rename folder",
+        delete: "Delete folder",
+        moveToFolder: "Move to folder…",
+      },
+      dialogs: {
+        createTitle: "New folder",
+        renameTitle: "Rename folder",
+        namePlaceholder: "Folder name",
+        create: "Create",
+        rename: "Rename",
+        moveTitle: 'Move "{{name}}"',
+        destination: "Folder",
+        topLevel: "No folder",
+        move: "Move",
+        cancel: "Cancel",
+      },
+      confirmations: {
+        deleteTitle: "Delete folder?",
+        deleteMessage:
+          'Delete "{{folderName}}"? Its contents move up one level. Nothing is archived and files on disk are not changed.',
+        deleteConfirm: "Delete",
+      },
     },
     project: {
       actions: {
@@ -2341,8 +2372,6 @@ export const en = {
         confirmedCurrent: "You're up to date",
         checkComplete: "Check complete",
         title: "Vorteo updates",
-        notice: "Vorteo update available",
-        review: "Review update",
         idle: "Check for new commits on main.",
         current: "This interface is up to date with main.",
         ahead: "This interface was built ahead of main.",

@@ -13,6 +13,8 @@ import path from "node:path";
 import type { Logger } from "pino";
 import { writePrivateFileAtomicSync } from "../../private-files.js";
 import type { InstallationConfig } from "../config.js";
+import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
 import { connectInstallationDaemon, createInstallationRegistrationAdmission } from "../daemon.js";
 import {
   InstallationProfiles,
@@ -23,6 +25,9 @@ import {
 export function createInstallationProfiles(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: "host" | "container-daemon") => void,
+  // The coordinator passes shared connections; see daemon-connections.ts.
+  connect: (kind: ExecutionEnvironmentKind) => Promise<DaemonClient> = (kind) =>
+    connectInstallationDaemon(config, kind),
 ): InstallationProfiles {
   const assertReady = createInstallationRegistrationAdmission(config, assertRegistrationReadiness);
   const directory = path.join(config.stateDir, "shared-profiles");
@@ -37,7 +42,7 @@ export function createInstallationProfiles(
         target.workerAccounts = false;
         target.uncappedManagedWorkers = false;
         assertReady(environment.kind === "host" ? "host" : "container-daemon");
-        const client = await connectInstallationDaemon(config, environment.kind);
+        const client = await connect(environment.kind);
         try {
           if (client.getLastServerInfoMessage()?.features?.installationProfileAuthority !== true)
             throw new Error("Update the daemon to preserve shared profile identities");
@@ -53,7 +58,7 @@ export function createInstallationProfiles(
       },
       async patch(patch) {
         assertReady(environment.kind === "host" ? "host" : "container-daemon");
-        const client = await connectInstallationDaemon(config, environment.kind);
+        const client = await connect(environment.kind);
         try {
           const groups = Object.values(patch.sharedProviderPreferences?.providers ?? {});
           if (

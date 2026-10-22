@@ -24,6 +24,8 @@ import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { ProvidersSection } from "./providers-section";
 import { environmentLabel } from "./provider-connection-status";
+import { hostRejection, useConnectionLostReporter } from "./provider-detail-page";
+import { toErrorMessage } from "@/utils/error-messages";
 
 const ThemedGrip = withUnistyles(GripVertical);
 const ThemedChevron = withUnistyles(ChevronRight);
@@ -168,7 +170,9 @@ function ProviderCatalog({
 }) {
   const [adding, setAdding] = useState(false);
   const [useDev, setUseDev] = useState(false);
-  const change = useMutation({ mutationFn: save });
+  const reportConnectionLost = useConnectionLostReporter();
+  const change = useMutation({ mutationFn: save, onError: reportConnectionLost });
+  const changeRejection = hostRejection(change.error);
   const definitions = useMemo(
     () =>
       [
@@ -246,7 +250,9 @@ function ProviderCatalog({
         status={change.isPending ? "Saving provider settings..." : null}
         info="Providers and their connections work in every environment. Open a provider to manage its connections, profiles and model defaults."
       >
-        {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+        {changeRejection ? (
+          <Alert variant="error" description={toErrorMessage(changeRejection)} />
+        ) : null}
         <DraggableList
           data={families}
           keyExtractor={familyKey}
@@ -266,7 +272,9 @@ function ProviderCatalog({
         onClose={closeAdd}
         header={addHeader}
       >
-        {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+        {changeRejection ? (
+          <Alert variant="error" description={toErrorMessage(changeRejection)} />
+        ) : null}
         <Text style={settingsStyles.rowHint}>
           Install or sign in once. Vorteo shares providers with every environment.
         </Text>

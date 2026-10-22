@@ -37,6 +37,10 @@ import {
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
+// Protected admission can await runtime calls without their own deadline. Past this bound a
+// tick stops waiting for that attempt (it stays in runningScheduleIds, so it is never admitted
+// twice) and admits the remaining schedules, as before the tick guard existed.
+const SCHEDULE_ADMISSION_DISPATCH_BOUND_MS = 15_000;
 
 // A run failed because its target no longer exists: the agent was deleted or
 // archived, or a new-agent cwd was removed. These are permanent, so the schedule
@@ -306,6 +310,8 @@ interface ScheduleWorkspaceCreateInput {
 
 export interface ScheduleServiceOptions {
   canStartWork?: () => boolean;
+  /** How long one tick waits for an admitted attempt to dispatch or settle. Tests shorten it. */
+  admissionDispatchBoundMs?: number;
   quotaRunner?: {
     /** Resolve the durable attempt before retrying. Resume retains the same attempt identity. */
     reconcilePreparation?(schedule: StoredSchedule): Promise<"clear" | "resume" | "held">;
@@ -350,10 +356,19 @@ type PreparedQuotaRun = Extract<
 >;
 type ScheduleRunner = PreparedQuotaRun["run"];
 
+/** The stored schedule no longer matches the snapshot a run was admitted from. */
+class ScheduleAdmissionChangedError extends Error {
+  constructor() {
+    super("Schedule changed before admission.");
+    this.name = "ScheduleAdmissionChangedError";
+  }
+}
+
 /** Keeps cleanup independent of fallible schedule writes. The driver owns actual settlement. */
 class SchedulePreparationCustody {
   prepared: PreparedQuotaRun | undefined;
   dispatched = false;
+  onDispatch: (() => void) | undefined;
   private freezing: Promise<void> | undefined;
 
   freeze(reason: string): void {
@@ -420,9 +435,15 @@ export class ScheduleService {
   private readonly runningScheduleIds = new Set<string>();
   private readonly deletingScheduleIds = new Set<string>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private tickInFlight = false;
+  private tickStartedAt = 0;
+  private stalledTickReported = false;
+  private readonly admissionDispatchBoundMs: number;
 
   constructor(options: ScheduleServiceOptions) {
     this.canStartWork = options.canStartWork ?? (() => true);
+    this.admissionDispatchBoundMs =
+      options.admissionDispatchBoundMs ?? SCHEDULE_ADMISSION_DISPATCH_BOUND_MS;
     this.quotaRunner = options.quotaRunner;
     this.logger = options.logger.child({ module: "schedule-service" });
     this.store = new ScheduleStore(join(options.paseoHome, "schedules"), this.logger);
@@ -758,7 +779,46 @@ export class ScheduleService {
     return this.inspect(id);
   }
 
+  /**
+   * Admits due schedules from one store snapshot. A tick that starts while another is
+   * still listing or admitting is skipped, not queued, so overlapping interval ticks
+   * never admit from competing snapshots. Dispatched executions keep running
+   * concurrently after the guard is released, and this call settles once they finish.
+   */
   async tick(): Promise<void> {
+    if (this.tickInFlight) {
+      // Admission is bounded per attempt, so a long hold means listing or the store is stuck.
+      if (
+        !this.stalledTickReported &&
+        Date.now() - this.tickStartedAt > this.admissionDispatchBoundMs
+      ) {
+        this.stalledTickReported = true;
+        this.logger.warn(
+          { heldMs: Date.now() - this.tickStartedAt },
+          "Schedule tick still admitting past its bound; later ticks are skipped",
+        );
+      }
+      return;
+    }
+    this.tickInFlight = true;
+    this.tickStartedAt = Date.now();
+    this.stalledTickReported = false;
+    const dispatchedRuns: Promise<void>[] = [];
+    let admissionFailure: { error: unknown } | undefined;
+    try {
+      await this.admitDueSchedules(dispatchedRuns);
+    } catch (error) {
+      admissionFailure = { error };
+    } finally {
+      this.tickInFlight = false;
+    }
+    const settled = await Promise.allSettled(dispatchedRuns);
+    if (admissionFailure) throw admissionFailure.error;
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+  }
+
+  private async admitDueSchedules(dispatchedRuns: Promise<void>[]): Promise<void> {
     if (!this.canStartWork()) return;
     const now = this.now();
     const schedules = await this.store.list();
@@ -777,7 +837,56 @@ export class ScheduleService {
       if (new Date(schedule.nextRunAt).getTime() > now.getTime()) {
         continue;
       }
-      await this.runSchedule(schedule, now);
+      try {
+        const dispatched = await this.runScheduleUntilDispatch(schedule, now);
+        if (dispatched) dispatchedRuns.push(dispatched.run);
+      } catch (error) {
+        // A stale snapshot only affects this schedule; the next tick retries it.
+        if (!(error instanceof ScheduleAdmissionChangedError)) throw error;
+        this.logger.debug(
+          { scheduleId: schedule.id },
+          "Schedule changed before tick admission; retrying on the next tick",
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolves once execution is dispatched, carrying the still running attempt, or with
+   * null if the attempt settled first. The run is wrapped because an async function
+   * would otherwise adopt it and wait for the whole execution. An attempt that has done
+   * neither within the admission bound is treated as dispatched: it stays in
+   * runningScheduleIds (never admitted twice) and the tick moves on to other schedules.
+   */
+  private async runScheduleUntilDispatch(
+    schedule: StoredSchedule,
+    now: Date,
+  ): Promise<{ run: Promise<void> } | null> {
+    let signalDispatch!: () => void;
+    const dispatchSignal = new Promise<"dispatched">((resolve) => {
+      signalDispatch = () => resolve("dispatched");
+    });
+    let boundTimer: ReturnType<typeof setTimeout> | undefined;
+    const boundSignal = new Promise<"bounded">((resolve) => {
+      boundTimer = setTimeout(() => resolve("bounded"), this.admissionDispatchBoundMs);
+      (boundTimer as unknown as { unref?: () => void }).unref?.();
+    });
+    const run = this.runSchedule(schedule, now, { onDispatch: () => signalDispatch() });
+    try {
+      const outcome = await Promise.race([
+        run.then(() => "settled" as const),
+        dispatchSignal,
+        boundSignal,
+      ]);
+      if (outcome === "bounded") {
+        this.logger.warn(
+          { scheduleId: schedule.id, boundMs: this.admissionDispatchBoundMs },
+          "Schedule admission did not dispatch within its bound; continuing the tick",
+        );
+      }
+      return outcome === "settled" ? null : { run };
+    } finally {
+      clearTimeout(boundTimer);
     }
   }
 
@@ -911,7 +1020,7 @@ export class ScheduleService {
     try {
       const current = await this.store.get(schedule.id);
       if (!current || !isDeepStrictEqual(current, schedule))
-        throw new Error("Schedule changed before admission.");
+        throw new ScheduleAdmissionChangedError();
     } catch (error) {
       this.runningScheduleIds.delete(schedule.id);
       throw error;
@@ -921,7 +1030,7 @@ export class ScheduleService {
   private async runSchedule(
     schedule: StoredSchedule,
     now: Date,
-    options?: { manual?: boolean },
+    options?: { manual?: boolean; onDispatch?: () => void },
   ): Promise<void> {
     const manual = options?.manual === true;
     if (!this.canStartWork()) {
@@ -930,6 +1039,7 @@ export class ScheduleService {
     }
     await this.beginScheduleRun(schedule);
     const custody = new SchedulePreparationCustody();
+    custody.onDispatch = options?.onDispatch;
     let failure: { error: unknown } | undefined;
     try {
       await this.runScheduleAttempt(schedule, now, manual, custody);
@@ -1047,6 +1157,7 @@ export class ScheduleService {
         result = { state: "frozen", reason: "schedule_expired" };
       } else {
         custody.dispatched = true;
+        custody.onDispatch?.();
         result = await runner(scheduleWithRun, runId);
       }
       if ("state" in result) {

@@ -30,7 +30,11 @@ function snapshot() {
 
 test("preparation never installs and saving retains the reviewed revision through a conflict", async () => {
   const save = vi.fn().mockRejectedValueOnce(new Error("Shared settings changed"));
-  const model = openSharedPluginForm({ resolve: async () => resolved, save });
+  const model = openSharedPluginForm({
+    resolve: async () => resolved,
+    save,
+    reportConnectionLost: vi.fn(),
+  });
   model.setSource("  owner/example  ");
   const opened = snapshot();
   await model.prepare(opened);
@@ -68,6 +72,7 @@ test("source edits and closure prevent late preparation results from selecting t
         complete = resolve;
       }),
     save,
+    reportConnectionLost: vi.fn(),
   });
   model.setSource("first/source");
   const preparing = model.prepare(snapshot());
@@ -96,6 +101,7 @@ test("duplicate IDs are not replaced and updates retain disabled aliases", async
     {
       resolve: async () => ({ ...resolved, target: { kind: "git", commit: "b".repeat(40) } }),
       save,
+      reportConnectionLost: vi.fn(),
     },
     { source: "owner/example", updateId: "saved-alias" },
   );
@@ -107,7 +113,7 @@ test("duplicate IDs are not replaced and updates retain disabled aliases", async
   });
   existing.settings.plugins = [{ id: "example", enabled: true, source: resolved }];
   const duplicate = openSharedPluginForm(
-    { resolve: async () => resolved, save },
+    { resolve: async () => resolved, save, reportConnectionLost: vi.fn() },
     { source: "owner/example" },
   );
   await duplicate.prepare(existing);
@@ -124,6 +130,7 @@ test("completion after closing the form cannot dismiss a later form", async () =
       new Promise<void>((resolve) => {
         finish = resolve;
       }),
+    reportConnectionLost: vi.fn(),
   });
   model.setSource("owner/plugin");
   await model.prepare(snapshot());
@@ -137,7 +144,7 @@ test("completion after closing the form cannot dismiss a later form", async () =
 test("directory definitions save once without copying or resolving any environment path", async () => {
   const resolve = vi.fn(async () => resolved);
   const save = vi.fn().mockResolvedValue(undefined);
-  const model = openSharedPluginForm({ resolve, save });
+  const model = openSharedPluginForm({ resolve, save, reportConnectionLost: vi.fn() });
   model.setSourceKind("directory");
   model.setSource("/private/plugin");
   await model.prepare(snapshot());
@@ -152,4 +159,19 @@ test("directory definitions save once without copying or resolving any environme
     expectedRevision: 7,
     settings: { plugins: [{ id: "local-review", enabled: true, source: { kind: "directory" } }] },
   });
+});
+
+test("a lost connection is reported outside the form and leaves no inline error", async () => {
+  const lost = new Error("Liveness check timed out");
+  const reportConnectionLost = vi.fn();
+  const model = openSharedPluginForm({
+    resolve: async () => resolved,
+    save: vi.fn().mockRejectedValueOnce(lost),
+    reportConnectionLost,
+  });
+  model.setSource("owner/example");
+  await model.prepare(snapshot());
+  expect(await model.submit()).toBe(false);
+  expect(reportConnectionLost).toHaveBeenCalledWith(lost);
+  expect(model.getState()).toMatchObject({ phase: "review", error: null });
 });

@@ -41,6 +41,8 @@ import { useHostRuntimeClient, useHostRuntimeSnapshot } from "@/runtime/host-run
 import { useHostFeature } from "@/runtime/host-features";
 import { useToast } from "@/contexts/toast-context";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError, useResetOnReconnect } from "@/hooks/use-action-error";
 import {
   applyDraftToConfig,
   configToDraft,
@@ -224,11 +226,11 @@ function ProjectSettingsBody({
     retry: false,
   });
   const refetchProjectConfig = readQuery.refetch;
-  useFocusEffect(
-    useCallback(() => {
-      void refetchProjectConfig();
-    }, [refetchProjectConfig]),
-  );
+  const reloadProjectConfig = useCallback(() => {
+    void refetchProjectConfig();
+  }, [refetchProjectConfig]);
+  useFocusEffect(reloadProjectConfig);
+  useResetOnReconnect(selectedHost.serverId, reloadProjectConfig);
 
   const data = readQuery.data;
   const supportsCustomIcon = useHostFeature(selectedHost.serverId, "projectCustomIcon");
@@ -479,9 +481,8 @@ function resolveReadFailureCopy(input: {
 }
 
 function errorToDetail(error: unknown): string | null {
-  if (error instanceof Error && error.message.length > 0) return error.message;
-  if (typeof error === "string" && error.length > 0) return error;
-  return null;
+  if (!(error instanceof Error) && typeof error !== "string") return null;
+  return toErrorMessage(error) || null;
 }
 
 interface ProjectConfigFormProps {
@@ -506,6 +507,7 @@ function ProjectConfigForm({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const reportActionError = useReportActionError();
 
   const [draft, setDraft] = useState<ProjectConfigDraft>(() => configToDraft(baseConfig));
   const [writeError, setWriteError] = useState<ProjectConfigRpcError | null>(null);
@@ -543,6 +545,8 @@ function ProjectConfigForm({
         setWriteError(result.error);
       }
     },
+    // A failed request leaves the draft in place so the owner can save again.
+    onError: reportActionError,
   });
 
   const handleSave = useCallback(() => {

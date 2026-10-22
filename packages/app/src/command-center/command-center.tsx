@@ -70,6 +70,7 @@ import {
   type CommandCenterWorkspaceResult,
 } from "./results";
 import { useWorkspaceFileSearch } from "./workspace-file-search";
+import { toErrorMessage } from "@/utils/error-messages";
 
 const ThemedBottomSheetTextInput = withUnistyles(TextInput, (theme) => ({
   placeholderTextColor: theme.colors.foregroundMuted,
@@ -674,10 +675,10 @@ export function CommandCenter() {
           style={styles.errorText}
           testID="command-center-file-search-error"
         >
-          {t("common.errors.error")}: {state.fileSearchError}
+          {toErrorMessage(state.fileSearchError)}
         </Text>
       ) : null,
-    [state.fileSearchError, t],
+    [state.fileSearchError],
   );
   const commonListProps = {
     data: state.rows,

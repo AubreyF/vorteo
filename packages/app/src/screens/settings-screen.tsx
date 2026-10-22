@@ -93,6 +93,7 @@ import { useAppDiagnosticStore } from "@/diagnostics/store";
 import { settingsStyles } from "@/styles/settings";
 import { floatingPanelStyles, FLOATING_PANEL_INSET } from "@/styles/floating-panel";
 import { THINKING_TONE_NATIVE_PCM_BASE64 } from "@/utils/thinking-tone.native-pcm";
+import { toErrorMessage } from "@/utils/error-messages";
 import { useVoiceAudioEngineOptional } from "@/contexts/voice-context";
 import {
   LANGUAGE_OPTIONS,
@@ -1282,9 +1283,10 @@ export default function SettingsScreen({
       });
       setPlaybackTestResult(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       console.error("[Settings] Playback test failed", error);
-      setPlaybackTestResult(t("settings.diagnostics.playbackFailed", { message }));
+      setPlaybackTestResult(
+        t("settings.diagnostics.playbackFailed", { message: toErrorMessage(error) }),
+      );
     } finally {
       setIsPlaybackTestRunning(false);
     }

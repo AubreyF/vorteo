@@ -12,7 +12,7 @@ Do not stop at a Host handoff because the static publisher is unavailable when t
 
 ## Updates from the app
 
-The app checks public `AubreyF/paseo` main every 30 minutes while open. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
+The app checks public `AubreyF/paseo` main only while Settings is open, at most every 30 minutes, and shows no update notice elsewhere. Settings → General shows the comparison with the interface's build commit. This checks source commits, not tested releases or the running daemon version. Unpublished commits and builds without provenance show an unknown comparison instead of claiming an update is available.
 
 In the optional [host and container installation](execution-installation.md), **Prepare host update task** opens a separate editable draft targeting the trusted native host. Select the Vorteo source project and an agent preset, review the task, and send it. The task preserves local changes and requires approval before an installation restart. It does not run Git or start an agent until you send the draft. Updating a checkout alone does not update the served application.
 
@@ -20,7 +20,7 @@ In the optional [host and container installation](execution-installation.md), **
 
 The source provenance record is `packages/app/src/vorton-updates/upstream-sync.json`: the upstream commit, actual merge commit, and its Git committer timestamp. Update it after each successful upstream merge, as instructed by the host prompt. A check with no incoming changes must not change this date. Rebuild and publish the interface to display the new record. The date does not assert that the daemon is updated or that upstream has no newer commits.
 
-Builds from a Git checkout record HEAD as their source base. For source snapshots, pass the original full SHA through `PASEO_BUILD_COMMIT`; `build-instance-web.mjs` carries it automatically and records it in the snapshot’s ignored `.build-source-commit` file. Keep that file when exporting the same snapshot again; otherwise a separate export process loses the source identity. A real Git checkout always uses its own HEAD ahead of a snapshot stamp. Uncommitted source changes are not described by that SHA. The container installer and CI pass it into the image build. A source archive without that value can still use the prepared agent task, but cannot compare commits automatically.
+Builds from a Git checkout record HEAD as their source base. For source snapshots, pass the original full SHA through `PASEO_BUILD_COMMIT`; `build-instance-web.mjs` carries it automatically and records it in the snapshot’s ignored `.build-source-commit` file, which the build keeps beside its export. A real Git checkout always uses its own HEAD ahead of a snapshot stamp. Uncommitted source changes are not described by that SHA. The container installer and CI pass it into the image build. A source archive without that value can still use the prepared agent task, but cannot compare commits automatically.
 
 ## Publish a web-only change
 
@@ -28,7 +28,9 @@ For interface requests, update the existing primary Vorteo installation in place
 
 Publish each coherent revision after validation, including during a longer queue of interface work. Verify the served release and tell the owner to reload. Static publication does not restart either daemon or place agents on hold. Use the installation coordinator only when the change also requires a daemon or protocol update, and retain its exact approval requirements. A mixed change may publish compatible interface work first; do not expose controls that depend on unavailable daemon behavior.
 
-Builds use unique directories under `~/.cache/paseo-instance-builds/`. Each build owns its source snapshot, installed dependencies, generated files and export. Only npm's download cache is shared. A failed build never produces a completed artifact manifest.
+Builds use unique directories under `~/.cache/paseo-instance-builds/`. Each build owns its source snapshot, installed dependencies, generated files and export. On macOS the dependencies are a copy-on-write clone of a cached install of the same lockfile, so they cost almost no disk; see [shared dependency installs](task-delivery.md#shared-dependency-installs). A failed build never produces a completed artifact manifest, and its directory is deleted.
+
+Once the export is sealed, the build deletes its snapshot and dependencies and keeps only `web-export`, `.build-source-commit` and its owner record. Each build also starts a detached, low-priority pruner, `scripts/prune-instance-builds.mjs`, so deleting old dependencies never delays the build. You can run it by hand too. It removes failed or interrupted builds after an hour, directories from older builds without an owner record after six hours, and sealed exports beyond the newest five or older than seven days. It never touches a build whose process is still running. Before this cleanup each build left about 3 GB behind, and on 2026-10-22 the leftovers filled the Host disk.
 
 Task worktrees can build preview artifacts with `node scripts/build-instance-web.mjs`. The publisher rejects preview artifacts. For primary publication, merge accepted work into one integration branch and commit it first. The checkout must be clean, and its commit must descend from the deployed commit. These checks preserve deployed source history; review and acceptance tests must still catch intentional or accidental feature reversions within that history.
 

@@ -58,6 +58,8 @@ import { SettingsInput } from "@/components/settings";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { returnFromSettings } from "@/navigation/settings-navigation";
 import { ProvidersSection } from "./providers-section";
 import {
@@ -75,6 +77,23 @@ import {
 const ThemedMore = withUnistyles(MoreHorizontal);
 const mutedColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundColor = (theme: Theme) => ({ color: theme.colors.foreground });
+
+/** Lost connections are reported as toasts, so only host rejections stay on the page. */
+export function hostRejection(error: Error | null): Error | null {
+  if (!error || isConnectionError(error)) return null;
+  return error;
+}
+
+/** An `onError` handler that toasts lost connections and leaves rejections to the page. */
+export function useConnectionLostReporter() {
+  const reportActionError = useReportActionError();
+  return useCallback(
+    (failure: Error) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
+    [reportActionError],
+  );
+}
 
 export function providerTypeLabel(type: string): string {
   return AGENT_PROVIDER_DEFINITIONS.find((manifest) => manifest.id === type)?.label ?? type;
@@ -156,7 +175,9 @@ export function ProviderDetailPage({ providerType }: { providerType: string }) {
 function ProviderDetail({ providerType }: { providerType: string }) {
   const { data, installation, save } = useInstallationSettings();
   const environments = useMemo(() => installation?.environments ?? [], [installation]);
-  const change = useMutation({ mutationFn: save });
+  const reportConnectionLost = useConnectionLostReporter();
+  const change = useMutation({ mutationFn: save, onError: reportConnectionLost });
+  const changeRejection = hostRejection(change.error);
   const definitions = useMemo(
     () =>
       (change.isPending ? change.variables?.settings.providerDefinitions : undefined) ??
@@ -188,7 +209,9 @@ function ProviderDetail({ providerType }: { providerType: string }) {
   const snapshot = data as InstallationSettingsSnapshot & { settings: InstallationSettings };
   return (
     <>
-      {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+      {changeRejection ? (
+        <Alert variant="error" description={toErrorMessage(changeRejection)} />
+      ) : null}
       <ProviderEnabledCard
         family={family}
         snapshot={snapshot}
@@ -692,8 +715,10 @@ function ApiKeysSheet({
   const [keyName, setKeyName] = useState(status?.secrets[0]?.name ?? "");
   const [value, setValue] = useState("");
   const [formKey, setFormKey] = useState(0);
+  const reportConnectionLost = useConnectionLostReporter();
   const saving = useMutation({
     mutationFn: () => setSecret(definitionId, keyName.trim(), value),
+    onError: reportConnectionLost,
     onSuccess: () => {
       setValue("");
       setFormKey((key) => key + 1);
@@ -701,9 +726,10 @@ function ApiKeysSheet({
   });
   const clearing = useMutation({
     mutationFn: (secretName: string) => clearSecret(definitionId, secretName),
+    onError: reportConnectionLost,
   });
   const save = useCallback(() => saving.mutate(), [saving]);
-  const error = saving.error ?? clearing.error;
+  const error = hostRejection(saving.error ?? clearing.error);
   const labelFor = (serverId: string) => {
     const environment = environments.find((entry) => entry.serverId === serverId);
     return environment ? environmentLabel(environment) : serverId;
@@ -714,7 +740,7 @@ function ApiKeysSheet({
         Save a key once. Vorteo stores it on Host and delivers it to every environment within a few
         seconds. Saved values are never shown again.
       </Text>
-      {error ? <Alert variant="error" description={error.message} /> : null}
+      {error ? <Alert variant="error" description={toErrorMessage(error)} /> : null}
       {status?.conflicts.map((conflict) => (
         <Alert
           key={conflict.name}
@@ -986,6 +1012,7 @@ function ProviderConnectionActions({
   const { config } = useDaemonConfig(environment.serverId);
   const retainedId = provider.bindings[environment.serverId];
   const removed = config?.providers[retainedId]?.removed === true;
+  const reportConnectionLost = useConnectionLostReporter();
   const restoration = useMutation({
     mutationFn: async () => {
       if (!client || !connected) throw new Error(`Reconnect to ${location} and try again.`);
@@ -993,6 +1020,7 @@ function ProviderConnectionActions({
         providers: { [retainedId]: { removed: false, enabled: false } },
       });
     },
+    onError: reportConnectionLost,
   });
   const { mutate: restoreBinding } = restoration;
   const restore = useCallback(() => restoreBinding(), [restoreBinding]);
@@ -1037,10 +1065,11 @@ function ProviderConnectionActions({
       });
       await client.removeProvider(localId, plan.revision);
     },
+    onError: reportConnectionLost,
   });
   const { mutate } = removal;
   const remove = useCallback(() => mutate(), [mutate]);
-  const error = removal.error ?? restoration.error;
+  const error = hostRejection(removal.error ?? restoration.error);
   if (!canRemove && !removed && !error && !restoration.isSuccess) return null;
   return (
     <View style={styles.removal}>
@@ -1075,7 +1104,7 @@ function ProviderConnectionActions({
         <Alert
           variant="error"
           testID={`shared-provider-remove-error-${provider.id}-${environment.serverId}`}
-          description={error.message}
+          description={toErrorMessage(error)}
         />
       ) : null}
     </View>
@@ -1142,7 +1171,8 @@ function RemoveProviderRow({
     returnFromSettings({ kind: "provider", providerType: family.id });
   }, [family, snapshot, saveAsync]);
   const onPress = useCallback(() => {
-    void remove();
+    // The page's save mutation already reports a failed removal.
+    remove().catch(() => undefined);
   }, [remove]);
   const textStyle = useCallback(
     ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => [

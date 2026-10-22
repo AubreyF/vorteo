@@ -129,3 +129,76 @@ test("rejects symlinks in the workspace and protected directory paths", async ()
     await rm(root, { recursive: true, force: true });
   }
 });
+
+const readOnlyRoots = { ".": "read", ".factory-tmp": "write", ".codex": "deny", ".git": "read" };
+const readOnlyProfile = {
+  ...workerProfile,
+  filesystem: { ...workerProfile.filesystem, ":workspace_roots": readOnlyRoots },
+};
+
+test("returns the verified workspace mode for both audited shapes", () => {
+  expect(
+    verifyWorkerPermissionProfile({ ...workerProfile, network: { enabled: false } }, fixtureRoot),
+  ).toBe("write");
+  expect(
+    verifyWorkerPermissionProfile({ ...readOnlyProfile, network: { enabled: false } }, fixtureRoot),
+  ).toBe("read-only");
+  expect(
+    verifyWorkerPermissionProfile(
+      { ...readOnlyProfile, network: denyAllProxy },
+      fixtureRoot,
+      proxyFeature,
+    ),
+  ).toBe("read-only");
+});
+
+test.each([
+  { ".": "read", ".codex": "deny", ".git": "read" },
+  { ".": "write", ".factory-tmp": "write", ".codex": "deny", ".git": "read" },
+  { ".": "read", ".factory-tmp": "read", ".codex": "deny", ".git": "read" },
+  { ".": "read", ".factory-tmp": "write", ".codex": "read", ".git": "read" },
+  { ".": "read", ".factory-tmp": "write", ".codex": "deny", ".git": "write" },
+  { ".": "read", ".factory-tmp": "write", ".codex": "deny" },
+  { ".": "read", ".factory-tmp": "write", ".codex": "deny", ".git": "read", ".other": "write" },
+  { ".": "deny", ".factory-tmp": "write", ".codex": "deny", ".git": "read" },
+  { ".": "write", ".codex": "deny", ".git": "read", ".factory-tmp": "deny" },
+])("rejects near-miss workspace shapes %j", (roots) => {
+  expect(() =>
+    verifyWorkerPermissionProfile(
+      {
+        ...workerProfile,
+        filesystem: { ...workerProfile.filesystem, ":workspace_roots": roots },
+        network: { enabled: false },
+      },
+      fixtureRoot,
+    ),
+  ).toThrow("filesystem confinement");
+});
+
+test("read-only workers require a real .factory-tmp directory; writable workers do not", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "worker-readonly-")));
+  const outside = join(root, "outside");
+  const work = join(root, "work");
+  try {
+    await mkdir(work);
+    await mkdir(outside);
+    await mkdir(join(work, ".codex"));
+    await expect(verifyWorkerPhysicalWorkspace(work)).resolves.toBeUndefined();
+    await expect(verifyWorkerPhysicalWorkspace(work, "write")).resolves.toBeUndefined();
+    await expect(verifyWorkerPhysicalWorkspace(work, "read-only")).rejects.toThrow();
+    await writeFile(join(work, ".factory-tmp"), "fixture");
+    await expect(verifyWorkerPhysicalWorkspace(work, "read-only")).rejects.toThrow(
+      "physical workspace",
+    );
+    await rm(join(work, ".factory-tmp"));
+    await symlink(outside, join(work, ".factory-tmp"), "junction");
+    await expect(verifyWorkerPhysicalWorkspace(work, "read-only")).rejects.toThrow(
+      "physical workspace",
+    );
+    await rm(join(work, ".factory-tmp"));
+    await mkdir(join(work, ".factory-tmp"));
+    await expect(verifyWorkerPhysicalWorkspace(work, "read-only")).resolves.toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

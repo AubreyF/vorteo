@@ -3886,6 +3886,7 @@ export class DaemonClient {
     factoryRuntimeAdoption?: true;
     compatibleRecovery?: true;
     previewMonitor?: true;
+    claudeHostRefresh?: true;
     sourceUpdateTooling?: true;
     bootRecovery?: true;
     automaticStatus?: true;
@@ -3903,6 +3904,9 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapPreviewMonitor === true
         ? { previewMonitor: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapClaudeHostRefresh === true
+        ? { claudeHostRefresh: true as const }
         : {}),
       ...(features?.coordinatorBootstrapBootRecovery === true
         ? { bootRecovery: true as const }
@@ -3951,6 +3955,20 @@ export class DaemonClient {
     return result.requests;
   }
 
+  private assertServiceConfigurationPreparation(input: CoordinatorBootstrapPreparation): void {
+    const features = this.lastServerInfoMessage?.features;
+    if (
+      input.plan.previewMonitorConfiguration !== undefined &&
+      features?.coordinatorBootstrapPreviewMonitor !== true
+    )
+      throw new Error("Update the Host before preparing preview monitor configuration.");
+    if (
+      input.plan.claudeHostRefreshConfiguration !== undefined &&
+      features?.coordinatorBootstrapClaudeHostRefresh !== true
+    )
+      throw new Error("Update the Host before preparing Claude refresh configuration.");
+  }
+
   private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
     if (
       input.plan.bootRecovery &&
@@ -3981,11 +3999,7 @@ export class DaemonClient {
       this.lastServerInfoMessage?.features?.coordinatorBootstrapSourceUpdateTooling !== true
     )
       throw new Error("Update the Host before preparing source update tooling selection.");
-    if (
-      input.plan.previewMonitorConfiguration !== undefined &&
-      this.lastServerInfoMessage?.features?.coordinatorBootstrapPreviewMonitor !== true
-    )
-      throw new Error("Update the Host before preparing preview monitor configuration.");
+    this.assertServiceConfigurationPreparation(input);
     if (
       input.plan.compatibleRecovery &&
       this.lastServerInfoMessage?.features?.coordinatorBootstrapCompatibleRecovery !== true

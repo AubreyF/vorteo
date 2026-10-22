@@ -192,6 +192,16 @@ export async function kickstartJob(
   await (options.run ?? runCommand)("/bin/launchctl", args);
 }
 
+/** Sends a signal to the job's running process through launchd; the job itself stays loaded. */
+export async function signalJob(
+  label: string,
+  signal: "SIGTERM" | "SIGKILL",
+  options: LaunchdOptions = {},
+): Promise<void> {
+  guardLabel(label, options);
+  await (options.run ?? runCommand)("/bin/launchctl", ["kill", signal, `${guiDomain()}/${label}`]);
+}
+
 /** launchd's description of a loaded job, or null when no such job is loaded. */
 export async function printJob(
   label: string,

@@ -37,8 +37,11 @@ export interface DraggableListProps<T> {
   data: T[];
   keyExtractor: (item: T, index: number) => string;
   renderItem: (info: DraggableRenderItemInfo<T>) => ReactElement;
-  /** Return the save promise to keep the dropped order visible until data acknowledges it. */
-  onDragEnd: (data: T[]) => void | Promise<unknown>;
+  /**
+   * Return the save promise to keep the dropped order visible until data acknowledges it.
+   * `movedKey` names the dragged row, which the order alone cannot tell for adjacent swaps.
+   */
+  onDragEnd: (data: T[], movedKey: string) => void | Promise<unknown>;
   style?: StyleProp<ViewStyle>;
   /** Outer container style (useful for nested, non-scrolling lists). */
   containerStyle?: StyleProp<ViewStyle>;

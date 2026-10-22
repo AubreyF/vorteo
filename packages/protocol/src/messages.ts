@@ -1024,6 +1024,9 @@ export const AgentSnapshotPayloadSchema = z.object({
   questions: z.array(AgentQuestionSchema).optional(),
   tasks: z.array(AgentTaskItemSchema).optional(),
   goalState: AgentGoalStateSchema.optional(),
+  // True when the agent's provider session runs in the durable session host, so its turn survives
+  // a daemon restart. Optional on a non-strict schema: older daemons omit it, older clients ignore it.
+  hosted: z.boolean().optional(),
   id: z.string(),
   profile: z.object({ id: z.string(), name: z.string() }).optional(),
   quotaPausedAt: z.string().optional(),
@@ -4055,6 +4058,7 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        coordinatorBootstrapClaudeHostRefresh: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         coordinatorBootstrapBootRecovery: z.boolean().optional(),
@@ -4079,6 +4083,8 @@ export const ServerInfoStatusPayloadSchema = z
         agentChecklistMutations: z.boolean().optional(),
         checklistBlockedStatus: z.boolean().optional(),
         sidebarState: z.boolean().optional(),
+        // COMPAT(sidebarFolders): added 2026-10-22; gate folder writes until the daemon floor includes them.
+        sidebarFolders: z.boolean().optional(),
         checklistReviewStatus: z.boolean().optional(),
         // COMPAT(checklistProgress): added October 2026; send progress and checks only when advertised.
         checklistProgress: z.boolean().optional(),

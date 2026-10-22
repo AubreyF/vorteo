@@ -183,6 +183,8 @@ export async function finalizeReleaseMetadata(
   const split = metadata.notes.indexOf("\n## ");
   if (split < 0) throw new Error("Changelog requires explicit integration");
   const summary = reasons.map((reason) => `- ${reason.replace(/\s+/g, " ")}`).join("\n");
-  const notes = `${metadata.notes.slice(0, split)}\n\n## ${version} - ${date}\n\n### Maintenance\n\n${summary}\n\n${metadata.notes.slice(split + 1)}`;
+  // trimEnd: the intro already ends in a newline, so without it the entry gains a second blank
+  // line that oxfmt --check (CI) rejects on every combined commit.
+  const notes = `${metadata.notes.slice(0, split).trimEnd()}\n\n## ${version} - ${date}\n\n### Maintenance\n\n${summary}\n\n${metadata.notes.slice(split + 1)}`;
   return metadata.files(version, notes);
 }

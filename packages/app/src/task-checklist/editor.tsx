@@ -25,7 +25,6 @@ interface ChecklistEditorProps {
   supportsBlocked: boolean;
   supportsReview: boolean;
   pending: boolean;
-  error: string | null;
   mutate: (mutation: ChecklistMutation) => Promise<unknown>;
   onClose: () => void;
 }
@@ -46,7 +45,6 @@ export function ChecklistEditor({
   supportsBlocked,
   supportsReview,
   pending,
-  error,
   mutate,
   onClose,
 }: ChecklistEditorProps) {
@@ -62,7 +60,7 @@ export function ChecklistEditor({
       await mutate(checklistFormMutation(form));
       onClose();
     } catch {
-      /* The shared mutation error remains visible and the draft is retained. */
+      /* The failure is reported as a toast and the draft is retained for a retry. */
     }
   }, [mutate, form, onClose]);
   const remove = useCallback(async () => {
@@ -78,7 +76,7 @@ export function ChecklistEditor({
       await mutate({ operation: "delete", id: task.id, expectedTask: task });
       onClose();
     } catch {
-      /* Keep the failed operation visible in this editor. */
+      /* The failure is reported as a toast and the editor stays open. */
     }
   }, [task, mutate, onClose]);
   const setters = useMemo(
@@ -238,11 +236,6 @@ export function ChecklistEditor({
           </View>
         </Field>
         {readOnly ? <Text style={styles.hint}>Managed by native agent task tools</Text> : null}
-        {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
-            {error}
-          </Text>
-        ) : null}
       </View>
     </AdaptiveModalSheet>
   );
@@ -253,5 +246,4 @@ const styles = StyleSheet.create((theme) => ({
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
   dependencies: { gap: theme.spacing[1] },
   hint: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
-  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));
