@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.744 - 2026-10-22
+
+### Changed
+
+- Let the Host delivery script fast-forward to a newer installed release that already contains the delivery branch, and resolve manifest conflicts that differ only in Vorteo version strings, which every commit produces. Other dependency conflicts still stop for review.
+
+### Fixed
+
+- Show `origin/main` in full in the delivery script's progress message instead of cutting it to nine characters
+
 ## 0.11.0-beta.3.vorteo.743 - 2026-10-22
 
 ### Maintenance

@@ -29,7 +29,7 @@ node scripts/prepare-host-delivery.mjs --checkout <delivery-dir> \
   --source-repo <installation source repository> --installed <installed commit>
 ```
 
-Read the installed commit from the current release's activation record and the source repository from the installation's update request. Keep these paths out of Git. Each run takes one step: it resets a new checkout to the installed commit, or starts the next merge of a newer installed release, a published record, or `main`. Release-note conflicts keep both sides; resolve any other conflict yourself. Finish each merge with `npm run version:vorton`, a changelog entry and a normal commit, then run the script again until it reports ready. Publish the result to `main` and submit it with the installation client.
+Read the installed commit from the current release's activation record and the source repository from the installation's update request. Keep these paths out of Git. Each run takes one step: it resets a new checkout to the installed commit, or starts the next merge of a newer installed release, a published record, or `main`. A newer installed release that already contains the branch is reached by fast-forward. Release-note conflicts keep both sides, and manifest conflicts that differ only in Vorteo version strings keep the installed side. Resolve any other conflict yourself. Finish each merge with `npm run version:vorton`, a changelog entry and a normal commit, then run the script again until it reports ready. Publish the result to `main` and submit it with the installation client.
 
 After any Host install whose source is not yet on `main`, publish that source to `main` the same day. A Host that runs ahead of GitHub blocks the next update from `main`.
 

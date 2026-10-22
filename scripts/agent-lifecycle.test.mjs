@@ -13,7 +13,11 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { checkArchiveReadiness } from "./archive-readiness.mjs";
 import { findGitleaks, unpublishedCommits } from "./lib/delivery-git.mjs";
-import { prepareHostDelivery, unionConflicts } from "./prepare-host-delivery.mjs";
+import {
+  prepareHostDelivery,
+  resolveVersionOnlyConflicts,
+  unionConflicts,
+} from "./prepare-host-delivery.mjs";
 import { PublishRefusal, preparePublication, publish } from "./publish-main.mjs";
 import { createTaskWorktree, planTaskWorktree } from "./task-worktree.mjs";
 import { applyCleanup, classifyWorktrees } from "./worktree-cleanup.mjs";
@@ -282,11 +286,11 @@ test("Host delivery starts at the installed commit, then merges publications bef
   const checkout = path.join(root, "delivery");
   const options = { repository: clone, checkout, sourceRepo: source, installed };
   assert.equal(prepareHostDelivery(options).state, "reset");
-  const first = prepareHostDelivery(options);
-  assert.equal(first.merging, publication);
+  // The publication sits on top of the installed commit, so it fast-forwards.
+  assert.equal(prepareHostDelivery(options).state, "fast-forwarded");
+  assert.equal(run(checkout, "rev-parse", "HEAD").trim(), publication);
   run(checkout, "config", "user.name", "Test");
   run(checkout, "config", "user.email", "test@example.invalid");
-  run(checkout, "commit", "--quiet", "-m", "Merge publication");
   const second = prepareHostDelivery(options);
   assert.equal(second.subject, "Main work");
   assert.deepEqual(second.conflicts, []);
@@ -298,5 +302,30 @@ test("Host delivery starts at the installed commit, then merges publications bef
   const newer = commit(source, "later.txt", "l\n", "Later install");
   const third = prepareHostDelivery({ ...options, installed: newer });
   assert.equal(third.merging, newer);
+  run(checkout, "commit", "--quiet", "-m", "Merge later install");
+  // An installed release built on top of this branch is reached by fast-forward.
+  run(source, "fetch", "--quiet", checkout, "installation-integration");
+  run(source, "merge", "--quiet", "--ff-only", "FETCH_HEAD");
+  const descendant = commit(source, "after.txt", "a\n", "Installed on top");
+  assert.equal(prepareHostDelivery({ ...options, installed: descendant }).state, "fast-forwarded");
+  assert.equal(run(checkout, "rev-parse", "HEAD").trim(), descendant);
   assert.match(run(checkout, "log", "--format=%s"), /Merge main/);
+});
+
+test("manifest conflicts on Vorteo versions alone keep the installed side", () => {
+  const conflict = (ours, theirs) =>
+    ["{", "<<<<<<< HEAD", ours, "=======", theirs, ">>>>>>> origin/main", "}"].join("\n");
+  const versions = resolveVersionOnlyConflicts(
+    conflict(
+      '  "version": "0.11.0-beta.3.vorteo.739",',
+      '  "version": "0.11.0-beta.3.vorteo.734",',
+    ),
+  );
+  assert.equal(versions.unresolved, 0);
+  assert.equal(versions.text, '{\n  "version": "0.11.0-beta.3.vorteo.739",\n}');
+  const dependency = resolveVersionOnlyConflicts(
+    conflict('  "zod": "^3.24.0",', '  "zod": "^4.0.0",'),
+  );
+  assert.equal(dependency.unresolved, 1);
+  assert.match(dependency.text, /<<<<<<< HEAD/);
 });

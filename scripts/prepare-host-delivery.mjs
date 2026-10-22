@@ -44,6 +44,39 @@ export function unionConflicts(text) {
   return output.join("\n");
 }
 
+// Both lines bump the Vorteo version on every commit, so manifests conflict on
+// version strings alone. Those hunks keep the installed side; the version
+// workflow sets the final number when the merge is committed.
+const VORTEO_VERSION = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+?)?\.(?:vorteo|vorton)\.\d+/g;
+
+/** Resolves conflict hunks that differ only in Vorteo version strings. */
+export function resolveVersionOnlyConflicts(text) {
+  const lines = text.split("\n");
+  const output = [];
+  let unresolved = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith("<<<<<<< ")) {
+      output.push(lines[index]);
+      continue;
+    }
+    const start = index;
+    const ours = [];
+    const theirs = [];
+    index += 1;
+    while (index < lines.length && !lines[index].startsWith("=======")) ours.push(lines[index++]);
+    index += 1;
+    while (index < lines.length && !lines[index].startsWith(">>>>>>> "))
+      theirs.push(lines[index++]);
+    const mask = (side) => side.join("\n").replace(VORTEO_VERSION, "<version>");
+    if (mask(ours) === mask(theirs)) output.push(...ours);
+    else {
+      unresolved += 1;
+      output.push(...lines.slice(start, index + 1));
+    }
+  }
+  return { text: output.join("\n"), unresolved };
+}
+
 function conflictedFiles(cwd) {
   const output = git(cwd, ["diff", "--name-only", "--diff-filter=U"]);
   return output ? output.split("\n") : [];
@@ -107,11 +140,23 @@ export function prepareHostDelivery({
     return { state: "ready", head: git(checkout, ["rev-parse", "HEAD"]), checkout, branch };
   }
 
+  // A newer installed release that already contains this branch needs no merge commit.
+  if (isAncestor(checkout, "HEAD", next)) {
+    git(checkout, ["merge", "--quiet", "--ff-only", next]);
+    return { state: "fast-forwarded", head: git(checkout, ["rev-parse", "HEAD"]), checkout };
+  }
   git(checkout, ["merge", "--no-ff", "--no-commit", next], { allowFailure: true });
-  for (const file of conflictedFiles(checkout).filter((name) => UNION_FILES.includes(name))) {
+  for (const file of conflictedFiles(checkout)) {
     const full = path.join(checkout, file);
-    writeFileSync(full, unionConflicts(readFileSync(full, "utf8")));
-    git(checkout, ["add", file]);
+    const text = readFileSync(full, "utf8");
+    if (UNION_FILES.includes(file)) {
+      writeFileSync(full, unionConflicts(text));
+      git(checkout, ["add", file]);
+    } else if (/(^|\/)package(-lock)?\.json$/.test(file)) {
+      const resolved = resolveVersionOnlyConflicts(text);
+      writeFileSync(full, resolved.text);
+      if (resolved.unresolved === 0) git(checkout, ["add", file]);
+    }
   }
   const conflicts = conflictedFiles(checkout);
   return {
@@ -138,13 +183,15 @@ function main() {
     target: args.target ?? "origin/main",
     branch: args.branch ?? "installation-integration",
   });
-  if (result.state === "reset") {
+  if (result.state === "fast-forwarded") {
+    console.log(`Fast-forwarded the delivery checkout to ${result.head.slice(0, 9)}. Run again.`);
+  } else if (result.state === "reset") {
     console.log(
       `Delivery checkout reset to the installed commit ${result.head.slice(0, 9)}. Run again.`,
     );
   } else if (result.state === "merging") {
     console.log(
-      `Merging ${result.merging ? `${result.merging.slice(0, 9)} ${result.subject}` : "in progress"}.`,
+      `Merging ${result.merging ? `${/^[0-9a-f]{40}$/.test(result.merging) ? result.merging.slice(0, 9) : result.merging} ${result.subject}` : "in progress"}.`,
     );
     if (result.conflicts.length) {
       console.log(`Resolve these conflicts first: ${result.conflicts.join(", ")}`);

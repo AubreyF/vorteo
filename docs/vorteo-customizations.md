@@ -733,6 +733,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 22, 2026: The first real Host delivery with the new script published the installed source to GitHub main. It exposed routine version-only manifest conflicts and redundant merge commits; the script now resolves the former and fast-forwards instead of merging. README overview and onboarding are unchanged.
+
 October 22, 2026: Merged GitHub main into the installed Host source using the Host delivery script; installed changes now reach GitHub. README overview and onboarding are unchanged.
 
 October 22, 2026: Installation health is one summary line with details on demand, Refresh buttons appear only after errors, an empty request queue is hidden and Request readiness folds behind a toggle. README overview and onboarding are unchanged.
