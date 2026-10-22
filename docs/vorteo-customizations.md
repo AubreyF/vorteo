@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the coordinator sends the session host's pending upgrade only to interfaces that declare it, so release 761 interfaces keep parsing the status during an upgrade, and the interface now reads the session host query tolerantly so later additions need no flag for it. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): durable sessions phase 3 adds host generations: the session host exits at zero sessions once a newer release is installed, workers release idle hosted sessions while that upgrade is pending and wait for the relaunched host, and the status reports the pending upgrade. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the owner's session host query sends restart jobs and indicator fields only to interfaces that declare them, and the interface no longer lets a session host query failure take down the rest of Installation controls; a contract test freezes the earlier strict shape. README overview and onboarding are unchanged.

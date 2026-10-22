@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Fixed
+
+- Interfaces from release 761 keep parsing the session host status while an upgrade is pending. They declare restart and indicator support but parse strictly and do not know the pending upgrade field, so the coordinator now sends that field only to a client that declares `upgrade: true`, which the interface does from this release. The interface also reads the owner's session host query with schemas that ignore unknown keys at every level, so a later coordinator addition reaches it without a flag; the gating flags remain for interfaces older than this release.
+
+### Validation
+
+- The contract test freezes the 761 strict schemas and checks that a client declaring restarts and the indicator parses a status with an upgrade pending and never sees the field, that a client declaring every flag sees it, and that each flag withholds only its own addition. An interface client test checks the query declares all three flags and that a reply with unknown keys in the overview, a job, its plan and host, and the status detail still parses.
+
 ## 0.11.0-beta.3.vorteo.762 - 2026-10-22
 
 ### Features
