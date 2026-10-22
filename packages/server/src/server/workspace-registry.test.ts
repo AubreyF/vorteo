@@ -159,6 +159,7 @@ describe("workspace registries", () => {
           displayName: "x",
           worktreeRoot: `${physical}/.vorteo/worktrees/abc/x`,
           mainRepoRoot: `${physical}/app`,
+          projectMembership: { key: `host:srv_1:${physical}/app`, name: "app" },
           createdAt: "2026-10-22T00:00:00.000Z",
           updatedAt: "2026-10-22T00:00:00.000Z",
         }),
@@ -171,6 +172,7 @@ describe("workspace registries", () => {
         cwd: `${logical}/.vorteo/worktrees/abc/x/web`,
         worktreeRoot: `${logical}/.vorteo/worktrees/abc/x`,
         mainRepoRoot: `${logical}/app`,
+        projectMembership: { key: `host:srv_1:${logical}/app`, name: "app" },
       });
     } finally {
       setActiveProjectsFolder(undefined);

@@ -49,6 +49,13 @@ const LogicalNullablePathSchema = z
   .default(null)
   .transform(logicalProjectsPathOrNull);
 
+// A membership key names the project a workspace joins in the sidebar, so it takes the same
+// logical form as the project key it names.
+const LogicalProjectMembershipSchema = WorkspaceProjectMembershipSchema.transform((membership) => ({
+  ...membership,
+  key: logicalProjectKey(membership.key) ?? membership.key,
+}));
+
 const PersistedProjectRecordSchema = z.object({
   projectId: z.string(),
   rootPath: LogicalPathSchema,
@@ -84,7 +91,7 @@ const PersistedProjectRecordSchema = z.object({
 const PersistedWorkspaceRecordSchema = z.object({
   workspaceId: z.string(),
   projectId: z.string(),
-  projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+  projectMembership: LogicalProjectMembershipSchema.nullable().optional(),
   // Native installation lifecycle owns this relationship; ordinary requests cannot set it.
   factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
   // Daemon startup seeding owns this role; ordinary requests cannot set or clear it.

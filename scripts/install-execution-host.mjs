@@ -918,7 +918,8 @@ async function writeContainerProjectsFolder(settings, input) {
  * list other container paths of the same folder; the Dev daemon records paths under them
  * by the folder's own path and moves registry paths from them at its next start. An
  * existing container may reach the folder's path through a symlink to its older mount,
- * which is found and recorded as an alias. Takes effect at each daemon's next start.
+ * which is found and recorded as an alias. The Host records the same lists. Takes effect at
+ * each daemon's next start.
  */
 export async function configureProjectsFolder(
   root,
@@ -929,11 +930,20 @@ export async function configureProjectsFolder(
   const resolved = realpathSync(folder);
   if (!statSync(resolved).isDirectory()) throw new Error(`${resolved} is not a folder`);
   assertProjectsFolderSeparate(resolved, [root, record.hostHome, record.release, sourceRoot]);
-  const host = writeProjectsFolderSettings({
-    paseoHome: record.hostHome,
-    root: resolved,
-    allowOutside,
-  });
+  // The Host records the same earlier paths, aliases and kept paths as Dev, because it is
+  // the same folder: keys that Dev recorded under an alias, such as shared sidebar state,
+  // then map to the logical root on the Host too. The Host has no paths under them, so
+  // nothing else it records changes.
+  const writeHost = (detectedAliases = []) =>
+    writeProjectsFolderSettings({
+      paseoHome: record.hostHome,
+      root: resolved,
+      migrateFrom,
+      aliases: [...aliases, ...detectedAliases],
+      allowOutside,
+      keepPaths,
+    });
+  let host = writeHost();
   const config = JSON.parse(readFileSync(record.configFile, "utf8"));
   const dev = config.containerSourceUpdates
     ? await writeContainerProjectsFolder(config.containerSourceUpdates, {
@@ -944,6 +954,10 @@ export async function configureProjectsFolder(
         keepPaths,
       })
     : { written: false, reason: "No Dev container is configured for updates." };
+  if (dev.aliases?.length) {
+    const withDetected = writeHost(dev.aliases);
+    host = { ...withDetected, changed: host.changed || withDetected.changed };
+  }
   return { folder: resolved, host, dev };
 }
 
