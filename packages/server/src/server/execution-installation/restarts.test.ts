@@ -2811,6 +2811,30 @@ test("release notes preserve interleaved history and reject edits or missing dup
   ).toThrow("introduction changed");
 });
 
+test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.693 - 2026-10-20\n\n- Existing note";
+  const base = `${prefix}${old}\n`;
+  // Installed history contains well-formed headings with no notes, such as vorteo.740.
+  const empty = "## 0.11.0-beta.3.vorteo.740 - 2026-10-21";
+  const withEmpty = `${prefix}${empty}\n\n${old}\n`;
+  expect(reconcileReleaseNotes(base, base, withEmpty)).toBe(withEmpty);
+  expect(() =>
+    reconcileReleaseNotes(base, base, `${prefix}## 0.11.0-beta.3.vorteo.741\n\n${old}\n`),
+  ).toThrow("Release-note heading requires review");
+  expect(() =>
+    reconcileReleaseNotes(base, base, `${prefix}## vorteo.742 - 2026-10-21 later\n\n${old}\n`),
+  ).toThrow("Release-note heading requires review");
+  expect(() =>
+    reconcileReleaseNotes(
+      base,
+      base,
+      `${prefix}${empty}\n\n${old.replace("Existing", "Edited")}\n`,
+    ),
+  ).toThrow("Existing release notes were edited");
+});
+
 test("coordinator recovery revalidates pending conflicts without approving or installing", async () => {
   const journal = new MemoryJournal();
   const update = {
