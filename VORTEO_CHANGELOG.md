@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Added
+
+- Each connection on a provider page has an API keys sheet in its menu. Save a key once and Vorteo delivers it to every environment; the sheet shows which environments have it, the last four characters of long keys, and differing imported values to resolve. Connection rows mention keys still on their way and, for Codex, which environments still need their own sign-in.
+
 ## 0.11.0-beta.3.vorteo.760 - 2026-10-22
 
 ### Added

@@ -49,6 +49,12 @@ import { ProviderUsageWindowBar } from "@/provider-usage/window-bar";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
+import {
+  describeSecretDelivery,
+  useProviderSecrets,
+} from "@/execution-installation/provider-secrets";
+import type { ProviderSecretsStatus } from "@getpaseo/protocol/provider-secrets";
+import { SettingsInput } from "@/components/settings";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
@@ -280,6 +286,9 @@ function ConnectionsSection({
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<ProviderAccount | null>(null);
   const [details, setDetails] = useState<ProviderAccount | null>(null);
+  const [keys, setKeys] = useState<ProviderAccount | null>(null);
+  const secrets = useProviderSecrets();
+  const closeKeys = useCallback(() => setKeys(null), []);
   const openAdd = useCallback(() => setAdding(true), []);
   const closeAdd = useCallback(() => setAdding(false), []);
   const closeRename = useCallback(() => setRenaming(null), []);
@@ -333,6 +342,8 @@ function ConnectionsSection({
             save={save}
             onRename={setRenaming}
             onDetails={setDetails}
+            onKeys={setKeys}
+            secrets={secrets.byDefinition.get(primaryDefinition(account, environments).id)}
           />
         ))}
       </View>
@@ -345,6 +356,17 @@ function ConnectionsSection({
           busy={busy}
           save={save}
           onClose={closeDetails}
+        />
+      ) : null}
+      {keys ? (
+        <ApiKeysSheet
+          name={keys.name}
+          definitionId={primaryDefinition(keys, environments).id}
+          status={secrets.byDefinition.get(primaryDefinition(keys, environments).id)}
+          environments={environments}
+          setSecret={secrets.setSecret}
+          clearSecret={secrets.clearSecret}
+          onClose={closeKeys}
         />
       ) : null}
       {renaming ? (
@@ -379,6 +401,8 @@ function ConnectionRow({
   save,
   onRename,
   onDetails,
+  onKeys,
+  secrets,
 }: {
   account: ProviderAccount;
   snapshot: InstallationSettingsSnapshot & { settings: InstallationSettings };
@@ -388,6 +412,8 @@ function ConnectionRow({
   save(update: InstallationSettingsUpdate): void;
   onRename(account: ProviderAccount): void;
   onDetails(account: ProviderAccount): void;
+  onKeys(account: ProviderAccount): void;
+  secrets: ProviderSecretsStatus | undefined;
 }) {
   const provider = primaryDefinition(account, environments);
   const host = environments.find((environment) => environment.kind === "host");
@@ -411,6 +437,8 @@ function ConnectionRow({
   }, [open, signInEnvironment, signInId]);
   const rename = useCallback(() => onRename(account), [onRename, account]);
   const details = useCallback(() => onDetails(account), [onDetails, account]);
+  const keys = useCallback(() => onKeys(account), [onKeys, account]);
+
   const toggle = useCallback(
     (enabled: boolean) => {
       const ids = new Set(account.definitions.map((entry) => entry.id));
@@ -432,20 +460,15 @@ function ConnectionRow({
       testID={`provider-account-${account.id}`}
     >
       <View style={styles.connectionHeading}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle}>{name}</Text>
-          <Text
-            style={attention ? settingsStyles.rowError : settingsStyles.rowHint}
-            testID={`provider-connection-status-${account.id}`}
-          >
-            {status}
-          </Text>
-          {error ? (
-            <Text style={settingsStyles.rowHint} numberOfLines={2}>
-              {error}
-            </Text>
-          ) : null}
-        </View>
+        <ConnectionStatusLines
+          accountId={account.id}
+          name={name}
+          status={status}
+          attention={attention}
+          error={error}
+          secrets={secrets}
+          states={states}
+        />
         <View style={styles.controls}>
           {signInEnvironment && signInId ? (
             <ProviderReconnectControl
@@ -467,6 +490,7 @@ function ConnectionRow({
             onModels={signInId ? showModels : undefined}
             onRename={rename}
             onDetails={details}
+            onKeys={keys}
           />
         </View>
       </View>
@@ -481,18 +505,83 @@ function ConnectionRow({
   );
 }
 
+/** Environments a Codex-style sign-in still has to reach, read from the coordinator's hint. */
+function pendingSignIns(
+  secrets: ProviderSecretsStatus | undefined,
+  states: readonly EnvironmentState[],
+): string[] {
+  return (secrets?.accountSignIn?.environments ?? [])
+    .filter((environment) =>
+      states.some(
+        (state) =>
+          state.environment.serverId === environment.serverId &&
+          (state.kind === "attention" || state.kind === "none"),
+      ),
+    )
+    .map((environment) => `Sign in on ${environment.label}`);
+}
+
+function ConnectionStatusLines({
+  accountId,
+  name,
+  status,
+  attention,
+  error,
+  secrets,
+  states,
+}: {
+  accountId: string;
+  name: string;
+  status: string;
+  attention: boolean;
+  error: string | null;
+  secrets: ProviderSecretsStatus | undefined;
+  states: readonly EnvironmentState[];
+}) {
+  const delivery = describeSecretDelivery(secrets);
+  const signIns = pendingSignIns(secrets, states);
+  return (
+    <View style={settingsStyles.rowContent}>
+      <Text style={settingsStyles.rowTitle}>{name}</Text>
+      <Text
+        style={attention ? settingsStyles.rowError : settingsStyles.rowHint}
+        testID={`provider-connection-status-${accountId}`}
+      >
+        {status}
+      </Text>
+      {error ? (
+        <Text style={settingsStyles.rowHint} numberOfLines={2}>
+          {error}
+        </Text>
+      ) : null}
+      {delivery ? (
+        <Text style={settingsStyles.rowHint} testID={`provider-connection-keys-${accountId}`}>
+          {delivery}
+        </Text>
+      ) : null}
+      {signIns.length ? (
+        <Text style={settingsStyles.rowHint}>
+          {`${signIns.join(" · ")}. Codex keeps a separate sign-in in each environment.`}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function ConnectionMenu({
   name,
   accountId,
   onModels,
   onRename,
   onDetails,
+  onKeys,
 }: {
   name: string;
   accountId: string;
   onModels?: () => void;
   onRename(): void;
   onDetails(): void;
+  onKeys(): void;
 }) {
   const triggerStyle = useCallback(
     ({ hovered, open }: PressableStateCallbackType & { hovered?: boolean; open?: boolean }) => [
@@ -520,6 +609,9 @@ function ConnectionMenu({
             Models
           </DropdownMenuItem>
         ) : null}
+        <DropdownMenuItem onSelect={onKeys} testID={`provider-connection-keys-menu-${accountId}`}>
+          API keys
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onRename} testID={`provider-connection-rename-${accountId}`}>
           Rename
         </DropdownMenuItem>
@@ -565,6 +657,169 @@ function AddConnectionSheet({
         </Button>
       ) : null}
     </AdaptiveModalSheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// API keys, stored once by the coordinator and delivered everywhere
+// ---------------------------------------------------------------------------
+
+const SECRET_STATUS_LABEL = {
+  delivered: "Has the current keys",
+  pending: "Receiving keys",
+  failed: "Not delivered",
+  excluded: "Off here",
+} as const;
+
+function ApiKeysSheet({
+  name,
+  definitionId,
+  status,
+  environments,
+  setSecret,
+  clearSecret,
+  onClose,
+}: {
+  name: string;
+  definitionId: string;
+  status: ProviderSecretsStatus | undefined;
+  environments: InstallationEnvironment[];
+  setSecret(definitionId: string, name: string, value: string): Promise<void>;
+  clearSecret(definitionId: string, name: string): Promise<void>;
+  onClose(): void;
+}) {
+  const header = useMemo(() => ({ title: `${name}: API keys` }), [name]);
+  const [keyName, setKeyName] = useState(status?.secrets[0]?.name ?? "");
+  const [value, setValue] = useState("");
+  const [formKey, setFormKey] = useState(0);
+  const saving = useMutation({
+    mutationFn: () => setSecret(definitionId, keyName.trim(), value),
+    onSuccess: () => {
+      setValue("");
+      setFormKey((key) => key + 1);
+    },
+  });
+  const clearing = useMutation({
+    mutationFn: (secretName: string) => clearSecret(definitionId, secretName),
+  });
+  const save = useCallback(() => saving.mutate(), [saving]);
+  const error = saving.error ?? clearing.error;
+  const labelFor = (serverId: string) => {
+    const environment = environments.find((entry) => entry.serverId === serverId);
+    return environment ? environmentLabel(environment) : serverId;
+  };
+  return (
+    <AdaptiveModalSheet testID="provider-keys-sheet" visible onClose={onClose} header={header}>
+      <Text style={settingsStyles.rowHint}>
+        Save a key once. Vorteo stores it on Host and delivers it to every environment within a few
+        seconds. Saved values are never shown again.
+      </Text>
+      {error ? <Alert variant="error" description={error.message} /> : null}
+      {status?.conflicts.map((conflict) => (
+        <Alert
+          key={conflict.name}
+          description={`${conflict.name} has different values in ${conflict.serverIds.map(labelFor).join(" and ")}. Set it here to use one value everywhere.`}
+        />
+      ))}
+      {status?.secrets.length ? (
+        <View style={settingsStyles.card}>
+          {status.secrets.map((secret, index) => (
+            <SecretRow
+              key={secret.name}
+              name={secret.name}
+              detail={`${secret.last4 ? `Ends in ${secret.last4} · ` : ""}${secret.source === "imported" ? "Imported" : "Saved"} ${new Date(secret.updatedAt).toLocaleString()}`}
+              first={index === 0}
+              busy={clearing.isPending}
+              onClear={clearing.mutate}
+            />
+          ))}
+        </View>
+      ) : null}
+      <View style={settingsStyles.card} key={formKey}>
+        <SettingsInput
+          label="Key name"
+          hint="Environment variable, ending in _KEY, _TOKEN, _SECRET or _PASSWORD"
+          initialValue={keyName}
+          onChangeText={setKeyName}
+          placeholder="ZAI_API_KEY"
+        />
+        <SettingsInput
+          label="Value"
+          initialValue=""
+          onChangeText={setValue}
+          placeholder="Paste the key"
+          secureTextEntry
+        />
+      </View>
+      <Button
+        onPress={save}
+        disabled={saving.isPending || !keyName.trim() || !value}
+        testID="provider-keys-save"
+      >
+        {saving.isPending ? "Saving" : "Save key"}
+      </Button>
+      {status?.environments.length ? (
+        <View style={settingsStyles.card}>
+          {status.environments.map((environment, index) => (
+            <View
+              key={environment.serverId}
+              style={[settingsStyles.row, index > 0 && settingsStyles.rowBorder]}
+            >
+              <View style={settingsStyles.rowContent}>
+                <Text style={settingsStyles.rowTitle}>{labelFor(environment.serverId)}</Text>
+                <Text
+                  style={
+                    environment.status === "failed"
+                      ? settingsStyles.rowError
+                      : settingsStyles.rowHint
+                  }
+                >
+                  {environment.message ?? SECRET_STATUS_LABEL[environment.status]}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </AdaptiveModalSheet>
+  );
+}
+
+function SecretRow({
+  name,
+  detail,
+  first,
+  busy,
+  onClear,
+}: {
+  name: string;
+  detail: string;
+  first: boolean;
+  busy: boolean;
+  onClear(name: string): void;
+}) {
+  const clear = useCallback(async () => {
+    const confirmed = await confirmDialog({
+      title: `Remove ${name}?`,
+      message: "Vorteo removes this key from every environment it delivered it to.",
+      confirmLabel: "Remove key",
+      destructive: true,
+    });
+    if (confirmed) onClear(name);
+  }, [name, onClear]);
+  const onPress = useCallback(() => {
+    void clear();
+  }, [clear]);
+  return (
+    <View style={[settingsStyles.row, !first && settingsStyles.rowBorder]}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{name}</Text>
+        <Text style={settingsStyles.rowHint}>{detail}</Text>
+      </View>
+      <Button variant="ghost" size="sm" onPress={onPress} disabled={busy}>
+        Remove
+      </Button>
+    </View>
   );
 }
 
