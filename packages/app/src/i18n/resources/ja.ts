@@ -175,6 +175,8 @@ export const ja: TranslationResources = {
     },
     errors: {
       failedToSend: "メッセージの送信に失敗しました",
+      connectionLostWhileSending:
+        "送信中に接続が切れました。再送する前にメッセージが届いたか確認してください。",
       failedToCreateAgent: "エージェントの作成に失敗しました",
       noHostSelected: "ホストが選択されていません",
       initialPromptRequired: "初期プロンプトが必要です",

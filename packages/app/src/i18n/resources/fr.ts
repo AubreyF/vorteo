@@ -177,6 +177,8 @@ export const fr: TranslationResources = {
     },
     errors: {
       failedToSend: "Échec de l'envoi du message",
+      connectionLostWhileSending:
+        "Connexion perdue pendant l'envoi. Vérifiez si le message est arrivé avant de le renvoyer.",
       failedToCreateAgent: "Échec de la création de l'agent",
       noHostSelected: "Aucun hôte sélectionné",
       initialPromptRequired: "Une invite initiale est requise",

@@ -174,6 +174,8 @@ export const ar: TranslationResources = {
     },
     errors: {
       failedToSend: "فشل في إرسال الرسالة",
+      connectionLostWhileSending:
+        "انقطع الاتصال أثناء الإرسال. تحقق من وصول الرسالة قبل إعادة الإرسال.",
       failedToCreateAgent: "فشل في إنشاء الوكيل",
       noHostSelected: "لم يتم تحديد مضيف",
       initialPromptRequired: "مطلوب موجه الأولي",

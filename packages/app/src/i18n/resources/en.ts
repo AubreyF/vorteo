@@ -170,6 +170,8 @@ export const en = {
     },
     errors: {
       failedToSend: "Failed to send message",
+      connectionLostWhileSending:
+        "Connection lost while sending. Check whether the message arrived before resending.",
       failedToCreateAgent: "Failed to create agent",
       noHostSelected: "No host selected",
       initialPromptRequired: "Initial prompt is required",

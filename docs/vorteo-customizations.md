@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): a message whose reply is lost to a dropped connection is no longer reported as failed. The client marks such requests as outcome unknown, and the composer clears the draft once the reconnected timeline shows the message, restoring it only when a resync or a one-minute wait does not. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): new workspaces branch from a freshly fetched `origin/main` when the local branch is only behind, and previews keep their launch wrapper in the untracked `paseo.local.json`. The agent guide treats the primary checkout as read-only. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): merged the file preview Download change into the live interface source alongside the sidebar cards change for interface-only publication. Functionality is unchanged beyond those two entries. README overview and onboarding are unchanged.

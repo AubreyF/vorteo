@@ -18,6 +18,7 @@ import { createUserMessage, generateMessageId, type UserMessageItem } from "@/ty
 import type { MessageSubmissionRejectionOutcome } from "@/composer/submission/model";
 import type { PickedImageAttachmentInput } from "@/hooks/image-attachment-picker";
 import { i18n } from "@/i18n/i18next";
+import { isRequestOutcomeUnknown } from "@getpaseo/client/internal/daemon-client";
 
 export interface QueuedComposerMessage {
   id: string;
@@ -77,6 +78,8 @@ export interface MessageSubmissionWriter {
   begin: (agentId: string, message: UserMessageItem) => void;
   accept: (agentId: string, clientMessageId: string) => void;
   reject: (agentId: string, clientMessageId: string) => MessageSubmissionRejectionOutcome;
+  /** Waits for the host to show whether a send whose reply was lost actually arrived. */
+  awaitOutcome?: (agentId: string, clientMessageId: string) => Promise<"accepted" | "unconfirmed">;
 }
 
 export interface QueueWriter {
@@ -231,7 +234,20 @@ export async function dispatchComposerAgentMessage(
     });
     input.submission.accept(input.agentId, clientMessageId);
   } catch (error) {
+    const outcomeUnknown = isRequestOutcomeUnknown(error);
+    // A connection that drops after the message left often still delivers it. Keep the
+    // pending row and let the reconnected timeline decide instead of restoring the draft.
+    if (outcomeUnknown && input.submission.awaitOutcome) {
+      const outcome = await input.submission.awaitOutcome(input.agentId, clientMessageId);
+      if (outcome === "accepted") {
+        input.submission.accept(input.agentId, clientMessageId);
+        return;
+      }
+    }
     input.submission.reject(input.agentId, clientMessageId);
+    if (outcomeUnknown) {
+      throw new Error(i18n.t("composer.errors.connectionLostWhileSending"), { cause: error });
+    }
     throw error;
   }
 }

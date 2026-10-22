@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Stop sent messages from bouncing back into the composer when a slow connection drops mid-send. When the reply is lost after the message left the client, such as after "Liveness check timed out", the composer now waits up to a minute for the reconnected timeline. It clears the draft if the host received the message, and otherwise restores it with "Connection lost while sending" instead of the raw timeout.
+
 ## 0.11.0-beta.3.vorteo.760 - 2026-10-22
 
 ### Fixed

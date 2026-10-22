@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DaemonConnectionError } from "@getpaseo/client/internal/daemon-client";
 import type { AgentAttachment, ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
@@ -500,6 +501,55 @@ describe("dispatchComposerAgentMessage", () => {
     ).rejects.toBe(transportError);
 
     expect(stream.tail.get("agent") ?? []).toEqual([]);
+  });
+
+  it("keeps a prompt sent when its reply was lost but the host received it", async () => {
+    const lostReply = new DaemonConnectionError(
+      "Liveness check timed out (15000ms)",
+      "DAEMON_CONNECTION_LOST",
+      true,
+    );
+    const client = createFakeSendClient({ rejection: lostReply });
+    const stream = createFakeStream();
+    const awaitOutcome = vi.fn(async () => "accepted" as const);
+
+    await dispatchComposerAgentMessage({
+      client,
+      agentId: "agent",
+      text: "delivered prompt",
+      attachments: [],
+      encodeImages: passthroughEncodeImages,
+      submission: { ...stream, awaitOutcome },
+    });
+
+    const clientMessageId = client.calls[0]?.options.messageId;
+    expect(awaitOutcome).toHaveBeenCalledWith("agent", clientMessageId);
+    expect([...(stream.tail.get("agent") ?? []), ...(stream.head.get("agent") ?? [])]).toEqual([
+      expect.objectContaining({ kind: "user_message", clientMessageId }),
+    ]);
+  });
+
+  it("reports a lost connection when the host never shows the prompt", async () => {
+    const lostReply = new DaemonConnectionError(
+      "Liveness check timed out (15000ms)",
+      "DAEMON_CONNECTION_LOST",
+      true,
+    );
+    const client = createFakeSendClient({ rejection: lostReply });
+    const stream = createFakeStream();
+
+    await expect(
+      dispatchComposerAgentMessage({
+        client,
+        agentId: "agent",
+        text: "lost prompt",
+        attachments: [],
+        encodeImages: passthroughEncodeImages,
+        submission: { ...stream, awaitOutcome: async () => "unconfirmed" },
+      }),
+    ).rejects.toThrow("Connection lost while sending");
+
+    expect([...(stream.tail.get("agent") ?? []), ...(stream.head.get("agent") ?? [])]).toEqual([]);
   });
 
   it("does not swallow a transport error when submission state is missing", async () => {
