@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.737 - 2026-10-22
+
+### Changed
+
+- Show installation health as one summary line with its badge and check time. Service readiness, activation steps and the recovery page move behind Health details; services that need attention stay visible.
+- Offer Refresh buttons in Installation only after an error. Health, recovery page and maintenance request status already refresh every few seconds.
+- Hide Maintenance requests when there are none.
+- Shorten the recovery page explanation, fold Request readiness behind a toggle and move the automatic-authorization note into each permission's tooltip.
+
+### Validation
+
+- Installation component tests cover the folded health details, error-only refresh buttons and the hidden empty request queue; the packaged installation check opens Request readiness before reading it.
+
 ## 0.11.0-beta.3.vorteo.736 - 2026-10-22
 
 ### Fixed

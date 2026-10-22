@@ -721,6 +721,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 22, 2026: Installation health is one summary line with details on demand, Refresh buttons appear only after errors, an empty request queue is hidden and Request readiness folds behind a toggle. README overview and onboarding are unchanged.
+
 October 22, 2026: Added task delivery scripts, their tests and guide, and Freed-derived agent rules for freshness, worktrees, archiving, debt, decisions and evidence. No product behavior change; README overview and onboarding are unchanged.
 
 October 21, 2026: Maintenance shows only coordinator recoveries that still need the owner. Finished restarts, coordinator updates and recoveries share one collapsed History, and Shared workflows is now Profile sharing. README overview and onboarding are unchanged.

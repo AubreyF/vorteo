@@ -80,12 +80,10 @@ export function RecoveryBookmark({
   if (!status && !error && !refreshing) return null;
   return (
     <View style={styles.section} testID="installation-recovery-bookmark">
-      <Text style={settingsStyles.rowTitle}>Independent recovery</Text>
+      <Text style={settingsStyles.rowTitle}>Recovery page</Text>
       <Text style={settingsStyles.rowHint}>
-        Bookmark the recovery page once this installation verifies its address. A verified page uses
-        your installation owner password to review compatible coordinator rollback when the main
-        interface is unavailable, even if basic health is green. Tailscale and this machine must
-        remain available.
+        Bookmark it to review coordinator rollback with your owner password when the main interface
+        is unavailable. Tailscale and this machine must be running.
       </Text>
       {url ? (
         <Text selectable style={settingsStyles.rowHint}>
@@ -93,8 +91,7 @@ export function RecoveryBookmark({
         </Text>
       ) : (
         <Text style={settingsStyles.rowHint}>
-          The installed recovery page and private route have not been verified. Refresh after setup
-          to check the bookmark.
+          The recovery page has not been verified yet. It appears here once setup verifies it.
         </Text>
       )}
       {error ? (
@@ -131,21 +128,24 @@ export function RecoveryBookmark({
             </Button>
           </>
         ) : null}
-        <Button
-          variant="ghost"
-          size={touch ? "md" : "sm"}
-          loading={refreshing}
-          disabled={refreshing}
-          onPress={onRefresh}
-        >
-          Refresh recovery address
-        </Button>
+        {/* The address refreshes with installation status; retry only after an error. */}
+        {error ? (
+          <Button
+            variant="ghost"
+            size={touch ? "md" : "sm"}
+            loading={refreshing}
+            disabled={refreshing}
+            onPress={onRefresh}
+          >
+            Refresh recovery address
+          </Button>
+        ) : null}
       </View>
     </View>
   );
 }
 const styles = StyleSheet.create((theme) => ({
-  section: { padding: theme.spacing[4], gap: theme.spacing[2] },
+  section: { gap: theme.spacing[2] },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] },
 }));
 
