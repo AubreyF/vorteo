@@ -16,7 +16,11 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { installationWebEntry } from "./installation-web-entry.mjs";
 import { installDependencies } from "./lib/dependency-cache.mjs";
-import { claimBuild, pruneInstanceBuilds, trimSealedBuild } from "./lib/instance-builds.mjs";
+import {
+  claimBuild,
+  pruneInstanceBuildsInBackground,
+  trimSealedBuild,
+} from "./lib/instance-builds.mjs";
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { values } = parseArgs({
   options: {
@@ -62,8 +66,7 @@ const { root, sourceHash } = await snapshotSource({
 });
 console.log(`Source snapshot: ${root}`);
 await claimBuild(root);
-const pruned = await pruneInstanceBuilds(builds, { current: root });
-if (pruned.length) console.log(`Removed ${pruned.length} stale build directories`);
+pruneInstanceBuildsInBackground(builds);
 try {
   await build();
 } catch (error) {

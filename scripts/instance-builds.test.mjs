@@ -7,8 +7,11 @@ import {
   claimBuild,
   ownerFile,
   pruneInstanceBuilds,
+  pruneInstanceBuildsOnce,
   trimSealedBuild,
 } from "./lib/instance-builds.mjs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const HOUR = 60 * 60_000;
 
@@ -106,4 +109,30 @@ test("the owner file is claimed exclusively", async (t) => {
   await claimBuild(root, { pid: 1 });
   await assert.rejects(claimBuild(root, { pid: 2 }), { code: "EEXIST" });
   assert.equal(JSON.parse(await fs.readFile(path.join(root, ownerFile), "utf8")).pid, 1);
+});
+
+test("only one pruner runs at a time and a dead pruner's lock is taken over", async (t) => {
+  const builds = await temporary(t);
+  const now = Date.now();
+  await build(builds, "build-abandoned", { owner: 202, age: 2 * HOUR, now });
+  const lock = path.join(builds, ".prune-lock");
+  await fs.mkdir(lock);
+  await fs.writeFile(path.join(lock, "owner.json"), JSON.stringify({ pid: 101 }));
+  const busy = await pruneInstanceBuildsOnce(builds, { now, isAlive: (pid) => pid === 101 });
+  assert.equal(busy, null);
+  assert.deepEqual(await fs.readdir(builds), [".prune-lock", "build-abandoned"].sort());
+  const removed = await pruneInstanceBuildsOnce(builds, { now, isAlive: () => false });
+  assert.deepEqual(removed, ["build-abandoned"]);
+  assert.deepEqual(await fs.readdir(builds), []);
+});
+
+test("the pruning command removes abandoned builds", async (t) => {
+  const builds = await temporary(t);
+  await build(builds, "build-abandoned", { owner: 2 ** 22 + 7, age: 2 * HOUR, now: Date.now() });
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    "scripts/prune-instance-builds.mjs",
+    builds,
+  ]);
+  assert.match(stdout, /Removed 1 build directories/);
+  assert.deepEqual(await fs.readdir(builds), []);
 });

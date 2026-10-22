@@ -1911,15 +1911,23 @@ test.each(["approve-when-idle", "finish-current-turns"] as const)(
 
 test("new requests cannot join a restart after dispatch starts", async () => {
   let complete!: (detail: string) => void;
+  let dispatched!: () => void;
+  const started = new Promise<void>((resolve) => {
+    dispatched = resolve;
+  });
   const queue = new InstallationRestarts(new MemoryJournal(), {
     restart: () =>
       new Promise<string>((resolve) => {
         complete = resolve;
+        dispatched();
       }),
   });
   const initial = queue.request({ target: "host", reason: "First update" }, "host-agent");
   queue.decide(initial.id, initial.revision, "approve");
   const draining = queue.drain();
+  // drain() settles finished holds before dispatching; until the executor runs,
+  // a plain request still joins the approved restart by design.
+  await started;
   expect(() => queue.request({ target: "host", reason: "Too late" }, "container-agent")).toThrow(
     "already restarting",
   );

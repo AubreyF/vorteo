@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): installation journal writers wait up to three seconds for the lock instead of refusing at once, which caused this morning's failed automatic coordinator update, and web build pruning moved to a detached background process. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): web builds trim themselves to their sealed export and prune stale build directories, and macOS checkouts and web builds clone a cached dependency install with APFS copy-on-write instead of running `npm ci`. The coordinator's Host source build is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the new-agent launch picker collapses into the composer when the first message is submitted, while the message fades up into place, so the picker and the conversation are never shown together. A browser check covers collapse, restore after a failed launch and drafts opened mid-launch. README overview and onboarding are unchanged.
