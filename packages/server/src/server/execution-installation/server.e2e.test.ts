@@ -3234,9 +3234,9 @@ test("owner restart review reports coordinator recovery without dispatching or l
     decision: "approve",
   });
   expect(approval.status).toBe(409);
-  expect(await approval.json()).toEqual({
-    error: "Coordinator recovery must finish before installation work",
-  });
+  expect((await approval.json()).error).toMatch(
+    /^Coordinator recovery must finish before installation work(: coordinator update [a-f0-9]{8} is running)?$/,
+  );
   const rejection = await f.request(route, "owner-test-password", {
     revision: job.revision,
     decision: "reject",

@@ -4,6 +4,25 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.794 - 2026-10-22
+
+### Maintenance
+
+- Merge the coordinator cleanup that cancels coordinator updates a newer Host install made stale
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Maintenance
+
+- The reconciliation ledger test now lists the stale coordinator update cancellation among the coordinator loop's allowed operations. Like automatic-approval revocation, it can only cancel undispatched requests; preparation, owner decisions and dispatch claims stay off the loop's surface.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- A coordinator update prepared for a Host release that a later Host install replaced no longer waits in front of the owner. The coordinator cancels such pending or approved-but-not-started updates by itself, keeps updates prepared on the newly selected release, and never touches recovery successors, supervision plans or restart jobs. On 2026-10-22 one such update went stale at 07:28 UTC and needed a manual cancel.
+- When installation work is refused because a coordinator update is running, the message now names that update. The documented prefix is unchanged.
+
 ## 0.11.0-beta.3.vorteo.793 - 2026-10-22
 
 ### Maintenance

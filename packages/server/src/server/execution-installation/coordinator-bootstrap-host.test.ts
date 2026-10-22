@@ -720,7 +720,10 @@ test("coordinator reconciliation revokes protected submissions after credential 
     authority,
   );
   const observer = createBootstrapReconciliationLedger(f.file, "host-id");
+  // The coordinator loop gets bookkeeping and system cancellations only; never
+  // preparation, owner decisions or dispatch claims.
   expect(Object.keys(observer).sort()).toEqual([
+    "cancelForReplacedHostRelease",
     "finishAutomaticReconciliation",
     "list",
     "reserveAutomaticReconciliation",

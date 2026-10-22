@@ -42,7 +42,7 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
@@ -496,6 +496,26 @@ export function createInstallationServer(
         serviceDiscovery = null;
       });
   }
+  // A Host install that selects a new release leaves coordinator updates
+  // prepared for the old one unverifiable. Cancel them rather than leave them
+  // waiting for the owner; a renewal prepared on the new release is kept.
+  function cancelStaleCoordinatorUpdates() {
+    const hostSourceUpdates = config.sourceUpdates;
+    if (!coordinatorRequests || !hostSourceUpdates) return;
+    try {
+      const canceled = coordinatorRequests.cancelForReplacedHostRelease(
+        realpathSync(hostSourceUpdates.currentReleaseLink),
+        realpathSync(hostSourceUpdates.releaseRoot),
+      );
+      if (canceled.length)
+        logger.info(
+          { canceled },
+          "Canceled coordinator updates prepared for a replaced Host release",
+        );
+    } catch {
+      logger.warn("Stale coordinator update check is pending");
+    }
+  }
   const drainRestarts = async () => {
     if (drainInProgress) return;
     drainInProgress = true;
@@ -512,6 +532,7 @@ export function createInstallationServer(
           if (progress !== "idle" && progress !== "verified") return;
         }
         coordinatorRequests?.revokeAutomatic();
+        cancelStaleCoordinatorUpdates();
         discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
         await restarts.drain();

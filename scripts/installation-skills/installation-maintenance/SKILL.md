@@ -61,7 +61,7 @@ The coordinator survives either daemon restarting. A Dev restart keeps the exist
 
 ### Coordinator recovery refusals
 
-A `409` with "Coordinator recovery must finish before installation work" means coordinator maintenance or its recovery is in progress. The coordinator refuses new lifecycle work, including approvals and source contributions, until that finishes. Do not attempt coordinator recovery, restart services or reroute the work yourself. Report the refusal, check Installation controls or `coordinator-status` if you know the request, and retry later. For a source update, rerun the same command with the same `--contribution-id` so the retry stays idempotent. A `429` "Upload capacity reached" also means retry the same contribution ID later.
+A `409` starting with "Coordinator recovery must finish before installation work" means coordinator maintenance or its recovery is in progress; newer coordinators append which coordinator update is running. The coordinator refuses new lifecycle work, including approvals and source contributions, until that finishes. Do not attempt coordinator recovery, restart services or reroute the work yourself. Report the refusal, check Installation controls or `coordinator-status` if you know the request, and retry later. For a source update, rerun the same command with the same `--contribution-id` so the retry stays idempotent. A `429` "Upload capacity reached" also means retry the same contribution ID later.
 
 ## Source updates
 
