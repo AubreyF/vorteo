@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.790 - 2026-10-22
+
+### Maintenance
+
+- Settle a timing-dependent agent skills test. It created a new query client on every render and kept stale shared settings after a save, so a refetch could report the old selection.
+
 ## 0.11.0-beta.3.vorteo.789 - 2026-10-22
 
 ### Fixed
