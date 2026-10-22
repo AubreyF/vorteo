@@ -4,6 +4,24 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.775 - 2026-10-22
+
+### Maintenance
+
+- Merge Installation platform's tracked Claude refresh setting for coordinator updates, and its fixes for seven tests that failed on the installed source
+
+## 0.11.0-beta.3.vorteo.769 - 2026-10-22
+
+### Maintenance
+
+- Fix seven tests that failed on the installed source without any change. Two runner tests compared stderr exactly and broke when Node 26 warned that tsx uses `module.register()`; they now run with `--no-deprecation`. The unknown-observation test was stale after unclaimed recovery fencing; it now tries the actual masquerade as success and also checks the claimed-request refusal. The installer approval-link test expected the status read without `sourceBatches=1`. The Dev release-link test runs only on Linux, where its helper's `/proc` reads exist, with a canonical temporary root. The two web-setup tests get a 60-second budget for their real Git work under load.
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Added
+
+- Coordinator updates can carry the Host-owned Claude refresh setting. A reviewed plan sets `claudeHostRefreshConfiguration` to `true` or `null`, the coordinator accepts exactly that change to its configuration, and Installation controls describe it before approval. Automatic updates and renewals still refuse configuration changes, and clients that cannot show the change cannot approve it but can still cancel. Turning it on takes a coordinator and Host update that know the field, then one owner-reviewed coordinator update.
+
 ## 0.11.0-beta.3.vorteo.774 - 2026-10-22
 
 ### Maintenance
@@ -21,33 +39,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge installation platform batch 2: web builds stop leaking disk and clone a shared dependency install, journal writers wait briefly for the bootstrap lock, and the coordinator shares daemon connections
-
-## 0.11.0-beta.3.vorteo.767 - 2026-10-22
-
-### Fixed
-
-- The installation coordinator no longer opens a fresh Host daemon connection for every settings, profile and restart-impact check. It opened about 1.4 a second, 33,723 in six and a half hours on 2026-10-22, and each one made the daemon run a full hello and session sync. Those periodic reads now share one connection per environment, replaced when it drops and closed after a minute unused. Restart, hold and update operations keep fresh connections because they must observe a new daemon.
-
-## 0.11.0-beta.3.vorteo.766 - 2026-10-22
-
-### Fixed
-
-- Automatic coordinator updates no longer fail when another process briefly holds the installation journal lock. This morning's automatic coordinator update failed at its promotion step for exactly this reason: the lock refused at once, and the coordinator's own two-second loop and Host status reads hold it often under load. Journal writers now wait up to three seconds with backoff before reporting the journal busy, so owner and Nova decisions stop failing the same way. Nested use within one process still refuses at once.
-- Web build pruning runs in a detached, low-priority process instead of inside the build. Deleting the roughly 300 leftover builds took over an hour and would have stalled the next build. `scripts/prune-instance-builds.mjs` runs the same cleanup by hand, and a lock keeps concurrent builds from repeating it.
-
-### Maintenance
-
-- The restart test "new requests cannot join a restart after dispatch starts" asked too early: since the queue began releasing finished holds before dispatching, a request made in the same tick still joins the approved restart, as designed. The test now waits for dispatch to begin.
-
-## 0.11.0-beta.3.vorteo.765 - 2026-10-22
-
-### Fixed
-
-- Web builds no longer leave about 3 GB behind each. Once the export is sealed, a build deletes its source snapshot and dependencies and keeps only the export; a failed build deletes its whole directory. Each build also prunes abandoned builds and exports beyond the newest five or older than a week, skipping any build whose process is still running. 345 leftover builds filled the Host disk on 2026-10-22.
-
-### Changed
-
-- On macOS, task worktrees, workspace setup and web builds clone a cached dependency install of the same lockfile with APFS copy-on-write instead of running a full `npm ci`. Each checkout still gets its own `node_modules`, so workspace packages resolve inside it, and clones use almost no extra disk. Our own version bumps do not invalidate the cache. A cache miss or failed clone runs `npm ci` as before; `VORTEO_DEPENDENCY_CACHE=0` turns the cache off.
 
 ## 0.11.0-beta.3.vorteo.771 - 2026-10-22
 
@@ -256,27 +247,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
-### Changed
-
-- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
-- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
-
-### Added
-
-- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Added
-
-- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
-
-### Changed
-
-- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
 ### Added
 
 - Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
@@ -317,6 +287,54 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Changed
+
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Fixed
+
+- The installation coordinator no longer opens a fresh Host daemon connection for every settings, profile and restart-impact check. It opened about 1.4 a second, 33,723 in six and a half hours on 2026-10-22, and each one made the daemon run a full hello and session sync. Those periodic reads now share one connection per environment, replaced when it drops and closed after a minute unused. Restart, hold and update operations keep fresh connections because they must observe a new daemon.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Fixed
+
+- Automatic coordinator updates no longer fail when another process briefly holds the installation journal lock. This morning's automatic coordinator update failed at its promotion step for exactly this reason: the lock refused at once, and the coordinator's own two-second loop and Host status reads hold it often under load. Journal writers now wait up to three seconds with backoff before reporting the journal busy, so owner and Nova decisions stop failing the same way. Nested use within one process still refuses at once.
+- Web build pruning runs in a detached, low-priority process instead of inside the build. Deleting the roughly 300 leftover builds took over an hour and would have stalled the next build. `scripts/prune-instance-builds.mjs` runs the same cleanup by hand, and a lock keeps concurrent builds from repeating it.
+
+### Maintenance
+
+- The restart test "new requests cannot join a restart after dispatch starts" asked too early: since the queue began releasing finished holds before dispatching, a request made in the same tick still joins the approved restart, as designed. The test now waits for dispatch to begin.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- Web builds no longer leave about 3 GB behind each. Once the export is sealed, a build deletes its source snapshot and dependencies and keeps only the export; a failed build deletes its whole directory. Each build also prunes abandoned builds and exports beyond the newest five or older than a week, skipping any build whose process is still running. 345 leftover builds filled the Host disk on 2026-10-22.
+
+### Changed
+
+- On macOS, task worktrees, workspace setup and web builds clone a cached dependency install of the same lockfile with APFS copy-on-write instead of running a full `npm ci`. Each checkout still gets its own `node_modules`, so workspace packages resolve inside it, and clones use almost no extra disk. Our own version bumps do not invalidate the cache. A cache miss or failed clone runs `npm ci` as before; `VORTEO_DEPENDENCY_CACHE=0` turns the cache off.
 
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 

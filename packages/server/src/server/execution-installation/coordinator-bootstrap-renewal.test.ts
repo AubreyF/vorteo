@@ -1246,6 +1246,9 @@ test.runIf(process.platform === "darwin")(
     await expect(
       verifyRenewalPlan(setup, { ...plan, nativeHelperConfiguration: null }),
     ).rejects.toThrow("cannot change policy, helper or monitor");
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, claudeHostRefreshConfiguration: true }),
+    ).rejects.toThrow("cannot change policy, helper or monitor");
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {
       ...f.config,
       container: { ...f.config.container, factoryRuntimeAdoption: undefined },

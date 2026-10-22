@@ -4078,6 +4078,9 @@ test.each(["known", "unknown"] as const)(
     const result = spawnSync(
       process.execPath,
       [
+        // Newer Node versions warn that tsx uses module.register(); the
+        // assertion below covers only the runner's own refusal text.
+        "--no-deprecation",
         "--import",
         "tsx",
         fileURLToPath(new URL("./coordinator-bootstrap-runner.ts", import.meta.url)),
