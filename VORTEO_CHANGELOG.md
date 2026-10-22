@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Add Claude account in an installation offers a Sign-in type choice: Full sign-in (usage visible, the Host keeps the sign-in fresh for Host and Dev) or Setup token. The choice appears only when the coordinator has Host-owned refresh enabled and every environment's daemon supports full sign-in, because older daemons reject shared settings that carry it.
+- Full sign-in accounts use the coordinator's Host-refresh sign-in routes. Their panel names the signed-in Claude account and asks for sign-in again when the Host loses the grant.
+- An existing setup-token account cannot be converted; add a new full sign-in account instead. Host-owned refresh remains off until the installation enables it.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed

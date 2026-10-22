@@ -562,6 +562,7 @@ export async function requestInstallationOwner(
       "dev-repair/query",
       "session-host/query",
       "instruction-requests/query",
+      "claude/oauth/read",
     ].includes(path) &&
     response.ok &&
     !response.headers.get("content-type")?.includes("application/json")
