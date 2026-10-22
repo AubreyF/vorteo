@@ -28,7 +28,15 @@ export const ProjectDirectoryBrowseResponseSchema = z.object({
         parent: z.string().nullable(),
         containerPath: z.string(),
         hostPath: z.string().nullable(),
-        entries: z.array(z.object({ name: z.string(), path: z.string() })),
+        entries: z.array(
+          z.object({
+            name: z.string(),
+            path: z.string(),
+            // COMPAT(projectsRoot): added 2026-10-22; only Projects folder listings mark these.
+            git: z.boolean().optional(),
+            projectId: z.string().optional(),
+          }),
+        ),
         nextOffset: z.number().int().nullable(),
       })
       .nullable(),

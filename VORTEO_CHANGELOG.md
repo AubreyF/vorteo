@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Projects folder for installations. A daemon given `$PASEO_HOME/projects-folder.json` or `PASEO_PROJECTS_ROOT` accepts new projects from Add project, Open project, new folders and GitHub clones only strictly inside that folder; symlinks and `..` cannot leave it and the folder itself is refused. Projects registered earlier keep working wherever they are.
+- Folder browsing and directory search start in the Projects folder, and listings mark git checkouts and registered projects. A folder can now be created without adding it as a project, on hosts that advertise `projectsRoot`.
+- New Paseo-owned worktrees go in the Projects folder's hidden `.vorteo/worktrees` unless `worktrees.root` is set. Worktrees in the previous location stay recognized for listing, archiving and cleanup.
+- The Dev daemon moves registry paths from an earlier container path of the folder to its identical path once at startup, after backing up `projects.json` and `workspaces.json`.
+- `PASEO_PROJECTS_FOLDER` makes the container installer mount the folder at its own path, and `install-execution-host.mjs configure-projects-folder` writes both daemons' settings and the Dev git trust for existing installations.
+
+### Known limitations
+
+- The Add project interface does not use the Projects folder yet, and nothing is installed. Recreating the Dev container for the identical-path mount discards releases installed in its writable layer.
+
 ## 0.11.0-beta.3.vorteo.764 - 2026-10-22
 
 ### Changed

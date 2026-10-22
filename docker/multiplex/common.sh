@@ -4,10 +4,28 @@ set -euo pipefail
 
 paseo_compose() {
   local files=(-f "$deployment/compose.yaml")
+  if [[ -f "$deployment/projects-folder.compose.json" ]]; then
+    files+=(-f "$deployment/projects-folder.compose.json")
+  fi
   if [[ -f "$deployment/shared-folders.compose.json" ]]; then
     files+=(-f "$deployment/shared-folders.compose.json")
   fi
   docker compose --project-directory "$deployment" --env-file "$deployment/.env" "${files[@]}" "$@"
+}
+
+# Mounts the Projects folder at its own absolute path, so the Host and the container
+# name every project the same way. See docs/execution-installation.md#projects-folder.
+paseo_projects_folder_compose() {
+  local folder="$1"
+  if [[ ! "$folder" =~ ^/[A-Za-z0-9._/@+-]+$ || "$folder" == */ || "$folder" == *//* ]]; then
+    echo 'Use an absolute Projects folder path with letters, digits and ._@+- only.' >&2
+    return 1
+  fi
+  if [[ ! -d "$folder" ]]; then
+    echo "The Projects folder $folder does not exist." >&2
+    return 1
+  fi
+  printf '{\n  "services": {\n    "paseo": {\n      "environment": { "PASEO_PROJECTS_ROOT": "%s" },\n      "volumes": [\n        { "type": "bind", "source": "%s", "target": "%s", "bind": { "create_host_path": false } }\n      ]\n    }\n  }\n}\n' "$folder" "$folder" "$folder"
 }
 
 paseo_image() {

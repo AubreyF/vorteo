@@ -20,6 +20,7 @@ import {
   realpathSync,
   renameSync,
   chmodSync,
+  statSync,
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -31,6 +32,13 @@ import {
   writeSystemSource,
   mergeSystemSource,
 } from "./lib/system-source.mjs";
+import {
+  PROJECTS_FOLDER_SETTINGS_PATH,
+  isInsideFolder,
+  mergeProjectsFolderSettings,
+  mountsFolderAtIdenticalPath,
+  writeProjectsFolderSettings,
+} from "./lib/projects-folder.mjs";
 
 const execute = promisify(execFile);
 const scriptPath = fileURLToPath(import.meta.url);
@@ -120,6 +128,12 @@ export function assertProtectedPaths(files, mountRoots) {
   }
 }
 
+function assertOptionalAbsolutePath(value, label) {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !path.isAbsolute(value))
+    throw new Error(`${label} must be an absolute path`);
+}
+
 export function validateInstallPlan(input) {
   if (!input || typeof input !== "object") throw new Error("Installation plan must be an object");
   for (const key of [
@@ -136,6 +150,7 @@ export function validateInstallPlan(input) {
   }
   if (!/^[a-f0-9]{40}$/.test(input.revision))
     throw new Error("Use the full reviewed Git commit SHA");
+  assertOptionalAbsolutePath(input.projectsFolder, "The Projects folder");
   const origin = new URL(input.containerOrigin);
   if (origin.protocol !== "https:" || origin.origin !== input.containerOrigin)
     throw new Error("Container origin must be an HTTPS origin");
@@ -400,6 +415,11 @@ async function install(planFile) {
   });
   // The System project branches new workspaces from the checkout this install came from.
   writeSystemSource({ paseoHome: hostHome, checkout: sourceRoot, ref: plan.revision });
+  // New Host projects and worktrees go in the installation's Projects folder.
+  if (plan.projectsFolder) {
+    assertProjectsFolderSeparate(plan.projectsFolder, [plan.root, hostHome, sourceRoot]);
+    writeProjectsFolderSettings({ paseoHome: hostHome, root: plan.projectsFolder });
+  }
   const env = {
     HOME: os.homedir(),
     PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -765,6 +785,113 @@ export async function configureSystemSource(root, checkout = sourceRoot) {
   return { checkout: resolved, host, dev };
 }
 
+/**
+ * The Projects folder is guest-writable, so the Host's runtime, state and install source
+ * must never live inside it.
+ */
+function assertProjectsFolderSeparate(folder, protectedPaths) {
+  for (const protectedPath of protectedPaths) {
+    if (protectedPath && isInsideFolder(folder, protectedPath))
+      throw new Error(
+        `${protectedPath} is inside the Projects folder; keep installation files outside it`,
+      );
+  }
+}
+
+/** Adds the folder to git's trusted directories for the Dev daemon user, once. */
+async function trustProjectsFolderInContainer(settings, folder, migrateFrom) {
+  const git = (...args) =>
+    run(settings.docker, [
+      "exec",
+      "--user",
+      settings.user,
+      settings.containerId,
+      "git",
+      "config",
+      "--global",
+      ...args,
+    ]);
+  // Exit status 1 means no entries yet.
+  const existing = (await git("--get-all", "safe.directory").catch(() => ""))
+    .split("\n")
+    .filter(Boolean);
+  // Git 2.46 and later read the trailing /* as every folder below; earlier entries keep
+  // their own paths, moved to the identical-path folder.
+  const wanted = [`${folder}/*`];
+  for (const entry of existing) {
+    for (const previous of migrateFrom) {
+      if (entry === previous || entry.startsWith(`${previous}/`))
+        wanted.push(path.posix.join(folder, entry.slice(previous.length)));
+    }
+  }
+  const added = [...new Set(wanted)].filter((entry) => !existing.includes(entry));
+  for (const entry of added) await git("--add", "safe.directory", entry);
+  return added;
+}
+
+async function writeContainerProjectsFolder(settings, input) {
+  const [container] = JSON.parse(await run(settings.docker, ["inspect", settings.containerId]));
+  if (!mountsFolderAtIdenticalPath(container?.Mounts, input.root))
+    return {
+      written: false,
+      reason: `The Dev container does not mount ${input.root} at the same path. Recreate it with that bind mount, then run configure-projects-folder again.`,
+    };
+  const exec = (mode, text = "") =>
+    run(settings.docker, [
+      "exec",
+      "--user",
+      settings.user,
+      settings.containerId,
+      settings.node,
+      "--input-type=module",
+      "--eval",
+      CONTAINER_SYSTEM_SETTINGS_SCRIPT,
+      settings.home,
+      PROJECTS_FOLDER_SETTINGS_PATH,
+      mode,
+      text,
+    ]);
+  const existing = await exec("read");
+  const next = mergeProjectsFolderSettings(existing, input);
+  if (next.trim() !== existing.trim()) await exec("write", next);
+  const trusted = await trustProjectsFolderInContainer(
+    settings,
+    input.root,
+    input.migrateFrom ?? [],
+  );
+  return { written: true, root: input.root, trusted };
+}
+
+/**
+ * Records the Projects folder for the Host and the Dev daemon. `migrateFrom` lists earlier
+ * container paths of the same folder; the Dev daemon moves registry paths from them at its
+ * next start. Takes effect at each daemon's next start.
+ */
+export async function configureProjectsFolder(
+  root,
+  { folder, migrateFrom = [], allowOutside = [] },
+) {
+  if (!folder || !path.isAbsolute(folder)) throw new Error("Use --folder with an absolute path");
+  const record = JSON.parse(readFileSync(path.join(root, "installation.json"), "utf8"));
+  const resolved = realpathSync(folder);
+  if (!statSync(resolved).isDirectory()) throw new Error(`${resolved} is not a folder`);
+  assertProjectsFolderSeparate(resolved, [root, record.hostHome, record.release, sourceRoot]);
+  const host = writeProjectsFolderSettings({
+    paseoHome: record.hostHome,
+    root: resolved,
+    allowOutside,
+  });
+  const config = JSON.parse(readFileSync(record.configFile, "utf8"));
+  const dev = config.containerSourceUpdates
+    ? await writeContainerProjectsFolder(config.containerSourceUpdates, {
+        root: resolved,
+        migrateFrom,
+        allowOutside,
+      })
+    : { written: false, reason: "No Dev container is configured for updates." };
+  return { folder: resolved, host, dev };
+}
+
 /** Prepare the scoped Dev updater without restarting any service or changing its launcher. */
 export async function configureContainerUpdates(planFile) {
   const input = JSON.parse(readFileSync(planFile, "utf8"));
@@ -1037,6 +1164,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
       plan: { type: "string" },
       root: { type: "string" },
       checkout: { type: "string" },
+      folder: { type: "string" },
+      "migrate-from": { type: "string", multiple: true },
+      "allow-outside": { type: "string", multiple: true },
     },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
@@ -1048,9 +1178,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
     process.stdout.write(
       JSON.stringify(await configureSystemSource(values.root, values.checkout), null, 2) + "\n",
     );
+  else if (positionals[0] === "configure-projects-folder" && values.root)
+    process.stdout.write(
+      JSON.stringify(
+        await configureProjectsFolder(values.root, {
+          folder: values.folder,
+          migrateFrom: values["migrate-from"],
+          allowOutside: values["allow-outside"],
+        }),
+        null,
+        2,
+      ) + "\n",
+    );
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--allow-outside <path>], or status/remove --root <installation-root>",
     );
 }

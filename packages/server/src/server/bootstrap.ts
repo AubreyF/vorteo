@@ -445,6 +445,8 @@ export interface PaseoDaemonConfig {
   daemonVersion?: string;
   desktopManaged?: boolean;
   worktreesRoot?: string;
+  /** The installation's Projects folder, when configured. */
+  projectsFolder?: import("./projects-folder.js").ProjectsFolderConfig;
   corsAllowedOrigins: string[];
   allowedHosts?: HostnamesConfig;
   hostnames?: HostnamesConfig;
@@ -1128,6 +1130,7 @@ export async function createPaseoDaemon(
   await bootstrapWorkspaceRegistries({
     serverId,
     paseoHome: config.paseoHome,
+    projectsFolder: config.projectsFolder,
     agentStorage,
     projectRegistry,
     workspaceRegistry,
@@ -2018,6 +2021,7 @@ export async function createPaseoDaemon(
               {
                 listen: formatListenTarget(boundListenTarget ?? listenTarget),
                 worktreesRoot: config.worktreesRoot,
+                ...(config.projectsFolder ? { projectsFolder: config.projectsFolder } : {}),
                 get appBaseUrl() {
                   return appBaseUrl;
                 },

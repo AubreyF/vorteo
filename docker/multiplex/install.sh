@@ -14,6 +14,12 @@ parent="$(cd "$(dirname "$1")" && pwd)"
 deployment="$parent/$(basename "$1")"
 repo_root="$(cd "$source_dir/../.." && pwd)"
 case "$deployment/" in "$repo_root/"*) echo 'Keep deployment state outside the source checkout.' >&2; exit 1 ;; esac
+projects_folder=""
+if [[ -n "${PASEO_PROJECTS_FOLDER:-}" ]]; then
+  projects_folder="$(cd -P -- "$PASEO_PROJECTS_FOLDER" && pwd)"
+  case "$deployment/" in "$projects_folder/"*) echo 'Keep deployment state outside the Projects folder.' >&2; exit 1 ;; esac
+  paseo_projects_folder_compose "$projects_folder" >/dev/null
+fi
 command -v docker >/dev/null
 docker compose version >/dev/null
 docker info >/dev/null
@@ -48,8 +54,15 @@ PASEO_DATA_ROOT=./data
 PASEO_WORKSPACE_ROOT=./workspace
 ENV
 printf '%s\n' 1 > "$deployment/.container-installation"
+if [[ -n "$projects_folder" ]]; then
+  paseo_projects_folder_compose "$projects_folder" > "$deployment/projects-folder.compose.json"
+fi
 paseo_compose config --quiet
 paseo_compose up -d --pull never paseo
 printf 'Installation created at %s\nKeep the password in .env private. Complete the Tailscale login below.\n' "$deployment"
-printf 'To share an existing host project folder, run %s/share-folder.sh /absolute/path/to/folder, then review and apply the staged change.\n' "$deployment"
+if [[ -n "$projects_folder" ]]; then
+  printf 'New projects go in %s, which the container sees at the same path.\n' "$projects_folder"
+else
+  printf 'To share an existing host project folder, run %s/share-folder.sh /absolute/path/to/folder, then review and apply the staged change.\n' "$deployment"
+fi
 "$deployment/connect.sh"

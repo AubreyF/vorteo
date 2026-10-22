@@ -18,6 +18,12 @@ import {
   systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import {
+  projectsFolderPolicyFor,
+  ProjectsFolderError,
+  type ProjectsFolderConfig,
+  type ProjectsFolderPolicy,
+} from "./projects-folder.js";
 import { setupSystemSource } from "./system-project/setup-source.js";
 import {
   planProviderRemoval,
@@ -510,6 +516,7 @@ export interface SessionOptions {
   pushNotifications: PushNotifications;
   paseoHome: string;
   worktreesRoot?: string;
+  projectsFolder?: ProjectsFolderConfig;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   messageReceipts: Pick<MessageReceipts, "send">;
@@ -791,6 +798,7 @@ export class Session {
   private readonly paseoHome: string;
   private readonly projectIcons: ProjectIconReader;
   private readonly worktreesRoot: string | undefined;
+  private readonly projectsFolder: ProjectsFolderPolicy | null;
   private readonly rewindInitiators = new Map<string, object | undefined>();
 
   private agentManager: AgentManager;
@@ -972,6 +980,7 @@ export class Session {
     this.creationService = options.creationService;
     this.projectIcons = new ProjectIconReader(paseoHome);
     this.worktreesRoot = worktreesRoot;
+    this.projectsFolder = projectsFolderPolicyFor(options.projectsFolder);
     this.pluginRuntime = pluginRuntime;
     this.orchestrationSkills = orchestrationSkills;
     this.sessionLogger = logger.child({
@@ -6089,7 +6098,10 @@ export class Session {
     msg: Extract<SessionInboundMessage, { type: "project.directory.browse.request" }>,
   ): Promise<void> {
     try {
-      const payload = await browseProjectDirectories(msg, await projectDirectoryEnvironment());
+      const payload = await browseProjectDirectories(
+        msg,
+        await projectDirectoryEnvironment(await this.projectsFolderBrowseContext()),
+      );
       this.emit({ type: "project.directory.browse.response", payload });
     } catch (error) {
       this.sessionLogger.error({ err: error }, "Invalid host filesystem configuration");
@@ -6114,12 +6126,15 @@ export class Session {
       const workspaceCwd = cwd?.trim();
       const searchesWorkspace = Boolean(workspaceCwd);
       const entries = await searchDirectoryEntries({
-        root: workspaceCwd ? expandTilde(workspaceCwd) : (process.env.HOME ?? homedir()),
+        // New projects come from the Projects folder, so searches start there.
+        root: workspaceCwd
+          ? expandTilde(workspaceCwd)
+          : (this.projectsFolder?.config.root ?? process.env.HOME ?? homedir()),
         query,
         pathFormat: searchesWorkspace ? "relative" : "absolute",
         pathQueryPolicy: searchesWorkspace ? "slashes" : "rooted",
         blankQueryBehavior: searchesWorkspace ? "children" : "none",
-        rootAliases: searchesWorkspace ? [] : ["~"],
+        rootAliases: searchesWorkspace || this.projectsFolder ? [] : ["~"],
         traversableHiddenDirectoryNames: searchesWorkspace
           ? WORKSPACE_SEARCH_HIDDEN_DIRECTORIES
           : [],
@@ -7832,6 +7847,20 @@ export class Session {
       });
       return;
     }
+    const rejection = await this.rejectNewProjectOutsideProjectsFolder(cwd);
+    if (rejection) {
+      this.sessionLogger.info({ requestedCwd, reason: rejection.code }, "Open project rejected");
+      this.emit({
+        type: "open_project_response",
+        payload: {
+          requestId: request.requestId,
+          workspace: null,
+          error: rejection.message,
+          errorCode: rejection.code,
+        },
+      });
+      return;
+    }
 
     try {
       const projectsBefore = new Map<string, PersistedProjectRecord>();
@@ -7899,6 +7928,47 @@ export class Session {
     }
   }
 
+  /**
+   * Null when `cwd` may become a project here. With a Projects folder, a directory that is
+   * not already registered must be strictly inside it; registered ones keep working.
+   */
+  private async rejectNewProjectOutsideProjectsFolder(
+    cwd: string,
+  ): Promise<ProjectsFolderError | null> {
+    if (!this.projectsFolder) return null;
+    const [projects, workspaces] = await Promise.all([
+      this.projectRegistry.list(),
+      this.workspaceRegistry.list(),
+    ]);
+    const paths = [
+      ...projects.map((project) => project.rootPath),
+      ...workspaces.map((workspace) => workspace.cwd),
+    ];
+    try {
+      await this.projectsFolder.assertNewProjectDirectory(cwd, { paths });
+      return null;
+    } catch (error) {
+      if (error instanceof ProjectsFolderError) return error;
+      throw error;
+    }
+  }
+
+  private async projectsFolderBrowseContext(): Promise<{
+    projectsRoot?: string;
+    projectIdsByPath?: ReadonlyMap<string, string>;
+  }> {
+    if (!this.projectsFolder) return {};
+    const projects = await this.projectRegistry.list();
+    return {
+      projectsRoot: this.projectsFolder.config.root,
+      projectIdsByPath: new Map(
+        projects
+          .filter((project) => !project.archivedAt)
+          .map((project) => [resolve(project.rootPath), project.projectId] as const),
+      ),
+    };
+  }
+
   private async handleProjectAddRequest(
     request: Extract<SessionInboundMessage, { type: "project.add.request" }>,
   ): Promise<void> {
@@ -7917,6 +7987,20 @@ export class Session {
           project: null,
           error: `Directory not found: ${cwd}`,
           errorCode: "directory_not_found",
+        },
+      });
+      return;
+    }
+    const rejection = await this.rejectNewProjectOutsideProjectsFolder(cwd);
+    if (rejection) {
+      this.sessionLogger.info({ requestedCwd, reason: rejection.code }, "Add project rejected");
+      this.emit({
+        type: "project.add.response",
+        payload: {
+          requestId: request.requestId,
+          project: null,
+          error: rejection.message,
+          errorCode: rejection.code,
         },
       });
       return;
@@ -7969,8 +8053,15 @@ export class Session {
       const result = await createProjectDirectory(
         { parentPath: request.parentPath, name: request.name },
         {
-          registerProject: (directoryPath) =>
-            this.workspaceProvisioning.findOrCreateProjectForDirectory(directoryPath),
+          // Only a folder inside the Projects folder can be created; it is then a new project.
+          assertParentDirectory: this.projectsFolder
+            ? (parentPath) => this.projectsFolder!.assertParentDirectory(parentPath)
+            : undefined,
+          registerProject:
+            request.register === false
+              ? null
+              : (directoryPath) =>
+                  this.workspaceProvisioning.findOrCreateProjectForDirectory(directoryPath),
         },
       );
       this.emit({
@@ -7978,19 +8069,13 @@ export class Session {
         payload: {
           requestId: request.requestId,
           directoryPath: result.directoryPath,
-          project: await this.buildProjectDescriptor(result.project),
+          project: result.project ? await this.buildProjectDescriptor(result.project) : null,
           error: null,
           errorCode: null,
         },
       });
     } catch (error) {
-      const requestError =
-        error instanceof ProjectDirectoryRequestError
-          ? error
-          : new ProjectDirectoryRequestError(
-              "registration_failed",
-              error instanceof Error ? error.message : "Failed to create project directory",
-            );
+      const requestError = toProjectDirectoryRequestError(error);
       this.sessionLogger.error(
         {
           err: error,
@@ -8104,6 +8189,9 @@ export class Session {
       if (!this.isPathWithinRoot(targetParent, checkoutPath)) {
         throw new Error("Resolved checkout path must stay inside the target directory");
       }
+      // Checked before any folder is created, through the deepest existing ancestor.
+      await this.projectsFolder?.assertParentDirectory(targetParent);
+      await this.projectsFolder?.assertNewProjectDirectory(checkoutPath, { paths: [] });
 
       await mkdir(targetParent, { recursive: true });
       try {
@@ -9666,4 +9754,15 @@ function legacyWantsEvent(
     default:
       return true;
   }
+}
+
+function toProjectDirectoryRequestError(error: unknown): ProjectDirectoryRequestError {
+  if (error instanceof ProjectDirectoryRequestError) return error;
+  if (error instanceof ProjectsFolderError) {
+    return new ProjectDirectoryRequestError("outside_projects_folder", error.message);
+  }
+  return new ProjectDirectoryRequestError(
+    "registration_failed",
+    error instanceof Error ? error.message : "Failed to create project directory",
+  );
 }

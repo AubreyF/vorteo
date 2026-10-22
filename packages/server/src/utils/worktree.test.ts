@@ -120,6 +120,42 @@ describe("paseo worktree manager", () => {
     });
   });
 
+  it("keeps worktrees from the previous default root after the root moves", async () => {
+    const legacy = await createLegacyWorktreeForTest({
+      branchName: "before-projects-folder",
+      cwd: repoDir,
+      baseBranch: "main",
+      worktreeSlug: "before-projects-folder",
+      paseoHome,
+    });
+    // The Projects folder moves new worktrees; the earlier one stays Paseo-owned.
+    const worktreesRoot = join(tempDir, "dev", ".vorteo", "worktrees");
+    const moved = await createWorktreePrimitive({
+      cwd: repoDir,
+      worktreeSlug: "in-projects-folder",
+      source: { kind: "branch-off", baseBranch: "main", branchName: "in-projects-folder" },
+      runSetup: false,
+      paseoHome,
+      worktreesRoot,
+    });
+    expect(moved.worktreePath.startsWith(realpathSync(worktreesRoot))).toBe(true);
+    await expect(
+      isPaseoOwnedWorktreeCwd(legacy.worktreePath, { paseoHome, worktreesRoot }),
+    ).resolves.toMatchObject({ allowed: true, worktreePath: legacy.worktreePath });
+    await expect(
+      isPaseoOwnedWorktreeCwd(moved.worktreePath, { paseoHome, worktreesRoot }),
+    ).resolves.toMatchObject({ allowed: true, worktreePath: moved.worktreePath });
+
+    await deletePaseoWorktree({
+      cwd: repoDir,
+      worktreePath: legacy.worktreePath,
+      paseoHome,
+      worktreesBaseRoot: worktreesRoot,
+    });
+    expect(existsSync(legacy.worktreePath)).toBe(false);
+    expect(existsSync(moved.worktreePath)).toBe(true);
+  });
+
   it("rejects paths that are not under the paseo worktrees root", async () => {
     const outsidePath = join(tempDir, "outside-paseo-home");
     mkdirSync(outsidePath, { recursive: true });

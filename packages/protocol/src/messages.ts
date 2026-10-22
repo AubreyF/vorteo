@@ -2875,6 +2875,9 @@ export const ProjectCreateDirectoryRequestSchema = z.object({
   type: z.literal("project.create_directory.request"),
   parentPath: z.string(),
   name: z.string(),
+  // COMPAT(projectsRoot): added 2026-10-22; send false only to hosts advertising projectsRoot.
+  // False creates the folder without adding it as a project. Omitted means true.
+  register: z.boolean().optional(),
   requestId: z.string(),
 });
 
@@ -3889,6 +3892,8 @@ export const ServerInfoStatusPayloadSchema = z
     permissions: z.array(DaemonPermissionSchema).optional(),
     // COMPAT(desktopManaged): added in v0.1.X, remove optional parsing after 2027-01-16.
     desktopManaged: z.boolean().optional(),
+    // COMPAT(projectsRoot): added 2026-10-22; absent on daemons without a Projects folder.
+    projectsRoot: z.string().optional(),
     capabilities: ServerCapabilitiesFromUnknownSchema.optional(),
     // COMPAT(providersSnapshot): added in v0.1.48, remove gating when all clients use snapshot
     features: z
@@ -4017,6 +4022,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(projectAdd): added in v0.1.97, drop the gate when floor >= v0.1.97.
         projectAdd: z.boolean().optional(),
         projectDirectoryBrowsing: z.boolean().optional(),
+        // COMPAT(projectsRoot): added 2026-10-22, remove gate after 2027-04-22.
+        // New projects must live inside the advertised server_info.projectsRoot.
+        projectsRoot: z.boolean().optional(),
         // COMPAT(worktreeRestore): added in v0.1.97, drop the gate when floor >= v0.1.97
         worktreeRestore: z.boolean().optional(),
         // COMPAT(workspaceRecovery): added in v0.1.105, remove after 2027-01-11 once daemon floor >= v0.1.105.
@@ -4881,7 +4889,10 @@ export const OpenProjectResponseMessageSchema = z.object({
     workspace: WorkspaceDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
     // Unknown codes from newer daemons degrade to null; clients fall back to `error`.
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4891,7 +4902,10 @@ export const ProjectAddResponseSchema = z.object({
     requestId: z.string(),
     project: WorkspaceProjectDescriptorPayloadSchema.nullable(),
     error: z.string().nullable(),
-    errorCode: z.enum(["directory_not_found"]).nullish().catch(null),
+    errorCode: z
+      .enum(["directory_not_found", "outside_projects_folder", "projects_folder_root"])
+      .nullish()
+      .catch(null),
   }),
 });
 
@@ -4902,6 +4916,7 @@ export const ProjectCreateDirectoryErrorCodeSchema = z.enum([
   "permission_denied",
   "registration_failed",
   "filesystem_error",
+  "outside_projects_folder",
 ]);
 
 export const ProjectCreateDirectoryResponseSchema = z.object({

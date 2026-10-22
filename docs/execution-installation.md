@@ -151,6 +151,44 @@ A paired Linux worker selected by the managed supervisor can recover a missing `
 
 Profile and settings admission still verifies the coordinator response against the exact installation, daemon identity and environment. A missing supervisor environment variable can therefore be repaired through an approved managed worker source update. New installations should continue configuring the owned launcher explicitly.
 
+## Projects folder
+
+An installation can name one Projects folder, such as `~/dev`, that holds every newly added, created or cloned project. The Host and the Dev container see it at the same absolute path, so a project path means the same folder in both environments and needs no translation.
+
+Each daemon reads `$PASEO_HOME/projects-folder.json`:
+
+```json
+{ "root": "/Users/<owner>/dev", "migrateFrom": ["/Users/<old guest user>/dev"] }
+```
+
+`PASEO_PROJECTS_ROOT` overrides `root`. `migrateFrom` lists earlier container paths of the same folder, and `allowOutside` lists folders outside the root, such as installation-managed worktrees, that may still become projects. Unknown keys are ignored, and an invalid file leaves the daemon without a Projects folder. Settings take effect at the daemon's next start.
+
+With a Projects folder, the daemon:
+
+- Accepts a new project from Add project, Open project, New folder and Clone from GitHub only when its real path is strictly inside the folder. Symlinks and `..` cannot leave it, and the folder itself cannot be added. Projects and workspaces registered earlier keep working wherever they are, including the Vorteo System project.
+- Browses only the Projects folder and starts directory search there. Listings mark git checkouts and registered projects, and never show `.vorteo`.
+- Creates new Paseo-owned worktrees in `<root>/.vorteo/worktrees/<repository hash>/<name>` unless `worktrees.root` is set. Worktrees in the earlier `$PASEO_HOME/worktrees` stay Paseo-owned, so they still list, archive and clean up.
+- Moves registry paths under a `migrateFrom` prefix to the identical path once, at startup, after copying `projects.json` and `workspaces.json` to `*.before-projects-folder-<time>`. The step is idempotent; a failure keeps the earlier paths.
+- Advertises `features.projectsRoot` and `server_info.projectsRoot`. Clients use them to show the simpler Add project flow.
+
+The Host's runtime, state, releases and install source must stay outside the folder, because the guest can write to it. The installer refuses a folder that contains them. Both daemons can create worktrees for the same repository in `.vorteo/worktrees`; their names never collide, and each lists the other's worktrees for that repository.
+
+### Configure an installation
+
+New container installations take the folder from `PASEO_PROJECTS_FOLDER=/absolute/path ./docker/multiplex/install.sh <deployment>`. The installer mounts it at its own path and sets `PASEO_PROJECTS_ROOT`. `share-folder.sh` keeps working for other folders, but projects no longer need it.
+
+For an existing installation, the Dev container needs the identical-path mount first:
+
+1. Add a writable bind mount of the folder at its own path to the Dev container's Compose file. Keep any earlier mount of the same folder at its old path as an alias: running agents, terminals and git worktree links still name the old path.
+2. Recreate the container through the tracked installation workflow. Recreation discards the container's writable layer, including releases installed there by Dev updates and the updater's Node runtime, so run Dev update setup again and reinstall the current Dev release before relying on it.
+3. Run `node scripts/install-execution-host.mjs configure-projects-folder --root <installation root> --folder <projects folder> --migrate-from <old container path>`. Add `--allow-outside <folder>` for each extra location. It writes both settings files and adds `<projects folder>/*` to the Dev daemon user's `safe.directory`, moving earlier entries under the old path. It refuses to write the Dev file unless the container mounts the folder at the identical path.
+4. Deliver source with Projects folder support to both daemons through the tracked update workflow. The restart applies the settings and runs the registry move.
+5. Verify that both daemons advertise `projectsRoot`, that Dev registry paths use the identical path, and that Add project opens in the Projects folder.
+
+Docker Desktop shows bind-mounted files as owned by the reading user, so git trusts them without `safe.directory`. On Linux hosts with different user IDs, git 2.46 or later reads `<folder>/*`; earlier git needs one entry per repository.
+
+To roll back, remove `projects-folder.json` from both daemon homes and, if the registry move must be undone, restore the `*.before-projects-folder-<time>` copies while the Dev daemon is stopped by a tracked restart. The old-path alias keeps restored paths valid. Projects added inside the folder stay registered.
+
 ## Restart and recovery
 
 Both environments receive the installation-maintenance skill. Agents can submit a reason and target, then observe their request's status. They cannot approve it with their request credential. In General settings, the Installation section shows the host and dev restart requests together. Pending and running requests, coordinator updates and coordinator recoveries remain visible until they finish; history and profile sharing expand in place. Plain pending requests offer Restart when idle, Finish turns and restart, and Cancel. Queued requests offer Cancel and Restart appears stuck. Only after the operator selects Restart appears stuck does Force restart now appear, with a separate confirmation because it interrupts running work. Request cards show one short paragraph. Details contains activity, source revisions, bundle digests and submission history. Source installation is labeled Updating until it completes. New requests refresh the section without opening a dialog or moving away from the current task. A direct link to `/settings/general?installation=1` opens the same controls without restoring the last conversation. The installer generates the owner password automatically and saves it in `owner-password` inside the private installation directory on the host. The owner does not choose it during setup. Saved daemon connection credentials do not unlock these controls: owner access approves restarts and resolves shared workflow conflicts. The interface shows the exact recovery file path supplied by the coordinator. Owner access lasts seven days in the current browser and survives reloads through an HttpOnly, SameSite Strict cookie. HTTPS cookies are Secure. Select Lock controls to revoke the session immediately. The server persists token hashes, never the password or raw tokens. The password remains the initial setup and recovery credential. Native agents with full host-account access can read that file; this boundary separates container and daemon credentials from owner approval, not the owner from trusted host processes. Unlocking does not approve a restart. The owner reviews the target, reason and disruption warning and approves that exact request. Requests never expire. The plain restart queue contains at most one active request per target across all requesters and shows an empty state when no approval is pending. Later plain requests for a pending or approved plain restart return the existing request, retaining its approval and restart mode. Requests arriving after dispatch begins are refused until the restart completes. One collapsed History holds finished restarts and updates, coordinator updates and coordinator recoveries, including rejected, canceled and completed receipts. Finished recoveries show their outcome and time, with the full plan behind Exact recovery details.

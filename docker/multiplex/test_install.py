@@ -57,6 +57,28 @@ elif args[0]=='compose' and '--url' in args: print('https://test.example.ts.net'
         self.assertTrue(any('up' in call and 'paseo' in call for call in self.calls()))
         self.assertFalse(any('--remove-orphans' in call for call in self.calls()))
 
+    def test_projects_folder_is_mounted_at_its_own_path(self):
+        folder = self.root / 'dev'
+        folder.mkdir()
+        self.env['PASEO_PROJECTS_FOLDER'] = str(folder)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        override = json.loads((self.deployment / 'projects-folder.compose.json').read_text())
+        service = override['services']['paseo']
+        real = str(folder.resolve())
+        self.assertEqual(service['environment'], {'PASEO_PROJECTS_ROOT': real})
+        self.assertEqual(service['volumes'], [{'type': 'bind', 'source': real, 'target': real, 'bind': {'create_host_path': False}}])
+        up = [call for call in self.calls() if call[0] == 'compose' and 'up' in call][-1]
+        self.assertIn(str(self.deployment / 'projects-folder.compose.json'), up)
+
+    def test_projects_folder_rejects_unsafe_paths_before_creating_state(self):
+        folder = self.root / 'bad$name'
+        folder.mkdir()
+        self.env['PASEO_PROJECTS_FOLDER'] = str(folder)
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.deployment.exists())
+
     def test_default_builds_checkout_without_registry(self):
         result = subprocess.run(['bash', str(SOURCE / 'install.sh'), str(self.deployment)], env=self.env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)

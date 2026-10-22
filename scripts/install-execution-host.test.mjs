@@ -26,8 +26,13 @@ import {
   validateInstallPlan,
   configureWebSource,
   configureSystemSource,
+  configureProjectsFolder,
   writeContainerSystemSource,
 } from "./install-execution-host.mjs";
+import {
+  mergeProjectsFolderSettings,
+  mountsFolderAtIdenticalPath,
+} from "./lib/projects-folder.mjs";
 import {
   containerCheckoutPath,
   mergeSystemSource,
@@ -1204,6 +1209,149 @@ test("configure-system-source records the checkout for the Host and the Dev cont
     ]) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Projects folder settings keep operator keys and earlier locations", () => {
+  const merged = JSON.parse(
+    mergeProjectsFolderSettings(
+      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], note: "kept" }),
+      { root: "/Users/owner/dev", migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"] },
+    ),
+  );
+  expect(merged).toEqual({
+    note: "kept",
+    root: "/Users/owner/dev",
+    migrateFrom: ["/Users/guest/dev"],
+  });
+  expect(() => mergeProjectsFolderSettings("[]", { root: "/dev" })).toThrow("JSON object");
+  expect(() => mergeProjectsFolderSettings(null, { root: "dev" })).toThrow("absolute");
+});
+
+test("only an identical-path writable bind mount shares the Projects folder", () => {
+  const folder = "/Users/owner/dev";
+  expect(
+    mountsFolderAtIdenticalPath([{ Type: "bind", Source: folder, Destination: folder }], folder),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: "/Users/owner", Destination: "/Users/owner" }],
+      folder,
+    ),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }],
+      folder,
+    ),
+  ).toBe(false);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: folder, RW: false }],
+      folder,
+    ),
+  ).toBe(false);
+});
+
+test("configure-projects-folder writes both daemons and trusts the folder in Dev", async () => {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-projects-root-")));
+  const keys = ["FAKE_INSPECT", "REAL_NODE", "FAKE_GIT_LOG", "FAKE_GIT_EXISTING"];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    const folder = path.join(root, "dev");
+    mkdirSync(folder);
+    const hostHome = path.join(root, "state/host");
+    const devHome = path.join(root, "dev-home");
+    mkdirSync(devHome, { recursive: true });
+    // A stand-in Docker: inspect returns the mounts, git calls are recorded, and the
+    // settings script runs with this Node.
+    const docker = path.join(root, "docker");
+    writeFileSync(
+      docker,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi',
+        'if [ "$5" = git ]; then echo "$*" >> "$FAKE_GIT_LOG";',
+        '  case "$*" in *--get-all*) printf "%s" "$FAKE_GIT_EXISTING";; esac; exit 0; fi',
+        "shift 5",
+        'exec "$REAL_NODE" "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(docker, 0o755);
+    const inspect = path.join(root, "inspect.json");
+    process.env.FAKE_INSPECT = inspect;
+    process.env.REAL_NODE = process.execPath;
+    process.env.FAKE_GIT_LOG = path.join(root, "git.log");
+    process.env.FAKE_GIT_EXISTING = "/Users/guest/dev/app\n/home/paseo/x\n";
+    const configFile = path.join(root, "coordinator.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        containerSourceUpdates: {
+          docker,
+          containerId: "dev",
+          user: "paseo",
+          node: "node",
+          home: devHome,
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome, configFile, release: path.join(root, "release") }),
+    );
+
+    // Without an identical-path mount, only the Host is configured.
+    writeFileSync(
+      inspect,
+      JSON.stringify([
+        { Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }] },
+      ]),
+    );
+    const unmounted = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(unmounted.dev.written).toBe(false);
+    expect(unmounted.dev.reason).toContain("same path");
+    expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+    });
+
+    writeFileSync(
+      inspect,
+      JSON.stringify([{ Mounts: [{ Type: "bind", Source: folder, Destination: folder }] }]),
+    );
+    const result = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(result.dev).toEqual({
+      written: true,
+      root: folder,
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(readFileSync(process.env.FAKE_GIT_LOG, "utf8")).toContain(
+      `--add safe.directory ${folder}/*`,
+    );
+
+    // The Host's own files may never sit in the guest-writable folder.
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome: path.join(folder, "host"), configFile }),
+    );
+    await expect(configureProjectsFolder(root, { folder })).rejects.toThrow("outside");
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
     }
     rmSync(root, { recursive: true, force: true });
   }

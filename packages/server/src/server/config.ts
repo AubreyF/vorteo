@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { resolvePaseoNodeEnv } from "./paseo-env.js";
 import { z } from "zod";
 import { expandTilde } from "../utils/path.js";
+import {
+  projectsFolderWorktreesRoot,
+  resolveProjectsFolderConfig,
+  type ProjectsFolderConfig,
+} from "./projects-folder.js";
 
 import type { PaseoDaemonConfig } from "./bootstrap.js";
 import {
@@ -500,10 +505,12 @@ function resolveAuthConfig(
 function resolveWorktreesRoot(
   paseoHome: string,
   persisted: ReturnType<typeof loadPersistedConfig>,
+  projectsFolder: ProjectsFolderConfig | null,
 ): string | undefined {
   const configuredRoot = persisted.worktrees?.root?.trim();
   if (!configuredRoot) {
-    return undefined;
+    // An explicit worktrees.root wins; otherwise new worktrees join the Projects folder.
+    return projectsFolder ? projectsFolderWorktreesRoot(projectsFolder) : undefined;
   }
 
   const expandedRoot = expandTilde(configuredRoot);
@@ -611,12 +618,18 @@ export function resolveConfigFromPersisted(
   );
 
   const overrideControlledPaths = resolveOverrideControlledPaths(env, cli, speech.providers);
+  const projectsFolder = resolveProjectsFolderConfig({
+    paseoHome,
+    env,
+    warn: (message) => process.emitWarning(message, { code: "PASEO_PROJECTS_FOLDER" }),
+  });
 
   return {
     listen,
     paseoHome,
     desktopManaged: env.PASEO_DESKTOP_MANAGED === "1",
-    worktreesRoot: resolveWorktreesRoot(paseoHome, persisted),
+    worktreesRoot: resolveWorktreesRoot(paseoHome, persisted, projectsFolder),
+    ...(projectsFolder ? { projectsFolder } : {}),
     corsAllowedOrigins: resolveCorsAllowedOrigins(env, persisted),
     hostnames,
     trustedProxies,

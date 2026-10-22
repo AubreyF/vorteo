@@ -872,6 +872,16 @@ export function resolvePaseoWorktreesBaseRoot(options?: WorktreeRootOptions): st
   return join(home, "worktrees");
 }
 
+/**
+ * The configured worktrees root, then the default it replaced. Worktrees created before
+ * the root moved (for example into the Projects folder) keep their Paseo ownership.
+ */
+export function resolvePaseoWorktreesBaseRoots(options?: WorktreeRootOptions): string[] {
+  const primary = resolvePaseoWorktreesBaseRoot(options);
+  const previous = resolvePaseoWorktreesBaseRoot({ paseoHome: options?.paseoHome });
+  return primary === previous ? [primary] : [primary, previous];
+}
+
 export async function getPaseoWorktreesRoot(
   cwd: string,
   paseoHome?: string,
@@ -958,36 +968,26 @@ export async function isPaseoOwnedWorktreeCwd(
     }
   }
 
-  const worktreesBaseRoot = resolvePaseoWorktreesBaseRoot(options);
-  const relativePath = getRealpathAwareRelativePath(worktreesBaseRoot, resolvedCwd);
-
   // Ownership is defined by the path living under <worktrees-root>/<hash>/<slug>[/...].
   // The <hash>/<slug> prefix is Paseo-private — nothing else writes there — so the
   // path shape alone is sufficient proof of ownership, even when git has already
   // forgotten about the worktree.
-  if (relativePath === null) {
+  for (const worktreesBaseRoot of resolvePaseoWorktreesBaseRoots(options)) {
+    const relativePath = getRealpathAwareRelativePath(worktreesBaseRoot, resolvedCwd);
+    const parts = relativePath?.split(sep).filter((part) => part.length > 0) ?? [];
+    if (parts.length < 2) continue;
+    const worktreesRoot = join(worktreesBaseRoot, parts[0]);
     return {
-      allowed: false,
+      allowed: true,
       ...(repoRoot !== undefined ? { repoRoot } : {}),
-      worktreePath: resolvedCwd,
+      worktreeRoot: worktreesRoot,
+      worktreePath: join(worktreesRoot, parts[1]),
     };
   }
-
-  const parts = relativePath.split(sep).filter((part) => part.length > 0);
-  if (parts.length < 2) {
-    return {
-      allowed: false,
-      ...(repoRoot !== undefined ? { repoRoot } : {}),
-      worktreePath: resolvedCwd,
-    };
-  }
-
-  const worktreesRoot = join(worktreesBaseRoot, parts[0]);
   return {
-    allowed: true,
+    allowed: false,
     ...(repoRoot !== undefined ? { repoRoot } : {}),
-    worktreeRoot: worktreesRoot,
-    worktreePath: join(worktreesRoot, parts[1]),
+    worktreePath: resolvedCwd,
   };
 }
 
@@ -1051,7 +1051,10 @@ export async function listPaseoWorktrees({
   paseoHome?: string;
   worktreesRoot?: string;
 }): Promise<PaseoWorktreeInfo[]> {
-  const projectWorktreesRoot = await getPaseoWorktreesRoot(cwd, paseoHome, worktreesRoot);
+  const projectHash = await deriveWorktreeProjectHash(cwd);
+  const projectWorktreesRoots = resolvePaseoWorktreesBaseRoots({ paseoHome, worktreesRoot }).map(
+    (baseRoot) => join(baseRoot, projectHash),
+  );
   const { stdout } = await runGitCommand(["worktree", "list", "--porcelain"], {
     cwd,
     envOverlay: READ_ONLY_GIT_ENV,
@@ -1059,7 +1062,12 @@ export async function listPaseoWorktrees({
 
   return parseWorktreeList(stdout)
     .map((entry) => Object.assign({}, entry, { path: normalizePathForOwnership(entry.path) }))
-    .filter((entry) => getRealpathAwareRelativePath(projectWorktreesRoot, entry.path) !== null)
+    .filter((entry) =>
+      projectWorktreesRoots.some(
+        (projectWorktreesRoot) =>
+          getRealpathAwareRelativePath(projectWorktreesRoot, entry.path) !== null,
+      ),
+    )
     .map((entry) =>
       Object.assign({}, entry, { createdAt: resolveWorktreeCreatedAtIso(entry.path) }),
     );
@@ -1109,10 +1117,14 @@ export async function deletePaseoWorktree({
   const resolvedWorktree =
     ownership.allowed && ownership.worktreePath ? ownership.worktreePath : resolvedRequested;
 
-  const relativeWorktreePath = getRealpathAwareRelativePath(
-    resolvedWorktreesRoot,
-    resolvedWorktree,
-  );
+  // A worktree made under the previous default root belongs to that root.
+  const owningWorktreesRoot =
+    ownership.allowed &&
+    ownership.worktreeRoot &&
+    getRealpathAwareRelativePath(resolvedWorktreesRoot, resolvedWorktree) === null
+      ? ownership.worktreeRoot
+      : resolvedWorktreesRoot;
+  const relativeWorktreePath = getRealpathAwareRelativePath(owningWorktreesRoot, resolvedWorktree);
   if (relativeWorktreePath === null || relativeWorktreePath === "") {
     throw new Error("Refusing to delete non-Vorteo worktree");
   }
