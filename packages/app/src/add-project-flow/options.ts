@@ -166,6 +166,24 @@ export function joinDirectoryPath(parent: string, name: string): string {
   return `${trimmedParent}${separator}${name}`;
 }
 
+export interface ProjectsCloneDestination {
+  // The folder the clone is created in: the Projects folder itself.
+  parentPath: string;
+  // Where the clone lands, as the daemon sees it.
+  path: string;
+  displayPath: string;
+}
+
+// With a Projects folder, a clone lands in <Projects>/<repository> unless the owner
+// changes the location.
+export function projectsCloneDestination(
+  projectsRoot: string,
+  repository: Pick<GithubRepositoryChoice, "nameWithOwner">,
+): ProjectsCloneDestination {
+  const path = joinDirectoryPath(projectsRoot, pathBaseName(repository.nameWithOwner));
+  return { parentPath: projectsRoot, path, displayPath: shortenPath(path) };
+}
+
 export function buildSuggestedParentDirectories(projectPaths: string[]): string[] {
   const values = [
     ...projectPaths.flatMap((path) => {

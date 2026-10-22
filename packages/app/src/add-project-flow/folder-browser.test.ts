@@ -423,6 +423,29 @@ describe("Projects folder browser", () => {
     ).toMatchObject({ disabled: true, reason: "“Paseo” already exists here" });
   });
 
+  it("clones into a nested folder or one just created there", () => {
+    const clone = { kind: "clone", repositoryName: "tools" } as const;
+    expect(
+      projectsFolderFooter({ purpose: clone, directory: nested, projectPaths: [] }),
+    ).toMatchObject({
+      action: "clone",
+      label: "Clone here",
+      detail: "~/Projects/clients/acme/tools",
+      disabled: false,
+      canCreateFolder: true,
+    });
+    const created = projectsDirectory({
+      path: "clients/acme/vendor",
+      parent: "clients/acme",
+      containerPath: `${projectsRoot}/clients/acme/vendor`,
+      hostPath: `${projectsRoot}/clients/acme/vendor`,
+      entries: [],
+    });
+    expect(
+      projectsFolderFooter({ purpose: clone, directory: created, projectPaths: [] }),
+    ).toMatchObject({ label: "Clone here", detail: "~/Projects/clients/acme/vendor/tools" });
+  });
+
   it("enters a new folder after creating it at any depth, then targets it for adding", () => {
     expect(newFolderPreview(projectsDirectory(), " app ")).toBe("~/Projects/app");
     expect(childFolderRequest(projectsDirectory(), "app")).toEqual({

@@ -106,6 +106,7 @@ import {
   filterAddProjectHosts,
   joinDirectoryPath,
   pathBaseName,
+  projectsCloneDestination,
   type AddProjectMethodId,
 } from "@/add-project-flow/options";
 import {
@@ -551,11 +552,11 @@ function cloneDestinationRows(input: {
   changeLocation: () => void;
 }): FlowRowOption[] {
   if (!input.projectsRoot) return [];
-  const repositoryName = pathBaseName(input.repository.nameWithOwner);
+  const destination = projectsCloneDestination(input.projectsRoot, input.repository);
   return [
     {
       id: "clone-default",
-      title: `Clone into ${shortenPath(joinDirectoryPath(input.projectsRoot, repositoryName))}`,
+      title: `Clone into ${destination.displayPath}`,
       subtitle: "In your Projects folder",
       icon: GitHubIcon,
       testID: "add-project-flow-clone-default",
@@ -1253,7 +1254,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     void cloneRepository({
       hostId: page.hostId,
       repository: page.repository,
-      parentPath: projectsRoot,
+      parentPath: projectsCloneDestination(projectsRoot, page.repository).parentPath,
       statusKind: "clone-destination",
       projectsFolderPath: ".",
     });

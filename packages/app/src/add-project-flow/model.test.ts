@@ -26,6 +26,7 @@ import {
   buildAddProjectMethods,
   buildCloneLocationOptions,
   buildManualGithubRepositoryChoices,
+  projectsCloneDestination,
 } from "./options";
 
 const HOST: AddProjectHost = {
@@ -339,5 +340,48 @@ describe("Projects folder flow", () => {
       error: null,
       isSubmitting: false,
     });
+  });
+
+  it("clones into <Projects>/<repository> by default", () => {
+    expect(projectsCloneDestination("/Users/owner/Projects", REPOSITORY)).toEqual({
+      parentPath: "/Users/owner/Projects",
+      path: "/Users/owner/Projects/paseo",
+      displayPath: "~/Projects/paseo",
+    });
+    expect(
+      projectsCloneDestination("/Users/owner/Projects/", { nameWithOwner: "acme/tools" }).path,
+    ).toBe("/Users/owner/Projects/tools");
+  });
+
+  it("changes the clone location in the folder browser and returns to the default", () => {
+    let state = openAddProjectFlow({ hosts: [PROJECTS_HOST] });
+    state = openCloneDestinationPage(state, PROJECTS_HOST.serverId, REPOSITORY);
+    state = openFolderBrowserPage(
+      state,
+      PROJECTS_HOST.serverId,
+      { kind: "clone", repository: REPOSITORY },
+      { path: "." },
+    );
+
+    expect(currentAddProjectPage(state)).toMatchObject({
+      kind: "folder-browser",
+      hostId: PROJECTS_HOST.serverId,
+      purpose: { kind: "clone", repository: REPOSITORY },
+      request: { path: "." },
+    });
+    const back = backAddProjectPage(state);
+    expect(back && currentAddProjectPage(back).kind).toBe("clone-destination");
+  });
+
+  it("keeps the earlier methods on hosts without a Projects folder", () => {
+    expect(buildAddProjectMethods(HOST).map((method) => method.label)).toEqual([
+      "Search for directory",
+      "Choose in Finder",
+      "New project folder",
+      "Clone from GitHub",
+    ]);
+    expect(
+      buildAddProjectMethods({ ...HOST, canBrowseFolders: true }).map((method) => method.label),
+    ).toEqual(["Open a folder", "Choose in Finder", "New project folder", "Clone from GitHub"]);
   });
 });
