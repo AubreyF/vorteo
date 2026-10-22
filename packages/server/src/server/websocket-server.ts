@@ -1959,6 +1959,8 @@ export class VoiceAssistantWebSocketServer {
           : {}),
         // COMPAT(workspaceSetupRun): added in v0.7.3, remove gate after 2027-09-02.
         workspaceSetupRun: true,
+        // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        localProjectConfig: true,
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
         // COMPAT(providerQuotaObservation): added in v0.7.2, remove gate after 2027-03-14.

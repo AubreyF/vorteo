@@ -175,6 +175,8 @@ export const ja: TranslationResources = {
     },
     errors: {
       failedToSend: "メッセージの送信に失敗しました",
+      connectionLostWhileSending:
+        "送信中に接続が切れました。再送する前にメッセージが届いたか確認してください。",
       failedToCreateAgent: "エージェントの作成に失敗しました",
       noHostSelected: "ホストが選択されていません",
       initialPromptRequired: "初期プロンプトが必要です",
@@ -1204,6 +1206,8 @@ export const ja: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "プロジェクトを削除",
         removing: "削除中...",
+        removeBlockedSystem:
+          "Vorteo System にはこのインストール自体のソースと保守用ワークスペースが含まれるため、削除できません。",
       },
       confirmations: {
         removeTitle: "プロジェクトを削除しますか？",
@@ -2718,6 +2722,12 @@ export const ja: TranslationResources = {
         imageUrl: "画像またはサイトのURL",
         save: "変更を保存",
         savedToast: "プロジェクトを更新しました",
+        nameLockedSystem: "このプロジェクトの名前はデーモンが管理するため、変更できません。",
+      },
+      system: {
+        title: "Vorteo System について",
+        description:
+          "このプロジェクトは、この Vorteo インストールを改良するためのものです。インストールのビルド元となったチェックアウトを基にしており、Optimization Runner など、デーモンが管理する保守用ワークスペースも含みます。デーモンが再作成し、依存しているため、削除や名前の変更はできません。",
       },
       readFailures: {
         invalidTitle: "paseo.jsonを解析できませんでした",

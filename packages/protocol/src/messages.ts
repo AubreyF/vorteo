@@ -4163,6 +4163,9 @@ export const ServerInfoStatusPayloadSchema = z
         installationProviderRemoval: z.boolean().optional(),
         // COMPAT(agentConfigApply): added in v0.3.2, remove gate after 2027-02-11.
         agentConfigApply: z.boolean().optional(),
+        // COMPAT(localProjectConfig): added in Vorteo 2026-10, remove gate after 2027-04-22.
+        // The daemon merges untracked paseo.local.json script entries over paseo.json.
+        localProjectConfig: z.boolean().optional(),
       })
       .optional(),
   })

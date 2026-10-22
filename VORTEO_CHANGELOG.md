@@ -4,39 +4,96 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
-## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Changed
+
+- Settings no longer has a separate About section. App version, What's new and a new GitHub row sit in an About card inside General. Connected hosts moves to General and now holds the connection check (from Environments) and the diagnostics rows (from Maintenance) in one card. Sending moves to Chat & editor, and New workspace defaults move to Workspaces & projects. Old About and Diagnostics links open the new locations.
+- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom. The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone; Environment access in each connection's menu holds the rare per-environment opt-out. Add provider and Add connection install and sign in on Host by default.
 
 ### Added
 
-- Each connection on a provider page has an API keys sheet in its menu. Save a key once and Vorteo delivers it to every environment; the sheet shows which environments have it, the last four characters of long keys, and differing imported values to resolve. Connection rows mention keys still on their way and, for Codex, which environments still need their own sign-in.
+- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration, withdrawing them from excluded and removed environments. Delivery starts on save and retries every 5 seconds. Owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment, returning only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`. On first sync a key found in exactly one form is adopted; differing values are reported as conflicts and never overwritten silently.
+- Each connection on a provider page has an API keys sheet showing which environments have the current keys. Codex connections show which environments still need their own sign-in; Codex refresh grants are not copied between environments.
+- Host-owned refresh for full sign-in Claude accounts remains opt-in through `claudeHostRefresh: true`.
+
+## 0.11.0-beta.3.vorteo.764 - 2026-10-22
+
+### Changed
+
+- Restyle the theme and zoom controls after Freed's view menu. The six theme bubbles share one row; hovering one makes it taller with a soft shadow, and the selected theme stands as a circle. Zoom shows its percentage beside the label and keeps the smaller step, slider and larger step inside one bordered group.
+- Cmd or Ctrl with plus, minus and zero now change Vorteo's interface zoom instead of the browser's, so toolbars reflow instead of cropping. The desktop View menu does the same.
+- Block browser pinch zoom on phones and tablets. It cropped the toolbars without reflowing them; use the Zoom control instead.
+
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Maintenance
+
+- Merge the live interface source (resizable cards, the Open questions Yes button and mobile card spacing) into main, so the next Host update keeps everything already published. That branch labelled its entries `vorteo.758` and `vorteo.759`, which main also used for different commits; both historical entries are kept.
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Fixed
+
+- Submitting the first message in a new agent draft no longer leaves the Environment, Account and Profile picker above the composer while the message already shows at the top. The picker tucks into the composer as the message fades up into place, comes back if creation fails, and never appears for a draft opened mid-launch. Reduced-motion settings skip the animation.
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Stop sent messages from bouncing back into the composer when a slow connection drops mid-send. When the reply is lost after the message left the client, such as after "Liveness check timed out", the composer now waits up to a minute for the reconnected timeline. It clears the draft if the host received the message, and otherwise restores it with "Connection lost while sending" instead of the raw timeout.
 
 ## 0.11.0-beta.3.vorteo.760 - 2026-10-22
 
+### Fixed
+
+- New workspaces no longer start from a stale local branch. When a request names `main` or another unqualified branch, the daemon fetches `origin/main` and branches from it if the local branch is only behind; a local branch with unpushed commits still wins. The primary checkout had sat 865 commits behind because all work is pushed from other worktrees.
+
 ### Added
 
-- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration. Excluded and removed environments have them withdrawn. Delivery starts on save and retries every 5 seconds. New owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment. They return only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`.
-- On first sync, a key found in exactly one form across environments is adopted once. Differing values are reported as conflicts and never overwritten silently.
-- Codex sign-in accounts report that each environment needs its own sign-in. Codex refresh grants are not copied between environments.
+- The daemon merges script entries from an untracked `paseo.local.json` over `paseo.json` and advertises this as `localProjectConfig`, which `paseo daemon status --json` reports. Project settings still edit `paseo.json` alone.
+- The preview helper writes its launch wrapper to `paseo.local.json` when the daemon supports it, so starting a preview no longer dirties a shared checkout. Older daemons keep the previous `paseo.json` write. The HTTPS broker reads the merged configuration. The installed helper and broker need reinstalling to use this.
 
-### Changed
+### Maintenance
 
-- Host-owned refresh for full sign-in Claude accounts is now on by default. Set `claudeHostRefresh: false` in the coordinator configuration to opt out.
+- The agent guide treats the primary checkout as read-only. Git ignores `paseo.local.json`, `.runtime/`, Vitest attachments and browser test screenshots.
 
 ## 0.11.0-beta.3.vorteo.759 - 2026-10-22
 
-### Changed
+### Added
 
-- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom.
-- The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone. Per-environment controls live under Environment access in each connection's menu, for the rare case where one environment must not use a connection.
-- Add provider and Add connection install and sign in on Host by default, with a quiet option to use the Dev container instead.
+- Write the Vorteo System checkout setting from the installers. The Host installer records the checkout it runs from and the installed commit. Dev update setup records the same checkout as the container sees it, or explains why it cannot. `install-execution-host.mjs configure-system-source --root <root>` updates both for existing installations, keeping every other setting.
+
+### Fixed
+
+- Correct the installation-maintenance skill and agent guidance: Host-originated restarts and source updates are approved automatically for both Host and Dev when the owner's policy allows it, while Dev-originated requests, mixed batches and listed request types stay manual. The skill now explains how to follow an automatic decision and what a coordinator recovery refusal means.
 
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
 ### Changed
 
-- Settings no longer has a separate About section. App version, What's new and a new GitHub row sit in an About card inside General.
-- Connected hosts moves to General and now includes the connection check (from Environments) and the diagnostics rows (from Maintenance) in one card.
-- Sending moves to Chat & editor, and New workspace defaults move to Workspaces & projects. Old About and Diagnostics links open the new locations.
+- Show Vorteo System as an ordinary sidebar project instead of a separate section. It shows the Vorteo mark until you pick another icon, drags with your other projects, and offers new workspaces. Remove project stays visible but disabled with the reason, and its settings explain the project and lock only its name.
+- Let `system.json` name the installation's own checkout as `source.checkout`. It becomes the System project's root on every start, so new workspaces are worktrees of the code the installation was built from. Set up Vorteo source refuses to clone while a checkout is configured.
+
+### Added
+
+- Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 

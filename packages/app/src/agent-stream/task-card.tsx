@@ -44,6 +44,7 @@ import { useRetainedPanelActive } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { Info } from "lucide-react-native";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipText } from "@/components/ui/tooltip";
+import { DraggedCardHeightHandle, useDraggedCardHeight } from "@/components/card-height-handle";
 import { TASK_CARD_BODY_INSET, TASK_CARD_BOTTOM_INSET, taskCardStyles } from "./task-card-styles";
 
 function CardSurfaceContext({
@@ -107,6 +108,22 @@ function cardHeight({
   return Math.min(naturalHeight, viewportHeight / 2);
 }
 
+function visibleBodySpace(
+  bodyVisible: boolean,
+  panelDemand: number | undefined,
+  bodyHeight: number,
+) {
+  return bodyVisible ? (panelDemand ?? bodyHeight) : 0;
+}
+
+function isOpenColumnCard(
+  column: React.ContextType<typeof CardColumnContext>,
+  bodyVisible: boolean,
+  compact: boolean,
+) {
+  return Boolean(column) && bodyVisible && !compact;
+}
+
 /** Fit sidebar cards to their shared height budget; embedded cards cap at half the viewport. */
 function TaskCardView({
   insets = 0,
@@ -159,11 +176,16 @@ function TaskCardView({
   const measure = column?.measure;
   const { height: viewportHeight } = useWindowDimensions();
   const panelDemand = panelHeight === "fill" ? viewportHeight : panelHeight;
-  const bodySpace = bodyVisible ? (panelDemand ?? bodyHeight) : 0;
-  const naturalHeight = headerHeight + insets + bodySpace;
+  const bodySpace = visibleBodySpace(bodyVisible, panelDemand, bodyHeight);
+  // Expanded column cards can be dragged taller or shorter; the test ID names the card.
+  const contentHeight = headerHeight + insets + bodySpace;
+  const dragged = useDraggedCardHeight(testID, isOpenColumnCard(column, bodyVisible, compact));
+  const fixed = dragged.height !== undefined;
+  // A dragged height replaces the content's demand, so the column honors it first.
+  const naturalHeight = dragged.height ?? contentHeight;
   useLayoutEffect(() => {
-    measure?.(id, retainedActive ? naturalHeight : null, compact, bodyVisible);
-  }, [measure, id, naturalHeight, retainedActive, compact, bodyVisible]);
+    measure?.(id, retainedActive ? naturalHeight : null, compact, bodyVisible, fixed);
+  }, [measure, id, naturalHeight, retainedActive, compact, bodyVisible, fixed]);
   useLayoutEffect(() => () => measure?.(id, null), [measure, id]);
   const onHeaderLayout = useCallback((event: import("react-native").LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
@@ -178,20 +200,22 @@ function TaskCardView({
   const isHeader = (part: ReactNode) => isValidElement(part) && part.type === TaskCardHeader;
   const header = parts.find(isHeader);
   const body = parts.filter((part) => !isHeader(part));
+  const dragging = dragged.dragging;
   const maxHeight = cardHeight({ column, compact, id, naturalHeight, viewportHeight });
   // Animate only height. Positional layout transitions treat a retained hidden
   // card's zero DOM rect as its origin and fly it across the page on reactivation.
   const animationStyle = useAnimatedStyle(
     () => ({
       height: withTiming(maxHeight, {
-        duration: 220,
+        // Follow the pointer exactly while the owner drags the card's height.
+        duration: dragging ? 0 : 220,
         easing,
         reduceMotion: ReduceMotion.System,
       }),
       flexShrink: 0,
       overflow: "hidden" as const,
     }),
-    [maxHeight],
+    [maxHeight, dragging],
   );
   const onGridLayout = useTileLayout(id);
   const parentDrag = useContext(QueueDragScrollContext);
@@ -286,6 +310,12 @@ function TaskCardView({
             )}
           </View>
         </View>
+        <DraggedCardHeightHandle
+          card={dragged}
+          cardKey={testID}
+          height={maxHeight}
+          maxHeight={viewportHeight}
+        />
       </Animated.View>
     </CardSurfaceContext>
   );

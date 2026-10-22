@@ -114,7 +114,7 @@ describe("Host-owned Claude refresh", () => {
     const base = InstallationConfigSchema.parse(
       config({ launchdService: "gui/501/local.vorteo.fixture" }),
     );
-    expect(claudeHostRefreshEnabled(base)).toBe(true);
+    expect(claudeHostRefreshEnabled(base)).toBe(false);
     expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: true })).toBe(true);
     expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: false })).toBe(false);
   });

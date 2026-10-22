@@ -44,7 +44,7 @@ Managed installations still refuse environment-local sign-in. This type is there
 
 ### Host-owned refresh for installations
 
-This is on by default. Set `"claudeHostRefresh": false` in the installation coordinator's private configuration to opt out; then nothing below runs and setup-token accounts are unaffected. Every environment must run a daemon that advertises `claudeFullSignIn`, because older daemons reject the whole settings authority when a definition carries the new field. The coordinator checks every daemon and refuses to start sign-in until all of them advertise it. Until an owner starts a full sign-in, the coordinator only reconciles an empty account list.
+This is off by default. Set `"claudeHostRefresh": true` in the installation coordinator's private configuration to enable it. Every environment must run a daemon that advertises `claudeFullSignIn`, because older daemons reject the whole settings authority when a definition carries the new field. The coordinator checks every daemon and refuses to start sign-in until all of them advertise it. With the setting absent, nothing below runs and setup-token accounts are unaffected.
 
 A shared Claude definition becomes a full sign-in account when the owner starts sign-in through `/api/installation/owner/claude/oauth/start`. The app has no controls for this yet. The coordinator marks the definition, binds it on every environment and asks the Host daemon for the account's exact `CLAUDE_CONFIG_DIR`. The Host daemon returns that path and never a credential. The coordinator then runs `claude auth login --claudeai` in that directory itself; it runs on the Host as the same user. The Host account's own CLI storage keeps the only grant, and Host agents use and refresh it natively.
 

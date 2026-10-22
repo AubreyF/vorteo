@@ -65,6 +65,12 @@ export function reloadActiveBrowserOrWindow({
   win.webContents.reload();
 }
 
+function sendInterfaceZoomKey(win: BrowserWindow, key: "=" | "-" | "0") {
+  void win.webContents.executeJavaScript(
+    `window.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, metaKey: true, ctrlKey: true }))`,
+  );
+}
+
 function buildApplicationMenuTemplate(
   options: ApplicationMenuOptions,
   capturing: boolean,
@@ -118,29 +124,29 @@ function buildApplicationMenuTemplate(
     {
       label: "View",
       submenu: [
+        // The renderer owns zoom: it rescales layout instead of the window and
+        // keeps the zoom control in sync. Accelerators stay visible but reach the
+        // page as ordinary key events; menu clicks send the same key.
         {
           label: "Zoom In",
           accelerator: "CmdOrCtrl+=",
+          registerAccelerator: false,
           enabled: zoomEnabled,
-          click: withBrowserWindow((win) => {
-            win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 0.5);
-          }),
+          click: withBrowserWindow((win) => sendInterfaceZoomKey(win, "=")),
         },
         {
           label: "Zoom Out",
           accelerator: "CmdOrCtrl+-",
+          registerAccelerator: false,
           enabled: zoomEnabled,
-          click: withBrowserWindow((win) => {
-            win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 0.5);
-          }),
+          click: withBrowserWindow((win) => sendInterfaceZoomKey(win, "-")),
         },
         {
           label: "Actual Size",
           accelerator: "CmdOrCtrl+0",
+          registerAccelerator: false,
           enabled: zoomEnabled,
-          click: withBrowserWindow((win) => {
-            win.webContents.setZoomLevel(0);
-          }),
+          click: withBrowserWindow((win) => sendInterfaceZoomKey(win, "0")),
         },
         { type: "separator" },
         {

@@ -106,9 +106,12 @@ export const InstallationConfigSchema = z.strictObject({
 });
 export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
 
-/** Host-owned Claude refresh is on unless the installation explicitly opts out. */
+/**
+ * Host-owned Claude refresh stays opt-in: the default belongs to the Accounts owner, so only an
+ * explicit `claudeHostRefresh: true` enables it.
+ */
 export function claudeHostRefreshEnabled(config: Pick<InstallationConfig, "claudeHostRefresh">) {
-  return config.claudeHostRefresh !== false;
+  return config.claudeHostRefresh === true;
 }
 
 export function hostLaunchdService(config: InstallationConfig): string {

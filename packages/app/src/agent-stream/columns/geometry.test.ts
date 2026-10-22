@@ -129,6 +129,26 @@ describe("collapsed grid height allocation", () => {
     expect(heights.get("files")).toBe(100);
     expect(heights.get("tasks")).toBe(576);
   });
+  it("gives dragged cards their height before automatic cards share the rest", () => {
+    const demands = new Map([
+      ["questions", { height: 500, fixed: true }],
+      ["tasks", { height: 1800 }],
+      ["goal", { height: 60 }],
+    ]);
+    const heights = allocateGridCardHeights(800, demands);
+    expect(heights.get("questions")).toBe(500);
+    expect(heights.get("goal")).toBe(60);
+    expect(heights.get("tasks")).toBe(800 - 500 - 60 - 2 * 8);
+  });
+  it("shrinks dragged cards so automatic cards keep their reserve", () => {
+    const demands = new Map([
+      ["questions", { height: 2000, fixed: true }],
+      ["tasks", { height: 1800 }],
+    ]);
+    const heights = allocateGridCardHeights(800, demands);
+    expect(heights.get("questions")).toBe(800 - 8 - 72);
+    expect(heights.get("tasks")).toBe(72);
+  });
   it("counts tiles on one line once", () => {
     // The demo's Journal and nested subagents tiles, measured against the grid, share row 244.
     // Before grid-relative measurement they reported 295 and 305 and reserved a phantom row.

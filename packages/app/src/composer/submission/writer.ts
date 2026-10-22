@@ -45,6 +45,57 @@ function createUntrackedMessageSubmissionWriter(serverId: string): MessageSubmis
   };
 }
 
+// Covers several reconnect backoff steps on a flaky network without leaving the composer busy forever.
+const SUBMISSION_OUTCOME_TIMEOUT_MS = 60_000;
+
+/**
+ * Resolves "accepted" once the host timeline contains the submitted message, or "unconfirmed"
+ * once the agent's history has been resynchronized after a reconnect without it, or on timeout.
+ */
+export async function awaitMessageSubmissionOutcome(
+  serverId: string,
+  agentId: string,
+  clientMessageId: string,
+  timeoutMs = SUBMISSION_OUTCOME_TIMEOUT_MS,
+): Promise<"accepted" | "unconfirmed"> {
+  const generationAtFailure =
+    useSessionStore.getState().sessions[serverId]?.historySyncGeneration ?? 0;
+  const decide = (): "accepted" | "unconfirmed" | null => {
+    const session = useSessionStore.getState().sessions[serverId];
+    if (!session) return "unconfirmed";
+    const submission = session.messageSubmissions
+      .get(agentId)
+      ?.find((item) => item.clientMessageId === clientMessageId);
+    if (!submission) return "unconfirmed";
+    if (submission.providerAcknowledged) return "accepted";
+    const resynchronized =
+      session.historySyncGeneration > generationAtFailure &&
+      session.agentHistorySyncGeneration.get(agentId) === session.historySyncGeneration;
+    return resynchronized ? "unconfirmed" : null;
+  };
+  const immediate = decide();
+  if (immediate) return immediate;
+  return await new Promise((resolve) => {
+    let settled = false;
+    let stopWatching: () => void = () => undefined;
+    const finish = (outcome: "accepted" | "unconfirmed") => {
+      if (settled) return;
+      settled = true;
+      stopWatching();
+      resolve(outcome);
+    };
+    const timer = setTimeout(() => finish(decide() ?? "unconfirmed"), timeoutMs);
+    const unsubscribe = useSessionStore.subscribe(() => {
+      const outcome = decide();
+      if (outcome) finish(outcome);
+    });
+    stopWatching = () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  });
+}
+
 export function createMessageSubmissionWriter(serverId: string): MessageSubmissionWriter {
   const supportsTrackedMessageSubmissions =
     useSessionStore.getState().sessions[serverId]?.serverInfo?.features
@@ -60,6 +111,8 @@ export function createMessageSubmissionWriter(serverId: string): MessageSubmissi
       useSessionStore.getState().acceptAgentMessageSubmission(serverId, agentId, clientMessageId),
     reject: (agentId, clientMessageId) =>
       useSessionStore.getState().rejectAgentMessageSubmission(serverId, agentId, clientMessageId),
+    awaitOutcome: (agentId, clientMessageId) =>
+      awaitMessageSubmissionOutcome(serverId, agentId, clientMessageId),
   };
 }
 

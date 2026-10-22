@@ -37,6 +37,15 @@ export function useIsSystemProject(serverId: string, projectId: string): boolean
   return useSessionStore((state) => selectIsSystemProject(state, serverId, projectId));
 }
 
+/** A sidebar project spans hosts; it is the System project when any host's copy is. */
+export function useIsSystemProjectOnAnyHost(
+  hosts: readonly { serverId: string; projectId: string }[],
+): boolean {
+  return useSessionStore((state) =>
+    hosts.some((host) => selectIsSystemProject(state, host.serverId, host.projectId)),
+  );
+}
+
 /** `serverId:workspaceId` keys of system-managed workspaces on hosts that advertise them. */
 export function selectSystemManagedWorkspaceKeys(state: SessionsSnapshot): string[] {
   const keys: string[] = [];
