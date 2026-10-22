@@ -391,13 +391,14 @@ function InstallationPanel({
               error={state.enrollmentError}
               refreshing={state.enrollmentRefreshing}
               onRefresh={model.refreshEnrollmentStatus}
-            />
-            <RecoveryBookmark
-              status={state.recoveryAccess}
-              error={state.recoveryAccessError}
-              refreshing={state.recoveryAccessRefreshing}
-              onRefresh={model.refreshRecoveryAccess}
-            />
+            >
+              <RecoveryBookmark
+                status={state.recoveryAccess}
+                error={state.recoveryAccessError}
+                refreshing={state.recoveryAccessRefreshing}
+                onRefresh={model.refreshRecoveryAccess}
+              />
+            </MaintenanceDashboard>
             <MaintenanceServiceQueue
               status={state.serviceQueue}
               error={state.serviceQueueError}
@@ -544,10 +545,11 @@ function MaintenancePermission({
           </TooltipTrigger>
           <TooltipContent maxWidth={360} testID={`maintenance-info-${service}-tooltip`}>
             <Text style={styles.text}>
-              {explanation} Only authenticated Host threads qualify. Requests remain visible and
-              cancellable before dispatch. Turning this off revokes undispatched automatic grants;
-              it does not stop an operation already running. Uncertain identity or exhausted
-              recovery stops automation for the affected operation.
+              {explanation} Only authenticated Host threads qualify; Dev requests and mixed-origin
+              source batches always need your approval. Requests remain visible and cancellable
+              before dispatch. Turning this off revokes undispatched automatic grants; it does not
+              stop an operation already running. Uncertain identity or exhausted recovery stops
+              automation for the affected operation.
             </Text>
           </TooltipContent>
         </Tooltip>
@@ -555,6 +557,49 @@ function MaintenancePermission({
       <Text style={styles.text} testID={`maintenance-readiness-${service}`}>
         {readiness}
       </Text>
+    </View>
+  );
+}
+
+/**
+ * Which request paths are automatic or manual right now. It explains the
+ * permissions above, so it stays folded until asked for.
+ */
+function RequestReadiness({
+  status,
+}: {
+  status: ReturnType<InstallationPanelModel["getState"]>["maintenanceStatus"];
+}) {
+  const [open, setOpen] = useState(false);
+  const toggle = useCallback(() => setOpen((value) => !value), []);
+  if (!status) {
+    return (
+      <Text style={styles.text}>Detailed maintenance readiness requires a coordinator update.</Text>
+    );
+  }
+  return (
+    <View>
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={toggle}
+        {...disclosureProps(open)}
+        testID="maintenance-readiness-toggle"
+      >
+        {open ? "Hide request readiness" : "Request readiness"}
+      </Button>
+      {open ? (
+        <SettingsExpansion testID="maintenance-readiness">
+          {status.paths.map((item) => (
+            <Text key={`${item.requester}-${item.target}-${item.operation}`} style={styles.text}>
+              {item.requester === "host-agent" ? "Host" : "Dev"} request for{" "}
+              {item.target === "host" ? "Host" : "Dev"}{" "}
+              {item.operation === "restart" ? "restart" : "update"}:{" "}
+              {item.readiness === "blocked" ? "blocked" : item.authorization}. {item.reason}
+            </Text>
+          ))}
+        </SettingsExpansion>
+      ) : null}
     </View>
   );
 }
@@ -582,10 +627,6 @@ function DaemonAutomationControl({
   return (
     <View style={[styles.cardBody, settingsStyles.rowBorder]} testID="daemon-automation-preference">
       <Text style={settingsStyles.rowTitle}>Automatic maintenance authorization</Text>
-      <Text style={styles.text}>
-        Only authenticated Host threads can receive automatic authorization. Dev requests and
-        mixed-origin source batches require your approval.
-      </Text>
       {(
         [
           [
@@ -638,22 +679,7 @@ function DaemonAutomationControl({
           require their own opt-in.
         </Text>
       ) : null}
-      {state.maintenanceStatus ? (
-        <View testID="maintenance-readiness">
-          {state.maintenanceStatus.paths.map((item) => (
-            <Text key={`${item.requester}-${item.target}-${item.operation}`} style={styles.text}>
-              {item.requester === "host-agent" ? "Host" : "Dev"} request for{" "}
-              {item.target === "host" ? "Host" : "Dev"}{" "}
-              {item.operation === "restart" ? "restart" : "update"}:{" "}
-              {item.readiness === "blocked" ? "blocked" : item.authorization}. {item.reason}
-            </Text>
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.text}>
-          Detailed maintenance readiness requires a coordinator update.
-        </Text>
-      )}
+      <RequestReadiness status={state.maintenanceStatus} />
       {state.daemonAutomationError ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {state.daemonAutomationError}

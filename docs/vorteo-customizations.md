@@ -12,6 +12,8 @@ Maintenance review (2026-10-21): right-hand card rows match the sidebar's row de
 
 Maintenance review (2026-10-21): added the Context window details card and a provider-reported context breakdown for Claude, read on demand. The meter popover now renders the same details. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-22): update status now reports source batch conflicts to agents, naming the contribution and file, instead of asking them to reload Vorteo. Takes effect after a coordinator renewal and refreshed agent tool. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-21): headless browser allowed hosts accept port ranges for managed preview ports, and the browser host validates its own settings so a typo keeps the browser off instead of stopping the daemon. Docs, skills and the README cover running the browser in the Dev container with its safety settings. The deferred [signed-in browser profiles](plans/execution-environments/browser-profiles.md) plan joins the roadmap. Host release 736 already runs this browser code; Dev does not yet.
 
 Maintenance review (2026-10-21): the left sidebar toolbar keeps History, Schedules and Settings visible until they would overlap, measuring its real width instead of using fixed breakpoints. README overview and onboarding are unchanged.
@@ -732,6 +734,8 @@ No complete replacement of these custom workflows was established in this review
 ## Maintenance review
 
 October 22, 2026: Merged GitHub main into the installed Host source using the Host delivery script; installed changes now reach GitHub. README overview and onboarding are unchanged.
+
+October 22, 2026: Installation health is one summary line with details on demand, Refresh buttons appear only after errors, an empty request queue is hidden and Request readiness folds behind a toggle. README overview and onboarding are unchanged.
 
 October 22, 2026: Added task delivery scripts, their tests and guide, and Freed-derived agent rules for freshness, worktrees, archiving, debt, decisions and evidence. No product behavior change; README overview and onboarding are unchanged.
 

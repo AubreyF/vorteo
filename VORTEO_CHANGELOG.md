@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.743 - 2026-10-22
+
+### Maintenance
+
+- Merge two newer GitHub main commits into the Host delivery branch so it fast-forwards main.
+
 ## 0.11.0-beta.3.vorteo.742 - 2026-10-22
 
 ### Maintenance
@@ -17,6 +23,30 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.740 - 2026-10-21
+
+## 0.11.0-beta.3.vorteo.737 - 2026-10-22
+
+### Changed
+
+- Show installation health as one summary line with its badge and check time. Service readiness, activation steps and the recovery page move behind Health details; services that need attention stay visible.
+- Offer Refresh buttons in Installation only after an error. Health, recovery page and maintenance request status already refresh every few seconds.
+- Hide Maintenance requests when there are none.
+- Shorten the recovery page explanation, fold Request readiness behind a toggle and move the automatic-authorization note into each permission's tooltip.
+
+### Validation
+
+- Installation component tests cover the folded health details, error-only refresh buttons and the hidden empty request queue; the packaged installation check opens Request readiness before reading it.
+
+## 0.11.0-beta.3.vorteo.736 - 2026-10-22
+
+### Fixed
+
+- Report a conflicted source batch to agents instead of asking them to reload Vorteo. The coordinator's fallback status for clients without batch support now shows its own detail, such as "Contributions need correction before this batch can be approved", while a batch is preparing or conflicted; the reload prompt stays for ready batches an old owner tab cannot review
+- `installation-agent restart-status` requests batch details, and it and `request-restart` print each conflicting contribution, the file it conflicts in and the `--replaces` command that corrects it. A conflicted batch can never be approved, automatically or by the owner, until it is corrected
+
+### Maintenance
+
+- The installation maintenance skill explains conflicted batches and how to replace a contribution. These changes take effect after a coordinator renewal and a refreshed agent tool; a Host update alone does not install them
 
 ## 0.11.0-beta.3.vorteo.735 - 2026-10-21
 

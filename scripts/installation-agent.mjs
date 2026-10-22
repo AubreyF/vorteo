@@ -343,7 +343,8 @@ if (
     case "restart-status":
       if (!/^[a-f0-9-]{36}$/.test(positionals[1] ?? ""))
         throw new Error("A request ID is required");
-      resource = `/api/installation/restart-requests/${positionals[1]}`;
+      // Batch details include each contribution's merge result, such as a conflict.
+      resource = `/api/installation/restart-requests/${positionals[1]}?sourceBatches=1`;
       break;
     case "read-instructions":
       // Prints the shared agent instructions and the revision a change must be based on.
@@ -521,6 +522,7 @@ if (
     approval.searchParams.set("restart", result.batch?.id ?? result.id);
     result.approvalUrl = approval.href;
   }
+  if (["request-restart", "restart-status"].includes(positionals[0])) reportBatchConflicts(result);
   if (positionals[0] === "request-session-host") {
     // The link opens Installation controls, where the owner reviews the plan and presses Approve.
     const review = new URL(
@@ -562,4 +564,24 @@ if (
     result.approvalUrl = approval.href;
   }
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+}
+
+/**
+ * A conflicted source batch stays pending and is never approved, automatically or by the owner,
+ * until its contribution is corrected. Say so plainly instead of leaving it to the JSON.
+ */
+function reportBatchConflicts(result) {
+  const batch = result.batch?.sourceBatch ?? result.sourceBatch;
+  if (batch?.status !== "conflict" || !Array.isArray(batch.contributions)) return;
+  for (const contribution of batch.contributions) {
+    if (contribution?.status !== "conflict") continue;
+    const where =
+      String(contribution.detail ?? "")
+        .split("\n")[0]
+        .trim() || "the current source";
+    process.stderr.write(
+      `Source batch conflict: contribution ${contribution.id} conflicts in ${where}. ` +
+        `Rebase it on the current source and resubmit with --replaces ${contribution.id}.\n`,
+    );
+  }
 }

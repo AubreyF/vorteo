@@ -142,6 +142,16 @@ function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
   return job.status === "pending" ? pendingDetail : job.detail;
 }
 
+/**
+ * Only a ready batch needs a newer client to review it. While a batch is preparing or a
+ * contribution conflicts, the coordinator's own detail says so; a reload would not help.
+ */
+function legacyBatchDetail(job: RestartJob) {
+  return job.sourceBatch?.status === "ready"
+    ? pendingUpdateDetail(job, "Source batch pending. Reload Vorteo to review contributions.")
+    : job.detail;
+}
+
 // COMPAT(requireOwnerApproval): v311; legacy strict contribution decoders omit this field until 2027-04-11.
 function contributionReply(contribution: SourceContribution, requireOwnerApproval: boolean) {
   if (requireOwnerApproval) return contribution;
@@ -250,10 +260,7 @@ function restartReply(
     return restartReply(
       {
         ...compatible,
-        detail: pendingUpdateDetail(
-          job,
-          "Source batch pending. Reload Vorteo to review contributions.",
-        ),
+        detail: legacyBatchDetail(job),
       },
       details,
       graceful,

@@ -50,9 +50,11 @@ test.each([390, 1133])(
     expect(container.textContent).toContain("address copied");
     render({ ...bookmark, validUntil: new Date(Date.now() + 100).toISOString() });
     await expect.poll(() => container.textContent).not.toContain(bookmark.url);
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    // The address refreshes with installation status; no manual refresh without an error.
+    expect(container.querySelectorAll("button")).toHaveLength(0);
     render(bookmark, "Refresh failed");
     expect(container.textContent).not.toContain(bookmark.url);
+    expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
   },
 );
@@ -154,6 +156,9 @@ test.each([390, 1133])(
     const view = renderDashboard({ status: status() });
     const headline = view.container.querySelector('[data-testid="installation-health-headline"]');
     expect(headline?.textContent).toContain("Readiness unverified");
+    // Status refreshes on its own; a healthy check offers no manual refresh.
+    expect(view.container.textContent).not.toContain("Refresh status");
+    await page.getByTestId("installation-health-details-toggle").click();
     expect(view.container.textContent).toContain("2 of 2 steps verified");
     expect(view.container.textContent).toContain("Current service readiness has not been verified");
     const rows = view.container.querySelectorAll('[data-testid^="maintenance-service-"]');
@@ -162,8 +167,10 @@ test.each([390, 1133])(
       expect(bounds.left).toBeGreaterThanOrEqual(0);
       expect(bounds.right).toBeLessThanOrEqual(width);
     }
-    await page.getByRole("button", { name: "Refresh status" }).click();
-    expect(view.refreshes()).toBe(1);
+    const before = view.refreshes();
+    renderDashboard({ status: status(), error: "Maintenance service could not be reached." });
+    await page.getByRole("button", { name: "Refresh status" }).last().click();
+    expect(view.refreshes()).toBe(before + 1);
     expect(view.container.textContent).not.toContain("Approve");
   },
 );
@@ -173,6 +180,11 @@ test("an unconfirmed effect is never presented as a running or completed update"
   current.activation = "unconfirmed";
   current.completedSteps = 1;
   const view = renderDashboard({ status: current });
+  act(() =>
+    view.container
+      .querySelector<HTMLElement>('[data-testid="installation-health-details-toggle"]')
+      ?.click(),
+  );
   expect(view.container.textContent).toContain("Verifying outcome");
   expect(view.container.textContent).toContain("will not be dispatched again");
   expect(view.container.textContent).toContain("1 of 2 steps verified");
@@ -202,6 +214,7 @@ test("cached readiness expires without a server response", async () => {
   const headline = view.container.querySelector('[data-testid="installation-health-headline"]');
   expect(headline?.textContent).toContain("Ready");
   await expect.poll(() => headline?.textContent).toContain("Readiness unverified");
+  await page.getByTestId("installation-health-details-toggle").click();
   expect(view.container.textContent).toContain("Last known observation has expired");
 });
 
@@ -261,7 +274,8 @@ test.each([390, 1133])(
     expect(container.textContent).toContain("Last checked");
     expect(container.textContent).not.toContain("Last verified");
     expect(container.textContent).not.toContain("Candidate verified");
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    // A running request cannot be canceled, and status refreshes on its own.
+    expect(container.querySelectorAll("button")).toHaveLength(0);
     const bounds = container
       .querySelector('[data-testid="maintenance-request-queue"]')!
       .getBoundingClientRect();
