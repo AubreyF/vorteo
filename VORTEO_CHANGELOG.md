@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.776 - 2026-10-22
+
+### Maintenance
+
+- Merge the Claude Host refresh review copy and the provider docs split
+
+## 0.11.0-beta.3.vorteo.769 - 2026-10-22
+
+### Changed
+
+- Clarify the coordinator review text for Claude Host-owned refresh. Turning it on now says what it does for Dev's long turns; turning it off says Dev loses full sign-in accounts once their current access expires and new ones can no longer be added.
+- Split the providers guide's Host-owned refresh setup into enabling, the two-step rollout and requirements, and describe what turning it off does.
+
 ## 0.11.0-beta.3.vorteo.775 - 2026-10-22
 
 ### Maintenance
@@ -15,12 +28,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Fix seven tests that failed on the installed source without any change. Two runner tests compared stderr exactly and broke when Node 26 warned that tsx uses `module.register()`; they now run with `--no-deprecation`. The unknown-observation test was stale after unclaimed recovery fencing; it now tries the actual masquerade as success and also checks the claimed-request refusal. The installer approval-link test expected the status read without `sourceBatches=1`. The Dev release-link test runs only on Linux, where its helper's `/proc` reads exist, with a canonical temporary root. The two web-setup tests get a 60-second budget for their real Git work under load.
-
-## 0.11.0-beta.3.vorteo.768 - 2026-10-22
-
-### Added
-
-- Coordinator updates can carry the Host-owned Claude refresh setting. A reviewed plan sets `claudeHostRefreshConfiguration` to `true` or `null`, the coordinator accepts exactly that change to its configuration, and Installation controls describe it before approval. Automatic updates and renewals still refuse configuration changes, and clients that cannot show the change cannot approve it but can still cancel. Turning it on takes a coordinator and Host update that know the field, then one owner-reviewed coordinator update.
 
 ## 0.11.0-beta.3.vorteo.774 - 2026-10-22
 
@@ -308,6 +315,12 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Added
+
+- Coordinator updates can carry the Host-owned Claude refresh setting. A reviewed plan sets `claudeHostRefreshConfiguration` to `true` or `null`, the coordinator accepts exactly that change to its configuration, and Installation controls describe it before approval. Automatic updates and renewals still refuse configuration changes, and clients that cannot show the change cannot approve it but can still cancel. Turning it on takes a coordinator and Host update that know the field, then one owner-reviewed coordinator update.
 
 ## 0.11.0-beta.3.vorteo.767 - 2026-10-22
 

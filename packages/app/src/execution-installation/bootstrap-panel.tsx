@@ -338,8 +338,8 @@ function ClaudeRefreshConfiguration({ plan }: { plan: CoordinatorBootstrapReques
   return (
     <Text style={styles.text}>
       {config === null
-        ? "Turn off Host-owned refresh for full sign-in Claude accounts. Setup-token accounts are unaffected."
-        : "Turn on Host-owned refresh for full sign-in Claude accounts. The Host keeps their only sign-in grant, and sign-in starts only when every environment supports it."}
+        ? "Turn off Host-owned refresh for full sign-in Claude accounts. Dev loses those accounts when their current access expires, within about 8 hours, and new full sign-in accounts can no longer be added. Host use and setup-token accounts are unaffected."
+        : "Turn on Host-owned refresh for full sign-in Claude accounts. The Host keeps each account signed in and sends Dev short-lived access, so long Dev turns survive token expiry. Adding a full sign-in account becomes available once every environment supports it."}
     </Text>
   );
 }
