@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Validation
+
+- The relay end-to-end scenario no longer depends on timing. The scripted provider used to make its tool call three seconds after the worker was killed, and on a fast machine the replacement worker was already listening by then, so the hold the scenario proves never happened. The provider now waits for a trigger file the test writes right after the kill, so the call always goes out while no worker listens.
+
 ## 0.11.0-beta.3.vorteo.767 - 2026-10-22
 
 ### Fixed

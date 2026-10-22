@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the relay end-to-end scenario releases the scripted tool call from the test right after the worker kill instead of after a fixed delay, so the hold it proves is certain on fast machines too. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the tool relay drops a failed notification silently instead of answering it, and aborts a connection's in-flight tool calls at the daemon when the provider's connection closes. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the tool relay reads each daemon reply itself and answers every request exactly once from its own response, so a tool call interrupted after its reply headers is reported as unknown and never run twice, and one call's failure leaves the others in flight untouched. README overview and onboarding are unchanged.

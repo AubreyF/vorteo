@@ -302,7 +302,8 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
     const supervisor = await install.startSupervisor(THIS_TREE);
     const firstWorker = supervisor.workers[0]!;
     const client = await connected(install);
-    // The provider starts its tool call a few seconds after chunk 2, with the worker gone by then.
+    // The provider pauses after this chunk and makes its tool call only once the test releases
+    // it, which happens right after the worker is killed, so the call always meets no worker.
     const agentId = await startScriptedAgent(install, client, TURN_CHUNKS, {
       toolAt: RESTART_AFTER_CHUNKS,
     });
@@ -311,6 +312,7 @@ describe.skipIf(!ENABLED)("durable sessions with a real daemon", () => {
 
     const killedAt = Date.now();
     process.kill(firstWorker, "SIGKILL");
+    install.releaseTool();
     await supervisor.waitForWorker([firstWorker]);
     const next = await connected(install);
     await expectUninterruptedTurn(next, agentId);

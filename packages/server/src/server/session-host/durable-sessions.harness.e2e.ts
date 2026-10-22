@@ -145,6 +145,8 @@ export interface Installation {
   startHost(tree: ReleaseTree, options?: { viaLink?: boolean }): Promise<HostIdentity>;
   /** Points the release link at another tree, as installing a release does. */
   repointRelease(tree: ReleaseTree): void;
+  /** Lets a scripted agent paused at TOOL_AT make its tool call now. */
+  releaseTool(): void;
   /** The host answering now; waits for one other than notPid when given. */
   host(options?: { notPid?: number; timeoutMs?: number }): Promise<HostIdentity>;
   startSupervisor(tree: ReleaseTree): Promise<Supervisor>;
@@ -272,6 +274,8 @@ export async function createInstallation(options: InstallationOptions): Promise<
   );
   /** The installation's release link; the host job runs through it when started viaLink. */
   const releaseLink = path.join(root, "current");
+  /** Written by releaseTool; a scripted agent paused at TOOL_AT waits for it. */
+  const toolTrigger = path.join(root, "tool-go");
   // Only the provider under test is enabled, so nothing else on this machine is ever consulted.
   const providers: Record<string, unknown> = Object.fromEntries(
     ALL_PROVIDERS.filter((id) => id !== agentProvider).map((id) => [id, { enabled: false }]),
@@ -353,6 +357,10 @@ export async function createInstallation(options: InstallationOptions): Promise<
     cliMarker,
     agentProvider,
 
+    releaseTool() {
+      writeFileSync(toolTrigger, "go");
+    },
+
     repointRelease(tree) {
       // Replace the link atomically, as a release install does, so a relaunching host never sees
       // a missing link.
@@ -387,6 +395,7 @@ export async function createInstallation(options: InstallationOptions): Promise<
                   ),
                   DURABLE_SESSIONS_FAKE_CLI_MARKER: cliMarker,
                   [FAKE_PROVIDER_ENV]: agentProvider,
+                  DURABLE_SESSIONS_FAKE_TOOL_TRIGGER: toolTrigger,
                   ...(options.chunkMs
                     ? {
                         DURABLE_SESSIONS_FAKE_CHUNK_MS: String(options.chunkMs),

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type {
   AgentClient,
@@ -34,6 +35,11 @@ const PERMISSION_PATTERN = /PERMISSION_AT=(\d+)/;
  */
 const TOOL_PATTERN = /TOOL_AT=(\d+)/;
 const TOOL_DELAY_MS = Number(process.env.DURABLE_SESSIONS_FAKE_TOOL_DELAY_MS ?? 3_000);
+/**
+ * When set, the tool call waits for this file to exist instead of the delay, so a test can kill
+ * the worker first and then release the call, which makes the hold certain rather than likely.
+ */
+const TOOL_TRIGGER = process.env.DURABLE_SESSIONS_FAKE_TOOL_TRIGGER;
 const TOOL_TIMEOUT_MS = 90_000;
 const CHUNK_INTERVAL_MS = Number(process.env.DURABLE_SESSIONS_FAKE_CHUNK_MS ?? 1_000);
 /** Marks this run's stand-in CLI processes, so the test finds exactly its own. */
@@ -160,7 +166,11 @@ class ScriptedSession extends ControlledSession {
 
   /** Calls the daemon's tools the way the provider would, through the server the host configured. */
   private async pauseForTool(resume: () => void): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, TOOL_DELAY_MS));
+    if (TOOL_TRIGGER) {
+      const deadline = Date.now() + TOOL_TIMEOUT_MS;
+      while (!existsSync(TOOL_TRIGGER) && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    } else await new Promise((resolve) => setTimeout(resolve, TOOL_DELAY_MS));
     try {
       const count = await listDaemonTools(this.config);
       this.text(`[tool ok ${count} tools]`);
