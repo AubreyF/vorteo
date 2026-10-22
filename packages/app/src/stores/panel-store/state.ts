@@ -20,6 +20,9 @@ export const SUPPORTING_CARD_DEFAULTS = {
   changes: false,
   // Collapsed by default: expanding it reads the provider's context breakdown.
   context: false,
+  /** Left-sidebar cards that span every thread and account. */
+  globalQuestions: true,
+  globalQuota: true,
 } as const;
 export type SupportingCardLayout = "sidebar" | "inline";
 export type SupportingCardKind = keyof typeof SUPPORTING_CARD_DEFAULTS;
@@ -36,6 +39,8 @@ const SupportingCardStateSchema = z
     files: z.boolean(),
     changes: z.boolean(),
     context: z.boolean(),
+    globalQuestions: z.boolean(),
+    globalQuota: z.boolean(),
   })
   .partial();
 
