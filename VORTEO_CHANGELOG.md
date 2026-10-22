@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Maintenance
+
+- Merge Dev's installed source so the Dev update is a fast-forward of what Dev runs; main already carries every Dev change
+
 ## 0.11.0-beta.3.vorteo.756 - 2026-10-22
 
 ### Fixed
@@ -1094,6 +1100,60 @@ Integrates the restart continuation fixes (vorteo.690 below) with the Open quest
 ### Fixes
 
 - Show Force restart now on pending plain Host requests, with the existing interruption confirmation.
+
+## 0.11.0-beta.3.vorteo.693 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.692 - 2026-10-20
+
+### Fixes
+
+- ACP agents (Cursor, Copilot, Kimi, Kiro and generic ACP providers) now receive the agent's system prompt and the shared agent instructions in a marked block on a new session's first prompt. A failed first prompt keeps them for the next turn, a first-turn slash command defers them, and history replay hides the block.
+
+## 0.11.0-beta.3.vorteo.691 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Fixed
+
+- Accept the read-only Factory qualifier workspace. Governed workers previously had to use a fully writable workspace, so Factory issue qualification, which reads the workspace and writes only its private `.factory-tmp` scratch directory, failed right after launch with "Native worker filesystem confinement is unavailable". The verifier now accepts exactly two strict shapes, the existing writable one and the read-only one with `.factory-tmp` writable, and refuses near misses.
+- Require `.factory-tmp` to be a real directory, not a file or symlink, before a read-only worker starts.
+- Add focused tests for both shapes, near-miss shapes and the scratch directory checks.
+
+## 0.11.0-beta.3.vorteo.690 - 2026-10-20
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.689 - 2026-10-20
+
+### Fixed
+
+- Bound how long one schedule tick waits for an admitted attempt. A protected attempt that has neither dispatched nor settled within 15 seconds stays running and admitted, and the tick continues with the remaining schedules. Without this, one hung quota preparation would stop all scheduled work until a daemon restart.
+- Log a warning when an attempt reaches the bound, and once when later ticks are skipped behind a long-held tick.
+- Add a regression test for a hung protected admission.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Fixed
+
+- Prevent overlapping schedule ticks. A tick that starts while another is still admitting schedules is skipped, and the guard is released after failures. Dispatched scheduled runs continue concurrently, so long runs do not delay other due schedules.
+- Skip a schedule that changed after the tick's snapshot and retry it on the next tick, instead of aborting the remaining schedules. This removes the repeated "Schedule changed before admission" failures from held protected schedules. Admission rules, protected custody and quota handling are unchanged.
+- Add focused schedule service tests for overlapping ticks, stale admission, guard release after failure and concurrent dispatched runs.
+
+## 0.11.0-beta.3.vorteo.688 - 2026-10-19
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.687 - 2026-10-18
 
