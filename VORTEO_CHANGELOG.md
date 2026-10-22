@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Browser tests that wait for a second host no longer time out. `waitForConnectedHost` now checks the host's endpoint in Settings > Environments > Connections and returns to the workspace, instead of opening the sidebar Hosts control that was removed on 2026-10-06. This affects the Add project, host appearance and project grouping specs.
+- The sidebar footer check no longer expects the removed Hosts control.
+
 ## 0.11.0-beta.3.vorteo.798 - 2026-10-22
 
 ### Maintenance
