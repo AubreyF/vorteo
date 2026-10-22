@@ -341,7 +341,8 @@ test("usage plugins get a worker-built environment and closed sessions report no
   // Surfaces that need trusted in-process callbacks are absent rather than half-supported.
   expect(session.goals).toBeUndefined();
   expect(session.setQuotaAdmissionGuard).toBeUndefined();
-  expect(session.tryHandleOutOfBand).toBeUndefined();
+  // Claude handles no commands out of band, so the hosted proxy recognises none for it.
+  expect(session.tryHandleOutOfBand?.("/compact")).toBeNull();
   await session.close();
   expect(session.usageSession?.()).toBeNull();
   expect(fixture.hosted[0]!.closed).toBe(true);

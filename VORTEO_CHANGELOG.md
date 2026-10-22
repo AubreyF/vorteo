@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.748 - 2026-10-22
+
+### Features
+
+- Durable sessions phase 2: Codex sessions run in the session host when durable sessions are enabled, for builtin and account providers. The worker sends the account descriptor in the open request so the host builds the same client, Codex goal state and the `/goal` and `/compact` commands cross to the host, and the hosted session reports its own capabilities. Claude hosting is unchanged.
+- The session host records each detached Codex app-server process it spawns and, at its next start, stops any recorded process that still runs the app-server, so a host killed by its watchdog or a crash never leaves a second writer beside a continued agent.
+
+### Validation
+
+- New unit tests cover the child registry, Codex goals and commands through the host, per-session capabilities and the account descriptor reaching the host, and a recorded orphan stopped at host start. The existing session host suites pass unchanged on the installed source. Codex end-to-end and live acceptance follow in later commits.
 
 ## 0.11.0-beta.3.vorteo.747 - 2026-10-22
 

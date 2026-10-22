@@ -76,6 +76,11 @@ export async function createAgentSessionPort(session: AgentSession): Promise<Hos
         session.getPendingPermissions() as HostedSessionSnapshot["pendingPermissions"],
       features: (session.features ?? []) as unknown as HostedSessionSnapshot["features"],
       activeTurnId,
+      // Goal state and per-session capabilities, so the worker mirrors what this session supports.
+      goals: session.goals
+        ? (toHostedJson(session.goals.state) as HostedSessionSnapshot["goals"])
+        : null,
+      capabilities: toHostedJson(session.capabilities) as HostedSessionSnapshot["capabilities"],
     };
   }
 
@@ -195,6 +200,30 @@ export async function createAgentSessionPort(session: AgentSession): Promise<Hos
         messageId: call.messageId,
       });
       return null;
+    },
+    async goalsRead(call) {
+      return requireMember(session.goals, call.method).read();
+    },
+    async goalsSet(call) {
+      return requireMember(session.goals, call.method).set(
+        call.input as Parameters<NonNullable<AgentSession["goals"]>["set"]>[0],
+      );
+    },
+    async goalsClear(call) {
+      return requireMember(session.goals, call.method).clear();
+    },
+    async outOfBand(call) {
+      // The handler's events are returned, not logged: the worker dispatches them itself, the way
+      // it does for a local session, so nothing is shown twice.
+      const handler = session.tryHandleOutOfBand?.(call.prompt);
+      if (!handler) return { handled: false, events: [] };
+      const events: JsonValue[] = [];
+      await handler.run({ emit: (event) => events.push(toHostedJson(event)) });
+      return {
+        handled: true,
+        ...(handler.intent ? { intent: handler.intent } : {}),
+        events,
+      };
     },
   };
 

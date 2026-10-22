@@ -14,11 +14,13 @@ import { HostedOpenRequestSchema } from "./session-contract.js";
 export type HostedClientFactory = (input: {
   provider: string;
   runtimeSettings?: ProviderRuntimeSettings;
+  /** A derived provider (an account) the worker would have built the client for. */
+  customProvider?: { id: string; label: string; extends: string };
   logger: Logger;
 }) => AgentClient;
 
-/** Phase 1 runs Claude sessions only. */
-export const HOSTED_PROVIDERS: readonly string[] = ["claude"];
+/** Phase 1 ran Claude only; phase 2 adds Codex. Derived account providers report these base ids. */
+export const HOSTED_PROVIDERS: readonly string[] = ["claude", "codex"];
 
 export class HostedOpenRefusedError extends Error {
   constructor(message: string) {
@@ -46,6 +48,7 @@ export function createProviderSessionFactory(input: {
     const client = input.createClient({
       provider,
       runtimeSettings: request.runtimeSettings as ProviderRuntimeSettings | undefined,
+      ...(request.customProvider ? { customProvider: request.customProvider } : {}),
       logger: input.logger,
     });
     const launchContext: AgentLaunchContext = { agentId: request.agentId, env: request.launchEnv };

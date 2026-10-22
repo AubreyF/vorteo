@@ -110,10 +110,10 @@ function spawnHost(home: string): HostChild {
 }
 
 /** Starts the real entrypoint in a child on the fake provider and connects a worker client. */
-async function startHost(): Promise<RunningHost> {
+async function startHost(existingHome?: string): Promise<RunningHost> {
   // Under /tmp, not the per-user temp directory, so the socket path stays within its limit.
-  const home = mkdtempSync("/tmp/dsh-svc-");
-  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const home = existingHome ?? mkdtempSync("/tmp/dsh-svc-");
+  if (!existingHome) cleanups.push(() => rmSync(home, { recursive: true, force: true }));
   const closeLog = path.join(home, "closed.log");
   const { child, exited } = spawnHost(home);
   const paths = sessionHostPaths(home);
@@ -274,4 +274,48 @@ test("a second host fails while one runs and leaves the running host's token alo
     token: host.token,
   });
   another.close();
+}, 30_000);
+
+test("a provider process recorded by an earlier host is stopped before the new host serves", async () => {
+  // Under /tmp, not the per-user temp directory, so the socket path stays within its limit.
+  const home = mkdtempSync("/tmp/dsh-svc-");
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const paths = sessionHostPaths(home);
+  // Stands in for a detached Codex app-server left behind: its command line carries the marker.
+  const orphan = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", "app-server"], {
+    stdio: "ignore",
+  });
+  cleanups.push(() => {
+    if (orphan.exitCode === null && orphan.signalCode === null) orphan.kill("SIGKILL");
+  });
+  const orphanExited = new Promise<void>((resolve) => orphan.once("exit", () => resolve()));
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(paths.directory, { mode: 0o700 });
+  writeFileSync(
+    path.join(paths.directory, "children.json"),
+    JSON.stringify({
+      version: 1,
+      children: [
+        {
+          pid: orphan.pid,
+          marker: "app-server",
+          agentId: "agent-1",
+          spawnedAt: "2026-10-22T00:00:00Z",
+        },
+        { pid: 999_999, marker: "app-server", spawnedAt: "2026-10-22T00:00:00Z" },
+      ],
+    }),
+    { mode: 0o600 },
+  );
+
+  const host = await startHost(home);
+  await orphanExited;
+  expect(orphan.signalCode).toBe("SIGKILL");
+  expect(
+    JSON.parse(readFileSync(path.join(paths.directory, "children.json"), "utf8")).children,
+  ).toEqual([]);
+  expect(readFileSync(path.join(paths.directory, "host.log"), "utf8")).toContain(
+    "Stopped provider processes left by an earlier session host",
+  );
+  expect(await host.client.list()).toEqual([]);
 }, 30_000);

@@ -1,6 +1,7 @@
 import type {
   AgentCapabilityFlags,
   AgentFeature,
+  AgentGoals,
   AgentMode,
   AgentPermissionRequest,
   AgentPermissionResponse,
@@ -22,13 +23,25 @@ export const CONTROLLED_SESSION_CAPABILITIES: AgentCapabilityFlags = {
   supportsToolInvocations: true,
 };
 
+export interface ControlledSessionOptions {
+  /** Reported provider id; the Codex shape is "codex". Defaults to "claude". */
+  provider?: string;
+  /** Gives the session goal state and the Codex-style /goal and /compact command handling. */
+  goals?: boolean;
+}
+
+type GoalState = AgentGoals["state"];
+
 /**
  * A provider session whose turn runs until the test ends it, like a long Claude turn. It keeps
- * its state the way the Claude adapter does: updated before each event is emitted.
+ * its state the way the Claude adapter does: updated before each event is emitted. With goals on it
+ * also behaves like the Codex adapter: goal state lives in the session and `/goal` runs out of band.
  */
 export class ControlledSession implements AgentSession {
-  readonly provider = "claude";
-  readonly capabilities = CONTROLLED_SESSION_CAPABILITIES;
+  readonly provider: string;
+  readonly goals: AgentGoals | undefined;
+  readonly commands: string[] = [];
+  private goalState: GoalState = { status: "ready", goal: null } as unknown as GoalState;
   private sessionId: string | null = null;
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly pending = new Map<
@@ -45,10 +58,55 @@ export class ControlledSession implements AgentSession {
   constructor(
     readonly config: AgentSessionConfig,
     private readonly history: AgentStreamEvent[] = [],
-  ) {}
+    options: ControlledSessionOptions = {},
+  ) {
+    this.provider = options.provider ?? "claude";
+    this.goals = options.goals ? this.controlledGoals() : undefined;
+  }
+
+  get capabilities(): AgentCapabilityFlags {
+    return { ...CONTROLLED_SESSION_CAPABILITIES, supportsGoals: this.goals !== undefined };
+  }
 
   get id(): string | null {
     return this.sessionId;
+  }
+
+  private controlledGoals(): AgentGoals {
+    const readState = (): GoalState => this.goalState;
+    const settle = (goal: unknown): GoalState => {
+      this.goalState = { status: "ready", goal } as unknown as GoalState;
+      this.emit({ type: "goal_changed", provider: this.provider, state: this.goalState });
+      return this.goalState;
+    };
+    return {
+      get state() {
+        return readState();
+      },
+      read: async () => readState(),
+      set: async (input) =>
+        settle({ objective: (input as { objective?: string }).objective ?? "", status: "active" }),
+      clear: async () => settle(null),
+    };
+  }
+
+  /** Codex-style commands: /compact always; /goal only with goals on. */
+  tryHandleOutOfBand(prompt: AgentPromptInput) {
+    if (typeof prompt !== "string" || !prompt.startsWith("/")) return null;
+    const [name, ...rest] = prompt.slice(1).split(/\s+/);
+    if (name !== "compact" && !(name === "goal" && this.goals)) return null;
+    this.commands.push(prompt);
+    return {
+      intent: name === "goal" && rest.length ? ("goal" as const) : undefined,
+      run: async ({ emit }: { emit: (event: AgentStreamEvent) => void }) => {
+        if (name === "goal" && rest.length) await this.goals!.set({ objective: rest.join(" ") });
+        emit({
+          type: "timeline",
+          provider: this.provider,
+          item: { type: "assistant_message", text: `${name} handled` },
+        });
+      },
+    };
   }
 
   get features(): AgentFeature[] {

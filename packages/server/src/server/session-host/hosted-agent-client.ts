@@ -104,6 +104,8 @@ export function createHostedAgentClient(input: {
   inner: AgentClient;
   runtimeSettings?: ProviderRuntimeSettings;
   routing: HostedSessionRouting;
+  /** The derived provider this client was built for, so the host builds the same one. */
+  customProvider?: { id: string; label: string; extends: string };
 }): AgentClient {
   const { inner, routing } = input;
   const logger = routing.logger.child({ module: "session-host", provider: inner.provider });
@@ -342,6 +344,7 @@ export function createHostedAgentClient(input: {
           launchEnv: launchContext?.env,
           runtimeSettings: input.runtimeSettings ? toJson(input.runtimeSettings) : undefined,
           persistSession: options?.persistSession,
+          ...(input.customProvider ? { customProvider: input.customProvider } : {}),
         },
       });
       if (hosted) return hosted;
