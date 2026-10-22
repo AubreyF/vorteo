@@ -5,11 +5,11 @@
 //          [--base origin/main] [--root <directory>] [--no-install]
 // The default location is a sibling of the repository: ../<repo>-<slug>.
 // PASEO_TASK_WORKTREE_ROOT overrides the parent directory.
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { git, hasCommit, parseArgs, repositoryRoot } from "./lib/delivery-git.mjs";
 import { isMainModule } from "./is-main-module.mjs";
+import { installDependencies } from "./lib/dependency-cache.mjs";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BRANCH_PREFIXES = ["feat/", "fix/", "chore/", "docs/", "refactor/", "perf/", "test/"];
@@ -49,10 +49,8 @@ export function createTaskWorktree(plan, { install = true } = {}) {
   git(plan.repository, ["worktree", "add", "--quiet", "-b", plan.branch, plan.location, plan.base]);
   if (install && existsSync(path.join(plan.location, "package-lock.json"))) {
     // Each worktree owns its dependencies; a shared install writes through to other checkouts.
-    execFileSync("npm", ["ci", "--no-audit", "--no-fund"], {
-      cwd: plan.location,
-      stdio: "inherit",
-    });
+    // A copy-on-write clone of a cached install gives the same isolation without the disk cost.
+    installDependencies({ root: plan.location, mode: "worktree" });
   }
   return plan;
 }

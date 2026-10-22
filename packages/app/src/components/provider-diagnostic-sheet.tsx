@@ -27,6 +27,8 @@ import { useTimeAgo } from "@/hooks/use-time-ago";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { ProviderProfileModel } from "@getpaseo/protocol/provider-config";
@@ -182,6 +184,7 @@ function AddCustomModelSubSheet({
     }
   }, [visible]);
 
+  const reportActionError = useReportActionError();
   const handleAdd = useCallback(() => {
     if (!canAdd) return;
     setError(null);
@@ -196,10 +199,20 @@ function AddCustomModelSubSheet({
       .then(() => refresh([provider]))
       .then(() => onClose())
       .catch((err) => {
-        setError(err instanceof Error ? err.message : t("settings.providers.models.failedToSave"));
+        if (isConnectionError(err)) reportActionError(err);
+        else setError(toErrorMessage(err));
       })
       .finally(() => setSaving(false));
-  }, [additionalModels, canAdd, onClose, patchConfig, provider, refresh, t, trimmed]);
+  }, [
+    additionalModels,
+    canAdd,
+    onClose,
+    patchConfig,
+    provider,
+    refresh,
+    reportActionError,
+    trimmed,
+  ]);
 
   const header = useMemo<SheetHeader>(
     () => ({ title: t("settings.providers.models.addCustomTitle") }),
@@ -276,13 +289,11 @@ function DiagnosticSubSheet({
       const result = await client.getProviderDiagnostic(provider);
       setDiagnostic(result.diagnostic);
     } catch (err) {
-      setDiagnostic(
-        err instanceof Error ? err.message : t("settings.providers.diagnostic.failedToFetch"),
-      );
+      setDiagnostic(toErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [client, provider, t]);
+  }, [client, provider]);
 
   useEffect(() => {
     if (visible) {
@@ -683,11 +694,7 @@ export function ProviderDiagnosticSheet({
         },
       })
         .then(() => refresh([provider]))
-        .catch((error) =>
-          toast.error(
-            error instanceof Error ? error.message : "Unable to remove the custom model.",
-          ),
-        )
+        .catch((error) => toast.error(toErrorMessage(error)))
         .finally(() => {
           setDeletingModelId((current) => (current === modelId ? null : current));
         });

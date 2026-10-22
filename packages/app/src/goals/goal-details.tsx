@@ -40,7 +40,7 @@ export function GoalDetails({ control, draft, onClose, onCreated }: GoalDetailsP
       if (!goal) onCreated(initialDraft);
       onClose();
     } catch {
-      // The shared control renders the mutation error and preserves this draft.
+      // The failure is reported as a toast and this draft is preserved for a retry.
     }
   }, [disabled, form.input, mutate, goal, onCreated, onClose, initialDraft]);
   const title = goal ? "Goal details" : "New goal";

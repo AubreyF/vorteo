@@ -43,6 +43,8 @@ import { useSessionStore } from "@/stores/session-store";
 import { useSystemManaged } from "@/workspace/lifecycle/system-membership";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
 import { useProjectMoveRequest } from "@/workspace/project-move/request";
+import { useMoveToSidebarFolderAction } from "@/sidebar-folders/actions";
+import { projectFolderScope } from "@/sidebar-folders/tree";
 import { useWorkspaceRenameDoubleClick } from "./workspace-rename-press";
 import { getForgePresentation, normalizeForge } from "@/git/forge";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
@@ -122,6 +124,10 @@ function renderTriggerIcon({ hovered }: { hovered?: boolean }) {
 
 export interface SidebarWorkspaceMenuProps {
   workspaceKey: string;
+  /** Offers Move to folder within this project when its folders exist. */
+  projectViewKey?: string;
+  /** Names the workspace in the Move to folder dialog. */
+  workspaceTitle?: string;
   backdrop?: SidebarSurfaceBackdrop;
   serverId?: string;
   workspaceId?: string;
@@ -237,6 +243,8 @@ export function WorkspaceMenuItems({
   importSessionDisabled,
   onShowSetup,
   workspaceKey,
+  projectViewKey,
+  workspaceTitle,
   serverId,
   workspaceId,
   onCopyPath,
@@ -269,6 +277,12 @@ export function WorkspaceMenuItems({
     () => <ThemedTag size={14} uniProps={foregroundMutedColorMapping} />,
     [],
   );
+  const folderScope = useMemo(() => projectFolderScope(projectViewKey ?? ""), [projectViewKey]);
+  const moveToFolder = useMoveToSidebarFolderAction({
+    scope: folderScope,
+    entry: workspaceKey,
+    title: workspaceTitle ?? workspaceKey,
+  });
 
   return (
     <>
@@ -313,6 +327,16 @@ export function WorkspaceMenuItems({
           onSelect={moveProject}
         >
           Move to project
+        </WorkspaceMenuItem>
+      ) : null}
+      {projectViewKey && moveToFolder ? (
+        <WorkspaceMenuItem
+          surface={surface}
+          testID={itemId("move-folder")}
+          leading={moveLeadingIcon}
+          onSelect={moveToFolder}
+        >
+          {t("sidebar.folders.actions.moveToFolder")}
         </WorkspaceMenuItem>
       ) : null}
       {onMarkAsRead ? (
@@ -514,6 +538,8 @@ export function SidebarWorkspaceMenu({
   importSessionDisabled,
   onShowSetup,
   workspaceKey,
+  projectViewKey,
+  workspaceTitle,
   backdrop = "surfaceSidebarHover",
   serverId,
   workspaceId,
@@ -583,6 +609,8 @@ export function SidebarWorkspaceMenu({
           onShowSetup={onShowSetup}
           surface="dropdown"
           workspaceKey={workspaceKey}
+          projectViewKey={projectViewKey}
+          workspaceTitle={workspaceTitle}
           serverId={serverId}
           workspaceId={workspaceId}
           workspaceLabels={workspaceLabels}
@@ -706,6 +734,8 @@ export function SidebarWorkspaceContextMenu({
             {...sessionMenu}
             surface="context"
             workspaceKey={workspaceKey}
+            projectViewKey={workspace.projectViewKey}
+            workspaceTitle={workspace.name}
             serverId={workspaceTarget.serverId}
             workspaceId={workspaceTarget.workspaceId}
             workspaceLabels={workspaceTarget.labels}

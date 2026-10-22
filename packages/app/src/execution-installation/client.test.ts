@@ -569,6 +569,7 @@ test("session host client hides on old coordinators and binds requests and decis
     await import("./session-host-review.fixture");
   const calls: { path: string; body: unknown }[] = [];
   let available = false;
+  let later = false;
   let now = 1_000;
   const client = new InstallationClient(installation, {
     now: () => now,
@@ -582,7 +583,15 @@ test("session host client hides on old coordinators and binds requests and decis
           ),
         };
       if (!available) throw new InstallationRouteUnavailable();
-      if (path === "session-host/query") return { jobs: [job], status };
+      if (path === "session-host/query") {
+        if (!later) return { jobs: [job], status };
+        return {
+          jobs: [{ ...job, later: 1, plan: { ...job.plan, later: 1 }, host: { pid: 1, later: 1 } }],
+          status: { ...status, later: 1, detail: { ...status.detail, later: 1 } },
+          restartSupported: true,
+          later: 1,
+        };
+      }
       if (path === "session-host/request") {
         const request = body as { id: string };
         return { ...job, id: request.id };
@@ -607,6 +616,17 @@ test("session host client hides on old coordinators and binds requests and decis
   available = true;
   now += 60_000;
   expect(await client.sessionHost()).toEqual({ jobs: [job], status });
+  // The query declares every addition this interface parses, for coordinators that gate them.
+  expect(calls.at(-1)).toEqual({
+    path: "session-host/query",
+    body: { restart: true, indicator: true, upgrade: true },
+  });
+  // A coordinator that adds fields anywhere in the reply never breaks this interface again.
+  later = true;
+  const tolerated = await client.sessionHost();
+  expect(tolerated?.jobs[0]?.id).toBe(job.id);
+  expect(tolerated?.status?.detail?.label).toBe(status.detail?.label);
+  later = false;
   const requested = await client.requestSessionHost("session-host-install", "Owner request");
   const sent = calls.at(-1)!;
   expect(sent.path).toBe("session-host/request");

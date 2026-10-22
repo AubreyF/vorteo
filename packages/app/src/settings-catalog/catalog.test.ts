@@ -18,8 +18,8 @@ const SRC = path.resolve(__dirname, "..");
  * these files, so a new row without a catalog entry fails here.
  */
 const PANE_SOURCES: Record<string, readonly string[]> = {
-  "general.newWorkspace": ["screens/settings/general/workspace-defaults-section.tsx"],
-  "general.sending": ["screens/settings/general/sending-section.tsx"],
+  "workspaces.newWorkspace": ["screens/settings/general/workspace-defaults-section.tsx"],
+  "chat.sending": ["screens/settings/general/sending-section.tsx"],
   "general.notifications": ["desktop/components/desktop-notifications-section.tsx"],
   "chat.chat": ["screens/settings/chat/chat-section.tsx"],
   "chat.editor": ["screens/settings/editor-section.tsx"],
@@ -120,9 +120,10 @@ describe("settings catalog", () => {
       pane: "accounts.providers",
     });
     expect(resolveSettingsTarget("diagnostics")).toEqual({
-      section: "maintenance",
-      pane: "maintenance.diagnostics",
+      section: "general",
+      pane: "general.hosts",
     });
+    expect(resolveSettingsTarget("about")).toEqual({ section: "general", pane: "general.about" });
     expect(resolveSettingsTarget("unknown")).toEqual({ section: "general", pane: null });
   });
 

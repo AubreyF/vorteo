@@ -34,6 +34,7 @@ import {
   type WorkspaceLabelPickerRow,
 } from "@/workspace-labels";
 import type { Theme } from "@/styles/theme";
+import { useToast } from "@/contexts/toast-context";
 import { WorkspaceLabelDot, WorkspaceLabelSwatchRow } from "./swatch";
 import { useHostFeature } from "@/runtime/host-features";
 import { WorkspaceLifecycleMenuItems } from "@/workspace/lifecycle/menu-items";
@@ -124,20 +125,22 @@ function WorkspaceLabelPickerPage({
 }): ReactElement {
   const { t } = useTranslation();
   const { labels, targetHost: host } = useWorkspaceLabelProjection(serverId);
+  const toast = useToast();
   const model = useMemo(
     () =>
       createWorkspaceLabelPickerModel({
         mutate: ({ label, assigned }) =>
           workspaceLabels.setAssignment({ serverId, workspaceId, label, assigned }),
+        reportError: (cause) => toast.error(workspaceLabelErrorMessage(cause)),
       }),
-    [serverId, workspaceId],
+    [serverId, toast, workspaceId],
   );
   useEffect(() => {
     model.sync({ labels, assigned: assignedLabels, online: host?.status === "online" });
   }, [assignedLabels, host?.status, labels, model]);
   const snapshot = useSyncExternalStore(model.subscribe, model.snapshot, model.snapshot);
   const offline = !snapshot.online;
-  const error = snapshot.error ?? (host?.error ? t("workspaceLabels.errors.load") : null);
+  const loadError = host?.error ? t("workspaceLabels.errors.load") : null;
   const pending = useMemo(() => new Set(snapshot.pendingNames), [snapshot.pendingNames]);
   const toggle = useCallback(
     (label: WorkspaceLabelDefinition, assigned: boolean) => {
@@ -160,7 +163,7 @@ function WorkspaceLabelPickerPage({
         />
       ))}
       {snapshot.rows.length > 0 ? <MenuSeparator /> : null}
-      {error ? <MenuHint testID="workspace-label-picker-error">{error}</MenuHint> : null}
+      {loadError ? <MenuHint testID="workspace-label-picker-error">{loadError}</MenuHint> : null}
       {host?.status === "unsupported" ? (
         <MenuHint>{t("workspaceLabels.updateHostUse")}</MenuHint>
       ) : null}
@@ -211,8 +214,8 @@ function WorkspaceLabelAssignRow({
  * Naming a new label and giving it a colour, in place of the list rather than under it.
  *
  * Picking a colour picks a colour: the label is created by the one row that says so, and only
- * once the name is not empty. A failure keeps the draft and says what happened, because the
- * alternative is retyping the name to find out whether the host is still there.
+ * once the name is not empty. A failed create keeps the draft and reports the failure as a toast,
+ * so the owner can retry without retyping the name.
  */
 function WorkspaceLabelCreatePage({
   serverId,
@@ -229,7 +232,13 @@ function WorkspaceLabelCreatePage({
   const [color, setColor] = useState<WorkspaceLabelColor>(DEFAULT_CREATE_COLOR);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const offline = host?.status !== "online";
+
+  const changeName = useCallback((value: string) => {
+    setName(value);
+    setError(null);
+  }, []);
 
   const submit = useCallback(() => {
     const trimmed = normalizeWorkspaceLabelName(name);
@@ -248,14 +257,14 @@ function WorkspaceLabelCreatePage({
         assigned: true,
       })
       .then(() => menu.goBack())
-      .catch((cause: unknown) => setError(workspaceLabelErrorMessage(cause)))
+      .catch((cause: unknown) => toast.error(workspaceLabelErrorMessage(cause)))
       .finally(() => setPending(false));
-  }, [color, menu, name, pending, serverId, workspaceId]);
+  }, [color, menu, name, pending, serverId, toast, workspaceId]);
 
   return (
     <>
       <MenuTextField
-        onChangeText={setName}
+        onChangeText={changeName}
         placeholder={t("workspaceLabels.name")}
         autoFocus
         editable={!offline && !pending}

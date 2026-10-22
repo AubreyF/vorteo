@@ -21,6 +21,7 @@ import { useReportRefresh } from "./queries";
 import { UsageSourceIcon } from "./source-icon";
 import type { UsageReport, UsageReportEntry, UsageWindow } from "./types";
 import { UsageWindowBar } from "./window-bar";
+import { toErrorMessage } from "@/utils/error-messages";
 
 function statusText(report: UsageReport): string | null {
   if (report.status === "available") return null;
@@ -36,7 +37,9 @@ function reportContent(report: UsageReport) {
       message: undefined,
     };
   const message =
-    report.status === "unavailable" ? usageCopy.problem(report.problem) : report.error;
+    report.status === "unavailable"
+      ? usageCopy.problem(report.problem)
+      : toErrorMessage(report.error);
   return { windows: [], balances: [], details: [], message };
 }
 

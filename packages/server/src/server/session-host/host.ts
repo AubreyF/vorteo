@@ -47,6 +47,7 @@ export interface HostedSessionPort {
 }
 
 export type HostedSessionFactory = (input: {
+  sessionId: string;
   provider: string;
   config: JsonValue;
 }) => Promise<HostedSessionPort>;
@@ -342,7 +343,11 @@ export async function startSessionHost(options: SessionHostOptions): Promise<Ses
     opening.add(request.sessionId);
     let port: HostedSessionPort;
     try {
-      port = await options.openSession({ provider: request.provider, config: request.config });
+      port = await options.openSession({
+        sessionId: request.sessionId,
+        provider: request.provider,
+        config: request.config,
+      });
     } finally {
       opening.delete(request.sessionId);
     }

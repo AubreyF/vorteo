@@ -21,7 +21,7 @@ describe("resolveWorkspaceRecoveryModel", () => {
             branch: "feature",
           },
         },
-        restore: { pending: false, error: null },
+        restore: { pending: false, failed: false },
       }),
     ).toEqual({
       kind: "unsupportedAction",

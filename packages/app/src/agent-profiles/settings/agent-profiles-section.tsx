@@ -12,6 +12,8 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useAgentProfiles } from "../internal/use-agent-profiles";
 import { generateAgentProfileId } from "../internal/profile-id";
 import type { AgentProfileValue } from "../internal/profile-form-model";
@@ -54,6 +56,14 @@ function LegacyAgentProfilesSection({
   const isConnected = useHostRuntimeIsConnected(serverId);
   const { legacyProfiles: profiles, isSupported, saveProfiles } = useAgentProfiles(serverId);
   const { entries } = useProvidersSnapshot(serverId, { cwd: null });
+  const reportActionError = useReportActionError();
+  const reportSaveError = useCallback(
+    (title: string, error: unknown) => {
+      if (isConnectionError(error)) reportActionError(error);
+      else Alert.alert(title, toErrorMessage(error));
+    },
+    [reportActionError],
+  );
   const visibleProfiles = useMemo(
     () => (profiles ?? []).filter((profile) => !provider || profile.provider === provider),
     [profiles, provider],
@@ -119,13 +129,10 @@ function LegacyAgentProfilesSection({
       try {
         await saveProfiles(next);
       } catch (error) {
-        Alert.alert(
-          t("common.errors.unableToSave"),
-          error instanceof Error ? error.message : String(error),
-        );
+        reportSaveError(t("common.errors.unableToSave"), error);
       }
     },
-    [profiles, visibleProfiles, saveProfiles, t],
+    [profiles, visibleProfiles, saveProfiles, reportSaveError, t],
   );
 
   const handleMoveUp = useCallback((id: string) => void reorder(id, -1), [reorder]);
@@ -150,15 +157,12 @@ function LegacyAgentProfilesSection({
         try {
           await saveProfiles(profiles.filter((entry) => entry.id !== id));
         } catch (error) {
-          Alert.alert(
-            t("common.errors.unableToSave"),
-            error instanceof Error ? error.message : String(error),
-          );
+          reportSaveError(t("common.errors.unableToSave"), error);
         }
         return;
       });
     },
-    [profiles, saveProfiles, t],
+    [profiles, saveProfiles, reportSaveError, t],
   );
 
   const defaultOptions = useMemo(
@@ -181,15 +185,12 @@ function LegacyAgentProfilesSection({
           profiles.map((profile) => ({ ...profile, isDefault: profile.id === id })),
         );
       } catch (error) {
-        Alert.alert(
-          "Unable to save the default profile",
-          error instanceof Error ? error.message : String(error),
-        );
+        reportSaveError("Unable to save the default profile", error);
       } finally {
         setSavingDefault(false);
       }
     },
-    [profiles, saveProfiles],
+    [profiles, saveProfiles, reportSaveError],
   );
 
   const addButton = useMemo(

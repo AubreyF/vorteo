@@ -124,6 +124,7 @@ function assertMaintenanceReleaseScope(
     plan.hostRequestsAfter !== null ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined ||
     plan.sourceUpdateTooling !== undefined
   )

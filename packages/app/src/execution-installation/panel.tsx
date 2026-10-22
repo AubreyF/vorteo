@@ -26,6 +26,7 @@ import {
   sessionHostOperationTitle,
   sessionHostPlanLines,
   sessionHostRequestDisabledReason,
+  sessionHostRestartWarning,
   sessionHostReviewSummary,
   sessionHostStatusLines,
   visibleSessionHostJobs,
@@ -1300,6 +1301,9 @@ function SessionHostCard({
   const remove = useCallback(() => {
     void model.requestSessionHost("session-host-remove");
   }, [model]);
+  const restart = useCallback(() => {
+    void model.requestSessionHost("session-host-restart");
+  }, [model]);
   const overview = state.sessionHost;
   if (!overview) return null;
   const review = { busy: state.busy, unlocked: state.unlocked };
@@ -1353,7 +1357,28 @@ function SessionHostCard({
           >
             Remove
           </RestartActionButton>
+          {overview.restartSupported ? (
+            <RestartActionButton
+              testID="session-host-restart"
+              size={size}
+              variant="outline"
+              disabledReason={sessionHostRequestDisabledReason(
+                "session-host-restart",
+                overview,
+                review,
+              )}
+              onPress={restart}
+            >
+              Restart
+            </RestartActionButton>
+          ) : null}
         </ActionFooter>
+        {overview.restartSupported &&
+        sessionHostRequestDisabledReason("session-host-restart", overview, review) === null ? (
+          <Text style={styles.text} testID="session-host-restart-warning">
+            {sessionHostRestartWarning(overview.status)}
+          </Text>
+        ) : null}
       </View>
       {visibleSessionHostJobs(overview.jobs).map((job) => (
         <SessionHostRequest

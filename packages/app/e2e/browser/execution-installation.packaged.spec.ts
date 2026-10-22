@@ -394,6 +394,28 @@ test.afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
+/** Opens a provider's own page from the Accounts & profiles list. */
+async function openProviderPage(page: Page, providerType: string) {
+  await page.getByTestId(`provider-family-open-${providerType}`).click();
+  await expect(page.getByTestId("provider-detail-connections")).toBeVisible();
+}
+
+/** Runs one item from a connection's actions menu; `null` targets the first connection. */
+async function openConnectionAction(
+  page: Page,
+  accountId: string | null,
+  item: "models" | "rename" | "access" | "keys-menu",
+) {
+  const menu = accountId
+    ? page.getByTestId(`provider-connection-menu-${accountId}`)
+    : page.locator('[data-testid^="provider-connection-menu-"]').first();
+  await menu.click();
+  const action = accountId
+    ? page.getByTestId(`provider-connection-${item}-${accountId}`)
+    : page.locator(`[data-testid^="provider-connection-${item}-"]`).first();
+  await action.click();
+}
+
 test("owner maintenance queue shows cancellation failures and cancels the exact request", async ({
   page,
 }, testInfo) => {
@@ -2361,15 +2383,12 @@ test("shared plugins preserve source review on failure and project one catalog t
     await client.close();
   }
   await page.goto(`${origin}/settings/providers`);
-  const providerCard = page.getByTestId("provider-family-shared-test-runtime");
-  await expect(providerCard).toHaveCount(1);
-  await providerCard.getByRole("button", { name: "shared-test-runtime", exact: true }).click();
-  await expect(providerCard.getByText("Shared test runtime", { exact: true })).toBeVisible();
-  await expect(providerCard.getByText("Offline", { exact: true })).toHaveCount(0);
-  await expect(
-    providerCard.getByRole("button", { name: "Shared test runtime provider details", exact: true }),
-  ).toHaveCount(0);
-  await providerCard.screenshot({ path: info.outputPath("plugin-provider-shared.png") });
+  await expect(page.getByTestId("provider-family-shared-test-runtime")).toHaveCount(1);
+  await openProviderPage(page, "shared-test-runtime");
+  const connections = page.getByTestId("provider-detail-connections");
+  await expect(connections.getByText("Shared test runtime", { exact: true })).toBeVisible();
+  await expect(connections.getByText("Offline", { exact: false })).toHaveCount(0);
+  await connections.screenshot({ path: info.outputPath("plugin-provider-shared.png") });
 });
 
 test("directory bindings stay local and preserve an excluded plugin through validation failure and activation", async ({
@@ -3026,19 +3045,15 @@ test("shared account setup preserves the catalog through retries and local remov
       (entry) => entry.kind === "host",
     )!.serverId;
     await page.goto(`${origin}/settings/providers`);
-    const family = page.getByTestId("provider-family-codex");
-    await family.getByRole("button", { name: "Codex", exact: true }).click();
-    await family
-      .getByTestId(`provider-account-managed/${creationId}`)
-      .getByRole("button", { name: "Manage", exact: true })
-      .click();
+    await openProviderPage(page, "codex");
+    await openConnectionAction(page, `managed/${creationId}`, "access");
     const remove = page.getByTestId(`shared-provider-remove-managed/${creationId}-${hostServerId}`);
     await expect(remove).toBeEnabled({ timeout: 60_000 });
     let dialog = page.waitForEvent("dialog");
     let click = remove.click();
     const cancelled = await dialog;
     expect(cancelled.message()).toContain("from Host");
-    expect(cancelled.message()).toContain("other environments will remain");
+    expect(cancelled.message()).toContain("stays available in other environments");
     await cancelled.dismiss();
     await click;
     expect((await read()).settings?.resourceExclusions).toEqual(
@@ -3259,13 +3274,8 @@ test("custom model edits from a provider sheet update both environments", async 
   await page.getByTestId("installation-unlock").click();
   await expect(page.getByTestId("installation-password")).not.toBeVisible();
   await page.goto(`${origin}/settings/providers`);
-  const family = page.getByTestId("provider-family-mock");
-  await family.getByRole("button", { name: "mock", exact: true }).click();
-  await family.getByRole("button", { name: "Manage", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Shared fixture provider provider details", exact: true })
-    .first()
-    .click();
+  await openProviderPage(page, "mock");
+  await openConnectionAction(page, null, "models");
   await page.getByRole("button", { name: "Add model", exact: true }).click();
   await page.getByTestId("custom-model-id").fill("shared-custom-model");
   await page.getByTestId("custom-model-save").click();
@@ -3401,28 +3411,22 @@ for (const width of [1280, 390]) {
           )
           .toBe(1);
       }
-      await family.getByRole("button", { name: "mock", exact: true }).click();
-      await family.getByRole("button", { name: "Manage", exact: true }).click();
-      await page.getByRole("button", { name: "Rename", exact: true }).click();
+      await openProviderPage(page, "mock");
+      await openConnectionAction(page, null, "rename");
       await page.getByTestId("shared-provider-rename-dialog-input").fill("Renamed fixture account");
       await page.getByTestId("shared-provider-rename-dialog-submit").click();
       await expect(page.getByTestId("shared-provider-rename-dialog")).not.toBeVisible();
       await expect(
         page
-          .getByTestId("provider-manage-sheet")
-          .getByText("Renamed fixture account", { exact: true })
-          .first(),
+          .getByTestId("provider-detail-connections")
+          .getByText("Renamed fixture account", { exact: true }),
       ).toBeVisible();
-      await page
-        .getByTestId("provider-manage-sheet")
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await expect(page.getByTestId("provider-manage-sheet")).not.toBeVisible();
-      await expect(family.getByText("Renamed fixture account", { exact: true })).toBeVisible();
+      // Removing the provider is a quiet row at the bottom of its page and returns to the list.
       const dialog = page.waitForEvent("dialog");
-      const click = family.getByRole("button", { name: "Remove provider", exact: true }).click();
+      const click = page.getByTestId("provider-detail-remove-mock").click();
       await (await dialog).accept();
       await click;
+      await expect(page.getByTestId("shared-provider-order-list")).toBeVisible();
       await expect(family).toHaveCount(0);
       const removed = (await read()).settings?.providerDefinitions?.filter(
         (entry) => entry.providerType === "mock",
@@ -3432,10 +3436,10 @@ for (const width of [1280, 390]) {
       );
       expect(removed?.every((entry) => entry.removed && entry.policy.enabled === false)).toBe(true);
       await page.getByRole("button", { name: "Add provider", exact: true }).click();
-      await page.getByRole("button", { name: "Restore disabled provider", exact: true }).click();
-      await expect(
-        page.getByRole("button", { name: "Restore disabled provider", exact: true }),
-      ).toHaveCount(0);
+      await page.getByRole("button", { name: "Restore provider", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Restore provider", exact: true })).toHaveCount(
+        0,
+      );
       await page
         .getByTestId("provider-add-sheet")
         .getByRole("button", { name: "Close", exact: true })
@@ -3549,10 +3553,12 @@ test("catalog runtime enrollment reuses one disabled shared provider across both
   await expect(page.getByTestId("provider-family-auggie")).toBeVisible();
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
   for (const kind of ["host", "container"] as const) {
-    await page
-      .getByTestId("provider-runtime-environment")
-      .getByText(kind === "host" ? "Host" : "Dev container", { exact: true })
-      .click();
+    // Installs run on Host by default; the Dev container is the explicit exception.
+    if (kind === "container")
+      await page
+        .getByTestId("provider-add-sheet")
+        .getByRole("button", { name: "Install in Dev container instead", exact: true })
+        .click();
     await page.getByTestId("provider-catalog-search").fill("Auggie");
     const add = page
       .getByTestId("host-page-add-provider-card")
@@ -4452,14 +4458,8 @@ for (const width of [1280, 390]) {
     expect(response.ok()).toBe(true);
     try {
       await page.goto(`${origin}/settings/providers`);
-      await page
-        .getByTestId("provider-family-claude")
-        .getByRole("button", { name: "Claude", exact: true })
-        .click();
-      await page
-        .getByTestId(`provider-account-${id}`)
-        .getByRole("button", { name: "Manage", exact: true })
-        .click();
+      await openProviderPage(page, "claude");
+      await openConnectionAction(page, id, "access");
       const sheet =
         width === 390
           ? page.getByRole("slider", { name: "Bottom Sheet", exact: true })
@@ -4472,11 +4472,6 @@ for (const width of [1280, 390]) {
         sheet.getByRole("button", { name: "Connect Claude", exact: true }),
       ).toBeEnabled();
       await expect(sheet.getByRole("tab")).toHaveCount(0);
-      await expect(sheet.getByText("Host", { exact: true })).toHaveCount(0);
-      await expect(sheet.getByText("Dev container", { exact: true })).toHaveCount(0);
-      await expect(
-        sheet.getByRole("button", { name: "Models and profiles", exact: true }),
-      ).toBeVisible();
       await expect(sheet.getByText("Not connected.", { exact: true })).toBeVisible();
       await sheet
         .getByRole("button", { name: "Connect Claude", exact: true })

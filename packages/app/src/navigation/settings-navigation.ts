@@ -3,6 +3,7 @@ import { navigateToLastWorkspace } from "@/stores/navigation-active-workspace-st
 import {
   buildOpenProjectRoute,
   buildProjectSettingsRoute,
+  buildProviderSettingsRoute,
   buildSettingsHostSectionRoute,
   buildSettingsRoute,
   buildSettingsSectionRoute,
@@ -15,7 +16,8 @@ export type SettingsView =
   | { kind: "root" }
   | { kind: "section"; section: SettingsSectionSlug }
   | { kind: "host"; serverId: string; section: HostSectionSlug }
-  | { kind: "project"; serverId: string; projectId: string };
+  | { kind: "project"; serverId: string; projectId: string }
+  | { kind: "provider"; providerType: string };
 
 export function openHostOverview(serverId: string): void {
   router.push(buildSettingsHostSectionRoute(serverId, "host"));
@@ -23,6 +25,10 @@ export function openHostOverview(serverId: string): void {
 
 export function openProjectSettings(serverId: string, projectId: string): void {
   router.push(buildProjectSettingsRoute(serverId, projectId));
+}
+
+export function openProviderSettings(providerType: string): void {
+  router.push(buildProviderSettingsRoute(providerType));
 }
 
 export function returnFromSettings(view: SettingsView): void {
@@ -36,5 +42,6 @@ export function returnFromSettings(view: SettingsView): void {
   let parent: Href = buildSettingsRoute();
   if (view.kind === "plugin") parent = buildSettingsSectionRoute("plugins");
   if (view.kind === "project") parent = buildSettingsSectionRoute("projects");
+  if (view.kind === "provider") parent = buildSettingsSectionRoute("accounts");
   router.dismissTo(parent as Href);
 }

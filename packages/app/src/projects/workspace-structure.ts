@@ -1,5 +1,6 @@
 import type { ProjectDescriptor, WorkspaceDescriptor } from "@/stores/session-store";
 import { projectDisplayNameFromProjectId } from "@/utils/project-display-name";
+import { isInsideProjectsRoot } from "./projects-root";
 
 export interface WorkspaceStructureHostPlacement {
   serverId: string;
@@ -27,6 +28,8 @@ export interface WorkspaceStructure {
 
 interface WorkspaceStructureSession {
   serverId: string;
+  /** The Projects folder this daemon advertises, from `advertisedProjectsRoot`. */
+  projectsRoot?: string | null;
   projects: Iterable<ProjectDescriptor>;
   workspaces: Iterable<WorkspaceDescriptor>;
 }
@@ -52,13 +55,17 @@ export function buildWorkspaceStructureProjects(input: {
     workspaces: Array.from(session.workspaces),
   }));
   const byProject = new Map<string, ProjectDraft>();
-  const projectEntries: Array<{ serverId: string; project: ProjectDescriptor }> = [];
+  const projectEntries: ProjectEntry[] = [];
   const keyCountsByServer = new Map<string, Map<string, number>>();
   const viewKeyByServerProjectId = new Map<string, Map<string, string>>();
 
   for (const session of sessions) {
     for (const project of session.projects) {
-      projectEntries.push({ serverId: session.serverId, project });
+      projectEntries.push({
+        serverId: session.serverId,
+        projectsRoot: session.projectsRoot ?? null,
+        project,
+      });
       const sharedKey = project.projectKey ?? null;
       if (sharedKey) {
         const counts = getOrCreate(keyCountsByServer, session.serverId, () => new Map());
@@ -70,12 +77,14 @@ export function buildWorkspaceStructureProjects(input: {
   const allocatedViewKeys = new Set(
     projectEntries.flatMap(({ project }) => (project.projectKey ? [project.projectKey] : [])),
   );
+  const sharedFolderKeys = mergeSharedFolderProjectKeys(projectEntries, keyCountsByServer);
 
   for (const { serverId, project } of projectEntries) {
     const viewKey = addProjectToView({
       byProject,
       keyCountsByServer,
       allocatedViewKeys,
+      sharedFolderKeys,
       serverId,
       project,
     });
@@ -101,8 +110,9 @@ export function buildWorkspaceStructureProjects(input: {
       const owner = workspace.projectMembership?.environmentOwner;
       if (owner && workspaceKeys.has(`${owner.serverId}:${owner.workspaceId}`)) continue;
       const membership = workspace.projectMembership;
+      const membershipKey = sharedMembershipKey(sharedFolderKeys, membership);
       const viewKey =
-        membership?.key ?? viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);
+        membershipKey ?? viewKeyByServerProjectId.get(session.serverId)?.get(workspace.projectId);
       if (!viewKey) continue;
       if (membership && !byProject.has(viewKey)) {
         byProject.set(viewKey, {
@@ -172,7 +182,7 @@ function collectMemberPlacement(input: MemberPlacementInput) {
   const draft = byProject.get(viewKey);
   const membership = workspace.projectMembership;
   if (!membership || !draft) return;
-  draft.membership = { key: membership.key, name: membership.name };
+  draft.membership = { key: viewKey, name: membership.name };
   const nativeKey = viewKeyByServerProjectId.get(serverId)?.get(workspace.projectId);
   const placement = nativeKey ? byProject.get(nativeKey)?.hosts.get(serverId) : undefined;
   if (!placement) return;
@@ -227,20 +237,65 @@ function allocatePlacementViewKey(
   }
 }
 
+interface ProjectEntry {
+  serverId: string;
+  projectsRoot: string | null;
+  project: ProjectDescriptor;
+}
+
+/**
+ * Remote-less projects carry a per-daemon key, so identical folders never join by key. When
+ * daemons advertise the same Projects folder, a project root inside it is the same folder on
+ * each, so placements at the identical root join under the smallest of their keys. Returns
+ * each joined key's shared view key; persisted project keys stay unchanged.
+ */
+function mergeSharedFolderProjectKeys(
+  entries: readonly ProjectEntry[],
+  keyCountsByServer: Map<string, Map<string, number>>,
+): Map<string, string> {
+  const groups = new Map<string, Map<string, string>>();
+  for (const { serverId, projectsRoot, project } of entries) {
+    const key = project.projectKey;
+    if (!key || !projectsRoot || key.startsWith("remote:")) continue;
+    if (keyCountsByServer.get(serverId)?.get(key) !== 1) continue;
+    const rootPath = project.projectRootPath.replace(/\/+$/u, "");
+    if (!isInsideProjectsRoot(rootPath, projectsRoot)) continue;
+    const group = getOrCreate(groups, JSON.stringify([projectsRoot, rootPath]), () => new Map());
+    group.set(serverId, key);
+  }
+  const sharedKeys = new Map<string, string>();
+  for (const group of groups.values()) {
+    if (group.size < 2) continue;
+    const keys = [...new Set(group.values())].sort();
+    for (const key of keys) sharedKeys.set(key, keys[0]!);
+  }
+  return sharedKeys;
+}
+
+function sharedMembershipKey(
+  sharedFolderKeys: Map<string, string>,
+  membership: WorkspaceDescriptor["projectMembership"],
+): string | undefined {
+  if (!membership) return undefined;
+  return sharedFolderKeys.get(membership.key) ?? membership.key;
+}
+
 function addProjectToView(input: {
   byProject: Map<string, ProjectDraft>;
   keyCountsByServer: Map<string, Map<string, number>>;
   allocatedViewKeys: Set<string>;
+  sharedFolderKeys: Map<string, string>;
   serverId: string;
   project: ProjectDescriptor;
 }): string {
   const { byProject, keyCountsByServer, serverId, project } = input;
-  const sharedKey = project.projectKey ?? null;
-  const canUseSharedKey =
-    sharedKey !== null && keyCountsByServer.get(serverId)?.get(sharedKey) === 1;
-  const viewKey = canUseSharedKey
-    ? createProjectViewKey({ kind: "equivalence", projectKey: sharedKey })
-    : allocatePlacementViewKey(input.allocatedViewKeys, serverId, project.projectId);
+  const ownKey = project.projectKey ?? null;
+  const canUseSharedKey = ownKey !== null && keyCountsByServer.get(serverId)?.get(ownKey) === 1;
+  const sharedKey = ownKey === null ? null : (input.sharedFolderKeys.get(ownKey) ?? ownKey);
+  const viewKey =
+    canUseSharedKey && sharedKey !== null
+      ? createProjectViewKey({ kind: "equivalence", projectKey: sharedKey })
+      : allocatePlacementViewKey(input.allocatedViewKeys, serverId, project.projectId);
   const placement: WorkspaceStructureHostPlacement = {
     serverId,
     projectId: project.projectId,

@@ -13,6 +13,8 @@ import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { openPluginInstallForm } from "@/screens/settings/plugin-install-form-model";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 interface BindingDraft {
   id: string;
@@ -45,9 +47,13 @@ function DirectoryBindingForm({
   const { model, state } = useDirectoryForm(draft.expectedPath);
   const compact = useIsCompactFormFactor();
   const size = compact ? "md" : "sm";
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: () => client.bindDirectoryPlugin({ ...draft, path: model.getSubmission().source }),
     onSuccess: onSaved,
+    onError: (failure) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
   });
   const submit = useCallback(() => mutation.mutate(), [mutation]);
   const error = bindingError(mutation.error);
@@ -141,7 +147,7 @@ export function PluginDirectoryBinding({
         Update this environment to edit its plugin directory
       </Text>
     );
-  if (plugins.error) return <Alert variant="error" description={plugins.error.message} />;
+  if (plugins.error) return <Alert variant="error" description={toErrorMessage(plugins.error)} />;
   if (plugins.isPending)
     return <Text style={settingsStyles.rowHint}>Loading plugin directory...</Text>;
   return (
@@ -164,9 +170,8 @@ export function PluginDirectoryBinding({
 
 const styles = StyleSheet.create((theme) => ({ form: { gap: theme.spacing[4] } }));
 
+/** Lost connections are reported as toasts, so only host rejections stay in the form. */
 function bindingError(error: Error | null): string | undefined {
-  if (!error) return undefined;
-  if ("userMessage" in error && typeof error.userMessage === "string")
-    return error.userMessage.replace(/^Request failed: /, "");
-  return error.message;
+  if (!error || isConnectionError(error)) return undefined;
+  return toErrorMessage(error).replace(/^Request failed: /, "");
 }

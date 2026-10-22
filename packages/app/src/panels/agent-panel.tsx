@@ -24,6 +24,7 @@ import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/agent-stream/view";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -491,13 +492,6 @@ function findActiveCreateHandoff(input: {
       pending.serverId === input.serverId &&
       pending.agentId === input.agentId,
   );
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 function isNotFoundErrorMessage(message: string): boolean {
@@ -1668,6 +1662,8 @@ function AgentSessionUnavailableState({
 
   const isConnecting = connectionStatus === "connecting";
   const isPreparingSession = connectionStatus === "online";
+  // The heading already says the host is unreachable; only a different cause adds detail.
+  const hostError = lastError && !isConnectionError(lastError) ? toErrorMessage(lastError) : null;
 
   return (
     <View style={styles.container}>
@@ -1694,7 +1690,7 @@ function AgentSessionUnavailableState({
             <Text style={styles.offlineDescription}>
               {t("agentPanel.unavailable.showAgainWhenReachable")}
             </Text>
-            {lastError ? <Text style={styles.offlineDetails}>{lastError}</Text> : null}
+            {hostError ? <Text style={styles.offlineDetails}>{hostError}</Text> : null}
           </>
         )}
       </View>

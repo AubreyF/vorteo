@@ -72,11 +72,12 @@ interface CodexQuotaProviderOptions {
 
 function codexWindow(
   window: CodexWindow | null | undefined,
-): { usedPct: number; resetsAt: string | null } | null {
+): { usedPct: number; resetsAt: string | null; windowMs: number | null } | null {
   if (!window || window.used_percent === undefined) return null;
   return {
     usedPct: window.used_percent,
     resetsAt: window.reset_at != null ? new Date(window.reset_at * 1000).toISOString() : null,
+    windowMs: window.limit_window_seconds != null ? window.limit_window_seconds * 1000 : null,
   };
 }
 
@@ -163,6 +164,7 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
           label: windowLabel(resp.rate_limit?.primary_window, "Session"),
           utilizationPct: session.usedPct,
           resetsAt: session.resetsAt,
+          windowMs: session.windowMs,
           tone: toneFromUsedPct(session.usedPct),
         }),
       );
@@ -174,6 +176,7 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
           label: windowLabel(resp.rate_limit?.secondary_window, "Weekly"),
           utilizationPct: weekly.usedPct,
           resetsAt: weekly.resetsAt,
+          windowMs: weekly.windowMs,
           tone: toneFromUsedPct(weekly.usedPct),
         }),
       );
@@ -185,6 +188,7 @@ export class CodexQuotaProvider implements ProviderUsageFetcher {
           label: "Code review",
           utilizationPct: codeReview.usedPct,
           resetsAt: codeReview.resetsAt,
+          windowMs: codeReview.windowMs,
           tone: toneFromUsedPct(codeReview.usedPct),
         }),
       );

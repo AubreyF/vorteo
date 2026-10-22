@@ -7,7 +7,11 @@ import type {
   ProjectDirectoryBrowsePayload,
 } from "@getpaseo/protocol/messages";
 import { isPathInsideRoot } from "../utils/path.js";
-import { hasGitMarker, PROJECTS_FOLDER_STATE_DIRECTORY } from "./projects-folder.js";
+import {
+  hasGitMarker,
+  logicalProjectsPath,
+  PROJECTS_FOLDER_STATE_DIRECTORY,
+} from "./projects-folder.js";
 
 const HostFilesystemSchema = z.object({
   version: z.literal(1),
@@ -206,7 +210,8 @@ function resolveBrowseLocation(
         "invalid_path",
         "Enter an absolute host path or a path starting with ~/.",
       );
-    hostPath = path.normalize(hostPath);
+    // A path through a Projects folder alias browses the same folder.
+    hostPath = logicalProjectsPath(path.normalize(hostPath));
     const root = roots
       .filter((candidate) => candidate.hostPath && isPathInsideRoot(candidate.hostPath, hostPath))
       .sort((a, b) => (b.hostPath?.length ?? 0) - (a.hostPath?.length ?? 0))[0];

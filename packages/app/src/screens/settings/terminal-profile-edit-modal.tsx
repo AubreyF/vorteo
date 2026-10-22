@@ -7,6 +7,8 @@ import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-moda
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import type { EditingTextInputHandle } from "@/components/ui/text-input";
+import { useReportActionError } from "@/hooks/use-action-error";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 export interface ProfileDraft {
   name: string;
@@ -93,6 +95,7 @@ export function TerminalProfileEditModal({
     return Object.keys(errors).length === 0;
   }, [command, name, t]);
 
+  const reportActionError = useReportActionError();
   const handleSave = useCallback(async () => {
     if (isPending) return;
     setSubmitError(null);
@@ -106,11 +109,12 @@ export function TerminalProfileEditModal({
       await onSave({ name: name.trim(), command: command.trim(), args });
       onClose();
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("common.errors.unableToSave"));
+      if (isConnectionError(error)) reportActionError(error);
+      else setSubmitError(toErrorMessage(error));
     } finally {
       setIsPending(false);
     }
-  }, [args, command, isPending, name, onClose, onSave, t, validate]);
+  }, [args, command, isPending, name, onClose, onSave, reportActionError, validate]);
 
   const handleCancel = useCallback(() => {
     if (isPending) return;

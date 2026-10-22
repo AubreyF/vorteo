@@ -22,6 +22,8 @@ import { useHostFeature } from "@/runtime/host-features";
 import { settingsStyles } from "@/styles/settings";
 
 import { copyToClipboard } from "@/utils/copy-to-clipboard";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError, useResetOnReconnect } from "@/hooks/use-action-error";
 
 import { groupSkillLocations, findSkillLocations, type SkillGroup } from "./library-groups";
 
@@ -148,6 +150,7 @@ function EnvironmentLibrary({
   const closeHistory = useCallback(() => setAuditing(false), []);
   const closeDetail = useCallback(() => setDetail(null), []);
   const copy = useCallback(() => exportAudit.mutate(), [exportAudit]);
+  useResetOnReconnect(serverId, refetch);
   if (!supported && online)
     return (
       <SettingsSection title={label}>
@@ -229,6 +232,7 @@ function EnvironmentLibrary({
 
 function useSkillChange(serverId: string, onChanged: () => void) {
   const client = useHostRuntimeClient(serverId);
+  const reportActionError = useReportActionError();
   return useMutation({
     mutationFn: async (request: SkillLibraryChange) => {
       if (!client) throw new Error("Environment is disconnected");
@@ -236,6 +240,9 @@ function useSkillChange(serverId: string, onChanged: () => void) {
     },
     onSuccess: (result) => {
       if (result.kind === "applied") onChanged();
+    },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
     },
   });
 }
@@ -268,10 +275,11 @@ function ChangeResult({
   pending: boolean;
   error: Error | null;
 }) {
+  const isRejected = error !== null && !isConnectionError(error);
   return (
     <View style={styles.content}>
       {pending ? <Text style={styles.muted}>Working...</Text> : null}
-      {error ? <Text style={styles.error}>{error.message}</Text> : null}
+      {isRejected ? <Text style={styles.error}>{toErrorMessage(error)}</Text> : null}
       {result?.kind === "applied" ? (
         <Text style={styles.muted}>Change applied. Recovery is available in History.</Text>
       ) : null}
@@ -427,7 +435,7 @@ function SkillDetail({
             {issue}
           </Text>
         ))}
-        {query.error ? <Text style={styles.error}>{query.error.message}</Text> : null}
+        {query.error ? <Text style={styles.error}>{toErrorMessage(query.error)}</Text> : null}
         {query.data?.kind === "detail" ? (
           <Text selectable style={styles.text}>
             {query.data.instructions}
@@ -604,7 +612,7 @@ function SkillHistory({
   return (
     <AdaptiveModalSheet visible header={historyHeader} onClose={onClose} footer={modalFooter3}>
       <View style={styles.content}>
-        {query.error ? <Text style={styles.error}>{query.error.message}</Text> : null}
+        {query.error ? <Text style={styles.error}>{toErrorMessage(query.error)}</Text> : null}
         {query.data?.kind === "audit"
           ? query.data.entries.map((entry) => (
               <View key={entry.id}>
@@ -758,8 +766,8 @@ function InventoryStatus({
         <Text style={styles.muted}>Offline. Any displayed inventory is the last observation.</Text>
       ) : null}
       {online && pending ? <Text style={styles.muted}>Loading inventory...</Text> : null}
-      {error ? <Text style={styles.error}>{error.message}</Text> : null}
-      {exportError ? <Text style={styles.error}>{exportError.message}</Text> : null}
+      {error ? <Text style={styles.error}>{toErrorMessage(error)}</Text> : null}
+      {exportError ? <Text style={styles.error}>{toErrorMessage(exportError)}</Text> : null}
       {copied ? <Text style={styles.muted}>Audit copied.</Text> : null}
       {inventory ? (
         <Text style={styles.muted}>

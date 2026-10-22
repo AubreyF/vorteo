@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdaptiveRenameModal } from "./rename-modal";
 
-const { theme, adaptiveInputState } = vi.hoisted(() => ({
+const { theme, adaptiveInputState, toastError } = vi.hoisted(() => ({
+  toastError: vi.fn(),
   adaptiveInputState: {
     latestProps: null as {
       onChangeText?: (next: string) => void;
@@ -24,6 +25,8 @@ const { theme, adaptiveInputState } = vi.hoisted(() => ({
     },
   },
 }));
+
+vi.mock("@/contexts/toast-context", () => ({ useToast: () => ({ error: toastError }) }));
 
 vi.mock("react-native-unistyles", () => ({
   StyleSheet: {
@@ -355,7 +358,7 @@ describe("RenameModal", () => {
     });
   });
 
-  it("keeps the modal open with an error when onSubmit rejects", async () => {
+  it("keeps the modal open and reports the failure as a toast when onSubmit rejects", async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("Server said no"));
     const onClose = vi.fn();
     renderModal({ initialValue: "main", onSubmit, onClose });
@@ -365,7 +368,8 @@ describe("RenameModal", () => {
     await flush();
 
     expect(onClose).not.toHaveBeenCalled();
-    expect(queryError()?.textContent).toContain("Server said no");
+    expect(toastError).toHaveBeenCalledWith("Server said no");
+    expect(queryError()).toBeNull();
     expect(querySubmit()?.disabled).toBe(false);
   });
 });

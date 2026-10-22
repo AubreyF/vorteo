@@ -1,4 +1,9 @@
-import type { AgentSessionConfig, McpServerConfig } from "./agent-sdk-types.js";
+import { isToolRelayServer } from "../session-host/tool-relay-config.js";
+import type {
+  AgentSessionConfig,
+  McpServerConfig,
+  McpStdioServerConfig,
+} from "./agent-sdk-types.js";
 
 const PASEO_MCP_SERVER_NAME = "paseo";
 const PASEO_MCP_PATHNAME = "/mcp/agents";
@@ -79,7 +84,47 @@ export function withPaseoMcpAuthToken<T extends Pick<AgentSessionConfig, "mcpSer
   };
 }
 
+/**
+ * The daemon URL the injected server points at, when the config carries the direct form. The
+ * session host opens its tool relay toward this URL.
+ */
+export function internalPaseoMcpServerUrl(
+  config: Pick<AgentSessionConfig, "mcpServers">,
+): string | null {
+  const server = config.mcpServers?.[PASEO_MCP_SERVER_NAME];
+  if (!server || server.type === "stdio" || !isInternalPaseoMcpServer(server)) return null;
+  return server.url;
+}
+
+/**
+ * Replaces the injected direct server with the session host's relay form, leaving every other
+ * server unchanged. A config without the injected server is returned as is.
+ */
+export function withRelayedPaseoMcpServer<T extends Pick<AgentSessionConfig, "mcpServers">>(
+  config: T,
+  relay: McpStdioServerConfig,
+): T {
+  const current = config.mcpServers?.[PASEO_MCP_SERVER_NAME];
+  if (!current || !isInternalPaseoMcpServer(current)) return config;
+  return {
+    ...config,
+    mcpServers: {
+      ...config.mcpServers,
+      [PASEO_MCP_SERVER_NAME]: {
+        ...relay,
+        ...(current.alwaysLoad === true ? { alwaysLoad: true } : {}),
+      },
+    },
+  };
+}
+
+/**
+ * The injected server in either form: the direct connection the worker injects, or the session
+ * host's stdio relay that replaced it inside the host. Both are the daemon's own tools and never
+ * belong in a stored config.
+ */
 function isInternalPaseoMcpServer(config: McpServerConfig): boolean {
+  if (config.type === "stdio") return isToolRelayServer(config);
   if (config.type !== "http" && config.type !== "sse") {
     return false;
   }

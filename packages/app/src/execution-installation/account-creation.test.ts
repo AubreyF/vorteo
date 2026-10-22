@@ -111,3 +111,33 @@ test("a stale revision or owner lock remains a visible failure without inventing
     }),
   ).rejects.toThrow("Unlock Installation controls");
 });
+
+test("a full sign-in Claude account records its type, and a retry cannot change it", async () => {
+  const f = fixture();
+  const input = { ...f.input, provider: "claude" as const, signIn: "full" as const };
+  const ports = {
+    read: f.read,
+    async save(update: InstallationSettingsUpdate) {
+      const before = await f.read();
+      const saved = InstallationSettingsSnapshotSchema.parse({
+        ...before,
+        revision: 5,
+        settings: { ...before.settings, ...update.settings },
+      });
+      f.replace(saved);
+      return saved;
+    },
+  };
+  await createSharedAccountDefinition(input, ports);
+  expect((await f.read()).settings?.providerDefinitions?.[0].accountSetup).toEqual({
+    provider: "claude",
+    creationId: input.creationId,
+    signIn: "full",
+  });
+  await expect(
+    createSharedAccountDefinition({ ...input, signIn: undefined }, ports),
+  ).rejects.toThrow("different shared binding");
+  await expect(createSharedAccountDefinition(input, ports)).resolves.toMatchObject({
+    providerId: `claude-account-${input.creationId}`,
+  });
+});

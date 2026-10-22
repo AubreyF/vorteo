@@ -2,11 +2,11 @@ import { useCallback } from "react";
 import { router } from "expo-router";
 import { useWorkspaceScheduleState } from "./scheduled";
 import { useMutation } from "@tanstack/react-query";
-import { Text } from "react-native";
-import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { withUnistyles } from "react-native-unistyles";
 import { Repeat2, LockKeyhole } from "lucide-react-native";
 import { MenuHint, MenuItem, MenuSeparator } from "@/components/ui/menu";
 import type { Theme } from "@/styles/theme";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { selectWorkspace } from "@/stores/session-store-hooks/selectors";
@@ -44,6 +44,7 @@ export function WorkspaceLifecycleMenuItems({
   const supported = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.workspaceLifecycle === true,
   );
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationKey: ["workspace-lifecycle", serverId, workspaceId],
     mutationFn: async (change: { protected: boolean }) => {
@@ -56,6 +57,7 @@ export function WorkspaceLifecycleMenuItems({
       if (!client) throw new Error("Host disconnected. Reconnect and try again.");
       await client.setWorkspaceLifecycle({ workspaceId, ...change });
     },
+    onError: reportActionError,
   });
   const { mutate } = mutation;
   const toggleProtected = useCallback(
@@ -98,11 +100,6 @@ export function WorkspaceLifecycleMenuItems({
           </MenuHint>
         </>
       )}
-      {mutation.isError ? (
-        <Text accessibilityRole="alert" style={styles.error}>
-          {mutation.error.message}
-        </Text>
-      ) : null}
       {!supported ? <MenuHint>Update this environment to use Protected.</MenuHint> : null}
       <MenuSeparator />
     </>
@@ -113,11 +110,3 @@ function lifecycleHeading(factory: boolean, systemManaged: boolean): string {
   if (systemManaged) return "Vorteo System";
   return factory ? "Factory" : "Standing";
 }
-
-const styles = StyleSheet.create((theme) => ({
-  error: {
-    color: theme.colors.statusDanger,
-    fontSize: theme.fontSize.sm,
-    padding: theme.spacing[2],
-  },
-}));

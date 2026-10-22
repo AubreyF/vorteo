@@ -1,5 +1,6 @@
 import {
   loadTestClientFactory,
+  loadTestServiceOptions,
   startSessionHostService,
 } from "../src/server/session-host/service.js";
 
@@ -13,7 +14,10 @@ import {
  * `createClient` export replaces the Claude client. It is ignored in any other environment.
  */
 async function main(): Promise<void> {
-  await startSessionHostService({ createClient: await loadTestClientFactory(process.env) });
+  await startSessionHostService({
+    createClient: await loadTestClientFactory(process.env),
+    ...loadTestServiceOptions(process.env),
+  });
 }
 
 main().catch((error: unknown) => {

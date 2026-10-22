@@ -12,6 +12,11 @@ import { useAgentProfiles } from "./internal/use-agent-profiles";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeIsConnected, useHosts } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
+import {
+  isEnvironmentAllowed,
+  isProfileAllowed,
+  readProjectPolicy,
+} from "@/projects/project-policy";
 import { AccountPresetMenu, type PresetEnvironment } from "./account-preset-menu";
 import { accountPresets } from "./account-presets";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
@@ -67,9 +72,14 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
     [installation, hosts],
   );
   const statuses = useHostRuntimeConnectionStatuses(serverIds);
+  const projectPolicy = useMemo(
+    () => readProjectPolicy(config, props.profiles.projectPath),
+    [config, props.profiles.projectPath],
+  );
   const environments = useMemo<PresetEnvironment[]>(() => {
     if (installation)
       return [...installation.environments]
+        .filter((item) => isEnvironmentAllowed(projectPolicy, item.kind))
         .sort((a, b) => Number(b.kind === "host") - Number(a.kind === "host"))
         .map((item) => ({
           serverId: item.serverId,
@@ -82,7 +92,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
       label: host.label,
       available: statuses.get(host.serverId) === "online",
     }));
-  }, [installation, hosts, statuses]);
+  }, [installation, hosts, statuses, projectPolicy]);
   const { profiles: definitions, isSupported, accountIndependent } = useAgentProfiles(serverId);
   const { entries, isLoading, error, refresh, isRefreshing } = useProvidersSnapshot(serverId, {
     cwd: null,
@@ -96,6 +106,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
         .filter(
           (profile) => !environmentKind || !profile.excludedEnvironments?.includes(environmentKind),
         )
+        .filter((profile) => isProfileAllowed(projectPolicy, profile))
         .filter(
           (profile) =>
             accountIndependent ||
@@ -116,7 +127,7 @@ export function EnvironmentPresetMenu(props: EnvironmentPresetMenuProps) {
             localEndpoint: model?.localEndpoint,
           };
         }),
-    [definitions, entries, accountIndependent, environmentKind],
+    [definitions, entries, accountIndependent, environmentKind, projectPolicy],
   );
   const { view, resetLoadingProviders } = usePresetData(serverId, true);
   const accounts = useMemo(

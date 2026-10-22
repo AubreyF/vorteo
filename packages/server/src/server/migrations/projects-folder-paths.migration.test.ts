@@ -49,7 +49,7 @@ describe("Projects folder registry path migration", () => {
     migrateRegistryPathsToProjectsFolder({
       paseoHome: home,
       root: ROOT,
-      migrateFrom: [`${OLD}/`],
+      aliases: [`${OLD}/`],
       logger,
       now: () => new Date("2026-10-22T00:00:00.000Z"),
     });
@@ -94,6 +94,105 @@ describe("Projects folder registry path migration", () => {
     expect(await run()).toEqual({ projects: 0, workspaces: 0, backups: [] });
     expect(await read("projects.json")).toEqual(projects);
     expect(await readdir(path.join(home, "projects"))).toEqual(files);
+  });
+
+  it("leaves kept project roots in place while their siblings move", async () => {
+    const projectsFile = path.join(home, "projects", "projects.json");
+    const seeded = JSON.parse(await readFile(projectsFile, "utf8")) as unknown[];
+    // Shares the kept root's prefix, so it proves kept paths match exactly.
+    seeded.push({ projectId: "prj_app_two", rootPath: `${OLD}/app-two`, projectKey: "k" });
+    await writeFile(projectsFile, JSON.stringify(seeded));
+    const runKeeping = () =>
+      migrateRegistryPathsToProjectsFolder({
+        paseoHome: home,
+        root: ROOT,
+        aliases: [OLD],
+        keepPaths: [`${OLD}/app`],
+        logger,
+        now: () => new Date("2026-10-22T00:00:00.000Z"),
+      });
+    const result = await runKeeping();
+    expect(result).toMatchObject({ projects: 3 });
+    const projects = await read("projects.json");
+    expect(projects.find((record) => record.projectId === "prj_app")).toEqual({
+      projectId: "prj_app",
+      rootPath: `${OLD}/app`,
+      projectKey: `${OLD}/app`,
+    });
+    expect(projects.find((record) => record.projectId === "prj_dev")?.rootPath).toBe(ROOT);
+    expect(projects.find((record) => record.projectId === "prj_app_two")?.rootPath).toBe(
+      `${ROOT}/app-two`,
+    );
+    expect(projects.find((record) => record.projectId === "prj_remote")?.rootPath).toBe(
+      `${ROOT}/lib`,
+    );
+    const workspaces = await read("workspaces.json");
+    // Only the exact path is kept; a workspace below it still moves.
+    expect(workspaces[0]).toMatchObject({
+      cwd: `${ROOT}/app/packages/web`,
+      worktreeRoot: `${OLD}/app`,
+    });
+    expect(await runKeeping()).toMatchObject({ projects: 0, workspaces: 0 });
+  });
+
+  it("moves workspace membership keys, including in an already-migrated registry", async () => {
+    await run();
+    const workspacesFile = path.join(home, "projects", "workspaces.json");
+    // An earlier migration moved the paths but left these keys on the alias path.
+    await writeFile(
+      workspacesFile,
+      JSON.stringify([
+        {
+          workspaceId: "wks_member",
+          cwd: `${ROOT}/vorton`,
+          projectMembership: { key: `host:srv_1:${OLD}/vorton`, name: "Vorton" },
+        },
+        {
+          workspaceId: "wks_kept",
+          cwd: `${ROOT}/app`,
+          projectMembership: { key: `host:srv_1:${OLD}/app`, name: "App" },
+        },
+        {
+          workspaceId: "wks_remote",
+          cwd: `${ROOT}/lib`,
+          projectMembership: { key: "remote:github.com/a/lib", name: "Lib" },
+        },
+        { workspaceId: "wks_none", cwd: `${ROOT}/x`, projectMembership: null },
+      ]),
+    );
+    const before = await readFile(workspacesFile, "utf8");
+    const runKeeping = () =>
+      migrateRegistryPathsToProjectsFolder({
+        paseoHome: home,
+        root: ROOT,
+        aliases: [OLD],
+        keepPaths: [`${OLD}/app`],
+        logger,
+        now: () => new Date("2026-10-23T00:00:00.000Z"),
+      });
+    const result = await runKeeping();
+    expect(result).toMatchObject({ projects: 0, workspaces: 1 });
+    expect(await read("workspaces.json")).toEqual([
+      {
+        workspaceId: "wks_member",
+        cwd: `${ROOT}/vorton`,
+        projectMembership: { key: `host:srv_1:${ROOT}/vorton`, name: "Vorton" },
+      },
+      {
+        workspaceId: "wks_kept",
+        cwd: `${ROOT}/app`,
+        projectMembership: { key: `host:srv_1:${OLD}/app`, name: "App" },
+      },
+      {
+        workspaceId: "wks_remote",
+        cwd: `${ROOT}/lib`,
+        projectMembership: { key: "remote:github.com/a/lib", name: "Lib" },
+      },
+      { workspaceId: "wks_none", cwd: `${ROOT}/x`, projectMembership: null },
+    ]);
+    const backup = result.backups.find((file) => file.includes("workspaces.json"));
+    expect(backup && (await readFile(backup, "utf8"))).toBe(before);
+    expect(await runKeeping()).toEqual({ projects: 0, workspaces: 0, backups: [] });
   });
 
   it("does nothing without an earlier prefix or registry files", async () => {

@@ -24,7 +24,9 @@ import type {
   MutableDaemonConfig,
   MutableDaemonConfigPatch,
 } from "@getpaseo/protocol/messages";
+import type { ExecutionEnvironmentKind } from "@getpaseo/protocol/execution-installation";
 import {
+  projectPolicyKey,
   InstallationSettingsFieldSchema,
   InstallationSettingsSchema,
   InstallationSettingsSnapshotSchema,
@@ -42,6 +44,7 @@ import {
 
 export interface SettingsEnvironment {
   serverId: string;
+  kind: ExecutionEnvironmentKind;
   /** Trusted installation metadata, not a value read from a guest daemon. */
   installationInstructions?: string;
   read(): Promise<MutableDaemonConfig>;
@@ -114,9 +117,14 @@ export class InstallationSettingsInvalidUpdate extends Error {
       | "skill"
       | "terminal-profile"
       | "metadata-provider"
-      | "installation-instructions",
+      | "installation-instructions"
+      | "project-policy",
   ) {
-    super("Shared settings reference an unknown environment or resource.");
+    super(
+      reason === "project-policy"
+        ? "A project must stay available in at least one environment, keyed by its absolute root path."
+        : "Shared settings reference an unknown environment or resource.",
+    );
     this.name = "InstallationSettingsInvalidUpdate";
   }
 }
@@ -213,6 +221,7 @@ export class InstallationSettingsService {
     }
     const settings = InstallationSettingsSchema.parse({ ...base, ...request.settings });
     if (request.settings.resourceExclusions === undefined) pruneResourceExclusions(settings);
+    if (request.settings.projectPolicies === undefined) pruneProjectPolicies(settings);
     this.validateResources(settings);
     if (previous.settings !== null && isDeepStrictEqual(settings, previous.settings)) {
       this.skillRemovalConfirmations = request.confirmedSkillRemovals ?? {};
@@ -380,6 +389,24 @@ export class InstallationSettingsService {
         throw new InstallationSettingsInvalidUpdate("terminal-profile");
       if (exclusions.metadataProviderIds.some((id) => !providers.has(id)))
         throw new InstallationSettingsInvalidUpdate("metadata-provider");
+    }
+    this.validateProjectPolicies(settings, { definitionIds, skillIds });
+  }
+
+  private validateProjectPolicies(
+    settings: InstallationSettings,
+    catalog: { definitionIds: readonly string[]; skillIds: readonly string[] },
+  ): void {
+    const kinds = new Set(this.environments.map((environment) => environment.kind));
+    for (const [root, policy] of Object.entries(settings.projectPolicies ?? {})) {
+      const excluded = new Set(policy.excludedEnvironments);
+      const excludesEverywhere = [...kinds].every((kind) => excluded.has(kind));
+      if (!root.startsWith("/") || projectPolicyKey(root) !== root || excludesEverywhere)
+        throw new InstallationSettingsInvalidUpdate("project-policy");
+      if (policy.providerIds?.some((id) => !catalog.definitionIds.includes(id)))
+        throw new InstallationSettingsInvalidUpdate("provider");
+      if (policy.skillIdentities?.some((id) => !catalog.skillIds.includes(id)))
+        throw new InstallationSettingsInvalidUpdate("skill");
     }
   }
 
@@ -793,10 +820,7 @@ export class InstallationSettingsService {
       this.installationInstructions,
     );
     const instructionsMatch = localConfig.appendSystemPrompt === patch.appendSystemPrompt;
-    const bindingsMatch = isDeepStrictEqual(
-      localConfig.installationResourceBindings ?? { terminalProfiles: [], metadataProviders: [] },
-      patch.installationResourceBindings,
-    );
+    const bindingsMatch = environmentCopiesSettled(localConfig, patch);
     const skillsSettled = skillPlan === null || skillPlan.ops.length === 0;
     if (
       isDeepStrictEqual(observed, expected) &&
@@ -966,6 +990,33 @@ function pruneResourceExclusions(settings: InstallationSettings) {
     exclusion.metadataProviderIds = exclusion.metadataProviderIds.filter((id) =>
       providerIds.has(id),
     );
+  }
+}
+
+/** Environment-local resource bindings and the copy of project policies already match. */
+function environmentCopiesSettled(
+  local: MutableDaemonConfig,
+  patch: ReturnType<typeof projectInstallationSettings>,
+): boolean {
+  const bindings = local.installationResourceBindings ?? {
+    terminalProfiles: [],
+    metadataProviders: [],
+  };
+  return (
+    isDeepStrictEqual(bindings, patch.installationResourceBindings) &&
+    (patch.installationProjectPolicies === undefined ||
+      isDeepStrictEqual(local.installationProjectPolicies, patch.installationProjectPolicies))
+  );
+}
+
+function pruneProjectPolicies(settings: InstallationSettings) {
+  const definitionIds = new Set(settings.providerDefinitions?.map((provider) => provider.id));
+  const skillIds = new Set(settings.skillLibrary?.map((skill) => skill.identity));
+  for (const policy of Object.values(settings.projectPolicies ?? {})) {
+    if (policy.providerIds)
+      policy.providerIds = policy.providerIds.filter((id) => definitionIds.has(id));
+    if (policy.skillIdentities)
+      policy.skillIdentities = policy.skillIdentities.filter((id) => skillIds.has(id));
   }
 }
 

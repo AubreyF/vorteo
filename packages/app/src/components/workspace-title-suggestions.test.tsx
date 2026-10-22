@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   supported: true,
   suggest: vi.fn<() => Promise<string[]>>(),
   save: vi.fn<() => Promise<void>>(),
+  toastError: vi.fn(),
 }));
 vi.mock("@/runtime/host-features", () => ({ useHostFeature: () => state.supported }));
 vi.mock("@/runtime/host-runtime", () => ({
@@ -16,7 +17,11 @@ vi.mock("@/runtime/host-runtime", () => ({
     getClient: () => ({ suggestWorkspaceTitles: state.suggest, setWorkspaceTitle: state.save }),
   }),
 }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => undefined },
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+vi.mock("@/contexts/toast-context", () => ({ useToast: () => ({ error: state.toastError }) }));
 vi.mock("@/components/ui/loading-spinner", () => ({ LoadingSpinner: () => null }));
 vi.mock("@/components/adaptive-modal-sheet", async () => {
   const R = await import("react");
@@ -218,14 +223,14 @@ test("provider failure stays visible and Retry recovers", async () => {
   await ready();
   expect(host.textContent).not.toContain("Host disconnected");
 });
-test("save failure preserves the chosen title and keeps the dialog open", async () => {
+test("save failure preserves the chosen title, reports it and keeps the dialog open", async () => {
   state.save.mockRejectedValueOnce(new Error("Save failed"));
   render();
   await ready();
   click(titles[1]);
   click("sidebar.workspace.rename.submit");
   await act(async () => {
-    await vi.waitFor(() => expect(host.textContent).toContain("Save failed"));
+    await vi.waitFor(() => expect(state.toastError).toHaveBeenCalledWith("Save failed"));
   });
   expect(input().value).toBe(titles[1]);
   expect(close).not.toHaveBeenCalled();

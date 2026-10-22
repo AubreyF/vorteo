@@ -41,3 +41,24 @@ test("pending credential removal remains visible after disconnect", () => {
     }),
   ).toContain("Credential removal will finish automatically");
 });
+
+test("full sign-in names the Host account and asks for sign-in again when its grant is lost", () => {
+  expect(
+    claudeConnectionStatus({
+      connected: true,
+      needsSignIn: false,
+      accountLabel: "owner@example.com",
+      environments: [{ serverId: "dev", status: "ready" }],
+    }),
+  ).toBe("Connected and ready. Signed in as owner@example.com.");
+  expect(claudeConnectionStatus({ connected: true, needsSignIn: false, environments: [] })).toBe(
+    "Connected and ready.",
+  );
+  expect(
+    claudeConnectionStatus({
+      connected: false,
+      needsSignIn: true,
+      environments: [{ serverId: "dev", status: "disconnected" }],
+    }),
+  ).toContain("Sign in again");
+});

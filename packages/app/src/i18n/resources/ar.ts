@@ -67,6 +67,7 @@ export const ar: TranslationResources = {
       daemonClientDisconnected: "تم قطع اتصال عميل Daemon",
       noFileFound: "لم يتم العثور على ملف لـ{{token}}",
       unexpectedDictationError: "حدث خطأ غير متوقع أثناء معالجة الإملاء.",
+      hostConnectionLost: "انقطع الاتصال بالمضيف. حاول مرة أخرى بعد إعادة الاتصال.",
     },
     connectionStatus: {
       online: "متصل",
@@ -309,6 +310,7 @@ export const ar: TranslationResources = {
       archived: "مؤرشف",
       pending: "{{count}}معلق",
       attention: "انتباه",
+      hosted: "يستمر بعد إعادة التشغيل",
     },
     archiveSheet: {
       hostOffline: "Host غير متصل",
@@ -395,6 +397,7 @@ export const ar: TranslationResources = {
       withTokens: "تم ضغط السياق (رموز{{tokens}}K)",
       completed: "تم ضغط السياق",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1181,6 +1184,35 @@ export const ar: TranslationResources = {
       description:
         "أضف أوامر الإعداد حتى تتمكن أشجار العمل الجديدة من تثبيت التبعيات وإعداد نفسها تلقائيًا.",
       openProjectSettings: "افتح إعدادات المشروع",
+    },
+    folders: {
+      actions: {
+        menu: "إجراءات المجلد",
+        newFolder: "مجلد جديد",
+        newWorkspaceFolder: "مجلد جديد لمساحات العمل",
+        newSubfolder: "مجلد جديد بداخله",
+        rename: "إعادة تسمية المجلد",
+        delete: "حذف المجلد",
+        moveToFolder: "نقل إلى مجلد…",
+      },
+      dialogs: {
+        createTitle: "مجلد جديد",
+        renameTitle: "إعادة تسمية المجلد",
+        namePlaceholder: "اسم المجلد",
+        create: "إنشاء",
+        rename: "إعادة تسمية",
+        moveTitle: 'نقل "{{name}}"',
+        destination: "المجلد",
+        topLevel: "بدون مجلد",
+        move: "نقل",
+        cancel: "إلغاء",
+      },
+      confirmations: {
+        deleteTitle: "حذف المجلد؟",
+        deleteMessage:
+          'حذف "{{folderName}}"؟ ينتقل محتواه مستوى واحدًا إلى الأعلى. لا تتم أرشفة أي شيء ولا تتغير الملفات على القرص.',
+        deleteConfirm: "حذف",
+      },
     },
     project: {
       actions: {
@@ -2164,6 +2196,8 @@ export const ar: TranslationResources = {
       title: "عن",
       appVersion: "نسخة التطبيق",
       whatsNewHint: "ملاحظات الإصدار لكل نسخة",
+      github: "GitHub",
+      githubHint: "الشيفرة المصدرية والمشكلات والإصدارات",
       thisDevice: "هذا الجهاز",
       connectedHosts: "المضيفين المتصلين",
       offline: "غير متصل",

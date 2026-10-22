@@ -68,6 +68,9 @@ import {
   InstallationProfilesSnapshotSchema,
 } from "@getpaseo/protocol/execution-installation";
 
+// The installation client refuses request commands outside the builds coordinator.
+process.env.VORTEO_BUILDS = "1";
+
 const cleanups: Array<() => Promise<void>> = [];
 // Validate the allocated source-only optional field without rebuilding shared declarations.
 vi.mock(
@@ -613,6 +616,52 @@ test("shared settings require owner access and persist revisioned writes before 
   guest.offline = false;
   await settings.reconcile();
   expect(guest.config.appendSystemPrompt).toBe(update.settings.appendSystemPrompt);
+});
+
+test("project policies reach only owner clients and daemons that ask for them", async () => {
+  const host = new SettingsEnvironmentFake("host-id");
+  const guest = new SettingsEnvironmentFake("guest-id");
+  const settings = new InstallationSettingsService(new SettingsJournalFake(), [host, guest]);
+  const initial = await settings.reconcile();
+  const policies = { "/Users/me/dev/app": { excludedEnvironments: ["container" as const] } };
+  await settings.update({
+    expectedRevision: initial.revision,
+    settings: { projectPolicies: policies },
+  });
+  const { request, url } = await fixture(undefined, settings);
+  const unlock = await request("/api/installation/owner/unlock", "owner-test-password", {});
+  const cookie = unlock.headers.get("set-cookie")?.split(";")[0];
+  if (!cookie) throw new Error("Missing owner cookie");
+  async function readOwnerSettings(headers: Record<string, string>) {
+    const response = await fetch(`${url}/api/installation/owner/settings/read`, {
+      method: "POST",
+      headers: {
+        Host: "owner.example.test",
+        Origin: "https://owner.example.test",
+        Cookie: cookie!,
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: "{}",
+    });
+    return (await response.json()).settings;
+  }
+  expect(await readOwnerSettings({})).not.toHaveProperty("projectPolicies");
+  expect((await readOwnerSettings({ "X-Vorteo-Project-Policies": "1" })).projectPolicies).toEqual(
+    policies,
+  );
+  async function readAdmission(route: string) {
+    const response = await fetch(`${url}${route}`, {
+      headers: { Authorization: "Bearer guest-agent-test-token" },
+    });
+    return (await response.json()).settings;
+  }
+  expect(await readAdmission("/api/installation/settings/admission")).not.toHaveProperty(
+    "projectPolicies",
+  );
+  expect(
+    (await readAdmission("/api/installation/settings/admission?projectPolicies=1")).projectPolicies,
+  ).toEqual(policies);
 });
 
 test("delegated creation resolves a paginated workspace to its working directory", async () => {
@@ -2960,6 +3009,7 @@ test("a conflicted source batch reports its conflict to agents instead of asking
     }));
   const id = randomUUID();
   const contributionId = randomUUID();
+  const invalidId = randomUUID();
   const configRoot = mkdtempSync(path.join(tmpdir(), "conflict-status-config-"));
   try {
     const f = await fixture(
@@ -3003,6 +3053,21 @@ test("a conflicted source batch reports its conflict to agents instead of asking
                     detail:
                       "docs/vorteo-customizations.md\n\nCONFLICT (content): Merge conflict in docs/vorteo-customizations.md",
                   },
+                  {
+                    id: invalidId,
+                    update: {
+                      baseCommit: "b".repeat(40),
+                      sourceCommit: "d".repeat(40),
+                      sha256: "e".repeat(64),
+                      bytes: 10,
+                    },
+                    reason: "Bad release note",
+                    requester: "Release notes",
+                    requestedBy: "host-agent",
+                    createdAt: new Date().toISOString(),
+                    status: "invalid",
+                    detail: "Release-note heading requires review",
+                  },
                 ],
               },
             },
@@ -3036,7 +3101,10 @@ test("a conflicted source batch reports its conflict to agents instead of asking
     ]);
     expect(JSON.parse(stdout).sourceBatch.status).toBe("conflict");
     expect(stderr).toContain(
-      `Source batch conflict: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+      `Source batch blocked: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+    );
+    expect(stderr).toContain(
+      `Source batch blocked: contribution ${invalidId} from "Release notes" was rejected: Release-note heading requires review.`,
     );
     expect(stderr).toContain(`--replaces ${contributionId}`);
   } finally {
@@ -3166,9 +3234,9 @@ test("owner restart review reports coordinator recovery without dispatching or l
     decision: "approve",
   });
   expect(approval.status).toBe(409);
-  expect(await approval.json()).toEqual({
-    error: "Coordinator recovery must finish before installation work",
-  });
+  expect((await approval.json()).error).toMatch(
+    /^Coordinator recovery must finish before installation work(: coordinator update [a-f0-9]{8} is running)?$/,
+  );
   const rejection = await f.request(route, "owner-test-password", {
     revision: job.revision,
     decision: "reject",

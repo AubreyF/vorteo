@@ -10,6 +10,7 @@ import type { UsageDisplay } from "./display";
 import { UsageControls } from "./controls";
 import { UsageList } from "./list";
 import type { UsageView } from "./types";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export function UsageSection({
   serverId,
@@ -60,7 +61,12 @@ export function UsageBody({
 
   if (view.kind === "error") {
     return (
-      <Alert size="sm" variant="error" title={usageCopy.errorTitle} description={view.message}>
+      <Alert
+        size="sm"
+        variant="error"
+        title={usageCopy.errorTitle}
+        description={toErrorMessage(view.message)}
+      >
         <Button variant="outline" size="sm" onPress={onRefresh}>
           {usageCopy.retry}
         </Button>

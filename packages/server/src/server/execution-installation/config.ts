@@ -58,7 +58,7 @@ export const InstallationConfigSchema = z.strictObject({
   previewMonitor: PreviewMonitorConfigurationSchema.optional(),
   restartApprovalPolicy: z.strictObject({ hostRequestsAfter: z.string().datetime() }).optional(),
   containerSourceUpdates: ContainerSourceUpdatesSchema.optional(),
-  /** Off by default. Enables full sign-in Claude accounts with Host-owned refresh. */
+  /** On by default. Full sign-in Claude accounts with Host-owned refresh; `false` opts out. */
   claudeHostRefresh: z.boolean().optional(),
   sourceUpdates: z
     .strictObject({
@@ -105,6 +105,14 @@ export const InstallationConfigSchema = z.strictObject({
   }),
 });
 export type InstallationConfig = z.infer<typeof InstallationConfigSchema>;
+
+/**
+ * Host-owned Claude refresh stays opt-in: the default belongs to the Accounts owner, so only an
+ * explicit `claudeHostRefresh: true` enables it.
+ */
+export function claudeHostRefreshEnabled(config: Pick<InstallationConfig, "claudeHostRefresh">) {
+  return config.claudeHostRefresh === true;
+}
 
 export function hostLaunchdService(config: InstallationConfig): string {
   if (!("launchdService" in config.host))

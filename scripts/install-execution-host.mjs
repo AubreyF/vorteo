@@ -34,9 +34,11 @@ import {
 } from "./lib/system-source.mjs";
 import {
   PROJECTS_FOLDER_SETTINGS_PATH,
+  containerPathsOfFolder,
   isInsideFolder,
   mergeProjectsFolderSettings,
   mountsFolderAtIdenticalPath,
+  projectsFolderAliasCommands,
   writeProjectsFolderSettings,
 } from "./lib/projects-folder.mjs";
 
@@ -799,7 +801,7 @@ function assertProjectsFolderSeparate(folder, protectedPaths) {
 }
 
 /** Adds the folder to git's trusted directories for the Dev daemon user, once. */
-async function trustProjectsFolderInContainer(settings, folder, migrateFrom) {
+async function trustProjectsFolderInContainer(settings, folder, previousPaths) {
   const git = (...args) =>
     run(settings.docker, [
       "exec",
@@ -816,10 +818,11 @@ async function trustProjectsFolderInContainer(settings, folder, migrateFrom) {
     .split("\n")
     .filter(Boolean);
   // Git 2.46 and later read the trailing /* as every folder below; earlier entries keep
-  // their own paths, moved to the identical-path folder.
+  // their own paths, moved to the identical-path folder. Git reports a checkout reached
+  // through an alias by its real path, so an alias is trusted too.
   const wanted = [`${folder}/*`];
   for (const entry of existing) {
-    for (const previous of migrateFrom) {
+    for (const previous of previousPaths) {
       if (entry === previous || entry.startsWith(`${previous}/`))
         wanted.push(path.posix.join(folder, entry.slice(previous.length)));
     }
@@ -829,13 +832,62 @@ async function trustProjectsFolderInContainer(settings, folder, migrateFrom) {
   return added;
 }
 
-async function writeContainerProjectsFolder(settings, input) {
+// Reads only: prints the container's real path for each argument, or "" when it is missing.
+const CONTAINER_REALPATH_SCRIPT = `import fs from 'node:fs';
+const real = (value) => { try { return fs.realpathSync(value); } catch { return ''; } };
+process.stdout.write(JSON.stringify(process.argv.slice(1).map(real)));`;
+
+/**
+ * How the Dev container sees the host folder at its own path: an identical bind mount, or
+ * a symlink at that path to the folder's mount, which the daemon records as an alias.
+ * Inspects only; it never creates the symlink.
+ */
+async function resolveContainerProjectsFolder(settings, root) {
   const [container] = JSON.parse(await run(settings.docker, ["inspect", settings.containerId]));
-  if (!mountsFolderAtIdenticalPath(container?.Mounts, input.root))
+  if (mountsFolderAtIdenticalPath(container?.Mounts, root)) return { aliases: [] };
+  const mountPaths = containerPathsOfFolder(container?.Mounts, root);
+  if (mountPaths.length === 0)
     return {
-      written: false,
-      reason: `The Dev container does not mount ${input.root} at the same path. Recreate it with that bind mount, then run configure-projects-folder again.`,
+      refusal: {
+        reason: `The Dev container does not mount ${root}. Recreate it with that folder bind-mounted at the same path, then run configure-projects-folder again.`,
+      },
     };
+  const [folderReal, ...mountReals] = JSON.parse(
+    await run(settings.docker, [
+      "exec",
+      "--user",
+      settings.user,
+      settings.containerId,
+      settings.node,
+      "--input-type=module",
+      "--eval",
+      CONTAINER_REALPATH_SCRIPT,
+      root,
+      ...mountPaths,
+    ]),
+  );
+  const alias = mountPaths.find(
+    (mountPath, index) => folderReal && folderReal === mountReals[index],
+  );
+  if (alias) return { aliases: [alias] };
+  const commands = projectsFolderAliasCommands(root, mountPaths[0]);
+  return {
+    refusal: {
+      reason: `The Dev container mounts ${root} at ${mountPaths[0]} and has no symlink at ${root}. Run the root command once in the container, check it with the verify command as the daemon user, then run configure-projects-folder again.`,
+      commands: {
+        root: commands.root,
+        verify: commands.verify,
+        dockerRoot: `${shellQuote(settings.docker)} exec --user root ${shellQuote(settings.containerId)} sh -c ${shellQuote(commands.root)}`,
+        dockerVerify: `${shellQuote(settings.docker)} exec --user ${shellQuote(settings.user)} ${shellQuote(settings.containerId)} sh -c ${shellQuote(commands.verify)}`,
+      },
+    },
+  };
+}
+
+async function writeContainerProjectsFolder(settings, input) {
+  const access = await resolveContainerProjectsFolder(settings, input.root);
+  if (access.refusal) return { written: false, ...access.refusal };
+  const aliases = [...input.aliases, ...access.aliases];
   const exec = (mode, text = "") =>
     run(settings.docker, [
       "exec",
@@ -852,43 +904,60 @@ async function writeContainerProjectsFolder(settings, input) {
       text,
     ]);
   const existing = await exec("read");
-  const next = mergeProjectsFolderSettings(existing, input);
+  const next = mergeProjectsFolderSettings(existing, { ...input, aliases });
   if (next.trim() !== existing.trim()) await exec("write", next);
-  const trusted = await trustProjectsFolderInContainer(
-    settings,
-    input.root,
-    input.migrateFrom ?? [],
-  );
-  return { written: true, root: input.root, trusted };
+  const trusted = await trustProjectsFolderInContainer(settings, input.root, [
+    ...input.migrateFrom,
+    ...aliases,
+  ]);
+  return { written: true, root: input.root, aliases: access.aliases, trusted };
 }
 
 /**
- * Records the Projects folder for the Host and the Dev daemon. `migrateFrom` lists earlier
- * container paths of the same folder; the Dev daemon moves registry paths from them at its
- * next start. Takes effect at each daemon's next start.
+ * Records the Projects folder for the Host and the Dev daemon. `migrateFrom` and `aliases`
+ * list other container paths of the same folder; the Dev daemon records paths under them
+ * by the folder's own path and moves registry paths from them at its next start. An
+ * existing container may reach the folder's path through a symlink to its older mount,
+ * which is found and recorded as an alias. The Host records the same lists. Takes effect at
+ * each daemon's next start.
  */
 export async function configureProjectsFolder(
   root,
-  { folder, migrateFrom = [], allowOutside = [] },
+  { folder, migrateFrom = [], aliases = [], allowOutside = [], keepPaths = [] },
 ) {
   if (!folder || !path.isAbsolute(folder)) throw new Error("Use --folder with an absolute path");
   const record = JSON.parse(readFileSync(path.join(root, "installation.json"), "utf8"));
   const resolved = realpathSync(folder);
   if (!statSync(resolved).isDirectory()) throw new Error(`${resolved} is not a folder`);
   assertProjectsFolderSeparate(resolved, [root, record.hostHome, record.release, sourceRoot]);
-  const host = writeProjectsFolderSettings({
-    paseoHome: record.hostHome,
-    root: resolved,
-    allowOutside,
-  });
+  // The Host records the same earlier paths, aliases and kept paths as Dev, because it is
+  // the same folder: keys that Dev recorded under an alias, such as shared sidebar state,
+  // then map to the logical root on the Host too. The Host has no paths under them, so
+  // nothing else it records changes.
+  const writeHost = (detectedAliases = []) =>
+    writeProjectsFolderSettings({
+      paseoHome: record.hostHome,
+      root: resolved,
+      migrateFrom,
+      aliases: [...aliases, ...detectedAliases],
+      allowOutside,
+      keepPaths,
+    });
+  let host = writeHost();
   const config = JSON.parse(readFileSync(record.configFile, "utf8"));
   const dev = config.containerSourceUpdates
     ? await writeContainerProjectsFolder(config.containerSourceUpdates, {
         root: resolved,
         migrateFrom,
+        aliases,
         allowOutside,
+        keepPaths,
       })
     : { written: false, reason: "No Dev container is configured for updates." };
+  if (dev.aliases?.length) {
+    const withDetected = writeHost(dev.aliases);
+    host = { ...withDetected, changed: host.changed || withDetected.changed };
+  }
   return { folder: resolved, host, dev };
 }
 
@@ -1166,7 +1235,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
       checkout: { type: "string" },
       folder: { type: "string" },
       "migrate-from": { type: "string", multiple: true },
+      alias: { type: "string", multiple: true },
       "allow-outside": { type: "string", multiple: true },
+      "keep-path": { type: "string", multiple: true },
     },
   });
   if (positionals[0] === "install" && values.plan) await install(values.plan);
@@ -1184,7 +1255,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
         await configureProjectsFolder(values.root, {
           folder: values.folder,
           migrateFrom: values["migrate-from"],
+          aliases: values.alias,
           allowOutside: values["allow-outside"],
+          keepPaths: values["keep-path"],
         }),
         null,
         2,
@@ -1193,6 +1266,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   else if (values.root) await manage(positionals[0], values.root);
   else
     throw new Error(
-      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--allow-outside <path>], or status/remove --root <installation-root>",
+      "Use install/configure-dev-updates/configure-web-source --plan <private-plan.json>, configure-system-source --root <installation-root> [--checkout <path>], configure-projects-folder --root <installation-root> --folder <path> [--migrate-from <old container path>] [--alias <container path>] [--allow-outside <path>] [--keep-path <exact recorded path>], or status/remove --root <installation-root>",
     );
 }

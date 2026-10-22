@@ -76,7 +76,7 @@ function ThreadQuestionGroup({
   first: boolean;
   onBeforeNavigate?: () => void;
 }) {
-  const { canAnswer, pendingId, failedId, error, answer } = useQuestionAnswer(
+  const { canAnswer, pendingId, answer } = useQuestionAnswer(
     thread.serverId,
     thread.agentId,
     false,
@@ -126,7 +126,6 @@ function ThreadQuestionGroup({
           first={index === 0}
           canAnswer={canAnswer}
           pending={pendingId === question.id}
-          error={failedId === question.id ? error : null}
           onAnswer={answer}
           onShowTasks={openThread}
           context={index === 0 ? context : undefined}

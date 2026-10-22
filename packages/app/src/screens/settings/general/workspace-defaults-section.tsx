@@ -13,6 +13,8 @@ import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useAgentProfiles } from "@/agent-profiles/internal/use-agent-profiles";
 import { installationProviderReference } from "@getpaseo/protocol/installation-settings";
 import { resolveProviderType } from "@getpaseo/protocol/provider-preferences";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 export function WorkspaceDefaultsSection() {
   const { settings, updateSettings } = useAppSettings();
@@ -43,6 +45,7 @@ export function WorkspaceDefaultsSection() {
       label: entry.label ?? entry.provider,
       provider: entry.provider,
     }));
+  const reportActionError = useReportActionError();
   const save = useCallback(
     async (change: Partial<WorkspaceDefaults>) => {
       setOperation({ pending: true, error: null });
@@ -52,13 +55,12 @@ export function WorkspaceDefaultsSection() {
         }));
         setOperation({ pending: false, error: null });
       } catch (error) {
-        setOperation({
-          pending: false,
-          error: error instanceof Error ? error.message : "Could not save workspace defaults",
-        });
+        const connectionLost = isConnectionError(error);
+        if (connectionLost) reportActionError(error);
+        setOperation({ pending: false, error: connectionLost ? null : toErrorMessage(error) });
       }
     },
-    [updateSettings],
+    [updateSettings, reportActionError],
   );
   const changeEnvironment = useCallback(
     (value: string) => void save({ environment: value || null }),

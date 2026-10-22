@@ -97,6 +97,7 @@ import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { openWorkspacePullRequest } from "@/workspace-tabs/open-supporting-view";
 import type { PullRequestOpenLocation } from "@/hooks/use-settings";
+import { toErrorMessage } from "@/utils/error-messages";
 
 export type { GitActionId, GitAction, GitActions } from "@/git/policy";
 
@@ -159,7 +160,9 @@ function useDiscardChangesAction({
         });
       } catch (cause) {
         toast.error(
-          cause instanceof Error ? cause.message : t("workspace.fileActions.confirmRevert.failed"),
+          cause instanceof Error
+            ? toErrorMessage(cause)
+            : t("workspace.fileActions.confirmRevert.failed"),
         );
       }
     },
@@ -1176,7 +1179,7 @@ function computePrErrorMessage(
   prPayloadError: { message?: string } | null | undefined,
 ): string | null {
   if (!githubFeaturesEnabled) return null;
-  return prPayloadError?.message ?? null;
+  return prPayloadError?.message ? toErrorMessage(prPayloadError.message) : null;
 }
 
 // The precise setup step a workspace needs before its forge features work, or
@@ -1527,7 +1530,9 @@ export function ChangesSurface({
       return;
     }
     void runRefresh({ serverId, cwd }).catch((error) => {
-      toast.error(error instanceof Error ? error.message : t("workspace.git.diff.failedRefresh"));
+      toast.error(
+        error instanceof Error ? toErrorMessage(error) : t("workspace.git.diff.failedRefresh"),
+      );
     });
   }, [cwd, isRefreshing, runRefresh, serverId, t, toast]);
 
@@ -1636,7 +1641,9 @@ export function ChangesSurface({
         });
       } catch (cause) {
         toast.error(
-          cause instanceof Error ? cause.message : t("workspace.fileExplorer.errors.revealFailed"),
+          cause instanceof Error
+            ? toErrorMessage(cause)
+            : t("workspace.fileExplorer.errors.revealFailed"),
         );
       }
     },
@@ -1659,7 +1666,7 @@ export function ChangesSurface({
           toast.error(payload.error ?? t("workspace.fileExplorer.errors.duplicateFailed"));
         }
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : String(cause));
+        toast.error(toErrorMessage(cause));
       }
     },
     [client, cwd, t, toast],
@@ -1751,7 +1758,7 @@ export function ChangesSurface({
     () => updateCollapsedFilePaths([]),
     [updateCollapsedFilePaths],
   );
-  const diffErrorMessage = diffPayloadError?.message ?? null;
+  const diffErrorMessage = diffPayloadError ? toErrorMessage(diffPayloadError.message) : null;
   const prErrorMessage = computePrErrorMessage(githubFeaturesEnabled, prPayloadError);
   const baseRefLabel = useMemo(
     () => computeBaseRefLabel(baseRef, t("workspace.git.diff.base")),

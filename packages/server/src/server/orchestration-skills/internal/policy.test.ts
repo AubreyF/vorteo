@@ -64,7 +64,7 @@ it("excludes equivalent packages without relying on display names", async () => 
   await captureSkillPolicy(config, "claude", { home });
   expect(await verifySkillSnapshot(config)).toEqual([]);
 });
-it("maps native Codex paths to an explicit session allowlist", () => {
+it("maps native Codex paths to an explicit session allowlist", async () => {
   const selectedDirectory = path.resolve("selected");
   const selectedPath = path.join(selectedDirectory, "SKILL.md");
   const otherPath = path.resolve("other", "SKILL.md");
@@ -74,7 +74,7 @@ it("maps native Codex paths to an explicit session allowlist", () => {
     skills: [{ identity: "one", name: "same-name", path: selectedDirectory, sha256: "hash" }],
   };
   expect(
-    codexSkillFilter(snapshot, [
+    await codexSkillFilter(snapshot, [
       { name: "same-name", path: selectedPath },
       { name: "same-name", path: otherPath },
     ]),
@@ -82,7 +82,39 @@ it("maps native Codex paths to an explicit session allowlist", () => {
     { path: selectedPath, enabled: true },
     { path: otherPath, enabled: false },
   ]);
-  expect(() => codexSkillFilter(snapshot, [])).toThrow("did not discover");
+  await expect(codexSkillFilter(snapshot, [])).rejects.toThrow("did not discover");
+});
+it("accepts an identical provider skill copy from an account's own Codex home", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "codex-account-skills-"));
+  directories.push(home);
+  const hostCopy = path.join(home, ".codex/skills/.system/imagegen");
+  const accountCopy = path.join(home, "codex-accounts/one/skills/.system/imagegen");
+  const changedCopy = path.join(home, "codex-accounts/two/skills/.system/imagegen");
+  await mkdir(hostCopy, { recursive: true });
+  await writeFile(path.join(hostCopy, "SKILL.md"), "---\nname: imagegen\ndescription: x\n---\n");
+  await cp(hostCopy, accountCopy, { recursive: true });
+  await cp(hostCopy, changedCopy, { recursive: true });
+  await writeFile(path.join(changedCopy, "extra.md"), "Different content");
+  const skill = (await inventorySkills({ home })).skills.find((item) => item.name === "imagegen")!;
+  const snapshot = {
+    capturedAt: "now",
+    provider: "codex",
+    skills: [{ identity: skill.identity, name: "imagegen", path: hostCopy, sha256: skill.sha256! }],
+  };
+  const accountPath = path.join(accountCopy, "SKILL.md");
+  const changedPath = path.join(changedCopy, "SKILL.md");
+  expect(
+    await codexSkillFilter(snapshot, [
+      { name: "imagegen", path: accountPath },
+      { name: "openai-docs", path: path.join(home, "other/SKILL.md") },
+    ]),
+  ).toEqual([
+    { path: accountPath, enabled: true },
+    { path: path.join(home, "other/SKILL.md"), enabled: false },
+  ]);
+  await expect(
+    codexSkillFilter(snapshot, [{ name: "imagegen", path: changedPath }]),
+  ).rejects.toThrow("did not discover");
 });
 
 it("does not enable installed packages that the provider disabled by default", async () => {

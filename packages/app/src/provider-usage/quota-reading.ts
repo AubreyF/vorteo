@@ -1,5 +1,5 @@
 import { formatAmount } from "./format";
-import type { ProviderUsage, ProviderUsageView } from "./types";
+import type { ProviderUsage, ProviderUsageBalance, ProviderUsageView } from "./types";
 
 export const PROVIDER_USAGE_STALE_TIME_MS = 5 * 60 * 1000;
 
@@ -69,13 +69,7 @@ function prepaidBalanceLabel(
       entry.remaining > 0,
   );
   if (balance && typeof balance.remaining === "number") {
-    let unit = balance.unit;
-    // COMPAT(codexCreditUnit): added in v0.11.0-beta.3.vorteo.165; remove after 2027-04-07 once daemon floor includes the credit-unit correction.
-    const legacyCodexCredits =
-      (usage.providerId === "codex" || usage.providerId.startsWith("codex-")) &&
-      balance.id === "credits" &&
-      unit === "usd";
-    if (legacyCodexCredits) unit = "credits";
+    const unit = displayBalanceUnit(usage.providerId, balance);
     const label = unit === "usd" ? "credit" : unit;
     const amount =
       unit === "tokens"
@@ -84,4 +78,17 @@ function prepaidBalanceLabel(
     return `${amount} ${label} left`;
   }
   return null;
+}
+
+/** The unit to show a balance in, correcting daemons that reported Codex credits as dollars. */
+export function displayBalanceUnit(
+  providerId: string,
+  balance: Pick<ProviderUsageBalance, "id" | "unit">,
+): ProviderUsageBalance["unit"] {
+  // COMPAT(codexCreditUnit): added in v0.11.0-beta.3.vorteo.165; remove after 2027-04-07 once daemon floor includes the credit-unit correction.
+  const legacyCodexCredits =
+    (providerId === "codex" || providerId.startsWith("codex-")) &&
+    balance.id === "credits" &&
+    balance.unit === "usd";
+  return legacyCodexCredits ? "credits" : balance.unit;
 }

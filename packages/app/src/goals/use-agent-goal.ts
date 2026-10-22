@@ -6,6 +6,8 @@ import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useAgentCommandsQuery, type DraftCommandConfig } from "@/hooks/use-agent-commands-query";
+import { useReportActionError } from "@/hooks/use-action-error";
+import { toErrorMessage } from "@/utils/error-messages";
 
 import { goalQueryConfirmed } from "./goal-presentation";
 
@@ -46,6 +48,7 @@ export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoa
     enabled: !!draft?.create && !!draft.config,
   });
   const isDraft = !!draft?.create;
+  const reportError = useReportActionError();
   const providerSupported = isDraft
     ? draftCommands.commands.some((command) => command.name === "goal")
     : snapshot.providerSupported;
@@ -75,6 +78,8 @@ export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoa
         action.input.objective && !snapshot.state?.goal ? await draft?.context?.() : undefined;
       return client.setAgentGoal(agentId, action.input, context);
     },
+    // Failed actions are reported as toasts; the goal's state below stays the durable record.
+    onError: reportError,
     // A timed-out mutation may already have succeeded. Reconcile without replay.
     onSettled: () => {
       if (!isDraft) void query.refetch();
@@ -82,7 +87,7 @@ export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoa
     retry: false,
   });
   const state = isDraft ? EMPTY_GOAL : (snapshot.state ?? query.data);
-  const error = goalControlError(mutation.error, query.error, state);
+  const error = goalControlError(query.error, state);
   const confirmed = goalQueryConfirmed(isDraft, query.isFetching, query.error);
   return {
     supported,
@@ -109,11 +114,9 @@ export function useAgentGoal(serverId: string, agentId: string, draft?: DraftGoa
 export type AgentGoalControl = ReturnType<typeof useAgentGoal>;
 
 function goalControlError(
-  mutationError: Error | null,
   queryError: Error | null,
   state: import("@getpaseo/protocol/agent-goals").AgentGoalState | undefined,
 ): string | null {
-  if (mutationError) return mutationError.message;
-  if (queryError) return queryError.message;
-  return state?.status === "error" ? state.message : null;
+  if (queryError) return toErrorMessage(queryError);
+  return state?.status === "error" ? toErrorMessage(state.message) : null;
 }

@@ -75,6 +75,7 @@ export function estimateStreamItemHeight({
     case "notification":
       return 88;
     case "compaction":
+    case "profile_switch":
       return 72;
     default:
       return 120;

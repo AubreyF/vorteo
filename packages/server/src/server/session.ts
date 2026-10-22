@@ -1,4 +1,5 @@
 import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
+import type { UsageLimitHold } from "@getpaseo/protocol/usage-limit";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -18,6 +19,7 @@ import {
   systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import { assertWorkspaceEnvironment } from "./execution-installation/settings/project-policies.js";
 import {
   projectsFolderPolicyFor,
   ProjectsFolderError,
@@ -154,6 +156,7 @@ import type {
   ManagedAgent,
 } from "./agent/agent-manager.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
+import { switchAgentProfileCommand } from "./agent/profile-switch/command.js";
 import { normalizeClientMessageId } from "./client-message-id.js";
 import { createAgentForMessage, AgentCreationRequestError } from "./agent/create-agent/requests.js";
 import { resolveCreateAgentIntent, type CreateAgentIntent } from "./agent/create-agent/intent.js";
@@ -1418,6 +1421,7 @@ export class Session {
     let capability: ClientCapability;
     if (item.type === "notification") capability = CLIENT_CAPS.timelineNotifications;
     else if (item.type === "plugin") capability = CLIENT_CAPS.pluginTimelineItems;
+    else if (item.type === "profile_switch") capability = CLIENT_CAPS.profileSwitchTimeline;
     else return true;
     return source ? this.supportsForSource(capability, source) : this.supports(capability);
   }
@@ -2842,6 +2846,8 @@ export class Session {
     switch (msg.type) {
       case "agent.detach.request":
         return this.handleDetachAgentRequest(msg.agentId, msg.requestId);
+      case "agent.profile.switch.request":
+        return this.handleAgentProfileSwitchRequest(msg);
       default:
         return undefined;
     }
@@ -3462,6 +3468,8 @@ export class Session {
         return this.handleAgentGoalRequest(msg);
       case "agent.context.get_breakdown.request":
         return this.handleAgentContextBreakdownRequest(msg);
+      case "agent.usage_limit.set_resume.request":
+        return this.handleAgentUsageLimitResumeRequest(msg);
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
@@ -4860,6 +4868,44 @@ export class Session {
     }
   }
 
+  private async handleAgentProfileSwitchRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.profile.switch.request" }>,
+  ): Promise<void> {
+    const { agentId, requestId } = msg;
+    const logFields = { agentId, requestId, provider: msg.provider, profileId: msg.profileId };
+    this.sessionLogger.info(logFields, "session: agent.profile.switch.request");
+    try {
+      await switchAgentProfileCommand(
+        {
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          logger: this.sessionLogger,
+          providerSnapshotManager: this.providerSnapshotManager,
+          getAgentProfiles: () => this.daemonConfigStore.get().agentProfiles ?? [],
+          getSharedProviderConfig: () => this.daemonConfigStore.get(),
+          validateSharedConfiguration: (selection) =>
+            this.providerSnapshotManager.validateAgentConfiguration(selection),
+        },
+        msg,
+      );
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: { requestId, agentId, accepted: true, error: null },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, ...logFields }, "session: agent.profile.switch error");
+      this.emit({
+        type: "agent.profile.switch.response",
+        payload: {
+          requestId,
+          agentId,
+          accepted: false,
+          error: getErrorMessageOr(error, "Failed to switch the thread's account"),
+        },
+      });
+    }
+  }
+
   private async handleCreateAgentRequest(msg: CreateAgentRequestMessage): Promise<void> {
     try {
       let agent: AgentSnapshotPayload;
@@ -5869,6 +5915,26 @@ export class Session {
       );
     } catch (error) {
       reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
+    }
+  }
+
+  private async handleAgentUsageLimitResumeRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.usage_limit.set_resume.request" }>,
+  ): Promise<void> {
+    const reply = (hold: UsageLimitHold | null, error: string | null) =>
+      this.emit({
+        type: "agent.usage_limit.set_resume.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, hold, error },
+      });
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(await this.agentManager.setUsageLimitResume(msg.agentId, msg.action), null);
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The thread could not be updated.");
     }
   }
 
@@ -7737,6 +7803,7 @@ export class Session {
     if (!directoryExists) {
       throw new SessionRequestError("directory_not_found", `Directory not found: ${cwd}`);
     }
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), cwd);
 
     const explicitTitle = request.title?.trim() || null;
     const promptTitle = resolveFirstAgentPromptTitle(request.firstAgentContext);
@@ -7796,6 +7863,7 @@ export class Session {
     }
 
     const sourceCwd = await resolveWorktreeSourceCwd(source, this.projectRegistry);
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), sourceCwd);
 
     const result = await this.createPaseoWorktreeWorkflow(
       {

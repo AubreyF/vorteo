@@ -3750,6 +3750,43 @@ test("compatible recovery keeps review and claim out of legacy startup until pro
   expect(() => f.journal.replace([claimed], [claimed])).toThrow("changed");
 });
 
+// The 2026-10-22 automatic renewal failed at promotion because another process
+// (the coordinator loop or a Host status read) briefly held the journal lock.
+test("promotion waits for another process to release the journal lock", async () => {
+  const f = fixture();
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const pending = await f.prepare();
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(pending), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  const holder = nativeChildProcess.spawn(
+    "/usr/bin/python3",
+    [
+      "-I",
+      "-c",
+      "import fcntl, os, sys, time\n" +
+        "fd = os.open(sys.argv[1], os.O_RDWR)\n" +
+        "fcntl.flock(fd, fcntl.LOCK_EX)\n" +
+        "print('locked', flush=True)\n" +
+        "time.sleep(0.5)",
+      path.join(f.root, "coordinator-bootstrap.lock"),
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      holder.once("error", reject);
+      holder.stdout!.once("data", () => resolve());
+    });
+    f.service().promoteDispatch(claimed);
+    expect(f.journal.readPromoted()).toEqual([claimed]);
+  } finally {
+    holder.kill();
+  }
+});
+
 test.each(["reason", "decisionAt", "revision", "generation"])(
   "promotion refuses changed pre-claim evidence: %s",
   async (field) => {
@@ -4134,6 +4171,162 @@ test.each(["enable", "remove"] as const)(
     expect(reply.payload.requests![0]!.planSha256).toBe(pending.planSha256);
   },
 );
+
+function claudeRefreshFixture(change: "enable" | "disable") {
+  const f = fixture();
+  f.plan.claudeHostRefreshConfiguration = change === "enable" ? true : null;
+  return f;
+}
+
+test("an older coordinator's strict plan schema refuses the Claude refresh field", () => {
+  const f = claudeRefreshFixture("enable");
+  const older = CoordinatorBootstrapPlanSchema.omit({ claudeHostRefreshConfiguration: true });
+  expect(() => older.parse(f.plan)).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, claudeHostRefreshConfiguration: false }),
+  ).toThrow();
+});
+
+test.each(["enable", "disable"] as const)(
+  "old clients see Claude refresh %s hidden, cannot approve it, and can still cancel",
+  async (change) => {
+    const f = claudeRefreshFixture(change);
+    const pending = await f.prepare();
+    const legacy = await handleBootstrapReview(
+      { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+      f.service(),
+    );
+    const projected = legacy.payload.requests![0]!;
+    expect(projected.plan).not.toHaveProperty("claudeHostRefreshConfiguration");
+    expect(projected.planSha256).toBe(pending.planSha256);
+    expect(projected.reason).toContain("Claude refresh");
+    const supported = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "new",
+        claudeHostRefresh: true,
+      },
+      f.service(),
+    );
+    expect(supported.payload.requests).toEqual([pending]);
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const refused = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "approve",
+        ownerPassword,
+        input: { ...pickDecision(pending), decision: "approve" },
+      },
+      service,
+    );
+    expect(refused.payload.error).toContain("Claude refresh configuration");
+    expect(decide).not.toHaveBeenCalled();
+    const cancel = { ...pickDecision(pending), decision: "cancel" as const };
+    const canceled = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "cancel",
+        ownerPassword,
+        input: cancel,
+      },
+      service,
+    );
+    expect(canceled.payload.error).toBeNull();
+    expect(canceled.payload.requests![0]!.status).toBe("canceled");
+  },
+);
+
+test("a client that reviews Claude refresh can approve the exact plan", async () => {
+  const f = claudeRefreshFixture("enable");
+  const pending = await f.prepare();
+  const input = { ...pickDecision(pending), decision: "approve" as const };
+  const reply = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      claudeHostRefresh: true,
+      input,
+    },
+    f.service(),
+  );
+  expect(reply.payload.error).toBeNull();
+  expect(reply.payload.requests![0]!.status).toBe("approved");
+  expect(reply.payload.requests![0]!.plan.claudeHostRefreshConfiguration).toBe(true);
+});
+
+// A Host install that selects a new release makes coordinator updates prepared
+// for the old one stale (2026-10-22 07:28Z); the renewal prepared minutes after
+// each install targets the new release and must survive.
+test("a Host release change cancels only stale undispatched coordinator updates", async () => {
+  const releaseRoot = "/protected/releases";
+  const replaced = `${releaseRoot}/old-update/build-a`;
+  const selected = `${releaseRoot}/new-update/build-b`;
+  const at = (directory: string) => {
+    const f = fixture();
+    f.plan.candidate = { ...f.plan.candidate, directory };
+    return f;
+  };
+  const stale = at(replaced);
+  const pending = await stale.prepare();
+  expect(stale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([pending.id]);
+  const [canceled] = stale.service().list();
+  expect(canceled).toMatchObject({ id: pending.id, status: "canceled", plan: pending.plan });
+  expect(canceled!.revision).not.toBe(pending.revision);
+  expect(stale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+
+  const approvedStale = at(replaced);
+  const approved = await approvedStale
+    .service()
+    .decide({ ...pickDecision(await approvedStale.prepare()), decision: "approve" }, ownerPassword);
+  expect(approvedStale.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([
+    approved.id,
+  ]);
+
+  const renewal = at(selected);
+  const current = await renewal.prepare();
+  expect(renewal.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+  expect(renewal.service().list()).toEqual([current]);
+
+  const elsewhere = at("/protected/supervision-release");
+  const outside = await elsewhere.prepare();
+  expect(elsewhere.service().cancelForReplacedHostRelease(selected, releaseRoot)).toEqual([]);
+  expect(elsewhere.service().list()).toEqual([outside]);
+});
+
+test("stale coordinator cancellation never touches executing requests or restart jobs", async () => {
+  const releaseRoot = "/protected/releases";
+  const f = fixture();
+  f.plan.candidate = { ...f.plan.candidate, directory: `${releaseRoot}/old-update/build-a` };
+  f.plan.automaticRecovery = "restore-compatible";
+  f.plan.compatibleRecovery = f.plan.candidate;
+  const approved = await f
+    .service()
+    .decide({ ...pickDecision(await f.prepare()), decision: "approve" }, ownerPassword);
+  const claimed = await f.service().claimDispatch(pickDecision(approved));
+  expect(
+    f.service().cancelForReplacedHostRelease(`${releaseRoot}/new-update/build-b`, releaseRoot),
+  ).toEqual([]);
+  expect(f.service().list()).toEqual([claimed]);
+
+  // A pending restart (such as a session host restart awaiting the owner) beside
+  // a stale coordinator update: only the coordinator update is canceled.
+  const g = fixture();
+  g.plan.candidate = { ...g.plan.candidate, directory: `${releaseRoot}/old-update/build-a` };
+  const queue = new InstallationRestarts(
+    { read: () => g.journal.readLifecycle(), write: (next) => g.journal.writeLifecycle(next) },
+    { restart: async () => "unused" },
+  );
+  queue.request({ target: "host", reason: "Awaiting owner" }, "owner");
+  const jobs = g.journal.readLifecycle();
+  const stale = await g.prepare();
+  expect(
+    g.service().cancelForReplacedHostRelease(`${releaseRoot}/new-update/build-b`, releaseRoot),
+  ).toEqual([stale.id]);
+  expect(g.journal.readLifecycle()).toEqual(jobs);
+  expect(jobs[0]).toMatchObject({ status: "pending" });
+});
 
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
   const f = fixture();

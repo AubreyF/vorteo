@@ -59,11 +59,12 @@ export async function bootstrapWorkspaceRegistries(options: {
 }): Promise<void> {
   // Before the registries load, so they read the rewritten paths.
   // A failed move keeps the earlier paths, which stay usable as existing projects.
-  if (options.projectsFolder?.migrateFrom.length) {
+  if (options.projectsFolder?.aliases.length) {
     await migrateRegistryPathsToProjectsFolder({
       paseoHome: options.paseoHome,
       root: options.projectsFolder.root,
-      migrateFrom: options.projectsFolder.migrateFrom,
+      aliases: options.projectsFolder.aliases,
+      keepPaths: options.projectsFolder.keepPaths,
       logger: options.logger,
     }).catch((error: unknown) => {
       options.logger.warn({ err: error }, "Could not move registry paths into the Projects folder");

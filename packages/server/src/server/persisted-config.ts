@@ -1,4 +1,7 @@
-import { InstallationResourceBindingsSchema } from "@getpaseo/protocol/installation-settings";
+import {
+  InstallationProjectPolicySchema,
+  InstallationResourceBindingsSchema,
+} from "@getpaseo/protocol/installation-settings";
 import { PluginRegistriesSchema } from "@getpaseo/protocol/plugin-registry";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -274,6 +277,9 @@ export const PersistedConfigSchema = z
         appendSystemPrompt: z.string().optional(),
         terminalProfiles: z.array(TerminalProfileSchema).optional(),
         installationResourceBindings: InstallationResourceBindingsSchema.optional(),
+        installationProjectPolicies: z
+          .record(z.string(), InstallationProjectPolicySchema.loose())
+          .optional(),
         agentProfiles: z.array(AgentProfileSchema).optional(),
         sharedProviderPreferences: SharedProviderPreferencesSchema.optional(),
         cors: z

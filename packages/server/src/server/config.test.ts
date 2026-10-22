@@ -42,7 +42,7 @@ describe("server config", () => {
     const config = loadConfig(paseoHome, { env: {} });
     expect(config.projectsFolder).toEqual({
       root: projects,
-      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
       allowOutside: [],
     });
     expect(config.worktreesRoot).toBe(path.join(projects, ".vorteo", "worktrees"));

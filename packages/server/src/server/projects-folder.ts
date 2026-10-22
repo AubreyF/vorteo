@@ -3,6 +3,10 @@
 // container. Installers write `$PASEO_HOME/projects-folder.json`; `PASEO_PROJECTS_ROOT`
 // overrides its root (container installs set it in Compose). See
 // docs/execution-installation.md#projects-folder.
+//
+// The root is the folder's logical path. A Dev container may reach it through a symlink
+// to its older mount, so realpath and getcwd there return the physical alias instead.
+// Every path the daemon records or compares goes through `logicalProjectsPath` first.
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
@@ -17,18 +21,31 @@ export const PROJECTS_FOLDER_STATE_DIRECTORY = ".vorteo";
 const ProjectsFolderSettingsSchema = z
   .object({
     root: z.string().min(1).optional(),
-    /** Earlier absolute paths of the same folder; registry paths under them are rewritten once. */
+    /** Earlier absolute paths of the same folder. Treated as aliases. */
     migrateFrom: z.array(z.string().min(1)).optional(),
+    /** Other absolute paths that reach the same folder, such as its physical mount. */
+    aliases: z.array(z.string().min(1)).optional(),
     /** Folders outside the root that may still hold new projects, such as installation worktrees. */
     allowOutside: z.array(z.string().min(1)).optional(),
+    /**
+     * Exact recorded paths left as they are, such as a project root that an older Factory
+     * binding compares by string. Paths below them still map.
+     */
+    keepPaths: z.array(z.string().min(1)).optional(),
   })
   .passthrough();
 
 export interface ProjectsFolderConfig {
-  /** Canonical absolute path of the Projects folder. */
+  /** Logical absolute path of the Projects folder, identical on the Host and in Dev. */
   root: string;
-  migrateFrom: string[];
+  /**
+   * Other absolute paths of the same folder: configured aliases, earlier locations and the
+   * root's real path when a symlink leads to it. Paths under them map to `root`.
+   */
+  aliases: string[];
   allowOutside: string[];
+  /** Exact recorded paths that are never rewritten to the logical root. */
+  keepPaths?: string[];
 }
 
 export type ProjectsFolderRejection = "outside_projects_folder" | "projects_folder_root";
@@ -66,11 +83,83 @@ export function resolveProjectsFolderConfig(
       const resolved = absolutePath(value);
       return resolved && resolved !== root ? [resolved] : [];
     });
+  const physicalRoot = canonicalPathSync(root);
+  const aliases = [
+    ...absoluteList(settings.aliases),
+    ...absoluteList(settings.migrateFrom),
+    ...(physicalRoot === root ? [] : [physicalRoot]),
+  ];
+  const keepPaths = absoluteList(settings.keepPaths);
   return {
-    root: canonicalPathSync(root),
-    migrateFrom: absoluteList(settings.migrateFrom),
+    root,
+    aliases: [...new Set(aliases)],
     allowOutside: absoluteList(settings.allowOutside).map(canonicalPathSync),
+    ...(keepPaths.length > 0 ? { keepPaths } : {}),
   };
+}
+
+/**
+ * Maps a path equal to or under one of the folder's aliases to the same place under its
+ * logical root. Other paths, and exact matches of `keepPaths`, are returned unchanged.
+ * Purely lexical: callers that need the real location resolve symlinks before mapping.
+ */
+export function toLogicalProjectsPath(
+  config: Pick<ProjectsFolderConfig, "root" | "aliases" | "keepPaths">,
+  value: string,
+): string {
+  if (config.keepPaths?.includes(value)) return value;
+  for (const alias of aliasesLongestFirst(config.aliases)) {
+    if (value === alias) return config.root;
+    if (value.startsWith(`${alias}/`))
+      return path.posix.join(config.root, value.slice(alias.length));
+  }
+  return value;
+}
+
+function aliasesLongestFirst(aliases: readonly string[]): string[] {
+  return aliases
+    .map((alias) => alias.replace(/\/+$/u, ""))
+    .filter((alias) => alias.length > 0)
+    .toSorted((left, right) => right.length - left.length);
+}
+
+/** Rewrites the path inside a local project key (`host:<serverId>:<path>` or a bare path). */
+export function toLogicalProjectKey(
+  config: Pick<ProjectsFolderConfig, "root" | "aliases" | "keepPaths">,
+  key: string,
+): string {
+  const match = /^(host:[^:]+:)?(\/.*)$/u.exec(key);
+  if (!match?.[2]) return key;
+  return `${match[1] ?? ""}${toLogicalProjectsPath(config, match[2])}`;
+}
+
+// One daemon serves one installation, and paths reach it through many modules (registries,
+// git discovery, worktree creation), so the daemon's folder is held here once at startup.
+let activeProjectsFolder: ProjectsFolderConfig | null = null;
+
+/** Called once at daemon startup, before any registry loads. Undefined clears it. */
+export function setActiveProjectsFolder(config: ProjectsFolderConfig | undefined): void {
+  activeProjectsFolder = config ?? null;
+}
+
+/** This daemon's Projects folder, or null when it has none. */
+export function activeProjectsFolderConfig(): ProjectsFolderConfig | null {
+  return activeProjectsFolder;
+}
+
+/** The logical form of `value` under this daemon's Projects folder, or `value` itself. */
+export function logicalProjectsPath(value: string): string {
+  return activeProjectsFolder ? toLogicalProjectsPath(activeProjectsFolder, value) : value;
+}
+
+/** Like `logicalProjectsPath`, for nullable values. */
+export function logicalProjectsPathOrNull(value: string | null): string | null {
+  return value === null ? null : logicalProjectsPath(value);
+}
+
+/** The logical form of a local project key under this daemon's Projects folder. */
+export function logicalProjectKey(key: string | null): string | null {
+  return key && activeProjectsFolder ? toLogicalProjectKey(activeProjectsFolder, key) : key;
 }
 
 function readSettings(
@@ -166,23 +255,26 @@ export function projectsFolderPolicyFor(
 export function createProjectsFolderPolicy(input: ProjectsFolderConfig): ProjectsFolderPolicy {
   const config: ProjectsFolderConfig = {
     ...input,
-    root: canonicalPathSync(input.root),
     allowOutside: input.allowOutside.map(canonicalPathSync),
   };
+  // Containment compares real paths, so a symlink out of the folder or its aliases is caught.
+  const physicalRoot = canonicalPathSync(config.root);
   const allowed = (canonical: string) =>
-    isStrictlyWithin(config.root, canonical) ||
+    isStrictlyWithin(physicalRoot, canonical) ||
     config.allowOutside.some((root) => isWithin(root, canonical));
 
   return {
     config,
     async assertNewProjectDirectory(directory, known) {
-      const lexical = path.resolve(expandTilde(directory));
-      const canonical = await canonicalizeExistingPrefix(lexical);
+      const requested = path.resolve(expandTilde(directory));
+      const canonical = await canonicalizeExistingPrefix(requested);
+      const lexical = toLogicalProjectsPath(config, requested);
+      const logical = toLogicalProjectsPath(config, canonical);
       for (const knownPath of known.paths) {
-        const resolved = path.resolve(knownPath);
-        if (resolved === lexical || resolved === canonical) return;
+        const resolved = toLogicalProjectsPath(config, path.resolve(knownPath));
+        if (resolved === lexical || resolved === logical) return;
       }
-      if (canonical === config.root || lexical === config.root) {
+      if (logical === config.root || lexical === config.root) {
         throw new ProjectsFolderError(
           "projects_folder_root",
           "The Projects folder itself cannot be a project. Choose or create a folder inside it.",
@@ -193,7 +285,7 @@ export function createProjectsFolderPolicy(input: ProjectsFolderConfig): Project
     },
     async assertParentDirectory(directory) {
       const canonical = await canonicalizeExistingPrefix(path.resolve(expandTilde(directory)));
-      if (isWithin(config.root, canonical) || allowed(canonical)) return;
+      if (isWithin(physicalRoot, canonical) || allowed(canonical)) return;
       throw new ProjectsFolderError("outside_projects_folder", outsideMessage(config.root));
     },
   };

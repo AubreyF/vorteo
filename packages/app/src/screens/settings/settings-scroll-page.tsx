@@ -140,8 +140,9 @@ interface Box {
  * target mount progressively so the first one appears without waiting on all.
  *
  * Section heights change as their data loads. The page keeps the reader's
- * place by compensating for growth above the section they are reading, so a
- * pane resolving its data never shoves the content under the cursor.
+ * place by tracking the top of the section they are reading and scrolling by
+ * however far it moves, so panes above resolving their data (even several at
+ * once) never shove the content under the cursor.
  */
 export function SettingsScrollPage({
   sections,
@@ -167,6 +168,8 @@ export function SettingsScrollPage({
   const pending = useRef<SettingsScrollRequest | null>(request);
   const activeSection = useRef<SettingsSectionId | null>(null);
   const pinned = useRef<{ request: SettingsScrollRequest; until: number } | null>(null);
+  /** The section the reader is in and where its top sat when last measured. */
+  const anchor = useRef<{ section: SettingsSectionId; y: number } | null>(null);
   /** Where the page last scrolled itself, to tell its own scrolls from the reader's. */
   const ownScrollY = useRef<number | null>(null);
   const [viewport, setViewport] = useState(0);
@@ -253,6 +256,28 @@ export function SettingsScrollPage({
     [],
   );
 
+  /**
+   * A section's top within the scroll content. Web reads the DOM because its
+   * layout events miss position-only moves; native uses the recorded boxes.
+   */
+  const sectionTop = useCallback((section: SettingsSectionId): number | undefined => {
+    if (isWeb) {
+      const node = scrollRef.current?.getScrollableNode() as HTMLElement | undefined;
+      const element = document.getElementById(sectionDomId(section));
+      if (node && element) return rowOffsetWithin(element, node);
+    }
+    return sectionBoxes.current.get(section)?.y;
+  }, []);
+
+  const recordAnchor = useCallback(
+    (section: SettingsSectionId | null) => {
+      if (!section) return;
+      const y = sectionTop(section);
+      anchor.current = y === undefined ? null : { section, y };
+    },
+    [sectionTop],
+  );
+
   /** Brings the pending request into view once its target has rendered. */
   const resolvePending = useCallback(() => {
     const next = pending.current;
@@ -263,8 +288,9 @@ export function SettingsScrollPage({
     pinned.current = { request: next, until: Date.now() + PIN_MS };
     reportActive(next.section);
     scrollTo(offset.y, next.animated);
+    recordAnchor(next.section);
     if (offset.row) flashSettingRow(offset.row);
-  }, [reportActive, scrollTo, targetOffset]);
+  }, [recordAnchor, reportActive, scrollTo, targetOffset]);
 
   /**
    * Panes above a fresh jump target are often still loading. Until they settle
@@ -282,8 +308,10 @@ export function SettingsScrollPage({
       scrollY.current = offset.y;
       scrollTo(offset.y, false);
     }
+    // Keep the anchor current so compensation after the pin starts from here.
+    recordAnchor(pin.request.section);
     return true;
-  }, [scrollTo, targetOffset]);
+  }, [recordAnchor, scrollTo, targetOffset]);
 
   useEffect(() => {
     pending.current = request;
@@ -335,12 +363,18 @@ export function SettingsScrollPage({
       // An instant jump lands exactly where the page put it; any other
       // position means the reader, keyboard focus or a script moved the page.
       const own = ownScrollY.current;
-      if (own !== null && Math.abs(y - own) > 2) releaseToReader();
+      // A jump past the current end of the content lands short while sections
+      // below are still mounting. That is the page, not the reader, so keep the
+      // target pinned and let layout finish the jump.
+      const clamped =
+        own !== null && y < own && y + viewportHeight.current >= contentHeight.current - 2;
+      if (own !== null && Math.abs(y - own) > 2 && !clamped) releaseToReader();
       else if (programmatic.current) markProgrammatic();
       else pinned.current = null;
       updateActive();
+      recordAnchor(activeSection.current);
     },
-    [markProgrammatic, releaseToReader, updateActive],
+    [markProgrammatic, recordAnchor, releaseToReader, updateActive],
   );
 
   const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
@@ -353,28 +387,30 @@ export function SettingsScrollPage({
   }, []);
 
   /**
-   * A section above the reader grew or shrank: move the scroll position by the
-   * same amount so the visible content stays put.
+   * Something above the reader grew or shrank, so the top of the section they
+   * are reading moved: scroll by the same amount so the visible content stays
+   * put. Several sections can change in one layout pass; measuring the
+   * reader's section covers all of them at once.
    */
   const handleSectionLayout = useCallback(
     (id: SettingsSectionId, box: Box) => {
-      const previous = sectionBoxes.current.get(id);
       sectionBoxes.current.set(id, box);
       if (holdPinnedTarget()) {
         resolvePending();
         return;
       }
-      if (previous && !pending.current && !searching) {
-        const delta = box.height - previous.height;
-        const readerAbove = previous.y + previous.height <= scrollY.current + SPY_OFFSET;
-        if (delta !== 0 && readerAbove && box.y === previous.y) {
-          scrollY.current += delta;
+      const current = anchor.current;
+      if (current && !pending.current && !searching) {
+        const y = sectionTop(current.section);
+        if (y !== undefined && y !== current.y) {
+          anchor.current = { section: current.section, y };
+          scrollY.current += y - current.y;
           scrollTo(scrollY.current, false);
         }
       }
       resolvePending();
     },
-    [holdPinnedTarget, resolvePending, scrollTo, searching],
+    [holdPinnedTarget, resolvePending, scrollTo, searching, sectionTop],
   );
 
   const handlePaneLayout = useCallback(

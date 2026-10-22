@@ -69,6 +69,7 @@ export const fr: TranslationResources = {
       noFileFound: "Aucun fichier trouvé pour{{token}}",
       unexpectedDictationError:
         "Une erreur inattendue s'est produite lors du traitement de la dictée.",
+      hostConnectionLost: "Connexion à l'hôte perdue. Réessayez une fois la connexion rétablie.",
     },
     connectionStatus: {
       online: "En ligne",
@@ -315,6 +316,7 @@ export const fr: TranslationResources = {
       archived: "Archivé",
       pending: "{{count}}en attente",
       attention: "Attention",
+      hosted: "Survit aux redémarrages",
     },
     archiveSheet: {
       hostOffline: "Hosthors ligne",
@@ -401,6 +403,7 @@ export const fr: TranslationResources = {
       withTokens: "Contexte compacté (jetons{{tokens}}K)",
       completed: "Contexte compacté",
     },
+    profileSwitch: en.message.profileSwitch,
   },
   importSession: {
     chooseHostTitle: en.importSession.chooseHostTitle,
@@ -1217,6 +1220,35 @@ export const fr: TranslationResources = {
       description:
         "Ajoutez des commandes de configuration pour que les nouveaux arbres de travail puissent installer des dépendances et se préparer automatiquement.",
       openProjectSettings: "Ouvrir les paramètres du projet",
+    },
+    folders: {
+      actions: {
+        menu: "Actions du dossier",
+        newFolder: "Nouveau dossier",
+        newWorkspaceFolder: "Nouveau dossier d'espaces de travail",
+        newSubfolder: "Nouveau dossier à l'intérieur",
+        rename: "Renommer le dossier",
+        delete: "Supprimer le dossier",
+        moveToFolder: "Déplacer vers un dossier…",
+      },
+      dialogs: {
+        createTitle: "Nouveau dossier",
+        renameTitle: "Renommer le dossier",
+        namePlaceholder: "Nom du dossier",
+        create: "Créer",
+        rename: "Renommer",
+        moveTitle: "Déplacer « {{name}} »",
+        destination: "Dossier",
+        topLevel: "Aucun dossier",
+        move: "Déplacer",
+        cancel: "Annuler",
+      },
+      confirmations: {
+        deleteTitle: "Supprimer le dossier ?",
+        deleteMessage:
+          "Supprimer « {{folderName}} » ? Son contenu remonte d'un niveau. Rien n'est archivé et les fichiers sur le disque ne changent pas.",
+        deleteConfirm: "Supprimer",
+      },
     },
     project: {
       actions: {
@@ -2219,6 +2251,8 @@ export const fr: TranslationResources = {
       title: "À propos",
       appVersion: "Version de l'application",
       whatsNewHint: "Notes de version pour chaque release",
+      github: "GitHub",
+      githubHint: "Code source, tickets et versions",
       thisDevice: "Cet appareil",
       connectedHosts: "Hôtes connectés",
       offline: "Hors ligne",

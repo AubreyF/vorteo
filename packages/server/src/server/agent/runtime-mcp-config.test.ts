@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
-import { withPaseoMcpAuthToken, withRuntimePaseoMcpServer } from "./runtime-mcp-config.js";
+import {
+  internalPaseoMcpServerUrl,
+  stripInternalPaseoMcpServer,
+  withPaseoMcpAuthToken,
+  withRelayedPaseoMcpServer,
+  withRuntimePaseoMcpServer,
+} from "./runtime-mcp-config.js";
 
 const BASE_CONFIG: AgentSessionConfig = {
   provider: "claude",
@@ -74,5 +80,51 @@ describe("withPaseoMcpAuthToken", () => {
       mcpServers: { paseo: { type: "http" as const, url: "https://elsewhere.test/mcp" } },
     };
     expect(withPaseoMcpAuthToken(config, "host-token")).toBe(config);
+  });
+});
+
+describe("the session host's tool relay form", () => {
+  const relay = {
+    type: "stdio" as const,
+    command: "/usr/local/bin/node",
+    args: ["/release/dist/scripts/mcp-stdio-socket-bridge-cli.mjs", "--socket", "/h/tools/ab.sock"],
+  };
+  const direct = {
+    type: "http" as const,
+    url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
+    headers: { Authorization: "Bearer token" },
+  };
+
+  test("the relay replaces only the injected server and keeps alwaysLoad", () => {
+    const config: AgentSessionConfig = {
+      ...BASE_CONFIG,
+      mcpServers: {
+        paseo: { ...direct, alwaysLoad: true },
+        other: { type: "stdio", command: "npx", args: ["other-server"] },
+      },
+    };
+    expect(internalPaseoMcpServerUrl(config)).toBe(direct.url);
+    const relayed = withRelayedPaseoMcpServer(config, relay);
+    expect(relayed.mcpServers).toEqual({
+      paseo: { ...relay, alwaysLoad: true },
+      other: { type: "stdio", command: "npx", args: ["other-server"] },
+    });
+    // The relay form is the daemon's own server too: stripped before storage, and no URL.
+    expect(internalPaseoMcpServerUrl(relayed)).toBeNull();
+    expect(stripInternalPaseoMcpServer(relayed).mcpServers).toEqual({
+      other: { type: "stdio", command: "npx", args: ["other-server"] },
+    });
+    expect(withPaseoMcpAuthToken(relayed, "next")).toBe(relayed);
+  });
+
+  test("a user's own paseo server is neither relayed nor stripped", () => {
+    const config: AgentSessionConfig = {
+      ...BASE_CONFIG,
+      mcpServers: { paseo: { type: "stdio", command: "npx", args: ["paseo-like"] } },
+    };
+    expect(internalPaseoMcpServerUrl(config)).toBeNull();
+    expect(withRelayedPaseoMcpServer(config, relay)).toBe(config);
+    expect(stripInternalPaseoMcpServer(config)).toBe(config);
+    expect(withRelayedPaseoMcpServer(BASE_CONFIG, relay)).toBe(BASE_CONFIG);
   });
 });

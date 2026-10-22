@@ -24,6 +24,8 @@ import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { settingsStyles } from "@/styles/settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { PluginLogsSheet } from "./plugins-page";
 import { openSharedPluginForm, type SharedPluginSourceKind } from "./shared-plugin-form-model";
 
@@ -34,10 +36,11 @@ const SOURCE_KINDS: SegmentedControlOption<SharedPluginSourceKind>[] = [
 
 function useSharedPluginForm(plugin: InstallationPlugin | null) {
   const { save } = useInstallationSettings();
+  const reportActionError = useReportActionError();
   const source = plugin?.source;
   const [model] = useState(() =>
     openSharedPluginForm(
-      { resolve: resolveInstallationPluginSource, save },
+      { resolve: resolveInstallationPluginSource, save, reportConnectionLost: reportActionError },
       {
         source: source && source.kind !== "directory" ? formatPluginIdentity(source.identity) : "",
         updateId: plugin?.id,
@@ -174,6 +177,7 @@ function PluginEnvironment({
     staleTimeMs: 1000,
     refetchInterval: 5000,
   });
+  const reportActionError = useReportActionError();
   const reload = useMutation({
     mutationFn: async () => {
       if (!client) throw new Error("Environment is disconnected");
@@ -181,6 +185,9 @@ function PluginEnvironment({
     },
     onSuccess: () => {
       void plugins.refetch();
+    },
+    onError: (failure) => {
+      if (isConnectionError(failure)) reportActionError(failure);
     },
   });
   const openLogs = useCallback(() => setLogsOpen(true), []);
@@ -197,7 +204,9 @@ function PluginEnvironment({
     excluded,
   });
   if (reload.isSuccess) status = `Reloaded: ${status}`;
-  const error = reload.error?.message ?? plugins.error?.message ?? plugin?.error;
+  let error = plugin?.error;
+  if (plugins.error) error = toErrorMessage(plugins.error);
+  if (reload.error && !isConnectionError(reload.error)) error = toErrorMessage(reload.error);
   const pending = reload.isPending;
   return (
     <SettingsRow
@@ -361,9 +370,14 @@ function SharedPluginCard({
 export function SharedPluginsPage() {
   const { data, installation, save } = useInstallationSettings();
   const [form, setForm] = useState<{ plugin: InstallationPlugin | null } | null>(null);
+  const reportActionError = useReportActionError();
   const mutation = useMutation({
     mutationFn: (update: InstallationSettingsUpdate) => save(update),
+    onError: (failure) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
   });
+  const isRejected = mutation.error !== null && !isConnectionError(mutation.error);
   const add = useCallback(() => setForm({ plugin: null }), []);
   const edit = useCallback((plugin: InstallationPlugin) => setForm({ plugin }), []);
   const close = useCallback(() => setForm(null), []);
@@ -403,7 +417,7 @@ export function SharedPluginsPage() {
             />
           </SettingsRow>
         </SettingsCard>
-        {mutation.error ? <Alert variant="error" description={mutation.error.message} /> : null}
+        {isRejected ? <Alert variant="error" description={toErrorMessage(mutation.error)} /> : null}
         {plugins.length === 0 ? (
           <Text style={settingsStyles.rowHint}>No plugins installed</Text>
         ) : null}

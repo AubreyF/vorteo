@@ -10,6 +10,8 @@ import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useVortonTouch } from "@/vorton-touch";
 import { SYSTEM_PROJECT_TITLE } from "@/workspace/lifecycle/system-workspace";
 import {
@@ -59,6 +61,7 @@ function SystemHostRow({
 }) {
   const touch = useVortonTouch();
   const { serverId } = summary;
+  const reportActionError = useReportActionError();
   const setup = useMutation({
     mutationKey: ["system-source-setup", serverId],
     mutationFn: async () => {
@@ -69,7 +72,11 @@ function SystemHostRow({
     onSuccess: ({ workspaceId }) => {
       if (workspaceId) navigateToWorkspace({ serverId, workspaceId });
     },
+    onError: (error) => {
+      if (isConnectionError(error)) reportActionError(error);
+    },
   });
+  const isSetupRejected = setup.isError && !isConnectionError(setup.error);
   const { mutate } = setup;
   const startSetup = useCallback(() => mutate(), [mutate]);
   const rowStyle = useMemo(
@@ -106,13 +113,13 @@ function SystemHostRow({
             {setup.isPending ? (
               <Text style={settingsStyles.rowHint}>Cloning can take a few minutes.</Text>
             ) : null}
-            {setup.isError ? (
+            {isSetupRejected ? (
               <Text
                 accessibilityRole="alert"
                 style={settingsStyles.rowError}
                 testID={`system-source-setup-error-${serverId}`}
               >
-                {setup.error.message}
+                {toErrorMessage(setup.error)}
               </Text>
             ) : null}
           </View>

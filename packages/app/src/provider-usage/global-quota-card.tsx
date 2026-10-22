@@ -7,8 +7,8 @@ import { GlobalCard } from "@/components/sidebar/global-card-shell";
 import type { Theme } from "@/styles/theme";
 import { useUsageHostId } from "@/usage/hosts";
 import { useOpenUsageScreen } from "@/usage/sidebar-item";
-import { clampPct } from "./format";
-import { constrainedCount, LOW_QUOTA_PCT, quotaRows, type QuotaRow } from "./global-quota";
+import { attentionCount, quotaAccounts } from "./global-quota";
+import { QuotaAccountList } from "./quota-account-list";
 import { useProviderUsage } from "./use-provider-usage";
 
 const QuotaIcon = withUnistyles(Gauge);
@@ -19,105 +19,59 @@ const HEADING_ICON = (
   </View>
 );
 
-/** Every account's quota on the usage host, the accounts needing attention first. */
+/** Every account's quotas on the usage host, one bar per enforced window or capped balance. */
 export function GlobalQuotaCard() {
   const serverId = useUsageHostId();
   const { view } = useProviderUsage(serverId, { pollUsage: true });
-  // The rows only need minute precision; Date.now() per render is enough.
-  const rows = useMemo(() => quotaRows(view, Date.now()), [view]);
+  // Readings refresh every minute, so minute-precision countdowns only need the render time.
+  const now = useMemo(() => (view.kind === "ready" ? Date.now() : 0), [view]);
+  const accounts = useMemo(() => quotaAccounts(view, now), [view, now]);
   const openUsage = useOpenUsageScreen();
-  if (rows.length === 0) return null;
-  const attention = constrainedCount(rows);
+  if (accounts.length === 0) return null;
+  const attention = attentionCount(accounts);
   const countLabel =
     attention > 0
-      ? `${attention} of ${rows.length} accounts need attention`
-      : `${rows.length} accounts`;
+      ? `${attention} of ${accounts.length} accounts need attention`
+      : `${accounts.length} accounts`;
   return (
     <GlobalCard
       kind="globalQuota"
-      title="Quota"
+      title={accounts.length === 1 ? "Quota" : "Quotas"}
       icon={HEADING_ICON}
-      count={rows.length}
+      count={accounts.length}
       countLabel={countLabel}
       testID="global-quota-card"
     >
-      {rows.map((row, index) => (
-        <QuotaRowView key={row.providerId} row={row} first={index === 0} onPress={openUsage} />
-      ))}
+      <QuotaAccountList accounts={accounts} serverId={serverId} view={view} now={now} />
+      <View style={[styles.footer, taskCardStyles.proseInset, taskCardStyles.separator]}>
+        <Text style={styles.footerText} numberOfLines={1}>
+          Times in {Intl.DateTimeFormat().resolvedOptions().timeZone}
+        </Text>
+        <Pressable
+          onPress={openUsage}
+          accessibilityRole="link"
+          testID="global-quota-open-usage"
+          hitSlop={6}
+        >
+          <Text style={styles.link}>Open Usage</Text>
+        </Pressable>
+      </View>
     </GlobalCard>
   );
 }
 
-function QuotaRowView({
-  row,
-  first,
-  onPress,
-}: {
-  row: QuotaRow;
-  first: boolean;
-  onPress: () => void;
-}) {
-  const low = row.failing || (row.remaining !== null && row.remaining < LOW_QUOTA_PCT);
-  const fill = useMemo(
-    () => [
-      styles.fill,
-      low && styles.lowFill,
-      { width: `${clampPct(row.remaining ?? 0)}%` as `${number}%` },
-    ],
-    [low, row.remaining],
-  );
-  const label = [row.name, row.summary, row.status].filter(Boolean).join(", ");
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint="Opens Usage"
-      style={[styles.row, taskCardStyles.proseInset, !first && taskCardStyles.separator]}
-      testID={`global-quota-row-${row.providerId}`}
-    >
-      <View style={styles.line}>
-        <Text style={styles.name} numberOfLines={1}>
-          {row.name}
-        </Text>
-        {row.summary ? (
-          <Text style={[styles.summary, low && styles.low]} numberOfLines={1}>
-            {row.summary}
-          </Text>
-        ) : null}
-      </View>
-      {row.remaining !== null ? (
-        <View style={styles.track}>
-          <View style={fill} />
-        </View>
-      ) : null}
-      {row.status ? (
-        <Text style={[styles.status, row.failing && styles.low]} numberOfLines={2}>
-          {row.status}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create((theme) => ({
-  row: { gap: theme.spacing[1], paddingVertical: theme.spacing[2] },
-  line: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
-  name: { flex: 1, minWidth: 0, color: theme.colors.foreground, fontSize: theme.fontSize.sm },
-  summary: {
-    flexShrink: 0,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    fontVariant: ["tabular-nums"],
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
   },
-  low: { color: theme.colors.statusWarning },
-  status: { color: theme.colors.foregroundExtraMuted, fontSize: theme.fontSize.sm },
-  track: {
-    height: 3,
-    borderRadius: 2,
-    overflow: "hidden",
-    backgroundColor: theme.colors.surface2,
+  footerText: {
+    flex: 1,
+    minWidth: 0,
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.sm - 1,
   },
-  fill: { height: 3, borderRadius: 2, backgroundColor: theme.colors.statusDotRunning },
-  lowFill: { backgroundColor: theme.colors.statusWarning },
+  link: { color: theme.colors.accent, fontSize: theme.fontSize.sm },
 }));

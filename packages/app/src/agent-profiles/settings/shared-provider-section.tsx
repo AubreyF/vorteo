@@ -4,7 +4,7 @@ import { useInstallationProfiles } from "@/execution-installation/profiles";
 import { PreferredChoicesField } from "./preferred-choices-field";
 import { sharedChoiceState } from "../shared-choices";
 import { useCallback, useMemo, useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import type {
   AgentProfile,
   MutableDaemonConfig,
@@ -21,12 +21,12 @@ import { describeCopies, groupDuplicateProfiles, type ProfileGroup } from "./pro
 import { settingsStyles } from "@/styles/settings";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
-import { SelectField } from "@/components/ui/select-field";
 import { AgentProfileEditModal } from "./agent-profile-edit-modal";
 import { AgentProfileRow } from "./agent-profile-row";
 import type { AgentProfileValue } from "../internal/profile-form-model";
 import { generateAgentProfileId } from "../internal/profile-id";
-import { toErrorMessage } from "@/utils/error-messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 interface EditTarget {
   serverId: string;
@@ -55,6 +55,18 @@ export function SharedProviderSection({
   const [operation, setOperation] = useState<
     { status: "idle" } | { status: "saving" } | { status: "error"; message: string }
   >({ status: "idle" });
+  const reportActionError = useReportActionError();
+  const failOperation = useCallback(
+    (error: unknown) => {
+      if (isConnectionError(error)) {
+        reportActionError(error);
+        setOperation({ status: "idle" });
+      } else {
+        setOperation({ status: "error", message: toErrorMessage(error) });
+      }
+    },
+    [reportActionError],
+  );
   const shared = useMemo(() => {
     const local = config?.sharedProviderPreferences;
     if (!installation) return local;
@@ -184,10 +196,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, defaultWorkflowId: id });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
   );
 
   // Deleting a migrated workflow must retain its legacy launch and worker bindings.
@@ -213,10 +225,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, workflows, defaultWorkflowId });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, providerType, saveGroup],
+    [shared, group, providerType, saveGroup, failOperation],
   );
   // Older copies are folded under their current profile, so moving a profile
   // swaps it with its visible neighbor rather than with a hidden copy.
@@ -236,10 +248,16 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, workflows });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
+  );
+  const makeDefault = useCallback(
+    (id: string) => {
+      void changeDefault(id);
+    },
+    [changeDefault],
   );
   const moveUp = useCallback(
     (id: string) => {
@@ -265,10 +283,10 @@ export function SharedProviderSection({
         await saveGroup(shared, { ...group, [field]: values });
         setOperation({ status: "idle" });
       } catch (error) {
-        setOperation({ status: "error", message: toErrorMessage(error) });
+        failOperation(error);
       }
     },
-    [shared, group, saveGroup],
+    [shared, group, saveGroup, failOperation],
   );
   const toggleModel = useCallback(
     (id: string) => {
@@ -323,11 +341,6 @@ export function SharedProviderSection({
       catalogLabel: environment ? `${accountLabel} (${environment.kind})` : accountLabel,
     };
   }, [editor, entries, providerType, providerLabel]);
-  const defaultOptions = (group?.workflows ?? []).map((workflow) => ({
-    id: workflow.id,
-    value: workflow.id,
-    label: workflow.name,
-  }));
   const pending = operation.status === "saving";
   const profileGroups = useMemo(() => groupDuplicateProfiles(workflows), [workflows]);
 
@@ -349,26 +362,24 @@ export function SharedProviderSection({
   );
   return (
     <>
-      <SettingsSection title={`${providerLabel} profiles`} trailing={addButton}>
+      <SettingsSection
+        title="Profiles"
+        trailing={addButton}
+        info="The starred profile is used when you pick this provider without choosing a profile."
+        testID="shared-provider-profiles"
+      >
         {installationError ? (
-          <Alert variant="error" description={installationError.message} />
+          <Alert variant="error" description={toErrorMessage(installationError)} />
         ) : null}
         {operation.status === "error" ? (
           <Alert variant="error" title="Unable to save" description={operation.message} />
         ) : null}
-        <SelectField
-          label="Default profile"
-          value={group?.defaultWorkflowId ?? null}
-          selectedDisplay={
-            defaultOptions.find((option) => option.value === group?.defaultWorkflowId) ?? null
-          }
-          options={defaultOptions}
-          onChange={changeDefault}
-          placeholder="Choose a profile"
-          emptyText="No profiles"
-          disabled={pending}
-        />
-        <View style={settingsStyles.card}>
+        {profileGroups.length ? null : (
+          <Text style={settingsStyles.rowHint}>
+            No profiles yet. Add one to save a model setup.
+          </Text>
+        )}
+        <View style={profileGroups.length ? settingsStyles.card : undefined}>
           {profileGroups.map((profileGroup, index) => (
             <ProfileGroupRows
               key={profileGroup.primary.id}
@@ -378,6 +389,8 @@ export function SharedProviderSection({
               isFirst={index === 0}
               isLast={index === profileGroups.length - 1}
               disabled={pending}
+              defaultId={group?.defaultWorkflowId ?? null}
+              onMakeDefault={makeDefault}
               onEdit={openWorkflow}
               onRemove={remove}
               onMoveUp={moveUp}
@@ -387,7 +400,7 @@ export function SharedProviderSection({
         </View>
       </SettingsSection>
       <SettingsSection
-        title={`${providerLabel} defaults`}
+        title="Model defaults"
         trailing={editDefaultsButton}
         info={
           installation
@@ -447,6 +460,8 @@ interface ProfileGroupRowsProps {
   onRemove: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
+  defaultId: string | null;
+  onMakeDefault: (id: string) => void;
 }
 
 function availabilityReason(
@@ -474,6 +489,8 @@ function ProfileGroupRows({
   onRemove,
   onMoveUp,
   onMoveDown,
+  defaultId,
+  onMakeDefault,
 }: ProfileGroupRowsProps) {
   const { primary, copies } = group;
   return (
@@ -485,6 +502,8 @@ function ProfileGroupRows({
         isFirst={isFirst}
         isLast={isLast && copies.length === 0}
         disabled={disabled}
+        isDefault={primary.id === defaultId}
+        onMakeDefault={onMakeDefault}
         onEdit={onEdit}
         onRemove={onRemove}
         onMoveUp={onMoveUp}

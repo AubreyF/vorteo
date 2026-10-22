@@ -18,6 +18,11 @@ import {
 import { writeJsonFileAtomic } from "./atomic-file.js";
 import { areEquivalentPaths } from "../utils/path.js";
 import {
+  logicalProjectKey,
+  logicalProjectsPath,
+  logicalProjectsPathOrNull,
+} from "./projects-folder.js";
+import {
   generateProjectId,
   type PersistedProjectKind,
   type PersistedWorkspaceKind,
@@ -36,9 +41,24 @@ const UntrustedWorkspaceSourceSchema = z.object({
   headRepository: z.string(),
 });
 
+// Path fields parse to their logical Projects folder form, so no write stores an alias path.
+const LogicalPathSchema = z.string().transform(logicalProjectsPath);
+const LogicalNullablePathSchema = z
+  .string()
+  .nullable()
+  .default(null)
+  .transform(logicalProjectsPathOrNull);
+
+// A membership key names the project a workspace joins in the sidebar, so it takes the same
+// logical form as the project key it names.
+const LogicalProjectMembershipSchema = WorkspaceProjectMembershipSchema.transform((membership) => ({
+  ...membership,
+  key: logicalProjectKey(membership.key) ?? membership.key,
+}));
+
 const PersistedProjectRecordSchema = z.object({
   projectId: z.string(),
-  rootPath: z.string(),
+  rootPath: LogicalPathSchema,
   kind: z.enum(["git", "non_git"]),
   displayName: z.string(),
   // COMPAT(projectKey): added in v0.2.4 on 2026-07-28; remove optional after 2027-01-28.
@@ -46,7 +66,7 @@ const PersistedProjectRecordSchema = z.object({
     .string()
     .nullable()
     .optional()
-    .transform((value) => value ?? null),
+    .transform((value) => logicalProjectKey(value ?? null)),
   // User-set override layered over the derived displayName. Reconciliation
   // never touches this. Null means "use the derived name". Added for #987.
   customName: z
@@ -71,12 +91,12 @@ const PersistedProjectRecordSchema = z.object({
 const PersistedWorkspaceRecordSchema = z.object({
   workspaceId: z.string(),
   projectId: z.string(),
-  projectMembership: WorkspaceProjectMembershipSchema.nullable().optional(),
+  projectMembership: LogicalProjectMembershipSchema.nullable().optional(),
   // Native installation lifecycle owns this relationship; ordinary requests cannot set it.
   factoryMembership: WorkspaceFactoryMembershipSchema.optional(),
   // Daemon startup seeding owns this role; ordinary requests cannot set or clear it.
   systemMembership: WorkspaceSystemMembershipSchema.optional(),
-  cwd: z.string(),
+  cwd: LogicalPathSchema,
   kind: z.enum(["local_checkout", "worktree", "directory"]),
   displayName: z.string(),
   // User-set title layered over the derived displayName. In Model B the title is
@@ -99,7 +119,7 @@ const PersistedWorkspaceRecordSchema = z.object({
   // selected project is a subdirectory inside a repository. Persist it so
   // archive and recovery do not need the directory to still exist in order to
   // recover placement.
-  worktreeRoot: z.string().nullable().default(null),
+  worktreeRoot: LogicalNullablePathSchema,
   // Comparison base preserved across worktree deletion and restore. New branch-off
   // workspaces store the resolved ref (e.g. refs/remotes/upstream/main); legacy and
   // PR checkout records may contain a bare branch name. Ordinary checkouts use null.
@@ -109,7 +129,7 @@ const PersistedWorkspaceRecordSchema = z.object({
     .optional()
     .transform((value) => value ?? null),
   isPaseoOwnedWorktree: z.boolean().default(false),
-  mainRepoRoot: z.string().nullable().default(null),
+  mainRepoRoot: LogicalNullablePathSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable(),
@@ -470,10 +490,10 @@ export class FileBackedProjectRegistry
     this.allocationQueue = new Promise<void>((resolve) => (release = resolve));
     await previous;
     try {
+      const rootPath = logicalProjectsPath(input.rootPath);
+      const projectKey = logicalProjectKey(input.projectKey ?? null);
       const active = (await this.list())
-        .filter(
-          (project) => !project.archivedAt && areEquivalentPaths(project.rootPath, input.rootPath),
-        )
+        .filter((project) => !project.archivedAt && areEquivalentPaths(project.rootPath, rootPath))
         .sort(
           (left, right) =>
             Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
@@ -482,12 +502,11 @@ export class FileBackedProjectRegistry
       if (active) {
         // The system project keeps its own key so it never joins a same-remote group.
         if (active.systemProject && active.kind === input.kind) return active;
-        if (active.kind === input.kind && active.projectKey === (input.projectKey ?? null))
-          return active;
+        if (active.kind === input.kind && active.projectKey === projectKey) return active;
         const refreshed = {
           ...active,
           kind: input.kind,
-          projectKey: input.projectKey ?? null,
+          projectKey,
           updatedAt: input.timestamp,
         };
         await this.upsert(refreshed);
@@ -499,10 +518,10 @@ export class FileBackedProjectRegistry
         if (await this.get(projectId)) continue;
         const record = createPersistedProjectRecord({
           projectId,
-          rootPath: input.rootPath,
+          rootPath,
           kind: input.kind,
           displayName: input.displayName,
-          projectKey: input.projectKey ?? null,
+          projectKey,
           createdAt: input.timestamp,
           updatedAt: input.timestamp,
         });

@@ -17,11 +17,13 @@ import {
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
+import { createProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
-import { readInstallationConfig } from "./config.js";
+import { claudeHostRefreshEnabled, readInstallationConfig } from "./config.js";
 import { createInstallationServer } from "./server.js";
-import { createInstallationRestartExecutor } from "./daemon.js";
+import { connectInstallationDaemon, createInstallationRestartExecutor } from "./daemon.js";
+import { createInstallationDaemonConnections } from "./daemon-connections.js";
 import { createInstallationSettings, startSettingsReconciliation } from "./settings/runtime.js";
 
 const configFile = process.argv[2];
@@ -40,7 +42,17 @@ initializePackagedClaudeCli(true);
 function assertRegistrationReadiness(target: "host" | "container-daemon"): void {
   app.assertRegistrationReadiness(target);
 }
-const executor = createInstallationRestartExecutor(config, assertRegistrationReadiness, logger);
+// Periodic settings, profile and restart-impact reads share one connection per
+// environment instead of opening a fresh one each pass.
+const daemonConnections = createInstallationDaemonConnections((kind) =>
+  connectInstallationDaemon(config, kind),
+);
+const executor = createInstallationRestartExecutor(
+  config,
+  assertRegistrationReadiness,
+  logger,
+  daemonConnections.connect,
+);
 if (process.platform === "darwin") {
   executor.reconcileInitialHostActivation = () =>
     reconcileNativeInitialHostActivation({
@@ -109,8 +121,16 @@ if (config.previewMonitor)
       writableMountRoots: () => inspectBootstrapWritableMountRoots(config.previewMonitor!),
     }),
   );
-const profiles = createInstallationProfiles(config, assertRegistrationReadiness);
-const settings = createInstallationSettings(config, assertRegistrationReadiness);
+const profiles = createInstallationProfiles(
+  config,
+  assertRegistrationReadiness,
+  daemonConnections.connect,
+);
+const settings = createInstallationSettings(
+  config,
+  assertRegistrationReadiness,
+  daemonConnections.connect,
+);
 let stopProfileSynchronization: (() => void) | undefined;
 let stopSettingsReconciliation: (() => void) | undefined;
 let synchronizing = false;
@@ -131,11 +151,19 @@ const claudeSetupTimer = setInterval(() => {
     .catch(() => logger.warn("Claude subscription synchronization is pending"));
 }, 5000);
 claudeSetupTimer.unref();
-// Off by default: Host-owned refresh for full sign-in Claude accounts.
-const claudeOAuth =
-  config.claudeHostRefresh === true
-    ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
-    : undefined;
+// Static provider secrets (API keys and tokens) are stored here once and delivered everywhere.
+const providerSecrets = createProviderSecretsRuntime(config, settings, assertRegistrationReadiness);
+const providerSecretsTimer = setInterval(() => {
+  if (!synchronizing) return;
+  void providerSecrets
+    .reconcile()
+    .catch(() => logger.warn("Provider key synchronization is pending"));
+}, 5000);
+providerSecretsTimer.unref();
+// On by default: Host-owned refresh for full sign-in Claude accounts. `false` opts out.
+const claudeOAuth = claudeHostRefreshEnabled(config)
+  ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
+  : undefined;
 const claudeOAuthTimer = claudeOAuth
   ? setInterval(() => {
       if (!synchronizing) return;
@@ -154,6 +182,7 @@ const app = createInstallationServer(
   startupFence,
   coordinatorRequests,
   claudeOAuth,
+  providerSecrets,
 );
 activateSynchronization();
 const restartTimer = setInterval(() => {
@@ -176,10 +205,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
     clearInterval(claudeSetupTimer);
+    clearInterval(providerSecretsTimer);
     if (claudeOAuthTimer) clearInterval(claudeOAuthTimer);
     void claudeSetup.dispose();
     void claudeOAuth?.dispose();
     stopProfileSynchronization?.();
     stopSettingsReconciliation?.();
+    daemonConnections.close();
     server.close();
   });

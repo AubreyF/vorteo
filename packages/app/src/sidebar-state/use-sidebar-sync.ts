@@ -5,68 +5,24 @@ import AsyncStorage from "@/storage/app-storage";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { create } from "zustand";
-import { SidebarStatePatchSchema, type SidebarState } from "@getpaseo/protocol/sidebar-state";
+import { SidebarStatePatchSchema } from "@getpaseo/protocol/sidebar-state";
 import { useFetchQuery } from "@/data/query";
 import { getHostRuntimeStore, useHosts, useHostRegistryLoaded } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
+import { useSidebarFolderStore } from "@/sidebar-folders/store";
+import { applyLocalSidebar, readLocalSidebar } from "./local";
 import { subscribeSidebarChanges } from "./changes";
 import { SidebarSync, type SidebarSyncStatus } from "./sync";
 
-export const useSidebarSyncStatus = create<{ status: SidebarSyncStatus | "local"; error?: string }>(
-  () => ({ status: "local" }),
-);
-
-function readLocalSidebar(): SidebarState {
-  const order = useSidebarOrderStore.getState();
-  const view = useSidebarViewStore.getState();
-  const collapsed = useSidebarCollapsedSectionsStore.getState();
-  return {
-    projectOrder: order.projectOrder,
-    pinnedWorkspaceOrder: order.pinnedWorkspaceOrder,
-    workspaceOrderByProject: order.workspaceOrderByProject,
-    collapsedProjects: Object.fromEntries(
-      [...collapsed.collapsedProjectKeys].map((key) => [key, true]),
-    ),
-    collapsedWorkspaceGroups: Object.fromEntries(
-      [...collapsed.collapsedWorkspaceGroupKeys].map((key) => [key, true]),
-    ),
-    collapsedPinned: collapsed.collapsedPinned,
-    groupMode: view.groupMode,
-    hostFilters: view.hostFilters,
-    projectFilters: view.projectFilters,
-    labelFilters: view.labelFilter.labels,
-  };
-}
-
-function applyLocalSidebar(state: SidebarState): void {
-  // Avoid waking the retained sidebar on every unchanged poll.
-  if (JSON.stringify(readLocalSidebar()) === JSON.stringify(state)) return;
-  useSidebarOrderStore.setState({
-    projectOrder: state.projectOrder,
-    pinnedWorkspaceOrder: state.pinnedWorkspaceOrder,
-    workspaceOrderByProject: state.workspaceOrderByProject,
-  });
-  useSidebarViewStore.setState({
-    groupMode: state.groupMode,
-    hostFilters: state.hostFilters,
-    projectFilters: state.projectFilters,
-    labelFilter: { labels: state.labelFilters },
-  });
-  useSidebarCollapsedSectionsStore.setState({
-    collapsedProjectKeys: new Set(
-      Object.keys(state.collapsedProjects).filter((key) => state.collapsedProjects[key]),
-    ),
-    collapsedWorkspaceGroupKeys: new Set(
-      Object.keys(state.collapsedWorkspaceGroups).filter(
-        (key) => state.collapsedWorkspaceGroups[key],
-      ),
-    ),
-    collapsedPinned: state.collapsedPinned,
-  });
-}
+export const useSidebarSyncStatus = create<{
+  status: SidebarSyncStatus | "local";
+  error?: string;
+  /** Whether the sidebar authority stores folders. Folder controls appear only when it does. */
+  foldersSupported: boolean;
+}>(() => ({ status: "local", foldersSupported: false }));
 
 interface PersistHydration {
   hasHydrated(): boolean;
@@ -102,6 +58,15 @@ export function useSidebarSync(): void {
     return discovered ? ids[0] : undefined;
   });
   const serverId = hostAuthority ?? standaloneAuthority;
+  const foldersSupported = useSessionStore(
+    (state) =>
+      !demo &&
+      serverId !== undefined &&
+      state.sessions[serverId]?.serverInfo?.features?.sidebarFolders === true,
+  );
+  useEffect(() => {
+    useSidebarSyncStatus.setState({ foldersSupported });
+  }, [foldersSupported]);
   const [sync, setSync] = useState<SidebarSync | null>(null);
   useEffect(() => {
     if (demo || !loaded || !serverId) return;
@@ -120,6 +85,7 @@ export function useSidebarSync(): void {
       waitForHydration(useSidebarOrderStore.persist),
       waitForHydration(useSidebarViewStore.persist),
       waitForHydration(useSidebarCollapsedSectionsStore.persist),
+      waitForHydration(useSidebarFolderStore.persist),
     ]).then(() => {
       if (cancelled) return undefined;
       current = new SidebarSync({

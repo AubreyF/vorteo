@@ -6,6 +6,7 @@ import {
   InstallationSettingsSchema,
   installationProviderReference,
   localInstallationProvider,
+  type InstallationProjectPolicy,
   type InstallationSettings,
 } from "@getpaseo/protocol/installation-settings";
 import { composeEnvironmentSystemPrompt, readUserSystemPrompt } from "./instructions.js";
@@ -49,6 +50,27 @@ export function readInstallationSettings(
     ),
     resourceExclusions: {},
   });
+}
+
+/**
+ * The daemon's copy of the project policies, with accounts named by their local provider id in
+ * that environment so client choosers can filter without the shared catalog.
+ */
+export function localProjectPolicies(
+  settings: InstallationSettings,
+  serverId: string,
+): Record<string, InstallationProjectPolicy> {
+  const policies = structuredClone(settings.projectPolicies ?? {});
+  for (const policy of Object.values(policies)) {
+    if (!policy.providerIds) continue;
+    policy.providerIds = policy.providerIds.flatMap((id) => {
+      const local = settings.providerDefinitions?.find((entry) => entry.id === id)?.bindings[
+        serverId
+      ];
+      return local ? [local] : [];
+    });
+  }
+  return policies;
 }
 
 export function projectInstallationSettings(
@@ -150,6 +172,10 @@ export function projectInstallationSettings(
         }
       : {}),
     ...(settings.skills ? { skills: settings.skills } : {}),
+    // Only daemons that keep a copy report the key; older ones would drop it on every pass.
+    ...(localConfig.installationProjectPolicies !== undefined
+      ? { installationProjectPolicies: localProjectPolicies(settings, serverId) }
+      : {}),
     expectedInstallationResourceRevision: installationResourceRevision(localConfig),
     installationResourceBindings: {
       terminalProfiles: retainedTerminals,

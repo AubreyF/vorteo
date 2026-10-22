@@ -9,6 +9,7 @@ import { VolumeMeter } from "./volume-meter";
 import { FOOTER_HEIGHT } from "@/constants/layout";
 import type { DictationStatus } from "@/hooks/use-dictation";
 import { useVortonTouch } from "@/vorton-touch";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface DictationControlsProps {
   volume: number;
@@ -295,7 +296,7 @@ export function DictationOverlay({
         {isFailed ? (
           <Text numberOfLines={2} style={overlayTranscriptTextStyle}>
             {errorText
-              ? t("message.dictation.failed", { error: errorText })
+              ? t("message.dictation.failed", { error: toErrorMessage(errorText) })
               : t("message.dictation.failedRetry")}
           </Text>
         ) : null}

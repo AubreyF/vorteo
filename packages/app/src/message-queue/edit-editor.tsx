@@ -6,6 +6,7 @@ import { ImagePlus, X } from "lucide-react-native";
 import type { QueueItem, QueueAttachment } from "@getpaseo/protocol/message-queue";
 import type { PickedImageAttachmentInput } from "@/hooks/image-attachment-picker";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { normalizeNativePastedImages } from "@/composer/native-pasted-image";
 import { Button } from "@/components/ui/button";
 import { EditingTextInput } from "@/components/ui/text-input";
@@ -35,17 +36,15 @@ export function QueueEditEditor({
   const writes = useRef(Promise.resolve());
   const pendingWrites = useRef(0);
   const [persisting, setPersisting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Local draft persistence failed; the editor stays locked until the draft is saved again.
+  const [unsaved, setUnsaved] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const active = useRef(true);
-  const { pickImages } = useImageAttachmentPicker(setError);
-  const report = useCallback(
-    (failure: unknown) =>
-      setError(failure instanceof Error ? failure.message : "The queue edit could not be saved."),
-    [],
-  );
+  const report = useReportActionError();
+  const { pickImages } = useImageAttachmentPicker(report);
+  const markUnsaved = useCallback(() => setUnsaved(true), []);
   const update = useCallback(
     (changes: Partial<Pick<QueueEditDraft, "text" | "attachments" | "localAttachments">>) => {
       setWorking((value) => ({ ...value, ...changes }));
@@ -58,12 +57,12 @@ export function QueueEditEditor({
         });
         return;
       });
-      void writes.current.catch(report).finally(() => {
+      void writes.current.catch(markUnsaved).finally(() => {
         pendingWrites.current -= 1;
         if (!pendingWrites.current) setPersisting(false);
       });
     },
-    [report],
+    [markUnsaved],
   );
   const add = useCallback(
     (images: PickedImageAttachmentInput[]) => {
@@ -140,11 +139,11 @@ export function QueueEditEditor({
       .catch(() => undefined)
       .then(async () => {
         latest.current = await queueEditDraftSession.update(latest.current, working);
-        setError(null);
+        setUnsaved(false);
         return;
       });
-    void writes.current.catch(report);
-  }, [working, report]);
+    void writes.current.catch(markUnsaved);
+  }, [working, markUnsaved]);
   const changeText = useCallback((text: string) => update({ text }), [update]);
   const pasteImages = useCallback(
     (files: readonly NativePastedFile[]) => {
@@ -193,9 +192,9 @@ export function QueueEditEditor({
   );
   const changedElsewhere = current && current.revision !== draft.original.revision;
   const unavailable = !current || current.delivery.status !== "queued";
-  const disabled = saving || processing || !!error || !!draft.submissionId;
+  const disabled = saving || processing || unsaved || !!draft.submissionId;
   return (
-    <QueueEditMediaInput add={add} disabled={disabled} onError={setError}>
+    <QueueEditMediaInput add={add} disabled={disabled} onError={report}>
       <View style={styles.editor} testID={`queue-edit-draft-${draft.id}`}>
         {unavailable ? (
           <Text style={styles.muted}>
@@ -221,7 +220,7 @@ export function QueueEditEditor({
           multiline
           editable={!saving && !processing && !draft.submissionId}
           onPasteImages={pasteImages}
-          onPasteError={setError}
+          onPasteError={report}
           style={styles.input}
           accessibilityLabel="Edit queued message"
         />
@@ -251,8 +250,8 @@ export function QueueEditEditor({
             />
           ))}
         </View>
-        <DraftSaveStatus error={error} persisting={persisting || processing} />
-        {error && !latest.current.submissionId ? (
+        <DraftSaveStatus unsaved={unsaved} persisting={persisting || processing} />
+        {unsaved && !latest.current.submissionId ? (
           <Button size={size} variant="outline" onPress={retryDraft}>
             Retry saving draft
           </Button>
@@ -288,11 +287,11 @@ export function QueueEditEditor({
     </QueueEditMediaInput>
   );
 }
-function DraftSaveStatus({ error, persisting }: { error: string | null; persisting: boolean }) {
-  if (error) {
+function DraftSaveStatus({ unsaved, persisting }: { unsaved: boolean; persisting: boolean }) {
+  if (unsaved) {
     return (
       <Text style={styles.error} accessibilityRole="alert">
-        {error}
+        This draft could not be saved on this device.
       </Text>
     );
   }

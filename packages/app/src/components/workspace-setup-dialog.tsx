@@ -176,7 +176,6 @@ export function WorkspaceSetupDialog() {
     [],
   );
   const setHasHydratedWorkspaces = useSessionStore((state) => state.setHasHydratedWorkspaces);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdWorkspace, setCreatedWorkspace] = useState<ReturnType<
     typeof normalizeWorkspaceDescriptor
   > | null>(null);
@@ -212,7 +211,6 @@ export function WorkspaceSetupDialog() {
   const iconDataUri = toProjectIconDataUri(projectIcon);
 
   useEffect(() => {
-    setErrorMessage(null);
     setCreatedWorkspace(null);
     setPendingAction(null);
   }, [pendingWorkspaceSetup?.creationId]);
@@ -321,7 +319,6 @@ export function WorkspaceSetupDialog() {
     async ({ text, attachments, cwd, goal }: MessagePayload) => {
       try {
         setPendingAction("chat");
-        setErrorMessage(null);
 
         if (!composerState) {
           throw new Error(t("workspaceSetup.errors.composerStateRequired"));
@@ -375,9 +372,7 @@ export function WorkspaceSetupDialog() {
         );
         navigateAfterCreation(ensuredWorkspace.id, { kind: "agent", agentId: agent.id });
       } catch (error) {
-        const message = toErrorMessage(error);
-        setErrorMessage(message);
-        toast.error(message);
+        toast.error(toErrorMessage(error));
         if (goal) throw error;
       } finally {
         if (getIsStillActive()) {
@@ -474,8 +469,6 @@ export function WorkspaceSetupDialog() {
           />
         </KeyboardTranslateView>
       </FileDropZone>
-
-      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
     </AdaptiveModalSheet>
   );
 }
@@ -497,11 +490,6 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
     marginHorizontal: -theme.spacing[6],
     marginVertical: -theme.spacing[2],
-  },
-  errorText: {
-    fontSize: theme.fontSize.base,
-    color: theme.colors.destructive,
-    lineHeight: 20,
   },
   composerInputWrapper: {
     backgroundColor: theme.colors.surface2,

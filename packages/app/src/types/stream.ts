@@ -4,6 +4,8 @@ import type {
   AgentProvider,
   AgentTimelineItem,
   JsonValue,
+  ProfileSwitchEndpoint,
+  ProfileSwitchTimelineItem,
   ToolCallDetail,
 } from "@getpaseo/protocol/agent-types";
 import { timelineItemIdentity } from "@getpaseo/protocol/timeline-identity";
@@ -91,6 +93,7 @@ export type StreamItem =
   | TodoListItem
   | NotificationItem
   | CompactionItem
+  | ProfileSwitchItem
   | PluginTimelineStreamItem;
 
 export type UserMessageImageAttachment = AttachmentMetadata;
@@ -833,6 +836,19 @@ export interface CompactionItem {
   inspection?: CompactionInspection;
 }
 
+export interface ProfileSwitchItem {
+  kind: "profile_switch";
+  id: string;
+  timelineCursor?: TimelinePosition;
+  turnId?: string;
+  timestamp: Date;
+  switchId: string;
+  reason: ProfileSwitchTimelineItem["reason"];
+  from: ProfileSwitchEndpoint;
+  to: ProfileSwitchEndpoint;
+  carriedContextChars: number;
+}
+
 export interface PluginTimelineStreamItem {
   kind: "plugin";
   id: string;
@@ -1310,6 +1326,31 @@ function appendPluginTimelineItem(
   return next;
 }
 
+function appendProfileSwitch(
+  state: StreamItem[],
+  item: ProfileSwitchTimelineItem,
+  timestamp: Date,
+  timelineCursor?: TimelinePosition,
+): StreamItem[] {
+  // The switch id keeps live and canonical copies of one switch as a single marker.
+  const entry: ProfileSwitchItem = {
+    kind: "profile_switch",
+    id: `profile_switch_${item.switchId}`,
+    ...(timelineCursor ? { timelineCursor } : {}),
+    timestamp,
+    switchId: item.switchId,
+    reason: item.reason,
+    from: item.from,
+    to: item.to,
+    carriedContextChars: item.carriedContextChars,
+  };
+  const index = state.findIndex((existing) => existing.id === entry.id);
+  if (index < 0) return [...state, entry];
+  const next = [...state];
+  next[index] = entry;
+  return next;
+}
+
 function appendTodoList(
   state: StreamItem[],
   provider: AgentProvider,
@@ -1611,6 +1652,8 @@ function reduceTimelineEvent(
       return finalizeActiveThoughts(
         reduceTimelineCompaction(state, item, timestamp, timelineCursor),
       );
+    case "profile_switch":
+      return finalizeActiveThoughts(appendProfileSwitch(state, item, timestamp, timelineCursor));
     case "plugin":
       return finalizeActiveThoughts(
         appendPluginTimelineItem(state, item, timestamp, timelineCursor),

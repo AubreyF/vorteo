@@ -63,6 +63,7 @@ import {
   verifyWorkerPermissionProfile,
   verifyWorkerPhysicalWorkspace,
   verifyWorkerRuntimeRoots,
+  type WorkerWorkspaceMode,
 } from "./codex/worker-permissions.js";
 import { probeResetRedemption } from "./codex/reset-capability.js";
 import { runProviderRefreshActivity } from "../provider-refresh-deadline.js";
@@ -3820,8 +3821,8 @@ export class CodexAppServerAgentSession implements AgentSession {
       throw new Error("Native quota execution controls are unavailable or were overridden.");
     }
     if (this.quotaGovernance?.processCustody) {
-      this.verifyWorkerConfiguration(config);
-      await verifyWorkerPhysicalWorkspace(this.config.cwd);
+      const workspaceMode = this.verifyWorkerConfiguration(config);
+      await verifyWorkerPhysicalWorkspace(this.config.cwd, workspaceMode);
     }
     if (this.quotaGovernance?.externalChatgptAuth) {
       const tokens = await this.readExternalChatgptTokens("initial");
@@ -3850,7 +3851,9 @@ export class CodexAppServerAgentSession implements AgentSession {
     }
   }
 
-  private verifyWorkerConfiguration(config: Record<string, unknown> | undefined): void {
+  private verifyWorkerConfiguration(
+    config: Record<string, unknown> | undefined,
+  ): WorkerWorkspaceMode {
     const features = toObjectRecord(config?.features);
     const servers = toObjectRecord(config?.mcp_servers);
     if (
@@ -3862,12 +3865,13 @@ export class CodexAppServerAgentSession implements AgentSession {
       throw new Error("Native worker tool and environment confinement is unavailable.");
     const profiles = toObjectRecord(config?.permissions);
     const name = this.quotaGovernance?.permissionProfile;
-    verifyWorkerPermissionProfile(
+    const workspaceMode = verifyWorkerPermissionProfile(
       name ? profiles?.[name] : undefined,
       this.config.cwd,
       features?.network_proxy,
     );
     this.verifyWorkerShellPolicy(config);
+    return workspaceMode;
   }
 
   private verifyWorkerShellPolicy(config: Record<string, unknown> | undefined): void {
@@ -3987,16 +3991,20 @@ export class CodexAppServerAgentSession implements AgentSession {
             if (typeof entry?.name !== "string" || typeof entry.path !== "string") return [];
             return [{ name: entry.name, path: entry.path }];
           });
-        const signature = JSON.stringify(catalog.map((entry) => entry.path).sort());
+        const skillFilter = await codexSkillFilter(snapshot, catalog);
+        const selected = new Set(
+          skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
+        );
+        // Codex finishes syncing remote plugin skills after its first listing, so unselected
+        // entries come and go. Each turn sends a filter rebuilt from the current listing that
+        // disables them; only a change to the selected packages breaks the frozen selection.
+        const signature = JSON.stringify([...selected].sort());
         if (this.skillCatalogSignature !== null && signature !== this.skillCatalogSignature)
           throw new Error(
             "Provider skill catalog changed during this task. Reconnect before continuing with its frozen selection.",
           );
         this.skillCatalogSignature = signature;
-        this.skillFilter = codexSkillFilter(snapshot, catalog);
-        const selected = new Set(
-          this.skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
-        );
+        this.skillFilter = skillFilter;
         this.cachedSkills = enabledCodexSkills(
           allSkills.map((item) => {
             const entry = toObjectRecord(item);

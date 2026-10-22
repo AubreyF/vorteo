@@ -20,6 +20,13 @@ import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.j
 import { deriveProjectKey } from "../../project-key.js";
 import { areEquivalentPaths, createRealpathAwarePathMatcher } from "../../../utils/path.js";
 import type { UntrustedWorkspaceSource } from "../../workspace-automation-gate.js";
+import { logicalProjectsPath } from "../../projects-folder.js";
+import { trustProjectsFolderRepositoryForAgents } from "../../projects-folder-agent-git-trust.js";
+
+/** Requested directories may arrive through a Projects folder alias; records use the logical path. */
+function logicalPath(value: string): string {
+  return logicalProjectsPath(resolve(value));
+}
 
 export interface ResolveOrCreateWorkspaceIdInput {
   createdWorktree: CreatePaseoWorktreeWorkflowResult | null;
@@ -195,10 +202,10 @@ export function createWorkspaceProvisioningService(deps: {
   }
 
   async function findOrCreateProjectForDirectory(cwd: string): Promise<PersistedProjectRecord> {
-    const rootPath = resolve(cwd);
+    const rootPath = logicalPath(cwd);
     const checkout = await workspaceGitService.getCheckout(rootPath);
     const timestamp = new Date().toISOString();
-    return projectRegistry.getOrCreateActiveByRoot({
+    const project = await projectRegistry.getOrCreateActiveByRoot({
       rootPath,
       kind: checkout.isGit ? "git" : "non_git",
       displayName: basename(rootPath) || rootPath,
@@ -211,6 +218,8 @@ export function createWorkspaceProvisioningService(deps: {
       }),
       timestamp,
     });
+    if (checkout.isGit) await trustProjectsFolderRepositoryForAgents(rootPath, { logger });
+    return project;
   }
 
   async function requireActiveProject(projectId: string): Promise<PersistedProjectRecord> {
@@ -230,7 +239,7 @@ export function createWorkspaceProvisioningService(deps: {
       projectMembership?: PersistedWorkspaceRecord["projectMembership"];
     },
   ): Promise<PersistedWorkspaceRecord> {
-    const normalizedCwd = resolve(cwd);
+    const normalizedCwd = logicalPath(cwd);
     const checkout = await workspaceGitService.getCheckout(normalizedCwd);
     const project = projectId
       ? await refreshProjectKind(await requireActiveProject(projectId), normalizedCwd, checkout)
@@ -254,10 +263,10 @@ export function createWorkspaceProvisioningService(deps: {
   async function createWorkspaceForWorktree(
     input: CreateWorktreeWorkspaceInput,
   ): Promise<PersistedWorkspaceRecord> {
-    const sourceCwd = resolve(input.sourceCwd);
-    const repoRoot = resolve(input.repoRoot);
-    const cwd = resolve(input.cwd);
-    const worktreeRoot = resolve(input.worktreeRoot);
+    const sourceCwd = logicalPath(input.sourceCwd);
+    const repoRoot = logicalPath(input.repoRoot);
+    const cwd = logicalPath(input.cwd);
+    const worktreeRoot = logicalPath(input.worktreeRoot);
     const project = await resolveSourceProjectForWorktree({
       sourceCwd,
       projectId: input.projectId,
@@ -284,6 +293,8 @@ export function createWorkspaceProvisioningService(deps: {
     await workspaceRegistry.upsert(workspace, {
       expectsInitialAgent: input.expectsInitialAgent,
     });
+    await trustProjectsFolderRepositoryForAgents(worktreeRoot, { logger });
+    await trustProjectsFolderRepositoryForAgents(repoRoot, { logger });
     deps.lifecycle?.emit("workspace.created", { workspace: describeHookWorkspace(workspace) });
     return workspace;
   }
@@ -330,7 +341,7 @@ export function createWorkspaceProvisioningService(deps: {
   }
 
   async function findOrCreateWorkspaceForDirectory(cwd: string): Promise<PersistedWorkspaceRecord> {
-    const normalizedCwd = resolve(cwd);
+    const normalizedCwd = logicalPath(cwd);
     const workspaces = await workspaceRegistry.list();
     const active = workspaces
       .filter(

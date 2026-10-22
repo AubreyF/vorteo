@@ -68,4 +68,13 @@ describe("browser tools opt-in config", () => {
       errorText: "Disk full",
     });
   });
+
+  it("leaves no inline text when the save failed because the connection was lost", () => {
+    expect(
+      getBrowserToolsMutationViewState({
+        isPending: false,
+        error: new Error("Transport closed (code 1006)"),
+      }).errorText,
+    ).toBeNull();
+  });
 });

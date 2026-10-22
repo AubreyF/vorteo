@@ -3,6 +3,7 @@ import {
   BootstrapAuthenticationRequired,
   BootstrapCoordinatorBusy,
 } from "./coordinator-bootstrap-errors.js";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { compare } from "bcryptjs";
@@ -46,7 +47,11 @@ export {
 
 export type BootstrapReconciliationLedger = Pick<
   CoordinatorBootstrapRequests,
-  "list" | "revokeAutomatic" | "reserveAutomaticReconciliation" | "finishAutomaticReconciliation"
+  | "list"
+  | "revokeAutomatic"
+  | "reserveAutomaticReconciliation"
+  | "finishAutomaticReconciliation"
+  | "cancelForReplacedHostRelease"
 >;
 
 export function coordinatorAutomaticStatus(
@@ -280,6 +285,7 @@ function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
     plan.sourceUpdateTooling !== undefined ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -329,6 +335,7 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -685,6 +692,40 @@ export class CoordinatorBootstrapRequests {
       };
     });
     if (changed) this.journal.replace(expected, next);
+  }
+
+  /**
+   * A coordinator update prepared for a Host release that is no longer selected
+   * can never pass verification, and would otherwise wait in front of the owner.
+   * Cancel undispatched requests whose candidate is another Host release inside
+   * the release root. Requests built on the selected release, recovery
+   * successors, supervision plans and every restart job stay untouched. Like
+   * revokeAutomatic, this is a system decision, applied by compare-and-swap.
+   */
+  cancelForReplacedHostRelease(selected: string, releaseRoot: string): string[] {
+    const expected = this.read();
+    const canceled: string[] = [];
+    const next = expected.map((request) => {
+      const candidate = request.plan.candidate.directory;
+      if (
+        (request.status !== "pending" && request.status !== "approved") ||
+        request.execution ||
+        request.plan.recoveredFrom ||
+        request.plan.supervisionRecovery ||
+        candidate === selected ||
+        !candidate.startsWith(releaseRoot + path.sep)
+      )
+        return request;
+      canceled.push(request.id);
+      return {
+        ...request,
+        revision: randomUUID(),
+        status: "canceled" as const,
+        decisionAt: new Date(this.now()).toISOString(),
+      };
+    });
+    if (canceled.length) this.journal.replace(expected, next);
+    return canceled;
   }
 
   async decide(value: unknown, ownerPassword: string): Promise<CoordinatorBootstrapRequest> {

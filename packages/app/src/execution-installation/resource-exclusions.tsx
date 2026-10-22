@@ -3,6 +3,8 @@ import { Text, View } from "react-native";
 import { Switch } from "@/components/ui/switch";
 import { Alert } from "@/components/ui/alert";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useInstallationSettings } from "./settings";
 import { PluginDirectoryBinding } from "./plugin-directory-binding";
 
@@ -28,6 +30,7 @@ function ResourceAvailability({
   const { data, save } = useInstallationSettings();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const reportActionError = useReportActionError();
   const value = data?.settings?.resourceExclusions[serverId]?.[kind];
   const excluded = value === true || (Array.isArray(value) && value.includes(id));
   const change = useCallback(
@@ -55,12 +58,13 @@ function ResourceAvailability({
           },
         });
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Unable to change availability.");
+        if (isConnectionError(cause)) reportActionError(cause);
+        else setError(toErrorMessage(cause));
       } finally {
         setSaving(false);
       }
     },
-    [data, saving, serverId, kind, id, save],
+    [data, saving, serverId, kind, id, save, reportActionError],
   );
   return (
     <View>

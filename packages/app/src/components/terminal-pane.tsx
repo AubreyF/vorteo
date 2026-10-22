@@ -87,6 +87,7 @@ import {
   type OpenFileDisposition,
   type WorkspaceFileOpenRequest,
 } from "@/workspace/file-open";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface TerminalPaneProps {
   serverId: string;
@@ -499,7 +500,7 @@ export function TerminalPane({
 
   const handleStreamControllerStatus = useCallback((status: TerminalStreamControllerStatus) => {
     setIsAttaching(status.isAttaching);
-    setStreamError(status.error);
+    setStreamError(status.error ? toErrorMessage(status.error) : null);
   }, []);
 
   const getPreferredStreamSize = useStableEvent(() => {

@@ -14,7 +14,13 @@ function currentSession(serverId: string): ConnectionSession {
   };
 }
 
-export function InstallationConnectionCheck() {
+export function InstallationConnectionCheck({
+  embedded = false,
+  showTopBorder = false,
+}: {
+  embedded?: boolean;
+  showTopBorder?: boolean;
+} = {}) {
   const installation = readExecutionInstallation();
   const source: unknown = Constants.expoConfig?.extra?.vortonBuildCommit;
   const build = typeof source === "string" && /^[a-f0-9]{40}$/.test(source) ? source : null;
@@ -23,6 +29,8 @@ export function InstallationConnectionCheck() {
       installation={installation}
       sessionFor={currentSession}
       build={build}
+      embedded={embedded}
+      showTopBorder={showTopBorder}
     />
   ) : null;
 }

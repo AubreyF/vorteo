@@ -1,4 +1,5 @@
 import type { MutableDaemonConfig } from "@getpaseo/protocol/messages";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 export const BROWSER_TOOLS_TITLE = "Browser tools";
 export const BROWSER_TOOLS_WARNING =
@@ -37,13 +38,11 @@ export function getBrowserToolsMutationViewState(input: {
   isPending: boolean;
   error: unknown;
 }): BrowserToolsMutationViewState {
+  // A lost connection is reported as a toast, so it leaves no text beside the switch.
+  const isRejected = Boolean(input.error) && !isConnectionError(input.error);
   return {
     isSwitchDisabled: input.isPending,
     loadingText: input.isPending ? "Updating browser tools…" : null,
-    errorText: input.error ? toErrorMessage(input.error) : null,
+    errorText: isRejected ? toErrorMessage(input.error) : null,
   };
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

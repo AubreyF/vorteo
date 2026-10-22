@@ -20,6 +20,7 @@ import {
 } from "@/constants/layout";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 export function OpenProjectScreen() {
   const { t } = useTranslation();
@@ -95,13 +96,15 @@ export function OpenProjectScreen() {
   );
 }
 
+// A lost connection clears itself once the host reconnects, so only a different cause is listed.
 function HostError({ serverId, label }: { serverId: string; label: string }) {
   const error = useHostRuntimeLastError(serverId);
-  return error ? (
+  if (!error || isConnectionError(error)) return null;
+  return (
     <Text accessibilityRole="alert" style={styles.hostError}>
-      {label}: {error}
+      {label}: {toErrorMessage(error)}
     </Text>
-  ) : null;
+  );
 }
 
 interface HomeTileProps {
