@@ -50,9 +50,14 @@ The receiving agent has zero context. Include:
 ## Acceptance criteria
 - [ ] [Criterion]
 
+## Authorization level
+[1 Inspect, 2 Build and preview, 3 Ship to main or 4 Ship and install. Never higher than your own.]
+
 ## Constraints
 - [Must-not / must-preserve]
 ```
+
+**Carry the authorization level.** State the level you hold, or a lower one, so the receiving agent neither asks again nor exceeds it.
 
 **Preserve task semantics.** Investigate-only → "DO NOT edit files." Fix → "implement the fix." Refactor → "refactor, not rewrite." Carry the user's exact intent.
 

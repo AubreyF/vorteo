@@ -12,7 +12,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { z } from "zod";
-import type { InstallationConfig } from "../config.js";
+import { hostLaunchdService, type InstallationConfig } from "../config.js";
 import { connectInstallationDaemon } from "../daemon.js";
 import {
   BootstrapAdmissionSetupSchema,
@@ -773,7 +773,7 @@ async function inspectHost(
   const startup = config.host.startupValidation;
   requireMatch(source && startup, "Host selected-source inspection is unsupported");
   requireMatch(
-    config.host.launchdService === `${expected.serviceDomain}/${expected.serviceLabel}`,
+    hostLaunchdService(config) === `${expected.serviceDomain}/${expected.serviceLabel}`,
     "Host service differs",
   );
   const selectionPath = source.currentReleaseLink;
@@ -838,9 +838,9 @@ async function inspectHost(
     "Unsupported Host launcher arguments",
   );
   const readService = () =>
-    ports.command("/bin/launchctl", ["print", config.host.launchdService], COMMAND_LIMITS);
+    ports.command("/bin/launchctl", ["print", hostLaunchdService(config)], COMMAND_LIMITS);
   const service = await readService();
-  const supervisorPid = loadedCoordinatorPid(config.host.launchdService, service);
+  const supervisorPid = loadedCoordinatorPid(hostLaunchdService(config), service);
   verifyHostRegistration(service, argv, expected.launcherPath, startup.home);
   if (purpose.kind === "initial-migration")
     verifyInitialHostRegistration(service, plist, purpose.precondition);
@@ -891,7 +891,7 @@ async function inspectHost(
       custodyOwnerUid: supervisor.uid,
       installationRoot: await realpath(expected.installationRoot),
       stateDirectory: await realpath(startup.home),
-      serviceDomain: config.host.launchdService.split("/").slice(0, 2).join("/"),
+      serviceDomain: hostLaunchdService(config).split("/").slice(0, 2).join("/"),
       serviceLabel: plist.Label,
       launcherPath: expected.launcherPath,
       selectionPath,

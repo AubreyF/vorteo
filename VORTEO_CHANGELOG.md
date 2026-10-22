@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.742 - 2026-10-22
+
+### Maintenance
+
+- Merge GitHub main into the installed Host source with the new Host delivery script, so GitHub carries every installed change and the Host can take main's newer commits. Version-only manifest conflicts kept the installed side; the browser settings guide took main's added note about older daemons.
 
 ## 0.11.0-beta.3.vorteo.741 - 2026-10-22
 
@@ -12,6 +17,42 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Combine 1 source contributions; retain their release notes below
 
 ## 0.11.0-beta.3.vorteo.740 - 2026-10-21
+
+## 0.11.0-beta.3.vorteo.735 - 2026-10-21
+
+### Added
+
+- Let headless browser allowed hosts name a port range, such as `<preview-host>.ts.net:32768-32799`, so agents can screenshot any managed preview on that name without opening the host's other services or restarting for each new preview
+
+### Fixed
+
+- Keep the daemon starting when `daemon.browserTools.headlessHost` contains an unknown key or a wrongly typed value. The headless browser validates its settings itself and stays off with a logged error, so a misspelled denial can never start an unrestricted browser
+
+### Documentation
+
+- Describe running the headless browser in the Dev container, inside the container's network, with the safety settings it needs and a rootless Chromium library setup for older containers
+- Update the README, agent skills and browser trust plan for Host and Dev browser access, and note that older daemons still stop on an invalid `headlessHost` entry
+- Add a deferred roadmap plan for signed-in browser profiles granted to specific Host workspaces
+
+## 0.11.0-beta.3.vorteo.734 - 2026-10-22
+
+### Added
+
+- Add task delivery scripts adapted from Freed's agent lifecycle: `task-worktree.mjs` creates an isolated worktree from freshly fetched `origin/main`; `publish-main.mjs` refuses dirty trees, moved bases and a missing Gitleaks, then proves the remote holds the pushed commit; `archive-readiness.mjs` confirms work is committed and on `main`, counting cherry-picked and squashed commits, and optionally installed
+- Add `worktree-cleanup.mjs`, a dry-run-first cleanup that removes only idle worktrees whose work is on `main` and keeps dirty, unpublished, locked, recently used and other-environment worktrees
+- Add `prepare-host-delivery.mjs`, which builds Host updates from the installed source, pending published interface records and `main`, keeping both sides of release-note conflicts
+- Cap the always-loaded agent instructions at 32 KiB, and the app guide at 8 KiB, with a CI check that also verifies their links
+
+### Documentation
+
+- Document the delivery scripts in a task delivery guide and point the agent guide at them
+- Ask agents to read current rules from `origin/main`, work in task worktrees, offer to archive once the readiness check passes, publish installed source to `main` the same day, record debt in one deduplicated issue, give journal decisions statuses, and treat missing evidence as inconclusive
+
+### Known limitations
+
+- The daemon's archive tool does not yet run the readiness check itself; agents run the script before archiving
+
+## 0.11.0-beta.3.vorteo.733 - 2026-10-21
 
 ### Fixed
 
@@ -92,6 +133,22 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Combine 1 source contributions; retain their release notes below
 
+### Fixed
+
+- Keep History, Schedules and Settings in the left sidebar toolbar until they would actually overlap. The toolbar hid them at fixed widths, so a 330px sidebar moved Settings into the actions menu with room to spare. It now measures its own width and moves a button into the menu only when it no longer fits.
+
+### Maintenance
+
+- Port both changes from the installed Host source, where they shipped as vorteo.732 and vorteo.737.
+
+## 0.11.0-beta.3.vorteo.731 - 2026-10-22
+
+### Documentation
+
+- Add four task authorization levels for agents, adapted from Freed: 1 Inspect, 2 Build and preview, 3 Ship to main, 4 Ship and install. Clear requests such as "preview", "push" and "ship it" map to a level without asking; otherwise agents ask once through Open questions and keep doing Level 1 and 2 work while waiting
+- Keep restart approval, publication hygiene and external-post rules independent of levels, limit each level to its task, and carry the level into handoffs and subagents without raising it
+- Map existing delivery phrases and the interface publication rule to their levels in the agent guide
+
 ## 0.11.0-beta.3.vorteo.730 - 2026-10-21
 
 ### Added
@@ -99,6 +156,7 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 - Add a Context window card to the right-hand details cards, beside Questions, Checklist and Journal. It shows whenever an agent has reported usage, starts collapsed and remembers its expanded state like the other cards. Its body is the same component the context meter's popover and compact sheet render, so the three always match
 - Show what fills the context window: a donut, then each category's tokens and share of the window, with deferred tool schemas listed outside the window. Claude agents report categories such as messages, system tools, MCP tools, skills and the compaction buffer, plus expandable lists of MCP tools, memory files, skills and custom agents. Other providers report totals only and show used and free space with a note saying so
 - Add the `agent.context.get_breakdown` request, gated by the `agentContextBreakdown` daemon feature. Older clients never send it and older daemons leave the totals-only view in place
+- One loading pulse stands in for the breakdown, account usage and plan usage until all three have loaded, so the details appear together
 - Limitation: reading Claude's breakdown costs a request, which is why upstream stopped reading it after every turn. The app reads it only while the card is expanded or the popover is open, then once after each finished turn while it stays visible
 - Limitation: the breakdown needs a running Claude query. An agent restored without one shows totals until its next turn
 - Limitation: Claude marks deferred rows but not free space or the compaction buffer, so those two are recognized by the names the CLI gives them
@@ -109,6 +167,36 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Combine 1 source contributions; retain their release notes below
+
+### Maintenance
+
+- Bring the Context window card from the installed Host lineage (vorteo.730 and the vorteo.737 donut and loading fix there) to main as one commit
+
+## 0.11.0-beta.3.vorteo.729 - 2026-10-21
+
+### Fixed
+
+- Reject writable guest mount overlap with the Linux Host user-bus runtime directory, including ancestor and descendant mounts. Same-UID guests cannot be excluded by directory permissions alone.
+- Recheck running process state after all identity reads, refusing a stopped, traced or exited process instead of returning a running observation.
+
+### Maintenance
+
+- Adapt newly added macOS maintenance and session-host consumers to the tagged Host configuration through the launchd-only accessor; systemd operations still refuse explicitly.
+- Integrate the Linux Host foundation with current main and preserve both release histories. The adapters remain inert; Linux Host provisioning and recovery are still pending.
+- Add deterministic process-state and real-filesystem mount-isolation regression tests. Run configuration and adapter contracts in the existing macOS CI job as well as the server jobs on Linux and Windows.
+- Document standard build, package and local-update delivery, including the distinction between installing the foundation and enabling Linux Host support.
+
+### Merged from the Linux Host foundation (0.11.0-beta.3.vorteo.556 on the contributor branch, 2026-10-18)
+
+#### Added
+
+- Add inert Linux Host source adapters: a `systemd --user` service reader that pins the account's user manager through the system manager, a procfs process inspector matching the macOS observation format, and a service ownership check bound to the manager's main PID, parent and cgroup. Nothing selects them yet, so installed Hosts are unchanged.
+- Accept a tagged `systemdService` Host descriptor in installation configuration beside `launchdService`. A macOS Host still requires launchd, and Host restarts still support only launchd.
+
+#### Maintenance
+
+- Add the [Linux Host plan](docs/plans/execution-environments/linux-host.md) with its trust anchors, prerequisites, blockers and remaining work. The watchdog's audit-token signal binding has no Linux equivalent yet, so recovery chains cannot be ported until a pidfd design exists.
+- Cover the adapters with captured `busctl` fixtures, live procfs tests and a local systemd end-to-end test. Darwin-only installation tests were not run on macOS for this change.
 
 ## 0.11.0-beta.3.vorteo.728 - 2026-10-21
 

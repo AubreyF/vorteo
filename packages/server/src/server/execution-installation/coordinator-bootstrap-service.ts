@@ -38,15 +38,15 @@ import {
   AuditedProcessObservationSchema,
 } from "./coordinator-bootstrap-process.js";
 
-const RunningProcessObservationSchema = ProcessObservationSchema.extend({
+export const RunningProcessObservationSchema = ProcessObservationSchema.extend({
   stopped: z.literal(false),
 });
-const ExitedProcessObservationSchema = z.strictObject({
+export const ExitedProcessObservationSchema = z.strictObject({
   pid: z.number().int().positive(),
   exited: z.literal(true),
 });
 
-const FrozenProcessObservationSchema = ProcessObservationSchema.extend({
+export const FrozenProcessObservationSchema = ProcessObservationSchema.extend({
   stopped: z.literal(true),
   childPids: z
     .array(z.number().int().positive())

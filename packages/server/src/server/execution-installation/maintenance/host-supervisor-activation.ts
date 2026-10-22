@@ -4,7 +4,7 @@ import path from "node:path";
 import { lstatSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import type { EnrollmentStep, HostContinuation } from "@getpaseo/protocol/installation-enrollment";
-import type { InstallationConfig } from "../config.js";
+import { hostLaunchdService, type InstallationConfig } from "../config.js";
 import { inspectMaintenanceObservationRuntime } from "../coordinator-bootstrap-maintenance-observation-runtime.js";
 import { readEnrollmentNativeIdentity } from "./native-registration.js";
 import {
@@ -106,7 +106,7 @@ export async function reconcileNativeInitialHostActivation(input: {
       identity.target === "host" &&
       identity.installationId === configuration.public.installationId &&
       identity.stateDirectory === configuration.host.startupValidation?.home &&
-      `${identity.serviceDomain}/${identity.serviceLabel}` === configuration.host.launchdService,
+      `${identity.serviceDomain}/${identity.serviceLabel}` === hostLaunchdService(configuration),
     "Initial Host identity differs from current configuration",
   );
   const assertIdentity = () => {
