@@ -4,6 +4,34 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.786 - 2026-10-22
+
+### Maintenance
+
+- Merge automatic resume after usage limits
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Added
+
+- Threads stopped by a Claude or Codex usage limit now continue automatically after the limit resets. The daemon waits two minutes past the reported reset, then queues one continuation per account every two minutes, oldest first, asking the thread to check what it already finished. Waits longer than a day are mentioned in the continuation. A spent reset credit ends the wait too. After three repeated limits the thread stays held for you.
+- Held threads show when they will resume, with Resume now and Don't resume. Each account has a Resume after usage limits switch in Settings, on by default.
+- Threads continued elsewhere, archived threads, opted-out threads and threads with a paused message queue are never resumed. The hourly blocked-work review and agent-target schedules skip accounts known to be limited.
+
+### Fixed
+
+- Claude usage limits no longer look like finished turns. Claude's rejected usage window and its synthetic rate-limit reply now end the turn as a usage limit with the reported reset time and window.
+
+### Changed
+
+- A usage limit no longer pauses a thread that has no workers, so you can still message it. Worker teams keep their pause, which the resume clears. Quota reserve stops are unchanged and still need an explicit continuation.
+
+### Known limitations
+
+- The account switch is saved per environment, not installation-wide.
+- Codex and setup-token Claude accounts without a usage reading rely on a 30-minute probe when the provider reports no reset time.
+- The raw order of Claude's rate-limit event and result was not captured live; detection is tested against the recorded synthetic reply.
+
 ## 0.11.0-beta.3.vorteo.785 - 2026-10-22
 
 ### Maintenance

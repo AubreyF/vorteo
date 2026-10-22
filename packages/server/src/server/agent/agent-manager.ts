@@ -113,7 +113,10 @@ import {
   type ImportedTimelineEntry,
   type ImportableProviderSession,
   type ListImportableSessionsOptions,
+  type UsageLimitReport,
 } from "./agent-sdk-types.js";
+import type { AgentUsageLimitResumeAction, UsageLimitHold } from "@getpaseo/protocol/usage-limit";
+import { usageLimitContinuationText } from "./usage-limit/resume-service.js";
 import { buildArchivedAgentRecord, type ArchivedStoredAgentRecord } from "./agent-archive.js";
 import type { StoredAgentRecord, AgentStorage } from "./agent-storage.js";
 import type { AgentOwner } from "./agent-owner.js";
@@ -339,6 +342,7 @@ function buildStoredAgentConfig(record: StoredAgentRecord): AgentSessionConfig {
     config.controllerExecutionId = record.config.controllerExecutionId;
   if (record.config.quotaPausedAt) config.quotaPausedAt = record.config.quotaPausedAt;
   if (record.config.quotaResetAt) config.quotaResetAt = record.config.quotaResetAt;
+  if (record.config.usageLimitHold) config.usageLimitHold = record.config.usageLimitHold;
   if (record.config.quotaReserve) config.quotaReserve = record.config.quotaReserve;
   if (record.config.mcpServers != null) config.mcpServers = record.config.mcpServers;
   return stripInternalPaseoMcpServer(config);
@@ -856,6 +860,9 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
   return patch;
 }
 
+/** How long an account counts as limited after a stop that reported no reset time. */
+const USAGE_LIMIT_UNKNOWN_RESET_MS = 60 * 60 * 1000;
+
 export class AgentManager {
   private readonly pendingWorkerCreations = new Map<string, number>();
   private readonly pendingReserveWrites = new Map<string, number>();
@@ -1117,22 +1124,169 @@ export class AgentManager {
         record.config.quotaPausedAt > resetAt
       )
         continue;
-      await this.runForegroundMutation(record.id, async () => {
-        const current = await registry.get(record.id);
-        const agent = this.agents.get(record.id);
-        const pausedAt = agent?.config.quotaPausedAt ?? current?.config?.quotaPausedAt;
-        if (!current || current.archivedAt || !pausedAt || pausedAt > resetAt) return;
-        const config = { ...current.config, quotaResetAt: resetAt };
-        delete config.quotaPausedAt;
-        await registry.upsert({ ...current, config, lastError: null });
-        if (agent && agent.config.quotaPausedAt === pausedAt) {
-          delete agent.config.quotaPausedAt;
-          agent.config.quotaResetAt = resetAt;
-          agent.lastError = undefined;
-          this.emitState(agent, { persist: false });
-        }
-      });
+      await this.clearQuotaPause(record.id, resetAt);
     }
+    // A spent reset credit ends the wait for every thread held on this account.
+    for (const record of await registry.list()) {
+      if (record.provider !== providerId || record.archivedAt) continue;
+      await this.updateUsageLimitHold(record.id, (hold) =>
+        hold && !hold.releasedAt && hold.stoppedAt <= resetAt
+          ? { ...hold, resetsAt: resetAt }
+          : undefined,
+      );
+    }
+  }
+
+  private async clearQuotaPause(agentId: string, resetAt: string): Promise<void> {
+    const registry = this.requireRegistry();
+    await this.runForegroundMutation(agentId, async () => {
+      const current = await registry.get(agentId);
+      const agent = this.agents.get(agentId);
+      const pausedAt = agent?.config.quotaPausedAt ?? current?.config?.quotaPausedAt;
+      if (!current || current.archivedAt || !pausedAt || pausedAt > resetAt) return;
+      const config = { ...current.config, quotaResetAt: resetAt };
+      delete config.quotaPausedAt;
+      await registry.upsert({ ...current, config, lastError: null });
+      if (agent && agent.config.quotaPausedAt === pausedAt) {
+        delete agent.config.quotaPausedAt;
+        agent.config.quotaResetAt = resetAt;
+        agent.lastError = undefined;
+        this.emitState(agent, { persist: false });
+      }
+    });
+  }
+
+  /** Records a provider-reported usage stop so the thread can continue after the reset. */
+  private holdForUsageLimit(
+    agent: ManagedAgent,
+    report: Pick<UsageLimitReport, "resetsAt" | "window"> | undefined,
+  ): void {
+    const previous = agent.config.usageLimitHold;
+    agent.config.usageLimitHold = {
+      stoppedAt: new Date(this.now()).toISOString(),
+      ...(report?.resetsAt ? { resetsAt: report.resetsAt } : {}),
+      ...(report?.window ? { window: report.window } : {}),
+      // A stop right after an automatic continuation counts against the retry limit.
+      attempts: previous?.releasedAt ? previous.attempts : 0,
+      ...(previous?.optOut ? { optOut: true } : {}),
+    };
+    this.emitState(agent);
+  }
+
+  /** An owner message or other non-agent prompt takes over from the automatic continuation. */
+  private takeOverUsageLimitHold(agent: ManagedAgent, options: AgentRunOptions | undefined): void {
+    const hold = agent.config.usageLimitHold;
+    if (!hold || hold.releasedAt || options?.origin === "agent") return;
+    agent.config.usageLimitHold = { ...hold, releasedAt: new Date(this.now()).toISOString() };
+    this.emitState(agent);
+  }
+
+  /**
+   * Applies a change to a thread's usage-limit hold in memory and storage. The update returns
+   * the next hold, null to clear it, or undefined to leave it unchanged.
+   */
+  async updateUsageLimitHold(
+    agentId: string,
+    update: (hold: UsageLimitHold | undefined) => UsageLimitHold | null | undefined,
+  ): Promise<UsageLimitHold | null> {
+    const registry = this.requireRegistry();
+    return this.runForegroundMutation(agentId, async () => {
+      const record = await registry.get(agentId);
+      if (!record || record.archivedAt) return null;
+      const agent = this.agents.get(agentId);
+      const current = agent ? agent.config.usageLimitHold : record.config?.usageLimitHold;
+      const next = update(current);
+      if (next === undefined) return current ?? null;
+      const config = { ...record.config };
+      if (next) config.usageLimitHold = next;
+      else delete config.usageLimitHold;
+      await registry.upsert({ ...record, config });
+      if (agent) {
+        if (next) agent.config.usageLimitHold = next;
+        else delete agent.config.usageLimitHold;
+        this.emitState(agent, { persist: false });
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Queues one continuation for a thread held at a usage limit and marks the hold released.
+   * Returns false without changes when the owner paused the thread's message queue.
+   */
+  async resumeAfterUsageLimit(
+    agentId: string,
+    options: { manual: boolean; text: string },
+  ): Promise<UsageLimitHold | false | null> {
+    const record = await this.requireRegistry().get(agentId);
+    const hold = this.agents.get(agentId)?.config.usageLimitHold ?? record?.config?.usageLimitHold;
+    if (!record || record.archivedAt || !hold) return null;
+    if (hold.releasedAt) return hold;
+    const queue = this.messageQueueControl?.queueUsageLimitContinuation;
+    if (!queue) throw new Error("This daemon cannot queue a usage-limit continuation.");
+    const snapshot = await this.messageQueueControl?.read?.(agentId);
+    if (snapshot?.paused) return false;
+    // The reset ends the team pause the stop latched; queued delivery would refuse otherwise.
+    if (record.config?.quotaPausedAt || this.agents.get(agentId)?.config.quotaPausedAt)
+      await this.releaseQuotaTeam(agentId);
+    // The stable operation keeps a retried release from queueing twice.
+    const outcome = await queue.call(
+      this.messageQueueControl,
+      agentId,
+      `${hold.stoppedAt}-${hold.attempts}`,
+      options.text,
+    );
+    if (outcome === "paused") return false;
+    return this.updateUsageLimitHold(agentId, (current) =>
+      current && !current.releasedAt
+        ? {
+            ...current,
+            attempts: current.attempts + (options.manual ? 0 : 1),
+            releasedAt: new Date(this.now()).toISOString(),
+          }
+        : undefined,
+    );
+  }
+
+  /** The owner's Resume now or Don't resume choice for a thread held at a usage limit. */
+  async setUsageLimitResume(
+    agentId: string,
+    action: AgentUsageLimitResumeAction,
+  ): Promise<UsageLimitHold | null> {
+    if (action === "dont_resume")
+      return this.updateUsageLimitHold(agentId, (hold) =>
+        hold && !hold.releasedAt ? { ...hold, optOut: true } : undefined,
+      );
+    const record = await this.requireRegistry().get(agentId);
+    const hold = this.agents.get(agentId)?.config.usageLimitHold ?? record?.config?.usageLimitHold;
+    if (!hold) return null;
+    const result = await this.resumeAfterUsageLimit(agentId, {
+      manual: true,
+      text: usageLimitContinuationText(hold, { manual: true, now: this.now() }),
+    });
+    if (result === false)
+      throw new Error("This thread's message queue is paused. Resume the queue to continue.");
+    return result;
+  }
+
+  /**
+   * The latest reset among this account's unreleased usage stops, or null when the account
+   * is not known to be limited. A stop without a reset time counts for an hour.
+   */
+  async usageLimitedUntil(provider: AgentProvider): Promise<string | null> {
+    const now = this.now();
+    let until: string | null = null;
+    for (const record of await this.requireRegistry().list()) {
+      if (record.provider !== provider || record.archivedAt) continue;
+      const hold =
+        this.agents.get(record.id)?.config.usageLimitHold ?? record.config?.usageLimitHold;
+      if (!hold || hold.releasedAt) continue;
+      const end =
+        hold.resetsAt ??
+        new Date(Date.parse(hold.stoppedAt) + USAGE_LIMIT_UNKNOWN_RESET_MS).toISOString();
+      if (Date.parse(end) > now && (!until || end > until)) until = end;
+    }
+    return until;
   }
 
   assertQuotaNotPaused(agentId: string): void {
@@ -1150,7 +1304,7 @@ export class AgentManager {
     }
     if (agent.config?.quotaPausedAt || parent?.config?.quotaPausedAt) {
       throw new Error(
-        "Quota exhausted. This task is paused. Select a preset and explicitly start a successor task; no automatic retry will occur.",
+        "Quota exhausted. This task is paused until the usage limit resets, then continues automatically unless resume is off. To continue sooner, select a preset and start a successor task.",
       );
     }
     assertQuotaReserveAdmission(agent.config?.quotaReserve);
@@ -1182,13 +1336,22 @@ export class AgentManager {
     return config?.profileLaunch?.worker ? parentId : failed.id;
   }
 
+  /**
+   * Latches a worker team when one member stops at a usage limit, so a supervisor cannot keep
+   * starting work into the same wall. A thread without teammates only records its hold.
+   */
   private async pauseQuotaTeam(failed: ManagedAgent): Promise<void> {
     const pausedAt = new Date().toISOString();
-    failed.config.quotaPausedAt = pausedAt;
     const rootId = await this.quotaRootId(failed);
-    const team = this.listAgents().filter(
-      (agent) => agent.id === rootId || agent.labels[PARENT_AGENT_ID_LABEL] === rootId,
-    );
+    const isTeammate = (labels: Record<string, string>, id: string) =>
+      id === rootId || labels[PARENT_AGENT_ID_LABEL] === rootId;
+    // Only worker-profile teams latch: a worker's supervisor, or a supervisor itself.
+    if (rootId === failed.id && !failed.config.profileLaunch?.worker) return;
+    const records = (await this.registry?.list()) ?? [];
+    const loadedTeam = this.listAgents().filter((agent) => isTeammate(agent.labels, agent.id));
+    const storedTeam = records.filter((record) => isTeammate(record.labels, record.id));
+    failed.config.quotaPausedAt = pausedAt;
+    const team = loadedTeam;
     // Latch the entire team before persistence or cancellation can wake a parent.
     for (const agent of team) {
       agent.config.quotaPausedAt = pausedAt;
@@ -1199,9 +1362,8 @@ export class AgentManager {
     // Idle children may have been unloaded. Persist their latch too so restart
     // or a finish notification cannot revive part of a paused team.
     const loadedIds = new Set(team.map((agent) => agent.id));
-    for (const record of (await this.registry?.list()) ?? []) {
-      const isTeammate = record.id === rootId || record.labels[PARENT_AGENT_ID_LABEL] === rootId;
-      if (!isTeammate || loadedIds.has(record.id)) continue;
+    for (const record of storedTeam) {
+      if (loadedIds.has(record.id)) continue;
       await this.registry?.upsert({
         ...record,
         config: { ...record.config, quotaPausedAt: pausedAt },
@@ -1211,6 +1373,8 @@ export class AgentManager {
     for (const agent of team) {
       await this.registry?.applySnapshot(agent, { internal: agent.internal });
       if (agent.id !== failed.id && (isAgentBusy(agent.lifecycle) || this.runs.hasRun(agent.id))) {
+        // Interrupted mid-work, so it continues with the rest of the team after the reset.
+        this.holdForUsageLimit(agent, failed.config.usageLimitHold);
         void this.cancelAgentRun(agent.id).catch((error) => {
           this.logger.error(
             { err: error, agentId: agent.id },
@@ -1223,6 +1387,24 @@ export class AgentManager {
       }
     }
   }
+  /** Clears the team latch around one thread, for a resume after its usage limit reset. */
+  async releaseQuotaTeam(agentId: string): Promise<void> {
+    const registry = this.requireRegistry();
+    const records = await registry.list();
+    const subject = this.agents.get(agentId) ?? records.find((record) => record.id === agentId);
+    if (!subject) return;
+    const parentId = subject.labels[PARENT_AGENT_ID_LABEL];
+    const parent = parentId
+      ? (this.agents.get(parentId) ?? records.find((record) => record.id === parentId))
+      : undefined;
+    const rootId = parent?.config?.profileLaunch?.worker ? parent.id : agentId;
+    const resetAt = new Date(this.now()).toISOString();
+    for (const record of records) {
+      if (record.id !== rootId && record.labels[PARENT_AGENT_ID_LABEL] !== rootId) continue;
+      await this.clearQuotaPause(record.id, resetAt);
+    }
+  }
+
   private readonly pluginLifecycle: PluginLifecycle | undefined;
   private readonly clients = new Map<AgentProvider, AgentClient>();
   private readonly governedClientGenerations = new Map<AgentProvider, number>();
@@ -1289,6 +1471,8 @@ export class AgentManager {
             | "restartContinuationReleased"
             | "abandonRestartContinuation"
             | "queueHostedSessionContinuation"
+            | "queueUsageLimitContinuation"
+            | "read"
           >
         >)
     | null = null;
@@ -4516,6 +4700,7 @@ export class AgentManager {
     this.assertAcceptingAgentRegistrations();
     const existingAgent = this.requireSessionAgent(agentId);
     this.assertQuotaNotPaused(agentId);
+    this.takeOverUsageLimitHold(existingAgent, options);
     const parentId = existingAgent.labels[PARENT_AGENT_ID_LABEL];
     const parent = parentId ? this.agents.get(parentId) : undefined;
     if (parent?.config.profileLaunch?.worker) {
@@ -6668,6 +6853,7 @@ export class AgentManager {
           eventTurnId,
           isForegroundEvent,
           terminalDisposition,
+          options,
         });
         return undefined;
       case "turn_failed":
@@ -6772,6 +6958,7 @@ export class AgentManager {
     eventTurnId: string | undefined;
     isForegroundEvent: boolean;
     terminalDisposition: ActiveTurnTerminalDisposition;
+    options: { fromHistory?: boolean } | undefined;
   }): void {
     const { agent, event, eventTurnId, isForegroundEvent, terminalDisposition } = params;
     this.logger.trace(
@@ -6793,6 +6980,11 @@ export class AgentManager {
     // data accumulated during streaming isn't lost when the provider omits
     // it from the completion event.
     agent.lastError = undefined;
+    // A completed turn proves the account has room again, so the usage-limit stop is over.
+    if (agent.config.usageLimitHold && !params.options?.fromHistory) {
+      delete agent.config.usageLimitHold;
+      this.emitState(agent);
+    }
     if (
       !isForegroundEvent &&
       !agent.activeForegroundTurnId &&
@@ -6831,6 +7023,7 @@ export class AgentManager {
     );
     if (terminalDisposition === "stale") return;
     if (event.code === "quota_exhausted" && !options?.fromHistory) {
+      this.holdForUsageLimit(agent, event.usageLimit);
       await this.pauseQuotaTeam(agent);
     }
     if (!isForegroundEvent && !agent.activeForegroundTurnId) {

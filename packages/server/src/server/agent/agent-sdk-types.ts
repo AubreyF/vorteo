@@ -219,6 +219,12 @@ export type AgentPromptContentBlock =
 
 export type AgentPromptInput = string | AgentPromptContentBlock[];
 
+/** A provider-reported usage limit: when the rejected window resets, if known. */
+export interface UsageLimitReport {
+  resetsAt?: string;
+  window?: string;
+}
+
 export interface AgentRunOptions {
   origin?: "agent";
   queuedMessage?: import("@getpaseo/protocol/message-queue").QueueItem;
@@ -470,6 +476,8 @@ export type AgentStreamEvent =
       code?: string;
       diagnostic?: string;
       turnId?: string;
+      /** Set with code `quota_exhausted` when the provider reported which usage window stopped the turn. */
+      usageLimit?: UsageLimitReport;
     }
   | { type: "turn_canceled"; provider: AgentProvider; reason: string; turnId?: string }
   | {
@@ -637,6 +645,8 @@ export interface AgentSessionConfig {
   profileLaunch?: AgentProfileLaunch;
   skillSnapshot?: SkillSnapshot;
   quotaPausedAt?: string;
+  /** Set while the thread waits for a provider usage limit to reset; see UsageLimitResumeService. */
+  usageLimitHold?: import("@getpaseo/protocol/usage-limit").UsageLimitHold;
   quotaResetAt?: string;
   quotaReserve?: QuotaReserveConfig;
   cwd: string;

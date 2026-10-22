@@ -1,4 +1,5 @@
 import type { AgentQuestion } from "@getpaseo/protocol/agent-questions";
+import type { UsageLimitHold } from "@getpaseo/protocol/usage-limit";
 import type { SidebarStateStore } from "./sidebar-state/store.js";
 import type { HeldRestart } from "@getpaseo/protocol/messages";
 import type { MaintenanceRestartBridge } from "./maintenance-restart-channel.js";
@@ -3457,6 +3458,8 @@ export class Session {
         return this.handleAgentGoalRequest(msg);
       case "agent.context.get_breakdown.request":
         return this.handleAgentContextBreakdownRequest(msg);
+      case "agent.usage_limit.set_resume.request":
+        return this.handleAgentUsageLimitResumeRequest(msg);
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
@@ -5902,6 +5905,26 @@ export class Session {
       );
     } catch (error) {
       reply(null, error instanceof Error ? error.message : "The answer could not be saved.");
+    }
+  }
+
+  private async handleAgentUsageLimitResumeRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.usage_limit.set_resume.request" }>,
+  ): Promise<void> {
+    const reply = (hold: UsageLimitHold | null, error: string | null) =>
+      this.emit({
+        type: "agent.usage_limit.set_resume.response",
+        payload: { agentId: msg.agentId, requestId: msg.requestId, hold, error },
+      });
+    try {
+      await ensureAgentLoaded(msg.agentId, {
+        agentManager: this.agentManager,
+        agentStorage: this.agentStorage,
+        logger: this.sessionLogger,
+      });
+      reply(await this.agentManager.setUsageLimitResume(msg.agentId, msg.action), null);
+    } catch (error) {
+      reply(null, error instanceof Error ? error.message : "The thread could not be updated.");
     }
   }
 

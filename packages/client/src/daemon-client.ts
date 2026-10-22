@@ -4291,6 +4291,22 @@ export class DaemonClient {
     return result.breakdown;
   }
 
+  /**
+   * Resumes a thread held at a usage limit now, or stops it from resuming automatically.
+   * Gate on the daemon's `usageLimitResume` feature.
+   */
+  async setAgentUsageLimitResume(
+    agentId: string,
+    action: import("@getpaseo/protocol/usage-limit").AgentUsageLimitResumeAction,
+  ): Promise<import("@getpaseo/protocol/usage-limit").UsageLimitHold | null> {
+    const result =
+      await this.sendNamespacedCorrelatedSessionRequest<"agent.usage_limit.set_resume.response">({
+        message: { type: "agent.usage_limit.set_resume.request", agentId, action },
+      });
+    if (result.error) throw new Error(result.error);
+    return result.hold;
+  }
+
   async getAgentGoal(
     agentId: string,
   ): Promise<import("@getpaseo/protocol/agent-goals").AgentGoalState> {
