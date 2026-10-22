@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Added
+
+- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration. Excluded and removed environments have them withdrawn. Delivery starts on save and retries every 5 seconds. New owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment. They return only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`.
+- On first sync, a key found in exactly one form across environments is adopted once. Differing values are reported as conflicts and never overwritten silently.
+- Codex sign-in accounts report that each environment needs its own sign-in. Codex refresh grants are not copied between environments.
+
+### Changed
+
+- Host-owned refresh for full sign-in Claude accounts is now on by default. Set `claudeHostRefresh: false` in the coordinator configuration to opt out.
+
 ## 0.11.0-beta.3.vorteo.759 - 2026-10-22
 
 ### Changed

@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { readInstallationConfig, hostLaunchdService, InstallationConfigSchema } from "./config.js";
+import {
+  readInstallationConfig,
+  hostLaunchdService,
+  InstallationConfigSchema,
+  claudeHostRefreshEnabled,
+} from "./config.js";
 
 const SYSTEMD_SERVICE = {
   kind: "systemd-user",
@@ -102,4 +107,15 @@ test("launchd consumers preserve the configured service and refuse unwired syste
   expect(() => hostLaunchdService(systemd)).toThrow(
     "Host operations through systemd are not supported yet",
   );
+});
+
+describe("Host-owned Claude refresh", () => {
+  test("is on by default and keeps the explicit opt-out", () => {
+    const base = InstallationConfigSchema.parse(
+      config({ launchdService: "gui/501/local.vorteo.fixture" }),
+    );
+    expect(claudeHostRefreshEnabled(base)).toBe(true);
+    expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: true })).toBe(true);
+    expect(claudeHostRefreshEnabled({ ...base, claudeHostRefresh: false })).toBe(false);
+  });
 });

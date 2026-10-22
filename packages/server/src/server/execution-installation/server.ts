@@ -26,6 +26,8 @@ import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import { mountClaudeOAuthRoutes } from "./accounts/claude-oauth-routes.js";
 import type { ClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
+import { mountProviderSecretsRoutes } from "./accounts/provider-secrets-routes.js";
+import type { ProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
 import {
   SkillSourceSchema,
   InstallationSkillSchema,
@@ -316,6 +318,7 @@ export function createInstallationServer(
   startupFence?: InstallationStartupFence,
   coordinatorRequests?: BootstrapReconciliationLedger,
   claudeOAuth?: ClaudeOAuthRuntime,
+  providerSecrets?: ProviderSecretsRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const instructionRequests = new InstructionRequests(
@@ -1633,6 +1636,7 @@ export function createInstallationServer(
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
+  if (providerSecrets) mountProviderSecretsRoutes(app, providerSecrets);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);

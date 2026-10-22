@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the installation coordinator stores provider API keys and tokens once (`provider-secrets/state.json`, mode 0600) and delivers them into each bound environment's provider `env`. It withdraws them from excluded or removed environments, adopts a key found in exactly one form on first sync, and reports conflicting values without overwriting them. Owner routes return names, last four characters and status for each environment, never values. Host-owned Claude refresh is now on by default. Codex sign-ins stay per environment; status reports this. The app has no controls for shared keys yet. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): merged the file preview Download change into the live interface source alongside the sidebar cards change for interface-only publication. Functionality is unchanged beyond those two entries. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the file preview toolbar shows Download for every previewed file, not only images, placed immediately after Copy all; editable text files download their saved copy. The browser check downloads both an image and a text file from the toolbar. README overview and onboarding are unchanged.

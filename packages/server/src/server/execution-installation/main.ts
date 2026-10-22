@@ -17,9 +17,10 @@ import {
 import { loadCoordinatorStartupFence } from "./coordinator-bootstrap-startup.js";
 import { createClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
 import { createClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
+import { createProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
 import { createInstallationProfiles, startProfileSynchronization } from "./profiles/runtime.js";
 import pino from "pino";
-import { readInstallationConfig } from "./config.js";
+import { claudeHostRefreshEnabled, readInstallationConfig } from "./config.js";
 import { createInstallationServer } from "./server.js";
 import { createInstallationRestartExecutor } from "./daemon.js";
 import { createInstallationSettings, startSettingsReconciliation } from "./settings/runtime.js";
@@ -131,11 +132,19 @@ const claudeSetupTimer = setInterval(() => {
     .catch(() => logger.warn("Claude subscription synchronization is pending"));
 }, 5000);
 claudeSetupTimer.unref();
-// Off by default: Host-owned refresh for full sign-in Claude accounts.
-const claudeOAuth =
-  config.claudeHostRefresh === true
-    ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
-    : undefined;
+// Static provider secrets (API keys and tokens) are stored here once and delivered everywhere.
+const providerSecrets = createProviderSecretsRuntime(config, settings, assertRegistrationReadiness);
+const providerSecretsTimer = setInterval(() => {
+  if (!synchronizing) return;
+  void providerSecrets
+    .reconcile()
+    .catch(() => logger.warn("Provider key synchronization is pending"));
+}, 5000);
+providerSecretsTimer.unref();
+// On by default: Host-owned refresh for full sign-in Claude accounts. `false` opts out.
+const claudeOAuth = claudeHostRefreshEnabled(config)
+  ? createClaudeOAuthRuntime(config, settings, assertRegistrationReadiness)
+  : undefined;
 const claudeOAuthTimer = claudeOAuth
   ? setInterval(() => {
       if (!synchronizing) return;
@@ -154,6 +163,7 @@ const app = createInstallationServer(
   startupFence,
   coordinatorRequests,
   claudeOAuth,
+  providerSecrets,
 );
 activateSynchronization();
 const restartTimer = setInterval(() => {
@@ -176,6 +186,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     clearInterval(restartTimer);
     clearInterval(claudeSetupTimer);
+    clearInterval(providerSecretsTimer);
     if (claudeOAuthTimer) clearInterval(claudeOAuthTimer);
     void claudeSetup.dispose();
     void claudeOAuth?.dispose();
