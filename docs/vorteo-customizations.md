@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the client hello test now expects the profile switch timeline capability. Functionality is unchanged, and README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): threads can switch to another account or profile in place. The daemon starts a new native session with bounded recorded context, keeps the thread's identity and tools, and retains earlier history for replay after reloads; the app makes switching the default choice for existing threads and shows a compaction-style marker. Source is tested; live acceptance on the installation is pending. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): one builds coordinator writes main, web publication, installs and approvals. Other threads hand their branches to it; the client's request commands, web builds for publication, publish-main and main pushes refuse elsewhere, while the coordinator's own publication step stays unguarded. README overview and onboarding are unchanged.
