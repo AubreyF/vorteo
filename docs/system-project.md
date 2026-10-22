@@ -61,6 +61,8 @@ Point `ref` at the commit your installation was built from, so your changes appl
 
 An invalid file is logged and ignored.
 
+Installers write `source.checkout` for you. The Host installer records the checkout it runs from, with the installed commit as `ref`. `configure-dev-updates` records the same checkout for the Dev daemon, translated to the path the container sees through its bind mounts, and skips with a reason when no mount shares it. For an existing installation, or after the checkout moves, run `node scripts/install-execution-host.mjs configure-system-source --root <installation-root> [--checkout <path>]` from the checkout. It updates both files, keeps every other key, refuses a damaged file, and takes effect at each daemon's next start.
+
 ## Compatibility and tests
 
 Workspace descriptors carry optional `projectSystem` and `systemMembership` fields, behind the `systemProject` and `systemProjectSource` capabilities ([compatibility rules](protocol-compatibility.md)). Older clients see an ordinary standing, protected workspace.
@@ -69,7 +71,8 @@ Test daemons start without the project so fixture counts stay exact. Server test
 
 ## Limitations
 
-- Installers do not write `source.checkout` yet; operators set it in `system.json`.
+- Single-daemon installs have no installer, so they keep the `vorteo/` folder unless you set `source.checkout` yourself.
+- Because the checkout lives in a folder the Dev container may share, the container can write to the Host System project's files. Source still reaches the running daemon only through a reviewed update.
 - The Vorteo source clone does not follow later updates yet. After an update, move its `local` branch to the newly installed commit yourself.
 - The Dev container's project has no system-managed workspace until monitoring ships its collector.
 - The Optimization Runner's scripts and launchd job are still installed by hand; [the roadmap](roadmap.md) tracks shipping them in source.

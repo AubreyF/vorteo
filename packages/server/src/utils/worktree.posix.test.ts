@@ -619,6 +619,66 @@ describe.skipIf(isPlatform("win32"))("worktree POSIX-only", () => {
       });
     });
 
+    describe("when an unqualified base exists locally and on origin", () => {
+      let remoteCloneDir: string;
+
+      beforeEach(() => {
+        const remoteDir = join(tempDir, "remote.git");
+        remoteCloneDir = join(tempDir, "remote-clone");
+        execFileSync("git", ["init", "--bare", remoteDir]);
+        execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: repoDir });
+        execFileSync("git", ["push", "-u", "origin", "main"], { cwd: repoDir });
+        execFileSync("git", ["clone", "--branch", "main", remoteDir, remoteCloneDir]);
+        execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: remoteCloneDir });
+        execFileSync("git", ["config", "user.name", "Test"], { cwd: remoteCloneDir });
+        writeFileSync(join(remoteCloneDir, "file.txt"), "from-origin\n");
+        execFileSync("git", ["add", "file.txt"], { cwd: remoteCloneDir });
+        execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "advance origin"], {
+          cwd: remoteCloneDir,
+        });
+        // The new commit is pushed but not fetched, so the repo's origin/main is stale too.
+        execFileSync("git", ["push", "origin", "main"], { cwd: remoteCloneDir });
+      });
+
+      it("starts from the fetched origin tip when local main is only behind", async () => {
+        const result = await createLegacyWorktreeForTest({
+          branchName: "behind-local-feature",
+          cwd: repoDir,
+          baseBranch: "main",
+          worktreeSlug: "behind-local-feature",
+          runSetup: false,
+          paseoHome,
+        });
+
+        expect(readFileSync(join(result.worktreePath, "file.txt"), "utf8")).toBe("from-origin\n");
+        expect(
+          JSON.parse(readFileSync(getPaseoWorktreeMetadataPath(result.worktreePath), "utf8")),
+        ).toMatchObject({ baseRefName: "main", baseRef: "refs/remotes/origin/main" });
+      });
+
+      it("keeps local main when it has commits origin lacks", async () => {
+        writeFileSync(join(repoDir, "local.txt"), "unpushed\n");
+        execFileSync("git", ["add", "local.txt"], { cwd: repoDir });
+        execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "unpushed work"], {
+          cwd: repoDir,
+        });
+
+        const result = await createLegacyWorktreeForTest({
+          branchName: "diverged-local-feature",
+          cwd: repoDir,
+          baseBranch: "main",
+          worktreeSlug: "diverged-local-feature",
+          runSetup: false,
+          paseoHome,
+        });
+
+        expect(readFileSync(join(result.worktreePath, "local.txt"), "utf8")).toBe("unpushed\n");
+        expect(
+          JSON.parse(readFileSync(getPaseoWorktreeMetadataPath(result.worktreePath), "utf8")),
+        ).toMatchObject({ baseRef: "refs/heads/main" });
+      });
+    });
+
     it("uses a local branch when origin/{branch} does not exist", async () => {
       writeFileSync(join(repoDir, "file.txt"), "from-local-only\n");
       execFileSync("git", ["add", "file.txt"], { cwd: repoDir });

@@ -17,7 +17,7 @@ import {
   buildStringCommandShellInvocation,
   createStringCommandShellEnv,
 } from "./string-command-shell.js";
-import { readPaseoConfigJson, resolvePaseoConfigPath } from "./paseo-config-file.js";
+import { readEffectivePaseoConfigJson, resolvePaseoConfigPath } from "./paseo-config-file.js";
 export {
   PaseoConfigRawSchema,
   PaseoLifecycleCommandRawSchema,
@@ -259,7 +259,7 @@ export type ReadPaseoConfigResult =
 
 export function readPaseoConfig(repoRoot: string): ReadPaseoConfigResult {
   try {
-    const json = readPaseoConfigJson(repoRoot);
+    const json = readEffectivePaseoConfigJson(repoRoot);
     if (json === null) {
       return { ok: true, config: null };
     }
@@ -1691,7 +1691,13 @@ async function resolveBaseBranchForWorktree(
     }
   }
 
-  const candidates = [`refs/heads/${requested}`, `refs/remotes/origin/${requested}`, requested];
+  const localRef = `refs/heads/${requested}`;
+  const originRef = `refs/remotes/origin/${requested}`;
+  if ((await gitRefExists(cwd, localRef)) && (await gitRefExists(cwd, originRef))) {
+    return resolveLocalOrFresherOriginBase(cwd, localRef, originRef);
+  }
+
+  const candidates = [localRef, originRef, requested];
   for (const candidate of candidates) {
     try {
       await runGitCommand(["rev-parse", "--verify", candidate], { cwd });
@@ -1701,6 +1707,33 @@ async function resolveBaseBranchForWorktree(
     }
   }
   throw new Error(`Base branch not found: ${normalized}`);
+}
+
+async function gitRefExists(cwd: string, ref: string): Promise<boolean> {
+  try {
+    await runGitCommand(["rev-parse", "--verify", "--quiet", ref], { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// An unqualified base such as "main" prefers the local branch so unpushed local commits are kept.
+// Nothing advances a local branch that only falls behind (a primary checkout whose work is pushed
+// from other worktrees), so new workspaces would silently start from an old commit. When the local
+// branch is strictly behind the freshly fetched remote ref, branch from the remote ref instead.
+async function resolveLocalOrFresherOriginBase(
+  cwd: string,
+  localRef: string,
+  originRef: string,
+): Promise<string> {
+  await refreshRemoteTrackingBaseRef(cwd, originRef);
+  const { stdout } = await runGitCommand(
+    ["rev-list", "--left-right", "--count", `${localRef}...${originRef}`],
+    { cwd },
+  );
+  const [localOnly, originOnly] = stdout.trim().split(/\s+/).map(Number);
+  return localOnly === 0 && originOnly > 0 ? originRef : localRef;
 }
 
 // Clients give up on a create request after 60s. A remote that accepts the connection and never
