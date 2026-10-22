@@ -1095,6 +1095,7 @@ export async function verifyRenewalPlan(setup: RunnerSetup, plan: CoordinatorBoo
   if (
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.hostRequestsAfter !== null
   )
     throw new BootstrapRequestConflict(

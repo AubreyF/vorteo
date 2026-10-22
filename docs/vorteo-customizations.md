@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): owner-reviewed coordinator updates can carry the Host-owned Claude refresh setting through the new `claudeHostRefreshConfiguration` plan field, capability-gated for older clients. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the installation coordinator's periodic settings, profile and restart-impact reads share one daemon connection per environment instead of opening about 1.4 Host connections a second. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): installation journal writers wait up to three seconds for the lock instead of refusing at once, which caused this morning's failed automatic coordinator update, and web build pruning moved to a detached background process. README overview and onboarding are unchanged.

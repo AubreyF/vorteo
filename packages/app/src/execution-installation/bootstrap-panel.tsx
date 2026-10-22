@@ -332,6 +332,18 @@ function MonitorConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["pla
   );
 }
 
+function ClaudeRefreshConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.claudeHostRefreshConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text style={styles.text}>
+      {config === null
+        ? "Turn off Host-owned refresh for full sign-in Claude accounts. Setup-token accounts are unaffected."
+        : "Turn on Host-owned refresh for full sign-in Claude accounts. The Host keeps their only sign-in grant, and sign-in starts only when every environment supports it."}
+    </Text>
+  );
+}
+
 function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
   if (plan.sourceUpdateTooling !== true) return null;
   return (
@@ -469,6 +481,7 @@ function BootstrapRequestCard({
             </Text>
           ) : null}
           <MonitorConfiguration plan={request.plan} />
+          <ClaudeRefreshConfiguration plan={request.plan} />
           <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}

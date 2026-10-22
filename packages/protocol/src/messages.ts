@@ -4053,6 +4053,7 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapFactoryAdoption: z.boolean().optional(),
         coordinatorBootstrapCompatibleRecovery: z.boolean().optional(),
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
+        coordinatorBootstrapClaudeHostRefresh: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         coordinatorBootstrapBootRecovery: z.boolean().optional(),
