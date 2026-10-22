@@ -18,6 +18,7 @@ import {
   systemFieldsForDescriptor,
 } from "./workspace-lifecycle/policy.js";
 import { browseProjectDirectories, projectDirectoryEnvironment } from "./project-directories.js";
+import { assertWorkspaceEnvironment } from "./execution-installation/settings/project-policies.js";
 import {
   projectsFolderPolicyFor,
   ProjectsFolderError,
@@ -7737,6 +7738,7 @@ export class Session {
     if (!directoryExists) {
       throw new SessionRequestError("directory_not_found", `Directory not found: ${cwd}`);
     }
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), cwd);
 
     const explicitTitle = request.title?.trim() || null;
     const promptTitle = resolveFirstAgentPromptTitle(request.firstAgentContext);
@@ -7796,6 +7798,7 @@ export class Session {
     }
 
     const sourceCwd = await resolveWorktreeSourceCwd(source, this.projectRegistry);
+    await assertWorkspaceEnvironment(this.daemonConfigStore.get(), sourceCwd);
 
     const result = await this.createPaseoWorktreeWorkflow(
       {

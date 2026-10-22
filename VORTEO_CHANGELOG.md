@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Project exclusions. A project's settings page has an Exclusions section, available once Installation controls are unlocked, that turns off the Host or Dev container, accounts, profiles or skills for that project. The installation stores them by project root path, never in `paseo.json`, and refuses a change that leaves the project without an environment.
+- Daemons refuse an agent launch in an excluded environment or with an excluded account or profile, naming the project's Exclusions setting, and leave excluded skills out. Creating a workspace in an excluded environment is refused too.
+- Environment and profile menus hide what the project excludes, using a copy of the policies the coordinator keeps in each daemon's config.
+
+### Known limitations
+
+- Plugins cannot be excluded per project. Daemons and coordinators need updating before exclusions apply; older ones keep working without them. Nothing is installed yet.
+
 ## 0.11.0-beta.3.vorteo.766 - 2026-10-22
 
 ### Added

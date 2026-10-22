@@ -182,6 +182,17 @@ When the Host and the Dev daemon advertise the same `projectsRoot`, a project in
 
 Daemons that do not advertise the same folder keep the earlier behavior: the client maps folders through shared host paths and otherwise asks for the folder.
 
+### Project exclusions
+
+Each project's settings page has an Exclusions section once Installation controls are unlocked. Everything is available by default; the owner can turn off an environment, accounts, profiles or skills for that project. The installation stores these in its shared settings as `projectPolicies`, keyed by the project's absolute root path without a trailing separator, never in `paseo.json`. Inside the shared Projects folder that path names the same project in both environments. A policy also covers folders inside the project root and git worktrees whose main checkout is the project root.
+
+- A project must stay available in at least one environment. The coordinator refuses a policy that excludes every environment, an unknown account or skill, or a relative or trailing-slash key.
+- The effective exclusions are the environment's resource exclusions plus the project's. Daemons check the coordinator at agent launch and refuse an excluded environment, account or profile with a message naming the project's Exclusions setting; excluded skills are left out of the launch. Creating a workspace in an excluded environment is refused using the daemon's copy of the policies.
+- Profiles are matched by shared workflow when they have one, so one exclusion covers that workflow under every account and environment.
+- The coordinator copies the policies into each capable daemon's `config.json` as `installationProjectPolicies`, with accounts named by their local provider id. The daemon accepts that copy only when it matches the coordinator. Client environment and profile menus hide excluded choices from it.
+
+The coordinator sends `projectPolicies` only to owner clients that send `X-Vorteo-Project-Policies: 1` and to daemons that read admission with `projectPolicies=1`, because older strict readers reject unknown settings. Daemons that keep the copy advertise `features.installationProjectPolicies`. Older daemons keep working without project exclusions; their launches are not checked against them.
+
 The Host's runtime, state, releases and install source must stay outside the folder, because the guest can write to it. The installer refuses a folder that contains them. Both daemons can create worktrees for the same repository in `.vorteo/worktrees`; their names never collide, and each lists the other's worktrees for that repository.
 
 ### Configure an installation

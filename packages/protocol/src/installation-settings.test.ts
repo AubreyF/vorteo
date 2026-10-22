@@ -3,6 +3,7 @@ import {
   InstallationSettingsPatchSchema,
   InstallationSettingsSnapshotSchema,
   InstallationSettingsUpdateSchema,
+  effectiveProjectPolicy,
   installationProviderReference,
   localInstallationProvider,
 } from "./installation-settings.js";
@@ -94,4 +95,20 @@ test("snapshots distinguish waiting, migration conflicts, and resolved policy", 
       browserTools: {},
     }).success,
   ).toBe(false);
+});
+
+test("project policies cover their folder and everything inside it, and combine", () => {
+  const policies = {
+    "/Users/me/dev/app": { excludedEnvironments: ["container" as const], providerIds: ["a"] },
+    "/Users/me/dev/app/packages/web": { providerIds: ["b"], skillIdentities: ["s"] },
+    "/Users/me/dev/application": { profileIds: ["unrelated"] },
+  };
+  expect(effectiveProjectPolicy(policies, ["/Users/me/dev/app/packages/web/src"])).toEqual({
+    excludedEnvironments: ["container"],
+    providerIds: ["a", "b"],
+    profileIds: [],
+    skillIdentities: ["s"],
+  });
+  expect(effectiveProjectPolicy(policies, ["/Users/me/dev/app/"]).providerIds).toEqual(["a"]);
+  expect(effectiveProjectPolicy(policies, ["/Users/me/dev/other"]).providerIds).toEqual([]);
 });

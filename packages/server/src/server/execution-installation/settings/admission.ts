@@ -137,7 +137,9 @@ export function createInstallationSettingsReader(
         );
       // Node's fetch keeps no HTTP cache, so no cache mode is needed; the entrypoint builds, which
       // type against Node alone, reject the DOM-only option.
-      const response = await fetch(new URL("/api/installation/settings/admission", config.origin), {
+      // COMPAT(projectPolicies): older coordinators ignore the query and omit project policies.
+      const url = new URL("/api/installation/settings/admission?projectPolicies=1", config.origin);
+      const response = await fetch(url, {
         headers: { Authorization: `Bearer ${config.token}` },
         redirect: "error",
         signal: AbortSignal.timeout(5000),

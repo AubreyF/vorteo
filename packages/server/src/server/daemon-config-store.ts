@@ -16,6 +16,10 @@ import {
 } from "./execution-installation/settings/admission.js";
 import { installationResourceRevision } from "./execution-installation/settings/resource-bindings.js";
 import {
+  assertProjectPoliciesProjection,
+  changesProjectPolicies,
+} from "./execution-installation/settings/project-policies.js";
+import {
   loadPersistedConfig,
   withPersistedConfigWriter,
   type PersistedConfigWriter,
@@ -61,6 +65,7 @@ interface SupportedMutableConfigPatch {
   appendSystemPrompt?: string;
   terminalProfiles?: MutableDaemonConfig["terminalProfiles"];
   installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
+  installationProjectPolicies?: MutableDaemonConfig["installationProjectPolicies"];
   agentProfiles?: MutableDaemonConfig["agentProfiles"];
   sharedProviderPreferences?: MutableDaemonConfig["sharedProviderPreferences"];
   skills?: MutableDaemonConfig["skills"];
@@ -259,6 +264,7 @@ const RELOADABLE_PATHS = [
   "daemon.appendSystemPrompt",
   "daemon.terminalProfiles",
   "daemon.installationResourceBindings",
+  "daemon.installationProjectPolicies",
   "daemon.agentProfiles",
   "daemon.sharedProviderPreferences",
   "app.baseUrl",
@@ -284,6 +290,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["daemon.appendSystemPrompt", "appendSystemPrompt"],
   ["daemon.terminalProfiles", "terminalProfiles"],
   ["daemon.installationResourceBindings", "installationResourceBindings"],
+  ["daemon.installationProjectPolicies", "installationProjectPolicies"],
   ["daemon.agentProfiles", "agentProfiles"],
   ["daemon.sharedProviderPreferences", "sharedProviderPreferences"],
   ["app.baseUrl", "app.baseUrl"],
@@ -329,6 +336,12 @@ function compactOwnedPaths(paths: readonly string[], owners: readonly string[]):
   return Array.from(compacted).sort();
 }
 
+function pickProjectPolicies(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
+  return patch.installationProjectPolicies === undefined
+    ? {}
+    : { installationProjectPolicies: patch.installationProjectPolicies };
+}
+
 function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
   return {
     ...(patch.relay?.enabled !== undefined ? { relay: { enabled: patch.relay.enabled } } : {}),
@@ -357,6 +370,7 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.installationResourceBindings !== undefined
       ? { installationResourceBindings: patch.installationResourceBindings }
       : {}),
+    ...pickProjectPolicies(patch),
     ...(patch.agentProfiles !== undefined ? { agentProfiles: patch.agentProfiles } : {}),
     ...(patch.sharedProviderPreferences !== undefined
       ? { sharedProviderPreferences: patch.sharedProviderPreferences }
@@ -632,7 +646,8 @@ export class DaemonConfigStore {
     if (
       !binding ||
       (!changesInstallationSettings(before, parsed) &&
-        !changesInstallationProviders(before, parsed))
+        !changesInstallationProviders(before, parsed) &&
+        !changesProjectPolicies(before, parsed))
     )
       return this.patch(parsed);
     const admission = await this.readInstallationSettingsAuthority();
@@ -681,6 +696,7 @@ export class DaemonConfigStore {
     }
     assertInstallationProviderProjection(this.current, parsed, admission);
     assertInstallationSettingsProjection({ current: this.current, patch: parsed, admission });
+    assertProjectPoliciesProjection({ current: this.current, patch: parsed, admission });
     this.validateInstallationProjection(parsed);
     if (parsed.sharedProviderPreferences) {
       const revision = this.current.sharedProviderPreferences?.revision ?? null;
@@ -1171,6 +1187,8 @@ function mergeMutableDaemonPatch(
   if (patch.terminalProfiles !== undefined) next.terminalProfiles = patch.terminalProfiles;
   if (patch.installationResourceBindings !== undefined)
     next.installationResourceBindings = patch.installationResourceBindings;
+  if (patch.installationProjectPolicies !== undefined)
+    next.installationProjectPolicies = patch.installationProjectPolicies;
   if (patch.agentProfiles !== undefined) next.agentProfiles = patch.agentProfiles;
   if (patch.sharedProviderPreferences !== undefined)
     next.sharedProviderPreferences = patch.sharedProviderPreferences;

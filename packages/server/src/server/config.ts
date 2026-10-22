@@ -538,6 +538,8 @@ function resolveProfileLists(persisted: ReturnType<typeof loadPersistedConfig>) 
     agentProfiles: persisted.daemon?.agentProfiles,
     sharedProviderPreferences: persisted.daemon?.sharedProviderPreferences,
     installationResourceBindings: persisted.daemon?.installationResourceBindings,
+    // Present even when empty: the coordinator reads the key as support for project policies.
+    installationProjectPolicies: persisted.daemon?.installationProjectPolicies ?? {},
   };
 }
 
@@ -591,6 +593,7 @@ export function resolveConfigFromPersisted(
     agentProfiles,
     sharedProviderPreferences,
     installationResourceBindings,
+    installationProjectPolicies,
     hostnames,
     trustedProxies,
     appBaseUrl,
@@ -644,6 +647,7 @@ export function resolveConfigFromPersisted(
     agentProfiles,
     sharedProviderPreferences,
     installationResourceBindings,
+    installationProjectPolicies,
     skillSelection: persisted.agents?.skills?.selection,
     pluginsEnabled: persisted.pluginsEnabled ?? false,
     // Unset means on. Isolated test daemons pass 0 to keep fixture projects exact.

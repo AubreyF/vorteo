@@ -25,7 +25,10 @@ export class SettingsEnvironmentFake implements SettingsEnvironment {
   skillConfirmations: Array<readonly string[]> = [];
   config = MutableDaemonConfigSchema.parse({ mcp: { injectIntoAgents: false } });
 
-  constructor(readonly serverId: string) {}
+  constructor(
+    readonly serverId: string,
+    readonly kind: "host" | "container" = serverId.startsWith("host") ? "host" : "container",
+  ) {}
 
   readGate: Promise<void> | null = null;
   async read() {

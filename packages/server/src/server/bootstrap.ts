@@ -465,6 +465,7 @@ export interface PaseoDaemonConfig {
   agentProfiles?: AgentProfile[];
   sharedProviderPreferences?: MutableDaemonConfig["sharedProviderPreferences"];
   installationResourceBindings?: MutableDaemonConfig["installationResourceBindings"];
+  installationProjectPolicies?: MutableDaemonConfig["installationProjectPolicies"];
   skillSelection?: AgentSkillSelection;
   pluginsEnabled?: boolean;
   /** Seeds the Vorteo System project at startup. Defaults on; test daemons turn it off. */
@@ -627,6 +628,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
     skills: { selection: config.skillSelection },
     sharedProviderPreferences: config.sharedProviderPreferences,
     installationResourceBindings: config.installationResourceBindings,
+    installationProjectPolicies: config.installationProjectPolicies,
   };
 
   if (config.terminalProfiles !== undefined) {

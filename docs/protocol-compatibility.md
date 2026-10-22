@@ -200,3 +200,9 @@ The direct installation requester checks `workerLaunch.available` before submiss
 ## Projects folder
 
 Daemons with a configured Projects folder advertise `features.projectsRoot` and send optional `server_info.projectsRoot`. Clients show the Projects folder Add project flow only when both are present. Browse entries gain optional `git` and `projectId` markers; older clients ignore them. `project.create_directory.request` accepts optional `register: false` to create a folder without adding it as a project. The client refuses to send it to a daemon without `projectsRoot`, because an older daemon would ignore the flag and add the project. Open and add responses can carry `outside_projects_folder` or `projects_folder_root` error codes; older clients parse unknown codes as null and show the error text.
+
+Clients treat a project root inside a Projects folder that two daemons advertise at the same path as one folder: they join those placements in the sidebar and use the identical path in the other environment. Daemons without a matching folder keep the earlier folder mapping and chooser.
+
+## Project policies
+
+Installation settings gain optional `projectPolicies`. Older coordinators, owner clients and daemon admission readers parse settings strictly, so the coordinator includes the field only for owner requests with `X-Vorteo-Project-Policies: 1` and admission reads with `projectPolicies=1`. Owner clients read its presence as the capability. Daemon config gains optional `installationProjectPolicies`, with a loose policy schema so newer fields never break older clients, and `features.installationProjectPolicies`. The coordinator projects the copy only to daemons whose config reports the key.
