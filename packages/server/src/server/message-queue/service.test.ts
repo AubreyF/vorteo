@@ -341,6 +341,10 @@ it("persists one restart continuation and respects a manually paused queue", asy
     held = false;
     recovered.wake("thread");
     await expect.poll(() => attempted).toEqual(["thread"]);
+    // A start that returns no run hands the item back; let that write land before cleanup.
+    await expect
+      .poll(async () => (await recovered.read("thread")).items[0]?.delivery.status)
+      .toBe("queued");
     recovered.close();
   } finally {
     service.close();

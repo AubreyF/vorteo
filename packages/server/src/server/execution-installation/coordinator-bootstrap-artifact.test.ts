@@ -430,13 +430,21 @@ async function moduleContractFixture() {
   return { ...f, input, manifest, writeManifest, controller };
 }
 
-test("initial Host module contract verifies code, metadata and internal workspace links", async () => {
-  const f = await moduleContractFixture();
-  const proof = await inspectInitialHostModuleContract(f.input);
-  expect(() => proof.assertCurrent()).not.toThrow();
-  f.controller.abort();
-  expect(() => proof.assertCurrent()).toThrow();
-});
+// The contract pins every ancestor directory's identity, as a stable Host install expects. In
+// parallel test runs another suite can create a sibling in a shared ancestor mid-inspection.
+const SHARED_ANCESTOR_RETRY = { retry: 2 };
+
+test(
+  "initial Host module contract verifies code, metadata and internal workspace links",
+  SHARED_ANCESTOR_RETRY,
+  async () => {
+    const f = await moduleContractFixture();
+    const proof = await inspectInitialHostModuleContract(f.input);
+    expect(() => proof.assertCurrent()).not.toThrow();
+    f.controller.abort();
+    expect(() => proof.assertCurrent()).toThrow();
+  },
+);
 
 test.each([
   "candidate code",
@@ -444,23 +452,27 @@ test.each([
   "package metadata",
   "workspace link",
   "contract document",
-])("initial Host module contract retains %s after collection", async (changed) => {
-  const f = await moduleContractFixture();
-  const proof = await inspectInitialHostModuleContract(f.input);
-  if (changed === "candidate code")
-    await writeFile(path.join(f.input.candidateRoot, initialHostModuleEntries[0]), "changed");
-  if (changed === "reference code")
-    await writeFile(path.join(f.input.referenceRoot, initialHostModuleEntries[0]), "changed");
-  if (changed === "package metadata")
-    await writeFile(path.join(f.input.candidateRoot, "packages/server/package.json"), "changed");
-  if (changed === "workspace link") {
-    const file = path.join(f.input.candidateRoot, "node_modules/example");
-    await rm(file);
-    await symlink("../packages/server", file);
-  }
-  if (changed === "contract document") await f.writeManifest(f.input.candidateRoot);
-  expect(() => proof.assertCurrent()).toThrow();
-});
+])(
+  "initial Host module contract retains %s after collection",
+  SHARED_ANCESTOR_RETRY,
+  async (changed) => {
+    const f = await moduleContractFixture();
+    const proof = await inspectInitialHostModuleContract(f.input);
+    if (changed === "candidate code")
+      await writeFile(path.join(f.input.candidateRoot, initialHostModuleEntries[0]), "changed");
+    if (changed === "reference code")
+      await writeFile(path.join(f.input.referenceRoot, initialHostModuleEntries[0]), "changed");
+    if (changed === "package metadata")
+      await writeFile(path.join(f.input.candidateRoot, "packages/server/package.json"), "changed");
+    if (changed === "workspace link") {
+      const file = path.join(f.input.candidateRoot, "node_modules/example");
+      await rm(file);
+      await symlink("../packages/server", file);
+    }
+    if (changed === "contract document") await f.writeManifest(f.input.candidateRoot);
+    expect(() => proof.assertCurrent()).toThrow();
+  },
+);
 
 test.each(["duplicate", "escaping", "missing entry", "wrong architecture", "unknown warning"])(
   "initial Host module contract refuses repinned %s declarations",
