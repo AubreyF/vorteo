@@ -5,6 +5,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
 
+## 0.11.0-beta.3.vorteo.742 - 2026-10-22
+
+### Added
+
+- Show an Open questions card in the left sidebar with every waiting question from every thread in every project, on all connected hosts. Each question names its thread and project, and its host when questions come from more than one. Threads blocking the most tasks come first, then the longest waiting. Answer in place, or choose Open to go to the thread. The right-hand card still shows only the current tab's questions.
+- Show a Quota card in the left sidebar listing each account's remaining usage and reset time, with failing accounts and accounts below 15% first. Choosing an account opens Usage.
+- Both cards hide while they have nothing to show, remember whether they are collapsed and keep their bodies to a capped height so the workspace list keeps its room. On windows shorter than 720px, only one card is open at a time.
+
+### Validation
+
+- Model tests cover cross-thread collection, ordering, host labels and quota ordering. Browser tests answer questions from two projects through the sidebar at phone and desktop widths, confirm answers reach the asking thread, collapse state survives a reload and short screens open one card at a time; the existing inline open-questions tests pass at all three widths. Typecheck and lint pass.
+
 ## 0.11.0-beta.3.vorteo.741 - 2026-10-22
 
 ### Maintenance
