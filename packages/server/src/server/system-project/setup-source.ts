@@ -61,9 +61,13 @@ async function setupUnlocked(input: SetupSystemSourceInput): Promise<SetupSystem
     throw new Error("This host has no Vorteo System project yet. Restart it to create one.");
   const config = await readSystemProjectConfig(paths.config, input.logger);
   const source = config.source;
+  if (source?.checkout)
+    throw new Error(
+      "This host's Vorteo System project already uses the checkout it was installed from.",
+    );
 
   if (!existsSync(path.join(paths.source, ".git"))) {
-    if (!source) {
+    if (!source?.repository) {
       throw new Error(
         "No Vorteo source is configured for this host. Add source.repository to the Vorteo System settings file.",
       );

@@ -175,6 +175,8 @@ export const ptBR: TranslationResources = {
     },
     errors: {
       failedToSend: "Falha ao enviar mensagem",
+      connectionLostWhileSending:
+        "Conexão perdida durante o envio. Verifique se a mensagem chegou antes de reenviar.",
       failedToCreateAgent: "Falha ao criar agente",
       noHostSelected: "Nenhum host selecionado",
       initialPromptRequired: "O prompt inicial é obrigatório",
@@ -1216,6 +1218,8 @@ export const ptBR: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "Remover projeto",
         removing: "Removendo...",
+        removeBlockedSystem:
+          "O Vorteo System guarda o código-fonte e os espaços de trabalho de manutenção desta instalação, então não pode ser removido.",
       },
       confirmations: {
         removeTitle: "Remover projeto?",
@@ -2731,6 +2735,12 @@ export const ptBR: TranslationResources = {
         imageUrl: "URL de imagem ou site",
         save: "Salvar alterações",
         savedToast: "Projeto atualizado",
+        nameLockedSystem: "O daemon dá nome a este projeto, então ele não pode ser renomeado.",
+      },
+      system: {
+        title: "Sobre o Vorteo System",
+        description:
+          "Este projeto serve para evoluir esta instalação do Vorteo. Ele usa o checkout a partir do qual a instalação foi construída e também guarda espaços de trabalho de manutenção gerenciados pelo daemon, como o Optimization Runner. O daemon o recria e depende dele, então ele não pode ser removido nem renomeado.",
       },
       readFailures: {
         invalidTitle: "Não foi possível analisar paseo.json",

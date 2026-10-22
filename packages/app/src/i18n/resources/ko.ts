@@ -174,6 +174,8 @@ export const ko: TranslationResources = {
     },
     errors: {
       failedToSend: "메시지를 보내지 못했습니다",
+      connectionLostWhileSending:
+        "보내는 중 연결이 끊어졌습니다. 다시 보내기 전에 메시지가 도착했는지 확인하세요.",
       failedToCreateAgent: "에이전트를 생성하지 못했습니다",
       noHostSelected: "선택된 호스트가 없습니다",
       initialPromptRequired: "초기 프롬프트가 필요합니다",
@@ -1197,6 +1199,8 @@ export const ko: TranslationResources = {
         openFolderFailed: "폴더를 열 수 없습니다.",
         remove: "프로젝트 제거",
         removing: "제거하는 중...",
+        removeBlockedSystem:
+          "Vorteo System에는 이 설치의 소스와 유지 관리 워크스페이스가 들어 있으므로 제거할 수 없습니다.",
       },
       confirmations: {
         removeTitle: "프로젝트를 제거할까요?",
@@ -2704,6 +2708,12 @@ export const ko: TranslationResources = {
         imageUrl: "이미지 또는 웹사이트 URL",
         save: "변경사항 저장",
         savedToast: "프로젝트가 업데이트되었습니다.",
+        nameLockedSystem: "이 프로젝트의 이름은 데몬이 정하므로 변경할 수 없습니다.",
+      },
+      system: {
+        title: "Vorteo System 정보",
+        description:
+          "이 프로젝트는 이 Vorteo 설치를 발전시키기 위한 곳입니다. 설치를 빌드한 체크아웃을 기반으로 하며, Optimization Runner처럼 데몬이 관리하는 유지 관리 워크스페이스도 담고 있습니다. 데몬이 다시 만들고 의존하므로 제거하거나 이름을 바꿀 수 없습니다.",
       },
       readFailures: {
         invalidTitle: "paseo.json을 파싱할 수 없습니다",

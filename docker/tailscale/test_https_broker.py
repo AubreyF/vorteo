@@ -149,6 +149,13 @@ class WorkspacePolicyTests(unittest.TestCase):
             'preview': {'type': 'service', 'command': 'npm run dev', 'port': 40001}}}))
         self.assertEqual(self.runtime.registered_ports(), {40001})
 
+    def test_local_config_overrides_fingerprint_and_ports(self):
+        before = self.runtime.current('wks_site', 'preview')['fingerprint']
+        (self.path / 'paseo.local.json').write_text(json.dumps({'scripts': {
+            'preview': {'command': 'wrapped npm run dev', 'port': 40002}}}))
+        self.assertNotEqual(self.runtime.current('wks_site', 'preview')['fingerprint'], before)
+        self.assertEqual(self.runtime.registered_ports(), {40002})
+
     def test_unknown_policy_fails_closed(self):
         self.config['workspacePolicy'] = 'typo'
         with self.assertRaisesRegex(ValueError, 'Unsupported workspace policy'):

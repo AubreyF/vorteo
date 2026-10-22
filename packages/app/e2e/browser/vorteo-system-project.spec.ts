@@ -23,16 +23,23 @@ function runnerRow(page: Page, workspaceId: string) {
   return page.getByTestId(`sidebar-workspace-row-${getServerId()}:${workspaceId}`);
 }
 
+function systemProjectKey() {
+  return `system:${getServerId()}`;
+}
+
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
-  test("shows the Vorteo System section and locks the runner's menu", async ({
+  test("lists Vorteo System as a normal project and locks the runner's menu", async ({
     page,
     e2eWorkerClient,
   }, testInfo) => {
     const workspaceId = await runnerWorkspaceId(e2eWorkerClient);
     await gotoAppShell(page);
-    await expect(page.getByText("Vorteo System", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("sidebar-system-section")).toHaveCount(0);
+    const projectRow = page.getByTestId(`sidebar-project-row-${systemProjectKey()}`);
+    await expect(projectRow).toBeVisible();
+    await expect(projectRow).toContainText("Vorteo System");
     const row = runnerRow(page, workspaceId);
     await expect(row).toBeVisible();
     await expect(row).toContainText("Optimization Runner");
@@ -45,6 +52,17 @@ test.describe("desktop", () => {
       await expect(page.getByRole("menuitem", { name, exact: true })).toHaveCount(0);
     }
     await page.screenshot({ path: testInfo.outputPath("vorteo-system-desktop-menu.png") });
+    await page.keyboard.press("Escape");
+
+    await projectRow.hover();
+    await page.getByTestId(`sidebar-project-kebab-${systemProjectKey()}`).click();
+    await expect(
+      page.getByTestId(`sidebar-project-menu-open-settings-${systemProjectKey()}`),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId(`sidebar-project-menu-remove-${systemProjectKey()}`),
+    ).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath("vorteo-system-desktop-project-menu.png") });
   });
 });
 

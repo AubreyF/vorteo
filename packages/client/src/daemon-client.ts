@@ -1071,10 +1071,18 @@ export class DaemonConnectionError extends Error {
   constructor(
     message: string,
     readonly code: "DAEMON_CONNECTION_LOST" | "DAEMON_REQUEST_TIMEOUT" = "DAEMON_CONNECTION_LOST",
+    /** The request reached the transport before the reply was lost, so the daemon may have
+     * acted on it. Callers must not assume the request failed. */
+    readonly requestMayHaveArrived = false,
   ) {
     super(message);
     this.name = "DaemonConnectionError";
   }
+}
+
+/** True when a request was sent but its reply was lost, leaving its daemon-side outcome unknown. */
+export function isRequestOutcomeUnknown(error: unknown): boolean {
+  return error instanceof DaemonConnectionError && error.requestMayHaveArrived;
 }
 
 class DaemonRpcError extends Error {
@@ -2012,7 +2020,17 @@ export class DaemonClient {
     }
 
     try {
-      const result = await promise;
+      let result: RpcWaitResult<T>;
+      try {
+        result = await promise;
+      } catch (error) {
+        // The request already left this client. A dropped connection or missing reply says
+        // nothing about whether the daemon received and acted on it.
+        if (error instanceof DaemonConnectionError) {
+          throw new DaemonConnectionError(error.message, error.code, true);
+        }
+        throw error;
+      }
       if (result.kind === "error") throw result.error;
       return result.value;
     } finally {

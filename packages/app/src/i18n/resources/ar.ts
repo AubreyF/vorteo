@@ -174,6 +174,8 @@ export const ar: TranslationResources = {
     },
     errors: {
       failedToSend: "فشل في إرسال الرسالة",
+      connectionLostWhileSending:
+        "انقطع الاتصال أثناء الإرسال. تحقق من وصول الرسالة قبل إعادة الإرسال.",
       failedToCreateAgent: "فشل في إنشاء الوكيل",
       noHostSelected: "لم يتم تحديد مضيف",
       initialPromptRequired: "مطلوب موجه الأولي",
@@ -1190,6 +1192,8 @@ export const ar: TranslationResources = {
         openFolderFailed: "Couldn't open folder",
         remove: "إزالة المشروع",
         removing: "جارٍ الإزالة...",
+        removeBlockedSystem:
+          "يحتوي Vorteo System على المصدر الخاص بهذا التثبيت ومساحات عمل الصيانة، لذا لا يمكن إزالته.",
       },
       confirmations: {
         removeTitle: "هل تريد إزالة المشروع؟",
@@ -2689,6 +2693,12 @@ export const ar: TranslationResources = {
         imageUrl: "رابط صورة أو موقع",
         save: "حفظ التغييرات",
         savedToast: "تم تحديث المشروع",
+        nameLockedSystem: "يحدد البرنامج الخفي اسم هذا المشروع، لذا لا يمكن إعادة تسميته.",
+      },
+      system: {
+        title: "حول Vorteo System",
+        description:
+          "هذا المشروع مخصص لتطوير تثبيت Vorteo هذا. يعتمد على النسخة المصدرية التي بُني منها التثبيت، ويحتوي أيضًا على مساحات عمل الصيانة التي يديرها البرنامج الخفي، مثل Optimization Runner. يعيد البرنامج الخفي إنشاءه ويعتمد عليه، لذا لا يمكن إزالته أو إعادة تسميته.",
       },
       readFailures: {
         invalidTitle: "تعذر تحليل paseo.json",
