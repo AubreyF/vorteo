@@ -9,6 +9,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useHostFeature } from "@/runtime/host-features";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import type { RenamableWorkspace } from "./workspace-rename-modal";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface Props {
   workspace: RenamableWorkspace;
@@ -96,7 +97,7 @@ function AvailableSuggestions({ workspace, onSelect, disabled }: Props) {
             variant="warning"
             tinted
             title="Could not generate title suggestions"
-            description={suggestions.error.message}
+            description={toErrorMessage(suggestions.error)}
             testID="workspace-title-warning"
           />
         ) : null}

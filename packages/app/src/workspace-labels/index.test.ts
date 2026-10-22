@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   buildWorkspaceLabelPickerRows,
   createWorkspaceLabelManagerModel,
@@ -140,11 +140,13 @@ describe("workspace label projection", () => {
     ]);
   });
 
-  test("picker holds one mutation per label and keeps the failure on the page", async () => {
+  test("picker holds one mutation per label and reports a failure", async () => {
     let resolveMutation!: () => void;
     let mutationCount = 0;
     let fail = false;
+    const reportError = vi.fn();
     const model = createWorkspaceLabelPickerModel({
+      reportError,
       mutate: async () => {
         mutationCount += 1;
         await new Promise<void>((resolve) => {
@@ -166,14 +168,15 @@ describe("workspace label projection", () => {
     expect(mutationCount).toBe(1);
     resolveMutation();
     await Promise.all([first, repeated]);
-    expect(model.snapshot()).toMatchObject({ pendingNames: [], error: null });
+    expect(model.snapshot()).toMatchObject({ pendingNames: [] });
+    expect(reportError).not.toHaveBeenCalled();
 
     fail = true;
     const failed = model.toggle({ name: "Urgent", color: "red" }, true);
     resolveMutation();
     expect(await failed).toBe(false);
+    expect(reportError).toHaveBeenCalledWith(new Error("disk full"));
     expect(model.snapshot()).toMatchObject({
-      error: "disk full",
       pendingNames: [],
       rows: [{ name: "Urgent", color: "red", assigned: false }],
     });

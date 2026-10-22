@@ -4172,6 +4172,90 @@ test.each(["enable", "remove"] as const)(
   },
 );
 
+function claudeRefreshFixture(change: "enable" | "disable") {
+  const f = fixture();
+  f.plan.claudeHostRefreshConfiguration = change === "enable" ? true : null;
+  return f;
+}
+
+test("an older coordinator's strict plan schema refuses the Claude refresh field", () => {
+  const f = claudeRefreshFixture("enable");
+  const older = CoordinatorBootstrapPlanSchema.omit({ claudeHostRefreshConfiguration: true });
+  expect(() => older.parse(f.plan)).toThrow();
+  expect(() =>
+    CoordinatorBootstrapPlanSchema.parse({ ...f.plan, claudeHostRefreshConfiguration: false }),
+  ).toThrow();
+});
+
+test.each(["enable", "disable"] as const)(
+  "old clients see Claude refresh %s hidden, cannot approve it, and can still cancel",
+  async (change) => {
+    const f = claudeRefreshFixture(change);
+    const pending = await f.prepare();
+    const legacy = await handleBootstrapReview(
+      { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+      f.service(),
+    );
+    const projected = legacy.payload.requests![0]!;
+    expect(projected.plan).not.toHaveProperty("claudeHostRefreshConfiguration");
+    expect(projected.planSha256).toBe(pending.planSha256);
+    expect(projected.reason).toContain("Claude refresh");
+    const supported = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.list_requests.request",
+        requestId: "new",
+        claudeHostRefresh: true,
+      },
+      f.service(),
+    );
+    expect(supported.payload.requests).toEqual([pending]);
+    const service = f.service();
+    const decide = vi.spyOn(service, "decide");
+    const refused = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "approve",
+        ownerPassword,
+        input: { ...pickDecision(pending), decision: "approve" },
+      },
+      service,
+    );
+    expect(refused.payload.error).toContain("Claude refresh configuration");
+    expect(decide).not.toHaveBeenCalled();
+    const cancel = { ...pickDecision(pending), decision: "cancel" as const };
+    const canceled = await handleBootstrapReview(
+      {
+        type: "installation.bootstrap.decide.request",
+        requestId: "cancel",
+        ownerPassword,
+        input: cancel,
+      },
+      service,
+    );
+    expect(canceled.payload.error).toBeNull();
+    expect(canceled.payload.requests![0]!.status).toBe("canceled");
+  },
+);
+
+test("a client that reviews Claude refresh can approve the exact plan", async () => {
+  const f = claudeRefreshFixture("enable");
+  const pending = await f.prepare();
+  const input = { ...pickDecision(pending), decision: "approve" as const };
+  const reply = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      claudeHostRefresh: true,
+      input,
+    },
+    f.service(),
+  );
+  expect(reply.payload.error).toBeNull();
+  expect(reply.payload.requests![0]!.status).toBe("approved");
+  expect(reply.payload.requests![0]!.plan.claudeHostRefreshConfiguration).toBe(true);
+});
+
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
   const f = fixture();
   const original = coordinatorPlanDigest(f.plan);

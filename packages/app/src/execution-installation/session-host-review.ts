@@ -196,6 +196,9 @@ export function sessionHostStatusLines(status: SessionHostStatus | null): string
     `Runs: ${detail.runs ?? "unknown"}`,
     `Host release: ${detail.host?.release ?? (detail.host ? "unknown" : "not answering")}`,
     ...(detail.installedRelease ? [`Installed release: ${detail.installedRelease}`] : []),
+    ...(detail.upgradePending
+      ? ["Upgrade pending: the host exits for the installed release once its sessions end"]
+      : []),
     `Hosted sessions: ${detail.host ? hostedSessionsText(detail.host) : "unknown"}`,
     `Durable sessions setting: ${detail.settingEnabled ? "on" : "off"}`,
     // The coordinator caches its observation briefly, so this can trail the present.

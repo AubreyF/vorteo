@@ -44,6 +44,7 @@ import { confirmDialog } from "@/utils/confirm-dialog";
 import { usePublishPanelInstanceAttributes } from "@/panels/panel-instance-attributes";
 import type { Theme } from "@/styles/theme";
 import { ZoomableImage } from "@/components/zoomable-viewport/image";
+import { toErrorMessage } from "@/utils/error-messages";
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -299,7 +300,8 @@ export function FilePane({
   const canTogglePreviewMode = isRenderable && !location.lineStart;
   const lineCount =
     preview?.kind === "text" ? (preview.content ?? "").split("\n").length : undefined;
-  const errorMessage = previewLifecycle.status === "error" ? previewLifecycle.message : null;
+  const errorMessage =
+    previewLifecycle.status === "error" ? toErrorMessage(previewLifecycle.message) : null;
   const isLoading =
     previewLifecycle.status === "initial" ||
     previewLifecycle.status === "read_pending" ||

@@ -20,6 +20,13 @@ import {
   type SidebarShortcutSection,
 } from "@/utils/sidebar-shortcuts";
 import { statusWorkspaceGroups, type SidebarWorkspaceGroup } from "./sidebar-labels";
+import { EMPTY_SIDEBAR_FOLDER_STATE, type SidebarFolderState } from "@/sidebar-folders/store";
+import {
+  ROOT_FOLDER_SCOPE,
+  buildSidebarTreeRows,
+  projectFolderScope,
+  type SidebarTreeRow,
+} from "@/sidebar-folders/tree";
 
 export interface SidebarProjection {
   pinnedGroups: PinnedSidebarGroups;
@@ -47,6 +54,12 @@ export interface SidebarProjectionInput {
   collapsedProjectKeys: ReadonlySet<string>;
   collapsedWorkspaceGroupKeys: ReadonlySet<string>;
   factorySupportedHosts?: ReadonlyMap<string, boolean>;
+  /** Null when the sidebar host cannot store folders. */
+  folderState?: SidebarFolderState | null;
+}
+
+function visibleTreeItems<T>(rows: readonly SidebarTreeRow<T>[]): T[] {
+  return rows.flatMap((row) => (row.kind === "item" ? [row.item] : []));
 }
 
 export function buildSidebarProjection(input: SidebarProjectionInput): SidebarProjection {
@@ -69,18 +82,38 @@ export function buildSidebarProjection(input: SidebarProjectionInput): SidebarPr
     sections.push({ workspaces: pinnedGroups.pinnedChats });
   }
   if (input.groupMode === "project") {
+    // Shortcuts follow the rows on screen, so they skip anything inside a collapsed folder.
+    const folderState = input.folderState ?? EMPTY_SIDEBAR_FOLDER_STATE;
+    const projects = visibleTreeItems(
+      buildSidebarTreeRows({
+        state: folderState,
+        scope: ROOT_FOLDER_SCOPE,
+        items: pinnedGroups.unpinnedProjects,
+        getKey: (project) => project.viewKey,
+        hideEmptyFolders: false,
+      }),
+    );
     sections.push(
-      ...pinnedGroups.unpinnedProjects.flatMap((project) => {
+      ...projects.flatMap((project) => {
         const collapsed = input.collapsedProjectKeys.has(project.viewKey);
         const groups = splitFactoryWorkspaces(
           project.workspaces,
           input.workspaceEntriesByKey,
           input.factorySupportedHosts ?? new Map(),
         );
+        const work = visibleTreeItems(
+          buildSidebarTreeRows({
+            state: folderState,
+            scope: projectFolderScope(project.viewKey),
+            items: groups.work,
+            getKey: (workspace) => workspace.workspaceKey,
+            hideEmptyFolders: false,
+          }),
+        );
         const standingCollapsed =
           collapsed || input.collapsedWorkspaceGroupKeys.has(`standing:${project.viewKey}`);
         return [
-          { workspaces: groups.work, collapsed },
+          { workspaces: work, collapsed },
           {
             workspaces: groups.factory,
             collapsed:

@@ -20,6 +20,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { InstallationWelcome } from "@/execution-installation/panel";
 import { readExecutionInstallation } from "@/execution-installation/policy";
 import { isNative } from "@/constants/platform";
+import { toErrorMessage } from "@/utils/error-messages";
 const CONNECT_HEADER = { title: "Connect to Host" };
 const SETUP_HEADER = { title: "Create New installation" };
 const INSTALL_COMMAND =
@@ -204,7 +205,7 @@ export function WelcomeScreen({ onHostAdded }: WelcomeScreenProps) {
     try {
       enterDemo();
     } catch (error) {
-      setDemoError(error instanceof Error ? error.message : "Could not open the demo.");
+      setDemoError(toErrorMessage(error));
     }
   }, []);
 

@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
   mutate: vi.fn(),
   expand: vi.fn(),
 }));
+vi.mock("@/hooks/use-action-error", () => ({ useReportActionError: () => vi.fn() }));
 vi.mock("./use-message-queue", () => ({
   useMessageQueue: () => ({
     visible: state.visible,

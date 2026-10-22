@@ -33,6 +33,8 @@ import {
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostFeature } from "@/runtime/host-features";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { ProviderReconnectControl } from "@/provider-usage/reconnect-control";
@@ -61,6 +63,12 @@ function providerName(provider: InstallationProvider) {
   );
 }
 
+/** Lost connections are reported as toasts, so only host rejections stay on the card. */
+function hostRejection(error: Error | null): Error | null {
+  if (!error || isConnectionError(error)) return null;
+  return error;
+}
+
 function ProviderConnectionActions({
   provider,
   environment,
@@ -80,6 +88,13 @@ function ProviderConnectionActions({
   const { config } = useDaemonConfig(environment.serverId);
   const retainedId = provider.bindings[environment.serverId];
   const removed = config?.providers[retainedId]?.removed === true;
+  const reportActionError = useReportActionError();
+  const reportConnectionLost = useCallback(
+    (failure: Error) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
+    [reportActionError],
+  );
   const restoration = useMutation({
     mutationFn: async () => {
       if (!client || !connected) throw new Error(`Reconnect to ${location} and try again.`);
@@ -87,6 +102,7 @@ function ProviderConnectionActions({
         providers: { [retainedId]: { removed: false, enabled: false } },
       });
     },
+    onError: reportConnectionLost,
   });
   const { mutate: restoreBinding } = restoration;
   const restore = useCallback(() => restoreBinding(), [restoreBinding]);
@@ -131,10 +147,11 @@ function ProviderConnectionActions({
       });
       await client.removeProvider(localId, plan.revision);
     },
+    onError: reportConnectionLost,
   });
   const { mutate } = removal;
   const remove = useCallback(() => mutate(), [mutate]);
-  const error = removal.error ?? restoration.error;
+  const error = hostRejection(removal.error ?? restoration.error);
   if (!canRemove && !removed && !error && !restoration.isSuccess) return null;
   return (
     <View style={styles.removal}>
@@ -167,7 +184,7 @@ function ProviderConnectionActions({
         <Alert
           variant="error"
           testID={`shared-provider-remove-error-${provider.id}-${environment.serverId}`}
-          description={error.message}
+          description={toErrorMessage(error)}
         />
       ) : null}
     </View>
@@ -544,7 +561,14 @@ function ProviderCatalog({
   const [managing, setManaging] = useState<ProviderAccount | null>(null);
   const [adding, setAdding] = useState(false);
   const [runtimeServerId, setRuntimeServerId] = useState<string | null>(null);
-  const change = useMutation({ mutationFn: save });
+  const reportActionError = useReportActionError();
+  const change = useMutation({
+    mutationFn: save,
+    onError: (failure) => {
+      if (isConnectionError(failure)) reportActionError(failure);
+    },
+  });
+  const isChangeRejected = change.isError && !isConnectionError(change.error);
   const definitions = useMemo(
     () =>
       [
@@ -692,7 +716,9 @@ function ProviderCatalog({
         status={change.isPending ? "Saving provider settings..." : null}
         info="Changes apply across environments. Manage exclusions in Environment exceptions."
       >
-        {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+        {isChangeRejected ? (
+          <Alert variant="error" description={toErrorMessage(change.error)} />
+        ) : null}
         <DraggableList
           data={families}
           keyExtractor={familyKey}
@@ -712,7 +738,9 @@ function ProviderCatalog({
         onClose={closeAdd}
         header={addHeader}
       >
-        {change.isError ? <Alert variant="error" description={change.error.message} /> : null}
+        {isChangeRejected ? (
+          <Alert variant="error" description={toErrorMessage(change.error)} />
+        ) : null}
         <Text style={settingsStyles.rowHint}>
           Choose where authentication or runtime installation is needed. Provider settings are
           shared.

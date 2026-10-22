@@ -18,6 +18,8 @@ import {
 } from "@/stores/workspace-setup-store";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
+import { useToast } from "@/contexts/toast-context";
+import { toErrorMessage } from "@/utils/error-messages";
 
 function useSetupPanelDescriptor(
   target: { kind: "setup"; workspaceId: string },
@@ -126,41 +128,39 @@ function BlockedSetupNotice({
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
   const supportsSetupRun = useHostFeature(serverId, "workspaceSetupRun");
-  const [runError, setRunError] = useState<string | null>(null);
+  const toast = useToast();
   const [isRunningSetup, setIsRunningSetup] = useState(false);
   const runSetup = useCallback(async () => {
     if (!client) return;
-    setRunError(null);
     setIsRunningSetup(true);
     try {
       const response = await client.runWorkspaceSetup(workspaceId);
       if (response.error) throw new Error(response.error);
     } catch (error) {
-      setRunError(error instanceof Error ? error.message : t("workspace.setup.blocked.runFailed"));
+      toast.error(
+        error instanceof Error ? toErrorMessage(error) : t("workspace.setup.blocked.runFailed"),
+      );
     } finally {
       setIsRunningSetup(false);
     }
-  }, [client, t, workspaceId]);
+  }, [client, t, toast, workspaceId]);
 
   return (
-    <>
-      <Alert
-        size="sm"
-        variant="warning"
-        title={t("workspace.setup.blocked.title")}
-        description={t("workspace.setup.blocked.description", {
-          repository: source.headRepository,
-        })}
-        testID="workspace-setup-blocked"
-      >
-        {supportsSetupRun ? (
-          <Button accessibilityRole="button" onPress={runSetup} loading={isRunningSetup} size="sm">
-            {t("workspace.setup.blocked.run")}
-          </Button>
-        ) : null}
-      </Alert>
-      {runError ? <Alert size="sm" variant="error" description={runError} /> : null}
-    </>
+    <Alert
+      size="sm"
+      variant="warning"
+      title={t("workspace.setup.blocked.title")}
+      description={t("workspace.setup.blocked.description", {
+        repository: source.headRepository,
+      })}
+      testID="workspace-setup-blocked"
+    >
+      {supportsSetupRun ? (
+        <Button accessibilityRole="button" onPress={runSetup} loading={isRunningSetup} size="sm">
+          {t("workspace.setup.blocked.run")}
+        </Button>
+      ) : null}
+    </Alert>
   );
 }
 

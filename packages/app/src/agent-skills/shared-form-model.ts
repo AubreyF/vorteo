@@ -9,11 +9,14 @@ import type {
   InstallationSettingsUpdate,
 } from "@getpaseo/protocol/installation-settings";
 import type { PreparedInstallationSkill } from "@/execution-installation/skills";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
 
 interface Ports {
   prepare(source: SkillSource): Promise<PreparedInstallationSkill>;
   read(definition: InstallationSkill): Promise<SkillPackage>;
   save(update: InstallationSettingsUpdate): Promise<unknown>;
+  /** Reports a lost connection outside the form, which keeps no error text for it. */
+  reportConnectionLost(error: unknown): void;
 }
 interface State {
   source: SkillSource;
@@ -34,6 +37,11 @@ export function openSharedSkillForm(ports: Ports, initial?: InstallationSkill) {
   let generation = 0;
   let closed = false;
   const listeners = new Set<() => void>();
+  function failure(error: unknown): string | null {
+    if (!isConnectionError(error)) return toErrorMessage(error);
+    ports.reportConnectionLost(error);
+    return null;
+  }
   function publish(patch: Partial<State>) {
     if (closed) return;
     state = { ...state, ...patch };
@@ -97,7 +105,7 @@ export function openSharedSkillForm(ports: Ports, initial?: InstallationSkill) {
         };
         publish({ phase: "review", review: { current, next: prepared.package } });
       } catch (error) {
-        if (!closed && operation === generation) publish({ phase: "edit", error: message(error) });
+        if (!closed && operation === generation) publish({ phase: "edit", error: failure(error) });
       }
     },
     async submit() {
@@ -112,16 +120,12 @@ export function openSharedSkillForm(ports: Ports, initial?: InstallationSkill) {
         return true;
       } catch (error) {
         if (!closed && operation === generation)
-          publish({ phase: "review", error: message(error) });
+          publish({ phase: "review", error: failure(error) });
         return false;
       }
     },
   };
 }
-function message(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to save the shared skill.";
-}
-
 function prepareInputs(
   input: SkillSource,
   snapshot: InstallationSettingsSnapshot,

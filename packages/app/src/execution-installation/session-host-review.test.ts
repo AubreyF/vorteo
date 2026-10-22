@@ -176,12 +176,14 @@ test("status lists what the coordinator observed, and only what the token may se
       detail: {
         ...installed.detail!,
         installedRelease: "0.11.0-beta.3.vorteo.760",
+        upgradePending: true,
         host: { ...installed.detail!.host!, sessions: 3, providers: { claude: 2, codex: 1 } },
       },
     }),
   ).toEqual(
     expect.arrayContaining([
       "Installed release: 0.11.0-beta.3.vorteo.760",
+      "Upgrade pending: the host exits for the installed release once its sessions end",
       "Hosted sessions: 3 (claude 2, codex 1)",
     ]),
   );

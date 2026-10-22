@@ -25,6 +25,11 @@ vi.mock("@/runtime/host-runtime", () => ({
   useHostRuntimeIsConnected: () => runtime.connected,
 }));
 
+const reportActionError = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/use-action-error", () => ({
+  useReportActionError: () => reportActionError,
+}));
+
 vi.mock("@/runtime/host-features", () => ({
   useHostFeature: (_serverId: string, feature: string) => {
     if (feature === "pluginLogs") return runtime.logsSupported;
@@ -204,6 +209,19 @@ describe("HostPluginsPage", () => {
     await selectPluginAction(action);
 
     await waitFor(() => expect(client[method]).toHaveBeenCalledTimes(1));
+  });
+
+  it("reports an action lost to a dropped connection as a toast, not inline feedback", async () => {
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([plugin()]);
+    const lost = new Error("Transport closed (code 1006)");
+    client.disablePlugin.mockRejectedValueOnce(lost);
+    renderPage(client);
+
+    fireEvent.click(await screen.findByRole("switch", { name: "example: Disable" }));
+
+    await waitFor(() => expect(reportActionError).toHaveBeenCalledWith(lost));
+    expect(screen.queryByTestId("plugin-management-feedback")).toBeNull();
   });
 
   it("hides the logs action when the host does not advertise support", async () => {

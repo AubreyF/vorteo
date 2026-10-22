@@ -13,6 +13,8 @@ import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { buildSelectableProviderSelectorProviders } from "@/provider-selection/provider-selection";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
+import { isConnectionError, toErrorMessage } from "@/utils/error-messages";
+import { useReportActionError } from "@/hooks/use-action-error";
 
 const METADATA_GENERATION_DOCS_URL = "https://paseo.sh/docs/metadata-generation";
 type SelectionMode = "automatic" | "preferred";
@@ -53,6 +55,7 @@ export function MetadataGenerationPage({ serverId }: { serverId: string }) {
     [t, isSaving],
   );
 
+  const reportActionError = useReportActionError();
   const saveProviders = useCallback(
     async (providersPatch: { provider: string; model?: string }[]) => {
       setIsSaving(true);
@@ -61,12 +64,13 @@ export function MetadataGenerationPage({ serverId }: { serverId: string }) {
         await patchConfig({ metadataGeneration: { providers: providersPatch } });
       } catch (error) {
         setDraftMode(null);
-        setSaveError(error instanceof Error ? error.message : String(error));
+        if (isConnectionError(error)) reportActionError(error);
+        else setSaveError(toErrorMessage(error));
       } finally {
         setIsSaving(false);
       }
     },
-    [patchConfig],
+    [patchConfig, reportActionError],
   );
 
   const handleModeChange = useCallback(

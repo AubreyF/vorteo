@@ -280,6 +280,7 @@ function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
     plan.sourceUpdateTooling !== undefined ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -329,6 +330,7 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
     plan.previewMonitorConfiguration !== undefined ||
+    plan.claudeHostRefreshConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
