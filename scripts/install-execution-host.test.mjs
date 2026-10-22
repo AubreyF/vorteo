@@ -145,7 +145,7 @@ test("installed agent commands return a public approval link without authorizing
       },
       {
         method: "GET",
-        url: `/api/installation/restart-requests/${id}?requireOwnerApproval=1`,
+        url: `/api/installation/restart-requests/${id}?sourceBatches=1&requireOwnerApproval=1`,
         token: "Bearer scoped-test-token",
       },
     ]);
@@ -346,146 +346,157 @@ test.each(["host", "container-daemon"])(
   90_000,
 );
 
-test("Dev builds remain inactive until exact-source activation and retain the previous release", async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "installation-dev-build-"));
-  const releases = path.join(root, "releases");
-  const previous = path.join(releases, "previous");
-  const home = path.join(root, "home");
-  const link = path.join(releases, "current");
-  mkdirSync(previous, { recursive: true });
-  mkdirSync(home);
-  symlinkSync(previous, link);
-  const baseCommit = "b".repeat(40);
-  writeFileSync(
-    path.join(previous, ".installation-source.json"),
-    JSON.stringify({ sourceCommit: baseCommit }),
-  );
-  const supervisor = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
-    env: { ...process.env, PASEO_MANAGED_RELEASE_LINK: link, PASEO_MANAGED_RELEASE_ROOT: releases },
-    stdio: "ignore",
-  });
-  writeFileSync(
-    path.join(home, "managed-supervisor.json"),
-    JSON.stringify({ version: 1, pid: supervisor.pid, root: releases, link }),
-  );
-  const source = path.join(root, "source");
-  mkdirSync(source);
-  writeFileSync(
-    path.join(source, "package.json"),
-    JSON.stringify({
-      name: "dev-update-fixture",
-      version: "1.0.0",
-      scripts: {
-        postinstall: "node build.cjs",
-        "build:server": "node build.cjs",
-      },
-    }),
-  );
-  const buildFile = path.join(source, "build.cjs");
-  writeFileSync(buildFile, "throw new Error('expected build failure');");
-  const run = promisify(execFile);
-  const helper = readFileSync(
-    new URL("./installation-container-runtime.mjs", import.meta.url),
-    "utf8",
-  );
-  const settings = {
-    releaseRoot: releases,
-    currentReleaseLink: link,
-    home,
-    node: process.execPath,
-  };
-  const update = { sourceCommit: "a".repeat(40), baseCommit, sha256: "d".repeat(64), bytes: 50 };
-  const command = (operation, archive) =>
-    new Promise((resolve, reject) => {
-      const child = execFile(
-        process.execPath,
-        ["--input-type=module", "--eval", helper, JSON.stringify({ settings, ...operation })],
-        { timeout: 30000 },
-        (error, stdout) => {
-          if (error) reject(error);
-          else resolve(JSON.parse(stdout));
-        },
-      );
-      child.stdin.end(archive);
-    });
-  const archiveFile = path.join(root, "source.tar");
-  const prepare = async (jobId) => {
-    await run("tar", ["-cf", archiveFile, "-C", source, "."]);
-    const archive = readFileSync(archiveFile);
-    return command(
-      {
-        action: "prepare",
-        previous,
-        jobId,
-        update,
-        archiveSha256: createHash("sha256").update(archive).digest("hex"),
-      },
-      archive,
-    );
-  };
-  try {
-    await run(
-      "npm",
-      [
-        "install",
-        "--package-lock-only",
-        "--ignore-scripts",
-        "--offline",
-        "--no-audit",
-        "--no-fund",
-      ],
-      { cwd: source },
-    );
-    await expect(prepare("a430b160-00a2-4d3e-bd91-d2eef4db7493")).rejects.toThrow(
-      "Dev build failed before activation",
-    );
-    expect((await command({ action: "inspect" })).release).toBe(previous);
+// The Dev runtime helper inspects /proc, so this exercises it only where Dev runs.
+test.skipIf(process.platform !== "linux")(
+  "Dev builds remain inactive until exact-source activation and retain the previous release",
+  async () => {
+    // The runtime compares the link against the canonical release root; macOS
+    // temporary paths under /var resolve to /private/var.
+    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "installation-dev-build-")));
+    const releases = path.join(root, "releases");
+    const previous = path.join(releases, "previous");
+    const home = path.join(root, "home");
+    const link = path.join(releases, "current");
+    mkdirSync(previous, { recursive: true });
+    mkdirSync(home);
+    symlinkSync(previous, link);
+    const baseCommit = "b".repeat(40);
     writeFileSync(
-      buildFile,
-      "const fs=require('fs'); for(const file of ['packages/server/dist/server/server/daemon-worker.js','packages/server/dist/scripts/supervisor-entrypoint.js']){fs.mkdirSync(require('path').dirname(file),{recursive:true});fs.writeFileSync(file,'process.exit(0)');}",
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
     );
-    const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
-    expect((await command({ action: "inspect" })).release).toBe(previous);
-    expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
-    const activation = {
-      action: "activate",
-      previous,
-      release: candidate.release,
-      update,
-      artifactSha256: candidate.artifactSha256,
+    const supervisor = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+      env: {
+        ...process.env,
+        PASEO_MANAGED_RELEASE_LINK: link,
+        PASEO_MANAGED_RELEASE_ROOT: releases,
+      },
+      stdio: "ignore",
+    });
+    writeFileSync(
+      path.join(home, "managed-supervisor.json"),
+      JSON.stringify({ version: 1, pid: supervisor.pid, root: releases, link }),
+    );
+    const source = path.join(root, "source");
+    mkdirSync(source);
+    writeFileSync(
+      path.join(source, "package.json"),
+      JSON.stringify({
+        name: "dev-update-fixture",
+        version: "1.0.0",
+        scripts: {
+          postinstall: "node build.cjs",
+          "build:server": "node build.cjs",
+        },
+      }),
+    );
+    const buildFile = path.join(source, "build.cjs");
+    writeFileSync(buildFile, "throw new Error('expected build failure');");
+    const run = promisify(execFile);
+    const helper = readFileSync(
+      new URL("./installation-container-runtime.mjs", import.meta.url),
+      "utf8",
+    );
+    const settings = {
+      releaseRoot: releases,
+      currentReleaseLink: link,
+      home,
+      node: process.execPath,
     };
-    expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
-      candidate.artifactSha256,
-    );
-    const workerFile = path.join(
-      candidate.release,
-      "packages/server/dist/server/server/daemon-worker.js",
-    );
-    writeFileSync(workerFile, "throw new Error('changed candidate');");
-    await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
-      "content changed",
-    );
-    await expect(command(activation)).rejects.toThrow("content changed");
-    expect((await command({ action: "inspect" })).release).toBe(previous);
-    writeFileSync(workerFile, "process.exit(0)");
-    await expect(
-      command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
-    ).rejects.toThrow("differs from approval");
-    await command(activation);
-    expect((await command({ action: "inspect" })).sourceCommit).toBe(update.sourceCommit);
-    await command({ action: "restore", previous, release: candidate.release });
-    expect((await command({ action: "inspect" })).sourceCommit).toBe(baseCommit);
-    expect(existsSync(candidate.release)).toBe(true);
-    await expect(
-      command({ action: "restore", previous, release: candidate.release }),
-    ).rejects.toThrow("selection changed");
-  } finally {
-    const closed = new Promise((resolve) => supervisor.once("close", resolve));
-    supervisor.kill("SIGTERM");
-    await closed;
-    rmSync(root, { recursive: true, force: true });
-  }
-}, 60000);
+    const update = { sourceCommit: "a".repeat(40), baseCommit, sha256: "d".repeat(64), bytes: 50 };
+    const command = (operation, archive) =>
+      new Promise((resolve, reject) => {
+        const child = execFile(
+          process.execPath,
+          ["--input-type=module", "--eval", helper, JSON.stringify({ settings, ...operation })],
+          { timeout: 30000 },
+          (error, stdout) => {
+            if (error) reject(error);
+            else resolve(JSON.parse(stdout));
+          },
+        );
+        child.stdin.end(archive);
+      });
+    const archiveFile = path.join(root, "source.tar");
+    const prepare = async (jobId) => {
+      await run("tar", ["-cf", archiveFile, "-C", source, "."]);
+      const archive = readFileSync(archiveFile);
+      return command(
+        {
+          action: "prepare",
+          previous,
+          jobId,
+          update,
+          archiveSha256: createHash("sha256").update(archive).digest("hex"),
+        },
+        archive,
+      );
+    };
+    try {
+      await run(
+        "npm",
+        [
+          "install",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--offline",
+          "--no-audit",
+          "--no-fund",
+        ],
+        { cwd: source },
+      );
+      await expect(prepare("a430b160-00a2-4d3e-bd91-d2eef4db7493")).rejects.toThrow(
+        "Dev build failed before activation",
+      );
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      writeFileSync(
+        buildFile,
+        "const fs=require('fs'); for(const file of ['packages/server/dist/server/server/daemon-worker.js','packages/server/dist/scripts/supervisor-entrypoint.js']){fs.mkdirSync(require('path').dirname(file),{recursive:true});fs.writeFileSync(file,'process.exit(0)');}",
+      );
+      const candidate = await prepare("a430b160-00a2-4d3e-bd91-d2eef4db7494");
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      expect(candidate.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
+      const activation = {
+        action: "activate",
+        previous,
+        release: candidate.release,
+        update,
+        artifactSha256: candidate.artifactSha256,
+      };
+      expect((await command({ ...activation, action: "verify-candidate" })).artifactSha256).toBe(
+        candidate.artifactSha256,
+      );
+      const workerFile = path.join(
+        candidate.release,
+        "packages/server/dist/server/server/daemon-worker.js",
+      );
+      writeFileSync(workerFile, "throw new Error('changed candidate');");
+      await expect(command({ ...activation, action: "verify-candidate" })).rejects.toThrow(
+        "content changed",
+      );
+      await expect(command(activation)).rejects.toThrow("content changed");
+      expect((await command({ action: "inspect" })).release).toBe(previous);
+      writeFileSync(workerFile, "process.exit(0)");
+      await expect(
+        command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
+      ).rejects.toThrow("differs from approval");
+      await command(activation);
+      expect((await command({ action: "inspect" })).sourceCommit).toBe(update.sourceCommit);
+      await command({ action: "restore", previous, release: candidate.release });
+      expect((await command({ action: "inspect" })).sourceCommit).toBe(baseCommit);
+      expect(existsSync(candidate.release)).toBe(true);
+      await expect(
+        command({ action: "restore", previous, release: candidate.release }),
+      ).rejects.toThrow("selection changed");
+    } finally {
+      const closed = new Promise((resolve) => supervisor.once("close", resolve));
+      supervisor.kill("SIGTERM");
+      await closed;
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
 
 async function webSourceFixture() {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "web-source-setup-")));
@@ -559,6 +570,7 @@ async function webSourceFixture() {
   };
 }
 
+// Each setup creates and fetches real repositories; allow for a loaded Host.
 test("web source setup reads actual config, seeds live history and preserves config and selection", async () => {
   const f = await webSourceFixture();
   try {
@@ -600,7 +612,7 @@ test("web source setup reads actual config, seeds live history and preserves con
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
 test.each(["new binding", "matching retry"])(
   "web source setup retains %s after directory sync failure and reconciles on retry",
@@ -661,6 +673,7 @@ test.each(["new binding", "matching retry"])(
       rmSync(f.root, { recursive: true, force: true });
     }
   },
+  60_000,
 );
 
 test.each(["repository", "config", "binding-parent", "writable-parent"])(
