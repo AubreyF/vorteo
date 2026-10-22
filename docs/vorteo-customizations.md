@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the tool relay reads each daemon reply itself and answers every request exactly once from its own response, so a tool call interrupted after its reply headers is reported as unknown and never run twice, and one call's failure leaves the others in flight untouched. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the tool relay repeats a message only when it does no work or certainly never reached a daemon, so a tool call interrupted by a worker's death is reported as unknown rather than run twice. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): durable sessions phase 3 adds the tool relay: hosted providers call the daemon's agent tools through the session host, which holds a call while no worker listens and answers it once the replacement attaches. README overview and onboarding are unchanged.

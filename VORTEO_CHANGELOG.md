@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Fixed
+
+- The tool relay decides each tool call's fate from its own reply. The daemon sends its reply headers the moment a call arrives, so almost every call interrupted by a worker restart dies as a broken reply stream, and the relay reported those as "tools unavailable", which told the model the call never ran. The relay now speaks to the daemon's endpoint directly, one request per message, reading the JSON or SSE reply itself: a tool call whose stream breaks, ends without a reply or gets a failed status is answered as unknown outcome, while a read-only request is repeated. A failure on one call no longer touches the other calls in flight on the same connection, so each request gets exactly one reply. A rejected token is held within the bound, since it comes from a worker that has not learned the host's token yet.
+
+### Validation
+
+- Relay tests run against a stand-in daemon that sends SSE headers first, as the real one does: a tool call whose stream breaks after the headers, one dropped before them, one whose stream ends without a reply and one refused with a failed status are each answered as unknown and seen once; a read-only request dropped the same ways is repeated and answered; two calls in flight where one fails with a status, or is refused and held while the daemon stops listening, leave the other streaming and answered exactly once; a token rejected twice is delivered on the third attempt; a token never accepted fails at the hold bound.
+
 ## 0.11.0-beta.3.vorteo.765 - 2026-10-22
 
 ### Fixed

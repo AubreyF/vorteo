@@ -20,35 +20,95 @@ const TOKEN = "host-token";
 const logger = pino({ level: "silent" });
 
 /**
- * A stateless MCP-shaped endpoint: one POST per message, JSON or SSE replies, 202 for
- * notifications, 401 without the host token. Every request is counted so a test can prove what
- * was and was not retried.
+ * A stateless MCP-shaped endpoint behaving like the daemon's: SSE headers go out as soon as a
+ * request arrives, the reply follows as one event, notifications get 202, a wrong token gets 401.
+ * Every accepted request is counted so a test can prove what was and was not repeated, and
+ * requests can be held open, dropped or broken at chosen points.
  */
 interface FakeDaemon {
   url: string;
   port: number;
+  /** Requests that passed the token check, in order. */
   requests: { method: string; id: unknown }[];
   /** Requests refused for a wrong token; they are not recorded above. */
   unauthorized: number;
-  /** Replies as an SSE stream that breaks after the first bytes when set. */
-  breakAfterBytes: boolean;
-  /** Accepts this many requests and drops their connections before answering: a worker dying mid-call. */
-  dieBeforeAnswer: number;
+  /** Rejects this many requests with 401 before accepting, as a worker without the host token. */
+  rejectFirst: number;
+  /** Answers this method with the given HTTP status instead of a reply. */
+  failStatus: Map<string, number>;
+  /** Drops this many connections before any headers: a worker killed on receipt. */
+  dieBeforeHeaders: number;
+  /** Sends headers for this many requests, then breaks the stream before the reply. */
+  breakAfterHeaders: number;
+  /** Sends headers for this many requests, then ends the stream cleanly with no reply. */
+  endWithoutReply: number;
+  /** Replies as plain JSON instead of SSE. */
+  json: boolean;
+  /** Request ids whose stream stays open until release(id) is called. */
+  hold: Set<unknown>;
+  release(id: unknown): void;
+  /** Stops accepting connections while existing streams stay open; listen() resumes. */
+  stopListening(): Promise<void>;
+  listen(): Promise<void>;
   close(): Promise<void>;
 }
 
 async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
+  const held = new Map<unknown, () => void>();
+  const sockets = new Set<net.Socket>();
+  let server: http.Server | null = null;
   const daemon: FakeDaemon = {
     url: "",
-    port: 0,
+    port,
     requests: [],
     unauthorized: 0,
-    breakAfterBytes: false,
-    dieBeforeAnswer: 0,
-    close: async () => {},
+    rejectFirst: 0,
+    failStatus: new Map(),
+    dieBeforeHeaders: 0,
+    breakAfterHeaders: 0,
+    endWithoutReply: 0,
+    json: false,
+    hold: new Set(),
+    release(id) {
+      held.get(id)?.();
+      held.delete(id);
+    },
+    stopListening: async () => {
+      const current = server;
+      server = null;
+      // close() stops accepting at once; its callback would wait for the open streams to end.
+      current?.close();
+    },
+    async listen() {
+      server = http.createServer(handle);
+      server.on("connection", (socket) => {
+        sockets.add(socket);
+        socket.once("close", () => sockets.delete(socket));
+      });
+      const target = server;
+      await new Promise<void>((resolve) => target.listen(daemon.port, "127.0.0.1", resolve));
+      daemon.port = (target.address() as net.AddressInfo).port;
+      daemon.url = `http://127.0.0.1:${daemon.port}/mcp/agents?callerAgentId=agent-1`;
+    },
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      await daemon.stopListening();
+    },
   };
-  const server = http.createServer((req, res) => {
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+
+  function reply(res: http.ServerResponse, message: unknown): void {
+    if (daemon.json) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(message));
+      return;
+    }
+    res.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+    res.end();
+  }
+
+  function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (req.headers.authorization !== `Bearer ${TOKEN}` || daemon.rejectFirst > 0) {
+      if (daemon.rejectFirst > 0) daemon.rejectFirst -= 1;
       daemon.unauthorized += 1;
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "Unauthorized" }));
@@ -63,43 +123,52 @@ async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
     req.on("data", (chunk: string) => (body += chunk));
     req.on("end", () => {
       const message = JSON.parse(body) as { method?: string; id?: unknown };
-      daemon.requests.push({ method: message.method ?? "", id: message.id });
-      if (daemon.dieBeforeAnswer > 0) {
-        daemon.dieBeforeAnswer -= 1;
+      const method = message.method ?? "";
+      daemon.requests.push({ method, id: message.id });
+      if (daemon.dieBeforeHeaders > 0) {
+        daemon.dieBeforeHeaders -= 1;
         req.socket.destroy();
+        return;
+      }
+      const status = daemon.failStatus.get(method);
+      if (status) {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "failed" }));
         return;
       }
       if (message.id === undefined) {
         res.writeHead(202).end();
         return;
       }
-      if (daemon.breakAfterBytes) {
-        res.writeHead(200, { "content-type": "text/event-stream" });
-        res.write(": partial\n\n");
+      const result =
+        method === "tools/call" ? { content: [{ type: "text", text: "ran" }] } : { echo: method };
+      const answer = { jsonrpc: "2.0", id: message.id, result };
+      if (daemon.json) {
+        reply(res, answer);
+        return;
+      }
+      // As the daemon does: headers at once, the reply when the tool finishes.
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.flushHeaders();
+      if (daemon.breakAfterHeaders > 0) {
+        daemon.breakAfterHeaders -= 1;
         setTimeout(() => res.destroy(), 20);
         return;
       }
-      if (message.method === "sse") {
-        res.writeHead(200, { "content-type": "text/event-stream" });
-        res.write(
-          `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { via: "sse" } })}\n\n`,
-        );
-        res.end();
+      if (daemon.endWithoutReply > 0) {
+        daemon.endWithoutReply -= 1;
+        setTimeout(() => res.end(), 20);
         return;
       }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { echo: message.method } }));
+      if (daemon.hold.has(message.id)) {
+        held.set(message.id, () => reply(res, answer));
+        return;
+      }
+      setTimeout(() => reply(res, answer), 10);
     });
-  });
-  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
-  const address = server.address() as net.AddressInfo;
-  daemon.port = address.port;
-  daemon.url = `http://127.0.0.1:${address.port}/mcp/agents?callerAgentId=agent-1`;
-  daemon.close = () =>
-    new Promise<void>((resolve) => {
-      server.closeAllConnections();
-      server.close(() => resolve());
-    });
+  }
+
+  await daemon.listen();
   return daemon;
 }
 
@@ -182,8 +251,13 @@ function tempDirectory(): string {
   return directory;
 }
 
+async function daemonFor(): Promise<FakeDaemon> {
+  const daemon = await startFakeDaemon();
+  cleanups.push(() => daemon.close());
+  return daemon;
+}
+
 async function relayFor(
-  daemonUrl: string,
   overrides: Partial<Parameters<typeof createToolRelay>[0]> = {},
 ): Promise<{ relay: ToolRelay; directory: string }> {
   const directory = tempDirectory();
@@ -192,105 +266,190 @@ async function relayFor(
   return { relay, directory };
 }
 
-async function connect(socketPath: string): Promise<LineClient> {
-  const client = new LineClient(socketPath);
+/** A relay session on a fresh daemon with a connected line client, the common test setup. */
+async function connectedRelay(
+  daemon: FakeDaemon,
+  overrides: Partial<Parameters<typeof createToolRelay>[0]> = { retryMs: 20, holdMs: 5_000 },
+) {
+  const { relay, directory } = await relayFor(overrides);
+  const session = await relay.open("session-1", daemon.url);
+  if (!session) throw new Error("relay refused the session");
+  const client = new LineClient(session.socketPath);
   cleanups.push(() => client.end());
   await client.ready();
-  return client;
+  return { relay, directory, session, client };
 }
 
-describe("tool relay", () => {
-  test("relays a request, an SSE reply and a notification, and leaves bodies untouched", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    const { relay, directory } = await relayFor(daemon.url);
-    const session = await relay.open("session-1", daemon.url);
-    expect(session).not.toBeNull();
-    expect(session!.socketPath).toBe(toolRelaySocketPath(directory, "session-1"));
-    expect(statSync(session!.socketPath).mode & 0o777).toBe(0o600);
-    expect(isToolRelayServer(session!.server)).toBe(true);
-    expect(session!.server.args?.[0]).toBe(toolRelayBridgePath());
+const call = (id: unknown, name = "send") => ({
+  jsonrpc: "2.0",
+  id,
+  method: "tools/call",
+  params: { name },
+});
+const ran = (id: unknown) => ({
+  jsonrpc: "2.0",
+  id,
+  result: { content: [{ type: "text", text: "ran" }] },
+});
+const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
 
-    const client = await connect(session!.socketPath);
+describe("tool relay", () => {
+  test("relays requests, SSE and JSON replies and notifications, and leaves bodies untouched", async () => {
+    const daemon = await daemonFor();
+    const { relay, directory, session, client } = await connectedRelay(daemon);
+    expect(session.socketPath).toBe(toolRelaySocketPath(directory, "session-1"));
+    expect(statSync(session.socketPath).mode & 0o777).toBe(0o600);
+    expect(isToolRelayServer(session.server)).toBe(true);
+    expect(session.server.args?.[0]).toBe(toolRelayBridgePath());
+
     client.send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
     expect(await client.next()).toEqual([
       { jsonrpc: "2.0", id: 1, result: { echo: "tools/list" } },
     ]);
-    client.send({ jsonrpc: "2.0", id: "two", method: "sse" });
-    expect(await client.next()).toEqual([{ jsonrpc: "2.0", id: "two", result: { via: "sse" } }]);
+    client.send(call("two"));
+    expect(await client.next()).toEqual([ran("two")]);
     client.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    daemon.json = true;
     client.send({ jsonrpc: "2.0", id: 3, method: "ping" });
     expect(await client.next()).toEqual([{ jsonrpc: "2.0", id: 3, result: { echo: "ping" } }]);
     expect(daemon.requests.map((entry) => entry.method)).toEqual([
       "tools/list",
-      "sse",
+      "tools/call",
       "notifications/initialized",
       "ping",
     ]);
     expect(relay.sessionCount()).toBe(1);
     await relay.close("session-1");
-    expect(existsSync(session!.socketPath)).toBe(false);
+    expect(existsSync(session.socketPath)).toBe(false);
     expect(relay.sessionCount()).toBe(0);
   });
 
-  test("a tool call the daemon accepted but never answered is not repeated", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    daemon.dieBeforeAnswer = 1;
-    const { relay } = await relayFor(daemon.url, { retryMs: 20, holdMs: 5_000 });
-    const session = await relay.open("session-1", daemon.url);
-    const client = await connect(session!.socketPath);
-    client.send({ jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "send" } });
+  test("a tool call whose reply stream breaks after the headers is answered as unknown, once", async () => {
+    const daemon = await daemonFor();
+    daemon.breakAfterHeaders = 1;
+    const { client } = await connectedRelay(daemon);
+    client.send(call(21));
     const [reply] = await client.next();
     expect(reply).toMatchObject({
       id: 21,
       error: { code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE, message: expect.stringContaining("unknown") },
     });
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    // The daemon saw the call exactly once; the next call on the connection works as usual.
+    await settle();
     expect(daemon.requests.map((entry) => entry.id)).toEqual([21]);
-    client.send({ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "send" } });
-    expect(await client.next()).toEqual([
-      { jsonrpc: "2.0", id: 22, result: { echo: "tools/call" } },
-    ]);
+    // The connection stays usable.
+    client.send(call(22));
+    expect(await client.next()).toEqual([ran(22)]);
+    expect(client.lines).toEqual([]);
   });
 
-  test("a read-only request is repeated after the daemon drops it mid-request", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    daemon.dieBeforeAnswer = 1;
-    const { relay } = await relayFor(daemon.url, { retryMs: 20, holdMs: 5_000 });
-    const session = await relay.open("session-1", daemon.url);
-    const client = await connect(session!.socketPath);
-    client.send({ jsonrpc: "2.0", id: 23, method: "tools/list" });
-    expect(await client.next()).toEqual([
-      { jsonrpc: "2.0", id: 23, result: { echo: "tools/list" } },
-    ]);
-    expect(daemon.requests.map((entry) => entry.id)).toEqual([23, 23]);
+  test("a tool call the daemon dropped before any headers is answered as unknown, once", async () => {
+    const daemon = await daemonFor();
+    daemon.dieBeforeHeaders = 1;
+    const { client } = await connectedRelay(daemon);
+    client.send(call(23));
+    const [reply] = await client.next();
+    expect(reply).toMatchObject({ id: 23, error: { code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE } });
+    await settle();
+    expect(daemon.requests.map((entry) => entry.id)).toEqual([23]);
   });
 
-  test("holds a tool call while the connection is refused and delivers it once to the daemon that appears", async () => {
+  test("a reply stream that ends cleanly without the reply answers the call as unknown", async () => {
+    const daemon = await daemonFor();
+    daemon.endWithoutReply = 1;
+    const { client } = await connectedRelay(daemon);
+    client.send(call(24));
+    const [reply] = await client.next();
+    expect(reply).toMatchObject({ id: 24, error: { code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE } });
+    expect(daemon.requests).toHaveLength(1);
+  });
+
+  test("a read-only request is repeated after its stream breaks or ends without a reply", async () => {
+    const daemon = await daemonFor();
+    daemon.breakAfterHeaders = 1;
+    daemon.endWithoutReply = 1;
+    const { client } = await connectedRelay(daemon);
+    client.send({ jsonrpc: "2.0", id: 25, method: "tools/list" });
+    expect(await client.next()).toEqual([
+      { jsonrpc: "2.0", id: 25, result: { echo: "tools/list" } },
+    ]);
+    expect(daemon.requests.map((entry) => entry.id)).toEqual([25, 25, 25]);
+  });
+
+  test("a failed status for one call never touches another call still streaming", async () => {
+    const daemon = await daemonFor();
+    daemon.hold.add("A");
+    daemon.failStatus.set("tools/list", 500);
+    const { client } = await connectedRelay(daemon);
+    client.send(call("A"));
+    await settle();
+    client.send({ jsonrpc: "2.0", id: "B", method: "tools/list" });
+    const [replyB] = await client.next();
+    expect(replyB).toMatchObject({ id: "B", error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
+    daemon.failStatus.clear();
+    client.send(call("C"));
+    expect(await client.next()).toEqual([ran("C")]);
+    // A is still running; nothing has been said about it.
+    await settle();
+    expect(client.lines).toEqual([]);
+    daemon.release("A");
+    expect(await client.next()).toEqual([ran("A")]);
+    await settle();
+    expect(client.lines).toEqual([]);
+    expect(daemon.requests.map((entry) => entry.id)).toEqual(["A", "B", "C"]);
+  });
+
+  test("a tool call refused with a failed status is answered as unknown", async () => {
+    const daemon = await daemonFor();
+    daemon.failStatus.set("tools/call", 500);
+    const { client } = await connectedRelay(daemon);
+    client.send(call(26));
+    const [reply] = await client.next();
+    expect(reply).toMatchObject({ id: 26, error: { code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE } });
+    expect(daemon.requests).toHaveLength(1);
+  });
+
+  test("a call held through a refused connection never touches another call still streaming", async () => {
+    const daemon = await daemonFor();
+    daemon.hold.add("A");
+    const { client } = await connectedRelay(daemon);
+    client.send(call("A"));
+    await settle();
+    // The daemon stops listening with A's stream open: B is refused and held.
+    await daemon.stopListening();
+    client.send(call("B"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(client.lines).toEqual([]);
+    await daemon.listen();
+    expect(await client.next()).toEqual([ran("B")]);
+    daemon.release("A");
+    expect(await client.next()).toEqual([ran("A")]);
+    await settle();
+    expect(client.lines).toEqual([]);
+    expect(daemon.requests.map((entry) => entry.id)).toEqual(["A", "B"]);
+  });
+
+  test("holds messages while no daemon listens and delivers each once when one appears", async () => {
     const probe = await startFakeDaemon();
     const { url, port } = probe;
     await probe.close();
-    const { relay } = await relayFor(url, { retryMs: 50 });
+    const { relay } = await relayFor({ retryMs: 50 });
     const session = await relay.open("session-1", url);
-    const client = await connect(session!.socketPath);
+    const client = new LineClient(session!.socketPath);
+    cleanups.push(() => client.end());
+    await client.ready();
     const sentAt = Date.now();
-    client.send({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "x" } });
-    client.send({ jsonrpc: "2.0", id: 8, method: "second" });
+    client.send(call(7));
+    client.send({ jsonrpc: "2.0", id: 8, method: "tools/list" });
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(client.lines).toEqual([]);
 
     const daemon = await startFakeDaemon(port);
     cleanups.push(() => daemon.close());
-    const replies = await client.next(2);
-    expect(replies).toEqual([
-      { jsonrpc: "2.0", id: 7, result: { echo: "tools/call" } },
-      { jsonrpc: "2.0", id: 8, result: { echo: "second" } },
+    expect(await client.next(2)).toEqual([
+      ran(7),
+      { jsonrpc: "2.0", id: 8, result: { echo: "tools/list" } },
     ]);
     expect(Date.now() - sentAt).toBeGreaterThanOrEqual(300);
-    // The daemon saw each message exactly once, in order.
     expect(daemon.requests.map((entry) => entry.id)).toEqual([7, 8]);
   });
 
@@ -299,95 +458,96 @@ describe("tool relay", () => {
     const { url } = probe;
     await probe.close();
     let now = 1_000;
-    const { relay } = await relayFor(url, { retryMs: 20, holdMs: 500, now: () => now });
+    const { relay } = await relayFor({ retryMs: 20, holdMs: 500, now: () => now });
     const session = await relay.open("session-1", url);
-    const client = await connect(session!.socketPath);
-    client.send({ jsonrpc: "2.0", id: 9, method: "tools/call" });
+    const client = new LineClient(session!.socketPath);
+    cleanups.push(() => client.end());
+    await client.ready();
+    client.send(call(9));
     client.send({ jsonrpc: "2.0", method: "notifications/progress" });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(client.lines).toEqual([]);
     now += 600;
     const [reply] = await client.next();
-    expect(reply).toMatchObject({
-      jsonrpc: "2.0",
-      id: 9,
-      error: { code: TOOL_RELAY_UNAVAILABLE_CODE },
-    });
+    expect(reply).toMatchObject({ id: 9, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
     // The notification was dropped without a reply, and the connection stays usable.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle();
     expect(client.lines).toEqual([]);
     expect(client.closed).toBe(false);
   });
 
-  test("never retries after the daemon started answering", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    daemon.breakAfterBytes = true;
-    const { relay } = await relayFor(daemon.url, { retryMs: 20, holdMs: 5_000 });
-    const session = await relay.open("session-1", daemon.url);
-    const client = await connect(session!.socketPath);
-    client.send({ jsonrpc: "2.0", id: 10, method: "tools/call" });
-    const [reply] = await client.next();
-    expect(reply).toMatchObject({ id: 10, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(daemon.requests).toHaveLength(1);
+  test("a rejected token is held for a worker that has the host token, then delivered once", async () => {
+    const daemon = await daemonFor();
+    daemon.rejectFirst = 2;
+    const { client } = await connectedRelay(daemon);
+    client.send(call(11));
+    expect(await client.next()).toEqual([ran(11)]);
+    expect(daemon.unauthorized).toBe(2);
+    expect(daemon.requests.map((entry) => entry.id)).toEqual([11]);
   });
 
-  test("a rejected token is answered at once, not held", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    const { relay } = await relayFor(daemon.url, { token: "wrong", retryMs: 20, holdMs: 5_000 });
-    const session = await relay.open("session-1", daemon.url);
-    const client = await connect(session!.socketPath);
-    client.send({ jsonrpc: "2.0", id: 11, method: "tools/list" });
-    const [reply] = await client.next();
-    expect(reply).toMatchObject({ id: 11, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
+  test("a token the daemon never accepts fails at the hold bound", async () => {
+    const daemon = await daemonFor();
+    let now = 1_000;
+    const { client } = await connectedRelay(daemon, {
+      token: "wrong",
+      retryMs: 20,
+      holdMs: 500,
+      now: () => now,
+    });
+    client.send({ jsonrpc: "2.0", id: 12, method: "tools/list" });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(daemon.unauthorized).toBe(1);
+    expect(client.lines).toEqual([]);
+    now += 600;
+    const [reply] = await client.next();
+    expect(reply).toMatchObject({ id: 12, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
     expect(daemon.requests).toEqual([]);
   });
 
   test("a malformed line gets a parse error and closes the connection", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    const { relay } = await relayFor(daemon.url);
-    const session = await relay.open("session-1", daemon.url);
-    const client = await connect(session!.socketPath);
+    const daemon = await daemonFor();
+    const { session, client } = await connectedRelay(daemon);
     client.send("{not json");
     const [reply] = await client.next();
     expect(reply).toMatchObject({ id: null, error: { code: -32_700 } });
     await client.untilClosed();
     expect(daemon.requests).toEqual([]);
 
-    const other = await connect(session!.socketPath);
-    other.send({ jsonrpc: "2.0", id: 12, method: "ping" });
-    expect(await other.next()).toEqual([{ jsonrpc: "2.0", id: 12, result: { echo: "ping" } }]);
+    const other = new LineClient(session.socketPath);
+    cleanups.push(() => other.end());
+    await other.ready();
+    other.send({ jsonrpc: "2.0", id: 13, method: "ping" });
+    expect(await other.next()).toEqual([{ jsonrpc: "2.0", id: 13, result: { echo: "ping" } }]);
   });
 
   test("bounds the messages waiting on a connection", async () => {
     const probe = await startFakeDaemon();
     const { url } = probe;
     await probe.close();
-    const { relay } = await relayFor(url, { retryMs: 20, holdMs: 60_000 });
+    const { relay } = await relayFor({ retryMs: 20, holdMs: 60_000 });
     const session = await relay.open("session-1", url);
-    const client = await connect(session!.socketPath);
-    for (let index = 0; index < 65; index += 1)
-      client.send({ jsonrpc: "2.0", id: index, method: "tools/call" });
+    const client = new LineClient(session!.socketPath);
+    cleanups.push(() => client.end());
+    await client.ready();
+    for (let index = 0; index < 66; index += 1) client.send(call(index));
     const [reply] = await client.next();
-    expect(reply).toMatchObject({ id: 64, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
+    expect(reply).toMatchObject({ id: 65, error: { code: TOOL_RELAY_UNAVAILABLE_CODE } });
     await client.untilClosed();
   });
 
   test("reopening a session replaces its socket, and closing all removes every socket", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    const { relay } = await relayFor(daemon.url);
+    const daemon = await daemonFor();
+    const { relay } = await relayFor();
     const first = await relay.open("session-1", daemon.url);
-    const firstClient = await connect(first!.socketPath);
+    const firstClient = new LineClient(first!.socketPath);
+    cleanups.push(() => firstClient.end());
+    await firstClient.ready();
     const second = await relay.open("session-1", daemon.url);
     expect(second!.socketPath).toBe(first!.socketPath);
     await firstClient.untilClosed();
-    const client = await connect(second!.socketPath);
+    const client = new LineClient(second!.socketPath);
+    cleanups.push(() => client.end());
+    await client.ready();
     client.send({ jsonrpc: "2.0", id: 1, method: "ping" });
     expect(await client.next()).toHaveLength(1);
     await relay.open("session-2", daemon.url);
@@ -398,8 +558,7 @@ describe("tool relay", () => {
   });
 
   test("refuses a socket path too long for the platform", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
+    const daemon = await daemonFor();
     const directory = path.join(tempDirectory(), "x".repeat(90));
     const relay = createToolRelay({ directory, token: TOKEN, logger });
     expect(await relay.open("session-1", daemon.url)).toBeNull();
@@ -407,9 +566,8 @@ describe("tool relay", () => {
   });
 
   test("the shipped bridge carries a request through the relay", async () => {
-    const daemon = await startFakeDaemon();
-    cleanups.push(() => daemon.close());
-    const { relay } = await relayFor(daemon.url);
+    const daemon = await daemonFor();
+    const { relay } = await relayFor();
     const session = await relay.open("session-1", daemon.url);
     const bridge = spawn(session!.server.command, session!.server.args ?? [], {
       stdio: ["pipe", "pipe", "pipe"],

@@ -4,7 +4,6 @@ import { chmod, mkdir, rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { JSONRPCMessageSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import type { Logger } from "pino";
 import type { McpStdioServerConfig } from "../agent/agent-sdk-types.js";
@@ -21,13 +20,15 @@ export { isToolRelayServer, TOOL_RELAY_BRIDGE_FILE_NAME, TOOL_RELAY_DIRECTORY_NA
  * host instead of directly. The host serves one unix socket per hosted session and speaks the MCP
  * stdio framing on it (one JSON-RPC message per line); the provider connects through the shipped
  * stdio-to-socket bridge, configured as an ordinary stdio tool server. The host turns each
- * inbound message into a POST to the daemon's stateless endpoint with its own token and writes the
- * daemon's reply back as one line.
+ * inbound message into one POST to the daemon's stateless endpoint with its own token, reads the
+ * JSON or SSE reply itself, and writes the reply back as one line.
  *
  * While no worker listens, which happens for seconds after a worker kill or during a graceful
  * swap, the direct connection used to fail the tool call. The relay holds a message whose POST
- * never reached a daemon, retrying until one answers or the hold bound passes. A failure after the
- * daemon started answering is never retried, since the tool may already have run.
+ * never reached a daemon, retrying until one answers or the hold bound passes. Each request's fate
+ * is decided from its own response alone: a tool call whose reply stream breaks or ends without a
+ * reply after the daemon may have run it is answered as unknown, never repeated, and never
+ * disturbs the other calls in flight on the same connection.
  */
 
 /** JSON-RPC error code for a message no daemon answered within the hold bound. */
@@ -142,11 +143,6 @@ function neverDelivered(error: unknown, depth = 0): boolean {
   return neverDelivered(cause, depth + 1);
 }
 
-type Attempt =
-  | { outcome: "sent" }
-  | { outcome: "retry" }
-  | { outcome: "failed"; code: number; message: string };
-
 function errorReply(id: JsonRpcId | null, code: number, message: string): string {
   return `${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`;
 }
@@ -161,6 +157,40 @@ function requestId(message: JSONRPCMessage): JsonRpcId | null {
 function replyId(message: JSONRPCMessage): JsonRpcId | null {
   if ("method" in message) return null;
   return (message as { id?: JsonRpcId | null }).id ?? null;
+}
+
+function mediaType(response: Response): string {
+  return (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+}
+
+/**
+ * Reads an SSE body and yields the data of each event. Only the `data` field matters here: the
+ * daemon's stateless endpoint sends one JSON-RPC message per event and never resumes a stream.
+ */
+async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let data: string[] = [];
+  const reader = body.getReader();
+  const flush = function* (): Generator<string> {
+    if (data.length > 0) yield data.join("\n");
+    data = [];
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffered += decoder.decode(value, { stream: true });
+    let newline = buffered.indexOf("\n");
+    while (newline !== -1) {
+      const line = buffered.slice(0, newline).replace(/\r$/, "");
+      buffered = buffered.slice(newline + 1);
+      if (line === "") yield* flush();
+      else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+      newline = buffered.indexOf("\n");
+    }
+  }
+  if (buffered.startsWith("data:")) data.push(buffered.slice(5).replace(/^ /, ""));
+  yield* flush();
 }
 
 interface Queued {
@@ -180,103 +210,217 @@ interface ConnectionOptions {
   logger: Logger;
 }
 
+/** What became of one POST, once its reply was read or its failure understood. */
+type Outcome =
+  /** A reply reached the provider, or the message needed none. */
+  | { kind: "done" }
+  /** The request certainly never ran; it may be repeated. */
+  | { kind: "undelivered"; error: unknown }
+  /** The daemon rejected the token: the worker has not learned it yet; repeating is safe. */
+  | { kind: "unauthorized" }
+  /** The daemon answered the request with a failure status. */
+  | { kind: "refused"; status: number }
+  /** The request reached the daemon, and its reply never arrived whole. */
+  | { kind: "interrupted"; error: unknown };
+
 /**
- * One provider connection: lines in, POSTs out, replies back as lines. Messages are sent one at
- * a time so a held message keeps its order and a response is always matched to its request.
+ * One provider connection: lines in, one POST per message, replies back as lines. Messages are
+ * sent in order, one at a time until each is accepted, so a held message keeps its place; their
+ * replies then stream in independently, and each request is answered exactly once from its own
+ * response.
  */
 function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
   const queue: Queued[] = [];
   let queuedBytes = 0;
-  /** Requests sent to the daemon whose reply has not arrived. */
+  /** Requests whose reply has not been written yet; a request is answered exactly once. */
   const pending = new Set<JsonRpcId>();
   let pumping = false;
   let closed = false;
   let buffered = "";
-  /** Set by the fetch wrapper once the daemon started answering the current message. */
-  let responded = false;
-
-  const transport = new StreamableHTTPClientTransport(options.url, {
-    requestInit: { headers: { Authorization: `Bearer ${options.token}` } },
-    fetch: async (url, init) => {
-      const response = await options.fetch(url, init);
-      responded = true;
-      return response;
-    },
-  });
-  // The transport is not an event target; its callbacks are plain properties.
-  Object.assign(transport, {
-    onmessage: (message: JSONRPCMessage) => {
-      const id = replyId(message);
-      if (id !== null) pending.delete(id);
-      if (!isClosed()) socket.write(`${JSON.stringify(message)}\n`);
-    },
-    onerror: (error: Error) => {
-      // A reply stream that broke after the daemon started answering: the tool may have run, so
-      // the waiting requests get an error rather than a retry.
-      if (pending.size === 0) return;
-      options.logger.warn(
-        { err: error, requests: pending.size },
-        "The daemon's tool reply stream failed; answering the waiting requests with an error",
-      );
-      for (const id of pending)
-        socket.write(errorReply(id, TOOL_RELAY_UNAVAILABLE_CODE, TOOL_RELAY_UNAVAILABLE_MESSAGE));
-      pending.clear();
-    },
-  });
 
   /** Closed by either side, or ending after a refused message; nothing more is read or sent. */
   function isClosed(): boolean {
     return closed || socket.writableEnded;
   }
 
-  function fail(id: JsonRpcId | null, code: number, message: string, andClose: boolean): void {
-    if (isClosed()) return;
-    if (id !== null || code === PARSE_ERROR_CODE) socket.write(errorReply(id, code, message));
-    if (andClose) socket.end();
+  function writeLine(line: string): void {
+    if (!isClosed()) socket.write(line);
   }
 
-  const unavailable: Attempt = {
-    outcome: "failed",
-    code: TOOL_RELAY_UNAVAILABLE_CODE,
-    message: TOOL_RELAY_UNAVAILABLE_MESSAGE,
-  };
-
-  async function attempt(item: Queued): Promise<Attempt> {
-    responded = false;
-    try {
-      await transport.send(item.message);
-      return { outcome: "sent" };
-    } catch (error) {
-      if (responded) {
-        options.logger.warn(
-          { err: error },
-          "The daemon answered a relayed tool message with a failure; not retried",
-        );
-        return unavailable;
-      }
-      // A request that may have reached a daemon is repeated only when repeating it does no
-      // work. A tool call whose worker died mid-request might have run: the caller must check.
-      if (!isRepeatable(item.message) && !neverDelivered(error)) {
-        options.logger.warn(
-          { err: error, method: (item.message as { method?: string }).method },
-          "A relayed tool call failed after it may have reached a daemon; not retried",
-        );
-        return {
-          outcome: "failed",
-          code: TOOL_RELAY_UNKNOWN_OUTCOME_CODE,
-          message: TOOL_RELAY_UNKNOWN_OUTCOME_MESSAGE,
-        };
-      }
-      const now = options.now();
-      if (item.heldSince === null) {
-        item.heldSince = now;
-        options.logger.info(
-          { err: error, holdMs: options.holdMs },
-          "No daemon answered a relayed tool message; holding it for a worker",
-        );
-      }
-      return now - item.heldSince < options.holdMs ? { outcome: "retry" } : unavailable;
+  /** Writes the request's error once; later outcomes for the same request are ignored. */
+  function answer(id: JsonRpcId | null, code: number, message: string): void {
+    if (id !== null) {
+      if (!pending.delete(id)) return;
     }
+    writeLine(errorReply(id, code, message));
+  }
+
+  function deliver(message: JSONRPCMessage): void {
+    const id = replyId(message);
+    if (id !== null && !pending.delete(id)) return;
+    writeLine(`${JSON.stringify(message)}\n`);
+  }
+
+  /** Reads the response body to its end, delivering each JSON-RPC message it carries. */
+  async function consume(response: Response, id: JsonRpcId | null): Promise<Outcome> {
+    const type = mediaType(response);
+    try {
+      if (type === "application/json") {
+        const data: unknown = await response.json();
+        for (const item of Array.isArray(data) ? data : [data])
+          deliver(JSONRPCMessageSchema.parse(item));
+      } else if (type === "text/event-stream") {
+        if (!response.body) throw new Error("The daemon's reply had no body.");
+        for await (const data of sseEvents(response.body)) {
+          const parsed = JSONRPCMessageSchema.safeParse(JSON.parse(data));
+          if (parsed.success) deliver(parsed.data);
+        }
+      } else {
+        await response.body?.cancel();
+        throw new Error(`The daemon answered with an unexpected content type: ${type || "none"}.`);
+      }
+    } catch (error) {
+      return { kind: "interrupted", error };
+    }
+    // The stream ended cleanly, yet the request is still waiting: its reply was never sent.
+    if (id !== null && pending.has(id))
+      return { kind: "interrupted", error: new Error("The reply stream ended without a reply.") };
+    return { kind: "done" };
+  }
+
+  /**
+   * One POST; resolves once the reply is fully read or the failure is understood. onAccepted
+   * fires as soon as the daemon has the request and is answering it.
+   */
+  async function post(item: Queued, onAccepted: () => void): Promise<Outcome> {
+    let response: Response;
+    try {
+      response = await options.fetch(options.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(item.message),
+      });
+    } catch (error) {
+      return neverDelivered(error)
+        ? { kind: "undelivered", error }
+        : { kind: "interrupted", error };
+    }
+    if (response.status === 401) {
+      await response.body?.cancel();
+      return { kind: "unauthorized" };
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return { kind: "refused", status: response.status };
+    }
+    if (response.status === 202) {
+      await response.body?.cancel();
+      return { kind: "done" };
+    }
+    onAccepted();
+    return consume(response, requestId(item.message));
+  }
+
+  /** Whether a message may be sent again after this outcome, and the hold is not spent. */
+  function mayRepeat(item: Queued, outcome: Outcome): boolean {
+    if (outcome.kind === "done") return false;
+    const repeatable = isRepeatable(item.message);
+    const safe =
+      outcome.kind === "undelivered" ||
+      outcome.kind === "unauthorized" ||
+      (repeatable && outcome.kind !== "refused");
+    if (!safe) return false;
+    const now = options.now();
+    if (item.heldSince === null) {
+      item.heldSince = now;
+      options.logger.info(
+        {
+          err: "error" in outcome ? outcome.error : undefined,
+          outcome: outcome.kind,
+          holdMs: options.holdMs,
+        },
+        "No daemon answered a relayed tool message; holding it for a worker",
+      );
+    }
+    return now - item.heldSince < options.holdMs;
+  }
+
+  /** Answers a request whose message will not be sent again. */
+  function settle(item: Queued, outcome: Outcome): void {
+    const id = requestId(item.message);
+    if (outcome.kind === "done") return;
+    // Once the request reached a daemon, a failed status or a broken reply says nothing about
+    // whether the tool ran. Only a repeatable message may be reported as merely unavailable.
+    const reached = outcome.kind === "interrupted" || outcome.kind === "refused";
+    if (reached && !isRepeatable(item.message)) {
+      options.logger.warn(
+        {
+          err: "error" in outcome ? outcome.error : undefined,
+          status: "status" in outcome ? outcome.status : undefined,
+          method: (item.message as { method?: string }).method,
+        },
+        "A relayed tool call failed after it may have reached a daemon; not repeated",
+      );
+      answer(id, TOOL_RELAY_UNKNOWN_OUTCOME_CODE, TOOL_RELAY_UNKNOWN_OUTCOME_MESSAGE);
+      return;
+    }
+    if (outcome.kind === "refused")
+      options.logger.warn({ status: outcome.status }, "The daemon refused a relayed tool message");
+    answer(id, TOOL_RELAY_UNAVAILABLE_CODE, TOOL_RELAY_UNAVAILABLE_MESSAGE);
+  }
+
+  /**
+   * Sends one message until it is accepted or given up. Resolves once the daemon has taken the
+   * request (headers arrived) or the message is settled; the reply body is read in the
+   * background, and a repeatable request whose reply breaks is queued again from there.
+   */
+  async function dispatch(item: Queued): Promise<void> {
+    for (;;) {
+      if (isClosed()) return;
+      let signalAccepted: () => void = () => {};
+      const accepted = new Promise<void>((resolve) => {
+        signalAccepted = resolve;
+      });
+      const outcome = post(item, () => signalAccepted());
+      // Headers arriving means the daemon has the request; the next message may go out while
+      // this reply streams. A failure before headers settles the outcome instead.
+      const first = await Promise.race([
+        outcome.then(() => "settled" as const),
+        accepted.then(() => "accepted" as const),
+      ]);
+      if (first === "accepted") {
+        void outcome.then((result) => finishLater(item, result));
+        return;
+      }
+      const result = await outcome;
+      if (result.kind === "done") return;
+      if (!mayRepeat(item, result)) {
+        settle(item, result);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.retryMs));
+    }
+  }
+
+  /** Ends a request whose reply streamed in the background: repeat it, answer it, or nothing. */
+  function finishLater(item: Queued, result: Outcome): void {
+    if (result.kind === "done" || isClosed()) return;
+    if (mayRepeat(item, result)) requeue(item);
+    else settle(item, result);
+  }
+
+  /** Puts a repeatable message back at the head of the queue after a short pause. */
+  function requeue(item: Queued): void {
+    setTimeout(() => {
+      if (isClosed()) return;
+      queue.unshift(item);
+      queuedBytes += item.bytes;
+      void pump();
+    }, options.retryMs);
   }
 
   async function pump(): Promise<void> {
@@ -284,24 +428,21 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     pumping = true;
     try {
       while (queue.length > 0 && !isClosed()) {
-        const item = queue[0]!;
-        const result = await attempt(item);
-        if (result.outcome === "retry") {
-          await new Promise((resolve) => setTimeout(resolve, options.retryMs));
-          continue;
-        }
-        queue.shift();
+        const item = queue.shift()!;
         queuedBytes -= item.bytes;
         const id = requestId(item.message);
-        if (result.outcome === "sent") {
-          if (id !== null) pending.add(id);
-        } else {
-          fail(id, result.code, result.message, false);
-        }
+        if (id !== null) pending.add(id);
+        await dispatch(item);
       }
     } finally {
       pumping = false;
     }
+  }
+
+  function fail(id: JsonRpcId | null, code: number, message: string, andClose: boolean): void {
+    if (isClosed()) return;
+    if (id !== null || code === PARSE_ERROR_CODE) writeLine(errorReply(id, code, message));
+    if (andClose) socket.end();
   }
 
   function accept(line: string): void {
@@ -354,7 +495,6 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     queue.length = 0;
     queuedBytes = 0;
     pending.clear();
-    void transport.close().catch(() => {});
   });
 }
 
