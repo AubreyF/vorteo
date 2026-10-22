@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.737 - 2026-10-21
+
+### Fixed
+
+- Keep History, Schedules and Settings in the left sidebar toolbar until they would actually overlap. The toolbar hid them at fixed widths, so a 330px sidebar moved Settings into the actions menu with room to spare. It now measures its own width and moves a button into the menu only when it no longer fits.
 
 ## 0.11.0-beta.3.vorteo.736 - 2026-10-21
 

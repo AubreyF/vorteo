@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-21): the left sidebar toolbar keeps History, Schedules and Settings visible until they would overlap, measuring its real width instead of using fixed breakpoints. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-21): headless browser settings are validated by the browser host instead of the config schema, so an unknown key or wrongly typed value keeps the browser off without stopping the daemon. README onboarding is unchanged.
 
 Maintenance review (2026-10-21): headless browser allowed hosts accept a port range for managed preview ports. Docs, skills and the README describe browser tools and running the browser in the Dev container with its safety settings. README Power Tools entry updated.
@@ -430,7 +432,7 @@ General settings expansions use a shared shaded region within their parent secti
 
 Queue rows use their action height without extra vertical padding. Sidebar action tooltips are hover-only; touch activates their menus directly. Browser checks cover heading clearance, sidebar icon alignment, action hover feedback, both row-menu tooltips and conditional Settings placement. README overview and onboarding are unchanged.
 
-Card headings use equal 2px, 3px and 4px insets at the existing width breakpoints. Bodies start 2px below their headings, adjacent cards have 4px gaps, and card rows use the sidebar's 32px desktop or 44px touch row height without extra vertical padding. The sidebar toolbar sizes independently of central tabs, aligns its first control with project images, and provides hover feedback and tooltips for menu and creation actions. Settings appears either in the toolbar or its overflow menu. README overview and onboarding are unchanged.
+Card headings use equal 2px, 3px and 4px insets at the existing width breakpoints. Bodies start 2px below their headings, adjacent cards have 4px gaps, and card rows use the sidebar's 32px desktop or 44px touch row height without extra vertical padding. The sidebar toolbar sizes independently of central tabs, aligns its first control with project images, and provides hover feedback and tooltips for menu and creation actions. The toolbar measures its own width and moves Settings, then History, then Schedules into the overflow menu only when another 44px button would no longer fit beside the others with an 8px gap. Below room for even Schedules, navigation becomes labeled rows. README overview and onboarding are unchanged.
 
 Script-toolbar unit fixtures include the shared button opacity token and exercise the direct ghost control without replacing the button component. This test maintenance does not change product behavior or onboarding.
 
