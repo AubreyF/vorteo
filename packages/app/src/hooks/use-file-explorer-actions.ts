@@ -7,6 +7,7 @@ import {
 } from "@/stores/session-store";
 import { explorerFileFromReadResult } from "@/file-explorer/read-result";
 import { parentExplorerPath } from "@/utils/explorer-paths";
+import { toErrorMessage } from "@/utils/error-messages";
 
 function createExplorerState(): AgentFileExplorerState {
   return {
@@ -162,7 +163,7 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
           isLoading: false,
           lastError:
             error instanceof Error
-              ? error.message
+              ? toErrorMessage(error)
               : t("workspace.fileExplorer.errors.failedToListDirectory"),
           pendingRequest: null,
         }));
@@ -228,7 +229,8 @@ export function useFileExplorerActions(params: { serverId: string } & FileExplor
         updateExplorerState((state) => ({
           ...state,
           isLoading: false,
-          lastError: error instanceof Error ? error.message : t("panels.file.failedToLoadPreview"),
+          lastError:
+            error instanceof Error ? toErrorMessage(error) : t("panels.file.failedToLoadPreview"),
           pendingRequest: null,
         }));
       }

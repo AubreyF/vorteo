@@ -67,6 +67,7 @@ export const zhCN: TranslationResources = {
       daemonClientDisconnected: "Daemon client 已断开连接",
       noFileFound: "未找到 {{token}} 对应的文件",
       unexpectedDictationError: "处理听写时发生意外错误。",
+      hostConnectionLost: "与 Host 的连接已断开。重新连接后请重试。",
     },
     connectionStatus: {
       online: "在线",

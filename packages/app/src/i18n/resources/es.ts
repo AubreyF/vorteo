@@ -68,6 +68,8 @@ export const es: TranslationResources = {
       daemonClientDisconnected: "El clienteDaemonestá desconectado",
       noFileFound: "No se encontró ningún archivo para{{token}}",
       unexpectedDictationError: "Se produjo un error inesperado al manejar el dictado.",
+      hostConnectionLost:
+        "Se perdió la conexión con el host. Inténtalo de nuevo cuando se reconecte.",
     },
     connectionStatus: {
       online: "En línea",

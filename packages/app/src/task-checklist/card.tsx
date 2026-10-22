@@ -14,6 +14,8 @@ import type { ChecklistMutation } from "@getpaseo/protocol/task-checklist";
 import { useSessionStore } from "@/stores/session-store";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVortonTouch } from "@/vorton-touch";
+import { useReportActionError } from "@/hooks/use-action-error";
+import { useToast } from "@/contexts/toast-context";
 import { isNative } from "@/constants/platform";
 import { LIST_ROW_ACTION_SIZE, LIST_ROW_TOUCH_ACTION_SIZE } from "@/styles/list-row-metrics";
 import { StatusRing } from "@/components/status-ring";
@@ -78,12 +80,14 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
       };
     }),
   );
+  const reportError = useReportActionError();
   const mutation = useMutation({
     mutationFn: async (input: ChecklistMutation) => {
       if (!client || !connected || readOnly)
         throw new Error("Reconnect to an active thread before editing its checklist.");
       return client.mutateAgentChecklist(agentId, input);
     },
+    onError: reportError,
     retry: false,
   });
   const clearMutation = useMutation({
@@ -92,14 +96,12 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
         throw new Error("Reconnect to an active thread before editing its checklist.");
       await clearCompletedTasks(snapshot, (input) => client.mutateAgentChecklist(agentId, input));
     },
+    onError: reportError,
     retry: false,
   });
-  const { mutate: clearTasks, reset: resetClear } = clearMutation;
-  const { mutate: sendMutation, reset: resetMutation } = mutation;
-  const clearCompleted = useCallback(() => {
-    resetMutation();
-    clearTasks(tasks);
-  }, [clearTasks, resetMutation, tasks]);
+  const { mutate: clearTasks } = clearMutation;
+  const { mutate: sendMutation } = mutation;
+  const clearCompleted = useCallback(() => clearTasks(tasks), [clearTasks, tasks]);
   const canMutate = connected && !readOnly && !mutation.isPending && !clearMutation.isPending;
   const progress = checklistProgress(tasks);
   const headingIcon = useMemo(
@@ -137,22 +139,14 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
     ),
     [progress.completed, progress.total, t],
   );
-  const error = clearMutation.error?.message ?? mutation.error?.message ?? null;
-  const open = useCallback(
-    (task: AgentTaskItem | null) => {
-      resetMutation();
-      resetClear();
-      setEditor({ open: true, task });
-    },
-    [resetMutation, resetClear],
-  );
+  const open = useCallback((task: AgentTaskItem | null) => setEditor({ open: true, task }), []);
   const close = useCallback(() => setEditor({ open: false }), []);
   const add = useCallback(() => open(null), [open]);
   if (tasks.length === 0) return null;
   if (!supported) return <AgentTaskList inline tasks={tasks} />;
   return (
     <>
-      <TaskCard flushBody testID="agent-task-progress-card" bodyVisible={expanded || !!error}>
+      <TaskCard flushBody testID="agent-task-progress-card" bodyVisible={expanded}>
         <TaskCardHeader>
           <CardDisclosure
             icon={headingIcon}
@@ -189,11 +183,6 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
             reorder={mutation.mutateAsync}
           />
         ) : null}
-        {error ? (
-          <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
-            {error}
-          </Text>
-        ) : null}
       </TaskCard>
       {editor.open ? (
         <ChecklistEditor
@@ -203,7 +192,6 @@ export function ChecklistCard({ serverId, agentId, tasks = EMPTY_TASKS }: Checkl
           tasks={tasks}
           canMutate={canMutate}
           pending={mutation.isPending}
-          error={error}
           mutate={mutation.mutateAsync}
           onClose={close}
         />
@@ -257,12 +245,11 @@ function ChecklistRows({
   );
   const onDragActive = useContext(QueueDragScrollContext);
   const startedTasks = useRef(tasks);
-  const [reorderError, setReorderError] = useState<string | null>(null);
+  const toast = useToast();
   const release = useCallback(() => onDragActive(false), [onDragActive]);
   useEffect(() => release, [release]);
   const begin = useCallback(() => {
     startedTasks.current = tasks;
-    setReorderError(null);
     onDragActive(true);
   }, [tasks, onDragActive]);
   const drop = useCallback(
@@ -272,7 +259,7 @@ function ChecklistRows({
       // Do not overwrite a newer order or membership received during the gesture.
       const before = startedTasks.current.map(taskKey).join("\n");
       if (tasks.map(taskKey).join("\n") !== before) {
-        setReorderError("Tasks changed while dragging. Try again.");
+        toast.error("Tasks changed while dragging. Try again.");
         return;
       }
       const ids = rows
@@ -282,7 +269,7 @@ function ChecklistRows({
         return reorder({ operation: "reorder", ids });
       }
     },
-    [release, canMutate, tasks, managed, reorder],
+    [release, canMutate, tasks, managed, reorder, toast],
   );
   const renderRow = useCallback(
     (info: DraggableRenderItemInfo<AgentTaskItem>) => (
@@ -298,26 +285,19 @@ function ChecklistRows({
   );
 
   return (
-    <>
-      <DraggableList
-        data={tasks}
-        keyExtractor={taskKey}
-        renderItem={renderRow}
-        onDragBegin={begin}
-        onDragEnd={drop}
-        onDragRelease={release}
-        scrollEnabled={false}
-        // The whole row is the activator: pointers drag after a short move, fingers after a
-        // short hold, so taps on its buttons and card scrolling keep working.
-        useDragHandle
-        touchActivation="hold"
-      />
-      {reorderError ? (
-        <Text accessibilityRole="alert" style={[styles.error, taskCardStyles.proseInset]}>
-          {reorderError}
-        </Text>
-      ) : null}
-    </>
+    <DraggableList
+      data={tasks}
+      keyExtractor={taskKey}
+      renderItem={renderRow}
+      onDragBegin={begin}
+      onDragEnd={drop}
+      onDragRelease={release}
+      scrollEnabled={false}
+      // The whole row is the activator: pointers drag after a short move, fingers after a
+      // short hold, so taps on its buttons and card scrolling keep working.
+      useDragHandle
+      touchActivation="hold"
+    />
   );
 }
 
@@ -479,9 +459,4 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.md,
   },
   touchCheckbox: { height: LIST_ROW_TOUCH_ACTION_SIZE, minHeight: LIST_ROW_TOUCH_ACTION_SIZE },
-  error: {
-    color: theme.colors.destructive,
-    fontSize: theme.fontSize.sm,
-    padding: theme.spacing[2],
-  },
 }));

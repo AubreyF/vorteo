@@ -33,6 +33,7 @@ import type {
   RestartSummary,
 } from "@getpaseo/protocol/execution-installation";
 import { OwnerAccessExpired, type InstallationClient } from "./client";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface InstallationPanelState {
   serviceQueue: MaintenanceServiceQueueStatus | null;
@@ -301,8 +302,7 @@ export class InstallationPanelModel {
         (this.client.listInstructionRequests?.() ?? Promise.resolve(null)).catch(
           (error: unknown) => {
             this.publish({
-              instructionError:
-                error instanceof Error ? error.message : "Instruction requests are unavailable",
+              instructionError: failureMessage(error, "Instruction requests are unavailable"),
             });
             return this.state.instructionRequests;
           },
@@ -396,8 +396,7 @@ export class InstallationPanelModel {
       if (error instanceof OwnerAccessExpired) this.fail(error);
       else
         this.publish({
-          serviceQueueError:
-            error instanceof Error ? error.message : "Maintenance cancellation failed.",
+          serviceQueueError: failureMessage(error, "Maintenance cancellation failed."),
         });
     } finally {
       if (generation === this.accessGeneration) this.publish({ busy: false });
@@ -478,7 +477,7 @@ export class InstallationPanelModel {
       if (generation !== this.accessGeneration) return;
       this.publish({
         notice: null,
-        daemonAutomationError: error instanceof Error ? error.message : String(error),
+        daemonAutomationError: toErrorMessage(error),
       });
       if (error instanceof OwnerAccessExpired) this.fail(error);
     } finally {
@@ -514,10 +513,10 @@ export class InstallationPanelModel {
       this.fail(error);
       this.publish({
         error: null,
-        helperError:
-          error instanceof Error
-            ? error.message
-            : "Monitor decision unconfirmed. Refresh before retrying.",
+        helperError: failureMessage(
+          error,
+          "Monitor decision unconfirmed. Refresh before retrying.",
+        ),
       });
     } finally {
       this.publish({ busy: false });
@@ -598,7 +597,7 @@ export class InstallationPanelModel {
     if (!this.state.unlocked) return;
     this.publish({
       error: null,
-      sessionHostError: error instanceof Error ? error.message : fallback,
+      sessionHostError: failureMessage(error, fallback),
     });
   }
 
@@ -626,10 +625,10 @@ export class InstallationPanelModel {
       await this.refresh();
     } catch (error) {
       this.publish({
-        instructionError:
-          error instanceof Error
-            ? error.message
-            : "Instruction decision unconfirmed. Refresh before retrying.",
+        instructionError: failureMessage(
+          error,
+          "Instruction decision unconfirmed. Refresh before retrying.",
+        ),
       });
     } finally {
       this.publish({ busy: false });
@@ -661,10 +660,7 @@ export class InstallationPanelModel {
       this.fail(error);
       this.publish({
         error: null,
-        helperError:
-          error instanceof Error
-            ? error.message
-            : "Helper decision unconfirmed. Refresh before retrying.",
+        helperError: failureMessage(error, "Helper decision unconfirmed. Refresh before retrying."),
       });
     } finally {
       this.publish({ busy: false });
@@ -777,7 +773,7 @@ export class InstallationPanelModel {
         enrollmentRefreshing: false,
       });
     }
-    this.publish({ error: error instanceof Error ? error.message : "Installation request failed" });
+    this.publish({ error: failureMessage(error, "Installation request failed") });
   }
   private publish(update: Partial<InstallationPanelState>): void {
     this.state = { ...this.state, ...update };
@@ -914,4 +910,8 @@ export function restartRequestSummary(job: RestartJob): string {
   }
   if (job.automaticApproval) return `Automatically approved by installation policy. ${reason}`;
   return reason;
+}
+
+function failureMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? toErrorMessage(error) : fallback;
 }

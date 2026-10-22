@@ -69,6 +69,7 @@ export const fr: TranslationResources = {
       noFileFound: "Aucun fichier trouvé pour{{token}}",
       unexpectedDictationError:
         "Une erreur inattendue s'est produite lors du traitement de la dictée.",
+      hostConnectionLost: "Connexion à l'hôte perdue. Réessayez une fois la connexion rétablie.",
     },
     connectionStatus: {
       online: "En ligne",

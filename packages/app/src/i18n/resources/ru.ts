@@ -68,6 +68,7 @@ export const ru: TranslationResources = {
       daemonClientDisconnected: "Daemon клиента отключен",
       noFileFound: "Файл для {{token}} не найден",
       unexpectedDictationError: "При обработке диктовки произошла непредвиденная ошибка.",
+      hostConnectionLost: "Соединение с хостом потеряно. Повторите попытку после переподключения.",
     },
     connectionStatus: {
       online: "Онлайн",

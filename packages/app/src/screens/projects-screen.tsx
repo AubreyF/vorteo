@@ -12,6 +12,7 @@ import { settingsStyles } from "@/styles/settings";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { openProjectSettings } from "@/navigation/settings-navigation";
 import type { ProjectHostEntry, ProjectSummary } from "@/utils/projects";
+import { toErrorMessage } from "@/utils/error-messages";
 
 interface ProjectsScreenProps {
   serverId?: string;
@@ -119,7 +120,7 @@ function HostErrorsBanner({ errors }: { errors: ProjectHostError[] }) {
         <Text key={error.serverId} style={styles.errorsBannerText}>
           {t("settings.projectList.hostLoadFailed", {
             hostName: error.serverName,
-            message: error.message,
+            message: toErrorMessage(error.message),
           })}
         </Text>
       ))}

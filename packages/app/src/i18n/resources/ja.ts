@@ -68,6 +68,7 @@ export const ja: TranslationResources = {
       daemonClientDisconnected: "デーモンクライアントが切断されています",
       noFileFound: "{{token}}のファイルが見つかりません",
       unexpectedDictationError: "音声入力処理中に予期しないエラーが発生しました。",
+      hostConnectionLost: "ホストとの接続が切れました。再接続後にもう一度お試しください。",
     },
     connectionStatus: {
       online: "オンライン",

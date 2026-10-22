@@ -217,7 +217,7 @@ test.describe("Workspace labels", () => {
         await openWorkspaceLabels(page, seeded.workspaceId);
         mutationFailure.failNextAssignment();
         await labelRow(page, "Urgent").click();
-        await expect(page.getByTestId("workspace-label-picker-error")).toContainText(
+        await expect(page.getByTestId("app-toast-message")).toContainText(
           "Injected label mutation failure.",
         );
         await expectAssigned(page, "Urgent", true);
