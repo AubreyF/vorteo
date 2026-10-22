@@ -4,6 +4,11 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Fixed
+
+- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
 
 ## 0.11.0-beta.3.vorteo.755 - 2026-10-22
 
