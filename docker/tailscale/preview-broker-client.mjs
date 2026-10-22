@@ -167,19 +167,55 @@ function prepare(operation, workspace, name, w) {
     // The daemon does not inherit caller environment. Wrap the registered command
     // before its first stopped launch. An already-running application is adopted.
     if (service.lifecycle !== "running" || operation === "restart") {
-      const path = join(w.cwd, "paseo.json");
-      const text = readFileSync(path, "utf8");
-      const cfg = JSON.parse(text);
       const helper = installation().helperCommand;
       const executable = helper
         ? helper.map(quote).join(" ")
         : "/home/paseo/.local/bin/paseo-preview";
       const prefix = `${executable} env ${quote(name)} --workspace ${quote(workspace)} -- `;
-      if (!cfg.scripts[name].command.startsWith(prefix)) {
-        cfg.scripts[name].command = prefix + "/bin/sh -lc " + quote(cfg.scripts[name].command);
-        if (readFileSync(path, "utf8") !== text) throw Error("Configuration changed concurrently");
-        replace(path, JSON.stringify(cfg, null, 2) + "\n");
-      }
+      wrapPreviewCommand(w.cwd, name, prefix, localProjectConfigSupported());
     }
   }
+}
+
+function localProjectConfigSupported() {
+  try {
+    return cli(["daemon", "status"]).localProjectConfig === true;
+  } catch {
+    return false;
+  }
+}
+
+// Daemons that merge paseo.local.json get the wrapper there, so a preview never dirties the
+// committed paseo.json of a shared checkout. Older daemons only read paseo.json.
+export function wrapPreviewCommand(cwd, name, prefix, useLocalConfig) {
+  const projectPath = join(cwd, "paseo.json");
+  const projectText = readFileSync(projectPath, "utf8");
+  const project = JSON.parse(projectText);
+  const committed = project.scripts?.[name]?.command;
+  if (typeof committed !== "string") throw Error("Preview service configuration is missing");
+  if (!useLocalConfig) {
+    if (committed.startsWith(prefix)) return;
+    project.scripts[name].command = prefix + "/bin/sh -lc " + quote(committed);
+    if (readFileSync(projectPath, "utf8") !== projectText)
+      throw Error("Configuration changed concurrently");
+    replace(projectPath, JSON.stringify(project, null, 2) + "\n");
+    return;
+  }
+  const localPath = join(cwd, "paseo.local.json");
+  const localText = existsSync(localPath) ? readFileSync(localPath, "utf8") : null;
+  const local = localText === null ? {} : JSON.parse(localText);
+  const current = local.scripts?.[name]?.command ?? committed;
+  if (current.startsWith(prefix)) return;
+  local.scripts = {
+    ...local.scripts,
+    [name]: { ...local.scripts?.[name], command: prefix + "/bin/sh -lc " + quote(current) },
+  };
+  const now = existsSync(localPath) ? readFileSync(localPath, "utf8") : null;
+  if (now !== localText) throw Error("Configuration changed concurrently");
+  const text = JSON.stringify(local, null, 2) + "\n";
+  if (localText === null) {
+    const temp = localPath + "." + randomUUID() + ".tmp";
+    writeFileSync(temp, text, { mode: 0o644, flag: "wx" });
+    renameSync(temp, localPath);
+  } else replace(localPath, text);
 }

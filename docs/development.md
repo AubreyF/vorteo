@@ -372,6 +372,12 @@ A new worktree starts from the current branch's upstream, or the local branch wh
 upstream. This keeps unpushed local commits out of new workspaces by default. The picker collapses
 identical refs; divergent local or non-origin refs remain explicit, qualified choices.
 
+When a request names an unqualified branch such as `main` and both the local branch and
+`origin/main` exist, the daemon fetches `origin/main` first. It branches from `origin/main` when
+the local branch is strictly behind it, and from the local branch otherwise. A primary checkout
+whose work is pushed from other worktrees never advances its own `main`, so this keeps new
+workspaces from silently starting from an old commit.
+
 The daemon sends the exact upstream ref because the remote and branch names cannot be inferred.
 Worktrees retain that ref for comparisons and updates from base while exposing its branch name to
 the UI. Merging into base requires a mutable local target: `origin/main` maps to local `main`, while
@@ -382,6 +388,12 @@ exact ref also resolves through its stored branch name.
 Worktrees inherit committed Git state only; uncommitted source-checkout changes are not copied.
 
 ## paseo.json service scripts
+
+`paseo.local.json` holds machine-local overrides and is ignored by Git. The daemon merges each of
+its `scripts` entries over the same-named entry in `paseo.json` when it runs scripts; the project
+settings editor reads and writes `paseo.json` alone. Daemons that support the file advertise the
+`localProjectConfig` feature, and `paseo daemon status --json` reports it. The preview helper
+writes its launch wrapper there, so starting a preview never dirties a shared checkout.
 
 `worktree.setup` and `worktree.teardown` accept either a multiline shell script or an array
 of commands. Both run sequentially.

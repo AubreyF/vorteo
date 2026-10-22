@@ -50,6 +50,23 @@ def safe_read(path, limit=65536):
         os.close(fd)
 
 
+def project_config(path):
+    """paseo.json with paseo.local.json script entries merged over it, as the daemon runs it."""
+    cfg = safe_read(path / 'paseo.json')
+    try:
+        local = safe_read(path / 'paseo.local.json')
+    except FileNotFoundError:
+        return cfg
+    overrides = local.get('scripts') if isinstance(local, dict) else None
+    if not isinstance(overrides, dict):
+        return cfg
+    scripts = dict(cfg.get('scripts') or {})
+    for name, override in overrides.items():
+        base = scripts.get(name)
+        scripts[name] = {**base, **override} if isinstance(base, dict) and isinstance(override, dict) else override
+    return {**cfg, 'scripts': scripts}
+
+
 def safe_dir(path):
     fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -233,7 +250,7 @@ process.stdout.write(found[0].value);
         if self.c.get('workspacePolicy', 'approved-roots') != 'registered' and match['isolation'] == 'worktree' and approved.get(workspace) != cwd:
             raise ValueError('Worktree requires explicit administrator approval')
         path = self.host_workspace(cwd)
-        cfg = safe_read(path / 'paseo.json')
+        cfg = project_config(path)
         definition = cfg.get('scripts', {}).get(service)
         scripts = self.cli(['script', 'ls', '--workspace', workspace])
         entry = next((s for s in scripts if s['scriptName'] == service), None)
@@ -253,7 +270,7 @@ process.stdout.write(found[0].value);
                 continue
             path = self.host_workspace(cwd)
             try:
-                cfg = safe_read(path / 'paseo.json')
+                cfg = project_config(path)
             except FileNotFoundError:
                 continue
             for definition in cfg.get('scripts', {}).values():

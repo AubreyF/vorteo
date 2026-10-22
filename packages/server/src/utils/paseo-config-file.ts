@@ -54,6 +54,41 @@ export function readPaseoConfigJson(repoRoot: string): unknown {
   return JSON.parse(readFileSync(configPath, "utf8"));
 }
 
+// Untracked, machine-local overrides for script entries. Tools such as the preview helper write
+// here so launching a service never dirties the committed paseo.json of a shared checkout.
+export const PASEO_LOCAL_CONFIG_FILE_NAME = "paseo.local.json";
+
+/**
+ * The configuration the daemon runs: paseo.json with each `scripts` entry of paseo.local.json
+ * merged over the same-named committed entry. Only scripts are overridable. Editing reads and
+ * writes paseo.json alone so local overrides are never baked into the committed file.
+ */
+export function readEffectivePaseoConfigJson(repoRoot: string): unknown {
+  const base = readPaseoConfigJson(repoRoot);
+  const localPath = join(repoRoot, PASEO_LOCAL_CONFIG_FILE_NAME);
+  if (!existsSync(localPath)) {
+    return base;
+  }
+  const local: unknown = JSON.parse(readFileSync(localPath, "utf8"));
+  const localScripts = isRecord(local) && isRecord(local.scripts) ? local.scripts : null;
+  if (!localScripts) {
+    return base;
+  }
+  const baseConfig = isRecord(base) ? base : {};
+  const baseScripts = isRecord(baseConfig.scripts) ? baseConfig.scripts : {};
+  const scripts: Record<string, unknown> = { ...baseScripts };
+  for (const [name, override] of Object.entries(localScripts)) {
+    const committed = baseScripts[name];
+    scripts[name] =
+      isRecord(committed) && isRecord(override) ? { ...committed, ...override } : override;
+  }
+  return { ...baseConfig, scripts };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function readPaseoConfigForEdit(repoRoot: string): ReadPaseoConfigForEditResult {
   try {
     const json = readPaseoConfigJson(repoRoot);

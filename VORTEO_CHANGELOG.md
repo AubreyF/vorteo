@@ -4,6 +4,21 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Fixed
+
+- New workspaces no longer start from a stale local branch. When a request names `main` or another unqualified branch, the daemon fetches `origin/main` and branches from it if the local branch is only behind; a local branch with unpushed commits still wins. The primary checkout had sat 865 commits behind because all work is pushed from other worktrees.
+
+### Added
+
+- The daemon merges script entries from an untracked `paseo.local.json` over `paseo.json` and advertises this as `localProjectConfig`, which `paseo daemon status --json` reports. Project settings still edit `paseo.json` alone.
+- The preview helper writes its launch wrapper to `paseo.local.json` when the daemon supports it, so starting a preview no longer dirties a shared checkout. Older daemons keep the previous `paseo.json` write. The HTTPS broker reads the merged configuration. The installed helper and broker need reinstalling to use this.
+
+### Maintenance
+
+- The agent guide treats the primary checkout as read-only. Git ignores `paseo.local.json`, `.runtime/`, Vitest attachments and browser test screenshots.
+
 ## 0.11.0-beta.3.vorteo.759 - 2026-10-22
 
 ### Added

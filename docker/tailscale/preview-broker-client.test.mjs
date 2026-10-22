@@ -54,3 +54,32 @@ test("native helper selects the pinned daemon and retains a shell-safe wrapper",
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("preview wrapper goes to paseo.local.json when the daemon merges it", async () => {
+  const { wrapPreviewCommand } = await import("./preview-broker-client.mjs");
+  const cwd = mkdtempSync(join(tmpdir(), "preview-local-config-"));
+  try {
+    const project = JSON.stringify({
+      scripts: { web: { type: "service", command: "npm run dev" } },
+    });
+    writeFileSync(join(cwd, "paseo.json"), project);
+    const prefix = "helper env 'web' --workspace 'wks_x' -- ";
+
+    wrapPreviewCommand(cwd, "web", prefix, true);
+    wrapPreviewCommand(cwd, "web", prefix, true);
+
+    assert.equal(readFileSync(join(cwd, "paseo.json"), "utf8"), project);
+    assert.deepEqual(JSON.parse(readFileSync(join(cwd, "paseo.local.json"), "utf8")), {
+      scripts: { web: { command: `${prefix}/bin/sh -lc 'npm run dev'` } },
+    });
+
+    rmSync(join(cwd, "paseo.local.json"));
+    wrapPreviewCommand(cwd, "web", prefix, false);
+    assert.equal(
+      JSON.parse(readFileSync(join(cwd, "paseo.json"), "utf8")).scripts.web.command,
+      `${prefix}/bin/sh -lc 'npm run dev'`,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
