@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Fixed
+
+- Plugin calls no longer fail with "Plugin daemon identity is unavailable" while a plugin's connection to its daemon reconnects. The plugin process keeps the identity of the one daemon it serves.
+
+### Maintenance
+
+- A CLI lifecycle test waits for the daemon lock file's contents, which are written after the file is created, as product readers already do.
+
 ## 0.11.0-beta.3.vorteo.788 - 2026-10-22
 
 ### Maintenance

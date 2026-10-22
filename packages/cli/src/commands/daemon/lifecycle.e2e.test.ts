@@ -364,10 +364,11 @@ test.skipIf(process.platform === "win32").each([["start"], ["daemon", "run"]])(
         stdio: "ignore",
       });
       const exited = new Promise((resolve) => child!.once("exit", resolve));
-      await expect
-        .poll(async () => existsSync(path.join(home, "paseo.pid")), { timeout: 10_000 })
-        .toBe(true);
-      const lock = JSON.parse(await readFile(path.join(home, "paseo.pid"), "utf8"));
+      // The lock is created exclusively, then written; readers retry while it is empty.
+      const readLock = async () =>
+        (await readFile(path.join(home, "paseo.pid"), "utf8").catch(() => "")) || null;
+      await expect.poll(readLock, { timeout: 10_000 }).not.toBeNull();
+      const lock = JSON.parse((await readLock())!);
       await f.ok(["status", "--home", home]);
       child.kill("SIGINT");
       await exited;

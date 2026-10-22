@@ -29,6 +29,8 @@ Maintenance review (2026-10-22): threads can switch to another account or profil
 
 Maintenance review (2026-10-22): threads stopped by a Claude or Codex usage limit now wait for the reset and continue automatically, with per-thread and per-account controls. Worker teams keep their pause until release. The README Power Tools list gains one entry. Account failover stays with its own thread.
 
+Maintenance review (2026-10-22): plugin calls keep working while a plugin reconnects to its daemon, and a CLI lock-file test race was settled. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): merged main into the CI repair branch again; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): two server test races and the browser new-workspace helper were repaired; no feature changed. README overview and onboarding are unchanged.
