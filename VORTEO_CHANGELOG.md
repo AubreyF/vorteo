@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Maintenance
+
+- Merge the live interface source (resizable cards, the Open questions Yes button and mobile card spacing) into main, so the next Host update keeps everything already published. That branch labelled its entries `vorteo.758` and `vorteo.759`, which main also used for different commits; both historical entries are kept.
+
 ## 0.11.0-beta.3.vorteo.762 - 2026-10-22
 
 ### Fixed
@@ -51,6 +57,22 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Added
 
 - Let `system.json` `absorb` existing projects and workspaces into the System project by ID. Every workspace moves, archived ones included, keeping its ID, folder and history, and each listed project left empty is archived. Later starts find nothing left to move. Installers do not write these settings yet.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- On mobile, the sidebar's Open questions and Quota cards keep the 8px card gap from the list above and from the sync notice, restart banner or footer below, instead of touching the banner.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
 
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 

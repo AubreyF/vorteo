@@ -4,9 +4,12 @@ import {
   useContext,
   useLayoutEffect,
   useMemo,
+  useState,
   type ReactNode,
 } from "react";
-import { ScrollView } from "react-native";
+import { ScrollView, View, type LayoutChangeEvent } from "react-native";
+import { useWindowDimensions } from "@/appearance/interface-geometry";
+import { DraggedCardHeightHandle, useDraggedCardHeight } from "@/components/card-height-handle";
 import { CardDisclosure } from "@/agent-stream/card-disclosure";
 import { TaskCard, TaskCardHeader } from "@/agent-stream/task-card";
 import { CountBadge } from "@/components/ui/count-badge";
@@ -75,7 +78,10 @@ export function useGlobalCardDisclosure(kind: GlobalCardKind) {
   return [expanded, toggle] as const;
 }
 
-/** A collapsible sidebar card whose body scrolls inside its height budget. */
+/** Dragging never lets the cards take more than this share of the window. */
+const MAX_DRAGGED_SHARE = 0.75;
+
+/** A collapsible sidebar card whose body scrolls inside its height budget or dragged height. */
 export function GlobalCard({
   kind,
   title,
@@ -106,29 +112,54 @@ export function GlobalCard({
     ),
     [count, countLabel, testID],
   );
-  const bodyStyle = useMemo(() => ({ maxHeight: maxBodyHeight }), [maxBodyHeight]);
+  const { height: windowHeight } = useWindowDimensions();
+  const dragged = useDraggedCardHeight(testID);
+  const [bodyHeight, setBodyHeight] = useState(0);
+  const maxDraggedHeight = Math.round(windowHeight * MAX_DRAGGED_SHARE);
+  // A height dragged on a taller window still leaves the workspace list its room here.
+  const bodyStyle = useMemo(
+    () =>
+      dragged.height === undefined
+        ? { maxHeight: maxBodyHeight }
+        : { height: Math.min(dragged.height, maxDraggedHeight) },
+    [dragged.height, maxBodyHeight, maxDraggedHeight],
+  );
+  const onBodyLayout = useCallback((event: LayoutChangeEvent) => {
+    setBodyHeight(event.nativeEvent.layout.height);
+  }, []);
   return (
-    <TaskCard scrollBody={false} flushBody testID={testID} bodyVisible={expanded}>
-      <TaskCardHeader>
-        <CardDisclosure
-          icon={icon}
-          title={title}
-          expanded={expanded}
-          onPress={toggle}
-          count={badge}
-          testID={`${testID}-toggle`}
-        />
-      </TaskCardHeader>
+    <View>
+      <TaskCard scrollBody={false} flushBody testID={testID} bodyVisible={expanded}>
+        <TaskCardHeader>
+          <CardDisclosure
+            icon={icon}
+            title={title}
+            expanded={expanded}
+            onPress={toggle}
+            count={badge}
+            testID={`${testID}-toggle`}
+          />
+        </TaskCardHeader>
+        {expanded ? (
+          <ScrollView
+            style={bodyStyle}
+            onLayout={onBodyLayout}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+            testID={`${testID}-body-scroll`}
+          >
+            {children}
+          </ScrollView>
+        ) : null}
+      </TaskCard>
       {expanded ? (
-        <ScrollView
-          style={bodyStyle}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          testID={`${testID}-body-scroll`}
-        >
-          {children}
-        </ScrollView>
+        <DraggedCardHeightHandle
+          card={dragged}
+          cardKey={testID}
+          height={bodyHeight}
+          maxHeight={maxDraggedHeight}
+        />
       ) : null}
-    </TaskCard>
+    </View>
   );
 }
