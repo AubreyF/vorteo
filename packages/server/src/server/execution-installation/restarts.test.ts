@@ -2390,6 +2390,8 @@ test("repo-shaped batching reconciles generated versions and every note while pr
     expect(git("show", `${head}:web.txt`)).toBe("published");
     git("merge-base", "--is-ancestor", web, head);
     const notes = git("show", `${head}:VORTEO_CHANGELOG.md`);
+    // The combined entry is separated by single blank lines, as the formatter requires.
+    expect(notes).not.toContain("\n\n\n");
     for (const note of [
       "Existing note",
       "Published web-only improvement",
