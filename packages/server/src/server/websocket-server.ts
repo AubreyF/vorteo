@@ -2077,6 +2077,7 @@ export class VoiceAssistantWebSocketServer {
         codexAccountCreation: true,
         claudeAccountCreation: true,
         claudeFullSignIn: true,
+        providerSecretDelivery: true,
         providerCredentialRemoval: true,
         providerOrdering: true,
         providerAccountLogin: Object.values(

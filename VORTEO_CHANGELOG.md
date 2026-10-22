@@ -4,6 +4,39 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Maintenance
+
+- Merge the settings redesign: About folded into General, diagnostics into Connected hosts, provider pages in Accounts and profiles, and API keys shared across environments
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Opening Settings at a section keeps that section in view while content above it finishes loading, even when several sections grow at once. A jump that lands short because sections below are still mounting completes once they appear instead of leaving the page wherever it stopped.
+
+### Tests
+
+- Settings navigation tests expect Diagnostics under General, and the sticky environment tabs check waits for wheel scrolling to settle before measuring.
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Changed
+
+- Settings no longer has a separate About section. App version, What's new and a new GitHub row sit in an About card inside General. Connected hosts moves to General and now holds the connection check (from Environments) and the diagnostics rows (from Maintenance) in one card. Sending moves to Chat & editor, and New workspace defaults move to Workspaces & projects. Old About and Diagnostics links open the new locations.
+- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom. The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone; Environment access in each connection's menu holds the rare per-environment opt-out. Add provider and Add connection install and sign in on Host by default.
+
+### Added
+
+- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration, withdrawing them from excluded and removed environments. Delivery starts on save and retries every 5 seconds. Owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment, returning only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`. On first sync a key found in exactly one form is adopted; differing values are reported as conflicts and never overwritten silently.
+- Each connection on a provider page has an API keys sheet showing which environments have the current keys. Codex connections show which environments still need their own sign-in; Codex refresh grants are not copied between environments.
+- Host-owned refresh for full sign-in Claude accounts remains opt-in through `claudeHostRefresh: true`.
+
+### Tests
+
+- The packaged installation browser test opens provider pages and connection menus instead of the removed Manage sheet, installs runtimes on Host by default and in the Dev container explicitly, and removes a provider from its page. Environment access keeps showing Connect for an environment that is turned off, so a restored connection can sign in again.
+
 ## 0.11.0-beta.3.vorteo.795 - 2026-10-22
 
 ### Maintenance

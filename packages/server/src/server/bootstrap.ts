@@ -9,6 +9,7 @@ import {
 } from "./execution-installation/coordinator-bootstrap-launch.js";
 import { mountClaudeSetupConsumer } from "./execution-installation/accounts/claude-setup-consumer.js";
 import { mountClaudeOAuthConsumer } from "./execution-installation/accounts/claude-oauth-consumer.js";
+import { mountProviderSecretsConsumer } from "./execution-installation/accounts/provider-secrets-consumer.js";
 import { ScheduleStore } from "./schedule/store.js";
 import { assertWorkspaceArchiveAllowed } from "./workspace-lifecycle/policy.js";
 import { assertWorkspaceUnprotected } from "./workspace-lifecycle/policy.js";
@@ -924,11 +925,20 @@ export async function createPaseoDaemon(
     store: daemonConfigStore,
     onApplied: refreshClaudeProvider,
   });
-  // Inert unless the installation coordinator enables Host-owned Claude refresh.
+  // Inert until the installation coordinator delivers a Host-refreshed Claude sign-in.
   mountClaudeOAuthConsumer(app, {
     paseoHome: config.paseoHome,
     store: daemonConfigStore,
     onApplied: refreshClaudeProvider,
+  });
+  mountProviderSecretsConsumer(app, {
+    paseoHome: config.paseoHome,
+    store: daemonConfigStore,
+    onApplied: (providerId) => {
+      void providerSnapshotManager
+        .refreshSettingsSnapshot({ providers: [providerId] })
+        .catch(() => logger.warn({ providerId }, "Provider catalog refresh is pending"));
+    },
   });
 
   // Serve static files from public directory
