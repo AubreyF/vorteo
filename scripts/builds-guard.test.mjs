@@ -18,7 +18,10 @@ test("only the builds coordinator passes the guard", () => {
   assert.equal(isBuildsCoordinator({}), false);
   assert.equal(isBuildsCoordinator({ VORTEO_BUILDS: "true" }), false);
   assert.doesNotThrow(() => assertBuildsCoordinator("Publishing", { VORTEO_BUILDS: "1" }));
-  assert.throws(() => assertBuildsCoordinator("Publishing", {}), /reserved for the Vorteo :: Builds thread/);
+  assert.throws(
+    () => assertBuildsCoordinator("Publishing", {}),
+    /reserved for the Vorteo :: Builds thread/,
+  );
 });
 
 test("the pre-push guard recognizes pushes to main only", () => {
@@ -30,7 +33,9 @@ test("the pre-push guard recognizes pushes to main only", () => {
 test("the installation client refuses request commands outside Builds before reading config", async () => {
   const client = path.resolve("scripts/installation-agent.mjs");
   await assert.rejects(
-    run(process.execPath, [client, "--config", "/nonexistent/config.json", "request-restart"], { env: withoutBuilds }),
+    run(process.execPath, [client, "--config", "/nonexistent/config.json", "request-restart"], {
+      env: withoutBuilds,
+    }),
     (error) => /reserved for the Vorteo :: Builds thread/.test(String(error.stderr)),
   );
 });
@@ -44,7 +49,10 @@ test("the pre-push hook refuses main outside Builds and allows task branches", a
   };
   assert.equal(await push("refs/heads/a 1 refs/heads/main 2\n", withoutBuilds), 1);
   assert.equal(await push("refs/heads/a 1 refs/heads/feat/a 2\n", withoutBuilds), 0);
-  assert.equal(await push("refs/heads/a 1 refs/heads/main 2\n", { ...withoutBuilds, VORTEO_BUILDS: "1" }), 0);
+  assert.equal(
+    await push("refs/heads/a 1 refs/heads/main 2\n", { ...withoutBuilds, VORTEO_BUILDS: "1" }),
+    0,
+  );
 });
 
 test("a client copied alone still refuses request commands outside Builds", async () => {
@@ -54,7 +62,11 @@ test("a client copied alone still refuses request commands outside Builds", asyn
     const client = path.join(dir, "installation-agent.mjs");
     copyFileSync(path.resolve("scripts/installation-agent.mjs"), client);
     await assert.rejects(
-      run(process.execPath, [client, "--config", "/nonexistent/config.json", "request-coordinator"], { env: withoutBuilds }),
+      run(
+        process.execPath,
+        [client, "--config", "/nonexistent/config.json", "request-coordinator"],
+        { env: withoutBuilds },
+      ),
       (error) => /reserved for the Vorteo :: Builds thread/.test(String(error.stderr)),
     );
   } finally {

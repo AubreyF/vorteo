@@ -6,9 +6,7 @@ import { isMainModule } from "./is-main-module.mjs";
 import { isBuildsCoordinator } from "./lib/builds-guard.mjs";
 
 export function pushesMain(input) {
-  return input
-    .split("\n")
-    .some((line) => line.trim().split(/\s+/)[2] === "refs/heads/main");
+  return input.split("\n").some((line) => line.trim().split(/\s+/)[2] === "refs/heads/main");
 }
 
 if (isMainModule(import.meta.url)) {

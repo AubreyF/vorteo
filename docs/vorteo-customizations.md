@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the Builds push guard script and test were reformatted for the CI format check; no feature changed.
+
 Maintenance review (2026-10-22): seven stale tests for the coordinator launcher, queued attachments and plugin settings were repaired to match current behaviour on the path to green CI; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): one builds coordinator writes main, web publication, installs and approvals. Other threads hand their branches to it; the client's request commands, web builds for publication, publish-main and main pushes refuse elsewhere, while the coordinator's own publication step stays unguarded. README overview and onboarding are unchanged.
