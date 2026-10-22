@@ -567,21 +567,27 @@ if (
 }
 
 /**
- * A conflicted source batch stays pending and is never approved, automatically or by the owner,
- * until its contribution is corrected. Say so plainly instead of leaving it to the JSON.
+ * A batch with a conflicting or invalid contribution stays pending and is never approved,
+ * automatically or by the owner, until that contribution is corrected. Say so plainly instead of
+ * leaving it to the JSON.
  */
 function reportBatchConflicts(result) {
   const batch = result.batch?.sourceBatch ?? result.sourceBatch;
   if (batch?.status !== "conflict" || !Array.isArray(batch.contributions)) return;
   for (const contribution of batch.contributions) {
-    if (contribution?.status !== "conflict") continue;
-    const where =
-      String(contribution.detail ?? "")
-        .split("\n")[0]
-        .trim() || "the current source";
+    const status = contribution?.status;
+    if (status !== "conflict" && status !== "invalid") continue;
+    const detail = String(contribution.detail ?? "")
+      .split("\n")[0]
+      .trim();
+    const problem =
+      status === "conflict"
+        ? `conflicts in ${detail || "the current source"}`
+        : `was rejected: ${detail || "it failed validation"}`;
+    const owner = contribution.requester ? ` from "${contribution.requester}"` : "";
     process.stderr.write(
-      `Source batch conflict: contribution ${contribution.id} conflicts in ${where}. ` +
-        `Rebase it on the current source and resubmit with --replaces ${contribution.id}.\n`,
+      `Source batch blocked: contribution ${contribution.id}${owner} ${problem}. ` +
+        `Correct it and resubmit with --replaces ${contribution.id}.\n`,
     );
   }
 }

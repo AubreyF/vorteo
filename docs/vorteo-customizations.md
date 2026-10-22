@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the agent tool reports invalid source batch contributions, not only conflicts, and names the requester, so a batch held by a refused contribution never looks silently pending. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): three fixes that had shipped only to Dev now run on the Host too: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): durable sessions phase 2 lets Codex sessions run in the session host, with goal state and goal commands crossing to the host and orphaned app-server processes stopped at the next host start, only once the host holds its lock. Independent review fixes: the account descriptor also travels on resume, unhandled hosted commands show an error, and orphan reaping signals the process group behind two markers. The isolated end-to-end suite covers a Codex-shaped provider across worker and supervisor restarts. Claude hosting is accepted live; Codex hosting awaits live acceptance. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): Claude's hidden internal commands (names starting with `__`) are classified as commands, not skills, so restricted skill policies no longer demand a package for them. README overview and onboarding are unchanged.

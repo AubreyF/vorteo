@@ -2960,6 +2960,7 @@ test("a conflicted source batch reports its conflict to agents instead of asking
     }));
   const id = randomUUID();
   const contributionId = randomUUID();
+  const invalidId = randomUUID();
   const configRoot = mkdtempSync(path.join(tmpdir(), "conflict-status-config-"));
   try {
     const f = await fixture(
@@ -3003,6 +3004,21 @@ test("a conflicted source batch reports its conflict to agents instead of asking
                     detail:
                       "docs/vorteo-customizations.md\n\nCONFLICT (content): Merge conflict in docs/vorteo-customizations.md",
                   },
+                  {
+                    id: invalidId,
+                    update: {
+                      baseCommit: "b".repeat(40),
+                      sourceCommit: "d".repeat(40),
+                      sha256: "e".repeat(64),
+                      bytes: 10,
+                    },
+                    reason: "Bad release note",
+                    requester: "Release notes",
+                    requestedBy: "host-agent",
+                    createdAt: new Date().toISOString(),
+                    status: "invalid",
+                    detail: "Release-note heading requires review",
+                  },
                 ],
               },
             },
@@ -3036,7 +3052,10 @@ test("a conflicted source batch reports its conflict to agents instead of asking
     ]);
     expect(JSON.parse(stdout).sourceBatch.status).toBe("conflict");
     expect(stderr).toContain(
-      `Source batch conflict: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+      `Source batch blocked: contribution ${contributionId} conflicts in docs/vorteo-customizations.md.`,
+    );
+    expect(stderr).toContain(
+      `Source batch blocked: contribution ${invalidId} from "Release notes" was rejected: Release-note heading requires review.`,
     );
     expect(stderr).toContain(`--replaces ${contributionId}`);
   } finally {
