@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.731 - 2026-10-22
+
+### Documentation
+
+- Add four task authorization levels for agents, adapted from Freed: 1 Inspect, 2 Build and preview, 3 Ship to main, 4 Ship and install. Clear requests such as "preview", "push" and "ship it" map to a level without asking; otherwise agents ask once through Open questions and keep doing Level 1 and 2 work while waiting
+- Keep restart approval, publication hygiene and external-post rules independent of levels, limit each level to its task, and carry the level into handoffs and subagents without raising it
+- Map existing delivery phrases and the interface publication rule to their levels in the agent guide
+
 ## 0.11.0-beta.3.vorteo.730 - 2026-10-21
 
 ### Added

@@ -633,6 +633,7 @@ Source batching preserves complete historical release-note entries, including du
 - **Reviewed skill changes.** Preview pinned installation, provider discovery links, identical-copy consolidation, removal and restoration before applying them. Backups and conflict checks protect local edits. Managed installations keep a canonical catalog and project reviewed definitions into each environment. See [skill operations](skill-library.md).
 - **Profile skill selection.** Profiles can inherit defaults with exclusions, select specific packages or disable optional skills. Supported Claude and Codex runtimes freeze restricted selections for each task; unsupported restrictions fail rather than claiming enforcement. Selection limits discovery and invocation, not filesystem or tool access. See [profile policies](skill-library.md#profile-policies).
 - **Environment exclusions.** Disable a personal skill for one environment while retaining its shared definition and installed files. New tasks obey current installation policy; a profile cannot override an environment exclusion. Existing tasks retain their recorded selection. See [environment exceptions](skill-library.md#environment-exceptions).
+- **Task authorization levels.** The [agent guide](../AGENTS.md#authorization-levels) defines four levels, adapted from Freed: Inspect, Build and preview, Ship to `main`, and Ship and install. Clear requests map to a level without asking; otherwise the agent asks once for a number through Open questions and continues Level 1 and 2 work meanwhile. Levels never bypass restart approval, publication hygiene or external-post rules, never carry into another task, and never pass a higher level to a subagent or handoff. Archiving is outside every level. The handoff skill carries the level.
 
 October 9, 2026: Integrated reviewed Factory runtime and client source with current main, preserving coordinator bootstrap, account setup and worker sidebar changes. Installation, browser authentication and retained controller custody remain separate acceptance gates.
 
@@ -710,6 +711,8 @@ Reviewed on October 7, 2026 against integrated Paseo commit `c062280429c2aa894d9
 No complete replacement of these custom workflows was established in this review. Future upstream merges must reassess behavior and tests, narrow the inventory to remaining differences, and update the roadmap under the [maintenance rules](writing.md#maintain-the-vorteo-customizations-inventory).
 
 ## Maintenance review
+
+October 22, 2026: Added four task authorization levels to the agent guide and handoff skill. Instructions only; no product behavior change. README overview and onboarding are unchanged.
 
 October 21, 2026: Recorded the published focused-tab card fix in installation history so Host updates from main combine cleanly. Code is unchanged; README overview and onboarding are unchanged.
 
