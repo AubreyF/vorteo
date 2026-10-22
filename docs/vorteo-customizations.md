@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): a ledger test now pins the coordinator loop's allowed operations including stale update cancellation; functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the coordinator cancels coordinator updates that were prepared for a Host release a later install replaced, and refusals during a running coordinator update name it. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): new Codex threads on isolated accounts launch again. A frozen skill selection matches the account home's copy of a built-in skill when its package content is byte-identical; differing copies are still refused. README overview and onboarding are unchanged.
