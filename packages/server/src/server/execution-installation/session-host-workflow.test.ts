@@ -11,11 +11,14 @@ import {
   RestartJobSchema,
   RestartRequestSchema,
 } from "@getpaseo/protocol/execution-installation";
-import type {
-  SessionHostJob,
-  SessionHostOperation,
-  SessionHostPlan,
+import {
+  SessionHostJobSchema,
+  SessionHostStatusSchema,
+  type SessionHostJob,
+  type SessionHostOperation,
+  type SessionHostPlan,
 } from "@getpaseo/protocol/session-host-maintenance";
+import { z } from "zod";
 import { hashDaemonPassword } from "../auth.js";
 import type { InstallationConfig } from "./config.js";
 import { coordinatorLifecycleWork } from "./coordinator-bootstrap.js";
@@ -339,7 +342,11 @@ test("HTTP routes keep requests on the Host token and decisions on owner buttons
     expect((await request("session-host-requests", "guest", input)).status).toBe(401);
     expect((await request("owner/session-host/query", "host", {})).status).toBe(401);
     const capability = await (await request("capabilities", "host")).json();
-    expect(capability.sessionHostJob).toEqual({ available: true, ownerApprovalRequired: true });
+    expect(capability.sessionHostJob).toEqual({
+      available: true,
+      ownerApprovalRequired: true,
+      restart: true,
+    });
     const guestCapability = await (await request("capabilities", "guest")).json();
     expect(guestCapability.sessionHostJob.available).toBe(false);
     // Dev sees whether the job exists, never its detail; the host is asked only for detail.
@@ -411,6 +418,218 @@ test("HTTP routes keep requests on the Host token and decisions on owner buttons
   }
 });
 
+// The owner query as the v712 interface parses it: strict objects, two operations, no restart or
+// indicator fields. A client that sends {} must still get exactly this shape.
+const V712OperationSchema = z.enum(["session-host-install", "session-host-remove"]);
+const V712PlanSchema = z.strictObject({
+  version: z.literal(1),
+  operation: V712OperationSchema,
+  installationId: z.string().uuid(),
+  label: z.string(),
+  serviceDomain: z.string(),
+  plistPath: z.string(),
+  plistSha256: z.string().nullable(),
+  node: z.string(),
+  entrypoint: z.string(),
+  paseoHome: z.string(),
+  logPath: z.string(),
+  workingDirectory: z.string(),
+  environment: z.strictObject({ HOME: z.string(), PATH: z.string() }),
+});
+const V712JobSchema = z.strictObject({
+  target: z.literal("session-host"),
+  operation: V712OperationSchema,
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  requestedBy: z.enum(["owner", "host-agent"]),
+  reason: z.string(),
+  createdAt: z.string(),
+  plan: V712PlanSchema,
+  planSha256: z.string(),
+  status: z.enum(["pending", "approved", "running", "succeeded", "failed", "rejected"]),
+  stage: z.enum(["prepared", "dispatch_pending", "applying", "verifying", "succeeded", "failed"]),
+  detail: z.string(),
+  approvedAt: z.string().optional(),
+  forcedStop: z.boolean().optional(),
+  host: z.strictObject({ pid: z.number(), release: z.string().optional() }).optional(),
+});
+const V712StatusSchema = z.strictObject({
+  supported: z.boolean(),
+  installed: z.boolean(),
+  detail: z
+    .strictObject({
+      label: z.string(),
+      plist: z.enum(["absent", "matching", "different"]),
+      loaded: z.boolean(),
+      pid: z.number().nullable(),
+      lastExitStatus: z.number().nullable(),
+      runs: z.number().nullable(),
+      host: z
+        .strictObject({
+          pid: z.number(),
+          release: z.string().optional(),
+          sessions: z.number(),
+        })
+        .nullable(),
+      settingEnabled: z.boolean(),
+      observedAt: z.string(),
+    })
+    .optional(),
+});
+const V712QuerySchema = z.strictObject({
+  jobs: z.array(V712JobSchema),
+  status: V712StatusSchema.nullable(),
+});
+
+test("the owner query keeps its v712 shape for clients that do not declare restarts or the indicator", async () => {
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), "session-host-compat-")));
+  await writeFile(path.join(dir, "index.html"), "<html><head></head></html>");
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const config: InstallationConfig = {
+    public: {
+      version: 1,
+      installationId: INSTALLATION_ID,
+      origin: "https://owner.example.test",
+      environments: [
+        { kind: "host", serverId: "host", endpoint: "host.example.test", useTls: true },
+        { kind: "container", serverId: "dev", endpoint: "dev.example.test", useTls: true },
+      ],
+    },
+    listenPort: 6770,
+    webDistDir: dir,
+    stateDir: dir,
+    ownerPasswordHash: hashDaemonPassword("owner"),
+    hostAgentTokenHash: digest("host"),
+    containerAgentTokenHash: digest("guest"),
+    host: {
+      endpoint: "127.0.0.1:6771",
+      password: "host-pass",
+      launchdService: "gui/501/local.vorteo.test.host",
+    },
+    container: { endpoint: "127.0.0.1:6768", password: "dev-pass" },
+  };
+  const status = {
+    supported: true,
+    installed: true,
+    detail: {
+      label: `local.vorteo.${INSTALLATION_ID}.session-host`,
+      plist: "matching" as const,
+      loaded: true,
+      pid: 4343,
+      lastExitStatus: null,
+      runs: 2,
+      host: {
+        pid: 4343,
+        release: "0.11.0-beta.3.vorteo.760",
+        sessions: 3,
+        providers: { claude: 2, codex: 1 },
+      },
+      installedRelease: "0.11.0-beta.3.vorteo.760",
+      settingEnabled: true,
+      observedAt: new Date().toISOString(),
+    },
+  };
+  const app = createInstallationServer(
+    config,
+    {
+      restart: async () => "ready",
+      sessionHostPlan: async (operation) => plan(operation),
+      // A restart that stopped a host with three sessions, so the finished job carries previousHost.
+      applySessionHost: async () => ({
+        detail: "restarted",
+        host: { pid: 4343, release: "0.11.0-beta.3.vorteo.760" },
+        previousHost: { pid: 4242, release: "0.11.0-beta.3.vorteo.716", sessions: 3 },
+      }),
+      inspectSessionHost: async () => status,
+    },
+    pino({ level: "silent" }),
+  );
+  const listener = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => listener.once("listening", resolve));
+  const address = listener.address();
+  if (!address || typeof address === "string") throw Error("Missing test address");
+  config.listenPort = address.port;
+  const request = (route: string, token: string, body: unknown) =>
+    fetch(`http://127.0.0.1:${address.port}/api/installation/${route}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        origin: "https://owner.example.test",
+        Host: "owner.example.test",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  try {
+    // Seed the ledger with a finished restart beside a finished install.
+    for (const operation of ["session-host-install", "session-host-restart"] as const) {
+      const submitted = await request("session-host-requests", "host", {
+        id: randomUUID(),
+        operation,
+        reason: "Compatibility",
+      });
+      expect(submitted.status).toBe(201);
+      const job = (await submitted.json()) as SessionHostJob;
+      expect((await request("owner/session-host/decision", "owner", decision(job))).status).toBe(
+        200,
+      );
+      await app.drainRestarts();
+    }
+    const finished = (await (
+      await request("owner/session-host/query", "owner", { restart: true, indicator: true })
+    ).json()) as { jobs: SessionHostJob[] };
+    expect(finished.jobs.map((job) => [job.operation, job.status])).toEqual([
+      ["session-host-install", "succeeded"],
+      ["session-host-restart", "succeeded"],
+    ]);
+    expect(finished.jobs[1]?.previousHost).toEqual({
+      pid: 4242,
+      release: "0.11.0-beta.3.vorteo.716",
+      sessions: 3,
+    });
+
+    // A v712 client sends {} and parses strictly: the restart job, previousHost, the installed
+    // release and the provider counts must all be absent.
+    const legacy = await (await request("owner/session-host/query", "owner", {})).json();
+    const parsed = V712QuerySchema.safeParse(legacy);
+    expect(parsed.success, JSON.stringify(parsed.success ? null : parsed.error.issues)).toBe(true);
+    expect(legacy.jobs.map((job: SessionHostJob) => job.operation)).toEqual([
+      "session-host-install",
+    ]);
+    expect(legacy.status.detail.host).toEqual({
+      pid: 4343,
+      release: "0.11.0-beta.3.vorteo.760",
+      sessions: 3,
+    });
+    expect("restartSupported" in legacy).toBe(false);
+
+    // A client that declares both flags parses the current schemas and sees everything.
+    const current = await (
+      await request("owner/session-host/query", "owner", { restart: true, indicator: true })
+    ).json();
+    expect(current.restartSupported).toBe(true);
+    expect(current.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+    expect(current.status.detail.host.providers).toEqual({ claude: 2, codex: 1 });
+    for (const job of current.jobs) expect(SessionHostJobSchema.safeParse(job).success).toBe(true);
+    expect(SessionHostStatusSchema.safeParse(current.status).success).toBe(true);
+    // Declaring only one flag withholds only the other addition.
+    const restartOnly = await (
+      await request("owner/session-host/query", "owner", { restart: true })
+    ).json();
+    expect(restartOnly.jobs).toHaveLength(2);
+    expect(restartOnly.status.detail.installedRelease).toBeUndefined();
+    expect(restartOnly.status.detail.host.providers).toBeUndefined();
+    const indicatorOnly = await (
+      await request("owner/session-host/query", "owner", { indicator: true })
+    ).json();
+    expect(indicatorOnly.jobs).toHaveLength(1);
+    expect(indicatorOnly.status.detail.installedRelease).toBe("0.11.0-beta.3.vorteo.760");
+  } finally {
+    await new Promise<void>((resolve) => listener.close(() => resolve()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("owner status is null, not an error, when the job cannot be inspected", async () => {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), "session-host-status-")));
   await writeFile(path.join(dir, "index.html"), "<html><head></head></html>");
@@ -470,7 +689,22 @@ test("owner status is null, not an error, when the job cannot be inspected", asy
       },
     );
     expect(response.status).toBe(200);
+    // Without the restart flag the response keeps its older shape for strict older apps.
     expect(await response.json()).toEqual({ jobs: [], status: null });
+    const asking = await fetch(
+      `http://127.0.0.1:${address.port}/api/installation/owner/session-host/query`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer owner",
+          origin: "https://owner.example.test",
+          Host: "owner.example.test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ restart: true }),
+      },
+    );
+    expect(await asking.json()).toEqual({ jobs: [], status: null, restartSupported: true });
   } finally {
     await new Promise<void>((resolve, reject) =>
       listener.close((error) => {

@@ -156,7 +156,12 @@ export interface RestartExecutor {
   applySessionHost?(
     job: SessionHostJob,
     reportStage: (stage: "applying" | "verifying") => void,
-  ): Promise<{ detail: string; host?: SessionHostJob["host"]; forced?: boolean }>;
+  ): Promise<{
+    detail: string;
+    host?: SessionHostJob["host"];
+    previousHost?: SessionHostJob["previousHost"];
+    forced?: boolean;
+  }>;
   validateHelperRollback?(job: NativeHelperJob, failed: NativeHelperJob): Promise<void>;
   verifyHelperRecovery?(job: NativeHelperJob): Promise<string>;
   validateHelperPlan?(plan: NativeHelperPlan): Promise<void>;
@@ -215,6 +220,15 @@ export function supportsAutomaticMaintenance(executor: RestartExecutor): boolean
 export class RestartRequestError extends Error {}
 
 /** Messages written for the owner pass through; anything else gets a safe, generic detail. */
+const SESSION_HOST_REQUEST_DETAILS: Record<SessionHostOperation, string> = {
+  "session-host-install":
+    "Review this exact session host job. Installing it never turns the durable sessions setting on.",
+  "session-host-remove":
+    "Review removing the session host job. Removal is refused while the setting is on or sessions run.",
+  "session-host-restart":
+    "Review restarting the session host on the installed release. Every hosted turn running at that moment is interrupted and continues on the new host; the job and the setting are unchanged.",
+};
+
 function sessionHostFailureDetail(error: unknown): string {
   if (
     error instanceof SessionHostJobError ||
@@ -713,10 +727,7 @@ export class InstallationRestarts {
       planSha256: sessionHostPlanSha256(plan),
       status: "pending",
       stage: "prepared",
-      detail:
-        request.operation === "session-host-install"
-          ? "Review this exact session host job. Installing it never turns the durable sessions setting on."
-          : "Review removing the session host job. Removal is refused while the setting is on or sessions run.",
+      detail: SESSION_HOST_REQUEST_DETAILS[request.operation],
     };
     this.replaceSessionHost(job);
     return structuredClone(job);
@@ -813,6 +824,7 @@ export class InstallationRestarts {
         stage: "succeeded",
         detail: outcome.detail,
         ...(outcome.host ? { host: outcome.host } : {}),
+        ...(outcome.previousHost ? { previousHost: outcome.previousHost } : {}),
         ...(outcome.forced ? { forcedStop: true } : {}),
       });
     } catch (error) {

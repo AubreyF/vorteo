@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import pino, { type Logger } from "pino";
@@ -244,6 +245,10 @@ export async function startSessionHostService(
     afterLock: reapOrphans,
   });
   watchdog.markListening();
+  // A tracked restart left this for workers; the host that answers again removes it.
+  await rm(paths.restartMarkerPath, { force: true }).catch((error: unknown) =>
+    logger.warn({ err: error }, "Could not remove the restart marker"),
+  );
   logger.info({ hostId: host.identity.id, release }, "Session host started");
   // A mismatched hello can arrive before startSessionHost returns.
   exitIfIdle();

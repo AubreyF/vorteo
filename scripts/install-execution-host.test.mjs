@@ -1028,6 +1028,19 @@ test("session host commands need the advertised capability and send only the ope
       operation: "session-host-remove",
       reason: "Requested by a Host agent through the installation client.",
     });
+    // A restart is sent only to a coordinator that advertises it; older ones would reject it.
+    const before = calls.length;
+    await expect(client("host-agent", "request-session-host", "--restart")).rejects.toThrow(
+      "does not support session host restarts",
+    );
+    expect(calls.slice(before).map(({ url }) => url)).toEqual(["/api/installation/capabilities"]);
+    capability = { available: true, ownerApprovalRequired: true, restart: true };
+    await client("host-agent", "request-session-host", "--restart", "--reason", "New release");
+    expect(calls.at(-1).body).toMatchObject({
+      operation: "session-host-restart",
+      reason: "New release",
+    });
+    capability = { available: true, ownerApprovalRequired: true };
     expect(JSON.parse((await client("host-agent", "session-host-status")).stdout)).toEqual(status);
     expect(calls.at(-1)).toMatchObject({ method: "GET", url: "/api/installation/session-host" });
 
@@ -1035,7 +1048,7 @@ test("session host commands need the advertised capability and send only the ope
     calls.length = 0;
     await expect(
       client("host-agent", "request-session-host", "--install", "--remove"),
-    ).rejects.toThrow("exactly one of --install or --remove");
+    ).rejects.toThrow("exactly one of --install, --remove or --restart");
     await expect(client("container-agent", "request-session-host", "--install")).rejects.toThrow(
       "trusted Host client",
     );

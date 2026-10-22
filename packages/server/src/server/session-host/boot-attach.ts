@@ -50,9 +50,10 @@ async function attachRunning(
 
 /**
  * First half of startup, before the worker accepts clients: attach every hosted session that is
- * still running a turn or waiting on a permission and register it for adoption, so whoever loads
- * the agent first adopts it rather than starting a second provider. Idle sessions are closed and
- * resume on demand like any other agent, which also keeps the host from accumulating them.
+ * still running a turn, waiting on a permission, or holding events no worker applied yet, and
+ * register it for adoption, so whoever loads the agent first adopts it rather than starting a
+ * second provider. Other idle sessions are closed and resume on demand like any other agent,
+ * which also keeps the host from accumulating them.
  */
 export async function planHostedStartup(input: {
   routing: StartupRouting;
@@ -85,14 +86,19 @@ export async function planHostedStartup(input: {
         !snapshot.success ||
         snapshot.data.activeTurnId !== null ||
         snapshot.data.pendingPermissions.length > 0;
-      if (!stored || stored.archivedAt || !running) {
+      const record = records.get(agentId);
+      const afterSeq = record && record.hostId === client.host.id ? record.lastAppliedSeq : 0;
+      // A turn that finished while no worker was attached, as during a long Host update, left
+      // events no worker applied: the end of its output. Closing it here would lose them, so such
+      // a session is adopted like a running one; the agent loads, applies them, and stays hosted
+      // and idle as if the turn had ended under this worker.
+      const unapplied = summary.lastSeq > afterSeq;
+      if (!stored || stored.archivedAt || (!running && !unapplied)) {
         await closeHosted(client, agentId);
         await routing.applied.remove(agentId);
         plan.closed.push(agentId);
         continue;
       }
-      const record = records.get(agentId);
-      const afterSeq = record && record.hostId === client.host.id ? record.lastAppliedSeq : 0;
       const attached = await attachRunning(client, agentId, afterSeq);
       routing.adoptions.set(agentId, { ...attached, hostId: client.host.id });
       plan.adopted.push(agentId);

@@ -65,15 +65,21 @@ export async function postCoordinatorRequest(url, options, timers = { setTimeout
 }
 
 /** Session host job commands need a coordinator that advertises them to this token. */
-async function requireSessionHostJob(base, config) {
+async function requireSessionHostJob(base, config, operation) {
   const response = await fetch(new URL("/api/installation/capabilities", base), {
     headers: { Authorization: `Bearer ${config.token}` },
     redirect: "error",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok || (await response.json()).sessionHostJob?.available !== true)
+  const sessionHostJob = response.ok ? (await response.json()).sessionHostJob : undefined;
+  if (sessionHostJob?.available !== true)
     throw new Error(
       "The coordinator does not advertise session host jobs to this client. No request submitted.",
+    );
+  // COMPAT(sessionHostRestart): older coordinators reject the restart operation outright.
+  if (operation === "session-host-restart" && sessionHostJob.restart !== true)
+    throw new Error(
+      "The installed coordinator does not support session host restarts. Update the Host first; no request submitted.",
     );
 }
 
@@ -99,6 +105,7 @@ if (
       "request-file": { type: "string" },
       install: { type: "boolean" },
       remove: { type: "boolean" },
+      restart: { type: "boolean" },
       reason: { type: "string" },
       "instructions-file": { type: "string" },
       "base-revision": { type: "string" },
@@ -225,14 +232,17 @@ if (
     case "request-session-host": {
       if (config.kind !== "host-agent")
         throw new Error("Session host job requests require the trusted Host client");
-      if (Boolean(values.install) === Boolean(values.remove))
-        throw new Error("Use exactly one of --install or --remove");
-      await requireSessionHostJob(base, config);
+      if ([values.install, values.remove, values.restart].filter(Boolean).length !== 1)
+        throw new Error("Use exactly one of --install, --remove or --restart");
+      let operation = "session-host-restart";
+      if (values.install) operation = "session-host-install";
+      if (values.remove) operation = "session-host-remove";
+      await requireSessionHostJob(base, config, operation);
       resource = "/api/installation/session-host-requests";
       // The coordinator derives the plan itself; the request names only the operation.
       body = {
         id: randomUUID(),
-        operation: values.install ? "session-host-install" : "session-host-remove",
+        operation,
         reason:
           values.reason?.trim() || "Requested by a Host agent through the installation client.",
       };

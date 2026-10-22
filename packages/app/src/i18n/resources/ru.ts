@@ -313,6 +313,7 @@ export const ru: TranslationResources = {
       archived: "В архиве",
       pending: "На рассмотрении: {{count}}",
       attention: "Внимание",
+      hosted: "Переживает перезапуски",
     },
     archiveSheet: {
       hostOffline: "Хост не в сети",

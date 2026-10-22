@@ -313,6 +313,7 @@ export const ptBR: TranslationResources = {
       archived: "Arquivado",
       pending: "{{count}} pendente(s)",
       attention: "Atenção",
+      hosted: "Sobrevive a reinícios",
     },
     archiveSheet: {
       hostOffline: "Host offline",

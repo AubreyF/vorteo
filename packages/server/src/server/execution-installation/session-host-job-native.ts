@@ -89,10 +89,14 @@ async function queryHost(
         timer = setTimeout(() => reject(new Error("list timed out")), listTimeoutMs);
       }),
     ]);
+    const providers: Record<string, number> = {};
+    for (const session of sessions)
+      providers[session.provider] = (providers[session.provider] ?? 0) + 1;
     return {
       pid: client.host.pid,
       ...(client.host.release ? { release: client.host.release } : {}),
       sessions: sessions.length,
+      providers,
     };
   } catch {
     return "refused";

@@ -288,8 +288,12 @@ export class InstallationClient {
           jobs: z.array(SessionHostJobSchema),
           // Null when the coordinator could not inspect the job; its jobs still need decisions.
           status: SessionHostStatusSchema.nullable(),
+          // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
+          restartSupported: z.boolean().optional(),
         })
-        .parse(await this.request("session-host/query", {}));
+        // The flags declare what this interface can parse: restart jobs and the hosted indicator.
+        // Older coordinators ignore them; newer ones withhold those additions from clients without them.
+        .parse(await this.request("session-host/query", { restart: true, indicator: true }));
       this.sessionHostSupported = true;
       return overview;
     } catch (error) {

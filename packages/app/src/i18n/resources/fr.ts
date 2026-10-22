@@ -315,6 +315,7 @@ export const fr: TranslationResources = {
       archived: "Archivé",
       pending: "{{count}}en attente",
       attention: "Attention",
+      hosted: "Survit aux redémarrages",
     },
     archiveSheet: {
       hostOffline: "Hosthors ligne",

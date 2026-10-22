@@ -310,6 +310,7 @@ export const ko: TranslationResources = {
       archived: "보관됨",
       pending: "대기 {{count}}개",
       attention: "주의",
+      hosted: "재시작 후에도 유지",
     },
     archiveSheet: {
       hostOffline: "호스트 오프라인",

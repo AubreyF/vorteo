@@ -289,8 +289,15 @@ export class InstallationPanelModel {
         this.client.daemonAutomation?.() ?? Promise.resolve(null),
         this.client.devRepairStatus?.() ?? Promise.resolve({ available: false, preparingIds: [] }),
         this.client.maintenanceStatus?.() ?? Promise.resolve(null),
-        this.client.sessionHost?.() ?? Promise.resolve(null),
-        // This card never blocks the rest of Installation controls.
+        // Neither of these cards blocks the rest of Installation controls: a coordinator that answers
+        // in a shape this interface cannot parse leaves the card's last state and an error.
+        (this.client.sessionHost?.() ?? Promise.resolve(null)).catch((error: unknown) => {
+          this.publish({
+            sessionHostError:
+              error instanceof Error ? error.message : "Session host status is unavailable",
+          });
+          return this.state.sessionHost;
+        }),
         (this.client.listInstructionRequests?.() ?? Promise.resolve(null)).catch(
           (error: unknown) => {
             this.publish({

@@ -4,7 +4,13 @@ import { z } from "zod";
  * Tracked operations on the durable session host's launchd job. The installation coordinator owns
  * the job: it computes every plan from its own configuration, and the owner approves each one.
  */
-export const SessionHostOperationSchema = z.enum(["session-host-install", "session-host-remove"]);
+// COMPAT(sessionHostRestart): "session-host-restart" added in v0.11.0-beta.3.vorteo.751; older
+// coordinators reject it, so clients send it only when capabilities advertise sessionHostJob.restart.
+export const SessionHostOperationSchema = z.enum([
+  "session-host-install",
+  "session-host-remove",
+  "session-host-restart",
+]);
 export type SessionHostOperation = z.infer<typeof SessionHostOperationSchema>;
 
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -71,11 +77,19 @@ export const SessionHostJobSchema = z.strictObject({
   approvedAt: z.string().datetime().optional(),
   /** A remove that stopped a host which no longer answered, after the workers' alive window. */
   forcedStop: z.boolean().optional(),
-  /** The host that answered after an install. */
+  /** The host that answered after an install or a restart. */
   host: z
     .strictObject({
       pid: z.number().int().positive().max(2147483647),
       release: z.string().max(200).optional(),
+    })
+    .optional(),
+  /** The host a restart stopped, with the hosted sessions it was running at that moment. */
+  previousHost: z
+    .strictObject({
+      pid: z.number().int().positive().max(2147483647),
+      release: z.string().max(200).optional(),
+      sessions: z.number().int().min(0),
     })
     .optional(),
 });
@@ -100,8 +114,12 @@ export const SessionHostStatusSchema = z.strictObject({
           pid: z.number().int().positive(),
           release: z.string().max(200).optional(),
           sessions: z.number().int().min(0),
+          /** Hosted sessions by provider id. Absent from coordinators before the indicator. */
+          providers: z.record(z.string().max(200), z.number().int().min(0)).optional(),
         })
         .nullable(),
+      /** The release the current link selects, to compare with the host's own release. */
+      installedRelease: z.string().max(200).optional(),
       settingEnabled: z.boolean(),
       observedAt: z.string().datetime(),
     })
