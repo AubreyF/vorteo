@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/relay",
-  "version": "0.11.0-beta.3.vorteo.790",
+  "version": "0.11.0-beta.3.vorteo.799",
   "description": "Vorteo relay for bridging daemon and client connections",
   "files": [
     "dist",

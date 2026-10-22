@@ -3,9 +3,17 @@ import {
   createTestCreationService,
 } from "./test-utils/session-stubs.js";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
-import { join, resolve as resolvePath } from "path";
+import { basename, join, resolve as resolvePath } from "path";
 import pino from "pino";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -323,6 +331,7 @@ interface SessionForTestOptions {
   stt?: SessionOptions["stt"];
   voice?: SessionOptions["voice"];
   paseoHome?: string;
+  projectsFolder?: SessionOptions["projectsFolder"];
   serverId?: SessionOptions["serverId"];
   daemonVersion?: SessionOptions["daemonVersion"];
   daemonRuntimeConfig?: SessionOptions["daemonRuntimeConfig"];
@@ -334,6 +343,12 @@ interface SessionForTestOptions {
   pluginRuntime?: SessionOptions["pluginRuntime"];
   orchestrationSkills?: SessionOptions["orchestrationSkills"];
   workspaceLabelService?: WorkspaceLabelService;
+}
+
+function responseErrorCode(message: SessionOutboundMessage): unknown {
+  return "payload" in message && message.payload && "errorCode" in message.payload
+    ? message.payload.errorCode
+    : null;
 }
 
 function createSessionForTest(options: SessionForTestOptions = {}): Session {
@@ -388,6 +403,7 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
     downloadTokenStore: options.downloadTokenStore ?? asDownloadTokenStore(),
     pushNotifications: options.pushNotifications ?? asPushNotifications(),
     paseoHome: options.paseoHome ?? "/tmp/paseo-home",
+    ...(options.projectsFolder ? { projectsFolder: options.projectsFolder } : {}),
     agentManager: asAgentManager({
       listAgents: vi.fn(() => []),
       listProviderSubagentActivity: vi.fn(() => []),
@@ -1293,6 +1309,191 @@ describe("project command-center RPCs", () => {
     } finally {
       rmSync(parentDirectory, { recursive: true, force: true });
     }
+  });
+
+  describe("with a Projects folder", () => {
+    const nonGitCheckout = vi.fn(async (cwd: string) => ({
+      cwd,
+      isGit: false as const,
+      currentBranch: null,
+      remoteUrl: null,
+      worktreeRoot: null,
+      isPaseoOwnedWorktree: false as const,
+      mainRepoRoot: null,
+    }));
+    function projectsSession(input: {
+      root: string;
+      messages: SessionOutboundMessage[];
+      registered?: string[];
+      allocate?: ReturnType<typeof vi.fn>;
+    }) {
+      const registered = (input.registered ?? []).map((rootPath, index) =>
+        createPersistedProjectRecord({
+          projectId: `prj_registered_${index}`,
+          rootPath,
+          kind: "non_git",
+          displayName: basename(rootPath),
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+        }),
+      );
+      return createSessionForTest({
+        messages: input.messages,
+        projectsFolder: { root: input.root, aliases: [], allowOutside: [] },
+        projectRegistry: {
+          list: vi.fn().mockResolvedValue(registered),
+          getOrCreateActiveByRoot:
+            input.allocate ??
+            vi.fn(async (record) =>
+              createPersistedProjectRecord({
+                projectId: "prj_added",
+                rootPath: record.rootPath,
+                kind: record.kind,
+                displayName: record.displayName,
+                createdAt: record.timestamp,
+                updatedAt: record.timestamp,
+              }),
+            ),
+        },
+        workspaceGitService: { getCheckout: nonGitCheckout },
+      });
+    }
+
+    test("rejects new projects outside it and the folder itself", async () => {
+      const temp = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
+      const root = join(temp, "dev");
+      mkdirSync(join(root, "app"), { recursive: true });
+      mkdirSync(join(temp, "outside"));
+      const messages: SessionOutboundMessage[] = [];
+      const allocate = vi.fn();
+      const session = projectsSession({ root, messages, allocate });
+      try {
+        for (const [cwd, requestId] of [
+          [join(temp, "outside"), "outside"],
+          [root, "root"],
+          [join(root, "app", "..", "..", "outside"), "dotdot"],
+        ]) {
+          await session.handleMessage({ type: "project.add.request", cwd, requestId });
+        }
+        await session.handleMessage({
+          type: "open_project_request",
+          cwd: join(temp, "outside"),
+          requestId: "open-outside",
+        });
+        expect(allocate).not.toHaveBeenCalled();
+        expect(messages.map(responseErrorCode)).toEqual([
+          "outside_projects_folder",
+          "projects_folder_root",
+          "outside_projects_folder",
+          "outside_projects_folder",
+        ]);
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    });
+
+    test("keeps registered projects outside it working and adds folders inside it", async () => {
+      const temp = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
+      const root = join(temp, "dev");
+      const legacy = join(temp, "legacy");
+      mkdirSync(join(root, "app"), { recursive: true });
+      mkdirSync(legacy);
+      const messages: SessionOutboundMessage[] = [];
+      const session = projectsSession({ root, messages, registered: [legacy] });
+      try {
+        await session.handleMessage({ type: "project.add.request", cwd: legacy, requestId: "a" });
+        await session.handleMessage({
+          type: "project.add.request",
+          cwd: join(root, "app"),
+          requestId: "b",
+        });
+        expect(messages).toMatchObject([
+          { payload: { requestId: "a", error: null, project: { projectRootPath: legacy } } },
+          {
+            payload: {
+              requestId: "b",
+              error: null,
+              project: { projectRootPath: join(root, "app") },
+            },
+          },
+        ]);
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    });
+
+    test("creates a plain folder inside it without registering a project", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
+      const messages: SessionOutboundMessage[] = [];
+      const allocate = vi.fn();
+      const session = projectsSession({ root, messages, allocate });
+      try {
+        await session.handleMessage({
+          type: "project.create_directory.request",
+          parentPath: root,
+          name: "drafts",
+          register: false,
+          requestId: "req-plain-folder",
+        });
+        await session.handleMessage({
+          type: "project.create_directory.request",
+          parentPath: tmpdir(),
+          name: `paseo-escape-${Date.now()}`,
+          register: false,
+          requestId: "req-outside-folder",
+        });
+        expect(existsSync(join(root, "drafts"))).toBe(true);
+        expect(allocate).not.toHaveBeenCalled();
+        expect(messages).toMatchObject([
+          {
+            payload: {
+              requestId: "req-plain-folder",
+              directoryPath: join(root, "drafts"),
+              project: null,
+              error: null,
+            },
+          },
+          {
+            payload: {
+              requestId: "req-outside-folder",
+              project: null,
+              errorCode: "outside_projects_folder",
+            },
+          },
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("refuses to clone outside it before creating any folder", async () => {
+      const temp = realpathSync(mkdtempSync(join(tmpdir(), "paseo-projects-root-")));
+      const root = join(temp, "dev");
+      mkdirSync(root);
+      const messages: SessionOutboundMessage[] = [];
+      const session = projectsSession({ root, messages });
+      try {
+        await session.handleMessage({
+          type: "project.github.clone.request",
+          repo: "https://github.com/getpaseo/paseo.git",
+          targetDirectory: join(temp, "elsewhere", "nested"),
+          requestId: "req-clone-outside",
+        });
+        expect(existsSync(join(temp, "elsewhere"))).toBe(false);
+        expect(messages).toMatchObject([
+          {
+            type: "project.github.clone.response",
+            payload: {
+              requestId: "req-clone-outside",
+              project: null,
+              error: expect.stringContaining("inside the Projects folder"),
+            },
+          },
+        ]);
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    });
   });
 
   test("rolls back the directory when Project registration fails", async () => {

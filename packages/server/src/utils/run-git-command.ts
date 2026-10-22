@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync } from "node:fs";
 import type { Logger } from "pino";
 import type { ProcessEnvRecord } from "../server/paseo-env.js";
+import { withProjectsFolderSafeDirectory } from "../server/projects-folder-git-trust.js";
 import {
   GitCommandRuntimeMetricsWindow,
   type GitCommandRuntimeMetricsSnapshot,
@@ -302,7 +303,11 @@ function executeGitCommand<Output>(
       const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
       const acceptExitCodes = options.acceptExitCodes ?? [0];
       const command = formatGitCommand(args);
-      const envOverlay = mergeEnvOverlays(options.env, options.envOverlay);
+      // Inside the Projects folder, trust this repository for this invocation only.
+      const envOverlay = withProjectsFolderSafeDirectory(
+        options.cwd,
+        mergeEnvOverlays(options.env, options.envOverlay),
+      );
       const startedAt = Date.now();
       beginGitCommandMetric(metricsState);
       const logger = typeof options.logger?.trace === "function" ? options.logger : undefined;

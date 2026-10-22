@@ -419,10 +419,13 @@ export class FileBootstrapRequestJournal implements BootstrapRequestJournal {
             return previous.id === job.id && previous.target === job.target;
           }),
       );
-      if (added.length && this.hasCoordinatorExecution())
+      if (added.length && this.hasCoordinatorExecution()) {
+        const running = openBootstrapRequests(this.read()).find((request) => request.execution);
         throw new BootstrapRequestConflict(
-          "Coordinator recovery must finish before installation work",
+          // Keep the documented prefix; agents and the maintenance skill match on it.
+          `Coordinator recovery must finish before installation work${running ? `: coordinator update ${running.id.slice(0, 8)} is running` : ""}`,
         );
+      }
       if (activationChild) {
         if (!admission)
           throw new BootstrapRequestConflict("Activation child requires locked evidence admission");

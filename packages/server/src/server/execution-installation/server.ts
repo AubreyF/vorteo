@@ -26,6 +26,8 @@ import { mountClaudeSetupRoutes } from "./accounts/claude-setup-routes.js";
 import { mountClaudeOAuthRoutes } from "./accounts/claude-oauth-routes.js";
 import type { ClaudeOAuthRuntime } from "./accounts/claude-oauth-runtime.js";
 import type { ClaudeSetupRuntime } from "./accounts/claude-setup-runtime.js";
+import { mountProviderSecretsRoutes } from "./accounts/provider-secrets-routes.js";
+import type { ProviderSecretsRuntime } from "./accounts/provider-secrets-runtime.js";
 import {
   SkillSourceSchema,
   InstallationSkillSchema,
@@ -42,7 +44,7 @@ import { ProfileSharingConflict } from "./profiles/merge.js";
 import { ProviderPreferencesValidationError } from "../agent/provider-preferences/validation.js";
 import type { InstallationProfiles } from "./profiles/service.js";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Logger } from "pino";
@@ -107,12 +109,28 @@ import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./o
 const SESSION_HOST_STATUS_CACHE_MS = 30_000;
 
 // COMPAT(providerRemovalOwner): added in v155, remove after legacy strict catalog clients are unsupported.
-function ownerSettingsSnapshot(snapshot: InstallationSettingsSnapshot, removalAware: boolean) {
-  if (removalAware) return snapshot;
+function ownerSettingsSnapshot(
+  snapshot: InstallationSettingsSnapshot,
+  client: { removalAware: boolean; projectPoliciesAware: boolean },
+) {
   const catalogs = [snapshot.settings, ...Object.values(snapshot.conflicts?.candidates ?? {})];
-  for (const catalog of catalogs)
-    for (const provider of catalog?.providerDefinitions ?? []) delete provider.removed;
+  for (const catalog of catalogs) {
+    if (!catalog) continue;
+    if (!client.removalAware)
+      for (const provider of catalog.providerDefinitions ?? []) delete provider.removed;
+    // COMPAT(projectPolicies): added 2026-10-22, remove after 2027-04-22. Older strict clients
+    // reject the key; newer ones read its presence as the capability.
+    if (client.projectPoliciesAware) catalog.projectPolicies ??= {};
+    else delete catalog.projectPolicies;
+  }
   return snapshot;
+}
+
+function ownerSettingsClient(req: Request) {
+  return {
+    removalAware: req.get("X-Vorteo-Provider-Removal") === "1",
+    projectPoliciesAware: req.get("X-Vorteo-Project-Policies") === "1",
+  };
 }
 
 function matchesToken(token: string | null, hash: string): boolean {
@@ -316,6 +334,7 @@ export function createInstallationServer(
   startupFence?: InstallationStartupFence,
   coordinatorRequests?: BootstrapReconciliationLedger,
   claudeOAuth?: ClaudeOAuthRuntime,
+  providerSecrets?: ProviderSecretsRuntime,
 ) {
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   const instructionRequests = new InstructionRequests(
@@ -480,6 +499,26 @@ export function createInstallationServer(
         serviceDiscovery = null;
       });
   }
+  // A Host install that selects a new release leaves coordinator updates
+  // prepared for the old one unverifiable. Cancel them rather than leave them
+  // waiting for the owner; a renewal prepared on the new release is kept.
+  function cancelStaleCoordinatorUpdates() {
+    const hostSourceUpdates = config.sourceUpdates;
+    if (!coordinatorRequests || !hostSourceUpdates) return;
+    try {
+      const canceled = coordinatorRequests.cancelForReplacedHostRelease(
+        realpathSync(hostSourceUpdates.currentReleaseLink),
+        realpathSync(hostSourceUpdates.releaseRoot),
+      );
+      if (canceled.length)
+        logger.info(
+          { canceled },
+          "Canceled coordinator updates prepared for a replaced Host release",
+        );
+    } catch {
+      logger.warn("Stale coordinator update check is pending");
+    }
+  }
   const drainRestarts = async () => {
     if (drainInProgress) return;
     drainInProgress = true;
@@ -496,6 +535,7 @@ export function createInstallationServer(
           if (progress !== "idle" && progress !== "verified") return;
         }
         coordinatorRequests?.revokeAutomatic();
+        cancelStaleCoordinatorUpdates();
         discoverMaintenanceServices();
         await standingRuntime.refresh(restarts.list());
         await restarts.drain();
@@ -1150,6 +1190,9 @@ export function createInstallationServer(
       res.sendStatus(503);
       return;
     }
+    // COMPAT(projectPolicies): added 2026-10-22, remove after 2027-04-22. Older daemons parse
+    // admission strictly, so only readers that ask receive project policies.
+    if (req.query.projectPolicies !== "1") delete snapshot.settings.projectPolicies;
     res.json({
       installationId: config.public.installationId,
       serverId: environment.serverId,
@@ -1675,6 +1718,7 @@ export function createInstallationServer(
   });
   if (claudeSetup) mountClaudeSetupRoutes(app, claudeSetup);
   if (claudeOAuth) mountClaudeOAuthRoutes(app, claudeOAuth);
+  if (providerSecrets) mountProviderSecretsRoutes(app, providerSecrets);
   app.post("/api/installation/owner/lock", (req, res) => {
     sessions.revoke(sessionToken(req));
     res.clearCookie(cookieName, cookieOptions);
@@ -1698,9 +1742,7 @@ export function createInstallationServer(
   });
   app.post("/api/installation/owner/profiles/query", (_req, res) => res.json(profiles.status()));
   app.post("/api/installation/owner/settings/read", (req, res) => {
-    res.json(
-      ownerSettingsSnapshot(settings.snapshot(), req.get("X-Vorteo-Provider-Removal") === "1"),
-    );
+    res.json(ownerSettingsSnapshot(settings.snapshot(), ownerSettingsClient(req)));
   });
   app.post("/api/installation/owner/settings/plugins/resolve", (req, res, next) => {
     const input = PluginSourceResolutionInputSchema.parse(req.body);
@@ -1749,7 +1791,10 @@ export function createInstallationServer(
       throw new InstallationSettingsConflict(current.revision);
     void settings
       .update(input)
-      .then((snapshot) => res.json(ownerSettingsSnapshot(snapshot, removalAware)), next);
+      .then(
+        (snapshot) => res.json(ownerSettingsSnapshot(snapshot, ownerSettingsClient(req))),
+        next,
+      );
   });
   const readProfiles = (_req: Request, res: Response) => {
     const snapshot = profiles.snapshot();

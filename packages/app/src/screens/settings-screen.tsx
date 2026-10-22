@@ -32,7 +32,6 @@ import {
   Palette,
   Server,
   Bot,
-  Info,
   MessageSquare,
   Plus,
   FolderGit2,
@@ -41,6 +40,7 @@ import {
   Blocks,
   Wrench,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react-native";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -49,6 +49,7 @@ import { OpenLocationSection } from "@/screens/settings/open-location/open-locat
 import { TerminalSection } from "@/screens/settings/terminal/terminal-section";
 import { ChatSection } from "@/screens/settings/chat/chat-section";
 import { SendingSection } from "@/screens/settings/general/sending-section";
+import { ProviderDetailPage, providerTypeLabel } from "@/screens/settings/provider-detail-page";
 import {
   useAppSettings,
   useSettings,
@@ -71,7 +72,9 @@ import { KeyboardShortcutsSection } from "@/screens/settings/keyboard-shortcuts-
 import { EditorSection } from "@/screens/settings/editor-section";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { CommunityLinks } from "@/components/community-links";
+import { VORTEO_GITHUB_URL } from "@/components/community-links";
+import { GitHubIcon } from "@/components/icons/github-icon";
+import { openExternalUrl } from "@/utils/open-external-url";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DesktopPermissionsSection } from "@/desktop/components/desktop-permissions-section";
@@ -155,7 +158,11 @@ import { useSettingsSearchShortcut } from "@/screens/settings/use-settings-searc
 // View model
 // ---------------------------------------------------------------------------
 
-type IconComponent = ComponentType<{ size: number; color: string; strokeWidth?: number }>;
+type IconComponent = ComponentType<{
+  size: number;
+  color: string;
+  strokeWidth?: number;
+}>;
 
 const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   general: Settings,
@@ -168,7 +175,6 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   environments: Server,
   plugins: Blocks,
   maintenance: Wrench,
-  about: Info,
 };
 
 interface HostSectionItem {
@@ -193,6 +199,7 @@ const HOST_SECTION_ITEMS: HostSectionItem[] = [
 /** The section a drill-in page belongs to, for the sidebar highlight. */
 function sectionForView(view: SettingsView): SettingsSectionId | null {
   if (view.kind === "project") return "workspaces";
+  if (view.kind === "provider") return "accounts";
   if (view.kind === "plugin") return "plugins";
   if (view.kind === "host") {
     if (view.section === "host") return "environments";
@@ -246,7 +253,13 @@ function useAvailabilityContext(): SettingsAvailabilityContext {
   const isDesktopApp = isElectronRuntime();
   const hasInstallation = readExecutionInstallation() !== null;
   return useMemo(
-    () => ({ isDesktopApp, isWeb, isNative, hasHosts: hosts.length > 0, hasInstallation }),
+    () => ({
+      isDesktopApp,
+      isWeb,
+      isNative,
+      hasHosts: hosts.length > 0,
+      hasInstallation,
+    }),
     [hasInstallation, hosts.length, isDesktopApp],
   );
 }
@@ -419,80 +432,84 @@ function LanguageSection({ settings, handleLanguageChange }: LanguageSectionProp
   );
 }
 
-interface DiagnosticsSectionProps {
+interface DiagnosticsRowsProps {
   useLegacyTerminalRenderer: boolean;
   onUseLegacyTerminalRendererChange: (value: boolean) => void;
   voiceAudioEngine: ReturnType<typeof useVoiceAudioEngineOptional>;
   isPlaybackTestRunning: boolean;
   playbackTestResult: string | null;
   handlePlaybackTest: () => Promise<void>;
+  /** Separates the first row from rows above it in the shared card. */
+  showTopBorder: boolean;
 }
 
-function DiagnosticsSection({
+/** This device's diagnostic rows, rendered inside the Connected hosts card. */
+function DiagnosticsRows({
   useLegacyTerminalRenderer,
   onUseLegacyTerminalRendererChange,
   voiceAudioEngine,
   isPlaybackTestRunning,
   playbackTestResult,
   handlePlaybackTest,
-}: DiagnosticsSectionProps) {
+  showTopBorder,
+}: DiagnosticsRowsProps) {
   const { t } = useTranslation();
   const openAppDiagnostic = useAppDiagnosticStore((state) => state.open);
   const handlePlayPress = useCallback(() => {
     void handlePlaybackTest();
   }, [handlePlaybackTest]);
+  const firstRowStyle = [settingsStyles.row, showTopBorder && settingsStyles.rowBorder];
   return (
-    <SettingsSection title={t("settings.diagnostics.title")}>
-      <View style={settingsStyles.card}>
-        {isNative ? (
-          <View style={settingsStyles.row} testID="legacy-terminal-renderer-row">
-            <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle}>
-                {t("settings.diagnostics.legacyTerminalRenderer.label")}
-              </Text>
-              <Text style={settingsStyles.rowHint}>
-                {t("settings.diagnostics.legacyTerminalRenderer.description")}
-              </Text>
-            </View>
-            <Switch
-              value={useLegacyTerminalRenderer}
-              onValueChange={onUseLegacyTerminalRendererChange}
-              accessibilityLabel={t(
-                "settings.diagnostics.legacyTerminalRenderer.accessibilityLabel",
-              )}
-              testID="legacy-terminal-renderer-switch"
-            />
-          </View>
-        ) : null}
-        <View style={settingsStyles.row} testID="app-diagnostic-row">
+    <>
+      {isNative ? (
+        <View style={firstRowStyle} testID="legacy-terminal-renderer-row">
           <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.app.rowTitle")}</Text>
-            <Text style={settingsStyles.rowHint}>{t("settings.diagnostics.app.rowHint")}</Text>
+            <Text style={settingsStyles.rowTitle}>
+              {t("settings.diagnostics.legacyTerminalRenderer.label")}
+            </Text>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.diagnostics.legacyTerminalRenderer.description")}
+            </Text>
           </View>
-          <Button variant="secondary" size="sm" onPress={openAppDiagnostic}>
-            {t("settings.diagnostics.app.run")}
-          </Button>
+          <Switch
+            value={useLegacyTerminalRenderer}
+            onValueChange={onUseLegacyTerminalRendererChange}
+            accessibilityLabel={t("settings.diagnostics.legacyTerminalRenderer.accessibilityLabel")}
+            testID="legacy-terminal-renderer-switch"
+          />
         </View>
-        <View style={settingsStyles.row}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.testAudio")}</Text>
-            {playbackTestResult ? (
-              <Text style={settingsStyles.rowHint}>{playbackTestResult}</Text>
-            ) : null}
-          </View>
-          <Button
-            variant="secondary"
-            size="sm"
-            onPress={handlePlayPress}
-            disabled={!voiceAudioEngine || isPlaybackTestRunning}
-          >
-            {isPlaybackTestRunning
-              ? t("settings.diagnostics.playing")
-              : t("settings.diagnostics.playTest")}
-          </Button>
+      ) : null}
+      <View
+        style={isNative ? [settingsStyles.row, settingsStyles.rowBorder] : firstRowStyle}
+        testID="app-diagnostic-row"
+      >
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.app.rowTitle")}</Text>
+          <Text style={settingsStyles.rowHint}>{t("settings.diagnostics.app.rowHint")}</Text>
         </View>
+        <Button variant="secondary" size="sm" onPress={openAppDiagnostic}>
+          {t("settings.diagnostics.app.run")}
+        </Button>
       </View>
-    </SettingsSection>
+      <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle}>{t("settings.diagnostics.testAudio")}</Text>
+          {playbackTestResult ? (
+            <Text style={settingsStyles.rowHint}>{playbackTestResult}</Text>
+          ) : null}
+        </View>
+        <Button
+          variant="secondary"
+          size="sm"
+          onPress={handlePlayPress}
+          disabled={!voiceAudioEngine || isPlaybackTestRunning}
+        >
+          {isPlaybackTestRunning
+            ? t("settings.diagnostics.playing")
+            : t("settings.diagnostics.playTest")}
+        </Button>
+      </View>
+    </>
   );
 }
 
@@ -504,24 +521,54 @@ interface AboutSectionProps {
 function AboutSection({ appVersionText, isDesktopApp }: AboutSectionProps) {
   const { t } = useTranslation();
   return (
-    <>
-      <SettingsSection title={t("settings.about.title")}>
-        <View style={settingsStyles.card}>
-          <View style={settingsStyles.row}>
-            <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle}>{t("settings.about.appVersion")}</Text>
-              <Text style={settingsStyles.rowHint}>{t("settings.about.thisDevice")}</Text>
-            </View>
-            <Text style={styles.aboutValue}>{appVersionText}</Text>
+    <SettingsSection title={t("settings.about.title")}>
+      <View style={settingsStyles.card}>
+        <View style={settingsStyles.row}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>{t("settings.about.appVersion")}</Text>
+            <Text style={settingsStyles.rowHint}>{t("settings.about.thisDevice")}</Text>
           </View>
-          <WhatsNewRow />
-          {isDesktopApp ? <DesktopAppUpdateRow /> : null}
+          <Text style={styles.aboutValue}>{appVersionText}</Text>
         </View>
-      </SettingsSection>
-      <View style={styles.aboutCommunity}>
-        <CommunityLinks />
+        <WhatsNewRow />
+        <GitHubRow />
+        {isDesktopApp ? <DesktopAppUpdateRow /> : null}
       </View>
-    </>
+    </SettingsSection>
+  );
+}
+
+function openGitHub() {
+  void openExternalUrl(VORTEO_GITHUB_URL);
+}
+
+function GitHubRow() {
+  const { t } = useTranslation();
+  const { theme } = useUnistyles();
+
+  return (
+    <Pressable
+      style={[settingsStyles.row, settingsStyles.rowBorder]}
+      onPress={openGitHub}
+      accessibilityRole="link"
+      testID="settings-github"
+    >
+      {({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => (
+        <>
+          <View style={styles.githubTitle}>
+            <GitHubIcon color={theme.colors.foreground} size={theme.iconSize.sm} />
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>{t("settings.about.github")}</Text>
+              <Text style={settingsStyles.rowHint}>{t("settings.about.githubHint")}</Text>
+            </View>
+          </View>
+          <ExternalLink
+            size={theme.iconSize.sm}
+            color={hovered ? theme.colors.foreground : theme.colors.foregroundMuted}
+          />
+        </>
+      )}
+    </Pressable>
   );
 }
 
@@ -558,23 +605,40 @@ function normalizeVersion(version: string | null | undefined): string | null {
   return trimmed.replace(/^v/i, "");
 }
 
-function ConnectedHostsSection({ clientVersion }: { clientVersion: string | null }) {
+/**
+ * One card for everything about reaching environments from this device: each
+ * host's daemon version, the installation connection check and app diagnostics.
+ */
+function ConnectedHostsSection({ context }: { context: PaneContext }) {
   const { t } = useTranslation();
   const hosts = useHosts();
-  if (hosts.length === 0) {
-    return null;
-  }
+  const hasInstallation = readExecutionInstallation() !== null;
   return (
-    <SettingsSection title={t("settings.about.connectedHosts")}>
+    <SettingsSection
+      title={t("settings.about.connectedHosts")}
+      info="Daemon versions for each environment, a connection check from this device and app diagnostics. Checks send no passwords or tokens and never restart services."
+    >
       <View style={settingsStyles.card}>
         {hosts.map((host, index) => (
           <HostVersionRow
             key={host.serverId}
             host={host}
             showBorder={index > 0}
-            clientVersion={clientVersion}
+            clientVersion={context.appVersion}
           />
         ))}
+        {hasInstallation ? (
+          <InstallationConnectionCheck embedded showTopBorder={hosts.length > 0} />
+        ) : null}
+        <DiagnosticsRows
+          useLegacyTerminalRenderer={context.settings.useLegacyTerminalRenderer}
+          onUseLegacyTerminalRendererChange={context.onUseLegacyTerminalRendererChange}
+          voiceAudioEngine={context.voiceAudioEngine}
+          isPlaybackTestRunning={context.isPlaybackTestRunning}
+          playbackTestResult={context.playbackTestResult}
+          handlePlaybackTest={context.onPlaybackTest}
+          showTopBorder={hosts.length > 0 || hasInstallation}
+        />
       </View>
     </SettingsSection>
   );
@@ -687,8 +751,14 @@ function DesktopAppUpdateRow() {
   );
   const releaseChannelOptions = useMemo(
     () => [
-      { value: "stable" as const, label: t("settings.about.releaseChannel.stable") },
-      { value: "beta" as const, label: t("settings.about.releaseChannel.beta") },
+      {
+        value: "stable" as const,
+        label: t("settings.about.releaseChannel.stable"),
+      },
+      {
+        value: "beta" as const,
+        label: t("settings.about.releaseChannel.beta"),
+      },
     ],
     [t],
   );
@@ -1024,9 +1094,11 @@ function installationPane(section: InstallationPaneSection) {
 /** Each catalog pane's body. Panes reuse the existing settings components. */
 const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "general.attention": (context) => <AttentionSection onOpenPane={context.onOpenPane} />,
-  "general.newWorkspace": () => <WorkspaceDefaultsSection />,
-  "general.sending": () => <SendingSection />,
   "general.notifications": () => <DesktopNotificationsSection />,
+  "general.about": (context) => (
+    <AboutSection appVersionText={context.appVersionText} isDesktopApp={context.isDesktopApp} />
+  ),
+  "general.hosts": (context) => <ConnectedHostsSection context={context} />,
   "accounts.providers": installationPane("providers"),
   "accounts.profiles": installationPane("profiles"),
   "accounts.usage": installationPane("usage"),
@@ -1036,6 +1108,7 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "agents.browserData": () => <BrowserDataSection />,
   "agents.permissions": () => <DesktopPermissionsSection />,
   "chat.chat": () => <ChatSection />,
+  "chat.sending": () => <SendingSection />,
   "chat.openLocation": () => <OpenLocationSection />,
   "chat.editor": () => <EditorSection />,
   "chat.shortcuts": () => <KeyboardShortcutsSection />,
@@ -1045,17 +1118,13 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   "appearance.language": (context) => (
     <LanguageSection settings={context.settings} handleLanguageChange={context.onLanguageChange} />
   ),
+  "workspaces.newWorkspace": () => <WorkspaceDefaultsSection />,
   "workspaces.projects": installationPane("projects"),
   "workspaces.workspaces": installationPane("workspaces"),
   "environments.environments": (context) => (
     <EnvironmentsPane onHostRemoved={context.onHostRemoved} />
   ),
-  "environments.connections": (context) => (
-    <>
-      <InstallationConnectionCheck />
-      {installationPane("connections")(context)}
-    </>
-  ),
+  "environments.connections": installationPane("connections"),
   "plugins.plugins": installationPane("plugins"),
   "plugins.integrations": () => <IntegrationsSection />,
   "maintenance.installation": (context) => (
@@ -1066,20 +1135,6 @@ const PANE_RENDERERS: Record<string, (context: PaneContext) => ReactNode> = {
   ),
   "maintenance.updates": () => <VortonUpdatesSection />,
   "maintenance.upstream": () => <UpstreamUpdatesSection />,
-  "maintenance.diagnostics": (context) => (
-    <DiagnosticsSection
-      useLegacyTerminalRenderer={context.settings.useLegacyTerminalRenderer}
-      onUseLegacyTerminalRendererChange={context.onUseLegacyTerminalRendererChange}
-      voiceAudioEngine={context.voiceAudioEngine}
-      isPlaybackTestRunning={context.isPlaybackTestRunning}
-      playbackTestResult={context.playbackTestResult}
-      handlePlaybackTest={context.onPlaybackTest}
-    />
-  ),
-  "about.about": (context) => (
-    <AboutSection appVersionText={context.appVersionText} isDesktopApp={context.isDesktopApp} />
-  ),
-  "about.hosts": (context) => <ConnectedHostsSection clientVersion={context.appVersion} />,
 };
 
 // ---------------------------------------------------------------------------
@@ -1102,12 +1157,17 @@ function resolveDetailTitle(
     return item ? t(item.labelKey) : undefined;
   }
   if (view.kind === "project") return t("settings.projects");
+  if (view.kind === "provider") return providerTypeLabel(view.providerType);
   return undefined;
 }
 
 function renderDetailContent(
   view: SettingsView,
-  options: { isCompactLayout: boolean; onBack: () => void; onHostRemoved: () => void },
+  options: {
+    isCompactLayout: boolean;
+    onBack: () => void;
+    onHostRemoved: () => void;
+  },
 ): ReactNode {
   if (view.kind === "plugin") {
     return (
@@ -1121,6 +1181,7 @@ function renderDetailContent(
     );
   }
   if (view.kind === "host") return renderHostSettingsContent(view, options.onHostRemoved);
+  if (view.kind === "provider") return <ProviderDetailPage providerType={view.providerType} />;
   if (view.kind === "project") {
     return (
       <ProjectSettingsScreen
@@ -1520,8 +1581,11 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     marginTop: theme.spacing[1],
   },
-  aboutCommunity: {
-    marginTop: theme.spacing[4],
+  githubTitle: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
   },
   compactSearch: {
     flexDirection: "row",

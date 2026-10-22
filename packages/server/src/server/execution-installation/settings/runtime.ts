@@ -87,6 +87,7 @@ export function createInstallationSettings(
   );
   const environments = config.public.environments.map((environment) => ({
     serverId: environment.serverId,
+    kind: environment.kind,
     installationInstructions:
       environment.kind === "host" ? installationHostInstructions(config) : "",
     async read() {

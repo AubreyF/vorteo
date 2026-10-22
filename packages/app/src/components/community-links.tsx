@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/icons/github-icon";
 import { openExternalUrl } from "@/utils/open-external-url";
 
+export const VORTEO_GITHUB_URL = "https://github.com/AubreyF/vorteo";
+
 const renderGitHubIcon = (color: string) => <GitHubIcon color={color} size={14} />;
 
 export function CommunityLinks() {
   const handleOpenGitHub = useCallback(() => {
-    void openExternalUrl("https://github.com/AubreyF/vorteo");
+    void openExternalUrl(VORTEO_GITHUB_URL);
   }, []);
 
   return (

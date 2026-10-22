@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { DaemonConfigStore } from "../../daemon-config-store.js";
 import { mountClaudeOAuthConsumer } from "./claude-oauth-consumer.js";
 import { mountClaudeSetupConsumer } from "./claude-setup-consumer.js";
+import { mountProviderSecretsConsumer } from "./provider-secrets-consumer.js";
 
 export interface InstallationAccountConsumerOptions {
   paseoHome: string;
@@ -19,6 +20,7 @@ export function mountInstallationAccountConsumers(
   options: InstallationAccountConsumerOptions,
 ): void {
   mountClaudeSetupConsumer(app, options);
-  // Inert unless the installation coordinator enables Host-owned Claude refresh.
+  // Inert until the installation coordinator delivers a Host-refreshed Claude sign-in.
   mountClaudeOAuthConsumer(app, options);
+  mountProviderSecretsConsumer(app, options);
 }

@@ -4,6 +4,107 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main at 0.11.0-beta.3.vorteo.797 into the CI repair branch. The provider-neutral installation account mount now also covers the Host-refreshed Claude sign-in and provider secret deliveries, sharing one catalog refresh callback.
+
+## 0.11.0-beta.3.vorteo.798 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.797 - 2026-10-22
+
+### Maintenance
+
+- Merge the Projects folder follow-up: Dev git trusts repositories inside the Projects folder, membership keys and Host sidebar keys move to the folder path
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Fixed
+
+- Dev's git no longer refuses repositories in the Projects folder as dubiously owned. Each daemon git command inside the folder or its aliases trusts that repository's exact physical top level for that command only, found without running git; worktree creation and git status in new worktrees work again. Repositories elsewhere get no override.
+- Agents and terminals in Dev trust new projects and Paseo-owned worktrees too: the daemon appends each exact physical path reached through an alias to its user's global `safe.directory`, once, with no wildcard.
+- Workspaces whose membership key still named the old container path rejoin their project in the sidebar. The startup registry move and every registry write now map `projectMembership.key` to the logical path, respecting kept paths, and the move repairs registries migrated earlier.
+- Projects whose keys moved keep their saved sidebar order, collapse state, filters and folders. The daemon rewrites saved project keys under a Projects folder alias once when it opens `sidebar-state.json`, after a backup, keeping the new key's value when both exist.
+
+### Changed
+
+- `configure-projects-folder` gives the Host the same earlier paths, aliases and kept paths as Dev, including the mount it finds, so shared keys that Dev recorded map alike on the Host. Run it again with the same flags before the Host update.
+
+## 0.11.0-beta.3.vorteo.796 - 2026-10-22
+
+### Maintenance
+
+- Merge the settings redesign: About folded into General, diagnostics into Connected hosts, provider pages in Accounts and profiles, and API keys shared across environments
+
+## 0.11.0-beta.3.vorteo.783 - 2026-10-22
+
+### Fixed
+
+- Opening Settings at a section keeps that section in view while content above it finishes loading, even when several sections grow at once. A jump that lands short because sections below are still mounting completes once they appear instead of leaving the page wherever it stopped.
+
+### Tests
+
+- Settings navigation tests expect Diagnostics under General, and the sticky environment tabs check waits for wheel scrolling to settle before measuring.
+
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Changed
+
+- Settings no longer has a separate About section. App version, What's new and a new GitHub row sit in an About card inside General. Connected hosts moves to General and now holds the connection check (from Environments) and the diagnostics rows (from Maintenance) in one card. Sending moves to Chat & editor, and New workspace defaults move to Workspaces & projects. Old About and Diagnostics links open the new locations.
+- Accounts & profiles lists each provider as a row that opens the provider's own page. The page shows its connections with one combined status ("Ready everywhere", or only the environment that differs), quota bars on each connection, Profiles with a star for the default, Model defaults, and a quiet "Remove from Vorteo" row at the bottom. The per-provider tab row, the separate Plan usage list and the Host / Dev container tabs in the Manage sheet are gone; Environment access in each connection's menu holds the rare per-environment opt-out. Add provider and Add connection install and sign in on Host by default.
+
+### Added
+
+- The installation coordinator stores provider API keys and tokens once and delivers them into every bound environment's provider configuration, withdrawing them from excluded and removed environments. Delivery starts on save and retries every 5 seconds. Owner routes under `/api/installation/owner/provider-secrets/` set and clear keys and report status for each environment, returning only names, last four characters and timestamps. Daemons advertise `providerSecretDelivery`. On first sync a key found in exactly one form is adopted; differing values are reported as conflicts and never overwritten silently.
+- Each connection on a provider page has an API keys sheet showing which environments have the current keys. Codex connections show which environments still need their own sign-in; Codex refresh grants are not copied between environments.
+- Host-owned refresh for full sign-in Claude accounts remains opt-in through `claudeHostRefresh: true`.
+
+### Tests
+
+- The packaged installation browser test opens provider pages and connection menus instead of the removed Manage sheet, installs runtimes on Host by default and in the Dev container explicitly, and removes a provider from its page. Environment access keeps showing Connect for an environment that is turned off, so a restored connection can sign in again.
+
+## 0.11.0-beta.3.vorteo.795 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.794 - 2026-10-22
+
+### Maintenance
+
+- Merge the coordinator cleanup that cancels coordinator updates a newer Host install made stale
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Maintenance
+
+- The reconciliation ledger test now lists the stale coordinator update cancellation among the coordinator loop's allowed operations. Like automatic-approval revocation, it can only cancel undispatched requests; preparation, owner decisions and dispatch claims stay off the loop's surface.
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- A coordinator update prepared for a Host release that a later Host install replaced no longer waits in front of the owner. The coordinator cancels such pending or approved-but-not-started updates by itself, keeps updates prepared on the newly selected release, and never touches recovery successors, supervision plans or restart jobs. On 2026-10-22 one such update went stale at 07:28 UTC and needed a manual cancel.
+- When installation work is refused because a coordinator update is running, the message now names that update. The documented prefix is unchanged.
+
+## 0.11.0-beta.3.vorteo.793 - 2026-10-22
+
+### Maintenance
+
+- Merge the Projects folder: projects live in one folder every environment can use at the same path, with per-project exclusions and kept paths
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Added
+
+- Projects folder settings accept `keepPaths`, exact recorded paths that the Dev registry move and the daemon's path mapping leave untouched. `configure-projects-folder --keep-path <path>` records them. This keeps a project root that an older Factory binding compares by string, such as Dev's freed project, dispatchable after the move. Paths below a kept path, and siblings that only share its prefix, still move to the Projects folder.
+
 ## 0.11.0-beta.3.vorteo.790 - 2026-10-22
 
 ### Maintenance
@@ -23,6 +124,146 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ## 0.11.0-beta.3.vorteo.788 - 2026-10-22
 
 ### Maintenance
+
+- Merge current main into the Projects folder branch. Settings > Projects keeps one row per project and uses the readable error wording from main, and switching a thread to another account now also applies the project's exclusions. Every release-note entry from both sides is kept.
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Added
+
+- Projects folder aliases. `projects-folder.json` accepts `aliases`, other absolute paths of the same folder; `migrateFrom` entries and the root's real path count as aliases too. An existing Dev container can now use the shared Projects folder through a symlink at the folder's own path to its older mount, without being recreated.
+- Daemons record every project, workspace, worktree and main checkout path, and local project keys, by the folder's logical path, mapping alias paths from clients, git and new worktrees. The startup registry move covers alias paths and stays idempotent. Browsing and `server_info.projectsRoot` always use the logical root.
+- New worktrees in the Projects folder have their git link files rewritten from an alias path to the logical path, so a worktree created by Dev opens on the Host. Worktree folders are named from the logical repository path, and worktrees named from an alias path stay listed.
+- `configure-projects-folder` accepts a container that reaches the folder's own path through a symlink to its mount, found by read-only inspection, and records the mount path as an alias. Without the symlink it writes nothing to Dev and prints the root command to create it and a command to verify it. `--alias` adds further aliases.
+
+### Changed
+
+- The Projects folder guide describes the no-recreate setup for existing Dev containers: create the symlink, verify, configure, update both daemons, verify and roll back.
+
+### Known limitations
+
+- Processes inside Dev, such as agents, terminals and `pwd`, may still print the physical alias path. Agent records outside the project and workspace registries are not rewritten. Git before 2.46 needs one `safe.directory` entry per repository, named by its alias path. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Project exclusions. A project's settings page has an Exclusions section, available once Installation controls are unlocked, that turns off the Host or Dev container, accounts, profiles or skills for that project. The installation stores them by project root path, never in `paseo.json`, and refuses a change that leaves the project without an environment.
+- Daemons refuse an agent launch in an excluded environment or with an excluded account or profile, naming the project's Exclusions setting, and leave excluded skills out. Creating a workspace in an excluded environment is refused too.
+- Environment and profile menus hide what the project excludes, using a copy of the policies the coordinator keeps in each daemon's config.
+
+### Known limitations
+
+- Plugins cannot be excluded per project. Daemons and coordinators need updating before exclusions apply; older ones keep working without them. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Projects in a shared Projects folder work in every environment without setup. When the Host and the Dev container advertise the same Projects folder, starting a workspace or moving a draft to an environment that has no copy of the project uses the identical path there and adds the project on demand, with no folder prompt.
+- The sidebar and new-workspace picker show one project for placements at the same path inside the shared Projects folder, even without a git remote. Stored project keys are unchanged.
+- Settings > Projects lists each project once and opens one settings page, the Host's placement when there is one, because both environments edit the same `paseo.json`.
+- Moving a draft to another environment shows a one-line reminder that dependencies installed in the other environment, such as `node_modules`, may need reinstalling.
+
+### Known limitations
+
+- Daemons without a matching Projects folder keep the earlier folder mapping and folder chooser. Nothing is installed yet.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Added
+
+- Projects folder for installations. A daemon given `$PASEO_HOME/projects-folder.json` or `PASEO_PROJECTS_ROOT` accepts new projects from Add project, Open project, new folders and GitHub clones only strictly inside that folder; symlinks and `..` cannot leave it and the folder itself is refused. Projects registered earlier keep working wherever they are.
+- Folder browsing and directory search start in the Projects folder, and listings mark git checkouts and registered projects. A folder can now be created without adding it as a project, on hosts that advertise `projectsRoot`.
+- New Paseo-owned worktrees go in the Projects folder's hidden `.vorteo/worktrees` unless `worktrees.root` is set. Worktrees in the previous location stay recognized for listing, archiving and cleanup.
+- The Dev daemon moves registry paths from an earlier container path of the folder to its identical path once at startup, after backing up `projects.json` and `workspaces.json`.
+- `PASEO_PROJECTS_FOLDER` makes the container installer mount the folder at its own path, and `install-execution-host.mjs configure-projects-folder` writes both daemons' settings and the Dev git trust for existing installations.
+
+### Known limitations
+
+- The Add project interface does not use the Projects folder yet, and nothing is installed. Recreating the Dev container for the identical-path mount discards releases installed in its writable layer.
+
+## 0.11.0-beta.3.vorteo.792 - 2026-10-22
+
+### Maintenance
+
+- Combine 1 source contributions; retain their release notes below
+
+## 0.11.0-beta.3.vorteo.791 - 2026-10-22
+
+### Maintenance
+
+- Merge the coordinator renewal fix that lets a reviewed renewal turn Host-owned Claude refresh on
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- The Host Claude refresh setting can actually be turned on. Every coordinator replacement now runs as a renewal, and renewals refused all configuration changes, so the reviewed `claudeHostRefreshConfiguration` field from vorteo.768 had no usable path. Owner-reviewed renewals now accept that one field, as they already accept Factory adoption, with a candidate configuration that differs only by `claudeHostRefresh`. Recovery keeps the previous configuration, and automatic coordinator updates still refuse the change.
+
+## 0.11.0-beta.3.vorteo.790 - 2026-10-22
+
+### Maintenance
+
+- Merge the session host tool relay: hosted providers reach agent tools through the session host, and a call cut off mid-run is never repeated
+
+## 0.11.0-beta.3.vorteo.768 - 2026-10-22
+
+### Validation
+
+- The relay end-to-end scenario no longer depends on timing. The scripted provider used to make its tool call three seconds after the worker was killed, and on a fast machine the replacement worker was already listening by then, so the hold the scenario proves never happened. The provider now waits for a trigger file the test writes right after the kill, so the call always goes out while no worker listens.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Fixed
+
+- The tool relay never answers a notification. A notification refused with a failed status or held past the bound used to get an error line with a null id, which JSON-RPC forbids and a provider's client might mishandle; the relay now only logs the drop. The relay also aborts a connection's in-flight requests at the daemon when the provider's connection closes, so a long tool call such as waiting on an agent stops running once its session is gone.
+
+### Validation
+
+- Relay tests cover a notification refused with a failed status and one held past the bound, neither producing a line while the requests around them are answered, and a held tool call whose provider connection closes, which the stand-in daemon sees closed before any reply.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Fixed
+
+- The tool relay decides each tool call's fate from its own reply. The daemon sends its reply headers the moment a call arrives, so almost every call interrupted by a worker restart dies as a broken reply stream, and the relay reported those as "tools unavailable", which told the model the call never ran. The relay now speaks to the daemon's endpoint directly, one request per message, reading the JSON or SSE reply itself: a tool call whose stream breaks, ends without a reply or gets a failed status is answered as unknown outcome, while a read-only request is repeated. A failure on one call no longer touches the other calls in flight on the same connection, so each request gets exactly one reply. A rejected token is held within the bound, since it comes from a worker that has not learned the host's token yet.
+
+### Validation
+
+- Relay tests run against a stand-in daemon that sends SSE headers first, as the real one does: a tool call whose stream breaks after the headers, one dropped before them, one whose stream ends without a reply and one refused with a failed status are each answered as unknown and seen once; a read-only request dropped the same ways is repeated and answered; two calls in flight where one fails with a status, or is refused and held while the daemon stops listening, leave the other streaming and answered exactly once; a token rejected twice is delivered on the third attempt; a token never accepted fails at the hold bound.
+
+## 0.11.0-beta.3.vorteo.765 - 2026-10-22
+
+### Fixed
+
+- The tool relay no longer repeats a tool call that may have run. A worker that received a relayed call and died before answering made the relay resend it to the next worker, which could run the tool twice: a second prompt sent, a second agent created, a duplicate journal entry. The relay now repeats a message only when repeating it does no work (notifications and read-only methods such as initialize, ping and the list and read methods) or when the connection was refused or unreachable, so the request certainly never arrived. A tool call that fails any other way after it may have reached a daemon gets an error at once saying the daemon restarted during the call and its outcome is unknown, so the caller checks before repeating it.
+
+### Validation
+
+- Relay tests cover a tool call the daemon accepted and dropped before answering, which is answered with the unknown-outcome error and seen by the daemon exactly once while the connection stays usable; a read-only request dropped the same way, which is repeated and answered; and a tool call held through a refused connection and delivered once to the daemon that appears.
+
+## 0.11.0-beta.3.vorteo.764 - 2026-10-22
+
+### Features
+
+- Tool relay for hosted sessions. A provider running in the durable session host now reaches the daemon's agent tools through the host instead of connecting to the daemon directly. The host serves one private socket per hosted session and gives the provider the shipped stdio-to-socket bridge as its tool server; each tool message becomes a request to the daemon's tool endpoint with the host's own token. While no worker listens, which lasts seconds after a worker kill or during a graceful swap, the host holds the message and retries until a worker answers or a minute passes, so a tool call made at that moment completes instead of failing the model's turn. A message is repeated only when repeating it does no work or when the connection was refused, so the request never arrived; a tool call that fails any other way is answered with an unknown-outcome error, since the tool may already have run. The worker recognises the relay form when it stores or resumes a session, so a relay socket of an earlier host never reaches a provider. A release without the bridge runs hosted providers with their direct connection, as before.
+
+### Validation
+
+- Unit tests cover the relay against a stand-in daemon: a request, an SSE reply and a notification pass through unchanged, a message is held while nothing listens and delivered once to the daemon that appears, a held request gets an error at the hold bound, a failure after reply bytes is not retried, a rejected token is answered at once, malformed lines and queue caps close the connection, reopening a session replaces its socket, a too-long socket path falls back, and the shipped bridge carries a request end to end. The host's session factory is covered for the relay replacing only the injected server at create and resume, a stale relay dropped from a saved handle, no relay without the direct server, and a failed open leaving no relay behind. The isolated end-to-end suite gains a scenario in which the scripted provider lists the daemon's tools three seconds after the worker is killed: the host log shows the hold, the call returns the tool list once the replacement worker attaches, and the turn finishes uninterrupted.
+
+## 0.11.0-beta.3.vorteo.789 - 2026-10-22
+
+### Maintenance
+
+- Merge the Codex fix that keeps frozen skill selections valid while remote plugins sync
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- New Codex threads on accounts with remote plugins no longer fail with "Provider skill catalog changed during this task". Codex finishes syncing remote plugin skills after its first skill listing, so the next listing grew, for example from 20 to 64 entries on Codex 1. The check now compares only the selected skills. Each turn still sends a filter rebuilt from the current listing, which keeps plugin skills that appear later disabled.
 
 - Merge main at 0.11.0-beta.3.vorteo.787 into the CI repair branch so it integrates cleanly with the next batch.
 

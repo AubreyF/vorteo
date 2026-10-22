@@ -9,9 +9,10 @@ import { useProjects, type ProjectHostError } from "@/hooks/use-projects";
 import { useProjectIcons } from "@/projects/icons";
 import { createProjectIconTarget } from "@/projects/icon-target";
 import { settingsStyles } from "@/styles/settings";
-import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { openProjectSettings } from "@/navigation/settings-navigation";
 import type { ProjectHostEntry, ProjectSummary } from "@/utils/projects";
+import { readExecutionInstallation } from "@/execution-installation/policy";
+import type { ExecutionInstallation } from "@getpaseo/protocol/execution-installation";
 import { toErrorMessage } from "@/utils/error-messages";
 
 interface ProjectsScreenProps {
@@ -26,13 +27,19 @@ interface HostProject {
 export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
   const { t } = useTranslation();
   const { projects, hostErrors, isLoading } = useProjects();
+  // One row per project. Placements in a shared Projects folder edit the same paseo.json, so
+  // the installation-wide list opens the Host placement, else the first.
   const hostProjects = useMemo<HostProject[]>(
     () =>
-      projects.flatMap((project) =>
-        project.hosts
-          .filter((host) => serverId === undefined || host.serverId === serverId)
-          .map((host) => ({ project, host })),
-      ),
+      projects.flatMap((project) => {
+        if (serverId !== undefined) {
+          return project.hosts
+            .filter((host) => host.serverId === serverId)
+            .map((host) => ({ project, host }));
+        }
+        const host = preferredProjectHost(project, readExecutionInstallation());
+        return host ? [{ project, host }] : [];
+      }),
     [projects, serverId],
   );
   const scopedErrors = hostErrors.filter(
@@ -70,30 +77,6 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
     );
   }
 
-  if (serverId === undefined) {
-    return (
-      <View testID="projects-list">
-        {scopedErrors.length > 0 ? <HostErrorsBanner errors={scopedErrors} /> : null}
-        {projects.map((project) => (
-          <SettingsSection key={project.viewKey} title={project.projectName}>
-            <View style={settingsStyles.card}>
-              {project.hosts.map((host, index) => (
-                <ProjectRow
-                  key={`${host.serverId}:${host.projectId}`}
-                  project={project}
-                  host={host}
-                  isFirst={index === 0}
-                  showEnvironment
-                  iconDataUri={iconDataByProjectViewKey.get(project.viewKey) ?? null}
-                />
-              ))}
-            </View>
-          </SettingsSection>
-        ))}
-      </View>
-    );
-  }
-
   return (
     <View testID="projects-list">
       {scopedErrors.length > 0 ? <HostErrorsBanner errors={scopedErrors} /> : null}
@@ -110,6 +93,16 @@ export default function ProjectsScreen({ serverId }: ProjectsScreenProps) {
       </View>
     </View>
   );
+}
+
+function preferredProjectHost(
+  project: ProjectSummary,
+  installation: ExecutionInstallation | null,
+): ProjectHostEntry | undefined {
+  const hostServerId = installation?.environments.find(
+    (environment) => environment.kind === "host",
+  )?.serverId;
+  return project.hosts.find((host) => host.serverId === hostServerId) ?? project.hosts[0];
 }
 
 function HostErrorsBanner({ errors }: { errors: ProjectHostError[] }) {
@@ -133,16 +126,9 @@ interface ProjectRowProps {
   host: ProjectHostEntry;
   isFirst: boolean;
   iconDataUri: string | null;
-  showEnvironment?: boolean;
 }
 
-function ProjectRow({
-  project,
-  host,
-  isFirst,
-  iconDataUri,
-  showEnvironment = false,
-}: ProjectRowProps) {
+function ProjectRow({ project, host, isFirst, iconDataUri }: ProjectRowProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const { viewKey } = project;
@@ -170,11 +156,7 @@ function ProjectRow({
       accessibilityLabel={t("settings.projectList.editProject", {
         projectName,
       })}
-      testID={
-        project.hosts.length > 1
-          ? `project-row-${viewKey}-${host.serverId}`
-          : `project-row-${viewKey}`
-      }
+      testID={`project-row-${viewKey}`}
     >
       <View style={styles.rowMain}>
         <View style={styles.leading}>
@@ -185,7 +167,7 @@ function ProjectRow({
           />
         </View>
         <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-          {showEnvironment ? host.serverName : projectName}
+          {projectName}
         </Text>
       </View>
       <ChevronRight size={theme.iconSize.sm} color={theme.colors.foregroundMuted} />

@@ -3,10 +3,13 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { ProjectDirectoryBrowser } from "@/components/project-directory-browser";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import { resolveTaskDirectory } from "@/task-environments/directory";
+import { resolveProjectDirectory } from "@/task-environments/directory";
 import type { HostProjectListItem } from "@/projects/host-project-model";
 
-// Reuse the folder browser when a logical project has no placement in this environment.
+// A logical project without a placement in this environment uses the identical path when both
+// daemons share the Projects folder; the destination then adds the project on demand.
+// COMPAT(projectsRoot): added 2026-10-22. Daemons without a shared Projects folder fall back to
+// path mapping and, failing that, the folder browser. Remove after 2027-04-22.
 // Selection alone never creates a project, workspace or agent.
 export function useNewWorkspaceProjectDirectory() {
   const [request, setRequest] = useState<{ client: DaemonClient; name: string } | null>(null);
@@ -19,23 +22,12 @@ export function useNewWorkspaceProjectDirectory() {
   const cancel = useCallback(() => choose(null), [choose]);
   useEffect(() => () => pending.current?.(null), []);
   const resolve = useCallback(async (project: HostProjectListItem, client: DaemonClient) => {
-    const matches = new Set<string>();
-    for (const placement of project.hosts) {
+    const placements = project.hosts.flatMap((placement) => {
       const source = getHostRuntimeStore().getClient(placement.serverId);
-      if (!source) continue;
-      try {
-        const mapped = await resolveTaskDirectory({
-          source,
-          destination: client,
-          directory: placement.iconWorkingDir,
-        });
-        if (mapped) matches.add(mapped);
-      } catch {
-        // An unavailable source cannot establish a mapping. Let the owner choose
-        // the destination folder rather than guessing from another environment.
-      }
-    }
-    if (matches.size === 1) return [...matches][0]!;
+      return source ? [{ source, directory: placement.iconWorkingDir }] : [];
+    });
+    const mapped = await resolveProjectDirectory({ placements, destination: client });
+    if (mapped) return mapped;
     const directory = await new Promise<string | null>((resolveChoice) => {
       pending.current = resolveChoice;
       setRequest({ client, name: project.projectName });

@@ -26,8 +26,13 @@ import {
   validateInstallPlan,
   configureWebSource,
   configureSystemSource,
+  configureProjectsFolder,
   writeContainerSystemSource,
 } from "./install-execution-host.mjs";
+import {
+  mergeProjectsFolderSettings,
+  mountsFolderAtIdenticalPath,
+} from "./lib/projects-folder.mjs";
 import {
   containerCheckoutPath,
   mergeSystemSource,
@@ -1232,6 +1237,209 @@ test("configure-system-source records the checkout for the Host and the Dev cont
     ]) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Projects folder settings keep operator keys and earlier locations", () => {
+  const merged = JSON.parse(
+    mergeProjectsFolderSettings(
+      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], aliases: ["/mnt/dev"], note: "kept" }),
+      {
+        root: "/Users/owner/dev",
+        migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"],
+        aliases: ["/Users/guest/dev", "/Users/owner/dev"],
+        keepPaths: ["/Users/guest/dev/freed", "/Users/guest/dev/freed"],
+      },
+    ),
+  );
+  expect(merged).toEqual({
+    note: "kept",
+    root: "/Users/owner/dev",
+    migrateFrom: ["/Users/guest/dev"],
+    aliases: ["/mnt/dev", "/Users/guest/dev"],
+    keepPaths: ["/Users/guest/dev/freed"],
+  });
+  expect(() => mergeProjectsFolderSettings("[]", { root: "/dev" })).toThrow("JSON object");
+  expect(() => mergeProjectsFolderSettings(null, { root: "dev" })).toThrow("absolute");
+});
+
+test("only an identical-path writable bind mount shares the Projects folder", () => {
+  const folder = "/Users/owner/dev";
+  expect(
+    mountsFolderAtIdenticalPath([{ Type: "bind", Source: folder, Destination: folder }], folder),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: "/Users/owner", Destination: "/Users/owner" }],
+      folder,
+    ),
+  ).toBe(true);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }],
+      folder,
+    ),
+  ).toBe(false);
+  expect(
+    mountsFolderAtIdenticalPath(
+      [{ Type: "bind", Source: folder, Destination: folder, RW: false }],
+      folder,
+    ),
+  ).toBe(false);
+});
+
+test("configure-projects-folder writes both daemons and trusts the folder in Dev", async () => {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-projects-root-")));
+  const keys = ["FAKE_INSPECT", "REAL_NODE", "FAKE_GIT_LOG", "FAKE_GIT_EXISTING", "FAKE_REALPATHS"];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    const folder = path.join(root, "dev");
+    mkdirSync(folder);
+    const hostHome = path.join(root, "state/host");
+    const devHome = path.join(root, "dev-home");
+    mkdirSync(devHome, { recursive: true });
+    // A stand-in Docker: inspect returns the mounts, git calls are recorded, and the
+    // settings script runs with this Node.
+    const docker = path.join(root, "docker");
+    writeFileSync(
+      docker,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = inspect ]; then cat "$FAKE_INSPECT"; exit 0; fi',
+        // The container's real paths, when a test stands in for a symlink inside it.
+        'case "$*" in *realpathSync*) if [ -n "$FAKE_REALPATHS" ]; then printf "%s" "$FAKE_REALPATHS"; exit 0; fi;; esac',
+        'if [ "$5" = git ]; then echo "$*" >> "$FAKE_GIT_LOG";',
+        '  case "$*" in *--get-all*) printf "%s" "$FAKE_GIT_EXISTING";; esac; exit 0; fi',
+        "shift 5",
+        'exec "$REAL_NODE" "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(docker, 0o755);
+    const inspect = path.join(root, "inspect.json");
+    process.env.FAKE_INSPECT = inspect;
+    process.env.REAL_NODE = process.execPath;
+    process.env.FAKE_GIT_LOG = path.join(root, "git.log");
+    process.env.FAKE_GIT_EXISTING = "/Users/guest/dev/app\n/home/paseo/x\n";
+    const configFile = path.join(root, "coordinator.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        containerSourceUpdates: {
+          docker,
+          containerId: "dev",
+          user: "paseo",
+          node: "node",
+          home: devHome,
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome, configFile, release: path.join(root, "release") }),
+    );
+
+    // Without an identical-path mount, only the Host is configured.
+    writeFileSync(
+      inspect,
+      JSON.stringify([
+        { Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }] },
+      ]),
+    );
+    const unaliased = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(unaliased.dev.written).toBe(false);
+    expect(unaliased.dev.reason).toContain("no symlink");
+    expect(unaliased.dev.commands.root).toBe(
+      `mkdir -p '${root}' && test ! -e '${folder}' && ln -s '/Users/guest/dev' '${folder}'`,
+    );
+    expect(unaliased.dev.commands.verify).toBe(
+      `readlink '${folder}' && test "$(cd '${folder}' && pwd -P)" = '/Users/guest/dev'`,
+    );
+    expect(unaliased.dev.commands.dockerRoot).toContain("exec --user root 'dev' sh -c");
+    expect(existsSync(path.join(devHome, "projects-folder.json"))).toBe(false);
+    // The Host records the same earlier paths even while Dev is refused.
+    expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+
+    // Once the folder's own path leads to the mount inside the container, it is an alias.
+    process.env.FAKE_REALPATHS = JSON.stringify(["/Users/guest/dev", "/Users/guest/dev"]);
+    const aliased = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(aliased.dev).toEqual({
+      written: true,
+      root: folder,
+      aliases: ["/Users/guest/dev"],
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
+    });
+    // The Host gets the alias found in Dev and the kept paths, so shared keys map alike.
+    const kept = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+      keepPaths: ["/Users/guest/dev/freed"],
+    });
+    expect(kept.host.changed).toBe(true);
+    expect(JSON.parse(readFileSync(path.join(hostHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+      aliases: ["/Users/guest/dev"],
+      keepPaths: ["/Users/guest/dev/freed"],
+    });
+    rmSync(path.join(devHome, "projects-folder.json"));
+    rmSync(path.join(hostHome, "projects-folder.json"));
+    rmSync(process.env.FAKE_GIT_LOG);
+    delete process.env.FAKE_REALPATHS;
+
+    writeFileSync(inspect, JSON.stringify([{ Mounts: [] }]));
+    const unmounted = await configureProjectsFolder(root, { folder });
+    expect(unmounted.dev.written).toBe(false);
+    expect(unmounted.dev.reason).toContain("does not mount");
+
+    writeFileSync(
+      inspect,
+      JSON.stringify([{ Mounts: [{ Type: "bind", Source: folder, Destination: folder }] }]),
+    );
+    const result = await configureProjectsFolder(root, {
+      folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(result.dev).toEqual({
+      written: true,
+      root: folder,
+      aliases: [],
+      trusted: [`${folder}/*`, `${folder}/app`],
+    });
+    expect(JSON.parse(readFileSync(path.join(devHome, "projects-folder.json"), "utf8"))).toEqual({
+      root: folder,
+      migrateFrom: ["/Users/guest/dev"],
+    });
+    expect(readFileSync(process.env.FAKE_GIT_LOG, "utf8")).toContain(
+      `--add safe.directory ${folder}/*`,
+    );
+
+    // The Host's own files may never sit in the guest-writable folder.
+    writeFileSync(
+      path.join(root, "installation.json"),
+      JSON.stringify({ hostHome: path.join(folder, "host"), configFile }),
+    );
+    await expect(configureProjectsFolder(root, { folder })).rejects.toThrow("outside");
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
     }
     rmSync(root, { recursive: true, force: true });
   }

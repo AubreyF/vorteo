@@ -22,6 +22,7 @@ import type { DaemonOriginAdmissionResponse } from "@getpaseo/protocol/messages"
 export interface DaemonRuntimeConfig {
   listen: string | null;
   worktreesRoot?: string;
+  projectsFolder?: import("../../projects-folder.js").ProjectsFolderConfig;
   appBaseUrl?: string;
   desktopManaged?: boolean;
   getRelayConfig(): {

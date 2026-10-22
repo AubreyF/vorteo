@@ -13,6 +13,7 @@ import {
   type WorkspaceDescriptor,
 } from "@/stores/session-store";
 import { buildProjects, type ProjectHost, type ProjectSummary } from "@/utils/projects";
+import { advertisedProjectsRoot } from "@/projects/projects-root";
 
 export interface ProjectHostError {
   serverId: string;
@@ -23,6 +24,7 @@ export interface ProjectHostError {
 export interface ProjectHostReplica {
   serverId: string;
   serverName: string;
+  projectsRoot?: string | null;
   workspaces: WorkspaceDescriptor[];
   projects: ProjectDescriptor[];
 }
@@ -86,6 +88,7 @@ function selectProjectHostReplicas(
       return {
         serverId: host.serverId,
         serverName: host.label,
+        projectsRoot: advertisedProjectsRoot(session?.serverInfo),
         workspaces: Array.from(session?.workspaces.values() ?? []),
         projects: Array.from(session?.projects.values() ?? []),
       };
@@ -104,6 +107,7 @@ export function deriveProjectsFromReplica(input: {
     return {
       serverId: replica.serverId,
       serverName: replica.serverName,
+      projectsRoot: replica.projectsRoot ?? null,
       isOnline: runtimeState?.isOnline ?? false,
       workspaces: replica.workspaces,
       projects: replica.projects,

@@ -2169,6 +2169,8 @@ export const zhCN: TranslationResources = {
       title: "关于",
       appVersion: "应用版本",
       whatsNewHint: "每个版本的发布说明",
+      github: "GitHub",
+      githubHint: "源代码、问题和版本",
       thisDevice: "此设备",
       connectedHosts: "已连接的 Host",
       offline: "离线",
