@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Tests
+
+- The packaged installation browser test opens provider pages and connection menus instead of the removed Manage sheet, installs runtimes on Host by default and in the Dev container explicitly, and removes a provider from its page. Environment access keeps showing Connect for an environment that is turned off, so a restored connection can sign in again.
+
 ## 0.11.0-beta.3.vorteo.765 - 2026-10-22
 
 ### Changed

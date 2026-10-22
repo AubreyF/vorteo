@@ -939,7 +939,7 @@ function EnvironmentAccessRow({
           ) : null}
         </View>
         <View style={styles.controls}>
-          {localId && !excluded ? (
+          {localId ? (
             <ProviderReconnectControl
               serverId={environment.serverId}
               providerId={localId}
