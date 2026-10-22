@@ -1807,14 +1807,15 @@ function ForceRestartButton({
     if (confirmed) await model.decide(job, "approve");
   }, [job, model]);
   return (
-    <Button
+    <RestartActionButton
       variant="destructive"
       disabled={busy}
+      disabledReason={job.impact?.immediateRestartUnavailable ?? null}
       onPress={force}
       testID={`restart-force-${job.id}`}
     >
       Force restart now
-    </Button>
+    </RestartActionButton>
   );
 }
 

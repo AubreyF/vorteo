@@ -202,6 +202,8 @@ export const RestartImpactSchema = z.object({
   workerInstanceId: z.string().uuid().optional(),
   workerPid: z.number().int().positive().optional(),
   heldIdleRestartSupported: z.boolean().optional(),
+  /** Why an immediate restart cannot run for this target. Absent when it can. */
+  immediateRestartUnavailable: z.string().optional(),
   error: z.string().nullable(),
 });
 export type RestartImpact = z.infer<typeof RestartImpactSchema>;
