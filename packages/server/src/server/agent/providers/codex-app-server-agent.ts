@@ -3991,16 +3991,20 @@ export class CodexAppServerAgentSession implements AgentSession {
             if (typeof entry?.name !== "string" || typeof entry.path !== "string") return [];
             return [{ name: entry.name, path: entry.path }];
           });
-        const signature = JSON.stringify(catalog.map((entry) => entry.path).sort());
+        const skillFilter = await codexSkillFilter(snapshot, catalog);
+        const selected = new Set(
+          skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
+        );
+        // Codex finishes syncing remote plugin skills after its first listing, so unselected
+        // entries come and go. Each turn sends a filter rebuilt from the current listing that
+        // disables them; only a change to the selected packages breaks the frozen selection.
+        const signature = JSON.stringify([...selected].sort());
         if (this.skillCatalogSignature !== null && signature !== this.skillCatalogSignature)
           throw new Error(
             "Provider skill catalog changed during this task. Reconnect before continuing with its frozen selection.",
           );
         this.skillCatalogSignature = signature;
-        this.skillFilter = await codexSkillFilter(snapshot, catalog);
-        const selected = new Set(
-          this.skillFilter.filter((entry) => entry.enabled).map((entry) => entry.path),
-        );
+        this.skillFilter = skillFilter;
         this.cachedSkills = enabledCodexSkills(
           allSkills.map((item) => {
             const entry = toObjectRecord(item);
