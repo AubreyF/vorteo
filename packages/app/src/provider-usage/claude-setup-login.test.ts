@@ -2,6 +2,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { claudeFullSignInAvailable, claudeSetupRequest } from "./claude-setup-login";
 import { requestInstallationSettings } from "@/execution-installation/settings";
 import {
+  InstallationRequestFailed,
   InstallationRouteUnavailable,
   OwnerAccessExpired,
   requestInstallationOwner,
@@ -10,6 +11,14 @@ vi.mock("@/execution-installation/settings", () => ({ requestInstallationSetting
 vi.mock("@/execution-installation/client", () => ({
   requestInstallationOwner: vi.fn(),
   InstallationRouteUnavailable: class extends Error {},
+  InstallationRequestFailed: class extends Error {
+    constructor(
+      message: string,
+      readonly status: number,
+    ) {
+      super(message);
+    }
+  },
   OwnerAccessExpired: class extends Error {},
 }));
 const read = vi.mocked(requestInstallationSettings);
@@ -133,8 +142,14 @@ test("a lost Host grant reads as not connected so the owner signs in again", asy
 });
 
 test("full sign-in is offered only when the coordinator serves its routes", async () => {
-  request.mockRejectedValueOnce(new Error("Claude sign-in could not complete."));
+  request.mockRejectedValueOnce(
+    new InstallationRequestFailed("Claude sign-in could not complete.", 409),
+  );
   await expect(claudeFullSignInAvailable()).resolves.toBe(true);
+  request.mockRejectedValueOnce(new InstallationRequestFailed("Coordinator maintenance", 503));
+  await expect(claudeFullSignInAvailable()).resolves.toBe(false);
+  request.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await expect(claudeFullSignInAvailable()).resolves.toBe(false);
   request.mockRejectedValueOnce(new InstallationRouteUnavailable("unavailable"));
   await expect(claudeFullSignInAvailable()).resolves.toBe(false);
   request.mockRejectedValueOnce(new OwnerAccessExpired("locked"));

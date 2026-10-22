@@ -279,10 +279,11 @@ function useClaudeFullSignInAvailable(serverId: string, provider: "codex" | "cla
   const sharedClaude =
     provider === "claude" &&
     Boolean(installation?.environments.some((environment) => environment.serverId === serverId));
-  const serverIds = useMemo(
-    () => installation?.environments.map((environment) => environment.serverId) ?? [],
-    [installation],
-  );
+  // The descriptor is re-read each render; key the list on its contents, not its identity.
+  const serverKey = installation?.environments
+    .map((environment) => environment.serverId)
+    .join("\n");
+  const serverIds = useMemo(() => (serverKey ? serverKey.split("\n") : []), [serverKey]);
   const support = useHostFeatureMap(serverIds, "claudeFullSignIn");
   const daemonsReady = serverIds.length > 0 && serverIds.every((id) => support.get(id) === true);
   const coordinator = useFetchQuery({

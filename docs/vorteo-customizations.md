@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the Full sign-in choice for new Claude accounts now appears only when the coordinator's Host-refresh routes answer with their expected refusal of an unknown account; maintenance replies and network failures hide it. Focused app tests cover each case. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): Add Claude account offers Full sign-in or Setup token when the coordinator enables Host-owned refresh and every daemon advertises `claudeFullSignIn`. Full sign-in panels use the Host-refresh routes, show the Host account's email and ask for sign-in again after a lost grant. Existing setup-token accounts cannot be converted. Unit and browser tests cover routing, status and account creation; live sign-in acceptance waits for the installation to enable refresh. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the new-agent launch picker collapses into the composer when the first message is submitted, while the message fades up into place, so the picker and the conversation are never shown together. A browser check covers collapse, restore after a failed launch and drafts opened mid-launch. README overview and onboarding are unchanged.

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ProviderLoginStateSchema } from "@getpaseo/protocol/provider-login";
 import {
-  InstallationRouteUnavailable,
+  InstallationRequestFailed,
   OwnerAccessExpired,
   requestInstallationOwner,
 } from "@/execution-installation/client";
@@ -80,8 +80,9 @@ export async function claudeSetupRequest(
 
 /**
  * Whether the coordinator runs Host-owned Claude refresh. Its owner routes exist only when the
- * installation enables it. An unknown definition is refused (409) by a coordinator that has
- * the routes, while one without them answers 404 or its page fallback.
+ * installation enables it, and they refuse an unknown definition with 409. Only that refusal
+ * counts: a 404, page fallback, maintenance 503 or network failure hides the choice, because a
+ * full sign-in account created without refresh could never change type.
  */
 export async function claudeFullSignInAvailable(): Promise<boolean> {
   try {
@@ -89,6 +90,6 @@ export async function claudeFullSignInAvailable(): Promise<boolean> {
     return false;
   } catch (error) {
     if (error instanceof OwnerAccessExpired) throw error;
-    return !(error instanceof InstallationRouteUnavailable);
+    return error instanceof InstallationRequestFailed && error.status === 409;
   }
 }
