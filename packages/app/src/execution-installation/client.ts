@@ -291,7 +291,8 @@ export class InstallationClient {
           // COMPAT(sessionHostRestart): absent from coordinators without the restart operation.
           restartSupported: z.boolean().optional(),
         })
-        .parse(await this.request("session-host/query", {}));
+        // The restart flag asks a coordinator that knows restarts to say so; older ones ignore it.
+        .parse(await this.request("session-host/query", { restart: true }));
       this.sessionHostSupported = true;
       return overview;
     } catch (error) {

@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Fixed
+
+- Independent review follow-ups for the tracked session host restart: the owner query reports restart support only to an app that asks for it, so an older interface that parses the reply strictly keeps working; the restart marker is removed with the job and ignored once it is older than a restart could take, so an interrupted restart cannot leave workers waiting for a host that never comes; a marked restart keeps waiting while its new host is between taking its lock and listening; a stop that finds no running process falls back to starting the job; the restart detail says when the stopped host was not answering; and the interruption warning shows only when a restart can be requested.
+
+### Validation
+
+- Unit tests cover the marker's age limit, its removal with the job, the opt-in owner query field, and the corrected texts. The session host job, workflow, connector, hosted session and service suites pass, as do the app review and client suites.
+
 ## 0.11.0-beta.3.vorteo.756 - 2026-10-22
 
 ### Features

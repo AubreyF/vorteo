@@ -49,6 +49,12 @@ export interface SessionHostConnectorOptions {
  * attempt, because each host start rotates it. A worker never waits long on an absent host:
  * failures return null so the caller can run the session locally.
  */
+/**
+ * How long a restart marker is believed. A tracked restart sees its new host within 90 seconds or
+ * fails and removes the marker itself; a marker older than this survived a coordinator crash.
+ */
+export const RESTART_MARKER_MAX_AGE_MS = 120_000;
+
 export function createSessionHostConnector(
   options: SessionHostConnectorOptions,
 ): SessionHostConnector {
@@ -118,8 +124,9 @@ export function createSessionHostConnector(
     },
     hostState: async () => (await readSessionHostLock(options.paths.socketPath)).state,
     restarting: async () => {
+      // A marker older than any restart could take is a leftover, not a promise of a new host.
       const stats = await lstat(options.paths.restartMarkerPath).catch(() => null);
-      return stats?.isFile() === true;
+      return stats?.isFile() === true && now() - stats.mtimeMs < RESTART_MARKER_MAX_AGE_MS;
     },
     knownMcpTokens: () => (lastMcpToken ? [lastMcpToken] : []),
     close() {

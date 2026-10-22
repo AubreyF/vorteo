@@ -71,7 +71,7 @@ test("restart is offered for a loaded job on a supporting release, and says what
       previousHost: { pid: 4242, sessions: 1 },
     }),
   ).toBe(
-    "The session host restarted on the installed release; 1 hosted turn was interrupted and continue there.",
+    "The session host restarted on the installed release; 1 hosted turn was interrupted and continues there.",
   );
   expect(sessionHostReviewSummary({ ...restart, status: "running", stage: "applying" })).toContain(
     "waiting for its replacement",

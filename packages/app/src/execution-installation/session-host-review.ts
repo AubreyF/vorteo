@@ -137,7 +137,7 @@ function sessionHostRestartSummary(job: Pick<SessionHostJob, "status" | "previou
     const interrupted = job.previousHost?.sessions;
     return interrupted === undefined
       ? "The session host restarted on the installed release."
-      : `The session host restarted on the installed release; ${interrupted} hosted turn${interrupted === 1 ? " was" : "s were"} interrupted and continue there.`;
+      : `The session host restarted on the installed release; ${interrupted} hosted turn${interrupted === 1 ? " was interrupted and continues" : "s were interrupted and continue"} there.`;
   }
   if (job.status === "rejected") return "This session host request was canceled.";
   if (job.status === "failed")

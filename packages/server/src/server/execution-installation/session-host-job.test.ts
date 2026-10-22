@@ -448,7 +448,12 @@ test("remove boots out an idle host, waits for it to exit and deletes the plist"
   });
   expect(result).toEqual({ detail: "The session host job is removed.", forced: false });
   expect(progress.reported).toEqual(["applying", "verifying"]);
-  expect(fake.state.calls).toEqual([`launchctl bootout gui/${UID}/${LABEL}`, `remove ${PLIST}`]);
+  // The restart marker is removed too, so a leftover never makes workers wait for a removed host.
+  expect(fake.state.calls).toEqual([
+    `launchctl bootout gui/${UID}/${LABEL}`,
+    `remove ${PLIST}`,
+    `remove ${HOME}/session-host/restarting`,
+  ]);
 });
 
 test("remove is refused while the setting is on, sessions run or the plist changed", async () => {
@@ -629,7 +634,11 @@ test("a job whose host is gone is removed at once, even when launchd no longer l
   });
   expect(result.forced).toBe(false);
   expect(fake.state.clock).toBe(started);
-  expect(fake.state.calls).toEqual([`launchctl bootout gui/${UID}/${LABEL}`, `remove ${PLIST}`]);
+  expect(fake.state.calls).toEqual([
+    `launchctl bootout gui/${UID}/${LABEL}`,
+    `remove ${PLIST}`,
+    `remove ${HOME}/session-host/restarting`,
+  ]);
 });
 
 test("a host that survives bootout is killed only after its command is verified", async () => {
@@ -646,6 +655,7 @@ test("a host that survives bootout is killed only after its command is verified"
     `launchctl bootout gui/${UID}/${LABEL}`,
     "kill 4242 SIGKILL",
     `remove ${PLIST}`,
+    `remove ${HOME}/session-host/restarting`,
   ]);
 });
 

@@ -474,7 +474,22 @@ test("owner status is null, not an error, when the job cannot be inspected", asy
       },
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ jobs: [], status: null, restartSupported: true });
+    // Without the restart flag the response keeps its older shape for strict older apps.
+    expect(await response.json()).toEqual({ jobs: [], status: null });
+    const asking = await fetch(
+      `http://127.0.0.1:${address.port}/api/installation/owner/session-host/query`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer owner",
+          origin: "https://owner.example.test",
+          Host: "owner.example.test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ restart: true }),
+      },
+    );
+    expect(await asking.json()).toEqual({ jobs: [], status: null, restartSupported: true });
   } finally {
     await new Promise<void>((resolve, reject) =>
       listener.close((error) => {

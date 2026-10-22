@@ -1611,16 +1611,21 @@ export function createInstallationServer(
   app.post("/api/installation/owner/helpers/verify-installed", (req, res, next) => {
     void restarts.verifyHelperRecovery(req.body).then((job) => res.json(job), next);
   });
-  app.post("/api/installation/owner/session-host/query", (_req, res) => {
+  app.post("/api/installation/owner/session-host/query", (req, res) => {
     const jobs = restarts.listSessionHosts();
     if (!restarts.sessionHostAvailable()) {
       res.status(404).json({ error: "Session host maintenance is unavailable" });
       return;
     }
-    // COMPAT(sessionHostRestart): the app shows the Restart control only when this is set.
+    // COMPAT(sessionHostRestart): only an app that asks about restarts receives the field; older
+    // apps parse this response strictly and would otherwise fail on the extra key.
+    const extra =
+      (req.body as { restart?: unknown } | undefined)?.restart === true
+        ? { restartSupported: true }
+        : {};
     void sessionHostStatus(true).then(
-      (status) => res.json({ jobs, status, restartSupported: true }),
-      () => res.json({ jobs, status: null, restartSupported: true }),
+      (status) => res.json({ jobs, status, ...extra }),
+      () => res.json({ jobs, status: null, ...extra }),
     );
   });
   app.post("/api/installation/owner/session-host/request", (req, res, next) => {

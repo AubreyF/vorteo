@@ -1373,7 +1373,8 @@ function SessionHostCard({
             </RestartActionButton>
           ) : null}
         </ActionFooter>
-        {overview.restartSupported ? (
+        {overview.restartSupported &&
+        sessionHostRequestDisabledReason("session-host-restart", overview, review) === null ? (
           <Text style={styles.text} testID="session-host-restart-warning">
             {sessionHostRestartWarning(overview.status)}
           </Text>

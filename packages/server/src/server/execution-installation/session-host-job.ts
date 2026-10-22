@@ -422,6 +422,8 @@ export async function removeSessionHost(input: {
     await ports.sleep(500);
   }
   await ports.removeFile(plan.plistPath);
+  // A marker left by an interrupted restart would make workers wait for a host that never comes.
+  await ports.removeFile(restartMarkerPath(plan));
   return {
     detail: forced
       ? "The session host did not answer for five minutes with the setting off, so it was stopped and its job removed."
@@ -451,14 +453,13 @@ export async function restartSessionHost(input: {
   const reply = await ports.queryHost(plan.paseoHome);
   const before = reply === "refused" ? null : reply;
   input.reportStage("applying");
-  const marker = path.join(plan.paseoHome, "session-host", SESSION_HOST_RESTART_MARKER_NAME);
+  const marker = restartMarkerPath(plan);
   await ports.writePrivateFile(
     marker,
     JSON.stringify({ requestedAt: new Date(ports.now()).toISOString(), pid: before?.pid ?? null }),
   );
   try {
-    if (job.pid !== null) await signalJob(plan.label, "SIGTERM", launchdOptions(ports));
-    else await kickstartJob(plan.label, launchdOptions(ports));
+    await stopForRestart(plan, job.pid, ports);
     input.reportStage("verifying");
     const replaced = await awaitReplacementHost(plan, ports, job.pid);
     if (replaced) {
@@ -477,6 +478,34 @@ export async function restartSessionHost(input: {
   throw new SessionHostJobError(
     "The session host did not answer under a new process within 90 seconds. launchd keeps relaunching the job; inspect its status and log.",
   );
+}
+
+function restartMarkerPath(plan: SessionHostPlan): string {
+  return path.join(plan.paseoHome, "session-host", SESSION_HOST_RESTART_MARKER_NAME);
+}
+
+/**
+ * Stops the running host through launchd, or starts the job when nothing runs. A host that exits
+ * at idle between the job read and the signal makes the kill fail; launchd relaunches it under
+ * KeepAlive, so that failure is treated like a job with no process.
+ */
+async function stopForRestart(
+  plan: SessionHostPlan,
+  pid: number | null,
+  ports: SessionHostPorts,
+): Promise<void> {
+  if (pid !== null) {
+    try {
+      await signalJob(plan.label, "SIGTERM", launchdOptions(ports));
+      return;
+    } catch (error) {
+      if (!(error instanceof LaunchctlError)) throw error;
+    }
+  }
+  await kickstartJob(plan.label, launchdOptions(ports)).catch((error: unknown) => {
+    // Already running again: the relaunch beat the kickstart, which is the outcome wanted.
+    if (!(error instanceof LaunchctlError)) throw error;
+  });
 }
 
 /** The loaded job a restart may act on; every refusal names what to do instead. */
@@ -545,15 +574,16 @@ function restartDetail(
   answer: SessionHostAnswer,
   forced: boolean,
 ): string {
-  const interrupted = before?.sessions ?? 0;
   const release = (host: SessionHostAnswer | null) =>
     host?.release ? ` on release ${host.release}` : "";
-  const plural = interrupted === 1 ? "" : "s";
+  const sessions = before
+    ? `with ${before.sessions} hosted session${before.sessions === 1 ? "" : "s"}`
+    : "while not answering, so its hosted sessions are unknown";
   const how = forced ? ", by force after ignoring the stop" : "";
   return (
-    `The session host restarted: process ${oldPid ?? "unknown"}${release(before)} stopped with ` +
-    `${interrupted} hosted session${plural}${how}, and process ${answer.pid}${release(answer)} ` +
-    "answers. Interrupted turns continue on the new host."
+    `The session host restarted: process ${oldPid ?? "unknown"}${release(before)} stopped ` +
+    `${sessions}${how}, and process ${answer.pid}${release(answer)} answers. ` +
+    "Interrupted turns continue on the new host."
   );
 }
 
