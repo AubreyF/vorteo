@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): checkpoint of the two-option Add project flow for hosts with a Projects folder (Choose a folder, Clone from GitHub) and its navigate-only folder browser with a fixed footer. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): added the Projects folder to the daemons, protocol, client and installers. New projects must live inside one folder that the Host and the Dev container share at the same path; existing projects keep working, and the Dev registry moves from its old container path once. Not yet installed, and the Add project interface still uses the earlier flow. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the new-agent launch picker collapses into the composer when the first message is submitted, while the message fades up into place, so the picker and the conversation are never shown together. A browser check covers collapse, restore after a failed launch and drafts opened mid-launch. README overview and onboarding are unchanged.

@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyAvailableAddProjectHosts,
   backAddProjectPage,
+  browseAddProjectFolder,
   chooseAddProjectHost,
   currentAddProjectPage,
   moveAddProjectActiveIndex,
   moveAddProjectSelection,
   openAddProjectFlow,
+  openCloneDestinationPage,
   openDirectorySearchPage,
+  openFolderBrowserPage,
   openGithubLocationPage,
   openNewDirectoryNamePage,
   openNewDirectoryParentPage,
   setAddProjectActiveIndex,
   setAddProjectPageInput,
+  setFolderBrowserNaming,
   setNewDirectoryName,
+  selectProjectsFolderHost,
   type AddProjectHost,
 } from "./model";
 import {
@@ -31,6 +37,27 @@ const HOST: AddProjectHost = {
   canCloneGithubRepositories: true,
   canSearchGithubRepositories: true,
   canCreateDirectory: true,
+  projectsRoot: null,
+};
+
+const PROJECTS_HOST: AddProjectHost = {
+  ...HOST,
+  serverId: "installation-host",
+  label: "Host",
+  canBrowseFolders: true,
+  projectsRoot: "/Users/owner/Projects",
+};
+const PROJECTS_DEV: AddProjectHost = {
+  ...PROJECTS_HOST,
+  serverId: "installation-dev",
+  label: "Dev",
+};
+const REPOSITORY = {
+  id: "repo-1",
+  nameWithOwner: "getpaseo/paseo",
+  cloneUrl: "git@github.com:getpaseo/paseo.git",
+  description: null,
+  updatedAt: null,
 };
 
 describe("Add Project navigation", () => {
@@ -213,5 +240,104 @@ describe("Add Project options", () => {
         disabled: false,
       },
     ]);
+  });
+});
+
+describe("Projects folder flow", () => {
+  it("skips the host step and prefers the installation's Host daemon", () => {
+    const state = openAddProjectFlow({
+      hosts: [PROJECTS_DEV, PROJECTS_HOST, HOST],
+      installationHostId: PROJECTS_HOST.serverId,
+    });
+
+    expect(currentAddProjectPage(state)).toMatchObject({
+      kind: "method",
+      hostId: PROJECTS_HOST.serverId,
+    });
+    expect(backAddProjectPage(state)).toBeNull();
+  });
+
+  it("falls back to the first online host with a Projects folder", () => {
+    expect(
+      selectProjectsFolderHost([HOST, PROJECTS_DEV, PROJECTS_HOST], "offline-host")?.serverId,
+    ).toBe(PROJECTS_DEV.serverId);
+    expect(selectProjectsFolderHost([HOST], PROJECTS_HOST.serverId)).toBeNull();
+  });
+
+  it("keeps host selection for hosts without a Projects folder", () => {
+    const secondHost = { ...HOST, serverId: "host-2" };
+    const state = openAddProjectFlow({ hosts: [HOST, secondHost] });
+
+    expect(currentAddProjectPage(state).kind).toBe("host");
+  });
+
+  it("leaves host selection once a Projects folder host connects", () => {
+    const secondHost = { ...HOST, serverId: "host-2" };
+    let state = openAddProjectFlow({ hosts: [HOST, secondHost] });
+    state = applyAvailableAddProjectHosts(
+      state,
+      [HOST, secondHost, PROJECTS_HOST],
+      undefined,
+      PROJECTS_HOST.serverId,
+    );
+
+    expect(currentAddProjectPage(state)).toMatchObject({
+      kind: "method",
+      hostId: PROJECTS_HOST.serverId,
+    });
+  });
+
+  it("offers only choosing a folder and cloning", () => {
+    expect(buildAddProjectMethods(PROJECTS_HOST)).toEqual([
+      {
+        id: "open-folder",
+        label: "Choose a folder",
+        description: "Pick or create a folder in ~/Projects",
+      },
+      {
+        id: "github",
+        label: "Clone from GitHub",
+        description: expect.any(String),
+        disabled: false,
+      },
+    ]);
+  });
+
+  it("names a new folder inline, then enters the created folder", () => {
+    let state = openAddProjectFlow({ hosts: [PROJECTS_HOST] });
+    state = openFolderBrowserPage(state, PROJECTS_HOST.serverId, { kind: "open" }, { path: "." });
+    state = setAddProjectPageInput(state, "ap");
+    state = setFolderBrowserNaming(state, "");
+
+    expect(currentAddProjectPage(state)).toMatchObject({ newFolderName: "", query: "" });
+
+    state = setFolderBrowserNaming(state, "app");
+    // Typing in the filter never edits the name.
+    state = setAddProjectPageInput(state, "x");
+    expect(currentAddProjectPage(state)).toMatchObject({ newFolderName: "app", query: "x" });
+
+    state = browseAddProjectFolder(state, { rootId: "projects", path: "app" });
+    expect(currentAddProjectPage(state)).toMatchObject({
+      kind: "folder-browser",
+      request: { rootId: "projects", path: "app" },
+      newFolderName: null,
+      query: "",
+    });
+  });
+
+  it("confirms the default clone destination before offering another location", () => {
+    let state = openAddProjectFlow({ hosts: [PROJECTS_HOST] });
+    state = openCloneDestinationPage(state, PROJECTS_HOST.serverId, REPOSITORY);
+    // The confirmation page has no text input.
+    state = setAddProjectPageInput(state, "ignored");
+
+    expect(currentAddProjectPage(state)).toEqual({
+      kind: "clone-destination",
+      hostId: PROJECTS_HOST.serverId,
+      repository: REPOSITORY,
+      activeIndex: 0,
+      error: null,
+      isSubmitting: false,
+    });
   });
 });

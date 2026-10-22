@@ -37,6 +37,15 @@ export function installationDefaultServerId(
   );
 }
 
+// The installation's Host daemon, which owns installation-wide work such as adding projects.
+export function installationHostServerId(
+  installation: ExecutionInstallation | null,
+): string | null {
+  return (
+    installation?.environments.find((environment) => environment.kind === "host")?.serverId ?? null
+  );
+}
+
 export function allowBrowserAutomation(installation: ExecutionInstallation | null): boolean {
   // Disable the entire automation bridge in the privileged installation client.
   // Capability omission alone is insufficient: unsolicited commands must also be denied.

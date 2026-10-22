@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test, expect } from "../support/fixtures";
@@ -33,6 +33,8 @@ import { getServerId } from "../support/helpers/server-id";
 
 const SECONDARY_HOST_ID = "add-project-flow-secondary";
 const SECONDARY_HOST_LABEL = "Secondary Host";
+const PROJECTS_HOST_ID = "add-project-flow-projects";
+const PROJECTS_HOST_LABEL = "Projects Host";
 
 async function expectProjectDirectory(pathname: string): Promise<void> {
   await expect.poll(async () => (await stat(pathname)).isDirectory()).toBe(true);
@@ -368,5 +370,106 @@ test.describe("Add Project command-center flow", () => {
       await removeCreatedProject(directoryPath, projectId).catch(() => undefined);
       await rm(parentDirectory, { recursive: true, force: true });
     }
+  });
+
+  // Hosts that advertise a Projects folder get the simpler flow; the legacy tests above
+  // cover hosts without one.
+  test.describe("with a Projects folder", () => {
+    let projectsHost: IsolatedHostDaemon;
+    let projectsRoot: string;
+
+    test.beforeAll(async () => {
+      projectsRoot = await realpath(await mkdtemp(path.join(tmpdir(), "paseo-e2e-projects-")));
+      await mkdir(path.join(projectsRoot, "clients"));
+      projectsHost = await startIsolatedHostDaemon(PROJECTS_HOST_ID, {
+        environment: { ...process.env, PASEO_PROJECTS_ROOT: projectsRoot },
+      });
+    });
+
+    test.afterAll(async () => {
+      await projectsHost?.close();
+      if (projectsRoot) await rm(projectsRoot, { recursive: true, force: true });
+    });
+
+    test("offers two options and adds a new nested folder without choosing a host", async ({
+      page,
+    }) => {
+      const directoryName = `created-${randomUUID().slice(0, 8)}`;
+      const directoryPath = path.join(projectsRoot, "clients", directoryName);
+      await gotoAppShell(page);
+      await addConnectedHostAndReload(page, {
+        serverId: projectsHost.serverId,
+        label: PROJECTS_HOST_LABEL,
+        port: projectsHost.port,
+      });
+      await waitForConnectedHost(page, {
+        serverId: PROJECTS_HOST_ID,
+        endpoint: `localhost:${projectsHost.port}`,
+      });
+
+      // Two connected hosts, but the Projects folder host is chosen without asking.
+      await openAddProjectFlow(page);
+      await expect(addProjectFlowMethod(page, "open-folder")).toContainText("Choose a folder");
+      await expect(addProjectFlowMethod(page, "github")).toContainText("Clone from GitHub");
+      await expect(addProjectFlowMethod(page, "new-directory")).toHaveCount(0);
+      await expect(addProjectFlowMethod(page, "directory-search")).toHaveCount(0);
+      await expect(addProjectFlowMethod(page, "browse")).toHaveCount(0);
+
+      await chooseAddProjectMethod(page, "open-folder");
+      const breadcrumb = page.getByTestId("add-project-flow-breadcrumb");
+      const primary = page.getByTestId("add-project-flow-primary");
+      await expect(breadcrumb).toHaveText("Projects", { timeout: 30_000 });
+      await expect(primary).toContainText("Add “Projects” as project");
+      await expect(primary).toBeDisabled();
+
+      // The list only navigates: choosing a folder enters it.
+      await page.getByTestId("add-project-flow-folder-clients").click();
+      await expect(breadcrumb).toContainText("clients");
+      await expect(primary).toContainText("Add “clients” as project");
+
+      await page.getByTestId("add-project-flow-new-folder").click();
+      await page.getByTestId("add-project-flow-new-folder-name").fill(directoryName);
+      await page.keyboard.press("Enter");
+      await expect(breadcrumb).toContainText(directoryName, { timeout: 30_000 });
+      await expectProjectDirectory(directoryPath);
+      await expect(primary).toContainText(`Add “${directoryName}” as project`);
+
+      await page.keyboard.press("ControlOrMeta+Enter");
+      const projectId = await expectOpenedProject(page, directoryName);
+      await expectNewWorkspaceForAddedProject(page, {
+        serverId: PROJECTS_HOST_ID,
+        projectId,
+        projectName: directoryName,
+        projectPath: directoryPath,
+      });
+    });
+
+    test("Clone from GitHub defaults to the Projects folder and can change location", async ({
+      page,
+    }) => {
+      await gotoAppShell(page);
+      await addConnectedHostAndReload(page, {
+        serverId: projectsHost.serverId,
+        label: PROJECTS_HOST_LABEL,
+        port: projectsHost.port,
+      });
+      await waitForConnectedHost(page, {
+        serverId: PROJECTS_HOST_ID,
+        endpoint: `localhost:${projectsHost.port}`,
+      });
+      await openAddProjectFlow(page);
+      await chooseAddProjectMethod(page, "github");
+
+      await addProjectFlowInput(page).fill("https://github.invalid/acme/manual.git");
+      await page.keyboard.press("Enter");
+      await expectAddProjectPage(page, "clone-destination");
+      await expect(page.getByTestId("add-project-flow-clone-default")).toContainText("Clone into");
+      await expect(page.getByTestId("add-project-flow-clone-default")).toContainText("manual");
+
+      await page.getByTestId("add-project-flow-clone-change-location").click();
+      await expectAddProjectPage(page, "folder-browser");
+      await expect(page.getByTestId("add-project-flow-primary")).toContainText("Clone here");
+      await expect(page.getByTestId("add-project-flow-new-folder")).toBeVisible();
+    });
   });
 });

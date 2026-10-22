@@ -10,6 +10,9 @@ export interface AddProjectHost {
   canCloneGithubRepositories: boolean;
   canSearchGithubRepositories: boolean;
   canCreateDirectory: boolean;
+  // The installation's Projects folder. Hosts that advertise one get the simpler flow:
+  // every new project is chosen, created or cloned inside it.
+  projectsRoot: string | null;
 }
 
 export interface GithubRepositoryChoice {
@@ -53,7 +56,16 @@ export type AddProjectPage =
       // The folder being shown. An empty request lists the top-level locations.
       request: FolderBrowseRequest;
       isSubmitting: boolean;
+      // Projects folder flow: the name typed for a new folder, while naming one.
+      newFolderName?: string | null;
     } & SearchPageState)
+  | ({
+      // Projects folder flow: confirm the default clone destination or change it.
+      kind: "clone-destination";
+      hostId: string;
+      repository: GithubRepositoryChoice;
+      isSubmitting: boolean;
+    } & PageState)
   | ({ kind: "new-directory-parent"; hostId: string } & SearchPageState)
   | {
       kind: "new-directory-name";
@@ -75,6 +87,31 @@ export interface AddProjectFlowState {
 export interface OpenAddProjectFlowInput {
   hosts: AddProjectHost[];
   preferredHostId?: string;
+  // The installation's Host daemon, preferred for Projects folder work.
+  installationHostId?: string;
+}
+
+// With a Projects folder there is no host step: projects are shared across environments,
+// so the installation's Host daemon adds them, otherwise the first capable online host.
+export function selectProjectsFolderHost(
+  hosts: AddProjectHost[],
+  installationHostId?: string,
+): AddProjectHost | null {
+  const capable = hosts.filter((host) => host.canAddProject && host.projectsRoot !== null);
+  return capable.find((host) => host.serverId === installationHostId) ?? capable[0] ?? null;
+}
+
+function initialHost(
+  hosts: AddProjectHost[],
+  preferredHostId: string | undefined,
+  installationHostId: string | undefined,
+): AddProjectHost | null {
+  const projectsHost = selectProjectsFolderHost(hosts, installationHostId);
+  if (projectsHost) return projectsHost;
+  const preferredHost = preferredHostId
+    ? hosts.find((host) => host.serverId === preferredHostId)
+    : null;
+  return preferredHost ?? (hosts.length === 1 ? hosts[0] : null) ?? null;
 }
 
 type SearchPageKind = Extract<AddProjectPage, { query: string }>["kind"];
@@ -88,15 +125,10 @@ function methodPage(hostId: string): AddProjectPage {
 }
 
 export function openAddProjectFlow(input: OpenAddProjectFlowInput): AddProjectFlowState {
-  const preferredHost = input.preferredHostId
-    ? input.hosts.find((host) => host.serverId === input.preferredHostId)
-    : null;
-  const onlyHost = input.hosts.length === 1 ? input.hosts[0] : null;
-  const initialHost = preferredHost ?? onlyHost;
-
+  const host = initialHost(input.hosts, input.preferredHostId, input.installationHostId);
   return {
     hosts: input.hosts,
-    pages: initialHost ? [methodPage(initialHost.serverId)] : [searchPage("host")],
+    pages: host ? [methodPage(host.serverId)] : [searchPage("host")],
     newDirectoryNameDrafts: {},
     githubLocationDrafts: {},
   };
@@ -106,20 +138,17 @@ export function applyAvailableAddProjectHosts(
   state: AddProjectFlowState,
   hosts: AddProjectHost[],
   preferredHostId?: string,
+  installationHostId?: string,
 ): AddProjectFlowState {
   const current = currentAddProjectPage(state);
   if (state.pages.length !== 1 || current.kind !== "host") {
     return { ...state, hosts };
   }
-  const preferredHost = preferredHostId
-    ? hosts.find((host) => host.serverId === preferredHostId)
-    : null;
-  const onlyHost = hosts.length === 1 ? hosts[0] : null;
-  const initialHost = preferredHost ?? onlyHost;
+  const host = initialHost(hosts, preferredHostId, installationHostId);
   return {
     ...state,
     hosts,
-    pages: initialHost ? [methodPage(initialHost.serverId)] : state.pages,
+    pages: host ? [methodPage(host.serverId)] : state.pages,
   };
 }
 
@@ -213,6 +242,34 @@ export function openFolderBrowserPage(
   });
 }
 
+export function openCloneDestinationPage(
+  state: AddProjectFlowState,
+  hostId: string,
+  repository: GithubRepositoryChoice,
+): AddProjectFlowState {
+  return pushAddProjectPage(state, {
+    kind: "clone-destination",
+    hostId,
+    repository,
+    activeIndex: 0,
+    error: null,
+    isSubmitting: false,
+  });
+}
+
+// Projects folder flow: New folder shows an inline name row until the folder is created
+// or naming is cancelled. Null leaves naming.
+export function setFolderBrowserNaming(
+  state: AddProjectFlowState,
+  name: string | null,
+): AddProjectFlowState {
+  return updateCurrentAddProjectPage(state, (page) =>
+    page.kind === "folder-browser"
+      ? { ...page, newFolderName: name, query: "", activeIndex: 0, error: null }
+      : page,
+  );
+}
+
 // Moving between folders stays on one page; Back leaves the browser.
 export function browseAddProjectFolder(
   state: AddProjectFlowState,
@@ -220,7 +277,7 @@ export function browseAddProjectFolder(
 ): AddProjectFlowState {
   return updateCurrentAddProjectPage(state, (page) =>
     page.kind === "folder-browser"
-      ? { ...page, request, query: "", activeIndex: 0, error: null }
+      ? { ...page, request, query: "", newFolderName: null, activeIndex: 0, error: null }
       : page,
   );
 }
@@ -258,7 +315,7 @@ export function setAddProjectPageInput(
     if (current.kind === "new-directory-name") {
       return { ...current, name: value, activeIndex: 0, error: null };
     }
-    if (current.kind === "method") return current;
+    if (current.kind === "method" || current.kind === "clone-destination") return current;
     return { ...current, query: value, activeIndex: 0, error: null };
   });
   if (page.kind !== "github-location") return updated;

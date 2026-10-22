@@ -40,6 +40,7 @@ export function filterAddProjectHosts(hosts: AddProjectHost[], query: string): A
 
 export function buildAddProjectMethods(host: AddProjectHost): AddProjectMethodOption[] {
   if (!host.canAddProject) return [];
+  if (host.projectsRoot !== null) return projectsFolderMethods(host, host.projectsRoot);
   const options: AddProjectMethodOption[] = [];
   // Hosts that can list folders get one browser for every destination. Older
   // hosts keep the search pages, which cannot confirm a parent exists.
@@ -78,6 +79,23 @@ export function buildAddProjectMethods(host: AddProjectHost): AddProjectMethodOp
     disabled: !host.canCloneGithubRepositories,
   });
   return options;
+}
+
+// Every new project lives in the Projects folder, so choosing and cloning are all there is.
+function projectsFolderMethods(host: AddProjectHost, root: string): AddProjectMethodOption[] {
+  return [
+    {
+      id: "open-folder",
+      label: "Choose a folder",
+      description: `Pick or create a folder in ${shortenPath(root)}`,
+    },
+    {
+      id: "github",
+      label: "Clone from GitHub",
+      description: githubMethodDescription(host),
+      disabled: !host.canCloneGithubRepositories,
+    },
+  ];
 }
 
 export function addProjectMethodEmptyText(host: AddProjectHost | null): string {

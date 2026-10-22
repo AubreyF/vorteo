@@ -302,6 +302,8 @@ export interface DaemonServerInfo {
   capabilities?: ServerCapabilities;
   features?: ServerInfoStatusPayload["features"];
   permissions?: ServerInfoStatusPayload["permissions"];
+  // COMPAT(projectsRoot): absent on daemons without a Projects folder.
+  projectsRoot?: string;
 }
 
 export function toDaemonServerInfo(serverInfo: ServerInfoStatusPayload): DaemonServerInfo {
@@ -314,6 +316,7 @@ export function toDaemonServerInfo(serverInfo: ServerInfoStatusPayload): DaemonS
       : {}),
     ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
     ...(serverInfo.features ? { features: serverInfo.features } : {}),
+    ...(serverInfo.projectsRoot ? { projectsRoot: serverInfo.projectsRoot } : {}),
   };
 }
 
@@ -710,6 +713,7 @@ function isSessionServerInfoUnchanged(input: {
   nextCapabilities: ServerCapabilities | undefined;
   nextFeatures: ServerInfoStatusPayload["features"] | undefined;
   nextPermissions: ServerInfoStatusPayload["permissions"] | undefined;
+  nextProjectsRoot: string | undefined;
   nextServerId: string;
 }): boolean {
   const {
@@ -720,16 +724,18 @@ function isSessionServerInfoUnchanged(input: {
     nextCapabilities,
     nextFeatures,
   } = input;
-  const prevHostname = currentServerInfo?.hostname?.trim() || null;
-  const prevVersion = currentServerInfo?.version?.trim() || null;
+  if (!currentServerInfo) return false;
+  const prevHostname = currentServerInfo.hostname?.trim() || null;
+  const prevVersion = currentServerInfo.version?.trim() || null;
   return (
-    currentServerInfo?.serverId === input.nextServerId &&
+    currentServerInfo.serverId === input.nextServerId &&
     prevHostname === nextHostname &&
     prevVersion === nextVersion &&
-    currentServerInfo?.desktopManaged === nextDesktopManaged &&
-    areServerCapabilitiesEqual(currentServerInfo?.capabilities, nextCapabilities) &&
-    areServerInfoFeaturesEqual(currentServerInfo?.features, nextFeatures) &&
-    JSON.stringify(currentServerInfo?.permissions ?? null) ===
+    currentServerInfo.desktopManaged === nextDesktopManaged &&
+    currentServerInfo.projectsRoot === input.nextProjectsRoot &&
+    areServerCapabilitiesEqual(currentServerInfo.capabilities, nextCapabilities) &&
+    areServerInfoFeaturesEqual(currentServerInfo.features, nextFeatures) &&
+    JSON.stringify(currentServerInfo.permissions ?? null) ===
       JSON.stringify(input.nextPermissions ?? null)
   );
 }
@@ -878,6 +884,7 @@ export const useSessionStore = create<SessionStore>()(
               nextCapabilities,
               nextFeatures,
               nextPermissions: info.permissions,
+              nextProjectsRoot: info.projectsRoot,
               nextServerId: info.serverId,
             })
           ) {
@@ -899,6 +906,7 @@ export const useSessionStore = create<SessionStore>()(
                     : {}),
                   ...(nextCapabilities ? { capabilities: nextCapabilities } : {}),
                   ...(nextFeatures ? { features: nextFeatures } : {}),
+                  ...(info.projectsRoot ? { projectsRoot: info.projectsRoot } : {}),
                   permissions: info.permissions,
                 },
               },

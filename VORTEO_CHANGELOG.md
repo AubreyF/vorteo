@@ -4,6 +4,17 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Add project offers two choices on hosts with a Projects folder: Choose a folder and Clone from GitHub. There is no host step and no Search for directory, New project folder or Choose in Finder option. Hosts without a Projects folder keep the earlier flow.
+- The folder browser starts in the Projects folder with a breadcrumb. Its list only moves between folders; a fixed footer names what it will add, and Add is disabled at the Projects folder itself. New folder creates a folder in place without making it a project and opens it. Git checkouts have an inline Add button, registered projects show a Project badge, and the last folder is remembered per host.
+
+### Known limitations
+
+- Work in progress: checkpoint before the clone destination, the remaining tests and the merge with main. Nothing is installed.
+
 ## 0.11.0-beta.3.vorteo.765 - 2026-10-22
 
 ### Added

@@ -520,3 +520,168 @@ export function createFolderErrorText(input: {
       return input.error ?? "Unable to create folder";
   }
 }
+
+// Projects folder flow. The list only moves between folders; choosing happens in a
+// fixed footer that always names its target.
+
+export interface ProjectsFolderRow {
+  id: string;
+  title: string;
+  target: FolderBrowseRequest;
+  // Daemon path of the folder, for one-click actions on its row.
+  path: string;
+  git: boolean;
+  projectId: string | null;
+  // Choosing a row enters the folder, except an existing project while adding, which opens it.
+  action: "enter" | "open-project";
+  // A git checkout that is not yet a project can be added straight from its row.
+  canAdd: boolean;
+}
+
+export function projectsFolderRows(input: {
+  purpose: FolderBrowserPurpose;
+  directory: FolderBrowseDirectory | null;
+  filter: string;
+}): ProjectsFolderRow[] {
+  const { directory, purpose } = input;
+  if (!directory) return [];
+  const needle = input.filter.trim().toLowerCase();
+  const matches = directory.entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  const ranked = needle
+    ? [...matches].sort((a, b) => matchRank(a.name, needle) - matchRank(b.name, needle))
+    : matches;
+  const adding = purpose.kind !== "clone";
+  return ranked.map((entry) => {
+    const projectId = entry.projectId ?? null;
+    const git = entry.git === true;
+    return {
+      id: `folder:${entry.path}`,
+      title: entry.name,
+      target: { rootId: directory.rootId, path: entry.path },
+      path: joinDisplayPath(trimTrailingSeparators(directory.containerPath), entry.name),
+      git,
+      projectId,
+      action: adding && projectId ? "open-project" : "enter",
+      canAdd: adding && git && !projectId,
+    };
+  });
+}
+
+// Where the Projects folder browser opens: the last folder used on this host, else the root.
+export function projectsFolderStartRequest(lastPath: string | undefined): FolderBrowseRequest {
+  return { path: lastPath && lastPath.trim() ? lastPath : "." };
+}
+
+export interface ProjectsFolderCrumb {
+  label: string;
+  target: FolderBrowseRequest;
+}
+
+// "Projects / app / packages": each segment returns to that folder.
+export function projectsFolderBreadcrumb(
+  directory: FolderBrowseDirectory | null,
+): ProjectsFolderCrumb[] {
+  const crumbs: ProjectsFolderCrumb[] = [
+    { label: "Projects", target: directory ? { rootId: directory.rootId, path: "." } : {} },
+  ];
+  if (!directory || directory.path === ".") return crumbs;
+  const segments = normalizeSeparators(directory.path).split("/").filter(Boolean);
+  segments.forEach((segment, index) => {
+    crumbs.push({
+      label: segment,
+      target: { rootId: directory.rootId, path: segments.slice(0, index + 1).join("/") },
+    });
+  });
+  return crumbs;
+}
+
+export type ProjectsFolderFooterAction = "add" | "open" | "clone";
+
+export interface ProjectsFolderFooter {
+  action: ProjectsFolderFooterAction;
+  label: string;
+  // Where the action lands, in the owner's terms.
+  detail: string;
+  disabled: boolean;
+  // Why the action is unavailable, when it is.
+  reason: string | null;
+  canCreateFolder: boolean;
+}
+
+function samePath(left: string, right: string): boolean {
+  return (
+    normalizeSeparators(trimTrailingSeparators(left)) ===
+    normalizeSeparators(trimTrailingSeparators(right))
+  );
+}
+
+export function projectsFolderFooter(input: {
+  purpose: FolderBrowserPurpose;
+  directory: FolderBrowseDirectory | null;
+  // Roots of projects this host already has.
+  projectPaths: readonly string[];
+}): ProjectsFolderFooter {
+  const { directory, purpose } = input;
+  const atRoot = directory?.parent === null;
+  const name = !directory || atRoot ? "Projects" : pathBaseName(directory.containerPath);
+  const detail = directory ? shortenPath(directory.containerPath) : "";
+  if (purpose.kind === "clone") {
+    const exists =
+      directory?.entries.some(
+        (entry) => entry.name.toLowerCase() === purpose.repositoryName.toLowerCase(),
+      ) ?? false;
+    return {
+      action: "clone",
+      label: "Clone here",
+      detail: directory
+        ? shortenPath(
+            joinDisplayPath(
+              trimTrailingSeparators(directory.containerPath),
+              purpose.repositoryName,
+            ),
+          )
+        : "",
+      disabled: !directory || exists,
+      reason: exists ? `“${purpose.repositoryName}” already exists here` : null,
+      canCreateFolder: directory !== null,
+    };
+  }
+  const isProject =
+    directory !== null &&
+    input.projectPaths.some((path) => samePath(path, directory.containerPath));
+  if (isProject) {
+    return {
+      action: "open",
+      label: `Open “${name}”`,
+      detail,
+      disabled: false,
+      reason: null,
+      canCreateFolder: true,
+    };
+  }
+  return {
+    action: "add",
+    label: `Add “${name}” as project`,
+    detail,
+    disabled: !directory || atRoot,
+    reason: atRoot ? "Open or create a folder inside Projects to add it" : null,
+    canCreateFolder: directory !== null,
+  };
+}
+
+// The folder a new-folder row creates, shown while the name is typed.
+export function newFolderPreview(directory: FolderBrowseDirectory, name: string): string {
+  return shortenPath(joinDisplayPath(trimTrailingSeparators(directory.containerPath), name.trim()));
+}
+
+// After creating a folder, the browser moves into it.
+export function childFolderRequest(
+  directory: FolderBrowseDirectory,
+  name: string,
+  showHidden?: boolean,
+): FolderBrowseRequest {
+  const path = directory.path === "." ? name : `${normalizeSeparators(directory.path)}/${name}`;
+  return showHidden
+    ? { rootId: directory.rootId, path, showHidden }
+    : { rootId: directory.rootId, path };
+}

@@ -70,3 +70,23 @@ export function useHostFeatureAvailabilityMap(
     [flags, serverIds],
   );
 }
+
+// The Projects folder each host advertises, or null. Read together with its capability.
+export function useHostProjectsRootMap(
+  serverIds: readonly string[],
+): ReadonlyMap<string, string | null> {
+  const roots = useSessionStore(
+    useShallow((state) =>
+      serverIds.map((serverId) => {
+        const serverInfo = state.sessions[serverId]?.serverInfo;
+        return hostSupportsFeature(serverInfo, "projectsRoot")
+          ? (serverInfo?.projectsRoot ?? null)
+          : null;
+      }),
+    ),
+  );
+  return useMemo(
+    () => new Map(serverIds.map((serverId, index) => [serverId, roots[index] ?? null] as const)),
+    [roots, serverIds],
+  );
+}
