@@ -1996,7 +1996,6 @@ export const es: TranslationResources = {
     breakdown: {
       used: "Usado",
       free: "Espacio libre",
-      loading: "Cargando el desglose",
       totalsOnly: "Este proveedor solo informa totales.",
       error: "No se pudo cargar el desglose.",
       overLimit: "{{tokens}} tokens por encima de la ventana",

@@ -2001,7 +2001,6 @@ export const fr: TranslationResources = {
     breakdown: {
       used: "Utilisé",
       free: "Espace libre",
-      loading: "Chargement de la répartition",
       totalsOnly: "Ce fournisseur ne communique que les totaux.",
       error: "Impossible de charger la répartition.",
       overLimit: "{{tokens}} jetons au-delà de la fenêtre",

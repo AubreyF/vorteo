@@ -9,30 +9,11 @@ import type { ContextBreakdownView } from "./use-context-breakdown";
 // Load translations so rows expose their real labels.
 void testI18n;
 
-const breakdownView = vi.hoisted(() => ({ current: { kind: "loading" } as ContextBreakdownView }));
-vi.mock("./use-context-breakdown", () => ({
-  useContextBreakdown: () => breakdownView.current,
+// The suite stubs react-native-svg to nothing; draw plain SVG so the donut's arcs can be counted.
+vi.mock("react-native-svg", () => ({
+  default: (props: React.SVGProps<SVGSVGElement>) => <svg {...props} />,
+  Circle: ({ cx, cy, r }: React.SVGProps<SVGCircleElement>) => <circle cx={cx} cy={cy} r={r} />,
 }));
-
-// The suite stubs react-native-svg to nothing; draw real SVG so the donut can be counted.
-// withUnistyles is also a pass-through in tests, so resolve uniProps against the test theme here.
-vi.mock("react-native-svg", () => {
-  // Just the theme values the donut reads.
-  const theme = {
-    colorScheme: "light",
-    colors: { surface2: "#e4e4e7", surface3: "#d4d4d8", foregroundMuted: "#666666" },
-  };
-  interface UniProps {
-    uniProps?: (value: typeof theme) => Record<string, unknown>;
-  }
-  const themed = ({ uniProps, ...rest }: UniProps) => ({ ...rest, ...uniProps?.(theme) });
-  return {
-    default: (props: React.SVGProps<SVGSVGElement>) => <svg {...props} />,
-    Circle: (props: UniProps & React.SVGProps<SVGCircleElement>) => (
-      <circle {...(themed(props) as React.SVGProps<SVGCircleElement>)} />
-    ),
-  };
-});
 
 const { ContextBreakdown } = await import("./view");
 
@@ -77,8 +58,7 @@ afterEach(() => {
   }
 });
 
-function mount(view: ContextBreakdownView, interactive = true) {
-  breakdownView.current = view;
+function mount(view: ContextBreakdownView, interactive = true, loading = false) {
   const container = document.createElement("div");
   container.style.width = "320px";
   container.style.padding = "16px";
@@ -87,8 +67,8 @@ function mount(view: ContextBreakdownView, interactive = true) {
   act(() =>
     root.render(
       <ContextBreakdown
-        serverId="server-1"
-        agentId="agent-1"
+        view={view}
+        loading={loading}
         percentage={14}
         usedTokens={140_500}
         maxTokens={1_000_000}
@@ -121,6 +101,14 @@ describe("ContextBreakdown", () => {
     expect(view.getByText("Free space")).toBeTruthy();
     expect(view.getByText("This provider reports totals only.")).toBeTruthy();
     expect(container.querySelectorAll("circle")).toHaveLength(3);
+  });
+
+  it("shows one loading pulse instead of rows while anything loads", () => {
+    const { container, view } = mount({ kind: "loading" }, true, true);
+    expect(view.getByTestId("context-breakdown-loading")).toBeTruthy();
+    expect(view.getByText("14% used")).toBeTruthy();
+    expect(view.queryByText("Used")).toBeNull();
+    expect(container.textContent).not.toMatch(/loading/i);
   });
 
   it("lists groups without expansion where the surface cannot be pressed", () => {

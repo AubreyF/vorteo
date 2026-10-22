@@ -1926,7 +1926,6 @@ export const zhCN: TranslationResources = {
     breakdown: {
       used: "已使用",
       free: "剩余空间",
-      loading: "正在加载明细",
       totalsOnly: "此提供方仅报告总量。",
       error: "无法加载明细。",
       overLimit: "超出窗口 {{tokens}} 个令牌",
