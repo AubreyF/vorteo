@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.791 - 2026-10-22
+
+### Maintenance
+
+- Merge the coordinator renewal fix that lets a reviewed renewal turn Host-owned Claude refresh on
+
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- The Host Claude refresh setting can actually be turned on. Every coordinator replacement now runs as a renewal, and renewals refused all configuration changes, so the reviewed `claudeHostRefreshConfiguration` field from vorteo.768 had no usable path. Owner-reviewed renewals now accept that one field, as they already accept Factory adoption, with a candidate configuration that differs only by `claudeHostRefresh`. Recovery keeps the previous configuration, and automatic coordinator updates still refuse the change.
+
 ## 0.11.0-beta.3.vorteo.790 - 2026-10-22
 
 ### Maintenance
@@ -224,6 +236,26 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 - Merge durable sessions host generations: the session host moves to a newer release once it runs no session, and the pending upgrade goes only to interfaces that declare it
 
+## 0.11.0-beta.3.vorteo.763 - 2026-10-22
+
+### Fixed
+
+- Interfaces from release 761 keep parsing the session host status while an upgrade is pending. They declare restart and indicator support but parse strictly and do not know the pending upgrade field, so the coordinator now sends that field only to a client that declares `upgrade: true`, which the interface does from this release. The interface also reads the owner's session host query with schemas that ignore unknown keys at every level, so a later coordinator addition reaches it without a flag; the gating flags remain for interfaces older than this release.
+
+### Validation
+
+- The contract test freezes the 761 strict schemas and checks that a client declaring restarts and the indicator parses a status with an upgrade pending and never sees the field, that a client declaring every flag sees it, and that each flag withholds only its own addition. An interface client test checks the query declares all three flags and that a reply with unknown keys in the overview, a job, its plan and host, and the status detail still parses.
+
+## 0.11.0-beta.3.vorteo.762 - 2026-10-22
+
+### Features
+
+- Session host generations. The host compares its own release with the one the installation's current link selects, once a minute by default, and when a newer release is installed it marks an upgrade as pending and exits as soon as no session runs; launchd relaunches it on the installed release, and workers wait for its return instead of starting providers locally. While the upgrade is pending, workers release hosted sessions that have been idle for five minutes, so the host reaches zero sessions without cutting any running turn or pending permission; a released agent resumes on demand, hosted again on the new host. Idle sessions stay warm whenever no upgrade is pending. The durable sessions setting file accepts optional `idleReleaseMs` and `releaseCheckMs` tunables, and the session host status reports a pending upgrade. The owner-approved restart remains for moving a host immediately.
+
+### Validation
+
+- Tests cover the host writing the upgrade marker and exiting at zero sessions with the restart marker left for workers, the next host clearing both markers, the selection of releasable agents, the worker releasing an idle hosted session only while an upgrade is pending and the agent resuming hosted afterwards, the connector flag, and the status field in the coordinator and the app. An isolated end-to-end scenario runs the host through a release link, repoints the link at a newer release while an agent sits idle, and sees the host relaunch on that release within seconds with both markers cleared and the agent's next turn hosted on the new host.
+
 ## 0.11.0-beta.3.vorteo.776 - 2026-10-22
 
 ### Maintenance
@@ -352,6 +384,63 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Maintenance
 
 - Merge durable sessions phase 2 with its client compatibility fix: tracked session host restart, detached-turn durability and the hosted indicator
+
+## 0.11.0-beta.3.vorteo.761 - 2026-10-22
+
+### Fixed
+
+- Older interfaces keep working with a coordinator that knows session host restarts and the hosted indicator. They parse the owner's session host query strictly, so the coordinator now sends restart jobs and the stopped host's record only to an interface that declares restart support, and the installed release and per-provider counts only to one that declares the indicator; a client that sends an empty query gets exactly the shape it always parsed. The interface also treats a session host query it cannot parse like any other card failure: the card keeps its last state and shows the error, and the restart and helper lists with their approval buttons still load.
+
+### Validation
+
+- A contract test freezes the pre-change strict schemas and checks that, with a finished restart job in the ledger and the new status fields present, an empty query parses with them while a query declaring both flags parses with the current schemas and carries everything; declaring one flag withholds only the other addition. A panel model test covers the query failure leaving the rest of Installation controls intact.
+
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Features
+
+- Agents whose provider session runs in the durable session host are marked: the agent snapshot carries an optional hosted flag, and the agent list shows a "Survives restarts" badge beside them, so the owner can tell at a glance which turns a daemon restart will not interrupt. Older daemons omit the flag and older interfaces ignore it.
+- The session host status in Installation controls and the Host client now names the installed release beside the host's own release, and breaks hosted sessions down by provider, so a host still running an older release than the installation is visible.
+
+### Validation
+
+- Tests cover the hosted flag on the agent payload for hosted, local and sessionless agents, the status fields and their display, and every locale carries the new badge label.
+
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- A hosted turn that finishes while no worker is attached, as during a long Host update or a slow restart, no longer loses the end of its output. The next worker used to close such a session as idle at startup without ever applying the events recorded after the previous worker's last acknowledgement. It now adopts a session that still holds unapplied events, loads the agent, applies them, and leaves the session hosted and idle. Found by the isolated end-to-end suite running under heavy machine load, where the gap between workers outlasted the scripted turn.
+
+### Validation
+
+- A unit test covers a turn that ends during the worker gap and shows its final text reaching the next worker's timeline. The end-to-end wait for a turn now names the agent's status and chunk list when it times out.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Validation
+
+- The hosted session suite covers a marked session host restart whose new host already holds the lock but does not listen yet: the worker keeps waiting and the session opens in the host, which closes the one path the independent review found untested.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
+### Fixed
+
+- Independent review follow-ups for the tracked session host restart: the owner query reports restart support only to an app that asks for it, so an older interface that parses the reply strictly keeps working; the restart marker is removed with the job and ignored once it is older than a restart could take, so an interrupted restart cannot leave workers waiting for a host that never comes; a marked restart keeps waiting while its new host is between taking its lock and listening; a stop that finds no running process falls back to starting the job; the restart detail says when the stopped host was not answering; and the interruption warning shows only when a restart can be requested.
+
+### Validation
+
+- Unit tests cover the marker's age limit, its removal with the job, the opt-in owner query field, and the corrected texts. The session host job, workflow, connector, hosted session and service suites pass, as do the app review and client suites.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Features
+
+- Installation controls and the Host client can request a tracked session host restart. The coordinator plans it like install and removal, the owner approves the exact plan, and the restart stops the host through launchd and waits for a new process on the installed release, killing a host that ignores the stop once verified. The request names how many hosted turns it interrupts; each continues on the new host because the worker waits on a restart marker the coordinator writes and the new host removes. This is how a session host moves to a newer release, which a Host update alone never does.
+
+### Validation
+
+- Unit tests cover the restart through a fake launchd, a host that ignores the stop, a replacement that never answers, the refusals, the worker's wait on the restart marker, the host removing the marker at start, the client's capability gate and the owner-facing texts. A new end-to-end scenario performs the coordinator's steps against a real launchd job: the marker, the stop signal, and the interrupted turn's continuation opening on the new host. The ledger suite has one failure that predates this change and reproduces with it reverted.
 
 ## 0.11.0-beta.3.vorteo.767 - 2026-10-22
 
@@ -607,83 +696,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Show Download in the file preview toolbar for every file, not only images, placed immediately after Copy all. Editable text files download the saved copy on disk; unsaved edits are not included. Binary previews keep their larger Download button in the body.
-
-## 0.11.0-beta.3.vorteo.763 - 2026-10-22
-
-### Fixed
-
-- Interfaces from release 761 keep parsing the session host status while an upgrade is pending. They declare restart and indicator support but parse strictly and do not know the pending upgrade field, so the coordinator now sends that field only to a client that declares `upgrade: true`, which the interface does from this release. The interface also reads the owner's session host query with schemas that ignore unknown keys at every level, so a later coordinator addition reaches it without a flag; the gating flags remain for interfaces older than this release.
-
-### Validation
-
-- The contract test freezes the 761 strict schemas and checks that a client declaring restarts and the indicator parses a status with an upgrade pending and never sees the field, that a client declaring every flag sees it, and that each flag withholds only its own addition. An interface client test checks the query declares all three flags and that a reply with unknown keys in the overview, a job, its plan and host, and the status detail still parses.
-
-## 0.11.0-beta.3.vorteo.762 - 2026-10-22
-
-### Features
-
-- Session host generations. The host compares its own release with the one the installation's current link selects, once a minute by default, and when a newer release is installed it marks an upgrade as pending and exits as soon as no session runs; launchd relaunches it on the installed release, and workers wait for its return instead of starting providers locally. While the upgrade is pending, workers release hosted sessions that have been idle for five minutes, so the host reaches zero sessions without cutting any running turn or pending permission; a released agent resumes on demand, hosted again on the new host. Idle sessions stay warm whenever no upgrade is pending. The durable sessions setting file accepts optional `idleReleaseMs` and `releaseCheckMs` tunables, and the session host status reports a pending upgrade. The owner-approved restart remains for moving a host immediately.
-
-### Validation
-
-- Tests cover the host writing the upgrade marker and exiting at zero sessions with the restart marker left for workers, the next host clearing both markers, the selection of releasable agents, the worker releasing an idle hosted session only while an upgrade is pending and the agent resuming hosted afterwards, the connector flag, and the status field in the coordinator and the app. An isolated end-to-end scenario runs the host through a release link, repoints the link at a newer release while an agent sits idle, and sees the host relaunch on that release within seconds with both markers cleared and the agent's next turn hosted on the new host.
-
-## 0.11.0-beta.3.vorteo.761 - 2026-10-22
-
-### Fixed
-
-- Older interfaces keep working with a coordinator that knows session host restarts and the hosted indicator. They parse the owner's session host query strictly, so the coordinator now sends restart jobs and the stopped host's record only to an interface that declares restart support, and the installed release and per-provider counts only to one that declares the indicator; a client that sends an empty query gets exactly the shape it always parsed. The interface also treats a session host query it cannot parse like any other card failure: the card keeps its last state and shows the error, and the restart and helper lists with their approval buttons still load.
-
-### Validation
-
-- A contract test freezes the pre-change strict schemas and checks that, with a finished restart job in the ledger and the new status fields present, an empty query parses with them while a query declaring both flags parses with the current schemas and carries everything; declaring one flag withholds only the other addition. A panel model test covers the query failure leaving the rest of Installation controls intact.
-
-## 0.11.0-beta.3.vorteo.760 - 2026-10-22
-
-### Features
-
-- Agents whose provider session runs in the durable session host are marked: the agent snapshot carries an optional hosted flag, and the agent list shows a "Survives restarts" badge beside them, so the owner can tell at a glance which turns a daemon restart will not interrupt. Older daemons omit the flag and older interfaces ignore it.
-- The session host status in Installation controls and the Host client now names the installed release beside the host's own release, and breaks hosted sessions down by provider, so a host still running an older release than the installation is visible.
-
-### Validation
-
-- Tests cover the hosted flag on the agent payload for hosted, local and sessionless agents, the status fields and their display, and every locale carries the new badge label.
-
-## 0.11.0-beta.3.vorteo.759 - 2026-10-22
-
-### Fixed
-
-- A hosted turn that finishes while no worker is attached, as during a long Host update or a slow restart, no longer loses the end of its output. The next worker used to close such a session as idle at startup without ever applying the events recorded after the previous worker's last acknowledgement. It now adopts a session that still holds unapplied events, loads the agent, applies them, and leaves the session hosted and idle. Found by the isolated end-to-end suite running under heavy machine load, where the gap between workers outlasted the scripted turn.
-
-### Validation
-
-- A unit test covers a turn that ends during the worker gap and shows its final text reaching the next worker's timeline. The end-to-end wait for a turn now names the agent's status and chunk list when it times out.
-
-## 0.11.0-beta.3.vorteo.758 - 2026-10-22
-
-### Validation
-
-- The hosted session suite covers a marked session host restart whose new host already holds the lock but does not listen yet: the worker keeps waiting and the session opens in the host, which closes the one path the independent review found untested.
-
-## 0.11.0-beta.3.vorteo.757 - 2026-10-22
-
-### Fixed
-
-- Independent review follow-ups for the tracked session host restart: the owner query reports restart support only to an app that asks for it, so an older interface that parses the reply strictly keeps working; the restart marker is removed with the job and ignored once it is older than a restart could take, so an interrupted restart cannot leave workers waiting for a host that never comes; a marked restart keeps waiting while its new host is between taking its lock and listening; a stop that finds no running process falls back to starting the job; the restart detail says when the stopped host was not answering; and the interruption warning shows only when a restart can be requested.
-
-### Validation
-
-- Unit tests cover the marker's age limit, its removal with the job, the opt-in owner query field, and the corrected texts. The session host job, workflow, connector, hosted session and service suites pass, as do the app review and client suites.
-
-## 0.11.0-beta.3.vorteo.756 - 2026-10-22
-
-### Features
-
-- Installation controls and the Host client can request a tracked session host restart. The coordinator plans it like install and removal, the owner approves the exact plan, and the restart stops the host through launchd and waits for a new process on the installed release, killing a host that ignores the stop once verified. The request names how many hosted turns it interrupts; each continues on the new host because the worker waits on a restart marker the coordinator writes and the new host removes. This is how a session host moves to a newer release, which a Host update alone never does.
-
-### Validation
-
-- Unit tests cover the restart through a fake launchd, a host that ignores the stop, a replacement that never answers, the refusals, the worker's wait on the restart marker, the host removing the marker at start, the client's capability gate and the owner-facing texts. A new end-to-end scenario performs the coordinator's steps against a real launchd job: the marker, the stop signal, and the interrupted turn's continuation opening on the new host. The ledger suite has one failure that predates this change and reproduces with it reverted.
 
 ## 0.11.0-beta.3.vorteo.755 - 2026-10-22
 
