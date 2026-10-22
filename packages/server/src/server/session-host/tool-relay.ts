@@ -234,6 +234,8 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
   let queuedBytes = 0;
   /** Requests whose reply has not been written yet; a request is answered exactly once. */
   const pending = new Set<JsonRpcId>();
+  /** Ends every POST of this connection when the provider's connection closes. */
+  const aborter = new AbortController();
   let pumping = false;
   let closed = false;
   let buffered = "";
@@ -247,11 +249,16 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     if (!isClosed()) socket.write(line);
   }
 
-  /** Writes the request's error once; later outcomes for the same request are ignored. */
+  /**
+   * Writes the request's error once; later outcomes for the same request are ignored. A
+   * notification gets no reply of any kind, as JSON-RPC requires: its failure is only logged.
+   */
   function answer(id: JsonRpcId | null, code: number, message: string): void {
-    if (id !== null) {
-      if (!pending.delete(id)) return;
+    if (id === null) {
+      options.logger.debug({ code, message }, "A relayed notification was dropped");
+      return;
     }
+    if (!pending.delete(id)) return;
     writeLine(errorReply(id, code, message));
   }
 
@@ -303,6 +310,7 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
           accept: "application/json, text/event-stream",
         },
         body: JSON.stringify(item.message),
+        signal: aborter.signal,
       });
     } catch (error) {
       return neverDelivered(error)
@@ -495,6 +503,8 @@ function serveConnection(socket: net.Socket, options: ConnectionOptions): void {
     queue.length = 0;
     queuedBytes = 0;
     pending.clear();
+    // The provider is gone: end its calls at the daemon too, so a long tool call stops running.
+    aborter.abort();
   });
 }
 

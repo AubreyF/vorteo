@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Fixed
+
+- The tool relay never answers a notification. A notification refused with a failed status or held past the bound used to get an error line with a null id, which JSON-RPC forbids and a provider's client might mishandle; the relay now only logs the drop. The relay also aborts a connection's in-flight requests at the daemon when the provider's connection closes, so a long tool call such as waiting on an agent stops running once its session is gone.
+
+### Validation
+
+- Relay tests cover a notification refused with a failed status and one held past the bound, neither producing a line while the requests around them are answered, and a held tool call whose provider connection closes, which the stand-in daemon sees closed before any reply.
+
 ## 0.11.0-beta.3.vorteo.766 - 2026-10-22
 
 ### Fixed

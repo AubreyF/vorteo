@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): the tool relay drops a failed notification silently instead of answering it, and aborts a connection's in-flight tool calls at the daemon when the provider's connection closes. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): the tool relay reads each daemon reply itself and answers every request exactly once from its own response, so a tool call interrupted after its reply headers is reported as unknown and never run twice, and one call's failure leaves the others in flight untouched. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the tool relay repeats a message only when it does no work or certainly never reached a daemon, so a tool call interrupted by a worker's death is reported as unknown rather than run twice. README overview and onboarding are unchanged.

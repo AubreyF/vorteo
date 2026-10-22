@@ -46,6 +46,8 @@ interface FakeDaemon {
   json: boolean;
   /** Request ids whose stream stays open until release(id) is called. */
   hold: Set<unknown>;
+  /** Ids of held requests whose connection the client closed before any reply. */
+  closedWhileHeld: unknown[];
   release(id: unknown): void;
   /** Stops accepting connections while existing streams stay open; listen() resumes. */
   stopListening(): Promise<void>;
@@ -69,6 +71,7 @@ async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
     endWithoutReply: 0,
     json: false,
     hold: new Set(),
+    closedWhileHeld: [],
     release(id) {
       held.get(id)?.();
       held.delete(id);
@@ -162,6 +165,9 @@ async function startFakeDaemon(port = 0): Promise<FakeDaemon> {
       }
       if (daemon.hold.has(message.id)) {
         held.set(message.id, () => reply(res, answer));
+        res.once("close", () => {
+          if (held.has(message.id)) daemon.closedWhileHeld.push(message.id);
+        });
         return;
       }
       setTimeout(() => reply(res, answer), 10);
@@ -474,6 +480,46 @@ describe("tool relay", () => {
     await settle();
     expect(client.lines).toEqual([]);
     expect(client.closed).toBe(false);
+  });
+
+  test("a failed or abandoned notification produces no line at all", async () => {
+    const daemon = await daemonFor();
+    daemon.failStatus.set("notifications/progress", 500);
+    let now = 1_000;
+    const { client } = await connectedRelay(daemon, { retryMs: 20, holdMs: 500, now: () => now });
+    client.send({ jsonrpc: "2.0", method: "notifications/progress", params: {} });
+    client.send({ jsonrpc: "2.0", id: 31, method: "ping" });
+    expect(await client.next()).toEqual([{ jsonrpc: "2.0", id: 31, result: { echo: "ping" } }]);
+    expect(daemon.requests.map((entry) => entry.method)).toEqual([
+      "notifications/progress",
+      "ping",
+    ]);
+
+    // The same notification held while nothing listens, past the bound: still no line.
+    await daemon.stopListening();
+    client.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: {} });
+    await settle();
+    now += 600;
+    await settle();
+    expect(client.lines).toEqual([]);
+    await daemon.listen();
+    client.send({ jsonrpc: "2.0", id: 32, method: "ping" });
+    expect(await client.next()).toEqual([{ jsonrpc: "2.0", id: 32, result: { echo: "ping" } }]);
+    expect(client.lines).toEqual([]);
+  });
+
+  test("closing the provider's connection ends its calls at the daemon", async () => {
+    const daemon = await daemonFor();
+    daemon.hold.add("A");
+    const { client } = await connectedRelay(daemon);
+    client.send(call("A"));
+    await settle();
+    expect(daemon.requests.map((entry) => entry.id)).toEqual(["A"]);
+    client.end();
+    const deadline = Date.now() + 5_000;
+    while (daemon.closedWhileHeld.length === 0 && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(daemon.closedWhileHeld).toEqual(["A"]);
   });
 
   test("a rejected token is held for a worker that has the host token, then delivered once", async () => {
