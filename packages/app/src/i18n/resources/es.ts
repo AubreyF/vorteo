@@ -1219,6 +1219,35 @@ export const es: TranslationResources = {
         "Agregue comandos de configuración para que los nuevos árboles de trabajo puedan instalar dependencias y prepararse automáticamente.",
       openProjectSettings: "Abrir la configuración del proyecto",
     },
+    folders: {
+      actions: {
+        menu: "Acciones de carpeta",
+        newFolder: "Nueva carpeta",
+        newWorkspaceFolder: "Nueva carpeta de espacios de trabajo",
+        newSubfolder: "Nueva carpeta dentro",
+        rename: "Renombrar carpeta",
+        delete: "Eliminar carpeta",
+        moveToFolder: "Mover a carpeta…",
+      },
+      dialogs: {
+        createTitle: "Nueva carpeta",
+        renameTitle: "Renombrar carpeta",
+        namePlaceholder: "Nombre de la carpeta",
+        create: "Crear",
+        rename: "Renombrar",
+        moveTitle: 'Mover "{{name}}"',
+        destination: "Carpeta",
+        topLevel: "Sin carpeta",
+        move: "Mover",
+        cancel: "Cancelar",
+      },
+      confirmations: {
+        deleteTitle: "¿Eliminar carpeta?",
+        deleteMessage:
+          '¿Eliminar "{{folderName}}"? Su contenido sube un nivel. No se archiva nada y los archivos en disco no cambian.',
+        deleteConfirm: "Eliminar",
+      },
+    },
     project: {
       actions: {
         menu: "Acciones del proyecto",

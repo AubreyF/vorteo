@@ -291,3 +291,62 @@ describe("Vorteo System project", () => {
     ).toEqual(["first", "second"]);
   });
 });
+
+describe("buildSidebarProjection with folders", () => {
+  const createdAt = "2026-10-22T00:00:00.000Z";
+  const alpha = makeWorkspace("alpha", "done", [], "first");
+  const beta = makeWorkspace("beta", "done", [], "first");
+  const gamma = makeWorkspace("gamma", "done", [], "second");
+  const input = {
+    ...projectionInput(),
+    projects: [
+      makeProject([alpha.placement, beta.placement], "first"),
+      makeProject([gamma.placement], "second"),
+    ],
+    pinnedKeys: { pinnedWorkspaceKeys: [], pinnedAtByKey: {} },
+    workspaceEntriesByKey: new Map(
+      [alpha, beta, gamma].map((workspace) => [workspace.entry.workspaceKey, workspace.entry]),
+    ),
+  };
+
+  it("numbers shortcuts in folder order and skips collapsed folders", () => {
+    const projectScope = { kind: "project" as const, projectKey: "first" };
+    const folderState = {
+      sidebarFolders: {
+        top: {
+          id: "top",
+          name: "Top",
+          parentId: null,
+          scope: { kind: "root" as const },
+          createdAt,
+        },
+        later: { id: "later", name: "Later", parentId: null, scope: projectScope, createdAt },
+      },
+      itemFolder: { second: "top", "srv:alpha": "later" },
+      childOrder: { root: ["folder:top", "first"], "project:first": ["srv:beta", "folder:later"] },
+      collapsedFolders: {},
+    };
+    const expanded = buildSidebarProjection({ ...input, folderState });
+    expect(expanded.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "gamma",
+      "beta",
+      "alpha",
+    ]);
+    const collapsed = buildSidebarProjection({
+      ...input,
+      folderState: { ...folderState, collapsedFolders: { top: true, later: true } },
+    });
+    expect(collapsed.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "beta",
+    ]);
+  });
+
+  it("keeps the flat order when the host has no folder support", () => {
+    const projection = buildSidebarProjection({ ...input, folderState: null });
+    expect(projection.shortcutModel.shortcutTargets.map((target) => target.workspaceId)).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+  });
+});

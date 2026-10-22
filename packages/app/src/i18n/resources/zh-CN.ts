@@ -1173,6 +1173,35 @@ export const zhCN: TranslationResources = {
       description: "添加 setup 命令，让新的 worktree 自动安装依赖并完成准备。",
       openProjectSettings: "打开 project 设置",
     },
+    folders: {
+      actions: {
+        menu: "文件夹操作",
+        newFolder: "新建文件夹",
+        newWorkspaceFolder: "新建 workspace 文件夹",
+        newSubfolder: "在其中新建文件夹",
+        rename: "重命名文件夹",
+        delete: "删除文件夹",
+        moveToFolder: "移动到文件夹…",
+      },
+      dialogs: {
+        createTitle: "新建文件夹",
+        renameTitle: "重命名文件夹",
+        namePlaceholder: "文件夹名称",
+        create: "创建",
+        rename: "重命名",
+        moveTitle: "移动“{{name}}”",
+        destination: "文件夹",
+        topLevel: "不在文件夹中",
+        move: "移动",
+        cancel: "取消",
+      },
+      confirmations: {
+        deleteTitle: "删除文件夹？",
+        deleteMessage:
+          "删除“{{folderName}}”？其内容会上移一级。不会归档任何内容，磁盘上的文件也不会改变。",
+        deleteConfirm: "删除",
+      },
+    },
     project: {
       actions: {
         menu: "Project 操作",

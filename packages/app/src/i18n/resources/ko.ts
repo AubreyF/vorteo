@@ -1190,6 +1190,35 @@ export const ko: TranslationResources = {
         "새 워크트리가 의존성을 설치하고 자동으로 준비될 수 있도록 설정 명령을 추가하세요.",
       openProjectSettings: "프로젝트 설정 열기",
     },
+    folders: {
+      actions: {
+        menu: "폴더 작업",
+        newFolder: "새 폴더",
+        newWorkspaceFolder: "새 워크스페이스 폴더",
+        newSubfolder: "안에 새 폴더",
+        rename: "폴더 이름 변경",
+        delete: "폴더 삭제",
+        moveToFolder: "폴더로 이동…",
+      },
+      dialogs: {
+        createTitle: "새 폴더",
+        renameTitle: "폴더 이름 변경",
+        namePlaceholder: "폴더 이름",
+        create: "만들기",
+        rename: "이름 변경",
+        moveTitle: "“{{name}}” 이동",
+        destination: "폴더",
+        topLevel: "폴더 없음",
+        move: "이동",
+        cancel: "취소",
+      },
+      confirmations: {
+        deleteTitle: "폴더를 삭제할까요?",
+        deleteMessage:
+          "“{{folderName}}”을(를) 삭제할까요? 내용은 한 단계 위로 이동합니다. 아무것도 보관되지 않으며 디스크의 파일은 변경되지 않습니다.",
+        deleteConfirm: "삭제",
+      },
+    },
     project: {
       actions: {
         menu: "프로젝트 작업",

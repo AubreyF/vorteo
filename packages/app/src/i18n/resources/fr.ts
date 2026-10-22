@@ -1219,6 +1219,35 @@ export const fr: TranslationResources = {
         "Ajoutez des commandes de configuration pour que les nouveaux arbres de travail puissent installer des dépendances et se préparer automatiquement.",
       openProjectSettings: "Ouvrir les paramètres du projet",
     },
+    folders: {
+      actions: {
+        menu: "Actions du dossier",
+        newFolder: "Nouveau dossier",
+        newWorkspaceFolder: "Nouveau dossier d'espaces de travail",
+        newSubfolder: "Nouveau dossier à l'intérieur",
+        rename: "Renommer le dossier",
+        delete: "Supprimer le dossier",
+        moveToFolder: "Déplacer vers un dossier…",
+      },
+      dialogs: {
+        createTitle: "Nouveau dossier",
+        renameTitle: "Renommer le dossier",
+        namePlaceholder: "Nom du dossier",
+        create: "Créer",
+        rename: "Renommer",
+        moveTitle: "Déplacer « {{name}} »",
+        destination: "Dossier",
+        topLevel: "Aucun dossier",
+        move: "Déplacer",
+        cancel: "Annuler",
+      },
+      confirmations: {
+        deleteTitle: "Supprimer le dossier ?",
+        deleteMessage:
+          "Supprimer « {{folderName}} » ? Son contenu remonte d'un niveau. Rien n'est archivé et les fichiers sur le disque ne changent pas.",
+        deleteConfirm: "Supprimer",
+      },
+    },
     project: {
       actions: {
         menu: "Actions du projet",
