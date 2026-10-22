@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.788 - 2026-10-22
+
+### Fixed
+
+- The Host Claude refresh setting can actually be turned on. Every coordinator replacement now runs as a renewal, and renewals refused all configuration changes, so the reviewed `claudeHostRefreshConfiguration` field from vorteo.768 had no usable path. Owner-reviewed renewals now accept that one field, as they already accept Factory adoption, with a candidate configuration that differs only by `claudeHostRefresh`. Recovery keeps the previous configuration, and automatic coordinator updates still refuse the change.
+
 ## 0.11.0-beta.3.vorteo.787 - 2026-10-22
 
 ### Maintenance

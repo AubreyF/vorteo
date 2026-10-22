@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): owner-reviewed coordinator renewals accept the Host Claude refresh setting, the only route by which it can be turned on, since every coordinator replacement runs as a renewal. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): new Codex threads on isolated accounts launch again. A frozen skill selection matches the account home's copy of a built-in skill when its package content is byte-identical; differing copies are still refused. README overview and onboarding are unchanged.
 
 - **Shared skill library.** Settings exposes installed skills across environments with instruction content, ownership, hashes, provenance and audit export. Shared provider discovery paths appear once per environment, with each path retained in Details. See [skill library](skill-library.md).
