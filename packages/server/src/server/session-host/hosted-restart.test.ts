@@ -119,7 +119,14 @@ function startWorker(
     close: () => real.close(),
   };
   cleanups.push(() => real.close());
-  const applied = createAppliedSeqStore(paths);
+  // A crashed process writes nothing more: its record stays for the next worker to judge.
+  const realApplied = createAppliedSeqStore(paths);
+  const applied: AppliedSeqStore = {
+    read: (agentId) => realApplied.read(agentId),
+    list: () => realApplied.list(),
+    write: (agentId, record) => (dead ? Promise.resolve() : realApplied.write(agentId, record)),
+    remove: (agentId) => (dead ? Promise.resolve() : realApplied.remove(agentId)),
+  };
   const routing: Parameters<typeof planHostedStartup>[0]["routing"] = {
     connector,
     isEnabled: () => settings.enabled ?? true,
@@ -290,6 +297,35 @@ test("a permission asked before the restart is shown once and answered by the ne
   provider.complete();
   await expect.poll(() => second.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
   expect(second.manager.getAgent(agent.id)?.pendingPermissions.size).toBe(0);
+});
+
+test("a turn that finished while no worker was attached is adopted so its last output reaches the timeline", async () => {
+  const home = scratch("hosted-restart-");
+  const paths = sessionHostPaths(home);
+  const providers: ControlledSession[] = [];
+  await startHost(paths, providers);
+  const workdir = scratch("hosted-restart-work-");
+
+  const first = startWorker(home, paths);
+  const agent = await runningAgent(first, workdir);
+  const provider = providers[0]!;
+  provider.text("first");
+  await expect.poll(() => assistantText(first.manager.getTimeline(agent.id))).toBe("first");
+  await settled(first, paths, agent.id);
+  first.crash();
+
+  // The turn ends during the gap, as under a long Host update: nobody applied these events.
+  provider.text("the end");
+  provider.complete();
+
+  const second = await restart(home, paths);
+  // Idle, yet adopted rather than closed: the unapplied tail is what the agent would otherwise lose.
+  await expect.poll(() => second.manager.getAgent(agent.id)?.lifecycle).toBe("idle");
+  expect(assistantText(second.manager.getTimeline(agent.id))).toBe("firstthe end");
+  expect(second.manager.getTimeline(agent.id).filter((item) => item.type === "error")).toEqual([]);
+  expect(providers).toHaveLength(1);
+  expect(provider.closed).toBe(false);
+  expect([...first.local, ...second.local]).toEqual([]);
 });
 
 test("an idle hosted session is closed at startup and its agent resumes on demand", async () => {

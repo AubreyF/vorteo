@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): a hosted turn that finishes while no worker is attached keeps the end of its output, because the next worker adopts a session that still holds unapplied events instead of closing it at startup. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): a unit test covers the worker waiting through a marked session host restart whose new host holds the lock before listening; no behaviour changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): the tracked session host restart now stays compatible with older interfaces, bounds and cleans up its restart marker, and falls back to starting the job when the stop finds no process, following independent review. README overview and onboarding are unchanged.

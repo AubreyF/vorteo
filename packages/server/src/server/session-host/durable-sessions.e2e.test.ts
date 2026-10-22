@@ -99,10 +99,15 @@ async function waitForTurnEnd(
     "the turn to finish",
     async () => {
       const agent = (await client.fetchAgent(agentId))?.agent;
-      if (agent?.status !== "idle") return null;
       const summary = await summarizeTimeline(client, agentId);
-      const done = [...summary.chunks.values()].some((list) => list.includes(lastChunk));
-      return done ? { agent, summary } : null;
+      const done =
+        agent?.status === "idle" &&
+        [...summary.chunks.values()].some((list) => list.includes(lastChunk));
+      if (done) return { agent, summary };
+      // Thrown so a timeout names what the worker saw last, instead of only that it waited.
+      throw new Error(
+        `status=${agent?.status ?? "none"} chunks=${JSON.stringify([...summary.chunks.entries()])} errors=${summary.systemErrors.length} users=${summary.userMessages.length}`,
+      );
     },
     timeoutMs,
     500,

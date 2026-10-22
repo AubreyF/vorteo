@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.759 - 2026-10-22
+
+### Fixed
+
+- A hosted turn that finishes while no worker is attached, as during a long Host update or a slow restart, no longer loses the end of its output. The next worker used to close such a session as idle at startup without ever applying the events recorded after the previous worker's last acknowledgement. It now adopts a session that still holds unapplied events, loads the agent, applies them, and leaves the session hosted and idle. Found by the isolated end-to-end suite running under heavy machine load, where the gap between workers outlasted the scripted turn.
+
+### Validation
+
+- A unit test covers a turn that ends during the worker gap and shows its final text reaching the next worker's timeline. The end-to-end wait for a turn now names the agent's status and chunk list when it times out.
+
 ## 0.11.0-beta.3.vorteo.758 - 2026-10-22
 
 ### Validation
