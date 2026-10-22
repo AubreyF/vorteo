@@ -1965,6 +1965,19 @@ export const ja: TranslationResources = {
     tokens: "{{used}} / {{max}}トークン",
     sessionCost: "セッションコスト: {{cost}}",
     accessibility: "コンテキストウィンドウ{{percentage}}%使用",
+    breakdown: {
+      used: "使用中",
+      free: "空き容量",
+      totalsOnly: "このプロバイダーは合計のみを報告します。",
+      error: "内訳を読み込めませんでした。",
+      overLimit: "ウィンドウを {{tokens}} トークン超過",
+      groups: {
+        mcpTools: "MCP ツール",
+        memoryFiles: "メモリファイル",
+        skills: "スキル",
+        agents: "カスタムエージェント",
+      },
+    },
   },
   review: {
     comment: {

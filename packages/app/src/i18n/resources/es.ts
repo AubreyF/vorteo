@@ -1993,6 +1993,19 @@ export const es: TranslationResources = {
     tokens: "Fichas{{used}}/{{max}}",
     sessionCost: "Costo de la sesión{{cost}}",
     accessibility: "Ventana de contexto{{percentage}}% utilizada",
+    breakdown: {
+      used: "Usado",
+      free: "Espacio libre",
+      totalsOnly: "Este proveedor solo informa totales.",
+      error: "No se pudo cargar el desglose.",
+      overLimit: "{{tokens}} tokens por encima de la ventana",
+      groups: {
+        mcpTools: "Herramientas MCP",
+        memoryFiles: "Archivos de memoria",
+        skills: "Habilidades",
+        agents: "Agentes personalizados",
+      },
+    },
   },
   review: {
     comment: {

@@ -2001,6 +2001,19 @@ export const en = {
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "Session cost {{cost}}",
     accessibility: "Context window {{percentage}}% used",
+    breakdown: {
+      used: "Used",
+      free: "Free space",
+      totalsOnly: "This provider reports totals only.",
+      error: "Could not load the breakdown.",
+      overLimit: "{{tokens}} tokens over the window",
+      groups: {
+        mcpTools: "MCP tools",
+        memoryFiles: "Memory files",
+        skills: "Skills",
+        agents: "Custom agents",
+      },
+    },
   },
   review: {
     comment: {

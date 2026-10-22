@@ -1923,6 +1923,19 @@ export const zhCN: TranslationResources = {
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "会话费用 {{cost}}",
     accessibility: "上下文窗口已使用 {{percentage}}%",
+    breakdown: {
+      used: "已使用",
+      free: "剩余空间",
+      totalsOnly: "此提供方仅报告总量。",
+      error: "无法加载明细。",
+      overLimit: "超出窗口 {{tokens}} 个令牌",
+      groups: {
+        mcpTools: "MCP 工具",
+        memoryFiles: "记忆文件",
+        skills: "技能",
+        agents: "自定义代理",
+      },
+    },
   },
   review: {
     comment: {

@@ -1955,6 +1955,19 @@ export const ko: TranslationResources = {
     tokens: "{{used}} / {{max}} 토큰",
     sessionCost: "세션 비용 {{cost}}",
     accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
+    breakdown: {
+      used: "사용됨",
+      free: "남은 공간",
+      totalsOnly: "이 제공자는 합계만 보고합니다.",
+      error: "세부 내역을 불러오지 못했습니다.",
+      overLimit: "창을 {{tokens}} 토큰 초과",
+      groups: {
+        mcpTools: "MCP 도구",
+        memoryFiles: "메모리 파일",
+        skills: "스킬",
+        agents: "사용자 지정 에이전트",
+      },
+    },
   },
   review: {
     comment: {
