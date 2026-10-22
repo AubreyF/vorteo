@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.760 - 2026-10-22
+
+### Maintenance
+
+- Merge the published web interface source (owners drag card heights and answer Yes beside the recommendation) so the Host update descends from the published web commit. Label `vorteo.758` exists on both lines; both notes are kept.
+
+## 0.11.0-beta.3.vorteo.758 - 2026-10-22
+
+### Added
+
+- Drag the bottom edge of an expanded card to make it taller or shorter. This works for the thread's right-hand cards and the left sidebar's Open questions and Quota cards. Heights are remembered on the device; a double press on the edge returns the card to automatic sizing. Right-hand cards you resized keep their height first, and the other cards share what remains.
+
+### Changed
+
+- Open questions show a Yes button to the right of the recommended answer instead of Use recommended inside it at the bottom.
+
 ## 0.11.0-beta.3.vorteo.759 - 2026-10-22
 
 ### Maintenance
@@ -23,6 +39,18 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 
 ## 0.11.0-beta.3.vorteo.757 - 2026-10-22
 
+### Fixed
+
+- The installation agent tool reports invalid source batch contributions as well as conflicting ones, naming the requester and the rejection, so a batch blocked by an invalid contribution (such as a release-note heading the coordinator refused) no longer looks silently pending. The installation-maintenance skill says to ask the owning task to correct a contribution that is not yours.
+
+## 0.11.0-beta.3.vorteo.756 - 2026-10-22
+
+### Fixed
+
+- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
+
+## 0.11.0-beta.3.vorteo.757 - 2026-10-22
+
 ### Maintenance
 
 - Merge the file preview Download change from GitHub main into the live interface source, which already carries the sidebar cards change. Both commits used `vorteo.756`; both historical entries are kept.
@@ -38,18 +66,6 @@ The initial baseline is cumulative; older entries do not cover every maintenance
 ### Changed
 
 - Show Download in the file preview toolbar for every file, not only images, placed immediately after Copy all. Editable text files download the saved copy on disk; unsaved edits are not included. Binary previews keep their larger Download button in the body.
-
-## 0.11.0-beta.3.vorteo.757 - 2026-10-22
-
-### Fixed
-
-- The installation agent tool reports invalid source batch contributions as well as conflicting ones, naming the requester and the rejection, so a batch blocked by an invalid contribution (such as a release-note heading the coordinator refused) no longer looks silently pending. The installation-maintenance skill says to ask the owning task to correct a contribution that is not yours.
-
-## 0.11.0-beta.3.vorteo.756 - 2026-10-22
-
-### Fixed
-
-- Port three fixes that shipped only to Dev (source `0a4ab444`, 2026-10-19 and 2026-10-20) to the Host source, so GitHub main carries everything Dev runs: schedule ticks no longer overlap or admit stale work, schedule tick admission waits are bounded, and Codex workers accept the read-only Factory qualifier workspace profile.
 
 ## 0.11.0-beta.3.vorteo.755 - 2026-10-22
 
