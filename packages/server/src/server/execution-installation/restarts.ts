@@ -194,6 +194,9 @@ export interface RestartExecutor {
   restart(target: RestartJob["target"]): Promise<string>;
   inspect?(target: RestartJob["target"]): Promise<RestartImpact>;
   restartWhenIdle?(target: RestartJob["target"]): Promise<string | null>;
+  /** A labelled reason when `restart` cannot dispatch for this target; idle and
+   * held restarts stay available. Null when an immediate restart can run. */
+  immediateRestartUnavailable?(target: RestartJob["target"]): string | null;
   holdCurrentTurns?(target: RestartJob["target"], requestId: string): Promise<void>;
   /** Independently inspected process birth and boot identity, only for initial migration. */
   initialActivationInstance?(job: RestartJob): Promise<string>;
@@ -1747,6 +1750,8 @@ export class InstallationRestarts {
     this.validateSupervisorDecision(job, decision, supervisorPlanSha256);
     this.validateFactoryRuntimeDecision(job, decision, factoryRuntimePlanSha256);
     this.validateDecision(job, decision, updateSha256);
+    // Automatic approvals share validateDecision but always finish turns first.
+    this.requireImmediateRestart(job, decision);
     if (decision === "request-again") {
       if (job.status !== "rejected")
         throw new RestartRequestError("Only cancelled requests can be requested again");
@@ -1962,6 +1967,21 @@ export class InstallationRestarts {
         approvedAt: new Date(this.now()).toISOString(),
       },
     ];
+  }
+
+  /** Refuses an immediate restart before approval when dispatch would reach
+   * `executor.restart` and the executor reports it unavailable. */
+  private requireImmediateRestart(job: RestartJob, decision: RestartDecision = "approve"): void {
+    if (
+      decision !== "approve" ||
+      job.factoryRuntimePlanSha256 ||
+      job.supervisorPlanSha256 ||
+      job.update ||
+      job.standingInterruption
+    )
+      return;
+    const unavailable = this.executor.immediateRestartUnavailable?.(job.target);
+    if (unavailable) throw new RestartRequestError(unavailable);
   }
 
   private approveFinish(
@@ -2862,6 +2882,7 @@ export class InstallationRestarts {
       if (!this.executor.restartWhenIdle) throw new Error("Idle restart executor unavailable");
       return this.executor.restartWhenIdle(job.target);
     }
+    this.requireImmediateRestart(job);
     return this.executor.restart(job.target);
   }
 
@@ -2881,21 +2902,29 @@ export class InstallationRestarts {
     this.requireActive();
     return Promise.all(
       (["host", "container-daemon"] as const).map(async (target) => {
-        try {
-          if (!this.executor.inspect) throw new Error("Agent inspection unavailable");
-          return await this.executor.inspect(target);
-        } catch {
-          return {
-            target,
-            checkedAt: new Date(this.now()).toISOString(),
-            agents: [],
-            pendingStarts: 0,
-            idleRestartSupported: false,
-            error: "Cannot verify agent activity. The target may be offline.",
-          };
-        }
+        const impact = await this.inspectImpact(target);
+        const immediateRestartUnavailable = this.executor.immediateRestartUnavailable?.(target);
+        if (immediateRestartUnavailable)
+          impact.immediateRestartUnavailable = immediateRestartUnavailable;
+        return impact;
       }),
     );
+  }
+
+  private async inspectImpact(target: RestartJob["target"]): Promise<RestartImpact> {
+    try {
+      if (!this.executor.inspect) throw new Error("Agent inspection unavailable");
+      return await this.executor.inspect(target);
+    } catch {
+      return {
+        target,
+        checkedAt: new Date(this.now()).toISOString(),
+        agents: [],
+        pendingStarts: 0,
+        idleRestartSupported: false,
+        error: "Cannot verify agent activity. The target may be offline.",
+      };
+    }
   }
 
   private reconcilePending(): void {

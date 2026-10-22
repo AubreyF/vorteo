@@ -51,6 +51,17 @@ Unlike root-owned launchd, `systemd --user` and the user bus broker run as the a
 - **Consumers parse launchd text.** `verifyLoadedBootstrapService`, `verifyBootstrapReplacement` and `verifyBootstrapServiceIdentity` take a reader but parse launchctl output and check `parentPid === 1` themselves. Wiring needs a platform service-record strategy passed alongside the reader.
 - **Protocol pins launchd.** `CoordinatorBootstrapPlanSchema.service` and `bootRecovery.service` accept only `gui/<uid>/…` labels. Linux plans need `systemd-user/<uid>/local.vorteo.<id>.installation.service` under the protocol compatibility rules.
 
+## Coordinator startup and restart labelling
+
+A qualification run on the primary macOS installation (October 22, 2026, with a platform shim, so the Linux readers did not run) found that a coordinator configured with `host.systemdService` exited before listening. `createBootstrapReconciliationLedger` parsed the Host binding with a required `launchdService`, which would crash-loop a `Restart=always` unit. With that check bypassed the rest degraded cleanly: owner unlock, both connections and idle Host restarts worked, nothing retried in a loop, and Installation health read "Not activated".
+
+This follow-up makes that state honest without enabling anything new:
+
+- **Startup.** `main.ts` creates the bootstrap ledger only for a launchd Host. A systemd Host runs without it, and coordinator maintenance reports "Coordinator maintenance is not available on a systemd Host yet." `readInstallationConfig` still requires `launchdService` on Darwin, so macOS startup is unchanged.
+- **Immediate Host restart.** It dispatches `launchctl kickstart`, so on a systemd Host it cannot run. The restart executor reports it unavailable through `immediateRestartUnavailable`. The coordinator then refuses an immediate approval before creating a job, and also refuses a retained approval before dispatch. It carries the reason on Host restart paths in maintenance status and on the restart impact (`RestartImpact.immediateRestartUnavailable`, optional). The panel disables Force restart now and shows that reason. Idle, held and finish-turns restarts use the daemon's own restart RPC and remain available.
+
+Not yet verified on a Linux machine. The coordinator lab from the qualification package should be run on Debian before live acceptance.
+
 ## Pending
 
 Not started. Each item needs its own review:
@@ -58,7 +69,7 @@ Not started. Each item needs its own review:
 - Service-record strategy and wiring into `verifyLoadedBootstrapService` and `verifyBootstrapReplacement`
 - Protocol extension for systemd plan services
 - Launcher artifact: a pinned unit file, a parser and the "only approved paths change" rule (`verifyBootstrapLaunchers`)
-- `systemctl --user restart` for owner-approved Host restarts (`daemon.ts`)
+- `systemctl --user restart` for owner-approved immediate Host restarts (`daemon.ts`), which then clears `immediateRestartUnavailable`
 - Peer authentication for local IPC (`SO_PEERCRED`/pidfd) and the watchdog signal design above
 - Kernel lock ownership verifier (`coordinator-bootstrap-ownership.ts`)
 - Provisioning, unit generation, pairing and status tooling

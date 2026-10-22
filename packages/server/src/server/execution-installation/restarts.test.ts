@@ -5171,3 +5171,107 @@ test("source updates refuse a release without the session host while its job is 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("an unavailable immediate restart is refused before approval and labelled in its impact", async () => {
+  const journal = new MemoryJournal();
+  const unavailable = "Immediate restart is unavailable here.";
+  const restart = vi.fn(async () => "wrong");
+  const queue = new InstallationRestarts(journal, {
+    inspect: async (target) => idleImpact(target),
+    restart,
+    restartWhenIdle: async () => "replacement verified",
+    immediateRestartUnavailable: (target) => (target === "host" ? unavailable : null),
+  });
+  const host = queue.request({ target: "host", reason: "Restart now" }, "owner");
+  expect(() => queue.decide(host.id, host.revision, "approve")).toThrow(unavailable);
+  expect(queue.list()[0]?.status).toBe("pending");
+
+  const queued = queue.decide(host.id, host.revision, "approve-when-idle");
+  expect(() => queue.decide(queued.id, queued.revision, "approve")).toThrow(unavailable);
+  await queue.drain();
+  expect(queue.list().find((job) => job.id === host.id)?.status).toBe("succeeded");
+  expect(restart).not.toHaveBeenCalled();
+
+  const impacts = await queue.impacts();
+  expect(impacts.find((item) => item.target === "host")?.immediateRestartUnavailable).toBe(
+    unavailable,
+  );
+  expect(impacts.find((item) => item.target === "container-daemon")).not.toHaveProperty(
+    "immediateRestartUnavailable",
+  );
+
+  const dev = queue.request({ target: "container-daemon", reason: "Restart Dev" }, "owner");
+  queue.decide(dev.id, dev.revision, "approve");
+  await queue.drain();
+  expect(restart).toHaveBeenCalledWith("container-daemon");
+});
+
+test("a retained immediate Host restart fails without dispatch when the executor cannot run it", async () => {
+  const journal = new MemoryJournal();
+  const restart = vi.fn(async () => "wrong");
+  const legacy = new InstallationRestarts(journal, { restart });
+  const job = legacy.request({ target: "host", reason: "Approved before upgrade" }, "owner");
+  legacy.decide(job.id, job.revision, "approve");
+  const recovered = new InstallationRestarts(journal, {
+    restart,
+    immediateRestartUnavailable: () => "Immediate restart is unavailable here.",
+  });
+  await recovered.drain();
+  expect(recovered.list()[0]?.status).toBe("failed");
+  expect(restart).not.toHaveBeenCalled();
+});
+
+test("the daemon executor reports immediate Host restart unavailable only for a systemd Host", () => {
+  const launchd = restartTestConfig("/tmp", "/tmp/entry.js");
+  const { launchdService: _launchd, ...hostFields } = launchd.host as typeof launchd.host & {
+    launchdService: string;
+  };
+  const systemd: InstallationConfig = {
+    ...launchd,
+    host: {
+      ...hostFields,
+      systemdService: { kind: "systemd-user", uid: 1000, unit: "local.vorteo.test.host.service" },
+    },
+  };
+  expect(createInstallationRestartExecutor(launchd).immediateRestartUnavailable?.("host")).toBe(
+    null,
+  );
+  expect(createInstallationRestartExecutor(systemd).immediateRestartUnavailable?.("host")).toMatch(
+    /systemd Host/,
+  );
+  expect(
+    createInstallationRestartExecutor(systemd).immediateRestartUnavailable?.("container-daemon"),
+  ).toBe(null);
+});
+
+test("automatic Host approval still finishes turns when immediate restart is unavailable", async () => {
+  const journal = new MemoryJournal();
+  const events: string[] = [];
+  const queue = new InstallationRestarts(
+    journal,
+    {
+      restart: async () => {
+        throw new Error("Unexpected immediate restart");
+      },
+      immediateRestartUnavailable: (target) => (target === "host" ? "Unavailable here." : null),
+      holdCurrentTurns: async () => {
+        events.push("hold");
+      },
+      releaseCurrentTurns: async () => {
+        events.push("release");
+      },
+      inspect: async (target) => idleImpact(target),
+      restartWhenIdle: async () => {
+        events.push("restart");
+        return "ready";
+      },
+    },
+    () => 2000,
+    { hostRequestsAfter: new Date(1000).toISOString() },
+  );
+  queue.request({ target: "host", reason: "Routine restart" }, "host-agent");
+  await queue.drain();
+  await queue.drain();
+  expect(events).toEqual(["hold", "restart", "release"]);
+  expect(queue.list()[0]).toMatchObject({ status: "succeeded", finishCurrentTurns: true });
+});

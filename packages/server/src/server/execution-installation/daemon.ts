@@ -676,5 +676,9 @@ export function createInstallationRestartExecutor(
       if (target === "host") await validateHostStartup(config);
       return restart(target, true);
     },
+    immediateRestartUnavailable(target) {
+      if (target !== "host" || "launchdService" in config.host) return null;
+      return "Immediate Host restart is not available on a systemd Host yet. Use Restart when idle or Finish turns and restart.";
+    },
   };
 }

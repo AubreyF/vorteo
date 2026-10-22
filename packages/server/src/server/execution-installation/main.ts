@@ -142,7 +142,12 @@ function activateSynchronization() {
 const claudeSetup = createClaudeSetupRuntime(config, settings, assertRegistrationReadiness);
 const host = config.public.environments.find((environment) => environment.kind === "host");
 if (!host) throw new Error("Installation Host identity is missing");
-const coordinatorRequests = createBootstrapReconciliationLedger(configFile, host.serverId);
+// The bootstrap ledger binds the launchd Host service. A systemd Host has no
+// coordinator bootstrap path yet, so it runs without the ledger.
+const coordinatorRequests =
+  "launchdService" in config.host
+    ? createBootstrapReconciliationLedger(configFile, host.serverId)
+    : undefined;
 const claudeSetupTimer = setInterval(() => {
   if (!synchronizing) return;
   void claudeSetup

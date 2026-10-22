@@ -757,6 +757,7 @@ async function fixture(
     | "discoverMaintenanceServices"
     | "observeRecoveryAccess"
     | "reconcileInitialHostActivation"
+    | "immediateRestartUnavailable"
   >,
   initialize?: (config: InstallationConfig) => void,
   coordinatorRequests?: BootstrapReconciliationLedger,
@@ -3115,6 +3116,43 @@ test("maintenance readiness separates legacy authority, broad opt-in and source 
     ),
   ).toBe(true);
   expect(f.calls).toEqual([]);
+});
+
+test("a systemd Host labels its immediate restart and coordinator maintenance unavailable", async () => {
+  const unavailable = "Immediate Host restart is unavailable in this test.";
+  const f = await fixture(
+    undefined,
+    undefined,
+    undefined,
+    false,
+    true,
+    undefined,
+    undefined,
+    { immediateRestartUnavailable: (target) => (target === "host" ? unavailable : null) },
+    (config) => {
+      const { endpoint, password } = config.host;
+      config.host = {
+        endpoint,
+        password,
+        systemdService: { kind: "systemd-user", uid: 1000, unit: "local.vorteo.test.host.service" },
+      };
+    },
+  );
+  const status = await (
+    await f.request("/api/installation/maintenance-status", "host-agent-test-token")
+  ).json();
+  const restarts = status.paths.filter(
+    (item: { operation: string }) => item.operation === "restart",
+  );
+  for (const item of restarts)
+    expect(item.reason.includes(unavailable)).toBe(item.target === "host");
+  expect(status.services).toContainEqual(
+    expect.objectContaining({
+      service: "coordinator",
+      readiness: "blocked",
+      reason: "Coordinator maintenance is not available on a systemd Host yet.",
+    }),
+  );
 });
 
 function coordinatorStatusRequest(): CoordinatorBootstrapRequest {

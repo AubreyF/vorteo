@@ -662,7 +662,10 @@ export function createInstallationServer(
     if (!coordinatorRequests)
       return {
         ...unavailable,
-        reason: "Update the coordinator to expose its durable maintenance ledger.",
+        reason:
+          "systemdService" in config.host
+            ? "Coordinator maintenance is not available on a systemd Host yet."
+            : "Update the coordinator to expose its durable maintenance ledger.",
       };
     try {
       const open = openBootstrapRequests(coordinatorRequests.list());
@@ -729,11 +732,18 @@ export function createInstallationServer(
             blocker = "Repair the target source updater before submitting an update.";
           const authorization = automatic ? "automatic" : "manual";
           const readiness = blocker ? "blocked" : "ready";
+          const immediateUnavailable =
+            operation === "restart" ? executor.immediateRestartUnavailable?.(target) : null;
           const reason =
             blocker ??
-            (automatic
-              ? "Fresh routine requests may be approved automatically. Current turns finish before dispatch."
-              : "An exact owner approval is required. Maintenance policy does not authorize this requester.");
+            [
+              automatic
+                ? "Fresh routine requests may be approved automatically. Current turns finish before dispatch."
+                : "An exact owner approval is required. Maintenance policy does not authorize this requester.",
+              immediateUnavailable,
+            ]
+              .filter(Boolean)
+              .join(" ");
           paths.push({
             requester,
             target,

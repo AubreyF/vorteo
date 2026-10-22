@@ -333,3 +333,59 @@ test.each([1280, 390])(
     }
   },
 );
+
+test("an unavailable immediate Host restart disables force restart with its reason", async () => {
+  vi.stubGlobal("React", React);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  await page.viewport(390, 900);
+  const reason = "Immediate Host restart is not available on a systemd Host yet.";
+  const job: RestartJob = {
+    id: "systemd-host-restart",
+    revision: "reviewed-revision",
+    target: "host",
+    requestedBy: "host-agent",
+    reason: "Restart the Host daemon.",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "9999-12-31T23:59:59.999Z",
+    status: "pending",
+    detail: "Approval required",
+    impact: {
+      target: "host",
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      agents: [],
+      pendingStarts: 0,
+      idleRestartSupported: true,
+      immediateRestartUnavailable: reason,
+      error: null,
+    },
+  };
+  const decisions: RestartDecision[] = [];
+  const model = new InstallationPanelModel({
+    ...client,
+    listRestarts: async () => [job],
+    listMonitors: async () => [],
+    decide: async (_selected, decision) => {
+      decisions.push(decision);
+    },
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const render = (selected: RestartJob) =>
+    act(() =>
+      root.render(<RestartActions job={selected} model={model} busy={false} historical={false} />),
+    );
+  try {
+    await model.initialize();
+    render(job);
+    await expect.element(page.getByTestId(`restart-force-${job.id}`)).toBeDisabled();
+    await expect
+      .element(page.getByTestId(`restart-force-${job.id}-explanation`))
+      .toHaveAccessibleDescription(reason);
+    expect(decisions).toEqual([]);
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});

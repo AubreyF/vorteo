@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.782 - 2026-10-22
+
+### Fixed
+
+- A coordinator configured with a systemd Host (`host.systemdService`) now starts. It used to throw on the missing `host.launchdService` while creating the bootstrap reconciliation ledger, before it listened, so a systemd unit with `Restart=always` would crash-loop. A systemd Host now runs without that ledger, and coordinator maintenance reports that it is not available on a systemd Host yet instead of asking for a coordinator update. macOS Hosts are unchanged.
+- Immediate Host restart is no longer reported as available on a systemd Host, where it cannot run because it uses `launchctl kickstart`. The coordinator refuses an immediate approval up front with a labelled reason instead of creating a job that fails, Host restart paths in maintenance status carry the same reason, and the panel disables Force restart now and explains why. Restart when idle and Finish turns and restart remain available.
+- Known limitation: an immediate systemd restart (`systemctl --user restart`) is still unimplemented.
 
 ## 0.11.0-beta.3.vorteo.781 - 2026-10-22
 
