@@ -1224,7 +1224,6 @@ function DesktopSidebar({
             </>
           )}
 
-          {!compact ? <SidebarGlobalCards /> : null}
           <SidebarSyncNotice compact={compact} />
           <InstallationRestartBanner placement={compact ? "rail" : "sidebar"} />
           {!compact ? <DemoControls /> : null}
@@ -1239,6 +1238,8 @@ function DesktopSidebar({
             testID="left-sidebar-resize-handle"
           />
         </View>
+        {/* Global cards stand beside the navigation card rather than nesting inside it. */}
+        {!compact ? <SidebarGlobalCards detached /> : null}
       </Animated.View>
     </SidebarPresentation>
   );
