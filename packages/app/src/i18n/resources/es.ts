@@ -175,6 +175,8 @@ export const es: TranslationResources = {
     },
     errors: {
       failedToSend: "No se pudo enviar el mensaje",
+      connectionLostWhileSending:
+        "Se perdió la conexión al enviar. Comprueba si el mensaje llegó antes de reenviarlo.",
       failedToCreateAgent: "No se pudo crear el agente",
       noHostSelected: "Ningún anfitrión seleccionado",
       initialPromptRequired: "Se requiere aviso inicial",

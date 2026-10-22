@@ -174,6 +174,8 @@ export const ko: TranslationResources = {
     },
     errors: {
       failedToSend: "메시지를 보내지 못했습니다",
+      connectionLostWhileSending:
+        "보내는 중 연결이 끊어졌습니다. 다시 보내기 전에 메시지가 도착했는지 확인하세요.",
       failedToCreateAgent: "에이전트를 생성하지 못했습니다",
       noHostSelected: "선택된 호스트가 없습니다",
       initialPromptRequired: "초기 프롬프트가 필요합니다",

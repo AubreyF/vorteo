@@ -175,6 +175,8 @@ export const ru: TranslationResources = {
     },
     errors: {
       failedToSend: "Не удалось отправить сообщение",
+      connectionLostWhileSending:
+        "Соединение потеряно при отправке. Проверьте, дошло ли сообщение, прежде чем отправлять снова.",
       failedToCreateAgent: "Не удалось создать агента.",
       noHostSelected: "Хост не выбран",
       initialPromptRequired: "Необходим инициализирующий промпт",

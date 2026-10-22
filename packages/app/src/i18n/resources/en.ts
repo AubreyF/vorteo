@@ -170,6 +170,8 @@ export const en = {
     },
     errors: {
       failedToSend: "Failed to send message",
+      connectionLostWhileSending:
+        "Connection lost while sending. Check whether the message arrived before resending.",
       failedToCreateAgent: "Failed to create agent",
       noHostSelected: "No host selected",
       initialPromptRequired: "Initial prompt is required",
@@ -2339,8 +2341,6 @@ export const en = {
         confirmedCurrent: "You're up to date",
         checkComplete: "Check complete",
         title: "Vorteo updates",
-        notice: "Vorteo update available",
-        review: "Review update",
         idle: "Check for new commits on main.",
         current: "This interface is up to date with main.",
         ahead: "This interface was built ahead of main.",

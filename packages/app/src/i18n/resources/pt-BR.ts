@@ -175,6 +175,8 @@ export const ptBR: TranslationResources = {
     },
     errors: {
       failedToSend: "Falha ao enviar mensagem",
+      connectionLostWhileSending:
+        "Conexão perdida durante o envio. Verifique se a mensagem chegou antes de reenviar.",
       failedToCreateAgent: "Falha ao criar agente",
       noHostSelected: "Nenhum host selecionado",
       initialPromptRequired: "O prompt inicial é obrigatório",

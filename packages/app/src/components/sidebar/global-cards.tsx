@@ -13,7 +13,8 @@ import {
 /**
  * Global cards between the workspace list and the sidebar footer. Each card hides itself while
  * it has nothing to show, so an idle installation keeps the full list. On desktop the cards are
- * `detached`: they sit below the floating navigation card, separated by the panel gap.
+ * `detached`: they sit below the floating navigation card, separated by the panel gap. Inline
+ * (mobile) cards keep the same gap from the list above and the banners or footer below.
  */
 export function SidebarGlobalCards({
   onBeforeNavigate,
@@ -40,7 +41,7 @@ export function SidebarGlobalCards({
   return (
     <GlobalCardLayoutContext.Provider value={layout}>
       <View
-        style={[styles.stack, detached && shown.size > 0 && styles.detached]}
+        style={[styles.stack, shown.size > 0 && (detached ? styles.detached : styles.inline)]}
         testID="sidebar-global-cards"
       >
         <GlobalOpenQuestionsCard onBeforeNavigate={onBeforeNavigate} />
@@ -53,4 +54,5 @@ export function SidebarGlobalCards({
 const styles = StyleSheet.create((theme) => ({
   stack: { flexShrink: 0, gap: theme.spacing[2] },
   detached: { marginTop: SIDEBAR_OUTER_GAP },
+  inline: { marginVertical: SIDEBAR_OUTER_GAP },
 }));
