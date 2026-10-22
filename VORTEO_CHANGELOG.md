@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Fixed
+
+- The browser test helper that opens Settings waits up to five seconds for the toolbar Settings button before falling back to the overflow menu, which no longer lists Settings. Specs that opened Settings right after a reload used to time out.
+
 ## 0.11.0-beta.3.vorteo.799 - 2026-10-22
 
 ### Fixed
