@@ -132,6 +132,22 @@ test("a Codex session is hosted with its account descriptor and reports its own 
   // Goal support is a per-session fact the client cannot know; the snapshot carries it.
   expect(session.capabilities.supportsGoals).toBe(true);
   expect(session.goals).toBeDefined();
+
+  // A resume reopens on the same account: the descriptor travels with the resume request too.
+  const resumed = await fixture.client.resumeSession(
+    {
+      provider: "codex",
+      sessionId: "thread-1",
+      nativeHandle: "thread-1",
+      metadata: { cwd: "/work" },
+    },
+    {},
+    { agentId: "agent-2" },
+  );
+  expect(resumed).toBeInstanceOf(HostedAgentSession);
+  expect(fixture.factoryInputs[1]).toEqual(
+    expect.objectContaining({ provider: "codex", customProvider: CUSTOM_PROVIDER }),
+  );
 });
 
 test("goal state and goal writes cross to the hosted provider and the mirror follows", async () => {

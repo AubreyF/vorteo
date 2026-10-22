@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.750 - 2026-10-22
+
+### Fixed
+
+- The session host stops provider processes left by an earlier host only after it holds the host lock, so a second host started by mistake can no longer stop the live host's Codex app-servers. A recorded process is stopped only while its command line still names both the launched binary and the app-server, and its whole process group is signalled so the tools it started go with it.
+- A hosted Codex session that resumes on demand, as after a worker restart, carries its account descriptor to the host like a new one, so a derived Codex account no longer reopens on the default provider.
+- A command the hosted session reports as unhandled now shows an error instead of being swallowed, and a host between taking its lock and listening is given a moment before a session falls back to the worker.
+
+### Validation
+
+- Unit tests cover a second host refused by the lock leaving a recorded live provider untouched, the account descriptor on resume, group signalling and the marker rule. The session host suites and the eight end-to-end scenarios pass. Independent review of the phase 2 commits raised these findings.
+
 ## 0.11.0-beta.3.vorteo.749 - 2026-10-22
 
 ### Fixed

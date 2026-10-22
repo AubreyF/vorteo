@@ -269,9 +269,11 @@ export function createHostedAgentClient(input: {
     let delay = policy.initialDelayMs;
     let waiting = false;
     for (;;) {
-      if (!(await routing.connector.present())) return null;
-      const lastAttempt =
-        (await routing.connector.hostState()) === "alive" || Date.now() + delay > deadline;
+      const state = await routing.connector.hostState();
+      // No socket and no lock holder: the host was stopped. A live holder without a socket is a
+      // host between taking its lock and listening, which the attempt below gives a moment.
+      if (!(await routing.connector.present()) && state !== "alive") return null;
+      const lastAttempt = state === "alive" || Date.now() + delay > deadline;
       if (!waiting && !lastAttempt) {
         waiting = true;
         logger.info({ agentId }, "The session host was killed; waiting for its restart");
@@ -420,6 +422,7 @@ export function createHostedAgentClient(input: {
           runtimeSettings: input.runtimeSettings ? toJson(input.runtimeSettings) : undefined,
           handle: toJson(handle),
           overrides: overrides ? toJson(overrides) : undefined,
+          ...(input.customProvider ? { customProvider: input.customProvider } : {}),
         },
       });
       if (hosted) return hosted;

@@ -114,10 +114,13 @@ export class ControlledSession implements AgentSession {
     const [name, ...rest] = prompt.slice(1).split(/\s+/);
     if (name !== "compact" && !(name === "goal" && this.goals)) return null;
     this.commands.push(prompt);
+    // Like the Codex adapter: a goal is set unless the argument is a subcommand or absent.
+    const setsGoal =
+      name === "goal" && rest.length > 0 && !["pause", "resume", "clear"].includes(rest[0]!);
     return {
-      intent: name === "goal" && rest.length ? ("goal" as const) : undefined,
+      intent: setsGoal ? ("goal" as const) : undefined,
       run: async ({ emit }: { emit: (event: AgentStreamEvent) => void }) => {
-        if (name === "goal" && rest.length) await this.goals!.set({ objective: rest.join(" ") });
+        if (setsGoal) await this.goals!.set({ objective: rest.join(" ") });
         emit({
           type: "timeline",
           provider: this.provider,

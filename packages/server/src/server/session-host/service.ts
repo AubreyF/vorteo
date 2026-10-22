@@ -90,8 +90,11 @@ async function loadProviderClientFactory(
         onChildSpawned: (child, context) => {
           if (child.pid === undefined) return;
           const pid = child.pid;
+          // Both the binary that was launched and the app-server word must still be on the command
+          // line before a recorded pid is ever signalled, so a reused pid is left alone.
+          const markers = [child.spawnfile, CODEX_CHILD_MARKER].filter((m) => m.length > 0);
           void children
-            .record({ pid, marker: CODEX_CHILD_MARKER, agentId: context.agentId })
+            .record({ pid, markers, agentId: context.agentId })
             .catch((error: unknown) =>
               logger.warn({ err: error, pid }, "Could not record a Codex app-server child"),
             );
@@ -145,17 +148,22 @@ export async function startSessionHostService(
   const createClient = options.createClient ?? (await loadProviderClientFactory(children));
   const logPath = path.join(paths.directory, SESSION_HOST_LOG_FILE_NAME);
   const logger = openPrivateLog(logPath);
-  // Detached provider processes from a host that died keep running; stop them before serving, so
-  // no continued agent ever shares a thread with an orphan.
-  const reaped = await children.reapOrphans();
-  if (reaped.stopped.length || reaped.dropped.length)
-    logger.warn(
-      {
-        stopped: reaped.stopped.map((child) => ({ pid: child.pid, agentId: child.agentId })),
-        dropped: reaped.dropped.length,
-      },
-      "Stopped provider processes left by an earlier session host",
-    );
+  /**
+   * Detached provider processes from a host that died keep running; stop them before serving, so
+   * no continued agent ever shares a thread with an orphan. This runs only once this host holds
+   * the lock: a second host started by mistake must never stop the live host's providers.
+   */
+  async function reapOrphans(): Promise<void> {
+    const reaped = await children.reapOrphans();
+    if (reaped.stopped.length || reaped.dropped.length)
+      logger.warn(
+        {
+          stopped: reaped.stopped.map((child) => ({ pid: child.pid, agentId: child.agentId })),
+          dropped: reaped.dropped.length,
+        },
+        "Stopped provider processes left by an earlier session host",
+      );
+  }
   const watchdog = startSessionHostWatchdog({
     logPath,
     hangTimeoutMs: options.hangTimeoutMs ?? DEFAULT_HANG_TIMEOUT_MS,
@@ -233,6 +241,7 @@ export async function startSessionHostService(
     audit,
     release,
     limits: options.limits,
+    afterLock: reapOrphans,
   });
   watchdog.markListening();
   logger.info({ hostId: host.identity.id, release }, "Session host started");

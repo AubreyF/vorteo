@@ -1,6 +1,6 @@
 # Vorteo customizations beyond Paseo
 
-Maintenance review (2026-10-22): durable sessions phase 2 lets Codex sessions run in the session host, with goal state and goal commands crossing to the host and orphaned app-server processes stopped at the next host start. The isolated end-to-end suite now covers a Codex-shaped provider across worker and supervisor restarts, and the host entrypoint build was repaired after the Codex adapter joined its import graph. Claude hosting is accepted live; Codex hosting awaits live acceptance. README overview and onboarding are unchanged.
+Maintenance review (2026-10-22): durable sessions phase 2 lets Codex sessions run in the session host, with goal state and goal commands crossing to the host and orphaned app-server processes stopped at the next host start, only once the host holds its lock. Independent review fixes: the account descriptor also travels on resume, unhandled hosted commands show an error, and orphan reaping signals the process group behind two markers. The isolated end-to-end suite covers a Codex-shaped provider across worker and supervisor restarts. Claude hosting is accepted live; Codex hosting awaits live acceptance. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): Claude's hidden internal commands (names starting with `__`) are classified as commands, not skills, so restricted skill policies no longer demand a package for them. README overview and onboarding are unchanged.
 

@@ -15,8 +15,8 @@ const FILE_MODE = 0o600;
 const ChildRecordSchema = z
   .object({
     pid: z.number().int().positive(),
-    /** A word the process command line must still contain before it is signalled. */
-    marker: z.string().min(1).max(200),
+    /** Words the process command line must all still contain before it is signalled. */
+    markers: z.array(z.string().min(1).max(1_000)).min(1).max(4),
     agentId: z.string().max(500).optional(),
     spawnedAt: z.string().max(64),
   })
@@ -30,6 +30,7 @@ export type ChildRecord = z.infer<typeof ChildRecordSchema>;
 export interface ChildRegistryPorts {
   /** The command line of a live process, or null when it is gone. */
   processCommand(pid: number): Promise<string | null>;
+  /** Signals a pid, or a whole process group when pid is negative, as process.kill does. */
   kill(pid: number, signal: NodeJS.Signals): void;
   now(): Date;
 }
@@ -40,7 +41,9 @@ export interface ProviderChildRegistry {
   /** Drops a child that exited normally. */
   forget(pid: number): Promise<void>;
   /**
-   * Stops every recorded process whose command line still carries its marker, then forgets all.
+   * Stops every recorded process whose command line still carries all its markers, then forgets
+   * all. The process was detached into its own group, so the group is signalled first and the
+   * tools it spawned go with it; a process that is not a group leader is signalled alone.
    * Returns what was stopped; processes already gone or reused by something else are only dropped.
    */
   reapOrphans(): Promise<{ stopped: ChildRecord[]; dropped: ChildRecord[] }>;
@@ -99,6 +102,22 @@ export function createProviderChildRegistry(
     }
   }
 
+  /** Kills the group when the pid leads one, else the pid alone; false when it is already gone. */
+  function signalTree(pid: number): boolean {
+    try {
+      kill(-pid, "SIGKILL");
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+    }
+    try {
+      kill(pid, "SIGKILL");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
     const next = queue.then(task, task);
     // The chain only orders work; a failed task must not block the ones after it.
@@ -130,14 +149,11 @@ export function createProviderChildRegistry(
         const dropped: ChildRecord[] = [];
         for (const child of await read()) {
           const command = await processCommand(child.pid);
-          // The marker guards against a reused pid: only the recorded program is ever signalled.
-          if (command && command.includes(child.marker)) {
-            try {
-              kill(child.pid, "SIGKILL");
+          // The markers guard against a reused pid: only the recorded program is ever signalled.
+          if (command && child.markers.every((marker) => command.includes(marker))) {
+            if (signalTree(child.pid)) {
               stopped.push(child);
               continue;
-            } catch {
-              // Gone between the check and the signal.
             }
           }
           dropped.push(child);

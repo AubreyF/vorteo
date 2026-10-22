@@ -309,6 +309,8 @@ export class HostedAgentSession implements AgentSession {
       ...(command.name === "goal" ? { intent: goalIntent(command.args) } : {}),
       run: async ({ emit }) => {
         const result = await this.invoke({ method: "outOfBand", prompt: text });
+        // The manager shows a thrown error; a silent return would swallow the command.
+        if (!result.handled) throw new Error("The hosted session does not handle this command.");
         for (const event of result.events)
           if (HostedStreamEventSchema.safeParse(event).success)
             emit(event as unknown as AgentStreamEvent);

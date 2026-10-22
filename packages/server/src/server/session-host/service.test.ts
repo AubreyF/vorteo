@@ -298,11 +298,11 @@ test("a provider process recorded by an earlier host is stopped before the new h
       children: [
         {
           pid: orphan.pid,
-          marker: "app-server",
+          markers: [process.execPath, "app-server"],
           agentId: "agent-1",
           spawnedAt: "2026-10-22T00:00:00Z",
         },
-        { pid: 999_999, marker: "app-server", spawnedAt: "2026-10-22T00:00:00Z" },
+        { pid: 999_999, markers: ["app-server"], spawnedAt: "2026-10-22T00:00:00Z" },
       ],
     }),
     { mode: 0o600 },
@@ -317,5 +317,43 @@ test("a provider process recorded by an earlier host is stopped before the new h
   expect(readFileSync(path.join(paths.directory, "host.log"), "utf8")).toContain(
     "Stopped provider processes left by an earlier session host",
   );
+  expect(await host.client.list()).toEqual([]);
+}, 30_000);
+
+test("a second host started by mistake does not stop the running host's provider processes", async () => {
+  const host = await startHost();
+  const paths = sessionHostPaths(host.home);
+  // A live provider of the running host, recorded the way the host records its Codex children.
+  const provider = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)", "app-server"], {
+    stdio: "ignore",
+  });
+  cleanups.push(() => {
+    if (provider.exitCode === null && provider.signalCode === null) provider.kill("SIGKILL");
+  });
+  writeFileSync(
+    path.join(paths.directory, "children.json"),
+    JSON.stringify({
+      version: 1,
+      children: [
+        {
+          pid: provider.pid,
+          markers: [process.execPath, "app-server"],
+          agentId: "agent-1",
+          spawnedAt: "2026-10-22T00:00:00Z",
+        },
+      ],
+    }),
+    { mode: 0o600 },
+  );
+
+  const second = spawnHost(host.home);
+  expect(await second.exited).toEqual({ code: 1, signal: null });
+  expect(second.stderr()).toContain("SessionHostAlreadyRunningError");
+  // The lock refused the second host before it could reap, so the provider and its record remain.
+  expect(provider.exitCode).toBeNull();
+  expect(provider.signalCode).toBeNull();
+  expect(
+    JSON.parse(readFileSync(path.join(paths.directory, "children.json"), "utf8")).children,
+  ).toHaveLength(1);
   expect(await host.client.list()).toEqual([]);
 }, 30_000);
