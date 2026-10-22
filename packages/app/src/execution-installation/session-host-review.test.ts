@@ -170,6 +170,21 @@ test("status lists what the coordinator observed, and only what the token may se
     "Durable sessions setting: off",
     `Observed: ${installed.detail!.observedAt}`,
   ]);
+  expect(
+    sessionHostStatusLines({
+      ...installed,
+      detail: {
+        ...installed.detail!,
+        installedRelease: "0.11.0-beta.3.vorteo.760",
+        host: { ...installed.detail!.host!, sessions: 3, providers: { claude: 2, codex: 1 } },
+      },
+    }),
+  ).toEqual(
+    expect.arrayContaining([
+      "Installed release: 0.11.0-beta.3.vorteo.760",
+      "Hosted sessions: 3 (claude 2, codex 1)",
+    ]),
+  );
   expect(sessionHostStatusLines({ supported: false, installed: false })).toEqual([
     "Installed: no",
     "Release support: the installed release has no session host",

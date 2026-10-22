@@ -62,6 +62,8 @@ export interface SessionHostAnswer {
   pid: number;
   release?: string;
   sessions: number;
+  /** Hosted sessions by provider id, when the host listed them. */
+  providers?: Record<string, number>;
 }
 
 /** Every effect the job has, so tests run without launchctl or a live installation. */
@@ -655,6 +657,7 @@ export async function inspectSessionHost(input: {
   const home = config.host.startupValidation?.home;
   const reply = home && job ? await ports.queryHost(home) : null;
   const answer = reply === "refused" ? null : reply;
+  const installedRelease = current ? await readInstalledRelease(current, ports) : undefined;
   return {
     supported,
     installed,
@@ -665,13 +668,8 @@ export async function inspectSessionHost(input: {
       pid: job?.pid ?? null,
       lastExitStatus: job?.lastExitStatus ?? null,
       runs: job?.runs ?? null,
-      host: answer
-        ? {
-            pid: answer.pid,
-            ...(answer.release ? { release: answer.release } : {}),
-            sessions: answer.sessions,
-          }
-        : null,
+      host: describeHost(answer),
+      ...(installedRelease ? { installedRelease } : {}),
       settingEnabled: home ? await ports.settingEnabled(home) : false,
       observedAt: new Date(ports.now()).toISOString(),
     },
@@ -683,6 +681,34 @@ const SESSION_HOST_APPLIERS = {
   "session-host-remove": removeSessionHost,
   "session-host-restart": restartSessionHost,
 } satisfies Record<SessionHostOperation, unknown>;
+
+/** The host as the status reports it: identity, release and sessions, by provider when listed. */
+function describeHost(
+  answer: SessionHostAnswer | null,
+): NonNullable<SessionHostStatus["detail"]>["host"] {
+  if (!answer) return null;
+  return {
+    pid: answer.pid,
+    ...(answer.release ? { release: answer.release } : {}),
+    sessions: answer.sessions,
+    ...(answer.providers ? { providers: answer.providers } : {}),
+  };
+}
+
+/** The server package version under the current release link, which a new host would run. */
+async function readInstalledRelease(
+  current: string,
+  ports: SessionHostPorts,
+): Promise<string | undefined> {
+  const manifest = await ports.readFile(path.join(current, "packages/server/package.json"));
+  if (!manifest) return undefined;
+  try {
+    const version = (JSON.parse(manifest.toString("utf8")) as { version?: unknown }).version;
+    return typeof version === "string" && version.length <= 200 ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The coordinator's session host operations over the given effects. */
 export function createSessionHostExecutor(input: {

@@ -312,6 +312,7 @@ export const ja: TranslationResources = {
       archived: "アーカイブ済み",
       pending: "{{count}}件保留中",
       attention: "注意",
+      hosted: "再起動後も継続",
     },
     archiveSheet: {
       hostOffline: "ホストオフライン",

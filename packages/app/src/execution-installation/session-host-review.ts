@@ -172,6 +172,16 @@ function yesNo(value: boolean): string {
   return value ? "yes" : "no";
 }
 
+/** "3 (claude 2, codex 1)" when the host reports providers, else the plain count. */
+function hostedSessionsText(host: {
+  sessions: number;
+  providers?: Record<string, number>;
+}): string {
+  const entries = Object.entries(host.providers ?? {}).filter(([, count]) => count > 0);
+  if (entries.length === 0) return String(host.sessions);
+  return `${host.sessions} (${entries.map(([provider, count]) => `${provider} ${count}`).join(", ")})`;
+}
+
 /** What the coordinator last observed, without tokens or socket paths. */
 export function sessionHostStatusLines(status: SessionHostStatus | null): string[] {
   if (!status) return ["Status unavailable"];
@@ -185,7 +195,8 @@ export function sessionHostStatusLines(status: SessionHostStatus | null): string
     `Last exit: ${detail.lastExitStatus ?? "none"}`,
     `Runs: ${detail.runs ?? "unknown"}`,
     `Host release: ${detail.host?.release ?? (detail.host ? "unknown" : "not answering")}`,
-    `Hosted sessions: ${detail.host ? detail.host.sessions : "unknown"}`,
+    ...(detail.installedRelease ? [`Installed release: ${detail.installedRelease}`] : []),
+    `Hosted sessions: ${detail.host ? hostedSessionsText(detail.host) : "unknown"}`,
     `Durable sessions setting: ${detail.settingEnabled ? "on" : "off"}`,
     // The coordinator caches its observation briefly, so this can trail the present.
     `Observed: ${detail.observedAt}`,

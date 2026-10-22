@@ -114,8 +114,12 @@ export const SessionHostStatusSchema = z.strictObject({
           pid: z.number().int().positive(),
           release: z.string().max(200).optional(),
           sessions: z.number().int().min(0),
+          /** Hosted sessions by provider id. Absent from coordinators before the indicator. */
+          providers: z.record(z.string().max(200), z.number().int().min(0)).optional(),
         })
         .nullable(),
+      /** The release the current link selects, to compare with the host's own release. */
+      installedRelease: z.string().max(200).optional(),
       settingEnabled: z.boolean(),
       observedAt: z.string().datetime(),
     })

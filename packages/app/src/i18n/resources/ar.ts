@@ -307,6 +307,7 @@ export const ar: TranslationResources = {
       archived: "مؤرشف",
       pending: "{{count}}معلق",
       attention: "انتباه",
+      hosted: "يستمر بعد إعادة التشغيل",
     },
     archiveSheet: {
       hostOffline: "Host غير متصل",

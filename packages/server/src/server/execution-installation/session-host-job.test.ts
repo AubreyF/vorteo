@@ -720,6 +720,34 @@ test("status detail reports the plist, launchd's record, the host and the settin
   expect(changed).toMatchObject({ supported: false, detail: { plist: "different" } });
 });
 
+test("status detail names the installed release and the hosted sessions by provider", async () => {
+  const fake = fakeInstallation();
+  await installed(fake);
+  fake.state.files.set(
+    `${CURRENT}/packages/server/package.json`,
+    Buffer.from(JSON.stringify({ version: "0.11.0-beta.3.vorteo.760" })),
+  );
+  const ports: SessionHostPorts = {
+    ...fake.ports,
+    queryHost: async (paseoHome) => {
+      const answer = await fake.ports.queryHost(paseoHome);
+      return answer && answer !== "refused"
+        ? { ...answer, providers: { claude: 2, codex: 1 } }
+        : answer;
+    },
+  };
+  fake.state.host!.sessions = 3;
+  const status = await inspectSessionHost({ config: testConfig(), ports, detail: true });
+  expect(status.detail).toMatchObject({
+    installedRelease: "0.11.0-beta.3.vorteo.760",
+    host: { pid: 4242, release: "fixture", sessions: 3, providers: { claude: 2, codex: 1 } },
+  });
+  // An unreadable manifest leaves the field out rather than failing the status.
+  fake.state.files.set(`${CURRENT}/packages/server/package.json`, Buffer.from("{not json"));
+  const broken = await inspectSessionHost({ config: testConfig(), ports, detail: true });
+  expect(broken.detail?.installedRelease).toBeUndefined();
+});
+
 test("only a missing listener or a greeting that never arrives counts as silence", () => {
   for (const code of [
     "disconnected",

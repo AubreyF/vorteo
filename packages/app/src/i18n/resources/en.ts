@@ -304,6 +304,7 @@ export const en = {
       archived: "Archived",
       pending: "{{count}} pending",
       attention: "Attention",
+      hosted: "Survives restarts",
     },
     archiveSheet: {
       hostOffline: "Host offline",
