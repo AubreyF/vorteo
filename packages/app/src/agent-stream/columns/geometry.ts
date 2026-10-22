@@ -78,7 +78,12 @@ export interface CardGridDemand {
   expanded?: boolean;
   /** Collapsed tiles on the same measured flex line consume one row. */
   row?: number;
+  /** The owner dragged this card to `height`; it is honored before automatic cards share. */
+  fixed?: boolean;
 }
+
+/** Automatic cards keep at least this much (or their natural height) beside resized cards. */
+export const AUTO_CARD_RESERVE = 72;
 
 export interface GridLine {
   ids: string[];
@@ -127,9 +132,10 @@ export function allocateGridCardHeights(
 ): ReadonlyMap<string, number> {
   const tiles: { id: string; top: number; height: number }[] = [];
   const flexible: [string, number][] = [];
+  const fixed: [string, number][] = [];
   const heights = new Map<string, number>();
   for (const [id, demand] of demands) {
-    if (demand.row === undefined) flexible.push([id, demand.height]);
+    if (demand.row === undefined) (demand.fixed ? fixed : flexible).push([id, demand.height]);
     else {
       tiles.push({ id, top: demand.row, height: demand.height });
       heights.set(id, demand.height);
@@ -137,11 +143,23 @@ export function allocateGridCardHeights(
   }
   const lines = groupGridLines(tiles);
   const fixedHeight = lines.reduce((sum, line) => sum + line.bottom - line.top, 0);
-  const gaps = Math.max(0, lines.length + flexible.length - 1) * CARD_GAP;
-  const remaining = Math.max(0, available - fixedHeight - gaps);
+  const gaps = Math.max(0, lines.length + flexible.length + fixed.length - 1) * CARD_GAP;
+  let remaining = Math.max(0, available - fixedHeight - gaps);
+  // Resized cards come first, shrinking together only when automatic cards would lose their reserve.
+  const reserve = flexible.reduce(
+    (sum, [, height]) => sum + Math.min(height, AUTO_CARD_RESERVE),
+    0,
+  );
+  const requested = fixed.reduce((sum, [, height]) => sum + height, 0);
+  const scale = requested > 0 ? Math.min(1, Math.max(0, remaining - reserve) / requested) : 1;
+  for (const [id, height] of fixed) {
+    const allocated = Math.floor(height * scale);
+    heights.set(id, allocated);
+    remaining -= allocated;
+  }
   // The existing allocator accounts for gaps between the flexible cards itself.
   const allocations = allocateCardHeights(
-    remaining + Math.max(0, flexible.length - 1) * CARD_GAP,
+    Math.max(0, remaining) + Math.max(0, flexible.length - 1) * CARD_GAP,
     flexible.map(([, height]) => height),
   );
   flexible.forEach(([id], index) => heights.set(id, allocations[index]));

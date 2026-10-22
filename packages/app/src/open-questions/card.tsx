@@ -213,11 +213,13 @@ export function OpenQuestion({
         {`Asked ${formatTimeAgo(askedAt)}`}
         {defaultAt ? ` · Recommended default applies after ${defaultAt}` : ""}
       </Text>
-      <View style={styles.recommendation}>
-        <Text style={styles.recommendationText}>
-          <Text style={styles.label}>Recommended: </Text>
-          {question.recommendedDefault}
-        </Text>
+      <View style={styles.answerRow}>
+        <View style={styles.recommendation}>
+          <Text style={styles.recommendationText}>
+            <Text style={styles.label}>Recommended: </Text>
+            {question.recommendedDefault}
+          </Text>
+        </View>
         <Button
           variant="default"
           size={size}
@@ -227,7 +229,7 @@ export function OpenQuestion({
           accessibilityLabel={`Use recommended answer: ${question.recommendedDefault}`}
           testID={`${testIDPrefix}-use-recommended-${question.id}`}
         >
-          Use recommended
+          Yes
         </Button>
       </View>
       <View style={styles.answerRow}>
@@ -364,22 +366,13 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   recommendation: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: theme.spacing[2],
+    flex: 1,
+    minWidth: 0,
     padding: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.surface2,
   },
-  recommendationText: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 160,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
+  recommendationText: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   answerRow: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   answerInput: { flex: 1, minWidth: 0 },
   answered: { paddingTop: theme.spacing[1], alignItems: "flex-start" },

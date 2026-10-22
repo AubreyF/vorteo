@@ -187,6 +187,8 @@ export const PanelPersistedStateSchema = z.strictObject({
   diffExpandedPathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   diffCollapsedFoldersByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   collapsedFilePathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
+  // Card heights the owner dragged, keyed by card; absent cards size automatically.
+  cardHeights: z.record(z.string(), z.number()).optional(),
   sidebarWidth: z.number().optional(),
   sidebarCompact: z.boolean().optional(),
   sidebarNarrow: z.boolean().optional(),
