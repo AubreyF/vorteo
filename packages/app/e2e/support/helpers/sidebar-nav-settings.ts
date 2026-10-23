@@ -231,7 +231,6 @@ export async function expectFooterItemHidden(page: Page, key: string): Promise<v
 const FOOTER_ICON_TEST_IDS = [
   "sidebar-add-project",
   "sidebar-usage-icon",
-  "sidebar-hosts-trigger",
   "sidebar-help",
   "sidebar-settings",
 ];
@@ -240,8 +239,8 @@ const FOOTER_ICON_TEST_IDS = [
 const FOOTER_GEOMETRY_TOLERANCE = 0.01;
 
 /**
- * One line of same-size icons: Add project, Usage and Hosts together on the left, Help and
- * Settings together at the end.
+ * One line of same-size icons: Add project and Usage together on the left, Help and Settings
+ * together at the end. The sidebar Hosts control was removed.
  */
 export async function expectFooterIconRow(page: Page): Promise<void> {
   const boxes = (
@@ -257,10 +256,10 @@ export async function expectFooterIconRow(page: Page): Promise<void> {
     expect(Math.abs(box.width - first!.width)).toBeLessThan(FOOTER_GEOMETRY_TOLERANCE);
   }
   const gaps = boxes.slice(1).map((box, index) => box.x - (boxes[index]!.x + boxes[index]!.width));
-  for (const index of [0, 1, 3]) {
+  for (const index of [0, 2]) {
     expect(Math.abs(gaps[index]!)).toBeLessThan(FOOTER_GEOMETRY_TOLERANCE);
   }
-  expect(gaps[2]).toBeGreaterThan(first!.width);
+  expect(gaps[1]).toBeGreaterThan(first!.width);
 }
 
 export async function expectFooterSeparator(page: Page, shown: boolean): Promise<void> {

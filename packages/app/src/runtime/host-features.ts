@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/shallow";
 import type { DaemonServerInfo } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
+import { advertisedProjectsRoot } from "@/projects/projects-root";
 
 export type HostFeatureName = keyof NonNullable<DaemonServerInfo["features"]>;
 
@@ -68,5 +69,20 @@ export function useHostFeatureAvailabilityMap(
   return useMemo(
     () => new Map(serverIds.map((serverId, index) => [serverId, flags[index]] as const)),
     [flags, serverIds],
+  );
+}
+
+// The Projects folder each host advertises, or null. Read together with its capability.
+export function useHostProjectsRootMap(
+  serverIds: readonly string[],
+): ReadonlyMap<string, string | null> {
+  const roots = useSessionStore(
+    useShallow((state) =>
+      serverIds.map((serverId) => advertisedProjectsRoot(state.sessions[serverId]?.serverInfo)),
+    ),
+  );
+  return useMemo(
+    () => new Map(serverIds.map((serverId, index) => [serverId, roots[index] ?? null] as const)),
+    [roots, serverIds],
   );
 }

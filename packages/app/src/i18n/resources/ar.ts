@@ -2196,6 +2196,8 @@ export const ar: TranslationResources = {
       title: "عن",
       appVersion: "نسخة التطبيق",
       whatsNewHint: "ملاحظات الإصدار لكل نسخة",
+      github: "GitHub",
+      githubHint: "الشيفرة المصدرية والمشكلات والإصدارات",
       thisDevice: "هذا الجهاز",
       connectedHosts: "المضيفين المتصلين",
       offline: "غير متصل",

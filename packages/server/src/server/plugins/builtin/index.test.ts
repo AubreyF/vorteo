@@ -36,6 +36,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -207,10 +208,16 @@ import {
   type FactoryQualificationSelectedSource,
 } from "../../../../../../plugins/factory/server/controller/qualification-reader.mjs";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
+// Factory custody refuses non-canonical paths; macOS tmpdir() sits behind a /var symlink.
+const TMP_ROOT = realpathSync(os.tmpdir());
+
 const roots: string[] = [];
 
 async function buildJournalFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-build-core-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-build-core-"));
   roots.push(root);
   await chmod(root, 0o700);
   const authority = { assertCurrent: vi.fn() };
@@ -222,23 +229,26 @@ test("bundled controller ownership refuses an unsupervised launch", () => {
   expect(() => captureControllerOwnership({})).toThrow("ownership launcher");
 });
 
-test("bundled Builds queue never initializes or resets retained state implicitly", async () => {
-  const f = await buildJournalFixture();
-  await expect(f.journal.inspect()).rejects.toMatchObject({ code: "ENOENT" });
-  await f.journal.initialize();
-  await f.journal.transact((state) => {
-    state.requests.push({ id: "request-1", sourceRef: "a".repeat(40) });
-    return { state, result: "retained" };
-  });
-  const reopened = await openBuildJournal(f.input);
-  const before = await reopened.inspect();
-  expect(before.revision).toBe(1);
-  expect(before.requests).toEqual([{ id: "request-1", sourceRef: "a".repeat(40) }]);
-  await expect(reopened.initialize()).rejects.toMatchObject({ code: "EEXIST" });
-  expect(await reopened.inspect()).toEqual(before);
-});
+posixTest(
+  "bundled Builds queue never initializes or resets retained state implicitly",
+  async () => {
+    const f = await buildJournalFixture();
+    await expect(f.journal.inspect()).rejects.toMatchObject({ code: "ENOENT" });
+    await f.journal.initialize();
+    await f.journal.transact((state) => {
+      state.requests.push({ id: "request-1", sourceRef: "a".repeat(40) });
+      return { state, result: "retained" };
+    });
+    const reopened = await openBuildJournal(f.input);
+    const before = await reopened.inspect();
+    expect(before.revision).toBe(1);
+    expect(before.requests).toEqual([{ id: "request-1", sourceRef: "a".repeat(40) }]);
+    await expect(reopened.initialize()).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await reopened.inspect()).toEqual(before);
+  },
+);
 
-test("bundled Builds queue rejects lost authority before persistence", async () => {
+posixTest("bundled Builds queue rejects lost authority before persistence", async () => {
   const f = await buildJournalFixture();
   await f.journal.initialize();
   const before = await readFile(path.join(f.root, "build-queue.json"));
@@ -254,36 +264,39 @@ test("bundled Builds queue rejects lost authority before persistence", async () 
   expect(await readFile(path.join(f.root, "build-queue.json"))).toEqual(before);
 });
 
-test("bundled Builds queue preserves another handle's update when a transaction is stale", async () => {
-  const f = await buildJournalFixture();
-  await f.journal.initialize();
-  const second = await openBuildJournal(f.input);
-  let release!: () => void;
-  let entered!: () => void;
-  const waiting = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const ready = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  const stale = f.journal.transact(async (state) => {
-    entered();
-    await waiting;
-    state.requests.push({ id: "stale" });
-    return { state, result: null };
-  });
-  const rejected = expect(stale).rejects.toThrow("changed; reconcile");
-  await ready;
-  await second.transact((state) => {
-    state.requests.push({ id: "current" });
-    return { state, result: null };
-  });
-  release();
-  await rejected;
-  expect((await second.inspect()).requests).toEqual([{ id: "current" }]);
-});
+posixTest(
+  "bundled Builds queue preserves another handle's update when a transaction is stale",
+  async () => {
+    const f = await buildJournalFixture();
+    await f.journal.initialize();
+    const second = await openBuildJournal(f.input);
+    let release!: () => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const stale = f.journal.transact(async (state) => {
+      entered();
+      await waiting;
+      state.requests.push({ id: "stale" });
+      return { state, result: null };
+    });
+    const rejected = expect(stale).rejects.toThrow("changed; reconcile");
+    await ready;
+    await second.transact((state) => {
+      state.requests.push({ id: "current" });
+      return { state, result: null };
+    });
+    release();
+    await rejected;
+    expect((await second.inspect()).requests).toEqual([{ id: "current" }]);
+  },
+);
 
-test.each(["revision", "capacity"] as const)(
+posixTest.each(["revision", "capacity"] as const)(
   "bundled Builds queue holds %s violations without data loss",
   async (change) => {
     const f = await buildJournalFixture();
@@ -300,7 +313,7 @@ test.each(["revision", "capacity"] as const)(
   },
 );
 
-test.each(["mode", "symlink"] as const)(
+posixTest.each(["mode", "symlink"] as const)(
   "bundled Builds queue refuses an unsafe %s file",
   async (change) => {
     const f = await buildJournalFixture();
@@ -315,7 +328,7 @@ test.each(["mode", "symlink"] as const)(
   },
 );
 
-test.each(["host", "removed", "root", "duplicate"] as const)(
+posixTest.each(["host", "removed", "root", "duplicate"] as const)(
   "bundled project guard rejects %s binding without discovery or replacement",
   async (change) => {
     const binding = {
@@ -348,43 +361,46 @@ test.each(["host", "removed", "root", "duplicate"] as const)(
   },
 );
 
-test("bundled project guard captures exact identity and rechecks authority after native reads", async () => {
-  const binding = {
-    hostId: "srv_test",
-    projectId: "prj_test",
-    projectRoot: "/repo",
-    repository: "example/repository",
-  };
-  const assertCurrent = vi.fn();
-  const client = {
-    getLastServerInfoMessage: () => ({ serverId: "srv_test" }),
-    listProjects: async () => ({
-      projects: [
-        {
-          projectId: "prj_test",
-          projectKind: "git",
-          projectRootPath: "/repo",
-          projectKey: "remote:github.com/example/repository",
-        },
-      ],
-    }),
-  };
-  const guard = createFactoryProjectGuard({
-    binding,
-    repository: binding.repository,
-    client,
-    assertCurrent,
-  });
-  binding.projectId = "prj_other";
-  expect((await guard.check()).projectId).toBe("prj_test");
-  client.listProjects = async () => {
-    assertCurrent.mockImplementation(() => {
-      throw new Error("Revoked during read");
+posixTest(
+  "bundled project guard captures exact identity and rechecks authority after native reads",
+  async () => {
+    const binding = {
+      hostId: "srv_test",
+      projectId: "prj_test",
+      projectRoot: "/repo",
+      repository: "example/repository",
+    };
+    const assertCurrent = vi.fn();
+    const client = {
+      getLastServerInfoMessage: () => ({ serverId: "srv_test" }),
+      listProjects: async () => ({
+        projects: [
+          {
+            projectId: "prj_test",
+            projectKind: "git",
+            projectRootPath: "/repo",
+            projectKey: "remote:github.com/example/repository",
+          },
+        ],
+      }),
+    };
+    const guard = createFactoryProjectGuard({
+      binding,
+      repository: binding.repository,
+      client,
+      assertCurrent,
     });
-    return { projects: [] };
-  };
-  await expect(guard.check()).rejects.toThrow("Revoked during read");
-});
+    binding.projectId = "prj_other";
+    expect((await guard.check()).projectId).toBe("prj_test");
+    client.listProjects = async () => {
+      assertCurrent.mockImplementation(() => {
+        throw new Error("Revoked during read");
+      });
+      return { projects: [] };
+    };
+    await expect(guard.check()).rejects.toThrow("Revoked during read");
+  },
+);
 
 test("bundled daily release clock uses original publication, never verification time", () => {
   const lastSuccess = {
@@ -656,7 +672,7 @@ async function nativeInstallFixture(
   controls?: Parameters<typeof createNativeFactoryInstallAdapter>[0]["controls"],
 ) {
   const f = attachmentFixture();
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-install-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-install-"));
   roots.push(root);
   const logger = createTestLogger();
   const projects = new FileBackedProjectRegistry(path.join(root, "projects.json"), logger, {
@@ -1610,7 +1626,7 @@ async function fixture(root: string, id: string, client = false): Promise<string
 
 test("bundled Factory observes serving identity without creating or adopting work", async () => {
   const version = "0.11.0-beta.3.vorteo.254";
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-observation-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-observation-"));
   roots.push(root);
   const daemon = await createTestPaseoDaemon({
     daemonVersion: version,
@@ -1688,7 +1704,7 @@ test("bundled Factory observes serving identity without creating or adopting wor
 }, 60_000);
 
 test("native Factory setup retains checkpoint holds and never treats attached metadata as live installation", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-setup-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-setup-"));
   roots.push(root);
   const projects = new FileBackedProjectRegistry(
     path.join(root, "projects.json"),
@@ -1779,7 +1795,7 @@ test("listed built-ins resolve to matching manifests and compile", async () => {
 });
 
 test("listed client bundle is published while plugins are disabled; unlisted directory is inert", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "paseo-builtin-fixture-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "paseo-builtin-fixture-"));
   roots.push(root);
   await fixture(root, "listed", true);
   await fixture(root, "unlisted", true);
@@ -1802,7 +1818,7 @@ test("listed client bundle is published while plugins are disabled; unlisted dir
 }, 60_000);
 
 test("directory, Git, and npm installs reject a built-in ID", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "paseo-builtin-install-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "paseo-builtin-install-"));
   roots.push(root);
   const directory = await fixture(root, "reserved");
   const gitDirectory = await fixture(root, "git-source");
@@ -2339,7 +2355,7 @@ interface QualificationReaderFixtureState {
 async function qualificationReaderFixture(
   readerOptions: Partial<FactoryQualificationReaderOptions> = {},
 ) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-intake-reader-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-intake-reader-"));
   roots.push(root);
   const git = async (...args: string[]) =>
     (await executeReaderGit("git", ["-C", root, ...args])).stdout.trim();
@@ -2673,7 +2689,7 @@ test("bundled qualification reader refuses capped GitHub evidence rather than re
 });
 
 async function qualificationRecordFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publication-record-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-publication-record-"));
   roots.push(root);
   await chmod(root, 0o700);
   let current = true;
@@ -2707,71 +2723,83 @@ async function qualificationRecordFixture() {
   };
 }
 
-test("bundled publication record preserves pending intent across replacement without initialization", async () => {
-  const f = await qualificationRecordFixture();
-  await expect(f.journal.write(f.state)).rejects.toThrow("Read qualification state");
-  expect(await f.journal.read()).toBeNull();
-  await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
-  await f.journal.write(f.state);
-  const reopened = openQualificationJournal(f.input);
-  const retained = await reopened.read();
-  expect(retained).toEqual(f.state);
-  assert.ok(retained);
-  retained.commentIntent = false;
-  expect(reopened.inspect()).toEqual(f.state);
-  expect((await stat(f.filename)).mode & 0o777).toBe(0o600);
-});
+posixTest(
+  "bundled publication record preserves pending intent across replacement without initialization",
+  async () => {
+    const f = await qualificationRecordFixture();
+    await expect(f.journal.write(f.state)).rejects.toThrow("Read qualification state");
+    expect(await f.journal.read()).toBeNull();
+    await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
+    await f.journal.write(f.state);
+    const reopened = openQualificationJournal(f.input);
+    const retained = await reopened.read();
+    expect(retained).toEqual(f.state);
+    assert.ok(retained);
+    retained.commentIntent = false;
+    expect(reopened.inspect()).toEqual(f.state);
+    expect((await stat(f.filename)).mode & 0o777).toBe(0o600);
+  },
+);
 
-test("bundled publication record rejects stale writers and lost owner without resetting intent", async () => {
-  const f = await qualificationRecordFixture();
-  const stale = openQualificationJournal(f.input);
-  await stale.read();
-  await f.journal.read();
-  await f.journal.write(f.state);
-  await expect(stale.write(f.state)).rejects.toThrow("reconcile before writing");
-  const persisted = await readFile(f.filename, "utf8");
-  f.loseOwner();
-  await expect(f.journal.write({ ...f.state, commentIntent: false })).rejects.toThrow(
-    "Owner changed",
-  );
-  expect(await readFile(f.filename, "utf8")).toBe(persisted);
-});
+posixTest(
+  "bundled publication record rejects stale writers and lost owner without resetting intent",
+  async () => {
+    const f = await qualificationRecordFixture();
+    const stale = openQualificationJournal(f.input);
+    await stale.read();
+    await f.journal.read();
+    await f.journal.write(f.state);
+    await expect(stale.write(f.state)).rejects.toThrow("reconcile before writing");
+    const persisted = await readFile(f.filename, "utf8");
+    f.loseOwner();
+    await expect(f.journal.write({ ...f.state, commentIntent: false })).rejects.toThrow(
+      "Owner changed",
+    );
+    expect(await readFile(f.filename, "utf8")).toBe(persisted);
+  },
+);
 
-test("bundled publication record rejects corrupt, permissive and linked retained files", async () => {
-  const f = await qualificationRecordFixture();
-  await f.journal.read();
-  await f.journal.write(f.state);
-  const saved = await readFile(f.filename);
-  await writeFile(f.filename, "not JSON");
-  expect(() => f.journal.inspect()).toThrow();
-  await writeFile(f.filename, saved);
-  await chmod(f.filename, 0o644);
-  expect(() => f.journal.inspect()).toThrow("Unsafe qualification journal file");
-  await chmod(f.filename, 0o600);
-  const retained = path.join(f.root, "retained.json");
-  await rename(f.filename, retained);
-  await symlink(retained, f.filename);
-  expect(() => f.journal.inspect()).toThrow();
-  expect(await readFile(retained)).toEqual(saved);
-});
+posixTest(
+  "bundled publication record rejects corrupt, permissive and linked retained files",
+  async () => {
+    const f = await qualificationRecordFixture();
+    await f.journal.read();
+    await f.journal.write(f.state);
+    const saved = await readFile(f.filename);
+    await writeFile(f.filename, "not JSON");
+    expect(() => f.journal.inspect()).toThrow();
+    await writeFile(f.filename, saved);
+    await chmod(f.filename, 0o644);
+    expect(() => f.journal.inspect()).toThrow("Unsafe qualification journal file");
+    await chmod(f.filename, 0o600);
+    const retained = path.join(f.root, "retained.json");
+    await rename(f.filename, retained);
+    await symlink(retained, f.filename);
+    expect(() => f.journal.inspect()).toThrow();
+    expect(await readFile(retained)).toEqual(saved);
+  },
+);
 
-test("bundled publication record rejects receipt substitution and changed directory identity", async () => {
-  const f = await qualificationRecordFixture();
-  await f.journal.read();
-  const changed = structuredClone(f.state);
-  changed.decision.receipt.assessment.summary = "Unverified replacement";
-  await expect(f.journal.write(changed)).rejects.toThrow("Invalid qualification journal state");
-  await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
-  await f.journal.write(f.state);
-  const moved = `${f.root}-retained`;
-  roots.push(moved);
-  await rename(f.root, moved);
-  await mkdir(f.root, { mode: 0o700 });
-  expect(() => f.journal.inspect()).toThrow("directory changed");
-  expect(await readFile(path.join(moved, path.basename(f.filename)), "utf8")).toBe(
-    JSON.stringify(f.state),
-  );
-});
+posixTest(
+  "bundled publication record rejects receipt substitution and changed directory identity",
+  async () => {
+    const f = await qualificationRecordFixture();
+    await f.journal.read();
+    const changed = structuredClone(f.state);
+    changed.decision.receipt.assessment.summary = "Unverified replacement";
+    await expect(f.journal.write(changed)).rejects.toThrow("Invalid qualification journal state");
+    await expect(readFile(f.filename)).rejects.toMatchObject({ code: "ENOENT" });
+    await f.journal.write(f.state);
+    const moved = `${f.root}-retained`;
+    roots.push(moved);
+    await rename(f.root, moved);
+    await mkdir(f.root, { mode: 0o700 });
+    expect(() => f.journal.inspect()).toThrow("directory changed");
+    expect(await readFile(path.join(moved, path.basename(f.filename)), "utf8")).toBe(
+      JSON.stringify(f.state),
+    );
+  },
+);
 
 interface QualificationAuditComment {
   id: number;
@@ -2784,7 +2812,7 @@ interface QualificationAuditComment {
 async function qualificationPublisherFixture() {
   const f = qualificationFixture();
   const decision = prepareQualification(f);
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-publisher-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-publisher-"));
   roots.push(root);
   await chmod(root, 0o700);
   const controls = {
@@ -2865,187 +2893,217 @@ async function qualificationPublisherFixture() {
   return { root, input: f.input, options, controls, comments, labels, writes };
 }
 
-test("bundled qualification publisher persists audit before ready membership and preserves unrelated labels", async () => {
-  const f = await qualificationPublisherFixture();
-  const result = await publishQualification(f.options);
-  expect(result).toEqual({ receiptSha256: f.options.decision.receiptSha256, commentId: 10 });
-  expect(f.options.journal.inspect()?.phase).toBe("complete");
-  expect(f.labels).toEqual([{ name: "debt" }, { name: "factory:ready" }]);
-  expect(f.comments[0].body).toMatch(/^\(AI Generated\)\.\n\n/);
-  await publishQualification(f.options);
-  expect(f.writes).toHaveLength(2);
-});
-
-test("bundled qualification publisher reconciles visible lost responses without duplicate writes", async () => {
-  for (const fault of ["losePost", "loseLabel"]) {
+posixTest(
+  "bundled qualification publisher persists audit before ready membership and preserves unrelated labels",
+  async () => {
     const f = await qualificationPublisherFixture();
-    if (fault === "losePost") f.controls.losePost = true;
-    else f.controls.loseLabel = true;
-    await expect(publishQualification(f.options)).rejects.toThrow("lost");
-    f.controls.losePost = false;
-    f.controls.loseLabel = false;
-    await publishQualification(f.options);
-    expect(f.comments).toHaveLength(1);
+    const result = await publishQualification(f.options);
+    expect(result).toEqual({ receiptSha256: f.options.decision.receiptSha256, commentId: 10 });
+    expect(f.options.journal.inspect()?.phase).toBe("complete");
     expect(f.labels).toEqual([{ name: "debt" }, { name: "factory:ready" }]);
-    expect(f.writes).toHaveLength(2);
-  }
-});
-
-test("bundled qualification publisher holds an absent uncertain POST without replay", async () => {
-  const f = await qualificationPublisherFixture();
-  f.controls.loseBeforePost = true;
-  await expect(publishQualification(f.options)).rejects.toThrow("unknown POST");
-  f.controls.loseBeforePost = false;
-  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
-  expect(f.writes).toHaveLength(1);
-  expect(f.labels).toEqual([{ name: "debt" }]);
-  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
-});
-
-test("bundled qualification publisher rejects revoked authority, changed inputs and edited audits", async () => {
-  const revoked = await qualificationPublisherFixture();
-  revoked.controls.authorized = false;
-  await expect(publishQualification(revoked.options)).rejects.toThrow("standing authority");
-  expect(revoked.writes).toHaveLength(0);
-  expect(revoked.options.journal.inspect()).toBeNull();
-  const changed = await qualificationPublisherFixture();
-  changed.input.issue.body += " new requirements";
-  await expect(publishQualification(changed.options)).rejects.toThrow("fresh review");
-  expect(changed.writes).toHaveLength(0);
-  const edited = await qualificationPublisherFixture();
-  edited.controls.losePost = true;
-  await expect(publishQualification(edited.options)).rejects.toThrow("lost response");
-  edited.comments[0].updated_at = new Date(qualificationNow + 1000).toISOString();
-  await expect(publishQualification(edited.options)).rejects.toThrow("audit identity changed");
-  expect(edited.labels).toEqual([{ name: "debt" }]);
-});
-
-test("bundled qualification publisher preserves owner holds after completed or uncertain label writes", async () => {
-  const completed = await qualificationPublisherFixture();
-  await publishQualification(completed.options);
-  completed.labels.pop();
-  await expect(publishQualification(completed.options)).rejects.toThrow("owner hold");
-  expect(completed.writes).toHaveLength(2);
-  const uncertain = await qualificationPublisherFixture();
-  uncertain.controls.loseLabel = true;
-  await expect(publishQualification(uncertain.options)).rejects.toThrow("lost label");
-  uncertain.labels.pop();
-  uncertain.controls.loseLabel = false;
-  await expect(publishQualification(uncertain.options)).rejects.toThrow("preserve owner changes");
-  expect(uncertain.writes).toHaveLength(2);
-});
-
-test("bundled qualification publisher recovers durable audit intent across replacement and serializes replay", async () => {
-  const f = await qualificationPublisherFixture();
-  f.controls.losePost = true;
-  const first = createFactoryQualificationPublisher({ root: f.root, ...f.options });
-  await expect(first(f.options.decision)).rejects.toThrow("lost response");
-  f.controls.losePost = false;
-  const reopened = createFactoryQualificationPublisher({ root: f.root, ...f.options });
-  await reopened(f.options.decision);
-  expect(f.options.journal.inspect()?.phase).toBe("complete");
-  await Promise.all([reopened(f.options.decision), reopened(f.options.decision)]);
-  expect(f.comments).toHaveLength(1);
-  expect(f.writes).toHaveLength(2);
-});
-
-test("bundled qualification publisher rejects account or audit sender substitution and duplicate audit identities", async () => {
-  const account = await qualificationPublisherFixture();
-  account.controls.accountId = 43;
-  await expect(publishQualification(account.options)).rejects.toThrow("account changed");
-  expect(account.writes).toHaveLength(0);
-  expect(account.options.journal.inspect()).toBeNull();
-  const sender = await qualificationPublisherFixture();
-  sender.controls.losePost = true;
-  await expect(publishQualification(sender.options)).rejects.toThrow("lost response");
-  sender.comments[0].user.id = 43;
-  await expect(publishQualification(sender.options)).rejects.toThrow("audit identity changed");
-  expect(sender.writes).toHaveLength(1);
-  const duplicate = await qualificationPublisherFixture();
-  duplicate.controls.losePost = true;
-  await expect(publishQualification(duplicate.options)).rejects.toThrow("lost response");
-  duplicate.comments.push({ ...duplicate.comments[0], id: 11 });
-  await expect(publishQualification(duplicate.options)).rejects.toThrow("audit identity changed");
-  expect(duplicate.writes).toHaveLength(1);
-});
-
-test("bundled qualification publisher fails closed on owner loss after persisting write intent", async () => {
-  const f = await qualificationPublisherFixture();
-  const write = f.options.journal.write;
-  f.options.journal.write = async (state) => {
-    await write(state);
-    if (state.commentIntent) f.controls.current = false;
-  };
-  await expect(publishQualification(f.options)).rejects.toThrow("Owner changed");
-  expect(f.writes).toHaveLength(0);
-  f.controls.current = true;
-  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
-  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
-  expect(f.writes).toHaveLength(0);
-});
-
-test("bundled qualification publisher reconciles a rejected record write that persisted intent", async () => {
-  const f = await qualificationPublisherFixture();
-  const write = f.options.journal.write;
-  let interrupted = false;
-  f.options.journal.write = async (state) => {
-    await write(state);
-    if (state.commentIntent && !interrupted) {
-      interrupted = true;
-      throw new Error("Directory durability outcome uncertain");
-    }
-  };
-  await expect(publishQualification(f.options)).rejects.toThrow("durability outcome uncertain");
-  expect(f.writes).toHaveLength(0);
-  expect(f.options.journal.inspect()?.commentIntent).toBe(true);
-  await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
-  expect(f.writes).toHaveLength(0);
-  expect(f.labels).toEqual([{ name: "debt" }]);
-});
-
-test("bundled qualification publisher refuses absent or invalid timestamps in completed audit receipts", async () => {
-  const mutations: Array<(comment: QualificationAuditComment) => void> = [
-    (comment) => {
-      delete comment.created_at;
-      delete comment.updated_at;
-    },
-    (comment) => {
-      comment.created_at = null;
-      comment.updated_at = null;
-    },
-    (comment) => {
-      comment.created_at = "";
-      comment.updated_at = "";
-    },
-    (comment) => {
-      comment.created_at = "not a timestamp";
-      comment.updated_at = "not a timestamp";
-    },
-    (comment) => {
-      comment.created_at = "2026";
-      comment.updated_at = "2026";
-    },
-    (comment) => {
-      comment.created_at = "2026-02-30T12:00:00Z";
-      comment.updated_at = "2026-02-30T12:00:00Z";
-    },
-    (comment) => {
-      delete comment.created_at;
-    },
-    (comment) => {
-      delete comment.updated_at;
-    },
-  ];
-  for (const mutate of mutations) {
-    const f = await qualificationPublisherFixture();
+    expect(f.comments[0].body).toMatch(/^\(AI Generated\)\.\n\n/);
     await publishQualification(f.options);
-    const saved = f.options.journal.inspect();
-    mutate(f.comments[0]);
-    await expect(publishQualification(f.options)).rejects.toThrow("audit identity changed");
     expect(f.writes).toHaveLength(2);
-    expect(f.options.journal.inspect()).toEqual(saved);
-  }
-});
+  },
+);
+
+posixTest(
+  "bundled qualification publisher reconciles visible lost responses without duplicate writes",
+  async () => {
+    for (const fault of ["losePost", "loseLabel"]) {
+      const f = await qualificationPublisherFixture();
+      if (fault === "losePost") f.controls.losePost = true;
+      else f.controls.loseLabel = true;
+      await expect(publishQualification(f.options)).rejects.toThrow("lost");
+      f.controls.losePost = false;
+      f.controls.loseLabel = false;
+      await publishQualification(f.options);
+      expect(f.comments).toHaveLength(1);
+      expect(f.labels).toEqual([{ name: "debt" }, { name: "factory:ready" }]);
+      expect(f.writes).toHaveLength(2);
+    }
+  },
+);
+
+posixTest(
+  "bundled qualification publisher holds an absent uncertain POST without replay",
+  async () => {
+    const f = await qualificationPublisherFixture();
+    f.controls.loseBeforePost = true;
+    await expect(publishQualification(f.options)).rejects.toThrow("unknown POST");
+    f.controls.loseBeforePost = false;
+    await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+    expect(f.writes).toHaveLength(1);
+    expect(f.labels).toEqual([{ name: "debt" }]);
+    expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher rejects revoked authority, changed inputs and edited audits",
+  async () => {
+    const revoked = await qualificationPublisherFixture();
+    revoked.controls.authorized = false;
+    await expect(publishQualification(revoked.options)).rejects.toThrow("standing authority");
+    expect(revoked.writes).toHaveLength(0);
+    expect(revoked.options.journal.inspect()).toBeNull();
+    const changed = await qualificationPublisherFixture();
+    changed.input.issue.body += " new requirements";
+    await expect(publishQualification(changed.options)).rejects.toThrow("fresh review");
+    expect(changed.writes).toHaveLength(0);
+    const edited = await qualificationPublisherFixture();
+    edited.controls.losePost = true;
+    await expect(publishQualification(edited.options)).rejects.toThrow("lost response");
+    edited.comments[0].updated_at = new Date(qualificationNow + 1000).toISOString();
+    await expect(publishQualification(edited.options)).rejects.toThrow("audit identity changed");
+    expect(edited.labels).toEqual([{ name: "debt" }]);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher preserves owner holds after completed or uncertain label writes",
+  async () => {
+    const completed = await qualificationPublisherFixture();
+    await publishQualification(completed.options);
+    completed.labels.pop();
+    await expect(publishQualification(completed.options)).rejects.toThrow("owner hold");
+    expect(completed.writes).toHaveLength(2);
+    const uncertain = await qualificationPublisherFixture();
+    uncertain.controls.loseLabel = true;
+    await expect(publishQualification(uncertain.options)).rejects.toThrow("lost label");
+    uncertain.labels.pop();
+    uncertain.controls.loseLabel = false;
+    await expect(publishQualification(uncertain.options)).rejects.toThrow("preserve owner changes");
+    expect(uncertain.writes).toHaveLength(2);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher recovers durable audit intent across replacement and serializes replay",
+  async () => {
+    const f = await qualificationPublisherFixture();
+    f.controls.losePost = true;
+    const first = createFactoryQualificationPublisher({ root: f.root, ...f.options });
+    await expect(first(f.options.decision)).rejects.toThrow("lost response");
+    f.controls.losePost = false;
+    const reopened = createFactoryQualificationPublisher({ root: f.root, ...f.options });
+    await reopened(f.options.decision);
+    expect(f.options.journal.inspect()?.phase).toBe("complete");
+    await Promise.all([reopened(f.options.decision), reopened(f.options.decision)]);
+    expect(f.comments).toHaveLength(1);
+    expect(f.writes).toHaveLength(2);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher rejects account or audit sender substitution and duplicate audit identities",
+  async () => {
+    const account = await qualificationPublisherFixture();
+    account.controls.accountId = 43;
+    await expect(publishQualification(account.options)).rejects.toThrow("account changed");
+    expect(account.writes).toHaveLength(0);
+    expect(account.options.journal.inspect()).toBeNull();
+    const sender = await qualificationPublisherFixture();
+    sender.controls.losePost = true;
+    await expect(publishQualification(sender.options)).rejects.toThrow("lost response");
+    sender.comments[0].user.id = 43;
+    await expect(publishQualification(sender.options)).rejects.toThrow("audit identity changed");
+    expect(sender.writes).toHaveLength(1);
+    const duplicate = await qualificationPublisherFixture();
+    duplicate.controls.losePost = true;
+    await expect(publishQualification(duplicate.options)).rejects.toThrow("lost response");
+    duplicate.comments.push({ ...duplicate.comments[0], id: 11 });
+    await expect(publishQualification(duplicate.options)).rejects.toThrow("audit identity changed");
+    expect(duplicate.writes).toHaveLength(1);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher fails closed on owner loss after persisting write intent",
+  async () => {
+    const f = await qualificationPublisherFixture();
+    const write = f.options.journal.write;
+    f.options.journal.write = async (state) => {
+      await write(state);
+      if (state.commentIntent) f.controls.current = false;
+    };
+    await expect(publishQualification(f.options)).rejects.toThrow("Owner changed");
+    expect(f.writes).toHaveLength(0);
+    f.controls.current = true;
+    expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+    await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+    expect(f.writes).toHaveLength(0);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher reconciles a rejected record write that persisted intent",
+  async () => {
+    const f = await qualificationPublisherFixture();
+    const write = f.options.journal.write;
+    let interrupted = false;
+    f.options.journal.write = async (state) => {
+      await write(state);
+      if (state.commentIntent && !interrupted) {
+        interrupted = true;
+        throw new Error("Directory durability outcome uncertain");
+      }
+    };
+    await expect(publishQualification(f.options)).rejects.toThrow("durability outcome uncertain");
+    expect(f.writes).toHaveLength(0);
+    expect(f.options.journal.inspect()?.commentIntent).toBe(true);
+    await expect(publishQualification(f.options)).rejects.toThrow("Uncertain qualification");
+    expect(f.writes).toHaveLength(0);
+    expect(f.labels).toEqual([{ name: "debt" }]);
+  },
+);
+
+posixTest(
+  "bundled qualification publisher refuses absent or invalid timestamps in completed audit receipts",
+  async () => {
+    const mutations: Array<(comment: QualificationAuditComment) => void> = [
+      (comment) => {
+        delete comment.created_at;
+        delete comment.updated_at;
+      },
+      (comment) => {
+        comment.created_at = null;
+        comment.updated_at = null;
+      },
+      (comment) => {
+        comment.created_at = "";
+        comment.updated_at = "";
+      },
+      (comment) => {
+        comment.created_at = "not a timestamp";
+        comment.updated_at = "not a timestamp";
+      },
+      (comment) => {
+        comment.created_at = "2026";
+        comment.updated_at = "2026";
+      },
+      (comment) => {
+        comment.created_at = "2026-02-30T12:00:00Z";
+        comment.updated_at = "2026-02-30T12:00:00Z";
+      },
+      (comment) => {
+        delete comment.created_at;
+      },
+      (comment) => {
+        delete comment.updated_at;
+      },
+    ];
+    for (const mutate of mutations) {
+      const f = await qualificationPublisherFixture();
+      await publishQualification(f.options);
+      const saved = f.options.journal.inspect();
+      mutate(f.comments[0]);
+      await expect(publishQualification(f.options)).rejects.toThrow("audit identity changed");
+      expect(f.writes).toHaveLength(2);
+      expect(f.options.journal.inspect()).toEqual(saved);
+    }
+  },
+);
 
 function qualifiedAssignmentFixture() {
   const f = qualificationFixture();
@@ -4772,8 +4830,8 @@ test("bundled recovery records reject coercible base identity and custody digest
 });
 
 async function nativeClaimFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "factory-native-claims-"));
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "factory-native-workspace-"));
+  const root = await mkdtemp(path.join(TMP_ROOT, "factory-native-claims-"));
+  const workspace = await mkdtemp(path.join(TMP_ROOT, "factory-native-workspace-"));
   roots.push(root, workspace);
   await chmod(root, 0o700);
   await chmod(workspace, 0o700);
@@ -4868,611 +4926,672 @@ function nativeReleaseCheckpoint() {
   return workflow;
 }
 
-test("bundled native claims require explicit initialization and detach reads before full-record CAS", async () => {
-  const f = await nativeClaimFixture();
-  expect(() => f.journal.current()).toThrow("ENOENT");
-  f.journal.initialize();
-  expect(() => f.journal.initialize()).toThrow("already initialized");
-  const original = f.journal.current();
-  const read = f.journal.current();
-  read.revision = 90;
-  expect(f.journal.current()).toEqual(original);
-  const attempt = await f.journal.claim(f.binding);
-  attempt.approval.scope = "Caller alias";
-  expect(activeNativeClaim(f.journal).approval.scope).toBe("One fix");
-  expect(() => f.journal.replace(original, null)).toThrow("changed during");
-  const before = f.journal.current();
-  const invalid = activeNativeClaim(f.journal);
-  invalid.approval.action = "revoke";
-  expect(() => f.journal.replace(before, invalid)).toThrow("Invalid active");
-  expect(f.journal.current()).toEqual(before);
-});
+posixTest(
+  "bundled native claims require explicit initialization and detach reads before full-record CAS",
+  async () => {
+    const f = await nativeClaimFixture();
+    expect(() => f.journal.current()).toThrow("ENOENT");
+    f.journal.initialize();
+    expect(() => f.journal.initialize()).toThrow("already initialized");
+    const original = f.journal.current();
+    const read = f.journal.current();
+    read.revision = 90;
+    expect(f.journal.current()).toEqual(original);
+    const attempt = await f.journal.claim(f.binding);
+    attempt.approval.scope = "Caller alias";
+    expect(activeNativeClaim(f.journal).approval.scope).toBe("One fix");
+    expect(() => f.journal.replace(original, null)).toThrow("changed during");
+    const before = f.journal.current();
+    const invalid = activeNativeClaim(f.journal);
+    invalid.approval.action = "revoke";
+    expect(() => f.journal.replace(before, invalid)).toThrow("Invalid active");
+    expect(f.journal.current()).toEqual(before);
+  },
+);
 
-test("bundled native claims keep an omitted pre-binding run and fence scheduler adoption", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  expect(Object.hasOwn(attempt, "schedulerRunId")).toBe(false);
-  expect(factoryPreparationOperationId(attempt)).toBe(attempt.attemptId);
-  const execution = await f.execution(attempt.attemptId);
-  await expect(
-    f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace),
-  ).rejects.toThrow("bound run before workflow");
-  const runId = randomUUID();
-  f.journal.bindScheduleRun(attempt.attemptId, runId);
-  const revision = f.journal.current().revision;
-  expect(f.journal.bindScheduleRun(attempt.attemptId, runId).schedulerRunId).toBe(runId);
-  expect(f.journal.current().revision).toBe(revision);
-  expect(() => f.journal.bindScheduleRun(randomUUID(), runId)).toThrow("attempt identity");
-  expect(() => f.journal.bindScheduleRun(attempt.attemptId, randomUUID())).toThrow(
-    "reconciliation",
-  );
-  await f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace);
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  expect(activeNativeClaim(restarted).helpers?.[0].binding.kind).toBe("preparation");
-  await expect(restarted.reconcile()).rejects.toThrow("ENOENT");
-  await f.settle(execution);
-  expect(await restarted.reconcile()).toBe("resume_required");
-});
+posixTest(
+  "bundled native claims keep an omitted pre-binding run and fence scheduler adoption",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    expect(Object.hasOwn(attempt, "schedulerRunId")).toBe(false);
+    expect(factoryPreparationOperationId(attempt)).toBe(attempt.attemptId);
+    const execution = await f.execution(attempt.attemptId);
+    await expect(
+      f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace),
+    ).rejects.toThrow("bound run before workflow");
+    const runId = randomUUID();
+    f.journal.bindScheduleRun(attempt.attemptId, runId);
+    const revision = f.journal.current().revision;
+    expect(f.journal.bindScheduleRun(attempt.attemptId, runId).schedulerRunId).toBe(runId);
+    expect(f.journal.current().revision).toBe(revision);
+    expect(() => f.journal.bindScheduleRun(randomUUID(), runId)).toThrow("attempt identity");
+    expect(() => f.journal.bindScheduleRun(attempt.attemptId, randomUUID())).toThrow(
+      "reconciliation",
+    );
+    await f.journal.bindPreparationExecution(attempt.attemptId, execution, f.workspace);
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    expect(activeNativeClaim(restarted).helpers?.[0].binding.kind).toBe("preparation");
+    await expect(restarted.reconcile()).rejects.toThrow("ENOENT");
+    await f.settle(execution);
+    expect(await restarted.reconcile()).toBe("resume_required");
+  },
+);
 
-test("bundled native claims fence simultaneous admission and mutable input across settlement", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const outcomes = await Promise.allSettled([
-    f.journal.claim(f.binding),
-    f.journal.claim(f.binding),
-  ]);
-  expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-  const drift = await nativeClaimFixture();
-  drift.journal.initialize();
-  const historical = await drift.execution("historical-fixture");
-  await drift.settle(historical);
-  drift.control.beforeSettlement = async () => {
-    drift.binding.approval.scope = "Uncaptured edit";
-  };
-  await expect(drift.journal.claim(drift.binding)).rejects.toThrow("invocation changed");
-  expect(drift.journal.current().active).toBeNull();
-});
+posixTest(
+  "bundled native claims fence simultaneous admission and mutable input across settlement",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const outcomes = await Promise.allSettled([
+      f.journal.claim(f.binding),
+      f.journal.claim(f.binding),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const drift = await nativeClaimFixture();
+    drift.journal.initialize();
+    const historical = await drift.execution("historical-fixture");
+    await drift.settle(historical);
+    drift.control.beforeSettlement = async () => {
+      drift.binding.approval.scope = "Uncaptured edit";
+    };
+    await expect(drift.journal.claim(drift.binding)).rejects.toThrow("invocation changed");
+    expect(drift.journal.current().active).toBeNull();
+  },
+);
 
-test("bundled native claims preserve old execution identity and hold unsettled overlapping work", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const first = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, first, first.binding);
-  const second = await f.execution(attempt.attemptId);
-  await expect(f.journal.bindExecution(attempt.attemptId, second, second.binding)).rejects.toThrow(
-    "ENOENT",
-  );
-  await f.settle(first);
-  await f.journal.bindExecution(attempt.attemptId, second, second.binding);
-  await f.settle(second);
-  f.authority.identity.epoch = 2;
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  expect(activeNativeClaim(restarted).executions[0].identity.ownershipGeneration).toBe(1);
-  expect(await restarted.reconcile()).toBe("resume_required");
-  const read = activeNativeClaim(restarted);
-  read.executions[0].binding.account.accountId = "Alias edit";
-  expect(activeNativeClaim(restarted).executions[0].binding).toEqual(first.binding);
-});
+posixTest(
+  "bundled native claims preserve old execution identity and hold unsettled overlapping work",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const first = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, first, first.binding);
+    const second = await f.execution(attempt.attemptId);
+    await expect(
+      f.journal.bindExecution(attempt.attemptId, second, second.binding),
+    ).rejects.toThrow("ENOENT");
+    await f.settle(first);
+    await f.journal.bindExecution(attempt.attemptId, second, second.binding);
+    await f.settle(second);
+    f.authority.identity.epoch = 2;
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    expect(activeNativeClaim(restarted).executions[0].identity.ownershipGeneration).toBe(1);
+    expect(await restarted.reconcile()).toBe("resume_required");
+    const read = activeNativeClaim(restarted);
+    read.executions[0].binding.account.accountId = "Alias edit";
+    expect(activeNativeClaim(restarted).executions[0].binding).toEqual(first.binding);
+  },
+);
 
-test("bundled native claims require exact helper operation and settlement before worker dispatch", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const workflow = initialFactoryWorkflow();
-  workflow.phase = "checkpoint";
-  workflow.operation = { id: randomUUID(), kind: "checkpoint", phase: "checkpoint" };
-  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
-  const helper = await f.execution(attempt.attemptId);
-  const binding = {
-    operationId: workflow.operation.id,
-    kind: "checkpoint",
-    workspace: f.workspace,
-  };
-  await expect(
-    f.journal.bindHelperExecution(attempt.attemptId, helper, {
+posixTest(
+  "bundled native claims require exact helper operation and settlement before worker dispatch",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const workflow = initialFactoryWorkflow();
+    workflow.phase = "checkpoint";
+    workflow.operation = { id: randomUUID(), kind: "checkpoint", phase: "checkpoint" };
+    f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+    const helper = await f.execution(attempt.attemptId);
+    const binding = {
+      operationId: workflow.operation.id,
+      kind: "checkpoint",
+      workspace: f.workspace,
+    };
+    await expect(
+      f.journal.bindHelperExecution(attempt.attemptId, helper, {
+        ...binding,
+        kind: "checkpoint",
+        operationId: randomUUID(),
+      }),
+    ).rejects.toThrow("retained workflow operation");
+    await f.journal.bindHelperExecution(attempt.attemptId, helper, {
       ...binding,
       kind: "checkpoint",
-      operationId: randomUUID(),
-    }),
-  ).rejects.toThrow("retained workflow operation");
-  await f.journal.bindHelperExecution(attempt.attemptId, helper, {
-    ...binding,
-    kind: "checkpoint",
-  });
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  const worker = await f.execution(attempt.attemptId);
-  await expect(restarted.bindExecution(attempt.attemptId, worker, worker.binding)).rejects.toThrow(
-    "ENOENT",
-  );
-  await f.settle(helper);
-  await restarted.bindExecution(attempt.attemptId, worker, worker.binding);
-  await f.settle(worker);
-  expect(await restarted.reconcile()).toBe("resume_required");
-});
+    });
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    const worker = await f.execution(attempt.attemptId);
+    await expect(
+      restarted.bindExecution(attempt.attemptId, worker, worker.binding),
+    ).rejects.toThrow("ENOENT");
+    await f.settle(helper);
+    await restarted.bindExecution(attempt.attemptId, worker, worker.binding);
+    await f.settle(worker);
+    expect(await restarted.reconcile()).toBe("resume_required");
+  },
+);
 
-test("bundled native claims refuse unbound native intent and missing retained custody", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  await f.execution("unbound-fixture");
-  await expect(f.journal.claim(f.binding)).rejects.toThrow("ENOENT");
-  expect(f.journal.current().active).toBeNull();
-  const missing = await nativeClaimFixture();
-  missing.journal.initialize();
-  const attempt = await missing.journal.claim(missing.binding);
-  const execution = await missing.execution(attempt.attemptId);
-  await missing.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await missing.settle(execution);
-  await rm(execution.directory, { recursive: true });
-  await expect(missing.journal.reconcile()).rejects.toThrow("directory is missing");
-});
+posixTest(
+  "bundled native claims refuse unbound native intent and missing retained custody",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    await f.execution("unbound-fixture");
+    await expect(f.journal.claim(f.binding)).rejects.toThrow("ENOENT");
+    expect(f.journal.current().active).toBeNull();
+    const missing = await nativeClaimFixture();
+    missing.journal.initialize();
+    const attempt = await missing.journal.claim(missing.binding);
+    const execution = await missing.execution(attempt.attemptId);
+    await missing.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await missing.settle(execution);
+    await rm(execution.directory, { recursive: true });
+    await expect(missing.journal.reconcile()).rejects.toThrow("directory is missing");
+  },
+);
 
-test("bundled native claims archive released delivery and retain exact scheduler identity across restart", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const runId = randomUUID();
-  f.journal.bindScheduleRun(attempt.attemptId, runId);
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await f.settle(execution);
-  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
-  const before = f.journal.current();
-  await f.journal.release(attempt.attemptId, async () => true);
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  const released = restarted.current().lastReleased;
-  if (!released?.archiveSha256) throw new Error("Missing released fixture archive");
-  expect(released.schedulerRunId).toBe(runId);
-  expect(released.issueNumber).toBe(7);
-  expect(released.delivery?.commit).toBe("d".repeat(40));
-  const archive: unknown = JSON.parse(
-    await readFile(path.join(f.root, `delivered-${released.archiveSha256}.json`), "utf8"),
-  );
-  expect(archive).toEqual(before);
-  expect(await restarted.reconcile()).toBe("clear");
-  await writeFile(
-    restarted.path,
-    JSON.stringify({
-      ...restarted.current(),
-      lastReleased: { ...released, occurrenceId: undefined },
-    }),
-  );
-  expect(() => restarted.current()).toThrow("released execution receipt");
-});
+posixTest(
+  "bundled native claims archive released delivery and retain exact scheduler identity across restart",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const runId = randomUUID();
+    f.journal.bindScheduleRun(attempt.attemptId, runId);
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await f.settle(execution);
+    f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+    const before = f.journal.current();
+    await f.journal.release(attempt.attemptId, async () => true);
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    const released = restarted.current().lastReleased;
+    if (!released?.archiveSha256) throw new Error("Missing released fixture archive");
+    expect(released.schedulerRunId).toBe(runId);
+    expect(released.issueNumber).toBe(7);
+    expect(released.delivery?.commit).toBe("d".repeat(40));
+    const archive: unknown = JSON.parse(
+      await readFile(path.join(f.root, `delivered-${released.archiveSha256}.json`), "utf8"),
+    );
+    expect(archive).toEqual(before);
+    expect(await restarted.reconcile()).toBe("clear");
+    await writeFile(
+      restarted.path,
+      JSON.stringify({
+        ...restarted.current(),
+        lastReleased: { ...released, occurrenceId: undefined },
+      }),
+    );
+    expect(() => restarted.current()).toThrow("released execution receipt");
+  },
+);
 
-test("bundled native claims stop before archive persistence when delivery verification loses owner", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await f.settle(execution);
-  await expect(
-    f.journal.release(attempt.attemptId, async () => {
-      f.control.owned = false;
-      return true;
-    }),
-  ).rejects.toThrow("owner revoked");
-  expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toHaveLength(0);
-  f.control.owned = true;
-  expect(activeNativeClaim(f.journal).attemptId).toBe(attempt.attemptId);
-});
+posixTest(
+  "bundled native claims stop before archive persistence when delivery verification loses owner",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await f.settle(execution);
+    await expect(
+      f.journal.release(attempt.attemptId, async () => {
+        f.control.owned = false;
+        return true;
+      }),
+    ).rejects.toThrow("owner revoked");
+    expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toHaveLength(0);
+    f.control.owned = true;
+    expect(activeNativeClaim(f.journal).attemptId).toBe(attempt.attemptId);
+  },
+);
 
-test("bundled native claims preserve external retirement archive across interrupted pointer persistence", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  const completion = { pullRequest: 12, mergeCommit: "d".repeat(40), devCommit: "e".repeat(40) };
-  const confirmed = async () => true;
-  await expect(
-    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
-  ).rejects.toThrow("ENOENT");
-  await f.settle(execution);
-  await expect(
-    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, async () => false),
-  ).rejects.toThrow("unsettled");
-  const before = f.journal.current();
-  const replace = f.journal.replace.bind(f.journal);
-  f.journal.replace = () => {
-    throw new Error("Interrupted pointer persistence");
-  };
-  await expect(
-    f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
-  ).rejects.toThrow("Interrupted pointer");
-  expect(f.journal.current()).toEqual(before);
-  f.journal.replace = replace;
-  const receipt = await f.journal.retireCompletedElsewhere(
-    attempt.attemptId,
-    completion,
-    confirmed,
-    confirmed,
-  );
-  expect(f.journal.current().active).toBeNull();
-  expect(f.journal.current().lastReleased).toBeNull();
-  const archive: unknown = JSON.parse(
-    await readFile(path.join(f.root, `retired-${receipt.archiveSha256}.json`), "utf8"),
-  );
-  expect(archive).toEqual(before);
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  expect(
-    await restarted.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
-  ).toEqual(receipt);
-  await expect(
-    restarted.retireCompletedElsewhere(
+posixTest(
+  "bundled native claims preserve external retirement archive across interrupted pointer persistence",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    const completion = { pullRequest: 12, mergeCommit: "d".repeat(40), devCommit: "e".repeat(40) };
+    const confirmed = async () => true;
+    await expect(
+      f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+    ).rejects.toThrow("ENOENT");
+    await f.settle(execution);
+    await expect(
+      f.journal.retireCompletedElsewhere(
+        attempt.attemptId,
+        completion,
+        confirmed,
+        async () => false,
+      ),
+    ).rejects.toThrow("unsettled");
+    const before = f.journal.current();
+    const replace = f.journal.replace.bind(f.journal);
+    f.journal.replace = () => {
+      throw new Error("Interrupted pointer persistence");
+    };
+    await expect(
+      f.journal.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+    ).rejects.toThrow("Interrupted pointer");
+    expect(f.journal.current()).toEqual(before);
+    f.journal.replace = replace;
+    const receipt = await f.journal.retireCompletedElsewhere(
       attempt.attemptId,
-      { ...completion, pullRequest: 13 },
+      completion,
       confirmed,
       confirmed,
-    ),
-  ).rejects.toThrow("reused");
-  await rm(path.join(execution.directory, "receipt.json"));
-  await expect(restarted.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow("ENOENT");
-});
+    );
+    expect(f.journal.current().active).toBeNull();
+    expect(f.journal.current().lastReleased).toBeNull();
+    const archive: unknown = JSON.parse(
+      await readFile(path.join(f.root, `retired-${receipt.archiveSha256}.json`), "utf8"),
+    );
+    expect(archive).toEqual(before);
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    expect(
+      await restarted.retireCompletedElsewhere(attempt.attemptId, completion, confirmed, confirmed),
+    ).toEqual(receipt);
+    await expect(
+      restarted.retireCompletedElsewhere(
+        attempt.attemptId,
+        { ...completion, pullRequest: 13 },
+        confirmed,
+        confirmed,
+      ),
+    ).rejects.toThrow("reused");
+    await rm(path.join(execution.directory, "receipt.json"));
+    await expect(restarted.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow(
+      "ENOENT",
+    );
+  },
+);
 
-test("bundled native claims park blocked work without a shipment and reject receipt drift", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await f.settle(execution);
-  const workflow = initialFactoryWorkflow();
-  workflow.phase = "blocked";
-  workflow.blocker = "Repair budget exhausted";
-  workflow.repairAttempts = 2;
-  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
-  const audit = {
-    blockerSha256: createHash("sha256").update(workflow.blocker).digest("hex"),
-    commentId: 42,
-    commentSha256: "e".repeat(64),
-    pull: null,
-  };
-  const confirmed = async () => true;
-  const receipt = await f.journal.parkBlocked(attempt.attemptId, audit, confirmed, confirmed);
-  expect(receipt.reason).toBe("blocked");
-  expect(f.journal.current().lastReleased).toBeNull();
-  expect(await f.journal.verifyRetirement(receipt, confirmed, confirmed)).toBe(true);
-  f.control.beforeSettlement = async () => {
-    receipt.completion.commentId = 43;
-  };
-  await expect(f.journal.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow(
-    "invocation changed",
-  );
-});
+posixTest(
+  "bundled native claims park blocked work without a shipment and reject receipt drift",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await f.settle(execution);
+    const workflow = initialFactoryWorkflow();
+    workflow.phase = "blocked";
+    workflow.blocker = "Repair budget exhausted";
+    workflow.repairAttempts = 2;
+    f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+    const audit = {
+      blockerSha256: createHash("sha256").update(workflow.blocker).digest("hex"),
+      commentId: 42,
+      commentSha256: "e".repeat(64),
+      pull: null,
+    };
+    const confirmed = async () => true;
+    const receipt = await f.journal.parkBlocked(attempt.attemptId, audit, confirmed, confirmed);
+    expect(receipt.reason).toBe("blocked");
+    expect(f.journal.current().lastReleased).toBeNull();
+    expect(await f.journal.verifyRetirement(receipt, confirmed, confirmed)).toBe(true);
+    f.control.beforeSettlement = async () => {
+      receipt.completion.commentId = 43;
+    };
+    await expect(f.journal.verifyRetirement(receipt, confirmed, confirmed)).rejects.toThrow(
+      "invocation changed",
+    );
+  },
+);
 
-test("bundled native claims retain prior revision custody before new preparation", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  const old = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, old, old.binding);
-  f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
-  const before = f.journal.current();
-  const original = activeNativeClaim(f.journal);
-  const revised = createPristineBaseRevision(original, {
-    approval: { ...original.approval, baseCommit: "d".repeat(40) },
-    approvalCommentId: 11,
-    id: randomUUID(),
-    receiptSha256: "e".repeat(64),
-  });
-  f.journal.replace(before, revised);
-  const fresh = await f.execution(attempt.attemptId);
-  await expect(
-    f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace),
-  ).rejects.toThrow("ENOENT");
-  await f.settle(old);
-  await f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace);
-  expect(activeNativeClaim(f.journal).helpers?.at(-1)?.binding.operationId).toBe(
-    revised.baseRevision.id,
-  );
-  expect(activeNativeClaim(f.journal).executions).toEqual(original.executions);
-});
+posixTest(
+  "bundled native claims retain prior revision custody before new preparation",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    const old = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, old, old.binding);
+    f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
+    const before = f.journal.current();
+    const original = activeNativeClaim(f.journal);
+    const revised = createPristineBaseRevision(original, {
+      approval: { ...original.approval, baseCommit: "d".repeat(40) },
+      approvalCommentId: 11,
+      id: randomUUID(),
+      receiptSha256: "e".repeat(64),
+    });
+    f.journal.replace(before, revised);
+    const fresh = await f.execution(attempt.attemptId);
+    await expect(
+      f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace),
+    ).rejects.toThrow("ENOENT");
+    await f.settle(old);
+    await f.journal.bindPreparationExecution(attempt.attemptId, fresh, f.workspace);
+    expect(activeNativeClaim(f.journal).helpers?.at(-1)?.binding.operationId).toBe(
+      revised.baseRevision.id,
+    );
+    expect(activeNativeClaim(f.journal).executions).toEqual(original.executions);
+  },
+);
 
-test("bundled native claims reject unsafe files and malformed UTF-8 instead of silently repairing history", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const original = await readFile(f.journal.path);
-  await chmod(f.journal.path, 0o644);
-  expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
-  await chmod(f.journal.path, 0o600);
-  await writeFile(f.journal.path, Buffer.alloc(1024 * 1024 + 1));
-  expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
-  await writeFile(f.journal.path, Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d]));
-  expect(() => f.journal.current()).toThrow("encoded data");
-  await writeFile(f.journal.path, original);
-  const saved = path.join(f.root, "saved-claim.json");
-  await rename(f.journal.path, saved);
-  await symlink(saved, f.journal.path);
-  expect(() => f.journal.current()).toThrow("ELOOP");
-});
+posixTest(
+  "bundled native claims reject unsafe files and malformed UTF-8 instead of silently repairing history",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const original = await readFile(f.journal.path);
+    await chmod(f.journal.path, 0o644);
+    expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
+    await chmod(f.journal.path, 0o600);
+    await writeFile(f.journal.path, Buffer.alloc(1024 * 1024 + 1));
+    expect(() => f.journal.current()).toThrow("Unsafe Factory claim record");
+    await writeFile(f.journal.path, Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d]));
+    expect(() => f.journal.current()).toThrow("encoded data");
+    await writeFile(f.journal.path, original);
+    const saved = path.join(f.root, "saved-claim.json");
+    await rename(f.journal.path, saved);
+    await symlink(saved, f.journal.path);
+    expect(() => f.journal.current()).toThrow("ELOOP");
+  },
+);
 
-test("bundled native claims reject mutable custody binding during settlement before writing its entry", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const first = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, first, first.binding);
-  await f.settle(first);
-  const second = await f.execution(attempt.attemptId);
-  f.control.beforeSettlement = async () => {
-    second.binding.reservationId = randomUUID();
-  };
-  await expect(f.journal.bindExecution(attempt.attemptId, second, second.binding)).rejects.toThrow(
-    "invocation changed",
-  );
-  expect(activeNativeClaim(f.journal).executions).toHaveLength(1);
-});
+posixTest(
+  "bundled native claims reject mutable custody binding during settlement before writing its entry",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const first = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, first, first.binding);
+    await f.settle(first);
+    const second = await f.execution(attempt.attemptId);
+    f.control.beforeSettlement = async () => {
+      second.binding.reservationId = randomUUID();
+    };
+    await expect(
+      f.journal.bindExecution(attempt.attemptId, second, second.binding),
+    ).rejects.toThrow("invocation changed");
+    expect(activeNativeClaim(f.journal).executions).toHaveLength(1);
+  },
+);
 
-test("bundled native claims run the approved workflow through real detached claim and custody files", async () => {
-  const f = await nativeClaimFixture();
-  const issue = { number: 7, title: "Fixture workflow", body: "One bounded fix" };
-  f.binding.approval.issueContentSha256 = issueContentDigest(issue);
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  const commit = "d".repeat(40);
-  const events: string[] = [];
-  const options: FactoryWorkflowOptions = {
-    authority: f.authority,
-    claims: f.journal,
-    policy: {
-      trustedCommit: f.binding.approval.baseCommit,
-      configSha256: f.binding.approval.configSha256,
-      config: {
-        repository: f.binding.approval.repository,
-        validation: [{ argv: ["npm", "run", "typecheck"], timeoutSeconds: 60 }],
+posixTest(
+  "bundled native claims run the approved workflow through real detached claim and custody files",
+  async () => {
+    const f = await nativeClaimFixture();
+    const issue = { number: 7, title: "Fixture workflow", body: "One bounded fix" };
+    f.binding.approval.issueContentSha256 = issueContentDigest(issue);
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    const commit = "d".repeat(40);
+    const events: string[] = [];
+    const options: FactoryWorkflowOptions = {
+      authority: f.authority,
+      claims: f.journal,
+      policy: {
+        trustedCommit: f.binding.approval.baseCommit,
+        configSha256: f.binding.approval.configSha256,
+        config: {
+          repository: f.binding.approval.repository,
+          validation: [{ argv: ["npm", "run", "typecheck"], timeoutSeconds: 60 }],
+        },
       },
-    },
-    attemptId: attempt.attemptId,
-    createStage: async (input) => ({
-      stop: async () => {},
-      run: async () => {
-        events.push(input.kind);
-        const custody = await f.execution(attempt.attemptId);
-        custody.binding.stage = input.kind;
-        custody.binding.occurrenceId = `${attempt.occurrenceId}:${input.operation.id}`;
-        await f.journal.bindExecution(attempt.attemptId, custody, custody.binding);
-        await f.settle(custody);
-        if (input.kind === "validation") {
-          return {
-            executionId: custody.identity.executionId,
-            result: {
-              validation: { command: input.command, exitCode: 0, timedOut: false, signal: null },
-            },
-          };
-        }
-        if (input.kind === "review") {
-          return {
-            executionId: custody.identity.executionId,
-            result: { finalText: JSON.stringify({ commit, approved: true, findings: [] }) },
-          };
-        }
-        return { executionId: custody.identity.executionId, result: {} };
+      attemptId: attempt.attemptId,
+      createStage: async (input) => ({
+        stop: async () => {},
+        run: async () => {
+          events.push(input.kind);
+          const custody = await f.execution(attempt.attemptId);
+          custody.binding.stage = input.kind;
+          custody.binding.occurrenceId = `${attempt.occurrenceId}:${input.operation.id}`;
+          await f.journal.bindExecution(attempt.attemptId, custody, custody.binding);
+          await f.settle(custody);
+          if (input.kind === "validation") {
+            return {
+              executionId: custody.identity.executionId,
+              result: {
+                validation: { command: input.command, exitCode: 0, timedOut: false, signal: null },
+              },
+            };
+          }
+          if (input.kind === "review") {
+            return {
+              executionId: custody.identity.executionId,
+              result: { finalText: JSON.stringify({ commit, approved: true, findings: [] }) },
+            };
+          }
+          return { executionId: custody.identity.executionId, result: {} };
+        },
+      }),
+      checkpoint: async (_attempt, operation) => {
+        events.push("checkpoint");
+        const helper = await f.execution(attempt.attemptId);
+        await f.journal.bindHelperExecution(attempt.attemptId, helper, {
+          operationId: operation.id,
+          kind: "checkpoint",
+          workspace: f.workspace,
+        });
+        await f.settle(helper);
+        return commit;
       },
-    }),
-    checkpoint: async (_attempt, operation) => {
-      events.push("checkpoint");
-      const helper = await f.execution(attempt.attemptId);
-      await f.journal.bindHelperExecution(attempt.attemptId, helper, {
-        operationId: operation.id,
-        kind: "checkpoint",
-        workspace: f.workspace,
-      });
-      await f.settle(helper);
-      return commit;
-    },
-    assertCheckpoint: async (value) => {
-      expect(value).toBe(commit);
-    },
-    publish: async ({ operation }) => {
-      events.push("publication");
-      const helper = await f.execution(attempt.attemptId);
-      await f.journal.bindHelperExecution(attempt.attemptId, helper, {
-        operationId: operation.id,
-        kind: "publication",
-        workspace: f.workspace,
-      });
-      await f.settle(helper);
-      return { number: 5, html_url: "https://github.com/example/product/pull/5" };
-    },
-    verifyDelivery: async (_attempt, state) => {
-      expect(state.commit).toBe(commit);
-      expect(state.review?.approved).toBe(true);
-      expect(state.validations).toHaveLength(1);
-      return true;
-    },
-  };
-  expect((await new FactoryWorkflow(options).run(issue)).kind).toBe("published");
-  expect(events).toEqual(["implementation", "checkpoint", "validation", "review", "publication"]);
-  const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
-  expect(restarted.current().active).toBeNull();
-  expect(restarted.current().lastReleased?.delivery?.commit).toBe(commit);
-  expect(await restarted.reconcile()).toBe("clear");
-  expect((await readdir(path.join(f.root, "custody"))).length).toBe(5);
-});
+      assertCheckpoint: async (value) => {
+        expect(value).toBe(commit);
+      },
+      publish: async ({ operation }) => {
+        events.push("publication");
+        const helper = await f.execution(attempt.attemptId);
+        await f.journal.bindHelperExecution(attempt.attemptId, helper, {
+          operationId: operation.id,
+          kind: "publication",
+          workspace: f.workspace,
+        });
+        await f.settle(helper);
+        return { number: 5, html_url: "https://github.com/example/product/pull/5" };
+      },
+      verifyDelivery: async (_attempt, state) => {
+        expect(state.commit).toBe(commit);
+        expect(state.review?.approved).toBe(true);
+        expect(state.validations).toHaveLength(1);
+        return true;
+      },
+    };
+    expect((await new FactoryWorkflow(options).run(issue)).kind).toBe("published");
+    expect(events).toEqual(["implementation", "checkpoint", "validation", "review", "publication"]);
+    const restarted = new FactoryClaimJournal(f.authority, f.readSettlement);
+    expect(restarted.current().active).toBeNull();
+    expect(restarted.current().lastReleased?.delivery?.commit).toBe(commit);
+    expect(await restarted.reconcile()).toBe("clear");
+    expect((await readdir(path.join(f.root, "custody"))).length).toBe(5);
+  },
+);
 
-test("bundled native claims reject malformed stored custody and coercible released identities", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  const pristine = f.journal.current();
-  for (const change of [
-    { identity: { ...execution.identity, nonce: [execution.identity.nonce] } },
-    { directory: f.workspace },
-  ]) {
-    const malformed = structuredClone(pristine);
-    if (!malformed.active) throw new Error("Missing corrupted fixture claim");
-    Object.assign(malformed.active.executions[0], change);
-    await writeFile(f.journal.path, JSON.stringify(malformed));
-    expect(() => f.journal.current()).toThrow("custody record");
-  }
-  await writeFile(f.journal.path, JSON.stringify(pristine));
-  await f.settle(execution);
-  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
-  await f.journal.release(attempt.attemptId, async () => true);
-  const released = f.journal.current();
-  if (!released.lastReleased?.delivery) throw new Error("Missing released fixture delivery");
-  for (const field of ["commit", "repository"]) {
+posixTest(
+  "bundled native claims reject malformed stored custody and coercible released identities",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    const pristine = f.journal.current();
+    for (const change of [
+      { identity: { ...execution.identity, nonce: [execution.identity.nonce] } },
+      { directory: f.workspace },
+    ]) {
+      const malformed = structuredClone(pristine);
+      if (!malformed.active) throw new Error("Missing corrupted fixture claim");
+      Object.assign(malformed.active.executions[0], change);
+      await writeFile(f.journal.path, JSON.stringify(malformed));
+      expect(() => f.journal.current()).toThrow("custody record");
+    }
+    await writeFile(f.journal.path, JSON.stringify(pristine));
+    await f.settle(execution);
+    f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+    await f.journal.release(attempt.attemptId, async () => true);
+    const released = f.journal.current();
+    if (!released.lastReleased?.delivery) throw new Error("Missing released fixture delivery");
+    for (const field of ["commit", "repository"]) {
+      const malformed = structuredClone(released);
+      const delivery = malformed.lastReleased?.delivery;
+      if (!delivery) throw new Error("Missing delivery identity");
+      const value = field === "commit" ? delivery.commit : delivery.repository;
+      Object.assign(delivery, { [field]: [value] });
+      await writeFile(f.journal.path, JSON.stringify(malformed));
+      expect(() => f.journal.current()).toThrow("released delivery identity");
+    }
     const malformed = structuredClone(released);
-    const delivery = malformed.lastReleased?.delivery;
-    if (!delivery) throw new Error("Missing delivery identity");
-    const value = field === "commit" ? delivery.commit : delivery.repository;
-    Object.assign(delivery, { [field]: [value] });
+    Object.assign(malformed.lastReleased ?? {}, { baseRevisionId: [randomUUID()] });
     await writeFile(f.journal.path, JSON.stringify(malformed));
-    expect(() => f.journal.current()).toThrow("released delivery identity");
-  }
-  const malformed = structuredClone(released);
-  Object.assign(malformed.lastReleased ?? {}, { baseRevisionId: [randomUUID()] });
-  await writeFile(f.journal.path, JSON.stringify(malformed));
-  expect(() => f.journal.current()).toThrow("released execution receipt");
-});
+    expect(() => f.journal.current()).toThrow("released execution receipt");
+  },
+);
 
-test("bundled native claims bind all released metadata to the exact archived claim", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
-  const original = f.journal.current();
-  const current = activeNativeClaim(f.journal);
-  const revised = createPristineBaseRevision(current, {
-    approval: { ...current.approval, baseCommit: "e".repeat(40) },
-    approvalCommentId: 11,
-    id: randomUUID(),
-    receiptSha256: "f".repeat(64),
-  });
-  f.journal.replace(original, revised);
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await f.settle(execution);
-  const workflow = nativeReleaseCheckpoint();
-  if (!workflow.draft || !workflow.commit) throw new Error("Missing release fixture");
-  workflow.draft.mergeReceipt = {
-    repository: "example/product",
-    number: workflow.draft.number,
-    head: workflow.commit,
-    mergeCommit: "a".repeat(40),
-    mergedAt: "2026-10-08T12:00:00Z",
-    url: workflow.draft.url,
-  };
-  f.journal.updateWorkflow(attempt.attemptId, null, workflow);
-  await f.journal.release(attempt.attemptId, async () => true);
-  const pristine = f.journal.current();
-  const released = pristine.lastReleased;
-  if (!released?.archiveSha256 || !released.delivery) throw new Error("Missing archive fixture");
-  const archivePath = path.join(f.root, `delivered-${released.archiveSha256}.json`);
-  const archiveBytes = await readFile(archivePath);
-  const pointerChanges = [
-    { schedulerRunId: randomUUID() },
-    { scheduleId: "another-schedule" },
-    { occurrenceId: "another-occurrence" },
-    { issueNumber: 99 },
-    { baseRevisionId: randomUUID() },
-    {
-      delivery: {
-        ...released.delivery,
-        commit: "e".repeat(40),
-        mergeReceipt: { ...workflow.draft.mergeReceipt, head: "e".repeat(40) },
+posixTest(
+  "bundled native claims bind all released metadata to the exact archived claim",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    f.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    f.journal.updateWorkflow(attempt.attemptId, null, initialFactoryWorkflow());
+    const original = f.journal.current();
+    const current = activeNativeClaim(f.journal);
+    const revised = createPristineBaseRevision(current, {
+      approval: { ...current.approval, baseCommit: "e".repeat(40) },
+      approvalCommentId: 11,
+      id: randomUUID(),
+      receiptSha256: "f".repeat(64),
+    });
+    f.journal.replace(original, revised);
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await f.settle(execution);
+    const workflow = nativeReleaseCheckpoint();
+    if (!workflow.draft || !workflow.commit) throw new Error("Missing release fixture");
+    workflow.draft.mergeReceipt = {
+      repository: "example/product",
+      number: workflow.draft.number,
+      head: workflow.commit,
+      mergeCommit: "a".repeat(40),
+      mergedAt: "2026-10-08T12:00:00Z",
+      url: workflow.draft.url,
+    };
+    f.journal.updateWorkflow(attempt.attemptId, null, workflow);
+    await f.journal.release(attempt.attemptId, async () => true);
+    const pristine = f.journal.current();
+    const released = pristine.lastReleased;
+    if (!released?.archiveSha256 || !released.delivery) throw new Error("Missing archive fixture");
+    const archivePath = path.join(f.root, `delivered-${released.archiveSha256}.json`);
+    const archiveBytes = await readFile(archivePath);
+    const pointerChanges = [
+      { schedulerRunId: randomUUID() },
+      { scheduleId: "another-schedule" },
+      { occurrenceId: "another-occurrence" },
+      { issueNumber: 99 },
+      { baseRevisionId: randomUUID() },
+      {
+        delivery: {
+          ...released.delivery,
+          commit: "e".repeat(40),
+          mergeReceipt: { ...workflow.draft.mergeReceipt, head: "e".repeat(40) },
+        },
       },
-    },
-    {
-      delivery: {
-        ...released.delivery,
-        repository: "other/product",
-        draftUrl: "https://github.com/other/product/pull/5",
-        mergeReceipt: {
-          ...workflow.draft.mergeReceipt,
+      {
+        delivery: {
+          ...released.delivery,
           repository: "other/product",
-          url: "https://github.com/other/product/pull/5",
+          draftUrl: "https://github.com/other/product/pull/5",
+          mergeReceipt: {
+            ...workflow.draft.mergeReceipt,
+            repository: "other/product",
+            url: "https://github.com/other/product/pull/5",
+          },
         },
       },
-    },
-    {
-      delivery: {
-        ...released.delivery,
-        draftNumber: 6,
-        draftUrl: "https://github.com/example/product/pull/6",
-        mergeReceipt: {
-          ...workflow.draft.mergeReceipt,
-          number: 6,
-          url: "https://github.com/example/product/pull/6",
+      {
+        delivery: {
+          ...released.delivery,
+          draftNumber: 6,
+          draftUrl: "https://github.com/example/product/pull/6",
+          mergeReceipt: {
+            ...workflow.draft.mergeReceipt,
+            number: 6,
+            url: "https://github.com/example/product/pull/6",
+          },
         },
       },
-    },
-    {
-      delivery: {
-        ...released.delivery,
-        mergeReceipt: { ...workflow.draft.mergeReceipt, mergeCommit: "b".repeat(40) },
+      {
+        delivery: {
+          ...released.delivery,
+          mergeReceipt: { ...workflow.draft.mergeReceipt, mergeCommit: "b".repeat(40) },
+        },
       },
-    },
-    { delivery: { ...released.delivery, mergeReceipt: undefined } },
-    { delivery: undefined },
-    { baseRevisionId: undefined },
-    {
-      schedulerRunId: undefined,
-      scheduleId: undefined,
-      occurrenceId: undefined,
-      issueNumber: undefined,
-    },
-  ];
-  for (const change of pointerChanges) {
+      { delivery: { ...released.delivery, mergeReceipt: undefined } },
+      { delivery: undefined },
+      { baseRevisionId: undefined },
+      {
+        schedulerRunId: undefined,
+        scheduleId: undefined,
+        occurrenceId: undefined,
+        issueNumber: undefined,
+      },
+    ];
+    for (const change of pointerChanges) {
+      await writeFile(
+        f.journal.path,
+        JSON.stringify({ ...pristine, lastReleased: { ...released, ...change } }),
+      );
+      expect(() => f.journal.current()).toThrow("delivery archive changed");
+      expect(await readFile(archivePath)).toEqual(archiveBytes);
+    }
+    await writeFile(f.journal.path, JSON.stringify(pristine));
+    expect(new FactoryClaimJournal(f.authority, f.readSettlement).current()).toEqual(pristine);
+  },
+);
+
+posixTest(
+  "bundled native claims preserve legacy pointers and identical archive-before-pointer retry",
+  async () => {
+    const f = await nativeClaimFixture();
+    f.journal.initialize();
+    const attempt = await f.journal.claim(f.binding);
+    const execution = await f.execution(attempt.attemptId);
+    await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
+    await f.settle(execution);
+    f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
+    const before = f.journal.current();
+    const replace = f.journal.replace.bind(f.journal);
+    f.journal.replace = () => {
+      throw new Error("Interrupted delivery pointer persistence");
+    };
+    await expect(f.journal.release(attempt.attemptId, async () => true)).rejects.toThrow(
+      "Interrupted delivery pointer",
+    );
+    expect(f.journal.current()).toEqual(before);
+    const archiveNames = (await readdir(f.root)).filter((name) => name.startsWith("delivered-"));
+    expect(archiveNames).toHaveLength(1);
+    const archiveBytes = await readFile(path.join(f.root, archiveNames[0]));
+    f.journal.replace = replace;
+    await f.journal.release(attempt.attemptId, async () => true);
+    expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toEqual(
+      archiveNames,
+    );
+    expect(await readFile(path.join(f.root, archiveNames[0]))).toEqual(archiveBytes);
+    const released = f.journal.current().lastReleased;
+    if (!released) throw new Error("Missing released fixture");
+    expect(released.schedulerRunId).toBeUndefined();
+    const legacy = {
+      attemptId: released.attemptId,
+      publicationOperationId: released.publicationOperationId,
+    };
     await writeFile(
       f.journal.path,
-      JSON.stringify({ ...pristine, lastReleased: { ...released, ...change } }),
+      JSON.stringify({ ...f.journal.current(), lastReleased: legacy }),
     );
-    expect(() => f.journal.current()).toThrow("delivery archive changed");
-    expect(await readFile(archivePath)).toEqual(archiveBytes);
-  }
-  await writeFile(f.journal.path, JSON.stringify(pristine));
-  expect(new FactoryClaimJournal(f.authority, f.readSettlement).current()).toEqual(pristine);
-});
-
-test("bundled native claims preserve legacy pointers and identical archive-before-pointer retry", async () => {
-  const f = await nativeClaimFixture();
-  f.journal.initialize();
-  const attempt = await f.journal.claim(f.binding);
-  const execution = await f.execution(attempt.attemptId);
-  await f.journal.bindExecution(attempt.attemptId, execution, execution.binding);
-  await f.settle(execution);
-  f.journal.updateWorkflow(attempt.attemptId, null, nativeReleaseCheckpoint());
-  const before = f.journal.current();
-  const replace = f.journal.replace.bind(f.journal);
-  f.journal.replace = () => {
-    throw new Error("Interrupted delivery pointer persistence");
-  };
-  await expect(f.journal.release(attempt.attemptId, async () => true)).rejects.toThrow(
-    "Interrupted delivery pointer",
-  );
-  expect(f.journal.current()).toEqual(before);
-  const archiveNames = (await readdir(f.root)).filter((name) => name.startsWith("delivered-"));
-  expect(archiveNames).toHaveLength(1);
-  const archiveBytes = await readFile(path.join(f.root, archiveNames[0]));
-  f.journal.replace = replace;
-  await f.journal.release(attempt.attemptId, async () => true);
-  expect((await readdir(f.root)).filter((name) => name.startsWith("delivered-"))).toEqual(
-    archiveNames,
-  );
-  expect(await readFile(path.join(f.root, archiveNames[0]))).toEqual(archiveBytes);
-  const released = f.journal.current().lastReleased;
-  if (!released) throw new Error("Missing released fixture");
-  expect(released.schedulerRunId).toBeUndefined();
-  const legacy = {
-    attemptId: released.attemptId,
-    publicationOperationId: released.publicationOperationId,
-  };
-  await writeFile(f.journal.path, JSON.stringify({ ...f.journal.current(), lastReleased: legacy }));
-  expect(new FactoryClaimJournal(f.authority, f.readSettlement).current().lastReleased).toEqual(
-    legacy,
-  );
-});
+    expect(new FactoryClaimJournal(f.authority, f.readSettlement).current().lastReleased).toEqual(
+      legacy,
+    );
+  },
+);
 
 async function nativeSelectionFixture() {
   const n = await nativeClaimFixture();
@@ -5506,166 +5625,195 @@ async function nativeSelectionFixture() {
 }
 const nativeSelectionTime = "2026-10-09T00:35:00Z";
 
-test("bundled native selection admits a freshly qualified issue into a durable native claim", async () => {
-  const f = await nativeSelectionFixture();
-  const select = f.create();
-  const result = await select({ id: "native-schedule" }, nativeSelectionTime);
-  if (!result) throw new Error("Missing selected fixture claim");
-  expect(result.approval.issueNumber).toBe(1);
-  expect(result.qualification).toEqual(f.q.binding);
-  expect(result.occurrenceId).toBe(`native-schedule:${nativeSelectionTime}`);
-  expect(Object.hasOwn(result, "schedulerRunId")).toBe(false);
-  expect(f.progress.calls).toHaveLength(1);
-  expect(f.q.reads.filter((endpoint) => endpoint.includes("/comments?")).length).toBeGreaterThan(1);
-  result.approval.scope = "unverified caller edit";
-  expect(activeNativeClaim(f.n.journal).approval.scope).not.toBe(result.approval.scope);
-  expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(
-    f.n.journal.current(),
-  );
-});
-
-test("bundled native selection preserves empty or withheld queue and refuses excluded or mismatched identity", async () => {
-  const empty = await nativeSelectionFixture();
-  empty.q.issue.labels = [];
-  expect(await empty.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
-  expect(empty.n.journal.current().active).toBeNull();
-  expect(empty.progress.calls).toEqual([]);
-  const held = await nativeSelectionFixture();
-  held.q.control.allowed = false;
-  expect(await held.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
-  expect(held.n.journal.current().active).toBeNull();
-  const excluded = await nativeSelectionFixture();
-  excluded.input.excludedIssues.push(1);
-  await expect(excluded.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "excluded issue",
-  );
-  expect(excluded.n.journal.current().active).toBeNull();
-  const mismatch = await nativeSelectionFixture();
-  const read = mismatch.q.verifier.readQueue;
-  mismatch.q.verifier.readQueue = async () => {
-    const queue = await read();
-    queue.eligible[0].issueNumber = 99;
-    return queue;
-  };
-  await expect(mismatch.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "identity differs",
-  );
-  expect(mismatch.progress.calls).toEqual([]);
-});
-
-test("bundled native selection holds retained work and unbound unsettled custody before queue reads", async () => {
-  const active = await nativeSelectionFixture();
-  await active.n.journal.claim(active.n.binding);
-  await expect(active.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "unfinished claim",
-  );
-  expect(active.q.reads).toEqual([]);
-  const unsettled = await nativeSelectionFixture();
-  await unsettled.n.execution(randomUUID());
-  await expect(unsettled.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "ENOENT",
-  );
-  expect(unsettled.q.reads).toEqual([]);
-  expect(unsettled.progress.calls).toEqual([]);
-});
-
-test("bundled native selection rejects changed occurrence and configuration after queue reads", async () => {
-  for (const change of ["occurrence", "policy", "exclusions"]) {
+posixTest(
+  "bundled native selection admits a freshly qualified issue into a durable native claim",
+  async () => {
     const f = await nativeSelectionFixture();
-    const schedule = { id: "schedule" };
+    const select = f.create();
+    const result = await select({ id: "native-schedule" }, nativeSelectionTime);
+    if (!result) throw new Error("Missing selected fixture claim");
+    expect(result.approval.issueNumber).toBe(1);
+    expect(result.qualification).toEqual(f.q.binding);
+    expect(result.occurrenceId).toBe(`native-schedule:${nativeSelectionTime}`);
+    expect(Object.hasOwn(result, "schedulerRunId")).toBe(false);
+    expect(f.progress.calls).toHaveLength(1);
+    expect(f.q.reads.filter((endpoint) => endpoint.includes("/comments?")).length).toBeGreaterThan(
+      1,
+    );
+    result.approval.scope = "unverified caller edit";
+    expect(activeNativeClaim(f.n.journal).approval.scope).not.toBe(result.approval.scope);
+    expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(
+      f.n.journal.current(),
+    );
+  },
+);
+
+posixTest(
+  "bundled native selection preserves empty or withheld queue and refuses excluded or mismatched identity",
+  async () => {
+    const empty = await nativeSelectionFixture();
+    empty.q.issue.labels = [];
+    expect(await empty.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
+    expect(empty.n.journal.current().active).toBeNull();
+    expect(empty.progress.calls).toEqual([]);
+    const held = await nativeSelectionFixture();
+    held.q.control.allowed = false;
+    expect(await held.create()({ id: "schedule" }, nativeSelectionTime)).toBeNull();
+    expect(held.n.journal.current().active).toBeNull();
+    const excluded = await nativeSelectionFixture();
+    excluded.input.excludedIssues.push(1);
+    await expect(excluded.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "excluded issue",
+    );
+    expect(excluded.n.journal.current().active).toBeNull();
+    const mismatch = await nativeSelectionFixture();
+    const read = mismatch.q.verifier.readQueue;
+    mismatch.q.verifier.readQueue = async () => {
+      const queue = await read();
+      queue.eligible[0].issueNumber = 99;
+      return queue;
+    };
+    await expect(mismatch.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "identity differs",
+    );
+    expect(mismatch.progress.calls).toEqual([]);
+  },
+);
+
+posixTest(
+  "bundled native selection holds retained work and unbound unsettled custody before queue reads",
+  async () => {
+    const active = await nativeSelectionFixture();
+    await active.n.journal.claim(active.n.binding);
+    await expect(active.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "unfinished claim",
+    );
+    expect(active.q.reads).toEqual([]);
+    const unsettled = await nativeSelectionFixture();
+    await unsettled.n.execution(randomUUID());
+    await expect(unsettled.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "ENOENT",
+    );
+    expect(unsettled.q.reads).toEqual([]);
+    expect(unsettled.progress.calls).toEqual([]);
+  },
+);
+
+posixTest(
+  "bundled native selection rejects changed occurrence and configuration after queue reads",
+  async () => {
+    for (const change of ["occurrence", "policy", "exclusions"]) {
+      const f = await nativeSelectionFixture();
+      const schedule = { id: "schedule" };
+      const read = f.q.verifier.readQueue;
+      f.q.verifier.readQueue = async () => {
+        const queue = await read();
+        if (change === "occurrence") schedule.id = "unverified-schedule";
+        else if (change === "policy") f.input.policy.config.repository = "unverified/repository";
+        else f.input.excludedIssues.push(1);
+        return queue;
+      };
+      await expect(f.create()(schedule, nativeSelectionTime)).rejects.toThrow("changed");
+      expect(f.n.journal.current().active).toBeNull();
+      expect(f.progress.calls).toEqual([]);
+    }
+  },
+);
+
+posixTest(
+  "bundled native selection rejects callback replacement and owner loss during admission",
+  async () => {
+    for (const failure of ["callback", "owner"]) {
+      const f = await nativeSelectionFixture();
+      const admit = f.q.verifier.admit;
+      f.q.verifier.admit = async (binding) => {
+        const result = await admit(binding);
+        if (failure === "callback") f.input.delivery.writeProgress = async () => {};
+        else f.n.control.owned = false;
+        return result;
+      };
+      await expect(f.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow();
+      f.n.control.owned = true;
+      expect(f.n.journal.current().active).toBeNull();
+      expect(f.progress.calls).toEqual([]);
+    }
+  },
+);
+
+posixTest(
+  "bundled native selection repeats fresh issue verification before retaining the claim",
+  async () => {
+    const f = await nativeSelectionFixture();
     const read = f.q.verifier.readQueue;
     f.q.verifier.readQueue = async () => {
       const queue = await read();
-      if (change === "occurrence") schedule.id = "unverified-schedule";
-      else if (change === "policy") f.input.policy.config.repository = "unverified/repository";
-      else f.input.excludedIssues.push(1);
+      f.q.issue.body = "changed after discovery";
       return queue;
     };
-    await expect(f.create()(schedule, nativeSelectionTime)).rejects.toThrow("changed");
-    expect(f.n.journal.current().active).toBeNull();
-    expect(f.progress.calls).toEqual([]);
-  }
-});
-
-test("bundled native selection rejects callback replacement and owner loss during admission", async () => {
-  for (const failure of ["callback", "owner"]) {
-    const f = await nativeSelectionFixture();
-    const admit = f.q.verifier.admit;
-    f.q.verifier.admit = async (binding) => {
-      const result = await admit(binding);
-      if (failure === "callback") f.input.delivery.writeProgress = async () => {};
-      else f.n.control.owned = false;
-      return result;
-    };
     await expect(f.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow();
-    f.n.control.owned = true;
     expect(f.n.journal.current().active).toBeNull();
     expect(f.progress.calls).toEqual([]);
-  }
-});
+  },
+);
 
-test("bundled native selection repeats fresh issue verification before retaining the claim", async () => {
-  const f = await nativeSelectionFixture();
-  const read = f.q.verifier.readQueue;
-  f.q.verifier.readQueue = async () => {
-    const queue = await read();
-    f.q.issue.body = "changed after discovery";
-    return queue;
-  };
-  await expect(f.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow();
-  expect(f.n.journal.current().active).toBeNull();
-  expect(f.progress.calls).toEqual([]);
-});
+posixTest(
+  "bundled native selection retains a possibly published claim on status response loss without replay",
+  async () => {
+    const f = await nativeSelectionFixture();
+    f.progress.fail = true;
+    const select = f.create();
+    await expect(select({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "Lost status response",
+    );
+    const retained = f.n.journal.current();
+    expect(retained.active?.approval.issueNumber).toBe(1);
+    const readCount = f.q.reads.length;
+    await expect(select({ id: "schedule" }, "2026-10-09T00:36:00Z")).rejects.toThrow(
+      "unfinished claim",
+    );
+    expect(f.progress.calls).toHaveLength(1);
+    expect(f.q.reads).toHaveLength(readCount);
+    expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(retained);
+  },
+);
 
-test("bundled native selection retains a possibly published claim on status response loss without replay", async () => {
-  const f = await nativeSelectionFixture();
-  f.progress.fail = true;
-  const select = f.create();
-  await expect(select({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "Lost status response",
-  );
-  const retained = f.n.journal.current();
-  expect(retained.active?.approval.issueNumber).toBe(1);
-  const readCount = f.q.reads.length;
-  await expect(select({ id: "schedule" }, "2026-10-09T00:36:00Z")).rejects.toThrow(
-    "unfinished claim",
-  );
-  expect(f.progress.calls).toHaveLength(1);
-  expect(f.q.reads).toHaveLength(readCount);
-  expect(new FactoryClaimJournal(f.n.authority, f.n.readSettlement).current()).toEqual(retained);
-});
+posixTest(
+  "bundled native selection serializes concurrent occurrences without duplicate ownership",
+  async () => {
+    const f = await nativeSelectionFixture();
+    const select = f.create();
+    const results = await Promise.allSettled([
+      select({ id: "schedule" }, nativeSelectionTime),
+      select({ id: "schedule" }, "2026-10-09T00:36:00Z"),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(f.progress.calls).toHaveLength(1);
+    expect(activeNativeClaim(f.n.journal).occurrenceId).toBe(`schedule:${nativeSelectionTime}`);
+  },
+);
 
-test("bundled native selection serializes concurrent occurrences without duplicate ownership", async () => {
-  const f = await nativeSelectionFixture();
-  const select = f.create();
-  const results = await Promise.allSettled([
-    select({ id: "schedule" }, nativeSelectionTime),
-    select({ id: "schedule" }, "2026-10-09T00:36:00Z"),
-  ]);
-  expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
-  expect(f.progress.calls).toHaveLength(1);
-  expect(activeNativeClaim(f.n.journal).occurrenceId).toBe(`schedule:${nativeSelectionTime}`);
-});
+posixTest(
+  "bundled native selection isolates publisher aliases and rejects postclaim native identity drift",
+  async () => {
+    const detached = await nativeSelectionFixture();
+    detached.progress.after = (attempt) => {
+      attempt.approval.scope = "publisher alias edit";
+    };
+    const result = await detached.create()({ id: "schedule" }, nativeSelectionTime);
+    expect(result?.approval.scope).not.toBe("publisher alias edit");
+    const changed = await nativeSelectionFixture();
+    changed.progress.after = (attempt) => {
+      changed.n.journal.bindScheduleRun(attempt.attemptId, randomUUID());
+    };
+    await expect(changed.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "claim changed",
+    );
+    expect(activeNativeClaim(changed.n.journal).schedulerRunId).toBeDefined();
+    expect(changed.progress.calls).toHaveLength(1);
+  },
+);
 
-test("bundled native selection isolates publisher aliases and rejects postclaim native identity drift", async () => {
-  const detached = await nativeSelectionFixture();
-  detached.progress.after = (attempt) => {
-    attempt.approval.scope = "publisher alias edit";
-  };
-  const result = await detached.create()({ id: "schedule" }, nativeSelectionTime);
-  expect(result?.approval.scope).not.toBe("publisher alias edit");
-  const changed = await nativeSelectionFixture();
-  changed.progress.after = (attempt) => {
-    changed.n.journal.bindScheduleRun(attempt.attemptId, randomUUID());
-  };
-  await expect(changed.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "claim changed",
-  );
-  expect(activeNativeClaim(changed.n.journal).schedulerRunId).toBeDefined();
-  expect(changed.progress.calls).toHaveLength(1);
-});
-
-test("bundled native selection preserves genuine legacy owner-comment admission", async () => {
+posixTest("bundled native selection preserves genuine legacy owner-comment admission", async () => {
   const f = await nativeSelectionFixture();
   const legacy = legacyApprovalFixture();
   f.input.qualified = undefined;
@@ -5684,29 +5832,32 @@ test("bundled native selection preserves genuine legacy owner-comment admission"
   expect(f.progress.calls).toHaveLength(1);
 });
 
-test("bundled native selection rejects malformed scheduler timestamps and capped queue before claiming", async () => {
-  const f = await nativeSelectionFixture();
-  const select = f.create();
-  for (const timestamp of ["2026", "2026-02-30T12:00:00Z", "2026-10-09T00:35:00+00:00"]) {
-    await expect(select({ id: "schedule" }, timestamp)).rejects.toThrow("occurrence");
-  }
-  await expect(
-    Reflect.apply(select, undefined, [{ id: ["schedule"] }, nativeSelectionTime]),
-  ).rejects.toThrow("occurrence");
-  expect(f.q.reads).toEqual([]);
-  const capped = await nativeSelectionFixture();
-  const read = capped.q.verifier.readQueue;
-  capped.q.verifier.readQueue = async () => {
-    const queue = await read();
-    queue.eligible = Array.from({ length: 1001 }, () => queue.eligible[0]);
-    return queue;
-  };
-  await expect(capped.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
-    "coverage is invalid",
-  );
-  expect(capped.n.journal.current().active).toBeNull();
-  expect(capped.progress.calls).toEqual([]);
-});
+posixTest(
+  "bundled native selection rejects malformed scheduler timestamps and capped queue before claiming",
+  async () => {
+    const f = await nativeSelectionFixture();
+    const select = f.create();
+    for (const timestamp of ["2026", "2026-02-30T12:00:00Z", "2026-10-09T00:35:00+00:00"]) {
+      await expect(select({ id: "schedule" }, timestamp)).rejects.toThrow("occurrence");
+    }
+    await expect(
+      Reflect.apply(select, undefined, [{ id: ["schedule"] }, nativeSelectionTime]),
+    ).rejects.toThrow("occurrence");
+    expect(f.q.reads).toEqual([]);
+    const capped = await nativeSelectionFixture();
+    const read = capped.q.verifier.readQueue;
+    capped.q.verifier.readQueue = async () => {
+      const queue = await read();
+      queue.eligible = Array.from({ length: 1001 }, () => queue.eligible[0]);
+      return queue;
+    };
+    await expect(capped.create()({ id: "schedule" }, nativeSelectionTime)).rejects.toThrow(
+      "coverage is invalid",
+    );
+    expect(capped.n.journal.current().active).toBeNull();
+    expect(capped.progress.calls).toEqual([]);
+  },
+);
 
 function governedDeliveryFixture() {
   const commit = "c".repeat(40);
@@ -6923,7 +7074,7 @@ test("Factory execution observation preserves native write rejection and rejects
 
 test("Factory execution observation uses the actual native store without inventing hourly usage", async () => {
   const f = executionObservationFixture();
-  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-observation-store-"));
+  const directory = await mkdtemp(path.join(TMP_ROOT, "factory-observation-store-"));
   try {
     const store = new QuotaGovernorStore(directory, { nowMs: () => f.fixture.now });
     f.options.store = store;
@@ -7038,22 +7189,25 @@ test("Factory native recovery rejects owner-method drift while custody reconcili
   });
 });
 
-test("Factory native recovery uses the actual native lock protocol without creating accounting history", async () => {
-  const f = factoryRecoveryFixture();
-  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-recovery-store-"));
-  try {
-    const store = new QuotaGovernorStore(directory);
-    f.options.store = store;
-    const lock = store.accountPath(f.options.account) + ".lock";
-    await mkdir(lock, { mode: 0o700 });
-    await expect(recoverFactoryAccount(f.options)).resolves.toBe("recovered");
-    expect(await readdir(directory)).toEqual([]);
-    await expect(recoverFactoryAccount(f.options)).resolves.toBe("absent");
-    expect(f.records.reconcile).toHaveBeenCalledTimes(2);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+posixTest(
+  "Factory native recovery uses the actual native lock protocol without creating accounting history",
+  async () => {
+    const f = factoryRecoveryFixture();
+    const directory = await mkdtemp(path.join(TMP_ROOT, "factory-recovery-store-"));
+    try {
+      const store = new QuotaGovernorStore(directory);
+      f.options.store = store;
+      const lock = store.accountPath(f.options.account) + ".lock";
+      await mkdir(lock, { mode: 0o700 });
+      await expect(recoverFactoryAccount(f.options)).resolves.toBe("recovered");
+      expect(await readdir(directory)).toEqual([]);
+      await expect(recoverFactoryAccount(f.options)).resolves.toBe("absent");
+      expect(f.records.reconcile).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("Factory native recovery reports clear claims without reading or mutating reservations", async () => {
   const f = factoryRecoveryFixture();

@@ -64,10 +64,12 @@ try {
   console.log("✓ onboarding keeps relay disabled and waits for daemon readiness\n");
 
   console.log("Test 2: --no-relay suppresses pairing for an already-running daemon");
-  const enableRelay =
+  // Device pairing is retired, so the running daemon refuses an offer even when asked.
+  const pair =
     await $`PASEO_HOME=${paseoHome} npx paseo daemon pair --home ${paseoHome} --relay`.nothrow();
-  assert.strictEqual(enableRelay.exitCode, 0, `relay enable should succeed: ${enableRelay.stderr}`);
-  assert(enableRelay.stdout.includes("#offer="), "relay enable should produce a pairing offer");
+  assert.strictEqual(pair.exitCode, 1, "daemon pair should be refused");
+  assert(pair.stderr.includes("Device pairing has been retired"), pair.stderr);
+  assert(!pair.stdout.includes("#offer="), "daemon pair should not produce a pairing offer");
 
   const noRelayOnboard = await $`PASEO_HOME=${paseoHome} npx paseo --no-relay`.nothrow();
   assert.strictEqual(

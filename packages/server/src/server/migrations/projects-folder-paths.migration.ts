@@ -1,7 +1,9 @@
 // Rewrites registry paths recorded under an earlier location or alias of the Projects
 // folder, such as a Dev container that mounted ~/dev at another user's home, to the
-// folder's logical path. Runs at startup before the registries load. Idempotent: once no record
-// starts with an earlier prefix it changes nothing. Each changed file is copied first.
+// folder's logical path. Runs at startup before the registries load. Covers project roots and
+// keys, workspace paths and workspace membership keys. Idempotent: once no record starts with
+// an earlier prefix it changes nothing, so it also repairs registries an earlier version
+// migrated without membership keys. Each changed file is copied first.
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -49,6 +51,18 @@ function rewriteProjectKey(value: unknown, folder: LogicalFolder): string | null
 }
 
 type RegistryRecord = Record<string, unknown>;
+
+// A workspace's membership key overrides its native project in the sidebar, so a key left
+// on an alias path splits the workspace off into its own project group.
+function rewriteMembershipKey(
+  record: RegistryRecord,
+  folder: LogicalFolder,
+): RegistryRecord | null {
+  const membership = record.projectMembership;
+  if (!membership || typeof membership !== "object" || Array.isArray(membership)) return null;
+  const key = rewriteProjectKey((membership as RegistryRecord).key, folder);
+  return key ? { ...record, projectMembership: { ...membership, key } } : null;
+}
 
 function rewriteRecords(
   records: RegistryRecord[],
@@ -115,7 +129,9 @@ export async function migrateRegistryPathsToProjectsFolder(
       })
     : null;
   const workspaceUpdate = workspaces
-    ? rewriteRecords(workspaces, WORKSPACE_PATH_FIELDS, folder)
+    ? rewriteRecords(workspaces, WORKSPACE_PATH_FIELDS, folder, (record) =>
+        rewriteMembershipKey(record, folder),
+      )
     : null;
 
   const stamp = (input.now?.() ?? new Date()).toISOString().replace(/[:.]/gu, "-");

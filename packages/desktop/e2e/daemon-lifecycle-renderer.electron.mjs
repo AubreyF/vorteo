@@ -73,15 +73,17 @@ export async function verifyAttachedDaemonControls({ repo, root, env, home, port
     await page.route(/:(6767|6768)\b/, (route) => route.abort());
     await page.getByRole("button", { name: "Settings", exact: true }).click({ timeout: 90_000 });
     await page.getByRole("button", { name: "Enable built-in daemon", exact: true }).click();
-    await expect(page.getByText("Attached to an existing daemon", { exact: true })).toBeVisible();
+    // The host detail view covers the retained Settings page, which keeps its own hidden copy.
+    const attached = page
+      .getByText("Attached to an existing daemon", { exact: true })
+      .filter({ visible: true });
+    await expect(attached).toBeVisible();
     await expect(
       page.getByText("Removes localhost from this device and stops the built-in daemon", {
         exact: true,
       }),
     ).toBeHidden();
-    await page
-      .getByText("Attached to an existing daemon", { exact: true })
-      .scrollIntoViewIfNeeded();
+    await attached.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(root, "attached-daemon.png") });
 
     async function respondToNativeDialog(title, artifact, key) {

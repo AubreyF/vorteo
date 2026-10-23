@@ -198,8 +198,13 @@ export async function openNewWorkspaceComposer(
 }
 
 export async function openGlobalNewWorkspaceComposer(page: Page): Promise<void> {
-  // The shell keeps a hidden copy of the other layout's sidebar mounted.
-  await page.locator('[data-testid="sidebar-global-new-workspace"]:visible').first().click();
+  // The shell keeps a hidden copy of the other layout's sidebar mounted. New workspace is an
+  // optional sidebar row; by default it lives in the sidebar's overflow menu.
+  const row = page.locator('[data-testid="sidebar-global-new-workspace"]:visible').first();
+  if (!(await row.isVisible())) {
+    await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+  }
+  await row.click();
 
   await expect(page).toHaveURL(/\/new(?:\?.*)?$/, {
     timeout: 30_000,

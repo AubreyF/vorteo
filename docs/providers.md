@@ -58,6 +58,18 @@ Exclusion, removal and sign-out withdraw Dev's token. Sign-out also runs the CLI
 
 Unverified until the owner's live sign-in check: that the Host grant lives in the per-directory Keychain item described above, the granted scopes, the access-token lifetime, and how quickly a running Dev CLI picks up a rewritten file. The refresh request's flags, the lock and file names, and the store order come from static analysis of Claude Code 2.1.284. Recheck them when upgrading Claude.
 
+## Shared provider keys for installations
+
+The installation coordinator keeps static provider secrets for each shared provider definition: API keys and tokens whose environment variable name ends in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`. `CLAUDE_CODE_OAUTH_TOKEN` is excluded because Claude subscription sync owns it. Runtime locations such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and base URLs stay local. The canonical values live in the coordinator's private `provider-secrets/state.json`, mode 0600 in a 0700 directory, and are never logged.
+
+Owner routes (owner session and Origin required) are `POST /api/installation/owner/provider-secrets/read` with an optional `definitionId`, `set` with `{ definitionId, name, value }` and `clear` with `{ definitionId, name }`. Each returns `{ definitions: ProviderSecretsStatus[] }` (`@getpaseo/protocol/provider-secrets`). The response carries names, last four characters (only for values of 16 characters or more), update time, `owner` or `imported` source, import conflicts and each environment's status: `delivered`, `pending`, `failed` with a message, or `excluded`. `ready` is true when every non-excluded bound environment has the current keys.
+
+Delivery begins immediately on save and retries every 5 seconds. Each bound environment's daemon receives the complete set of managed names at `POST /api/installation/provider-secrets`, with daemon authentication. A daemon accepts values only for a binding that the current settings authority still targets and does not exclude. It accepts withdrawal at any time. It writes the values into `providers.<id>.env` beside local entries and keeps a private journal of value digests. It removes a name it delivered only while the local value is still the delivered one. A differing local value is replaced only for keys the owner set explicitly. Otherwise the daemon leaves it alone and reports a conflict. Daemons advertise `providerSecretDelivery`. The coordinator reports "Update <environment>" for daemons without it.
+
+The first time it sees a definition, the coordinator reads each bound environment's provider env once. A key present in one form is adopted with source `imported`. If environments hold different values, it adopts none and lists the conflict until the owner sets the key. Keys added locally later are not imported again.
+
+Codex sign-ins are not synchronized. Codex keeps a refresh grant in each environment's `CODEX_HOME`, so status for Codex account definitions includes `accountSignIn`, which lists the environments that each need their own sign-in. Static analysis of Codex CLI 0.162.1 suggests that an access-only `auth.json` would load and never be wiped. In ChatGPT mode, though, it would still attempt refreshes. A Host-owned Codex projection has not been built or verified.
+
 ## CLI compatibility warnings
 
 Catalogs can include optional `cliUpdate` information in provider snapshots without changing

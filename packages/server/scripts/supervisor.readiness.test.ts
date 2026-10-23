@@ -7,6 +7,9 @@ import { expect, test, vi } from "vitest";
 import { createMaintenanceRestartChannel } from "../src/server/maintenance-restart-channel.js";
 import { createWorkerShutdown } from "../src/server/worker-shutdown.js";
 
+// These cases need POSIX file modes, signals or rename semantics; Windows cannot run them.
+const posixTest = test.skipIf(process.platform === "win32");
+
 test("worker shutdown consumes the absolute budget without a second shutdown grace", async () => {
   vi.useFakeTimers();
   try {
@@ -360,8 +363,10 @@ test.each(["wrong-worker", "expired-deadline"] as const)(
   },
 );
 
-test("maintenance restart refuses replacement when a descendant retains old worker streams past the deadline", async () => {
-  const result = await runWorker(`
+posixTest(
+  "maintenance restart refuses replacement when a descendant retains old worker streams past the deadline",
+  async () => {
+    const result = await runWorker(`
     import {spawn} from 'node:child_process';
     import {existsSync,writeFileSync} from 'node:fs';
     import {randomUUID} from 'node:crypto';
@@ -384,30 +389,33 @@ test("maintenance restart refuses replacement when a descendant retains old work
       });
     }
   `);
-  expect(result.code, result.output).toBe(1);
-  expect(result.events, result.output).toEqual(["original", null]);
-  expect(result.output).toContain(
-    "Maintenance worker streams did not close before the retained deadline",
-  );
-  expect(result.output).not.toContain("Restarting worker");
-  const match = /owned-descendant-pid:(\d+)/.exec(result.output);
-  expect(match).not.toBeNull();
-  const descendant = Number(match![1]);
-  await expect
-    .poll(() => {
-      try {
-        process.kill(descendant, 0);
-        return false;
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
-        throw error;
-      }
-    })
-    .toBe(true);
-});
+    expect(result.code, result.output).toBe(1);
+    expect(result.events, result.output).toEqual(["original", null]);
+    expect(result.output).toContain(
+      "Maintenance worker streams did not close before the retained deadline",
+    );
+    expect(result.output).not.toContain("Restarting worker");
+    const match = /owned-descendant-pid:(\d+)/.exec(result.output);
+    expect(match).not.toBeNull();
+    const descendant = Number(match![1]);
+    await expect
+      .poll(() => {
+        try {
+          process.kill(descendant, 0);
+          return false;
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+          throw error;
+        }
+      })
+      .toBe(true);
+  },
+);
 
-test("maintenance restart uses one absolute termination budget without adding legacy grace", async () => {
-  const result = await runWorker(`
+posixTest(
+  "maintenance restart uses one absolute termination budget without adding legacy grace",
+  async () => {
+    const result = await runWorker(`
     import {existsSync,writeFileSync} from 'node:fs'; import {randomUUID} from 'node:crypto';
     const marker=process.argv[1]+'.started';
     setTimeout(()=>process.exit(1),4000).unref();
@@ -425,14 +433,17 @@ test("maintenance restart uses one absolute termination budget without adding le
       });
     }
   `);
-  expect(result.code, result.output).toBe(0);
-  expect(result.output).toContain("checkpoint-incomplete-fixture");
-  expect(result.output).toContain("(SIGKILL)");
-  expect(result.events).toEqual(["original", null, "replacement", null]);
-});
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain("checkpoint-incomplete-fixture");
+    expect(result.output).toContain("(SIGKILL)");
+    expect(result.events).toEqual(["original", null, "replacement", null]);
+  },
+);
 
-test("shutdown during accepted maintenance cannot extend its termination deadline", async () => {
-  const result = await runWorker(`
+posixTest(
+  "shutdown during accepted maintenance cannot extend its termination deadline",
+  async () => {
+    const result = await runWorker(`
     import {randomUUID} from 'node:crypto';
     setTimeout(()=>process.exit(1),4000).unref();
     process.send({type:'paseo:ready',listen:'original',serverId:'srv_test'});
@@ -451,8 +462,9 @@ test("shutdown during accepted maintenance cannot extend its termination deadlin
       }
     });
   `);
-  expect(result.code, result.output).toBe(0);
-  expect(result.output).toContain("(SIGKILL)");
-  expect(result.output.match(/monotonic-maintenance-acceptance/g)).toHaveLength(2);
-  expect(result.events).toEqual(["original", null]);
-});
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain("(SIGKILL)");
+    expect(result.output.match(/monotonic-maintenance-acceptance/g)).toHaveLength(2);
+    expect(result.events).toEqual(["original", null]);
+  },
+);

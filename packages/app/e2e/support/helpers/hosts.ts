@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { identityForeground, type IdentityColorName } from "@/styles/identity-colors";
 import { openSettings } from "./app";
 import { buildSeededHost } from "./daemon-registry";
-import { clickSettingsBackToWorkspace, openHostSection } from "./settings";
+import { clickSettingsBackToWorkspace, openHostSection, openSettingsHost } from "./settings";
 
 const REGISTRY_KEY = "@paseo:daemon-registry";
 const SEED_NONCE_KEY = "@paseo:e2e-seed-nonce";
@@ -112,15 +112,22 @@ export async function addConnectedHostsAndReload(
   await page.reload();
 }
 
+/**
+ * Waits until Settings > Environments > Connections lists the host at its endpoint, then
+ * returns to the workspace. The sidebar host picker this used to open no longer exists.
+ */
 export async function waitForConnectedHost(
   page: Page,
   input: { serverId: string; endpoint: string },
 ): Promise<void> {
-  await page.getByTestId("sidebar-hosts-trigger").click();
-  const host = page.getByTestId(`sidebar-host-row-${input.serverId}`);
-  await expect(host).toContainText(input.endpoint, { timeout: 30_000 });
-  await page.keyboard.press("Escape");
-  await expect(host).not.toBeVisible();
+  await openSettings(page);
+  await openSettingsHost(page, input.serverId);
+  const host = page.getByTestId(`settings-environment-${input.serverId}`);
+  await expect(host.getByTestId("host-page-connections-card")).toContainText(input.endpoint, {
+    timeout: 30_000,
+  });
+  await clickSettingsBackToWorkspace(page);
+  await expect(page.getByTestId("settings-sidebar")).toHaveCount(0);
 }
 
 export async function openSidebarDisplayPreferences(page: Page): Promise<void> {

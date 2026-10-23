@@ -14,6 +14,7 @@ import {
   selectSidebarHierarchySessions,
   sidebarHierarchySessionsEqual,
   type ManagedWorkspacePlacement,
+  type SidebarHierarchySession,
   computeSidebarOrderUpdates,
   createSidebarWorkspaceEntry,
   deriveProjectStatusBucket,
@@ -136,34 +137,30 @@ export function useSidebarWorkspacesList(options?: {
 
   const hostProjects = useHostProjects(directoryServerIds);
 
-  const hierarchySessions = useStoreWithEqualityFn(
+  // Select placements, not the session maps: a status update replaces a host's workspace map,
+  // and subscribing to it would re-render the whole sidebar for every row change.
+  const placementCache = useRef<{
+    projects: typeof hostProjects;
+    sessions: SidebarHierarchySession[];
+    placements: ManagedWorkspacePlacement[];
+  } | null>(null);
+  const managedWorkspaces = useStoreWithEqualityFn(
     useSessionStore,
-    (state) => selectSidebarHierarchySessions(state.sessions, directoryServerIds),
-    sidebarHierarchySessionsEqual,
+    (state) => {
+      const sessions = selectSidebarHierarchySessions(state.sessions, directoryServerIds);
+      const cached = placementCache.current;
+      if (
+        cached &&
+        cached.projects === hostProjects &&
+        sidebarHierarchySessionsEqual(cached.sessions, sessions)
+      )
+        return cached.placements;
+      const placements = collectManagedWorkspacePlacements({ projects: hostProjects, sessions });
+      placementCache.current = { projects: hostProjects, sessions, placements };
+      return placements;
+    },
+    managedPlacementsEqual,
   );
-  const previousManaged = useRef<ManagedWorkspacePlacement[]>([]);
-  const managedWorkspaces = useMemo(() => {
-    const next = collectManagedWorkspacePlacements({
-      projects: hostProjects,
-      sessions: hierarchySessions,
-    });
-    const previous = previousManaged.current;
-    const unchanged =
-      next.length === previous.length &&
-      next.every((placement, index) => {
-        const old = previous[index];
-        return (
-          old !== undefined &&
-          placement.workspaceKey === old.workspaceKey &&
-          placement.parentWorkspaceKey === old.parentWorkspaceKey &&
-          placement.hasIndependentAgents === old.hasIndependentAgents &&
-          placement.workspace.workspaceDirectory === old.workspace.workspaceDirectory
-        );
-      });
-    if (unchanged) return previous;
-    previousManaged.current = next;
-    return next;
-  }, [hostProjects, hierarchySessions]);
   const sidebarModel = useMemo(
     () =>
       buildSidebarWorkspacePlacementModel({
@@ -226,4 +223,23 @@ export function useSidebarWorkspacesList(options?: {
     ...loadingState,
     refreshAll,
   };
+}
+
+function managedPlacementsEqual(
+  previous: ManagedWorkspacePlacement[],
+  next: ManagedWorkspacePlacement[],
+): boolean {
+  return (
+    next.length === previous.length &&
+    next.every((placement, index) => {
+      const old = previous[index];
+      return (
+        old !== undefined &&
+        placement.workspaceKey === old.workspaceKey &&
+        placement.parentWorkspaceKey === old.parentWorkspaceKey &&
+        placement.hasIndependentAgents === old.hasIndependentAgents &&
+        placement.workspace.workspaceDirectory === old.workspace.workspaceDirectory
+      );
+    })
+  );
 }

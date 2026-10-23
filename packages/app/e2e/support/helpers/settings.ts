@@ -295,7 +295,9 @@ export async function expectAboutContent(page: Page): Promise<void> {
 }
 
 export async function expectGeneralContent(page: Page): Promise<void> {
-  await expect(page.getByText("Default send", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("settings-github")).toBeVisible();
+  await expect(page.getByTestId("settings-pane-chat.sending")).toHaveCount(1);
+  await expect(page.getByTestId("settings-pane-general.sending")).toHaveCount(0);
 }
 
 export async function expectAppearanceContent(page: Page): Promise<void> {
@@ -406,11 +408,11 @@ export async function expectRetiredSidebarSectionsAbsent(page: Page): Promise<vo
   await expect(sidebar).toBeVisible();
 
   // One entry per section; old pages are panes inside them.
-  for (const id of ["general", "accounts", "agents", "environments", "maintenance", "about"]) {
+  for (const id of ["general", "accounts", "agents", "environments", "maintenance"]) {
     await expect(sidebar.getByTestId(`settings-section-${id}`)).toBeVisible();
   }
   await expect(sidebar.getByRole("button", { name: "Daemon", exact: true })).toHaveCount(0);
-  for (const retired of ["connections", "projects", "providers", "usage", "diagnostics"]) {
+  for (const retired of ["connections", "projects", "providers", "usage", "diagnostics", "about"]) {
     await expect(sidebar.getByTestId(`settings-section-${retired}`)).toHaveCount(0);
   }
 

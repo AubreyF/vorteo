@@ -47,7 +47,7 @@ function buildPermission(question: Record<string, unknown>): PendingPermission {
   };
 }
 
-function mountCard(question: Record<string, unknown>) {
+async function mountCard(question: Record<string, unknown>) {
   const onRespond = vi.fn<(response: AgentPermissionResponse) => void>();
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -62,6 +62,9 @@ function mountCard(question: Record<string, unknown>) {
     ),
   );
   mounted.push({ root, container });
+  // The card's entering animation keeps it hidden from the accessibility tree until it starts.
+  const card = container.querySelector<HTMLElement>('[data-testid="question-form-card"]');
+  await vi.waitFor(() => expect(card?.checkVisibility({ visibilityProperty: true })).toBe(true));
 
   const view = within(container);
   const optionRole = question.multiSelect ? "checkbox" : "radio";
@@ -103,8 +106,8 @@ const singleSelectQuestion = {
 };
 
 describe("QuestionFormCard other answers", () => {
-  it("keeps checked options when the other answer is typed afterwards (multi-select)", () => {
-    const card = mountCard(multiSelectQuestion);
+  it("keeps checked options when the other answer is typed afterwards (multi-select)", async () => {
+    const card = await mountCard(multiSelectQuestion);
 
     card.check("Apple");
     card.check("Cherry");
@@ -114,8 +117,8 @@ describe("QuestionFormCard other answers", () => {
     expect(card.submittedAnswers()).toEqual({ Fruits: "Apple, Cherry, durian" });
   });
 
-  it("keeps the typed other answer when options are checked afterwards (multi-select)", () => {
-    const card = mountCard(multiSelectQuestion);
+  it("keeps the typed other answer when options are checked afterwards (multi-select)", async () => {
+    const card = await mountCard(multiSelectQuestion);
 
     card.type("durian");
     card.check("Apple");
@@ -126,8 +129,8 @@ describe("QuestionFormCard other answers", () => {
     expect(card.submittedAnswers()).toEqual({ Fruits: "Apple, Banana, durian" });
   });
 
-  it("replaces the selected option with the typed other answer (single-select)", () => {
-    const card = mountCard(singleSelectQuestion);
+  it("replaces the selected option with the typed other answer (single-select)", async () => {
+    const card = await mountCard(singleSelectQuestion);
 
     card.check("Codex");
     card.type("OpenCode");
@@ -136,8 +139,8 @@ describe("QuestionFormCard other answers", () => {
     expect(card.submittedAnswers()).toEqual({ Provider: "OpenCode" });
   });
 
-  it("clears the typed other answer on screen when an option is picked afterwards (single-select)", () => {
-    const card = mountCard(singleSelectQuestion);
+  it("clears the typed other answer on screen when an option is picked afterwards (single-select)", async () => {
+    const card = await mountCard(singleSelectQuestion);
 
     card.type("OpenCode");
     card.check("Codex");

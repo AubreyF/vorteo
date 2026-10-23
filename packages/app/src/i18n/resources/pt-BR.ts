@@ -2231,6 +2231,8 @@ export const ptBR: TranslationResources = {
       title: "Sobre",
       appVersion: "Versão do app",
       whatsNewHint: "Notas de versão de cada release",
+      github: "GitHub",
+      githubHint: "Código-fonte, issues e versões",
       thisDevice: "Este dispositivo",
       connectedHosts: "Hosts conectados",
       offline: "Offline",

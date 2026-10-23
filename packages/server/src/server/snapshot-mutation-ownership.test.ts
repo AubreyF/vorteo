@@ -116,6 +116,7 @@ describe("snapshot mutation ownership boundary", () => {
           subscribe: () => () => {},
           listAgents: () => [],
           getAgent: () => null,
+          assertAgentArchiveAllowed: async () => {},
           archiveSnapshot,
           updateAgentMetadata,
         }),

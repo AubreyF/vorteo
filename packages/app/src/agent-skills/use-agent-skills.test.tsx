@@ -10,7 +10,11 @@ const runtime = vi.hoisted(() => ({
   supported: true,
   clients: new Map<string, { getAgentSkillsStatus: ReturnType<typeof vi.fn> }>(),
 }));
-const shared = vi.hoisted(() => ({ enabled: false, save: vi.fn() }));
+const shared = vi.hoisted(() => ({
+  enabled: false,
+  save: vi.fn(),
+  selection: { mode: "all" } as { mode: string; skills?: string[] },
+}));
 vi.mock("@/execution-installation/settings", () => ({
   useInstallationSettings: () => ({
     installation: shared.enabled
@@ -23,7 +27,7 @@ vi.mock("@/execution-installation/settings", () => ({
         }
       : null,
     data: shared.enabled
-      ? { revision: 7, settings: { skills: { selection: { mode: "all" } } } }
+      ? { revision: 7, settings: { skills: { selection: shared.selection } } }
       : undefined,
     save: shared.save,
   }),
@@ -42,18 +46,24 @@ vi.mock("@/contexts/toast-context", () => ({
   useToast: () => ({ error: vi.fn() }),
 }));
 
+// One client per test: a client created on every render would drop the cache whenever the
+// wrapper re-renders, and refetches would race the saved selection.
+let queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
 function wrapper({ children }: { children: ReactNode }) {
-  return (
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
-      {children}
-    </QueryClientProvider>
-  );
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
 describe("host agent skills", () => {
   beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Saved settings come back on the next read, as they do from the installation.
+    shared.selection = { mode: "all" };
+    shared.save.mockImplementation(
+      async (input: { settings: { skills: { selection: typeof shared.selection } } }) => {
+        shared.selection = input.settings.skills.selection;
+      },
+    );
     runtime.connected = true;
     runtime.supported = true;
     runtime.clients.clear();
@@ -113,7 +123,8 @@ describe("host agent skills", () => {
       settings: { skills: { selection } },
       confirmedSkillRemovals: { host: ["old"], dev: ["old"] },
     });
-    expect(result.current.status?.selection).toEqual(selection);
+    // A refetch already in flight may briefly report the previous selection.
+    await waitFor(() => expect(result.current.status?.selection).toEqual(selection));
   });
 
   it("requires owner access and never falls back to local skill writes", async () => {

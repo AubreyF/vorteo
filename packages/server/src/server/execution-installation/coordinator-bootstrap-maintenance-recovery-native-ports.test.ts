@@ -68,7 +68,9 @@ test.each([0, 1023, 65536, 1.5, NaN])("recovery port validation rejects %s", (po
 function nativeFixture() {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "recovery-native-port-")));
   roots.push(root);
-  const helper = readFileSync(path.resolve("scripts/inspect-coordinator-process.py"));
+  const helper = readFileSync(
+    new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
+  );
   const helperPath = path.join(root, "inspector.py");
   writeFileSync(helperPath, helper, { mode: 0o600 });
   const observed = BootstrapProcessIdentitySchema.parse(

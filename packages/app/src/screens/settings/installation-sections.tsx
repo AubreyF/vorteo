@@ -1,19 +1,11 @@
 import { SettingsSection } from "@/components/settings/headings/settings-section";
-import { useState } from "react";
-import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { SharedProvidersPage } from "./shared-providers-page";
 import { Text, View } from "react-native";
-import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import type { SettingsSectionSlug } from "@/utils/host-routes";
 import { useHosts } from "@/runtime/host-runtime";
 import { readExecutionInstallation } from "@/execution-installation/policy";
-import { useInstallationProfiles } from "@/execution-installation/profiles";
-import { selectProfileCatalogSources } from "@/execution-installation/profile-catalog";
 import { InstallationSettingsStatus } from "@/execution-installation/settings-status";
-import { SharedProviderSection } from "@/agent-profiles/settings/shared-provider-section";
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { settingsStyles } from "@/styles/settings";
 import ProjectsScreen from "@/screens/projects-screen";
@@ -29,7 +21,6 @@ import {
 import { HostPluginsPage } from "./plugins-page";
 import { SharedPluginsPage } from "./shared-plugins-page";
 import { MetadataGenerationPage } from "./metadata-generation-page";
-import { toErrorMessage } from "@/utils/error-messages";
 
 export const INSTALLATION_SETTINGS_SECTIONS = [
   "projects",
@@ -53,65 +44,31 @@ export function isInstallationSettingsSection(
   return INSTALLATION_SETTINGS_SECTIONS.some((candidate) => candidate === section);
 }
 
-/** Shows every provider's profiles in one list until a provider filter is chosen. */
-const ALL_PROVIDERS = "__all__";
-
-function ProfilesSettings({ serverId }: { serverId: string }) {
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const profiles = useInstallationProfiles();
-  const containerId =
-    profiles.installation?.environments.find((environment) => environment.kind === "container")
-      ?.serverId ?? null;
-  const hostCatalog = useProvidersSnapshot(serverId);
-  const containerCatalog = useProvidersSnapshot(containerId);
-  const { config: hostConfig } = useDaemonConfig(serverId);
-  const { config: containerConfig } = useDaemonConfig(containerId);
-  if (!profiles.installation) return <AgentProfilesSection serverId={serverId} />;
-  if (profiles.error) return <Alert variant="error" description={toErrorMessage(profiles.error)} />;
-  if (profiles.isPending) return <Text style={settingsStyles.rowHint}>Loading profiles...</Text>;
-  if (!profiles.data) return null;
-  const sections = selectProfileCatalogSources([
-    { serverId, entries: hostCatalog.entries, providers: hostConfig?.providers },
-    {
-      serverId: containerId,
-      entries: containerCatalog.entries,
-      providers: containerConfig?.providers,
-    },
-  ]);
-  for (const type of Object.keys(profiles.data.providers)) {
-    if (!sections.has(type)) sections.set(type, { serverId, provider: type });
+/**
+ * Panes that an installation replaces with one shared page. `undefined` means
+ * the pane keeps its per-environment content.
+ */
+function installationWidePane(section: InstallationSettingsSection) {
+  switch (section) {
+    case "providers":
+      return (
+        <InstallationSettingsStatus>
+          <SharedProvidersPage />
+        </InstallationSettingsStatus>
+      );
+    case "plugins":
+      return (
+        <InstallationSettingsStatus>
+          <SharedPluginsPage />
+        </InstallationSettingsStatus>
+      );
+    // Profiles and usage live on each provider's page.
+    case "profiles":
+    case "usage":
+      return null;
+    default:
+      return undefined;
   }
-  if (!sections.size)
-    return <Alert description="Connect an account in Accounts to create your first profile." />;
-  const types = [...sections.keys()];
-  const activeType = selectedType && sections.has(selectedType) ? selectedType : ALL_PROVIDERS;
-  const labelFor = (type: string) =>
-    [...(hostCatalog.entries ?? []), ...(containerCatalog.entries ?? [])].find(
-      (entry) => entry.provider === type,
-    )?.label ?? type;
-  const options = [
-    { value: ALL_PROVIDERS, label: "All" },
-    ...types.map((type) => ({ value: type, label: labelFor(type) })),
-  ];
-  const shown = activeType === ALL_PROVIDERS ? types : [activeType];
-  return (
-    <View>
-      {types.length > 1 ? (
-        <SettingsTabs
-          options={options}
-          value={activeType}
-          onValueChange={setSelectedType}
-          testID="profile-provider-tabs"
-        />
-      ) : null}
-      {shown.map((type) => {
-        const target = sections.get(type)!;
-        return (
-          <SharedProviderSection key={type} serverId={target.serverId} provider={target.provider} />
-        );
-      })}
-    </View>
-  );
 }
 
 export function InstallationSettingsContent({
@@ -137,20 +94,9 @@ export function InstallationSettingsContent({
       </View>
     );
 
-  if (section === "providers" && installation) {
-    return (
-      <InstallationSettingsStatus>
-        <SharedProvidersPage />
-      </InstallationSettingsStatus>
-    );
-  }
-
-  if (section === "plugins" && installation) {
-    return (
-      <InstallationSettingsStatus>
-        <SharedPluginsPage />
-      </InstallationSettingsStatus>
-    );
+  if (installation) {
+    const shared = installationWidePane(section);
+    if (shared !== undefined) return shared;
   }
 
   switch (section) {
@@ -181,7 +127,7 @@ export function InstallationSettingsContent({
         </InstallationSettingsStatus>
       );
     case "profiles":
-      return <ProfilesSettings serverId={serverId} />;
+      return <AgentProfilesSection serverId={serverId} />;
   }
 
   return (

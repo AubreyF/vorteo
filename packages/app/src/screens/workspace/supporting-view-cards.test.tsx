@@ -7,7 +7,10 @@ import type { SupportingViewCardsProps } from "./supporting-view-cards";
 vi.stubGlobal("React", React);
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
-vi.mock("react-native", () => ({ Dimensions: { get: () => ({ width: 1800, height: 1000 }) } }));
+vi.mock("react-native", async (original) => ({
+  ...(await original<typeof import("react-native")>()),
+  Dimensions: { get: () => ({ width: 1800, height: 1000 }) },
+}));
 vi.mock("@/constants/platform", () => ({ isWeb: true }));
 vi.mock("@/storage/app-storage", () => ({
   default: {
