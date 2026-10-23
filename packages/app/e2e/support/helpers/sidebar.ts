@@ -207,7 +207,8 @@ export async function selectSidebarStatusGrouping(page: Page): Promise<void> {
 }
 
 export async function openMobileAgentSidebar(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Open menu" }).click();
+  // The sidebar's own collapse toggle shares the "Open menu" name; the header button comes first.
+  await page.getByRole("button", { name: "Open menu" }).filter({ visible: true }).first().click();
 }
 
 export async function closeMobileAgentSidebar(page: Page): Promise<void> {

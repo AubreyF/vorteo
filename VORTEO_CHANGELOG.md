@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.809 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Changes through the Explorer's Changes card instead of the removed Explorer sidebar, reach a host's settings by choosing its Environments tab without reloading the page, and open the phone sidebar from the header's menu button.
+
+### Known limitations
+
+- Three compact Changes tests still use the phone Explorer toggle that the mobile toolbar simplification removed, and two desktop Changes tests still fail.
+
 ## 0.11.0-beta.3.vorteo.808 - 2026-10-23
 
 ### Maintenance

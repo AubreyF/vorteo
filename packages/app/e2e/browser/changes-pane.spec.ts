@@ -1660,8 +1660,9 @@ async function navigateToWorkspaceChanges(page: Page, workspace: DirtyWorkspace)
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto(buildHostWorkspaceRoute(getServerId(), workspace.id));
   await waitForWorkspaceTabsVisible(page);
-  await page.getByTestId("workspace-explorer-toggle").first().click();
-  await openChangesInVisibleExplorer(page);
+  // The Explorer toggle now shows the Files and Changes cards; the shared helper opens Changes
+  // through them and selects the first changed file.
+  await openChangesPanel(page);
 }
 
 /** The Explorer overlay a phone-sized viewport shows, with its Changes tab selected. */
@@ -1741,22 +1742,6 @@ async function openSelectionWorkspaceChanges(page: Page, workspace: DirtyWorkspa
     timeout: 30_000,
   });
   await expectExpandedMountedTabDiff(page);
-}
-
-async function openChangesInVisibleExplorer(page: Page): Promise<void> {
-  const explorer = page.getByTestId("workspace-explorer-sidebar");
-  await expect(explorer).toBeVisible({ timeout: 30_000 });
-  const changesTab = explorer.getByRole("button", { name: /Working tree diff/i }).first();
-  await changesTab.click();
-  const changedFile = explorer
-    .locator('[data-testid^="diff-tree-file-"][data-testid$="-toggle"]')
-    .filter({ visible: true })
-    .first();
-  await expect(changedFile).toBeVisible({ timeout: 30_000 });
-  await changedFile.click();
-  await expect(page.getByTestId("working-diff-panel").filter({ visible: true })).toBeVisible({
-    timeout: 30_000,
-  });
 }
 
 async function selectChangesComparison(
@@ -2205,7 +2190,7 @@ async function readDiffTypographyGeometry(page: Page): Promise<{
 async function returnToWorkspaceChanges(page: Page): Promise<void> {
   await page.getByTestId("settings-back-to-workspace").click();
   await waitForWorkspaceTabsVisible(page);
-  await openChangesInVisibleExplorer(page);
+  await openChangesPanel(page);
   await expectExpandedMountedTabDiff(page);
 }
 
