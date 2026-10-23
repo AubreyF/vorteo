@@ -1295,6 +1295,23 @@ export function supportsUsageReports(features: ServerInfoStatusPayload["features
   return features?.usageSources === true || features?.providerUsageList === true;
 }
 
+/** Daemon features a client negotiates before reviewing coordinator plans that use them. */
+const BOOTSTRAP_REVIEW_FEATURES = [
+  ["coordinatorBootstrapAutomaticStatus", "automaticStatus"],
+  ["coordinatorBootstrapFactoryAdoption", "factoryRuntimeAdoption"],
+  ["coordinatorBootstrapCompatibleRecovery", "compatibleRecovery"],
+  ["coordinatorBootstrapPreviewMonitor", "previewMonitor"],
+  ["coordinatorBootstrapClaudeHostRefresh", "claudeHostRefresh"],
+  ["coordinatorBootstrapEngineRestart", "engineRestart"],
+  ["coordinatorBootstrapFactoryGate", "factoryGate"],
+  ["coordinatorBootstrapHostLauncherUpdate", "hostLauncherUpdate"],
+  ["coordinatorBootstrapBootRecovery", "bootRecovery"],
+  ["coordinatorBootstrapSourceUpdateTooling", "sourceUpdateTooling"],
+] as const;
+type BootstrapReviewCapabilities = Partial<
+  Record<(typeof BOOTSTRAP_REVIEW_FEATURES)[number][1], true>
+>;
+
 export class DaemonClient {
   private readonly providerSnapshotUpdates = new ProviderSnapshotUpdates({
     active: (message) => this.owned.owns(message),
@@ -3900,39 +3917,12 @@ export class DaemonClient {
       throw new Error("Coordinator bootstrap review is unavailable on this daemon.");
   }
 
-  private bootstrapReviewCapabilities(): {
-    factoryRuntimeAdoption?: true;
-    compatibleRecovery?: true;
-    previewMonitor?: true;
-    claudeHostRefresh?: true;
-    sourceUpdateTooling?: true;
-    bootRecovery?: true;
-    automaticStatus?: true;
-  } {
+  private bootstrapReviewCapabilities(): BootstrapReviewCapabilities {
     const features = this.lastServerInfoMessage?.features;
-    return {
-      ...(features?.coordinatorBootstrapAutomaticStatus === true
-        ? { automaticStatus: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapFactoryAdoption === true
-        ? { factoryRuntimeAdoption: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapCompatibleRecovery === true
-        ? { compatibleRecovery: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapPreviewMonitor === true
-        ? { previewMonitor: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapClaudeHostRefresh === true
-        ? { claudeHostRefresh: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapBootRecovery === true
-        ? { bootRecovery: true as const }
-        : {}),
-      ...(features?.coordinatorBootstrapSourceUpdateTooling === true
-        ? { sourceUpdateTooling: true as const }
-        : {}),
-    };
+    const capabilities: BootstrapReviewCapabilities = {};
+    for (const [feature, key] of BOOTSTRAP_REVIEW_FEATURES)
+      if (features?.[feature] === true) capabilities[key] = true;
+    return capabilities;
   }
 
   async reconcileAutomaticCoordinatorBootstrap(
@@ -3985,6 +3975,21 @@ export class DaemonClient {
       features?.coordinatorBootstrapClaudeHostRefresh !== true
     )
       throw new Error("Update the Host before preparing Claude refresh configuration.");
+    if (
+      input.plan.engineRestartConfiguration !== undefined &&
+      features?.coordinatorBootstrapEngineRestart !== true
+    )
+      throw new Error("Update the Host before preparing Docker restart configuration.");
+    if (
+      input.plan.factoryGateConfiguration !== undefined &&
+      features?.coordinatorBootstrapFactoryGate !== true
+    )
+      throw new Error("Update the Host before preparing Factory check configuration.");
+    if (
+      input.plan.hostLauncherUpdateConfiguration !== undefined &&
+      features?.coordinatorBootstrapHostLauncherUpdate !== true
+    )
+      throw new Error("Update the Host before preparing a Host launcher update plan.");
   }
 
   private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {

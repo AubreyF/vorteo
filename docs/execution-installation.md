@@ -350,6 +350,49 @@ Before staging, the coordinator durably marks the target as requiring recovery. 
 
 A trusted governed-runtime module can export `quotaGovernorDirectory` to select its existing accounting directory while retaining the daemon's native home and identity. The loader requires an absolute, physical, owner-only directory. Bootstrap opens one native governor store there and passes that same store and directory to the retained runtime. This selection neither migrates accounting records nor settles outstanding runs. A private controller still needs its native installer, custody reconciliation and operating-loop acceptance before Factory can be considered active.
 
+### Tracked Docker engine restart for Dev
+
+Restarting Docker Desktop interrupts Dev, its Tailscale and the private-domain gateway, so it runs as its own reviewed Dev restart. A trusted Host operator prepares `container.engineRestart` with the pinned `docker` binary, the Docker `socket` path without `unix://`, and the full IDs of the Dev, gateway Tailscale and gateway Caddy containers. An optional `factoryVerify` entry pins Factory's read-only lock acceptance script by path and `sha256`, with its `lockInode` and expected `ownerMode`. `deadlineSeconds` bounds the restart and readiness checks; the default is 600. Configure it through an owner-reviewed coordinator plan or renewal with `engineRestartConfiguration` set to the exact object; `null` removes it. Older strict readers reject the field, so install compatible Host support first.
+
+The Host client discovers `engineRestart` through `capabilities` and submits `request-restart --target container-daemon --engine-restart-plan <sha256> --reason-file <file>`. The owner can also request it. Dev credentials, source contributions and other plan-bound variants are refused. The owner or a delegated lead reviews **Docker for Dev** and the exact digest, then chooses **Finish turns and restart Docker** or **Cancel**. Automatic approval never applies, including saved Dev permissions and standing decisions. Clients that do not negotiate the field see a Dev restart they can only cancel.
+
+After the held turns finish, the coordinator:
+
+1. Checks, without effects, that the engine answers, each pinned container runs under its ID, Dev is healthy and Factory's check passes, recording its controller epoch.
+2. Runs `docker desktop restart` once.
+3. Waits until the engine answers, each pinned container runs again under its ID with a new start time, and Dev is healthy, which covers its Tailscale and daemon.
+4. Requires a new Dev worker under the pinned server ID, then Factory's check again with a higher epoch.
+
+The Docker restart also requires Factory's supervisor to be a new process. The detail names each passed check, or the exact unmet one. A failure after the restart is never retried, and an interrupted run is recorded as failed without replay. The turns hold releases through the normal path once Dev answers. Changes to stored container settings, such as Factory's SecurityOpt edit, are separate operator steps taken before submitting the restart.
+
+### One-time Host launcher update
+
+Without managed release selection, the Host supervisor finds its worker relative to the release it started from. A worker-only restart, the path automatic Host updates take, then loads the old build, and the install is reported as failed. The one-time launcher update adds `PASEO_MANAGED_RELEASE_LINK` and `PASEO_MANAGED_RELEASE_ROOT` to the Host's launchd plist, so the supervisor resolves the selected release on every worker spawn.
+
+A trusted Host operator prepares the candidate plist: the live plist plus exactly those two variables, set to the configured `sourceUpdates.currentReleaseLink` and `releaseRoot`. Keep it as an owner-controlled file outside guest-writable mounts. Configure `host.launcherUpdate` with its `candidate` path and `sha256` through an owner-reviewed coordinator plan or renewal (`hostLauncherUpdateConfiguration`). The capability digest binds the candidate and the live plist bytes, so any later change to either voids it. Once the update is applied, the plan is no longer advertised.
+
+The Host client discovers `hostLauncherUpdate` through `capabilities` and submits `request-restart --target host --host-launcher-plan <sha256> --reason-file <file>`. Dev credentials are refused. The owner or a delegated lead reviews **Host launcher** and chooses **Finish turns and update the Host launcher**. It is never approved automatically, because it restarts every Host agent once. After the held turns finish, the coordinator:
+
+1. Writes the live plist bytes to a fallback file in its state folder, then atomically replaces the plist with the candidate.
+2. Runs `launchctl bootout` and `launchctl bootstrap` once.
+3. Requires a new Host worker and supervisor under the pinned server ID, the selected release's version, and both variables in the new supervisor's process environment.
+
+On any failure after the swap, it puts the previous plist back and reloads it, and reports the failure without retrying. If launchd cannot reload the previous plist either, the detail names the fallback copy for a manual reload.
+
+### Factory checks around Dev restarts
+
+Once `container.factoryGate` is configured, the coordinator runs Factory's read-only lock acceptance script around every restart that replaces the Dev worker. That covers source updates, plain and idle restarts, held restarts, supervisor maintenance, Factory adoption and the Docker restart. Configure it through an owner-reviewed coordinator plan or renewal with `factoryGateConfiguration`: the pinned `docker` binary, the socket path, the Dev container's full ID, and `verify` with the script path, its `sha256`, the pinned `lockInode` and the expected `ownerMode`. `null` removes it. The script must be version 2 or later, which reports the owner sequence and a custody digest.
+
+Before the first effect, the script must pass and writes the custody list to a private Host folder. If it fails, the restart is refused and nothing changes. An idle restart reuses that baseline for up to two minutes between attempts. After the new worker answers, the script runs again with `--custody-superset-of` and the coordinator compares:
+
+- **Worker restarts** (source updates, plain restarts, Factory adoption): the controller epoch and Factory's supervisor are unchanged.
+- **The Docker restart:** the epoch is higher and the supervisor is a new process.
+- **Supervisor maintenance:** either of the above, depending on whether the supervisor was replaced.
+- **Paused Factory:** it stays paused, with the same owner sequence and the same custody digest.
+- **Running Factory:** the owner sequence never decreases, the mode may change only to paused, and earlier custody records stay unchanged while new ones may appear.
+
+A failure after the restart names the difference and needs Factory's review. Nothing is retried, and the coordinator never edits Factory state. The check deliberately ignores `paseo factory setup`, which can report a latched error that only the restart clears.
+
 ## Reviewed source updates
 
 ### Recovery after a coordinator executor has claimed dispatch
