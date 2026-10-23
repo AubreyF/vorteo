@@ -82,12 +82,41 @@ const PROJECT_POLICY_FIELDS = [
   "skillIdentities",
 ] as const;
 
+/** Drive-letter (`C:\` or `C:/`) or UNC (`\\server\share`) Windows paths. */
+function isWindowsPolicyPath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/u.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+/u.test(value);
+}
+
 /**
  * Project policies are keyed by the project's absolute root path without a trailing separator.
  * Inside the shared Projects folder that path names the same project in every environment.
  */
 export function projectPolicyKey(rootPath: string): string {
+  if (isWindowsPolicyPath(rootPath)) {
+    const stripped = rootPath.replace(/[\\/]+$/u, "");
+    // A drive root keeps its separator.
+    return /^[a-zA-Z]:$/u.test(stripped) ? `${stripped}\\` : stripped;
+  }
   return rootPath.replace(/\/+$/u, "") || "/";
+}
+
+/** True for an absolute POSIX or Windows root path already in its `projectPolicyKey` form. */
+export function isProjectPolicyKey(value: string): boolean {
+  return (value.startsWith("/") || isWindowsPolicyPath(value)) && projectPolicyKey(value) === value;
+}
+
+/**
+ * The text a policy path is compared by, ending in a separator so that a prefix test means
+ * "at or inside". Windows paths compare with either separator and without case, as NTFS
+ * does; POSIX paths compare exactly. Purely lexical: callers resolve real paths first.
+ */
+function comparablePolicyPath(value: string): string {
+  const key = projectPolicyKey(value);
+  if (isWindowsPolicyPath(key)) {
+    const normalized = key.replaceAll("/", "\\").toLowerCase();
+    return normalized.endsWith("\\") ? normalized : `${normalized}\\`;
+  }
+  return key === "/" ? "/" : `${key}/`;
 }
 
 /**
@@ -104,11 +133,10 @@ export function effectiveProjectPolicy(
     profileIds: [],
     skillIdentities: [],
   };
-  const candidates = paths.map(projectPolicyKey);
+  const candidates = paths.map(comparablePolicyPath);
   for (const [root, policy] of Object.entries(policies ?? {})) {
-    const key = projectPolicyKey(root);
-    const prefix = key === "/" ? "/" : `${key}/`;
-    if (!candidates.some((path) => path === key || path.startsWith(prefix))) continue;
+    const prefix = comparablePolicyPath(root);
+    if (!candidates.some((path) => path.startsWith(prefix))) continue;
     for (const field of PROJECT_POLICY_FIELDS) {
       for (const value of policy[field] ?? []) {
         const values: string[] = effective[field];

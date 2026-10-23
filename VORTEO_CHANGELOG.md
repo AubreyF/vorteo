@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Fixed
+
+- Project exclusions now apply on Windows. Policy keys and working folders compare with either separator and without case for Windows paths, keys written through a symlink or an 8.3 short name also match the real folder, and the coordinator accepts Windows root paths as keys.
+- The Projects folder accepts folders inside it on Windows. Containment compares real paths from the native resolver on both sides, so an 8.3 short temp path such as `RUNNER~1` no longer reads as outside the folder.
+- Projects folder aliases map Windows paths with either separator and without case, and project keys with Windows paths map too. POSIX aliases and earlier locations from another daemon stay as written on Windows instead of being placed on the current drive.
+- The per-command and agent `safe.directory` entries name the repository's long real path with forward slashes on Windows, the form git there reports and compares.
+
 ## 0.11.0-beta.3.vorteo.798 - 2026-10-22
 
 ### Maintenance

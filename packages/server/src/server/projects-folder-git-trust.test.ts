@@ -7,6 +7,7 @@ import { runGitCommand } from "../utils/run-git-command.js";
 import { setActiveProjectsFolder } from "./projects-folder.js";
 import {
   findProjectsFolderRepository,
+  gitSafeDirectoryValue,
   safeDirectoryEnv,
   withProjectsFolderSafeDirectory,
 } from "./projects-folder-git-trust.js";
@@ -24,7 +25,8 @@ function makeRepository(directory: string): void {
 }
 
 beforeEach(() => {
-  base = realpathSync(mkdtempSync(path.join(tmpdir(), "projects-git-trust-")));
+  // The native resolver expands Windows 8.3 short names, so paths match what git reports.
+  base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "projects-git-trust-")));
   physical = path.join(base, "mount");
   logical = path.join(base, "owner-dev");
   outside = path.join(base, "elsewhere");
@@ -49,7 +51,7 @@ describe("Projects folder per-invocation git trust", () => {
     ).toEqual({
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: "safe.directory",
-      GIT_CONFIG_VALUE_0: path.join(physical, "app"),
+      GIT_CONFIG_VALUE_0: gitSafeDirectoryValue(path.join(physical, "app")),
     });
   });
 
@@ -58,7 +60,7 @@ describe("Projects folder per-invocation git trust", () => {
     mkdirSync(path.join(physical, "app", "packages", "web"), { recursive: true });
     for (const cwd of [path.join(physical, "app"), path.join(logical, "app", "packages", "web")]) {
       expect(withProjectsFolderSafeDirectory(cwd, undefined, {})?.GIT_CONFIG_VALUE_0).toBe(
-        path.join(physical, "app"),
+        gitSafeDirectoryValue(path.join(physical, "app")),
       );
     }
   });
@@ -105,14 +107,14 @@ describe("Projects folder per-invocation git trust", () => {
       GIT_CONFIG_KEY_0: "core.x",
       GIT_CONFIG_VALUE_0: "y",
       GIT_CONFIG_KEY_1: "safe.directory",
-      GIT_CONFIG_VALUE_1: cwd,
+      GIT_CONFIG_VALUE_1: gitSafeDirectoryValue(cwd),
     });
     expect(
       envOf(withProjectsFolderSafeDirectory(cwd, undefined, { GIT_CONFIG_COUNT: "3" })),
     ).toEqual({
       GIT_CONFIG_COUNT: "4",
       GIT_CONFIG_KEY_3: "safe.directory",
-      GIT_CONFIG_VALUE_3: cwd,
+      GIT_CONFIG_VALUE_3: gitSafeDirectoryValue(cwd),
     });
     expect(safeDirectoryEnv([cwd], () => "not a number")).toEqual({});
   });
@@ -138,7 +140,8 @@ describe("Projects folder per-invocation git trust", () => {
           cwd,
           envOverlay: isolation,
         });
-        expect(result.stdout.trim()).toBe(path.join(physical, "app"));
+        // Git for Windows prints forward slashes; resolving gives the platform's spelling.
+        expect(path.resolve(result.stdout.trim())).toBe(path.join(physical, "app"));
       }
     });
 
