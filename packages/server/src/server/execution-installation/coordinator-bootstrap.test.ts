@@ -4328,6 +4328,49 @@ test("stale coordinator cancellation never touches executing requests or restart
   expect(jobs[0]).toMatchObject({ status: "pending" });
 });
 
+test("old clients see a Factory check configuration hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.factoryGateConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused",
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("factoryGateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Factory check");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Factory check configuration");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      factoryGate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
 test("old clients see a Docker restart plan hidden, cannot approve it, and can still cancel", async () => {
   const f = fixture();
   f.plan.engineRestartConfiguration = {

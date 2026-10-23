@@ -5284,3 +5284,26 @@ test("a Docker restart never dispatches on a changed plan or replays an interrup
   expect(recovered.list().find((entry) => entry.id === job.id)?.status).toBe("failed");
   expect(calls).toEqual([]);
 });
+
+test("Factory's guard wraps every approved Dev dispatch and never a Host one", async () => {
+  const guarded: string[] = [];
+  const queue = new InstallationRestarts(new MemoryJournal(), {
+    restart: async (target) => `${target} ready`,
+    async guardDevRestart(job, dispatch) {
+      guarded.push(job.target);
+      const detail = await dispatch();
+      return detail === null ? null : `${detail}; Factory checked`;
+    },
+  });
+  const dev = queue.request({ target: "container-daemon", reason: "Dev" }, "host-agent");
+  queue.decide(dev.id, dev.revision, "approve");
+  await queue.drain();
+  const host = queue.request({ target: "host", reason: "Host" }, "host-agent");
+  queue.decide(host.id, host.revision, "approve");
+  await queue.drain();
+  expect(guarded).toEqual(["container-daemon"]);
+  expect(queue.list().find((job) => job.id === dev.id)?.detail).toBe(
+    "container-daemon ready; Factory checked",
+  );
+  expect(queue.list().find((job) => job.id === host.id)?.detail).toBe("host ready");
+});

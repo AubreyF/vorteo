@@ -1,21 +1,18 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { accessSync, constants } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { promisify } from "node:util";
-import { z } from "zod";
 import type { EngineRestartConfiguration } from "@getpaseo/protocol/execution-installation";
+import {
+  assertFactoryVerifyScript,
+  defaultRun,
+  runFactoryVerify as runFactoryCheck,
+  type EngineCommand,
+} from "./factory-verify.js";
 
-const execute = promisify(execFile);
+export type { EngineCommand } from "./factory-verify.js";
+
 const DEFAULT_DEADLINE_SECONDS = 600;
 const COMMAND_TIMEOUT_MS = 30_000;
-
-/** Runs a pinned executable. Tests replace it; production uses execFile without a shell. */
-export type EngineCommand = (
-  file: string,
-  args: string[],
-  timeoutMs: number,
-) => Promise<{ stdout: string }>;
 
 export interface EngineRestartDependencies {
   run?: EngineCommand;
@@ -34,23 +31,13 @@ interface ContainerState {
 export interface EngineRestartPreflight {
   startedAt: Record<keyof EngineRestartConfiguration["containers"], string>;
   factoryEpoch: number | null;
+  factorySupervisorPid: number | null;
 }
-
-const FactoryVerifySchema = z.looseObject({
-  ok: z.boolean(),
-  check: z.string().max(80),
-  epoch: z.number().int().nonnegative().optional(),
-});
 
 const CONTAINER_LABELS: Record<keyof EngineRestartConfiguration["containers"], string> = {
   dev: "Dev container",
   gatewayTailscale: "gateway Tailscale container",
   gatewayCaddy: "gateway Caddy container",
-};
-
-const defaultRun: EngineCommand = async (file, args, timeoutMs) => {
-  const { stdout } = await execute(file, args, { timeout: timeoutMs, maxBuffer: 64 * 1024 });
-  return { stdout };
 };
 
 function canonicalJson(value: unknown): string {
@@ -63,23 +50,6 @@ function canonicalJson(value: unknown): string {
       )
       .join(",")}}`;
   return JSON.stringify(value);
-}
-
-/** Factory's verify script must be an owner-controlled physical file with the pinned digest. */
-function assertFactoryVerifyScript(
-  verify: NonNullable<EngineRestartConfiguration["factoryVerify"]>,
-) {
-  const file = lstatSync(verify.script);
-  if (
-    !file.isFile() ||
-    file.uid !== process.getuid?.() ||
-    (file.mode & 0o022) !== 0 ||
-    realpathSync(verify.script) !== verify.script
-  )
-    throw new Error("Factory verification requires an owner-controlled physical script");
-  if (createHash("sha256").update(readFileSync(verify.script)).digest("hex") !== verify.sha256)
-    throw new Error("Factory verification script changed");
-  accessSync(verify.script, constants.X_OK);
 }
 
 /**
@@ -132,43 +102,16 @@ async function engineAnswers(plan: EngineRestartConfiguration, run: EngineComman
   );
 }
 
-async function runFactoryVerify(
-  plan: EngineRestartConfiguration,
-  run: EngineCommand,
-): Promise<{ ok: boolean; check: string; epoch?: number }> {
-  const verify = plan.factoryVerify!;
-  assertFactoryVerifyScript(verify);
-  let stdout: string;
-  try {
-    ({ stdout } = await run(
-      verify.script,
-      [
-        "--docker",
-        plan.docker,
-        "--socket",
-        plan.socket,
-        "--container",
-        plan.containers.dev,
-        "--lock-inode",
-        String(verify.lockInode),
-        "--owner-mode",
-        verify.ownerMode,
-      ],
-      COMMAND_TIMEOUT_MS,
-    ));
-  } catch (error) {
-    // A failing check exits 1 with its JSON line on stdout; read it when present.
-    const output =
-      error && typeof error === "object" && "stdout" in error ? String(error.stdout) : "";
-    if (!output.trim()) return { ok: false, check: "execution" };
-    stdout = output;
-  }
-  try {
-    const result = FactoryVerifySchema.parse(JSON.parse(stdout.trim().split("\n").at(-1) ?? ""));
-    return { ok: result.ok, check: result.check, epoch: result.epoch };
-  } catch {
-    return { ok: false, check: "receipt" };
-  }
+function runFactoryVerify(plan: EngineRestartConfiguration, run: EngineCommand) {
+  return runFactoryCheck(
+    {
+      docker: plan.docker,
+      socket: plan.socket,
+      container: plan.containers.dev,
+      verify: plan.factoryVerify!,
+    },
+    run,
+  );
 }
 
 /** Read-only. Refuses before any effect unless everything the restart must restore is healthy now. */
@@ -199,12 +142,14 @@ export async function engineRestartPreflight(
     startedAt[key] = state.startedAt;
   }
   let factoryEpoch: number | null = null;
+  let factorySupervisorPid: number | null = null;
   if (plan.factoryVerify) {
     const result = await runFactoryVerify(plan, run);
     if (!result.ok) refuse(`Factory lock acceptance check "${result.check}" failed`);
     factoryEpoch = result.epoch ?? null;
+    factorySupervisorPid = result.supervisorPid ?? null;
   }
-  return { startedAt, factoryEpoch };
+  return { startedAt, factoryEpoch, factorySupervisorPid };
 }
 
 /** The only effect. Docker Desktop restarts its VM; containers return through their restart policy. */
@@ -300,6 +245,14 @@ export async function verifyFactoryAfterRestart(
   )
     throw new Error(
       "Docker restarted, but Factory's controller epoch did not advance. Factory recovery is required; nothing will be retried.",
+    );
+  // The container entry re-ran, so Factory's supervisor must be a new process.
+  if (
+    preflight.factorySupervisorPid !== null &&
+    result.supervisorPid === preflight.factorySupervisorPid
+  )
+    throw new Error(
+      "Docker restarted, but Factory's supervisor did not change. Factory recovery is required; nothing will be retried.",
     );
   return `Factory accepted its lock (epoch ${result.epoch ?? "unknown"})`;
 }

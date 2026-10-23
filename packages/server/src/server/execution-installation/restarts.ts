@@ -174,6 +174,8 @@ export interface RestartExecutor {
   ): Promise<string>;
   supervisorPlan?(): string | undefined;
   restartSupervisor?(job: RestartJob): Promise<string>;
+  /** Wraps every approved Dev dispatch, for Factory's checks before and after it. */
+  guardDevRestart?(job: RestartJob, dispatch: () => Promise<string | null>): Promise<string | null>;
   /** Digest of the configured Docker engine restart plan, when it is executable. */
   engineRestartPlan?(): string | undefined;
   restartEngine?(job: RestartJob): Promise<string>;
@@ -2881,6 +2883,13 @@ export class InstallationRestarts {
     )
       throw new RestartRequestError("Automatic approval no longer matches the prepared request");
     if (this.executor.verifyDispatch) await this.executor.verifyDispatch(job);
+    const dispatch = () => this.dispatchApproved(job);
+    if (job.target === "container-daemon" && this.executor.guardDevRestart)
+      return this.executor.guardDevRestart(job, dispatch);
+    return dispatch();
+  }
+
+  private async dispatchApproved(job: RestartJob): Promise<string | null> {
     const planBound = this.executePlanBound(job);
     if (planBound) return planBound;
     if (job.update) {

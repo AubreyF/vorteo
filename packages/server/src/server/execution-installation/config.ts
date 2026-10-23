@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   EngineRestartConfigurationSchema,
   ExecutionInstallationSchema,
+  FactoryGateConfigurationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
@@ -97,6 +98,7 @@ export const InstallationConfigSchema = z.strictObject({
     persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
     engineRestart: EngineRestartConfigurationSchema.optional(),
+    factoryGate: FactoryGateConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({
         node: z.string().startsWith("/"),

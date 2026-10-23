@@ -83,6 +83,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapClaudeHostRefresh: available,
     coordinatorBootstrapEngineRestart: available,
+    coordinatorBootstrapFactoryGate: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
     coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
@@ -298,6 +299,7 @@ function publicBootstrapReply(
   visible = previewMonitorReply(visible, message.previewMonitor === true);
   visible = claudeHostRefreshReply(visible, message.claudeHostRefresh === true);
   visible = engineRestartReply(visible, message.engineRestart === true);
+  visible = factoryGateReply(visible, message.factoryGate === true);
   visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
   visible = bootRecoveryReply(visible, message.bootRecovery === true);
   if (!message.automaticStatus) return visible;
@@ -369,6 +371,22 @@ function engineRestartReply(
   };
 }
 
+// COMPAT(bootstrapFactoryGate): added 2026-10-23; remove after 2027-04-23
+// once all supported clients negotiate Factory check configuration review.
+function factoryGateReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.factoryGateConfiguration === undefined) return request;
+  const { factoryGateConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this Factory check configuration. Cancellation remains available.",
+  };
+}
+
 // COMPAT(bootstrapPreviewMonitor): added 2026-10-11; remove after 2027-04-11
 // once all supported clients negotiate monitor configuration review.
 function previewMonitorReply(
@@ -405,6 +423,10 @@ function assertServiceConfigurationReview(
   if (request?.plan.engineRestartConfiguration !== undefined && message.engineRestart !== true)
     throw new BootstrapRequestConflict(
       "Reload the client to review this Docker restart configuration before approval.",
+    );
+  if (request?.plan.factoryGateConfiguration !== undefined && message.factoryGate !== true)
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this Factory check configuration before approval.",
     );
 }
 

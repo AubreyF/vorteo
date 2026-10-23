@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.800 - 2026-10-23
+
+### Added
+
+- Once configured through a reviewed coordinator renewal, the coordinator runs Factory's read-only lock acceptance check around every restart that replaces the Dev worker. A restart is refused with nothing changed if Factory isn't in a known good state. It's reported as failed, naming the difference, if it moved Factory's controller, owner pause or custody records in a way its class doesn't allow. Builds no longer has to take and compare Factory snapshots by hand.
+
+### Changed
+
+- The tracked Docker restart also requires Factory's supervisor to be a new process afterwards.
+
 ## 0.11.0-beta.3.vorteo.799 - 2026-10-23
 
 ### Added

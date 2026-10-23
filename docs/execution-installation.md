@@ -363,7 +363,21 @@ After the held turns finish, the coordinator:
 3. Waits until the engine answers, each pinned container runs again under its ID with a new start time, and Dev is healthy, which covers its Tailscale and daemon.
 4. Requires a new Dev worker under the pinned server ID, then Factory's check again with a higher epoch.
 
-The detail names each passed check, or the exact unmet one. A failure after the restart is never retried, and an interrupted run is recorded as failed without replay. The turns hold releases through the normal path once Dev answers. Changes to stored container settings, such as Factory's SecurityOpt edit, are separate operator steps taken before submitting the restart.
+The Docker restart also requires Factory's supervisor to be a new process. The detail names each passed check, or the exact unmet one. A failure after the restart is never retried, and an interrupted run is recorded as failed without replay. The turns hold releases through the normal path once Dev answers. Changes to stored container settings, such as Factory's SecurityOpt edit, are separate operator steps taken before submitting the restart.
+
+### Factory checks around Dev restarts
+
+Once `container.factoryGate` is configured, the coordinator runs Factory's read-only lock acceptance script around every restart that replaces the Dev worker. That covers source updates, plain and idle restarts, held restarts, supervisor maintenance, Factory adoption and the Docker restart. Configure it through an owner-reviewed coordinator plan or renewal with `factoryGateConfiguration`: the pinned `docker` binary, the socket path, the Dev container's full ID, and `verify` with the script path, its `sha256`, the pinned `lockInode` and the expected `ownerMode`. `null` removes it. The script must be version 2 or later, which reports the owner sequence and a custody digest.
+
+Before the first effect, the script must pass and writes the custody list to a private Host folder. If it fails, the restart is refused and nothing changes. An idle restart reuses that baseline for up to two minutes between attempts. After the new worker answers, the script runs again with `--custody-superset-of` and the coordinator compares:
+
+- **Worker restarts** (source updates, plain restarts, Factory adoption): the controller epoch and Factory's supervisor are unchanged.
+- **The Docker restart:** the epoch is higher and the supervisor is a new process.
+- **Supervisor maintenance:** either of the above, depending on whether the supervisor was replaced.
+- **Paused Factory:** it stays paused, with the same owner sequence and the same custody digest.
+- **Running Factory:** the owner sequence never decreases, the mode may change only to paused, and earlier custody records stay unchanged while new ones may appear.
+
+A failure after the restart names the difference and needs Factory's review. Nothing is retried, and the coordinator never edits Factory state. The check deliberately ignores `paseo factory setup`, which can report a latched error that only the restart clears.
 
 ## Reviewed source updates
 

@@ -16,6 +16,15 @@ export const FactoryRuntimeAdoptionConfigurationSchema = z.strictObject({
 
 const ContainerIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
+/** Factory's read-only lock acceptance script, pinned by path and digest. */
+export const FactoryVerifyConfigurationSchema = z.strictObject({
+  script: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  lockInode: z.number().int().positive(),
+  ownerMode: z.enum(["paused", "running"]),
+});
+export type FactoryVerifyConfiguration = z.infer<typeof FactoryVerifyConfigurationSchema>;
+
 /**
  * Operator-prepared plan for a tracked Docker Desktop restart under Dev. Every
  * container is pinned by full ID and must come back under that same ID.
@@ -30,18 +39,21 @@ export const EngineRestartConfigurationSchema = z.strictObject({
     gatewayCaddy: ContainerIdSchema,
   }),
   /** Factory's read-only lock acceptance check, run before and after the restart. */
-  factoryVerify: z
-    .strictObject({
-      script: z.string().startsWith("/"),
-      sha256: z.string().regex(/^[a-f0-9]{64}$/),
-      lockInode: z.number().int().positive(),
-      ownerMode: z.enum(["paused", "running"]),
-    })
-    .optional(),
+  factoryVerify: FactoryVerifyConfigurationSchema.optional(),
   /** Bound on the engine restart and readiness checks. */
   deadlineSeconds: z.number().int().min(60).max(1800).optional(),
 });
 export type EngineRestartConfiguration = z.infer<typeof EngineRestartConfigurationSchema>;
+
+/** Factory's check around Dev source updates: before the first effect and after the new worker. */
+export const FactoryGateConfigurationSchema = z.strictObject({
+  docker: z.string().startsWith("/"),
+  /** Docker socket path, without a `unix://` prefix. */
+  socket: z.string().startsWith("/"),
+  container: ContainerIdSchema,
+  verify: FactoryVerifyConfigurationSchema,
+});
+export type FactoryGateConfiguration = z.infer<typeof FactoryGateConfigurationSchema>;
 
 export const InstallationEnvironmentSchema = z.strictObject({
   kind: ExecutionEnvironmentKindSchema,

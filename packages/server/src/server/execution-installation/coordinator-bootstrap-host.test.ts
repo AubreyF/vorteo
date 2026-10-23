@@ -593,6 +593,26 @@ test("bootstrap configuration preserves credentials, service targets and state w
   plan.engineRestartConfiguration = null;
   expect(verify).not.toThrow();
   delete plan.engineRestartConfiguration;
+  // Factory's Dev restart checks change only through their own reviewed field.
+  const factoryGate = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    container: "a".repeat(64),
+    verify: {
+      script: "/fixture/verify.sh",
+      sha256: "b".repeat(64),
+      lockInode: 3901122,
+      ownerMode: "paused" as const,
+    },
+  };
+  save(candidateFile, { ...f.config, container: { ...f.config.container, factoryGate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.factoryGateConfiguration = factoryGate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.factoryGateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.factoryGateConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -1481,6 +1501,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapClaudeHostRefresh: false,
       coordinatorBootstrapEngineRestart: false,
+      coordinatorBootstrapFactoryGate: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

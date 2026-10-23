@@ -100,6 +100,7 @@ import { InstructionRequestError, InstructionRequests } from "./settings/instruc
 import { inspectContainerSource } from "./container-updates.js";
 import { RestartTargetSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationSourceUpdates } from "./source-updates.js";
+import { FactoryGate, factoryRestartClass } from "./factory-gate.js";
 import { delegatedHandler, readOwnerDelegation, type OwnerDelegation } from "./owner-delegation.js";
 
 /**
@@ -379,8 +380,29 @@ export function createInstallationServer(
         "Dev source updates require independently verified transition-phase readiness",
       );
   }
+  // Factory's read-only checks around every Dev worker replacement, once configured.
+  const factoryGate = config.container.factoryGate
+    ? new FactoryGate(config.container.factoryGate)
+    : null;
   const restartExecutor: RestartExecutor = {
     ...executor,
+    ...(factoryGate
+      ? {
+          async guardDevRestart(job, dispatch) {
+            await factoryGate.before(job.id);
+            let detail: string | null;
+            try {
+              detail = await dispatch();
+            } catch (error) {
+              await factoryGate.discard(job.id);
+              throw error;
+            }
+            // Not idle yet: keep the baseline for the next attempt.
+            if (detail === null) return null;
+            return `${detail} ${await factoryGate.after(job.id, factoryRestartClass(job))}`;
+          },
+        }
+      : {}),
     supportsUpdate: (target) => updates[target] !== null,
     sourceBase: (target) => forTarget(target).source().baseCommit,
     sourceWeb: (target) => forTarget(target).source().webCommit,

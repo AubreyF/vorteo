@@ -498,6 +498,9 @@ function expectedBootstrapConfiguration(
   if (plan.engineRestartConfiguration === null) delete expected.container.engineRestart;
   else if (plan.engineRestartConfiguration !== undefined)
     expected.container.engineRestart = plan.engineRestartConfiguration;
+  if (plan.factoryGateConfiguration === null) delete expected.container.factoryGate;
+  else if (plan.factoryGateConfiguration !== undefined)
+    expected.container.factoryGate = plan.factoryGateConfiguration;
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;

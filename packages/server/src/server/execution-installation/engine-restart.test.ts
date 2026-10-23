@@ -66,7 +66,8 @@ function fakeDocker(options: { health?: () => string; epochs?: number[]; verifyF
         });
         throw error;
       }
-      return { stdout: `${JSON.stringify({ ok: true, check: "all", epoch: epochs.shift() })}\n` };
+      const facts = { ok: true, check: "all", epoch: epochs.shift(), supervisorPid: 20 + boot };
+      return { stdout: `${JSON.stringify(facts)}\n` };
     }
     throw new Error(`unexpected command ${file} ${args.join(" ")}`);
   };
@@ -163,4 +164,14 @@ test("a failed Docker Desktop restart command is reported, not retried", async (
     }),
   ).rejects.toThrow("nothing will be retried");
   expect(attempts).toBe(1);
+});
+
+test("Factory verification fails when the supervisor did not change", async () => {
+  // No restart happened, so the supervisor is the same process despite a higher epoch.
+  const docker = fakeDocker({ epochs: [40, 41] });
+  const configured = plan(true);
+  const preflight = await engineRestartPreflight(configured, { run: docker.run });
+  await expect(
+    verifyFactoryAfterRestart(configured, preflight, { run: docker.run }),
+  ).rejects.toThrow("supervisor did not change");
 });

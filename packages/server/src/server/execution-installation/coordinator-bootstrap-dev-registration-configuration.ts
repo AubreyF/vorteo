@@ -64,6 +64,7 @@ export function inspectDevRegistrationConfiguration(input: RegistrationConfigura
     plan.previewMonitorConfiguration !== undefined ||
     plan.claudeHostRefreshConfiguration !== undefined ||
     plan.engineRestartConfiguration !== undefined ||
+    plan.factoryGateConfiguration !== undefined ||
     plan.supervisionRecovery !== undefined
   )
     throw new BootstrapRequestConflict("Initial Dev configuration cannot combine policy changes");

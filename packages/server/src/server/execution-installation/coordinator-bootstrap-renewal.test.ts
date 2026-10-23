@@ -1291,6 +1291,33 @@ test.runIf(process.platform === "darwin")(
         engineRestartConfiguration: engineRestart,
       }),
     ).resolves.toBeUndefined();
+    // Factory's Dev restart checks also ride an owner-reviewed renewal.
+    const factoryGate = {
+      docker: "/fixture/docker",
+      socket: "/fixture/docker.sock",
+      container: "a".repeat(64),
+      verify: {
+        script: "/fixture/verify.sh",
+        sha256: "b".repeat(64),
+        lockInode: 3901122,
+        ownerMode: "paused" as const,
+      },
+    };
+    const gateConfig = JSON.parse(readFileSync(candidateConfig.path, "utf8"));
+    const gatePlanned = f.save(path.join(f.root, "factory-gate.json"), {
+      ...gateConfig,
+      container: { ...gateConfig.container, factoryGate },
+    });
+    await expect(
+      verifyRenewalPlan(setup, { ...plan, factoryGateConfiguration: factoryGate }),
+    ).rejects.toThrow("outside its approved policy");
+    await expect(
+      verifyRenewalPlan(setup, {
+        ...plan,
+        candidate: { ...f.host, configuration: gatePlanned },
+        factoryGateConfiguration: factoryGate,
+      }),
+    ).resolves.toBeUndefined();
     const removed = f.save(path.join(f.root, "factory-disabled.json"), {
       ...f.config,
       container: { ...f.config.container, factoryRuntimeAdoption: undefined },

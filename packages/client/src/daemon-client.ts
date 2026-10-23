@@ -3906,6 +3906,7 @@ export class DaemonClient {
     previewMonitor?: true;
     claudeHostRefresh?: true;
     engineRestart?: true;
+    factoryGate?: true;
     sourceUpdateTooling?: true;
     bootRecovery?: true;
     automaticStatus?: true;
@@ -3930,6 +3931,7 @@ export class DaemonClient {
       ...(features?.coordinatorBootstrapEngineRestart === true
         ? { engineRestart: true as const }
         : {}),
+      ...(features?.coordinatorBootstrapFactoryGate === true ? { factoryGate: true as const } : {}),
       ...(features?.coordinatorBootstrapBootRecovery === true
         ? { bootRecovery: true as const }
         : {}),
@@ -3994,6 +3996,11 @@ export class DaemonClient {
       features?.coordinatorBootstrapEngineRestart !== true
     )
       throw new Error("Update the Host before preparing Docker restart configuration.");
+    if (
+      input.plan.factoryGateConfiguration !== undefined &&
+      features?.coordinatorBootstrapFactoryGate !== true
+    )
+      throw new Error("Update the Host before preparing Factory check configuration.");
   }
 
   private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {
