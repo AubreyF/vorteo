@@ -27,6 +27,7 @@ import {
   type IsolatedHostDaemon,
   startIsolatedHostDaemon,
 } from "../support/helpers/isolated-host-daemon";
+import { expectNewWorkspaceHost } from "../support/helpers/new-workspace";
 import { expectOpenedProject } from "../support/helpers/project-picker-ui";
 import { connectSeedClient } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
@@ -211,7 +212,7 @@ test.describe("Add Project command-center flow", () => {
           projectName: directoryName,
           projectPath: directoryPath,
         });
-        await expect(page.getByTestId("host-picker-trigger")).toContainText(SECONDARY_HOST_LABEL);
+        await expectNewWorkspaceHost(page, SECONDARY_HOST_LABEL);
         await expectProjectDirectory(directoryPath);
       } finally {
         await rm(parentDirectory, { recursive: true, force: true });

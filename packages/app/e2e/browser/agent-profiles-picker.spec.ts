@@ -34,6 +34,9 @@ const PROFILE = {
 const PROFILE_SUMMARY = "Mock Load Test · One minute stream · Approval test";
 
 test.describe("Agent profiles in the model picker", () => {
+  // These journeys own the host's profile list, including its empty state.
+  test.use({ defaultMockProfile: false });
+
   test("an empty host still exposes agent profile settings from the picker", async ({ page }) => {
     const seed = await seedAgentProfiles([]);
     const workspace = await seedMockAgentWorkspace({

@@ -2,6 +2,7 @@ import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import {
+  expectNewWorkspaceHost,
   expectNewWorkspaceProjectSelected,
   openGlobalNewWorkspaceComposer,
 } from "../support/helpers/new-workspace";
@@ -123,7 +124,7 @@ async function openNewWorkspaceWithStaleOfflineSelection(
   );
 
   await page.goto(buildNewWorkspaceRoute());
-  await expect(page.getByTestId("host-picker-trigger")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("new-workspace-profile-selector")).toBeVisible({ timeout: 60_000 });
 }
 
 async function seedOfflineHostsWithStaleSelection(
@@ -221,9 +222,7 @@ test.describe("New workspace preselects the open workspace's project", () => {
 
     await pressNewWorkspaceShortcut(page);
 
-    await expect(page.getByTestId("host-picker-trigger")).toContainText("Connected host", {
-      timeout: 8_000,
-    });
+    await expectNewWorkspaceHost(page, "Connected host", { timeout: 8_000 });
     await expectProjectPreselectedWithin(page, projectB.projectDisplayName, 8_000);
   });
 
@@ -234,9 +233,7 @@ test.describe("New workspace preselects the open workspace's project", () => {
 
     await openGlobalNewWorkspaceComposer(page);
 
-    await expect(page.getByTestId("host-picker-trigger")).toContainText("Connected host", {
-      timeout: 8_000,
-    });
+    await expectNewWorkspaceHost(page, "Connected host", { timeout: 8_000 });
     await expectProjectPreselectedWithin(page, projectB.projectDisplayName, 8_000);
   });
 
@@ -245,9 +242,7 @@ test.describe("New workspace preselects the open workspace's project", () => {
   }) => {
     await openNewWorkspaceWithStaleOfflineSelection(page);
 
-    await expect(page.getByTestId("host-picker-trigger")).toContainText("Connected host", {
-      timeout: 8_000,
-    });
+    await expectNewWorkspaceHost(page, "Connected host", { timeout: 8_000 });
     await expectAnyProjectPreselectedWithin(page, 8_000);
   });
 
@@ -265,9 +260,7 @@ test.describe("New workspace preselects the open workspace's project", () => {
 
     await openGlobalNewWorkspaceComposer(page);
 
-    await expect(page.getByTestId("host-picker-trigger")).toContainText("Connected host", {
-      timeout: 8_000,
-    });
+    await expectNewWorkspaceHost(page, "Connected host", { timeout: 8_000 });
     await expectProjectPreselectedWithin(page, projectB.projectDisplayName, 8_000);
   });
 });

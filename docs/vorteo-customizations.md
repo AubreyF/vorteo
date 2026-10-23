@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-23): test-only change. Browser tests seed a default mock profile, use the New workspace Environment step, open Help from the More menu and check the sidebar toolbar line; three tests for the removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.

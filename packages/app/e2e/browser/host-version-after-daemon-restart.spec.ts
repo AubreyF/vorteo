@@ -3,6 +3,7 @@ import { expect, test } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { addConnectedHostAndReload } from "../support/helpers/hosts";
 import { openHostSection } from "../support/helpers/settings";
+import { openSidebarHelpMenu } from "../support/helpers/sidebar";
 import { getServerId } from "../support/helpers/server-id";
 import {
   startRestartableHostDaemon,
@@ -68,7 +69,7 @@ test("host page shows the restarted daemon's version without reloading", async (
 });
 
 async function readHelpHostVersion(page: Page, serverId: string): Promise<string> {
-  await page.getByTestId("sidebar-help").click();
+  await openSidebarHelpMenu(page);
   const row = page.getByTestId(`sidebar-help-host-version-${serverId}`);
   await expect(row).toBeVisible();
   const text = await row.innerText();

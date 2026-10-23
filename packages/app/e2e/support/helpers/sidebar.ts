@@ -225,3 +225,10 @@ export async function expectMobileAgentSidebarVisible(page: Page): Promise<void>
 export async function expectMobileAgentSidebarHidden(page: Page): Promise<void> {
   await expect(page.getByTestId("sidebar-sessions")).not.toBeInViewport({ timeout: 5_000 });
 }
+
+/** Help and support opens from the sidebar's More menu; its own trigger stays hidden. */
+export async function openSidebarHelpMenu(page: Page): Promise<void> {
+  await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+  await page.getByTestId("sidebar-help-action").click();
+  await expect(page.getByTestId("sidebar-help-menu")).toBeVisible();
+}

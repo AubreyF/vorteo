@@ -4,6 +4,20 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.808 - 2026-10-23
+
+### Maintenance
+
+- Browser tests give every test daemon one shared mock profile, because New workspace no longer starts a chat without a profile. Profile settings and picker tests opt out to keep their empty starting state.
+- Browser tests choose the New workspace host in the Environment step instead of the removed host picker. Tests that switch hosts start a reachable second daemon, since unreachable hosts are shown disabled.
+- Browser tests open Help from the sidebar More menu, check the toolbar icon line instead of the removed footer icons, and date the changelog retry fixture ahead of real releases.
+- Retire three sidebar settings tests for reordering and hiding sidebar items and footer rows. That customization was removed in 9332fbd2d, and the pane stopped rendering in 471d7f22a.
+- Mark the New workspace Ctrl+P project picker test as a known failure: the shortcut no longer opens the picker. The product fix follows separately.
+
+### Known limitations
+
+- The sidebar footer usage test, three profile picker tests, the legacy favourites migration test and the host version test still fail. The New workspace preselect and host project preservation suites each have one failing case left.
+
 ## 0.11.0-beta.3.vorteo.807 - 2026-10-23
 
 ### Maintenance

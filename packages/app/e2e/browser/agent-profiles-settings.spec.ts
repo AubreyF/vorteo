@@ -19,6 +19,9 @@ import {
 const MOCK_PROVIDER_LABEL = "Mock Load Test";
 
 test.describe("Agent profiles settings", () => {
+  // These journeys own the host's profile list, including its empty state.
+  test.use({ defaultMockProfile: false });
+
   test("legacy model favourites migrate into provider-and-model-only host profiles", async ({
     page,
   }) => {

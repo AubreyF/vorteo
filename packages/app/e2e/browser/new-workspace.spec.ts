@@ -31,6 +31,7 @@ import {
   searchAndSelectBranchInPicker,
   selectBranchInPicker,
   selectGitHubPrInPicker,
+  selectNewWorkspaceHost,
   selectPickerOptionByKeyboard,
   selectWorkspaceIsolation,
   submitNewWorkspacePrompt,
@@ -55,6 +56,7 @@ import { selectSidebarStatusGrouping } from "../support/helpers/sidebar";
 import { getE2EDaemonPort } from "../support/helpers/daemon-port";
 import { chooseAddProjectMethod, expectAddProjectPage } from "../support/helpers/add-project-flow";
 import { seedSavedSettingsHosts } from "../support/helpers/settings";
+import { startIsolatedHostDaemon } from "../support/helpers/isolated-host-daemon";
 import {
   expectSidebarWorkspaceSelected,
   expectWorkspaceHeader,
@@ -251,7 +253,8 @@ test.describe("New workspace flow", () => {
   test("adds a project from the selected empty host", async ({ page }) => {
     const repo = await createTempGitRepo("new-workspace-project-picker-");
     const primaryServerId = getServerId();
-    const emptyServerId = "empty-new-workspace-host";
+    // The Environment step only offers connected hosts, so the empty host must be reachable.
+    const emptyHost = await startIsolatedHostDaemon("empty-new-workspace-host");
 
     try {
       const openedProject = await openProjectViaDaemon(client, repo.path);
@@ -263,9 +266,9 @@ test.describe("New workspace flow", () => {
           endpoint: `127.0.0.1:${getE2EDaemonPort()}`,
         },
         {
-          serverId: emptyServerId,
+          serverId: emptyHost.serverId,
           label: "Empty host",
-          endpoint: "127.0.0.1:9",
+          endpoint: `127.0.0.1:${emptyHost.port}`,
         },
       ]);
 
@@ -279,8 +282,7 @@ test.describe("New workspace flow", () => {
       await expect(page.getByTestId("new-workspace-project-picker-add-project")).toBeVisible();
       await page.keyboard.press("Escape");
 
-      await page.getByTestId("host-picker-trigger").click();
-      await page.getByTestId(`new-workspace-host-picker-option-${emptyServerId}`).click();
+      await selectNewWorkspaceHost(page, "Empty host");
       await expect(projectTrigger).toContainText("Choose project");
       await projectTrigger.click();
 
@@ -292,6 +294,7 @@ test.describe("New workspace flow", () => {
       await expectAddProjectPage(page, "method");
       await chooseAddProjectMethod(page, "open-folder");
     } finally {
+      await emptyHost.close();
       await repo.cleanup();
     }
   });

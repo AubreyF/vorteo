@@ -228,49 +228,45 @@ export async function expectFooterItemHidden(page: Page, key: string): Promise<v
   await expect(page.locator(`[data-testid="${shellFooterTestID(key)}"]:visible`)).toHaveCount(0);
 }
 
-const FOOTER_ICON_TEST_IDS = [
-  "sidebar-add-project",
-  "sidebar-usage-icon",
-  "sidebar-help",
+const TOOLBAR_ICON_TEST_IDS = [
+  "sidebar-collapse",
+  "sidebar-search",
+  "sidebar-sessions",
+  "sidebar-schedules",
   "sidebar-settings",
+  "sidebar-footer-overflow",
 ];
 
 // Browser layout boxes include floating-point rounding, even for whole-pixel styles.
-const FOOTER_GEOMETRY_TOLERANCE = 0.01;
+const TOOLBAR_GEOMETRY_TOLERANCE = 0.5;
 
 /**
- * One line of same-size icons: Add project and Usage together on the left, Help and Settings
- * together at the end. The sidebar Hosts control was removed.
+ * The sidebar's fixed icon row is the toolbar above the projects: one line of same-size icons,
+ * Collapse and Search at the start, and History, Schedules, Settings and More together at the
+ * end. Add project and Help live in the More menu. Footer rows never change this line.
  */
-export async function expectFooterIconRow(page: Page): Promise<void> {
+export async function expectSidebarToolbarRow(page: Page): Promise<void> {
+  const toolbar = page.locator('[data-testid="sidebar-toolbar"]:visible').first();
+  await expect(toolbar).toBeVisible();
   const boxes = (
     await Promise.all(
-      FOOTER_ICON_TEST_IDS.map((testID) =>
-        page.locator(`[data-testid="${testID}"]:visible`).first().boundingBox(),
-      ),
+      TOOLBAR_ICON_TEST_IDS.map((testID) => toolbar.getByTestId(testID).first().boundingBox()),
     )
   ).map((box) => box!);
   const [first] = boxes;
   for (const box of boxes) {
     expect(Math.abs(box.y + box.height / 2 - first!.y - first!.height / 2)).toBeLessThan(2);
-    expect(Math.abs(box.width - first!.width)).toBeLessThan(FOOTER_GEOMETRY_TOLERANCE);
+    expect(Math.abs(box.width - first!.width)).toBeLessThan(TOOLBAR_GEOMETRY_TOLERANCE);
   }
   const gaps = boxes.slice(1).map((box, index) => box.x - (boxes[index]!.x + boxes[index]!.width));
-  for (const index of [0, 2]) {
-    expect(Math.abs(gaps[index]!)).toBeLessThan(FOOTER_GEOMETRY_TOLERANCE);
+  // Buttons within each group sit at one even spacing; the groups are pulled apart.
+  for (const index of [2, 3, 4]) {
+    expect(Math.abs(gaps[index]! - gaps[0]!)).toBeLessThan(TOOLBAR_GEOMETRY_TOLERANCE);
   }
-  expect(gaps[1]).toBeGreaterThan(first!.width);
+  expect(gaps[1]).toBeGreaterThan(gaps[0]! + first!.width);
 }
 
 export async function expectFooterSeparator(page: Page, shown: boolean): Promise<void> {
-  await expect(page.locator('[data-testid="sidebar-footer"]:visible')).toHaveCSS(
-    "border-top-width",
-    "1px",
-  );
-  await expect(page.locator('[data-testid="sidebar-footer-bottom-line"]:visible')).toHaveCSS(
-    "border-top-width",
-    "0px",
-  );
   const separator = page.locator('[data-testid="sidebar-footer-separator"]:visible');
   await expect(separator).toHaveCount(shown ? 1 : 0);
   expect(
@@ -278,13 +274,6 @@ export async function expectFooterSeparator(page: Page, shown: boolean): Promise
       elements.map((element) => getComputedStyle(element).borderBottomWidth),
     ),
   ).toEqual(shown ? ["1px"] : []);
-}
-
-export async function hoverFooterAddProject(page: Page): Promise<void> {
-  await page.locator('[data-testid="sidebar-add-project"]:visible').hover();
-  const tooltip = page.getByTestId("sidebar-add-project-tooltip");
-  await expect(tooltip.getByText("Add project", { exact: true })).toBeVisible();
-  await expect(tooltip.getByText("Ctrl+O", { exact: true })).toBeVisible();
 }
 
 export async function footerScreenshot(page: Page, name: string): Promise<void> {

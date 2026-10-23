@@ -13,6 +13,7 @@ import {
 import { seedWorkspace, type SeededWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { seedSavedSettingsHosts } from "../support/helpers/settings";
+import { startIsolatedHostDaemon } from "../support/helpers/isolated-host-daemon";
 import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
 
 const DRAFT = `Please investigate the workspace startup failure.
@@ -57,7 +58,8 @@ test.describe("New workspace composer draft", () => {
     const project: SeededWorkspace = await seedWorkspace({
       repoPrefix: "new-workspace-draft-host-",
     });
-    const secondaryServerId = "new-workspace-draft-secondary-host";
+    // The Environment step only offers connected hosts, so the second host must be reachable.
+    const secondaryHost = await startIsolatedHostDaemon("new-workspace-draft-secondary-host");
 
     try {
       await seedSavedSettingsHosts(page, [
@@ -67,9 +69,9 @@ test.describe("New workspace composer draft", () => {
           endpoint: `127.0.0.1:${getE2EDaemonPort()}`,
         },
         {
-          serverId: secondaryServerId,
+          serverId: secondaryHost.serverId,
           label: "Secondary host",
-          endpoint: "127.0.0.1:9",
+          endpoint: `127.0.0.1:${secondaryHost.port}`,
         },
       ]);
 
@@ -82,6 +84,7 @@ test.describe("New workspace composer draft", () => {
 
       await expectNewWorkspaceDraft(page, DRAFT);
     } finally {
+      await secondaryHost.close();
       await project.cleanup();
     }
   });
