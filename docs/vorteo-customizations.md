@@ -130,6 +130,8 @@ Maintenance review (2026-10-22): threads stopped by a Claude or Codex usage limi
 
 Maintenance review (2026-10-22): the installation coordinator stores provider API keys and tokens once (`provider-secrets/state.json`, mode 0600) and delivers them into each bound environment's provider `env`. It withdraws them from excluded or removed environments, adopts a key found in exactly one form on first sync, and reports conflicting values without overwriting them. Owner routes return names, last four characters and status for each environment, never values. Host-owned Claude refresh stays opt-in. Codex sign-ins stay per environment; status reports this. Settings gives each provider its own page, with an API keys sheet on every connection. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-22): macOS-only server tests for native recovery and port allocation were repaired; no feature changed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): merged main into the CI repair branch; installation account delivery routes, including Host-refreshed Claude sign-in and provider secrets, mount through one provider-neutral function. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): a timing-dependent agent skills test was settled; no feature changed. README overview and onboarding are unchanged.

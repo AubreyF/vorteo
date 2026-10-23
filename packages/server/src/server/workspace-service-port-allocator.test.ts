@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,7 +46,8 @@ describe("allocateWorkspaceServicePort", () => {
   });
 
   it("passes service and workspace context to portScript", async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "workspace-service-port-allocator-"));
+    // The script reports its canonical cwd; macOS tmpdir() sits behind a /var symlink.
+    const tempDir = realpathSync(mkdtempSync(join(tmpdir(), "workspace-service-port-allocator-")));
     tempDirs.push(tempDir);
     const port = await getFreePort();
     const scriptPath = createContextPortScript(tempDir, port);

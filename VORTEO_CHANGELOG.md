@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.800 - 2026-10-22
+
+### Maintenance
+
+- Repair macOS-only server tests that Linux CI never runs. Two native recovery suites found the process inspector script from the working directory, and the port allocator test compared a temporary path with its canonical form behind the macOS /var symlink.
+
 ## 0.11.0-beta.3.vorteo.799 - 2026-10-22
 
 ### Maintenance
