@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { runArchiveCommandWithDeps } from "./archive.js";
@@ -153,5 +154,45 @@ describe("runArchiveCommand", () => {
     ).rejects.toMatchObject({
       code: "WORKTREE_NOT_FOUND",
     });
+  });
+
+  it("lists worktrees of the current directory by default", async () => {
+    const listCalls: Array<Parameters<DaemonClient["getPaseoWorktreeList"]>[0]> = [];
+    const fakeClient = createFakeDaemonClient({
+      getPaseoWorktreeList: async (input) => {
+        listCalls.push(input);
+        return { worktrees: [], error: null, requestId: "req-list" };
+      },
+    });
+
+    await expect(
+      runArchiveCommandWithDeps(
+        "missing",
+        { daemonTarget },
+        { connectToDaemon: async () => fakeClient },
+      ),
+    ).rejects.toMatchObject({ code: "WORKTREE_NOT_FOUND" });
+
+    expect(listCalls).toEqual([{ cwd: process.cwd() }]);
+  });
+
+  it("lists worktrees of the --repo root, resolved to an absolute path", async () => {
+    const listCalls: Array<Parameters<DaemonClient["getPaseoWorktreeList"]>[0]> = [];
+    const fakeClient = createFakeDaemonClient({
+      getPaseoWorktreeList: async (input) => {
+        listCalls.push(input);
+        return { worktrees: [], error: null, requestId: "req-list" };
+      },
+    });
+
+    await expect(
+      runArchiveCommandWithDeps(
+        "missing",
+        { daemonTarget, repo: "relative/repo", cwd: "/ignored" },
+        { connectToDaemon: async () => fakeClient },
+      ),
+    ).rejects.toMatchObject({ code: "WORKTREE_NOT_FOUND" });
+
+    expect(listCalls).toEqual([{ repoRoot: path.resolve("relative/repo") }]);
   });
 });
