@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.813 - 2026-10-22
+
+### Maintenance
+
+- Merge the CLI worktree fix: paseo worktree ls and archive send the current folder, or --cwd or --repo, so they work again
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- `paseo worktree ls` and `paseo worktree archive` work again. Since upstream commit a94bc0720 the daemon refuses a worktree list without a repository, and both commands sent none, so they always failed with "cwd or repoRoot is required". They now list the worktrees of the current directory's repository.
+- Both commands accept `--cwd <path>`, matching `paseo worktree create`, and `--repo <path>`, which names the repository root and takes precedence. Relative paths resolve against the current directory.
+
+### Maintenance
+
+- Unit tests check the list request for the default directory, `--cwd` and `--repo`; the CLI worktree end-to-end test checks both options in help.
+
 ## 0.11.0-beta.3.vorteo.812 - 2026-10-22
 
 ### Maintenance

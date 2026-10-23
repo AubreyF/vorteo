@@ -1107,6 +1107,8 @@ No complete replacement of these custom workflows was established in this review
 
 ## Maintenance review
 
+October 23, 2026: Fixed the hidden `paseo worktree ls` and `paseo worktree archive` commands, which had failed since upstream commit a94bc0720 made the daemon require a repository for worktree lists. They now send the current directory, or `--cwd` or `--repo`. This repairs upstream behavior and adds no Vorteo feature; the request fields already existed. README overview and onboarding are unchanged.
+
 October 22, 2026: New workspaces branch from a freshly fetched `origin/main` when the local branch is only behind, and previews write their launch wrapper to the untracked `paseo.local.json` on daemons that advertise it. The agent guide treats the primary checkout as read-only. The installed preview helper and broker still need reinstalling. README overview and onboarding are unchanged.
 
 October 22, 2026: The coordinator's release-note check now accepts a well-formed heading with no notes, which unblocks Dev updates from current source; malformed headings and edited history are still refused. `restarts.test.ts` has one failure, "new requests cannot join a restart after dispatch starts", that also fails on unmodified `vorteo.753`. README is unchanged.
