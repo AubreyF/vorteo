@@ -1,5 +1,9 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): test-only change. Browser test helpers stop using the removed sidebar Hosts control: waiting for a connected host goes through Settings Connections, and the footer check drops the Hosts icon. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): closed three Projects folder gaps found after installation. Dev's git now trusts repositories in the folder for each daemon command and records them for agents, workspace membership keys and saved sidebar keys move to the logical path, and `configure-projects-folder` gives the Host the same aliases. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): new Codex threads no longer fail when Codex finishes syncing remote plugin skills after its first listing; only a change to the selected skills breaks a frozen selection. README overview and onboarding are unchanged.
