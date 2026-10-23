@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): added the one-time Host launcher update, configured through a reviewed renewal with `hostLauncherUpdateConfiguration`. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): added Factory checks around every Dev worker restart, configured through a reviewed renewal with `factoryGateConfiguration`. The Docker restart now also requires a new Factory supervisor. Not yet installed. README overview and onboarding are unchanged.
