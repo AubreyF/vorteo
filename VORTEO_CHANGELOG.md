@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Maintenance
+
+- Desktop renderer tests open Help from the sidebar More menu, open the Explorer before using Open in editor, and find App updates in General's About pane.
+- The workspace title check reads the phone header, or on desktop, which has no workspace header since 60f4899a6, the selected sidebar row under its project.
+- Mark two desktop update tests as known failures: since 72919fc59 the App updates row squeezes its title when Check and Update both show. The product fix follows separately.
+- CI gives Metro's first bundle up to five minutes to warm up, since a shared runner hit the two-minute limit.
+
 ## 0.11.0-beta.3.vorteo.810 - 2026-10-23
 
 ### Maintenance

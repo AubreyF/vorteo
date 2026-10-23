@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "../../app/e2e/support/fixtures";
 import { gotoAppShell, openSettings } from "../../app/e2e/support/helpers/app";
 import { openSettingsSection } from "../../app/e2e/support/helpers/settings";
+import { openSidebarHelpMenu } from "../../app/e2e/support/helpers/sidebar";
 
 // Settings > Keyboard Shortcuts is desktop-only (`desktopOnly` in
 // settings-screen.tsx), and the gate reads `getIsElectronRuntime()`, which only
@@ -57,8 +58,7 @@ async function openRowMenu(page: Page) {
 /** Reachable from the sidebar even when the cheat sheet's own shortcut is gone. */
 async function openCheatSheet(page: Page) {
   await gotoAppShell(page);
-  await page.getByTestId("sidebar-help").click();
-  await expect(page.getByTestId("sidebar-help-menu")).toBeVisible();
+  await openSidebarHelpMenu(page);
   await page.getByTestId("sidebar-help-shortcuts").click();
   const dialog = page.getByTestId("keyboard-shortcuts-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });

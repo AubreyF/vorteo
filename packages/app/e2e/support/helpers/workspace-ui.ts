@@ -88,19 +88,35 @@ export async function waitForWorkspaceInSidebar(
   });
 }
 
+/**
+ * Phones show a workspace header with the workspace title and its project. Desktop has no
+ * workspace header (60f4899a6), so there the selected sidebar row names the workspace under
+ * its project row.
+ */
 export async function expectWorkspaceHeader(
   page: Page,
   input: { title: string; subtitle: string },
 ): Promise<void> {
   const titleLocator = page.getByTestId("workspace-header-title").filter({ visible: true });
   const subtitleLocator = page.getByTestId("workspace-header-subtitle").filter({ visible: true });
+  const selectedRow = page
+    .locator('[data-testid^="sidebar-workspace-row-"][aria-selected="true"]')
+    .filter({ visible: true });
 
-  await expect(titleLocator.first()).toHaveText(input.title, {
-    timeout: 30_000,
-  });
-  await expect(subtitleLocator.first()).toHaveText(input.subtitle, {
-    timeout: 30_000,
-  });
+  await expect(titleLocator.or(selectedRow).first()).toBeVisible({ timeout: 30_000 });
+  if ((await titleLocator.count()) > 0) {
+    await expect(titleLocator.first()).toHaveText(input.title, { timeout: 30_000 });
+    await expect(subtitleLocator.first()).toHaveText(input.subtitle, { timeout: 30_000 });
+    return;
+  }
+  await expect(selectedRow.first()).toContainText(input.title, { timeout: 30_000 });
+  await expect(
+    page
+      .locator('[data-testid^="sidebar-project-row-"]')
+      .filter({ visible: true })
+      .filter({ hasText: input.subtitle })
+      .first(),
+  ).toBeVisible();
 }
 
 export async function expectReconnectingToastVisible(
