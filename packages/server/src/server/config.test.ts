@@ -51,7 +51,8 @@ describe("server config", () => {
       path.join(paseoHome, "config.json"),
       JSON.stringify({ worktrees: { root: "/srv/worktrees" } }),
     );
-    expect(loadConfig(paseoHome, { env: {} }).worktreesRoot).toBe("/srv/worktrees");
+    // A local root is resolved, which on Windows places it on the current drive.
+    expect(loadConfig(paseoHome, { env: {} }).worktreesRoot).toBe(path.resolve("/srv/worktrees"));
   });
 
   test("loads the provider catalog refresh timeout", async () => {

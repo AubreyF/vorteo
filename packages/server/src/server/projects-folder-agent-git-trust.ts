@@ -9,7 +9,10 @@
 import os from "node:os";
 import type { Logger } from "pino";
 import { runGitCommand, type RunGitCommand } from "../utils/run-git-command.js";
-import { findProjectsFolderRepository } from "./projects-folder-git-trust.js";
+import {
+  findProjectsFolderRepository,
+  gitSafeDirectoryValue,
+} from "./projects-folder-git-trust.js";
 import { activeProjectsFolderConfig, type ProjectsFolderConfig } from "./projects-folder.js";
 
 export interface TrustRepositoryForAgentsDependencies {
@@ -37,10 +40,10 @@ export function trustProjectsFolderRepositoryForAgents(
     dependencies.config === undefined ? activeProjectsFolderConfig() : dependencies.config;
   if (!config?.aliases.length) return Promise.resolve(null);
   const repository = findProjectsFolderRepository(config, directory);
-  if (!repository?.throughAlias || trustedThisProcess.has(repository.physical))
-    return Promise.resolve(null);
+  if (!repository?.throughAlias) return Promise.resolve(null);
+  const physical = gitSafeDirectoryValue(repository.physical);
+  if (trustedThisProcess.has(physical)) return Promise.resolve(null);
   const runGit = dependencies.runGit ?? runGitCommand;
-  const physical = repository.physical;
   const operation = queue.then(async () => {
     if (trustedThisProcess.has(physical)) return null;
     // Runs outside the folder, so this command itself gets no per-invocation trust.

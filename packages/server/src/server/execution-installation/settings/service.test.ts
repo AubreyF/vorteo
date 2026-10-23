@@ -1279,7 +1279,7 @@ test("project policies must leave the project available in at least one environm
       settings: { projectPolicies: everywhere },
     }),
   ).rejects.toThrow("at least one environment");
-  for (const key of ["relative/app", "/Users/me/dev/app/"])
+  for (const key of ["relative/app", "/Users/me/dev/app/", "C:\\Users\\me\\dev\\app\\", "C:app"])
     await expect(
       service.update({
         expectedRevision: initial.revision,
