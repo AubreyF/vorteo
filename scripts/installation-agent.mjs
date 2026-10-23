@@ -97,6 +97,7 @@ if (
       "supervisor-plan": { type: "string" },
       "factory-runtime-plan": { type: "string" },
       "engine-restart-plan": { type: "string" },
+      "host-launcher-plan": { type: "string" },
       "factory-runtime-recovery-of": { type: "string" },
       repository: { type: "string" },
       "contribution-id": { type: "string" },
@@ -171,6 +172,33 @@ if (
     if (!capability?.available || capability.sha256 !== values["factory-runtime-plan"])
       throw new Error(
         "Reviewed Factory adoption plan is unavailable or changed. No request submitted.",
+      );
+  }
+  if (values["host-launcher-plan"]) {
+    if (
+      config.kind !== "host-agent" ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"] ||
+      values["engine-restart-plan"] ||
+      values["require-owner-approval"] ||
+      values.target !== "host" ||
+      positionals[0] !== "request-restart"
+    )
+      throw new Error("--host-launcher-plan requires a separate trusted Host restart request");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        "Coordinator cannot advertise the Host launcher update. No request submitted.",
+      );
+    const capability = (await response.json()).hostLauncherUpdate;
+    if (!capability?.available || capability.sha256 !== values["host-launcher-plan"])
+      throw new Error(
+        "Reviewed Host launcher update plan is unavailable or changed. No request submitted.",
       );
   }
   if (values["engine-restart-plan"]) {
@@ -382,6 +410,9 @@ if (
         ...(values["engine-restart-plan"]
           ? { engineRestartPlanSha256: values["engine-restart-plan"] }
           : {}),
+        ...(values["host-launcher-plan"]
+          ? { hostLauncherPlanSha256: values["host-launcher-plan"] }
+          : {}),
         reason: readFileSync(values["reason-file"], "utf8"),
         ...(values.requester ? { requester: values.requester } : {}),
       };
@@ -536,6 +567,7 @@ if (
   if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0])) {
     requestUrl.searchParams.set("requireOwnerApproval", "1");
     requestUrl.searchParams.set("engineRestart", "1");
+    requestUrl.searchParams.set("hostLauncherUpdate", "1");
   }
   const requestOptions = {
     method: body ? "POST" : "GET",

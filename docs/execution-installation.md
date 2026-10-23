@@ -365,6 +365,20 @@ After the held turns finish, the coordinator:
 
 The Docker restart also requires Factory's supervisor to be a new process. The detail names each passed check, or the exact unmet one. A failure after the restart is never retried, and an interrupted run is recorded as failed without replay. The turns hold releases through the normal path once Dev answers. Changes to stored container settings, such as Factory's SecurityOpt edit, are separate operator steps taken before submitting the restart.
 
+### One-time Host launcher update
+
+Without managed release selection, the Host supervisor finds its worker relative to the release it started from. A worker-only restart, the path automatic Host updates take, then loads the old build, and the install is reported as failed. The one-time launcher update adds `PASEO_MANAGED_RELEASE_LINK` and `PASEO_MANAGED_RELEASE_ROOT` to the Host's launchd plist, so the supervisor resolves the selected release on every worker spawn.
+
+A trusted Host operator prepares the candidate plist: the live plist plus exactly those two variables, set to the configured `sourceUpdates.currentReleaseLink` and `releaseRoot`. Keep it as an owner-controlled file outside guest-writable mounts. Configure `host.launcherUpdate` with its `candidate` path and `sha256` through an owner-reviewed coordinator plan or renewal (`hostLauncherUpdateConfiguration`). The capability digest binds the candidate and the live plist bytes, so any later change to either voids it. Once the update is applied, the plan is no longer advertised.
+
+The Host client discovers `hostLauncherUpdate` through `capabilities` and submits `request-restart --target host --host-launcher-plan <sha256> --reason-file <file>`. Dev credentials are refused. The owner or a delegated lead reviews **Host launcher** and chooses **Finish turns and update the Host launcher**. It is never approved automatically, because it restarts every Host agent once. After the held turns finish, the coordinator:
+
+1. Writes the live plist bytes to a fallback file in its state folder, then atomically replaces the plist with the candidate.
+2. Runs `launchctl bootout` and `launchctl bootstrap` once.
+3. Requires a new Host worker and supervisor under the pinned server ID, the selected release's version, and both variables in the new supervisor's process environment.
+
+On any failure after the swap, it puts the previous plist back and reloads it, and reports the failure without retrying. If launchd cannot reload the previous plist either, the detail names the fallback copy for a manual reload.
+
 ### Factory checks around Dev restarts
 
 Once `container.factoryGate` is configured, the coordinator runs Factory's read-only lock acceptance script around every restart that replaces the Dev worker. That covers source updates, plain and idle restarts, held restarts, supervisor maintenance, Factory adoption and the Docker restart. Configure it through an owner-reviewed coordinator plan or renewal with `factoryGateConfiguration`: the pinned `docker` binary, the socket path, the Dev container's full ID, and `verify` with the script path, its `sha256`, the pinned `lockInode` and the expected `ownerMode`. `null` removes it. The script must be version 2 or later, which reports the owner sequence and a custody digest.

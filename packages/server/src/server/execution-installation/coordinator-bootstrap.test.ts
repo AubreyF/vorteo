@@ -4328,6 +4328,42 @@ test("stale coordinator cancellation never touches executing requests or restart
   expect(jobs[0]).toMatchObject({ status: "pending" });
 });
 
+test("old clients see a Host launcher update plan hidden and cannot approve it", async () => {
+  const f = fixture();
+  f.plan.hostLauncherUpdateConfiguration = {
+    candidate: "/fixture/candidate.plist",
+    sha256: "c".repeat(64),
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  expect(legacy.payload.requests![0]!.plan).not.toHaveProperty("hostLauncherUpdateConfiguration");
+  expect(legacy.payload.requests![0]!.reason).toContain("Host launcher");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(refused.payload.error).toContain("Host launcher update plan");
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      hostLauncherUpdate: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+});
+
 test("old clients see a Factory check configuration hidden and cannot approve it", async () => {
   const f = fixture();
   f.plan.factoryGateConfiguration = {

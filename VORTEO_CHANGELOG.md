@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.801 - 2026-10-23
+
+### Added
+
+- A one-time, owner-approved Host launcher update adds managed release selection to the Host's launchd plist, so later worker-only Host restarts load the selected build instead of the one the supervisor started from. It finishes turns, keeps the previous plist as a fallback, reloads the service once, and verifies the server identity, a new supervisor, the selected version and both settings in the live process. Any failure restores the previous plist. Reviewed coordinator plans and renewals accept `hostLauncherUpdateConfiguration` to set its plan.
+
 ## 0.11.0-beta.3.vorteo.800 - 2026-10-23
 
 ### Added

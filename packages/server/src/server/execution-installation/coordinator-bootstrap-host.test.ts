@@ -613,6 +613,16 @@ test("bootstrap configuration preserves credentials, service targets and state w
   plan.factoryGateConfiguration = null;
   expect(verify).not.toThrow();
   delete plan.factoryGateConfiguration;
+  // The Host launcher update plan changes only through its own reviewed field.
+  const launcherUpdate = { candidate: "/fixture/candidate.plist", sha256: "c".repeat(64) };
+  save(candidateFile, { ...f.config, host: { ...f.config.host, launcherUpdate } });
+  expect(verify).toThrow("outside its approved policy");
+  plan.hostLauncherUpdateConfiguration = launcherUpdate;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  plan.hostLauncherUpdateConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.hostLauncherUpdateConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -1502,6 +1512,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapClaudeHostRefresh: false,
       coordinatorBootstrapEngineRestart: false,
       coordinatorBootstrapFactoryGate: false,
+      coordinatorBootstrapHostLauncherUpdate: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

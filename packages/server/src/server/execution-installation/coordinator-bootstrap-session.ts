@@ -84,6 +84,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapClaudeHostRefresh: available,
     coordinatorBootstrapEngineRestart: available,
     coordinatorBootstrapFactoryGate: available,
+    coordinatorBootstrapHostLauncherUpdate: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
     coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
@@ -300,6 +301,7 @@ function publicBootstrapReply(
   visible = claudeHostRefreshReply(visible, message.claudeHostRefresh === true);
   visible = engineRestartReply(visible, message.engineRestart === true);
   visible = factoryGateReply(visible, message.factoryGate === true);
+  visible = hostLauncherUpdateReply(visible, message.hostLauncherUpdate === true);
   visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
   visible = bootRecoveryReply(visible, message.bootRecovery === true);
   if (!message.automaticStatus) return visible;
@@ -387,6 +389,22 @@ function factoryGateReply(
   };
 }
 
+// COMPAT(bootstrapHostLauncherUpdate): added 2026-10-23; remove after 2027-04-23
+// once all supported clients negotiate Host launcher update review.
+function hostLauncherUpdateReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.hostLauncherUpdateConfiguration === undefined) return request;
+  const { hostLauncherUpdateConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this Host launcher update plan. Cancellation remains available.",
+  };
+}
+
 // COMPAT(bootstrapPreviewMonitor): added 2026-10-11; remove after 2027-04-11
 // once all supported clients negotiate monitor configuration review.
 function previewMonitorReply(
@@ -427,6 +445,13 @@ function assertServiceConfigurationReview(
   if (request?.plan.factoryGateConfiguration !== undefined && message.factoryGate !== true)
     throw new BootstrapRequestConflict(
       "Reload the client to review this Factory check configuration before approval.",
+    );
+  if (
+    request?.plan.hostLauncherUpdateConfiguration !== undefined &&
+    message.hostLauncherUpdate !== true
+  )
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this Host launcher update plan before approval.",
     );
 }
 

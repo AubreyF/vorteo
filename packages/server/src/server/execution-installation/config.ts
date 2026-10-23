@@ -7,6 +7,7 @@ import {
   EngineRestartConfigurationSchema,
   ExecutionInstallationSchema,
   FactoryGateConfigurationSchema,
+  HostLauncherUpdateConfigurationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
 } from "@getpaseo/protocol/execution-installation";
@@ -52,6 +53,8 @@ const HostDaemonSchema = DaemonConnectionSchema.extend({
       home: z.string().startsWith("/"),
     })
     .optional(),
+  /** One-time Host launcher update adding the managed release link and root. */
+  launcherUpdate: HostLauncherUpdateConfigurationSchema.optional(),
 });
 
 export const InstallationConfigSchema = z.strictObject({

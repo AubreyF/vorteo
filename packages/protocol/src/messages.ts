@@ -4133,6 +4133,7 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapClaudeHostRefresh: z.boolean().optional(),
         coordinatorBootstrapEngineRestart: z.boolean().optional(),
         coordinatorBootstrapFactoryGate: z.boolean().optional(),
+        coordinatorBootstrapHostLauncherUpdate: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.
         coordinatorBootstrapSourceUpdateTooling: z.boolean().optional(),
         coordinatorBootstrapBootRecovery: z.boolean().optional(),

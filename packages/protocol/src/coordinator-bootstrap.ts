@@ -4,6 +4,7 @@ import {
   EngineRestartConfigurationSchema,
   FactoryGateConfigurationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
+  HostLauncherUpdateConfigurationSchema,
 } from "./execution-installation.js";
 import { z } from "zod";
 import { StandingMaintenanceProposalSchema } from "./installation-enrollment.js";
@@ -132,6 +133,9 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
   // COMPAT(bootstrapFactoryGate): added 2026-10-23. Sets Factory's check around Dev
   // source updates in the coordinator configuration; null removes it.
   factoryGateConfiguration: FactoryGateConfigurationSchema.nullable().optional(),
+  // COMPAT(bootstrapHostLauncherUpdate): added 2026-10-23. Sets the one-time Host launcher
+  // update plan in the coordinator configuration; null removes it.
+  hostLauncherUpdateConfiguration: HostLauncherUpdateConfigurationSchema.nullable().optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 
@@ -354,6 +358,7 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   claudeHostRefresh: z.literal(true).optional(),
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
+  hostLauncherUpdate: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -372,6 +377,7 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   claudeHostRefresh: z.literal(true).optional(),
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
+  hostLauncherUpdate: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -387,6 +393,7 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   claudeHostRefresh: z.literal(true).optional(),
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
+  hostLauncherUpdate: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),

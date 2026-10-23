@@ -288,6 +288,7 @@ function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
     plan.claudeHostRefreshConfiguration !== undefined ||
     plan.engineRestartConfiguration !== undefined ||
     plan.factoryGateConfiguration !== undefined ||
+    plan.hostLauncherUpdateConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(
@@ -340,6 +341,7 @@ function assertAutomaticCoordinatorPlan(plan: CoordinatorBootstrapPlan): void {
     plan.claudeHostRefreshConfiguration !== undefined ||
     plan.engineRestartConfiguration !== undefined ||
     plan.factoryGateConfiguration !== undefined ||
+    plan.hostLauncherUpdateConfiguration !== undefined ||
     plan.factoryRuntimeAdoptionConfiguration !== undefined
   )
     throw new BootstrapRequestConflict(

@@ -368,6 +368,18 @@ function FactoryGateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest[
   );
 }
 
+function HostLauncherUpdateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.hostLauncherUpdateConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {config === null
+        ? "Remove the Host launcher update plan."
+        : `Allow a one-time Host launcher update that adds managed release selection, which you approve separately. Candidate launcher ${config.sha256.slice(0, 12)}.`}
+    </Text>
+  );
+}
+
 function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
   if (plan.sourceUpdateTooling !== true) return null;
   return (
@@ -508,6 +520,7 @@ function BootstrapRequestCard({
           <ClaudeRefreshConfiguration plan={request.plan} />
           <EngineRestartConfiguration plan={request.plan} />
           <FactoryGateConfiguration plan={request.plan} />
+          <HostLauncherUpdateConfiguration plan={request.plan} />
           <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}

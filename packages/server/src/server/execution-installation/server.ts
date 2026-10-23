@@ -169,6 +169,27 @@ function engineRestartReply(job: RestartJob, enabled: boolean | undefined): Rest
   };
 }
 
+// COMPAT(hostLauncherUpdate): added 2026-10-23; remove after 2027-04-23 once all supported
+// clients negotiate Host launcher review. Old clients see a Host restart they can only cancel.
+function hostLauncherReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (!job.hostLauncherPlanSha256 || enabled) return job;
+  const { hostLauncherPlanSha256: _plan, ...compatible } = job;
+  return {
+    ...compatible,
+    reason: "Host launcher update. Reload Vorteo to review the exact operation.",
+    detail: "Reload to review the Host launcher update. Cancellation remains available.",
+  };
+}
+
+/** A plan-bound operation that only an owner or delegate approves, advertised by digest. */
+function planCapability(plan: string | undefined, executor: unknown) {
+  return {
+    available: Boolean(plan && executor),
+    ownerApprovalRequired: true,
+    ...(plan ? { sha256: plan } : {}),
+  };
+}
+
 function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
   return job.status === "pending" ? pendingDetail : job.detail;
 }
@@ -228,6 +249,7 @@ function restartReply(
   factoryRuntimeAdoption?: boolean,
   requireOwnerApproval?: boolean,
   engineRestart?: boolean,
+  hostLauncherUpdate?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
@@ -252,6 +274,7 @@ function restartReply(
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
   job = engineRestartReply(job, engineRestart);
+  job = hostLauncherReply(job, hostLauncherUpdate);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -858,6 +881,7 @@ export function createInstallationServer(
       host && devReady && !config.container.persistentRegistration
         ? executor.factoryRuntimePlan?.()
         : undefined;
+    const hostLauncherPlan = host ? executor.hostLauncherPlan?.() : undefined;
     const engineRestartPlan =
       host && devReady && !config.container.persistentRegistration
         ? executor.engineRestartPlan?.()
@@ -938,17 +962,14 @@ export function createInstallationServer(
               ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
-            factoryRuntimeAdoption: {
-              available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
-              ownerApprovalRequired: true,
-              ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
-            },
+            factoryRuntimeAdoption: planCapability(
+              factoryRuntimePlan,
+              executor.adoptFactoryRuntime,
+            ),
+            // Never automatic: the one-time launcher update restarts every Host agent.
+            hostLauncherUpdate: planCapability(hostLauncherPlan, executor.updateHostLauncher),
             // Never automatic: a Docker restart interrupts all of Dev and the gateway.
-            engineRestart: {
-              available: Boolean(engineRestartPlan && executor.restartEngine),
-              ownerApprovalRequired: true,
-              ...(engineRestartPlan ? { sha256: engineRestartPlan } : {}),
-            },
+            engineRestart: planCapability(engineRestartPlan, executor.restartEngine),
           }),
         next,
       );
@@ -1085,6 +1106,7 @@ export function createInstallationServer(
             req.query.factoryRuntimeAdoption === "1",
             req.query.requireOwnerApproval === "1",
             req.query.engineRestart === "1",
+            req.query.hostLauncherUpdate === "1",
           ),
         });
         void drainRestarts();
@@ -1104,6 +1126,7 @@ export function createInstallationServer(
               true,
               req.query.requireOwnerApproval === "1",
               req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
           );
     },
@@ -1129,6 +1152,7 @@ export function createInstallationServer(
         undefined,
         req.query.requireOwnerApproval === "1",
         req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     });
   });
@@ -1551,6 +1575,7 @@ export function createInstallationServer(
           true,
           req.query.requireOwnerApproval === "1",
           req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
       );
   });
@@ -1593,6 +1618,7 @@ export function createInstallationServer(
         true,
         req.query.requireOwnerApproval === "1",
         req.query.engineRestart === "1",
+        req.query.hostLauncherUpdate === "1",
       ),
     );
   });
@@ -1984,6 +2010,7 @@ export function createInstallationServer(
               req.query.factoryRuntimeAdoption === "1",
               req.query.requireOwnerApproval === "1",
               req.query.engineRestart === "1",
+              req.query.hostLauncherUpdate === "1",
             ),
             job,
             delegation,
@@ -2035,6 +2062,7 @@ export function createInstallationServer(
       decision.supervisorPlanSha256,
       decision.factoryRuntimePlanSha256,
       decision.engineRestartPlanSha256,
+      decision.hostLauncherPlanSha256,
     );
     res.json(
       withDelegation(
@@ -2050,6 +2078,7 @@ export function createInstallationServer(
           req.query.factoryRuntimeAdoption === "1",
           req.query.requireOwnerApproval === "1",
           req.query.engineRestart === "1",
+          req.query.hostLauncherUpdate === "1",
         ),
         job,
         requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),

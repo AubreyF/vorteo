@@ -55,6 +55,16 @@ export const FactoryGateConfigurationSchema = z.strictObject({
 });
 export type FactoryGateConfiguration = z.infer<typeof FactoryGateConfigurationSchema>;
 
+/**
+ * Operator-prepared Host launchd plist: the live one plus exactly the managed release
+ * link and root, so worker-only restarts load the selected release.
+ */
+export const HostLauncherUpdateConfigurationSchema = z.strictObject({
+  candidate: z.string().startsWith("/"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type HostLauncherUpdateConfiguration = z.infer<typeof HostLauncherUpdateConfigurationSchema>;
+
 export const InstallationEnvironmentSchema = z.strictObject({
   kind: ExecutionEnvironmentKindSchema,
   serverId: z.string().min(1),
@@ -187,6 +197,12 @@ export const RestartRequestSchema = z.strictObject({
   // COMPAT(engineRestart): optional exact-plan binding for a Docker engine restart under Dev.
   // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
   engineRestartPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // COMPAT(hostLauncherUpdate): optional exact-plan binding for the one-time Host launcher update.
+  // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
+  hostLauncherPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
@@ -505,6 +521,10 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  hostLauncherPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   engineRestartPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

@@ -5307,3 +5307,47 @@ test("Factory's guard wraps every approved Dev dispatch and never a Host one", a
   );
   expect(queue.list().find((job) => job.id === host.id)?.detail).toBe("host ready");
 });
+
+test("the Host launcher update needs a trusted Host request, the exact plan and owner review", async () => {
+  const sha = "c".repeat(64);
+  const f = automaticFixture(() => new Date(1000).toISOString());
+  const calls: string[] = [];
+  f.executor.hostLauncherPlan = () => sha;
+  f.executor.updateHostLauncher = async () => {
+    calls.push("launcher");
+    return "Host launcher updated";
+  };
+  const queue = new InstallationRestarts(f.journal, f.executor, () => 2000, f.policy);
+  const input = {
+    target: "host" as const,
+    reason: "Managed releases",
+    hostLauncherPlanSha256: sha,
+  };
+  expect(() => queue.request(input, "container-agent")).toThrow("trusted Host");
+  expect(() => queue.request({ ...input, target: "container-daemon" }, "host-agent")).toThrow(
+    "trusted Host",
+  );
+  expect(() =>
+    queue.request({ ...input, hostLauncherPlanSha256: "d".repeat(64) }, "host-agent"),
+  ).toThrow("unavailable or changed");
+  const job = queue.request(input, "host-agent");
+  await queue.drain();
+  expect(queue.list()[0]?.status).toBe("pending");
+  expect(queue.list()[0]?.automaticApproval).toBeUndefined();
+  expect(() => queue.request({ target: "host", reason: "Plain" }, "host-agent")).toThrow(
+    "different",
+  );
+  expect(() => queue.decide(job.id, job.revision, "finish-current-turns")).toThrow(
+    "exact Host launcher update",
+  );
+  const decide = (decision: "approve-when-idle" | "finish-current-turns") =>
+    queue.decide(job.id, job.revision, decision, undefined, undefined, undefined, undefined, sha);
+  expect(() => decide("approve-when-idle")).toThrow("Finish turns");
+  decide("finish-current-turns");
+  await queue.drain();
+  expect(calls).toEqual([]);
+  f.idle();
+  await queue.drain();
+  expect(calls).toEqual(["launcher"]);
+  expect(queue.list()[0]?.status).toBe("succeeded");
+});

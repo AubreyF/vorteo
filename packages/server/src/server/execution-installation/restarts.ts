@@ -176,6 +176,9 @@ export interface RestartExecutor {
   restartSupervisor?(job: RestartJob): Promise<string>;
   /** Wraps every approved Dev dispatch, for Factory's checks before and after it. */
   guardDevRestart?(job: RestartJob, dispatch: () => Promise<string | null>): Promise<string | null>;
+  /** Digest of the one-time Host launcher update, when it is configured and not yet applied. */
+  hostLauncherPlan?(): string | undefined;
+  updateHostLauncher?(job: RestartJob): Promise<string>;
   /** Digest of the configured Docker engine restart plan, when it is executable. */
   engineRestartPlan?(): string | undefined;
   restartEngine?(job: RestartJob): Promise<string>;
@@ -1192,6 +1195,8 @@ export class InstallationRestarts {
       throw new RestartRequestError("Factory adoption already requires exact owner review");
     if (input.engineRestartPlanSha256)
       throw new RestartRequestError("Docker restart already requires exact owner review");
+    if (input.hostLauncherPlanSha256)
+      throw new RestartRequestError("Host launcher update already requires exact owner review");
   }
 
   private sharePlainRequest(active: RestartJob, requireOwnerApproval: boolean): RestartJob {
@@ -1272,6 +1277,7 @@ export class InstallationRestarts {
     this.validateSupervisorRequest(input, requestedBy, update);
     this.validateFactoryRuntimeRequest(input, requestedBy, update);
     this.validateEngineRestartRequest(input, requestedBy, update);
+    this.validateHostLauncherRequest(input, requestedBy, update);
     if (update && !this.supportsUpdate(input.target))
       throw new RestartRequestError("Source updates are unavailable for this target");
     this.reconcilePending();
@@ -1285,7 +1291,8 @@ export class InstallationRestarts {
     if (
       active &&
       (active.supervisorPlanSha256 !== input.supervisorPlanSha256 ||
-        active.engineRestartPlanSha256 !== input.engineRestartPlanSha256)
+        active.engineRestartPlanSha256 !== input.engineRestartPlanSha256 ||
+        active.hostLauncherPlanSha256 !== input.hostLauncherPlanSha256)
     )
       throw new RestartRequestError(
         "A different restart scope or maintenance plan already owns this target",
@@ -1508,7 +1515,8 @@ export class InstallationRestarts {
     const separateMaintenance =
       (input.supervisorPlanSha256 ||
         input.factoryRuntimePlanSha256 ||
-        input.engineRestartPlanSha256) &&
+        input.engineRestartPlanSha256 ||
+        input.hostLauncherPlanSha256) &&
       (job.update || job.sourceBatch);
     return !separateMaintenance;
   }
@@ -1528,6 +1536,27 @@ export class InstallationRestarts {
       )
         throw new RestartRequestError("Supervisor maintenance plan is unavailable or changed");
     }
+  }
+
+  private validateHostLauncherRequest(
+    input: RestartRequest,
+    requestedBy: RestartJob["requestedBy"],
+    update?: RestartJob["update"],
+  ): void {
+    if (!input.hostLauncherPlanSha256) return;
+    if (requestedBy === "container-agent" || input.target !== "host")
+      throw new RestartRequestError("Host launcher update requires a trusted Host request");
+    if (
+      update ||
+      input.supervisorPlanSha256 ||
+      input.factoryRuntimePlanSha256 ||
+      input.factoryRuntimeRecoveryOf ||
+      input.engineRestartPlanSha256 ||
+      input.workerLaunchRequest ||
+      !this.executor.updateHostLauncher ||
+      input.hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+    )
+      throw new RestartRequestError("Host launcher update plan is unavailable or changed");
   }
 
   private validateEngineRestartRequest(
@@ -1768,6 +1797,7 @@ export class InstallationRestarts {
     supervisorPlanSha256?: string,
     factoryRuntimePlanSha256?: string,
     engineRestartPlanSha256?: string,
+    hostLauncherPlanSha256?: string,
   ): RestartJob {
     this.requireActive();
     const job = this.jobs.find((candidate) => candidate.id === id);
@@ -1776,6 +1806,7 @@ export class InstallationRestarts {
     this.validateSupervisorDecision(job, decision, supervisorPlanSha256);
     this.validateFactoryRuntimeDecision(job, decision, factoryRuntimePlanSha256);
     this.validateEngineRestartDecision(job, decision, engineRestartPlanSha256);
+    this.validateHostLauncherDecision(job, decision, hostLauncherPlanSha256);
     this.validateDecision(job, decision, updateSha256);
     if (decision === "request-again") {
       if (job.status !== "rejected")
@@ -1789,6 +1820,7 @@ export class InstallationRestarts {
           factoryRuntimePlanSha256: job.factoryRuntimePlanSha256,
           factoryRuntimeRecoveryOf: job.factoryRuntimeRecoveryOf,
           engineRestartPlanSha256: job.engineRestartPlanSha256,
+          hostLauncherPlanSha256: job.hostLauncherPlanSha256,
         },
         "owner",
       );
@@ -1919,6 +1951,22 @@ export class InstallationRestarts {
       }),
       this.helpers,
     );
+  }
+
+  private validateHostLauncherDecision(
+    job: RestartJob,
+    decision: RestartDecision,
+    hostLauncherPlanSha256?: string,
+  ): void {
+    if (!job.hostLauncherPlanSha256 || ["reject", "cancel", "request-again"].includes(decision))
+      return;
+    if (
+      hostLauncherPlanSha256 !== job.hostLauncherPlanSha256 ||
+      hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+    )
+      throw new RestartRequestError("Review this exact Host launcher update before approval");
+    if (decision === "approve-when-idle")
+      throw new RestartRequestError("Use Finish turns and restart for the Host launcher update");
   }
 
   private validateEngineRestartDecision(
@@ -2342,6 +2390,8 @@ export class InstallationRestarts {
       !job.workerLaunchRequest &&
       // A Docker restart interrupts all of Dev and the gateway; only an owner or delegate approves it.
       !job.engineRestartPlanSha256 &&
+      // The Host launcher update restarts every Host agent; it is never automatic either.
+      !job.hostLauncherPlanSha256 &&
       this.automaticHostOrigin(job) &&
       !job.requireOwnerApproval &&
       (standing != null ||
@@ -2810,7 +2860,8 @@ export class InstallationRestarts {
       !job.standingDecision.activationStep &&
       !job.supervisorPlanSha256 &&
       !job.factoryRuntimePlanSha256 &&
-      !job.engineRestartPlanSha256,
+      !job.engineRestartPlanSha256 &&
+      !job.hostLauncherPlanSha256,
     );
   }
 
@@ -2917,6 +2968,15 @@ export class InstallationRestarts {
       )
         throw new RestartRequestError("Factory adoption plan changed before dispatch");
       return this.executor.adoptFactoryRuntime(job);
+    }
+    if (job.hostLauncherPlanSha256) {
+      if (
+        job.automaticApproval ||
+        !this.executor.updateHostLauncher ||
+        job.hostLauncherPlanSha256 !== this.executor.hostLauncherPlan?.()
+      )
+        throw new RestartRequestError("Host launcher update plan changed before dispatch");
+      return this.executor.updateHostLauncher(job);
     }
     if (job.engineRestartPlanSha256) {
       if (
@@ -3264,6 +3324,10 @@ function refusePlanBoundContribution(input: RestartRequest): void {
     );
   if (input.engineRestartPlanSha256)
     throw new RestartRequestError("Docker restart cannot be submitted as a source contribution");
+  if (input.hostLauncherPlanSha256)
+    throw new RestartRequestError(
+      "Host launcher update cannot be submitted as a source contribution",
+    );
 }
 
 /** Only an undispatched or running continuation fences other lifecycle work. A

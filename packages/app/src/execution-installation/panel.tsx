@@ -1537,17 +1537,21 @@ function DevRepairAction({
 /** Reviewed plan operations run only after held turns finish, never when idle. */
 function isPlanBound(job: RestartJob): boolean {
   return Boolean(
-    job.supervisorPlanSha256 || job.factoryRuntimePlanSha256 || job.engineRestartPlanSha256,
+    job.supervisorPlanSha256 ||
+    job.factoryRuntimePlanSha256 ||
+    job.engineRestartPlanSha256 ||
+    job.hostLauncherPlanSha256,
   );
 }
 
 function isPlainHostRestart(job: RestartJob): boolean {
-  return job.target === "host" && !job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256;
+  return job.target === "host" && !isPlanBound(job);
 }
 
 function finishLabel(job: RestartJob): string {
   if (job.factoryRuntimePlanSha256) return "Finish turns and adopt Factory startup";
   if (job.engineRestartPlanSha256) return "Finish turns and restart Docker";
+  if (job.hostLauncherPlanSha256) return "Finish turns and update the Host launcher";
   return "Finish turns and restart";
 }
 
@@ -1650,6 +1654,7 @@ function restartTargetLabel(job: RestartJob): string {
   if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
   if (job.supervisorPlanSha256) return "Dev supervisor";
   if (job.engineRestartPlanSha256) return "Docker for Dev";
+  if (job.hostLauncherPlanSha256) return "Host launcher";
   return job.target === "host" ? "Host" : "Dev container";
 }
 
@@ -1682,6 +1687,14 @@ function RestartDetails({ job }: { job: RestartJob }) {
             <Text selectable style={styles.text}>
               Select the reviewed Factory runtime and restart Dev. Existing Factory state is
               retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
+            </Text>
+          ) : null}
+          {job.hostLauncherPlanSha256 ? (
+            <Text selectable style={styles.text}>
+              Add the managed release link and root to the Host launch settings and restart the
+              whole Host once, so later restarts always load the selected build. The previous
+              settings are kept and restored if the check fails. Reviewed plan:{" "}
+              {job.hostLauncherPlanSha256}
             </Text>
           ) : null}
           {job.engineRestartPlanSha256 ? (
