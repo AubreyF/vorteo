@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.812 - 2026-10-23
+
+### Maintenance
+
+- Browser tests open Projects through the Workspaces & projects section and accept its current addresses, on desktop and phone widths.
+- Chat outline tests use a 2400-pixel viewport, because the workspace card column now narrows the conversation below the rail's minimum at 1440, and look for task cards in the workspace card column.
+
 ## 0.11.0-beta.3.vorteo.811 - 2026-10-23
 
 ### Maintenance

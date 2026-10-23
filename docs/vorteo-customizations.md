@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-23): test-only change. Projects settings and chat outline browser tests follow the single settings page and the workspace card column. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): test and CI change. Desktop renderer tests follow the More menu, Explorer and About pane layouts; the workspace title check follows the desktop sidebar; Metro warm-up allows five minutes in CI. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): test-only change. Browser tests choose models through pinned mock profiles, dismiss the worktree setup notice automatically and queue through the composer's default action. Functionality is unchanged. README overview and onboarding are unchanged.

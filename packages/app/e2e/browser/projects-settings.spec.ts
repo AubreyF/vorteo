@@ -38,6 +38,7 @@ import {
   openProjectEditSheet,
   openProjectSettings,
   openProjects,
+  projectsListUrl,
   removeProjectScript,
   restorePaseoConfig,
   returnToProjectsList,
@@ -45,19 +46,14 @@ import {
   unblockPaseoConfigWrites,
 } from "../support/helpers/project-settings";
 import { gotoAppShell } from "../support/helpers/app";
-import { openCompactSettings } from "../support/helpers/settings";
+import { openCompactSettings, revealSettingsLocation } from "../support/helpers/settings";
 import {
   addProjectFlowInput,
   chooseAddProjectMethod,
   openAddProjectFlow,
 } from "../support/helpers/add-project-flow";
 import { createTempGitRepo } from "../support/helpers/workspace";
-import {
-  buildOpenProjectRoute,
-  buildProjectsSettingsRoute,
-  buildSettingsRoute,
-} from "@/utils/host-routes";
-import { getServerId } from "../support/helpers/server-id";
+import { buildOpenProjectRoute, buildSettingsRoute } from "@/utils/host-routes";
 
 const updatedSetup = ["npm install", "npm run build"];
 
@@ -337,8 +333,8 @@ test.describe("Projects settings — compact navigation", () => {
   }) => {
     await gotoAppShell(page);
     await openCompactSettings(page, buildOpenProjectRoute());
-    await page.getByRole("button", { name: "Projects", exact: true }).click();
-    await expect(page).toHaveURL(buildProjectsSettingsRoute(getServerId()));
+    await revealSettingsLocation(page, "projects");
+    await expect(page).toHaveURL(projectsListUrl());
 
     await openProjectSettings(page, editableProject.name);
     await expect(page.getByRole("button", { name: "Back", exact: true })).toHaveCount(1);
@@ -347,7 +343,7 @@ test.describe("Projects settings — compact navigation", () => {
     );
 
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(page).toHaveURL(buildProjectsSettingsRoute(getServerId()));
+    await expect(page).toHaveURL(projectsListUrl());
 
     await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page).toHaveURL(buildSettingsRoute());

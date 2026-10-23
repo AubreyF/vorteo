@@ -7,6 +7,8 @@ import { gotoAppShell, openSettings } from "./app";
 import { daemonWsRoutePattern } from "./daemon-port";
 import { getServerId } from "./server-id";
 import { buildProjectsSettingsRoute } from "@/utils/host-routes";
+import { escapeRegex } from "./regex";
+import { revealSettingsLocation } from "./settings";
 
 type WebSocketMessage = string | Buffer;
 
@@ -31,13 +33,20 @@ function getSessionMessage(message: WebSocketMessage): Record<string, unknown> |
   return maybeEnvelope.message as Record<string, unknown>;
 }
 
+/** The projects list: the Workspaces settings section, its Projects address or the host one. */
+export function projectsListUrl(): RegExp {
+  const legacy = escapeRegex(buildProjectsSettingsRoute(getServerId()));
+  return new RegExp(`(/settings/(workspaces|projects)|${legacy})$`);
+}
+
 // --- Navigation ---
 
 export async function openProjects(page: Page): Promise<void> {
   await gotoAppShell(page);
   await openSettings(page);
-  await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await expect(page).toHaveURL(buildProjectsSettingsRoute(getServerId()));
+  // Projects is a pane in Workspaces & projects on the single settings page.
+  await revealSettingsLocation(page, "projects");
+  await expect(page).toHaveURL(projectsListUrl());
 }
 
 export async function openProjectSettings(page: Page, projectName: string): Promise<void> {
@@ -53,7 +62,7 @@ export async function navigateToProjectSettings(page: Page, projectName: string)
 
 export async function returnToProjectsList(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Back to projects", exact: true }).click();
-  await expect(page).toHaveURL(buildProjectsSettingsRoute(getServerId()));
+  await expect(page).toHaveURL(projectsListUrl());
 }
 
 export async function expectProjectSettingsHistoryRoundTrip(
@@ -61,7 +70,7 @@ export async function expectProjectSettingsHistoryRoundTrip(
   projectName: string,
 ): Promise<void> {
   await page.goBack();
-  await expect(page).toHaveURL(buildProjectsSettingsRoute(getServerId()));
+  await expect(page).toHaveURL(projectsListUrl());
   await page.goForward();
   await expectProjectTitle(page, projectName);
 }
