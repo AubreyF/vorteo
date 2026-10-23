@@ -626,6 +626,8 @@ After promotion, resuming the old executable cannot establish recovery. The watc
 
 After verified restoration, a new plan can name the exact failed request, revision, plan digest and execution generation in `recoveredFrom`. Admission verifies the previous updater has exited and the currently loaded service matches the restored release. The failed receipt stays intact; the new request starts pending and requires its own approval. The current callout follows the new review.
 
+One case needs no owner review: an automatically approved request whose claim never reached promotion. It failed before the freeze, so the running coordinator was never frozen or replaced. Under Host coordinator permission, an automatic renewal can then name it in `recoveredFrom` and is approved like any other automatic renewal. The coordinator proves under the journal lock that the failure appears in neither promotion location, and requires the successor to expect the same coordinator process. An owner-reviewed failure, a failure after promotion, a claimed recovery, supervision recovery or any configuration change still needs the owner or delegated lead, so a reviewed change is never dropped silently.
+
 Older plans retain their original behavior and do not gain automatic recovery retroactively. Install compatible Host review support, inspector, runner and interface before preparing a plan with this field. An emergency restoration outside the installed controls requires the owner's explicit exception; it does not authorize replaying the failed update or silently changing its receipt.
 
 This source path still requires protected installation setup and live acceptance before it is available in an existing installation.

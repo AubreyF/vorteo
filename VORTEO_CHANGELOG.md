@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.812 - 2026-10-22
+
+### Maintenance
+
+- Merge automatic closure of failed coordinator updates: an automatic successor may close an automatic update that failed before promotion for the same coordinator process; owner-reviewed failures still need review
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Fixed
+
+- An automatic coordinator update that failed before promotion, and so never froze or replaced the running coordinator, no longer waits for a hand-built successor. An automatic renewal can name it in `recoveredFrom` and is approved under Host coordinator permission, after the coordinator proves under its journal lock that the failure was never promoted and that the successor expects the same coordinator process. Owner-reviewed failures, failures after promotion, claimed recoveries and configuration changes still need the owner, so a reviewed change is never dropped.
+
 ## 0.11.0-beta.3.vorteo.811 - 2026-10-22
 
 ### Maintenance
