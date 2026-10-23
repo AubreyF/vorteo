@@ -14,6 +14,35 @@ export const FactoryRuntimeAdoptionConfigurationSchema = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
+const ContainerIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+/**
+ * Operator-prepared plan for a tracked Docker Desktop restart under Dev. Every
+ * container is pinned by full ID and must come back under that same ID.
+ */
+export const EngineRestartConfigurationSchema = z.strictObject({
+  docker: z.string().startsWith("/"),
+  /** Docker socket path, without a `unix://` prefix. */
+  socket: z.string().startsWith("/"),
+  containers: z.strictObject({
+    dev: ContainerIdSchema,
+    gatewayTailscale: ContainerIdSchema,
+    gatewayCaddy: ContainerIdSchema,
+  }),
+  /** Factory's read-only lock acceptance check, run before and after the restart. */
+  factoryVerify: z
+    .strictObject({
+      script: z.string().startsWith("/"),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      lockInode: z.number().int().positive(),
+      ownerMode: z.enum(["paused", "running"]),
+    })
+    .optional(),
+  /** Bound on the engine restart and readiness checks. */
+  deadlineSeconds: z.number().int().min(60).max(1800).optional(),
+});
+export type EngineRestartConfiguration = z.infer<typeof EngineRestartConfigurationSchema>;
+
 export const InstallationEnvironmentSchema = z.strictObject({
   kind: ExecutionEnvironmentKindSchema,
   serverId: z.string().min(1),
@@ -140,6 +169,12 @@ export const RestartRequestSchema = z.strictObject({
     .optional(),
   // COMPAT(supervisorMaintenance): optional exact-plan binding; old approvals cannot authorize it.
   supervisorPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // COMPAT(engineRestart): optional exact-plan binding for a Docker engine restart under Dev.
+  // Projected out for clients that do not negotiate it; their approvals cannot authorize it.
+  engineRestartPlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
@@ -458,6 +493,10 @@ export const RestartJobSchema = RestartRequestSchema.extend({
 export type RestartJob = z.infer<typeof RestartJobSchema>;
 
 export const RestartDecisionSchema = z.strictObject({
+  engineRestartPlanSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   factoryRuntimePlanSha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

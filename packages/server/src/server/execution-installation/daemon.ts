@@ -7,6 +7,13 @@ import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js"
 import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
+import {
+  awaitEngineReadiness,
+  engineRestartPlanDigest,
+  engineRestartPreflight,
+  restartDockerEngine,
+  verifyFactoryAfterRestart,
+} from "./engine-restart.js";
 import { WebSocket } from "ws";
 import type { Logger } from "pino";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -468,6 +475,32 @@ export function createInstallationRestartExecutor(
         throw new Error("Factory adoption did not replace the worker; inspect retained selection");
       await runFactoryRuntimePhase({ ...phase, phase: "verify", replacementPid });
       return `Factory startup adoption verified on replacement Dev worker ${replacementPid}.`;
+    },
+    engineRestartPlan: () => engineRestartPlanDigest(config.container.engineRestart),
+    async restartEngine(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error("Docker restart requires an independently bound Dev operation");
+      const plan = config.container.engineRestart;
+      if (
+        !plan ||
+        job.target !== "container-daemon" ||
+        job.engineRestartPlanSha256 !== engineRestartPlanDigest(plan)
+      )
+        throw new Error("Docker restart plan is unavailable or changed");
+      const previousPid = await probeDaemonPid("container");
+      const preflight = await engineRestartPreflight(plan);
+      assertReady("container-daemon");
+      // The job is durably running before this point, so a lost outcome is never replayed.
+      await restartDockerEngine(plan);
+      const checks = await awaitEngineReadiness(plan, preflight);
+      const replacement = await waitForReplacement("container-daemon", "container", previousPid);
+      const factory = await verifyFactoryAfterRestart(plan, preflight);
+      return [
+        "Docker restarted.",
+        `${[...checks, factory].filter(Boolean).join("; ")}.`,
+        replacement,
+      ].join(" ");
     },
     supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
     async restartSupervisor(job) {

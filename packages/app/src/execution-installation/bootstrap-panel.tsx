@@ -344,6 +344,18 @@ function ClaudeRefreshConfiguration({ plan }: { plan: CoordinatorBootstrapReques
   );
 }
 
+function EngineRestartConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.engineRestartConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {config === null
+        ? "Remove the tracked Docker restart plan."
+        : `Allow a tracked Docker Desktop restart for Dev, which you approve each time. Pinned containers: Dev ${config.containers.dev.slice(0, 12)}, gateway Tailscale ${config.containers.gatewayTailscale.slice(0, 12)}, gateway Caddy ${config.containers.gatewayCaddy.slice(0, 12)}.${config.factoryVerify ? ` Factory lock check ${config.factoryVerify.sha256.slice(0, 12)}, owner mode ${config.factoryVerify.ownerMode}.` : ""}`}
+    </Text>
+  );
+}
+
 function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
   if (plan.sourceUpdateTooling !== true) return null;
   return (
@@ -482,6 +494,7 @@ function BootstrapRequestCard({
           ) : null}
           <MonitorConfiguration plan={request.plan} />
           <ClaudeRefreshConfiguration plan={request.plan} />
+          <EngineRestartConfiguration plan={request.plan} />
           <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}

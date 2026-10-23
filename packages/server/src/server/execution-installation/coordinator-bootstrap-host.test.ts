@@ -571,6 +571,28 @@ test("bootstrap configuration preserves credentials, service targets and state w
   save(candidateFile, f.config);
   expect(verify).not.toThrow();
   delete plan.claudeHostRefreshConfiguration;
+  // The Docker restart plan changes only through its own reviewed field.
+  const engineRestart = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const withEngine = { ...f.config, container: { ...f.config.container, engineRestart } };
+  save(candidateFile, withEngine);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = { ...engineRestart, deadlineSeconds: 120 };
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = engineRestart;
+  expect(verify).not.toThrow();
+  save(candidateFile, f.config);
+  expect(verify).toThrow("outside its approved policy");
+  plan.engineRestartConfiguration = null;
+  expect(verify).not.toThrow();
+  delete plan.engineRestartConfiguration;
 
   const policy = { hostRequestsAfter: "2026-10-09T00:00:00.000Z" };
   save(candidateFile, { ...f.config, restartApprovalPolicy: policy });
@@ -1458,6 +1480,7 @@ test.runIf(process.platform === "darwin")(
       coordinatorBootstrapCompatibleRecovery: false,
       coordinatorBootstrapPreviewMonitor: false,
       coordinatorBootstrapClaudeHostRefresh: false,
+      coordinatorBootstrapEngineRestart: false,
       coordinatorBootstrapSourceUpdateTooling: false,
       coordinatorBootstrapBootRecovery: false,
       coordinatorBootstrapRecoveryBootPlan: false,

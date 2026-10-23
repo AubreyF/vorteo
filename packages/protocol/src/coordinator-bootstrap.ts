@@ -1,6 +1,9 @@
 import { PreviewMonitorConfigurationSchema } from "./preview-monitor-maintenance.js";
 import { NativeHelperConfigurationSchema } from "./native-helper-maintenance.js";
-import { FactoryRuntimeAdoptionConfigurationSchema } from "./execution-installation.js";
+import {
+  EngineRestartConfigurationSchema,
+  FactoryRuntimeAdoptionConfigurationSchema,
+} from "./execution-installation.js";
 import { z } from "zod";
 import { StandingMaintenanceProposalSchema } from "./installation-enrollment.js";
 
@@ -122,6 +125,9 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
   // COMPAT(factoryRuntimeAdoption): added in v0.11.0-beta.3.vorteo.285.
   factoryRuntimeAdoptionConfiguration:
     FactoryRuntimeAdoptionConfigurationSchema.nullable().optional(),
+  // COMPAT(bootstrapEngineRestart): added 2026-10-23. Sets the tracked Docker
+  // engine restart plan in the coordinator configuration; null removes it.
+  engineRestartConfiguration: EngineRestartConfigurationSchema.nullable().optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 
@@ -342,6 +348,7 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   claudeHostRefresh: z.literal(true).optional(),
+  engineRestart: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -358,6 +365,7 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   claudeHostRefresh: z.literal(true).optional(),
+  engineRestart: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -371,6 +379,7 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   compatibleRecovery: z.literal(true).optional(),
   previewMonitor: z.literal(true).optional(),
   claudeHostRefresh: z.literal(true).optional(),
+  engineRestart: z.literal(true).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),

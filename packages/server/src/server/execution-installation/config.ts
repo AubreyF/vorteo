@@ -4,6 +4,7 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import {
+  EngineRestartConfigurationSchema,
   ExecutionInstallationSchema,
   FactoryRuntimeAdoptionConfigurationSchema,
   validateExecutionInstallation,
@@ -95,6 +96,7 @@ export const InstallationConfigSchema = z.strictObject({
   container: DaemonConnectionSchema.extend({
     persistentRegistration: DevRegistrationReferenceSchema.optional(),
     factoryRuntimeAdoption: FactoryRuntimeAdoptionConfigurationSchema.optional(),
+    engineRestart: EngineRestartConfigurationSchema.optional(),
     supervisorMaintenance: z
       .strictObject({
         node: z.string().startsWith("/"),

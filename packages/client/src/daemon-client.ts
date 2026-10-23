@@ -3905,6 +3905,7 @@ export class DaemonClient {
     compatibleRecovery?: true;
     previewMonitor?: true;
     claudeHostRefresh?: true;
+    engineRestart?: true;
     sourceUpdateTooling?: true;
     bootRecovery?: true;
     automaticStatus?: true;
@@ -3925,6 +3926,9 @@ export class DaemonClient {
         : {}),
       ...(features?.coordinatorBootstrapClaudeHostRefresh === true
         ? { claudeHostRefresh: true as const }
+        : {}),
+      ...(features?.coordinatorBootstrapEngineRestart === true
+        ? { engineRestart: true as const }
         : {}),
       ...(features?.coordinatorBootstrapBootRecovery === true
         ? { bootRecovery: true as const }
@@ -3985,6 +3989,11 @@ export class DaemonClient {
       features?.coordinatorBootstrapClaudeHostRefresh !== true
     )
       throw new Error("Update the Host before preparing Claude refresh configuration.");
+    if (
+      input.plan.engineRestartConfiguration !== undefined &&
+      features?.coordinatorBootstrapEngineRestart !== true
+    )
+      throw new Error("Update the Host before preparing Docker restart configuration.");
   }
 
   private assertBootRecoveryPreparation(input: CoordinatorBootstrapPreparation): void {

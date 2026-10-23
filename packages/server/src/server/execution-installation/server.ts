@@ -156,6 +156,18 @@ function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): Re
   };
 }
 
+// COMPAT(engineRestart): added 2026-10-23; remove after 2027-04-23 once all supported
+// clients negotiate Docker restart review. Old clients see a Dev restart they can only cancel.
+function engineRestartReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
+  if (!job.engineRestartPlanSha256 || enabled) return job;
+  const { engineRestartPlanSha256: _plan, ...compatible } = job;
+  return {
+    ...compatible,
+    reason: "Docker restart for Dev. Reload Vorteo to review the exact operation.",
+    detail: "Reload to review the Docker restart. Cancellation remains available.",
+  };
+}
+
 function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
   return job.status === "pending" ? pendingDetail : job.detail;
 }
@@ -214,6 +226,7 @@ function restartReply(
   hostAutomaticRestarts = false,
   factoryRuntimeAdoption?: boolean,
   requireOwnerApproval?: boolean,
+  engineRestart?: boolean,
 ) {
   // Captures are retained in the protected journal, not sent to legacy strict clients.
   // COMPAT(workerLaunchReply): added in v674; remove after 2027-04-17 once requester floor >= v674.
@@ -237,6 +250,7 @@ function restartReply(
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
   job = factoryAdoptionReply(job, factoryRuntimeAdoption);
+  job = engineRestartReply(job, engineRestart);
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -822,6 +836,10 @@ export function createInstallationServer(
       host && devReady && !config.container.persistentRegistration
         ? executor.factoryRuntimePlan?.()
         : undefined;
+    const engineRestartPlan =
+      host && devReady && !config.container.persistentRegistration
+        ? executor.engineRestartPlan?.()
+        : undefined;
     const permissions = daemonAutomation.servicePermissions();
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
@@ -902,6 +920,12 @@ export function createInstallationServer(
               available: Boolean(factoryRuntimePlan && executor.adoptFactoryRuntime),
               ownerApprovalRequired: true,
               ...(factoryRuntimePlan ? { sha256: factoryRuntimePlan } : {}),
+            },
+            // Never automatic: a Docker restart interrupts all of Dev and the gateway.
+            engineRestart: {
+              available: Boolean(engineRestartPlan && executor.restartEngine),
+              ownerApprovalRequired: true,
+              ...(engineRestartPlan ? { sha256: engineRestartPlan } : {}),
             },
           }),
         next,
@@ -1038,6 +1062,7 @@ export function createInstallationServer(
             req.query.hostAutomaticRestarts === "1",
             req.query.factoryRuntimeAdoption === "1",
             req.query.requireOwnerApproval === "1",
+            req.query.engineRestart === "1",
           ),
         });
         void drainRestarts();
@@ -1056,6 +1081,7 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               true,
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
             ),
           );
     },
@@ -1080,6 +1106,7 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         undefined,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
       ),
     });
   });
@@ -1501,6 +1528,7 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           true,
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
         ),
       );
   });
@@ -1542,6 +1570,7 @@ export function createInstallationServer(
         req.query.hostAutomaticRestarts === "1",
         true,
         req.query.requireOwnerApproval === "1",
+        req.query.engineRestart === "1",
       ),
     );
   });
@@ -1932,6 +1961,7 @@ export function createInstallationServer(
               req.query.hostAutomaticRestarts === "1",
               req.query.factoryRuntimeAdoption === "1",
               req.query.requireOwnerApproval === "1",
+              req.query.engineRestart === "1",
             ),
             job,
             delegation,
@@ -1982,6 +2012,7 @@ export function createInstallationServer(
       decision.updateSha256,
       decision.supervisorPlanSha256,
       decision.factoryRuntimePlanSha256,
+      decision.engineRestartPlanSha256,
     );
     res.json(
       withDelegation(
@@ -1996,6 +2027,7 @@ export function createInstallationServer(
           req.query.hostAutomaticRestarts === "1",
           req.query.factoryRuntimeAdoption === "1",
           req.query.requireOwnerApproval === "1",
+          req.query.engineRestart === "1",
         ),
         job,
         requestedDelegation(config.stateDir, req.query.delegatedRequests === "1"),

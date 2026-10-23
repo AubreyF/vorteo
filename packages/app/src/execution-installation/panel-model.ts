@@ -320,7 +320,8 @@ export class InstallationPanelModel {
           job.update ||
           job.sourceBatch ||
           job.supervisorPlanSha256 ||
-          job.factoryRuntimePlanSha256
+          job.factoryRuntimePlanSha256 ||
+          job.engineRestartPlanSha256
         )
           return true;
         if (targets.has(job.target)) return false;
@@ -835,6 +836,7 @@ export function restartBannerTitle(job: RestartJob): string {
   }
   let target = job.target === "host" ? "Host daemon" : "Dev daemon";
   if (job.supervisorPlanSha256) target = "Dev supervisor";
+  if (job.engineRestartPlanSha256) target = "Docker for Dev";
   if (job.status === "running") {
     return job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
   }

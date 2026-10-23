@@ -82,6 +82,7 @@ export function bootstrapReviewFeatures(service: BootstrapReviewService | undefi
     coordinatorBootstrapCompatibleRecovery: available,
     coordinatorBootstrapPreviewMonitor: available,
     coordinatorBootstrapClaudeHostRefresh: available,
+    coordinatorBootstrapEngineRestart: available,
     coordinatorBootstrapSourceUpdateTooling: available,
     coordinatorBootstrapBootRecovery: available,
     coordinatorBootstrapRecoveryBootPlan: preclaimAvailable || claimedAvailable,
@@ -296,6 +297,7 @@ function publicBootstrapReply(
   visible = compatibleRecoveryReply(visible, message.compatibleRecovery === true);
   visible = previewMonitorReply(visible, message.previewMonitor === true);
   visible = claudeHostRefreshReply(visible, message.claudeHostRefresh === true);
+  visible = engineRestartReply(visible, message.engineRestart === true);
   visible = sourceUpdateToolingReply(visible, message.sourceUpdateTooling === true);
   visible = bootRecoveryReply(visible, message.bootRecovery === true);
   if (!message.automaticStatus) return visible;
@@ -351,6 +353,22 @@ function claudeHostRefreshReply(
   };
 }
 
+// COMPAT(bootstrapEngineRestart): added 2026-10-23; remove after 2027-04-23
+// once all supported clients negotiate engine restart configuration review.
+function engineRestartReply(
+  request: CoordinatorBootstrapRequest,
+  supported: boolean,
+): CoordinatorBootstrapRequest {
+  if (supported || request.plan.engineRestartConfiguration === undefined) return request;
+  const { engineRestartConfiguration: _configuration, ...plan } = request.plan;
+  return {
+    ...request,
+    plan,
+    reason:
+      "Reload the client to review this Docker restart configuration. Cancellation remains available.",
+  };
+}
+
 // COMPAT(bootstrapPreviewMonitor): added 2026-10-11; remove after 2027-04-11
 // once all supported clients negotiate monitor configuration review.
 function previewMonitorReply(
@@ -383,6 +401,10 @@ function assertServiceConfigurationReview(
   )
     throw new BootstrapRequestConflict(
       "Reload the client to review this Claude refresh configuration before approval.",
+    );
+  if (request?.plan.engineRestartConfiguration !== undefined && message.engineRestart !== true)
+    throw new BootstrapRequestConflict(
+      "Reload the client to review this Docker restart configuration before approval.",
     );
 }
 

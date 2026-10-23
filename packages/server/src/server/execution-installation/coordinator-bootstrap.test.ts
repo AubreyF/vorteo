@@ -4328,6 +4328,55 @@ test("stale coordinator cancellation never touches executing requests or restart
   expect(jobs[0]).toMatchObject({ status: "pending" });
 });
 
+test("old clients see a Docker restart plan hidden, cannot approve it, and can still cancel", async () => {
+  const f = fixture();
+  f.plan.engineRestartConfiguration = {
+    docker: "/fixture/docker",
+    socket: "/fixture/docker.sock",
+    containers: {
+      dev: "a".repeat(64),
+      gatewayTailscale: "b".repeat(64),
+      gatewayCaddy: "c".repeat(64),
+    },
+  };
+  const pending = await f.prepare();
+  const legacy = await handleBootstrapReview(
+    { type: "installation.bootstrap.list_requests.request", requestId: "old" },
+    f.service(),
+  );
+  const projected = legacy.payload.requests![0]!;
+  expect(projected.plan).not.toHaveProperty("engineRestartConfiguration");
+  expect(projected.planSha256).toBe(pending.planSha256);
+  expect(projected.reason).toContain("Docker restart");
+  const service = f.service();
+  const decide = vi.spyOn(service, "decide");
+  const refused = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "approve",
+      ownerPassword,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    service,
+  );
+  expect(refused.payload.error).toContain("Docker restart configuration");
+  expect(decide).not.toHaveBeenCalled();
+  const approved = await handleBootstrapReview(
+    {
+      type: "installation.bootstrap.decide.request",
+      requestId: "decision",
+      ownerPassword,
+      engineRestart: true,
+      input: { ...pickDecision(pending), decision: "approve" },
+    },
+    f.service(),
+  );
+  expect(approved.payload.error).toBeNull();
+  expect(approved.payload.requests![0]!.plan.engineRestartConfiguration?.containers.dev).toBe(
+    "a".repeat(64),
+  );
+});
+
 test("source tooling selection is literal true and binds exact review identity and durable retries", async () => {
   const f = fixture();
   const original = coordinatorPlanDigest(f.plan);

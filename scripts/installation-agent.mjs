@@ -96,6 +96,7 @@ if (
       "require-owner-approval": { type: "boolean" },
       "supervisor-plan": { type: "string" },
       "factory-runtime-plan": { type: "string" },
+      "engine-restart-plan": { type: "string" },
       "factory-runtime-recovery-of": { type: "string" },
       repository: { type: "string" },
       "contribution-id": { type: "string" },
@@ -170,6 +171,30 @@ if (
     if (!capability?.available || capability.sha256 !== values["factory-runtime-plan"])
       throw new Error(
         "Reviewed Factory adoption plan is unavailable or changed. No request submitted.",
+      );
+  }
+  if (values["engine-restart-plan"]) {
+    if (
+      config.kind !== "host-agent" ||
+      values.update ||
+      values["supervisor-plan"] ||
+      values["factory-runtime-plan"] ||
+      values["require-owner-approval"] ||
+      values.target !== "container-daemon" ||
+      positionals[0] !== "request-restart"
+    )
+      throw new Error("--engine-restart-plan requires a separate trusted Host Dev request");
+    const response = await fetch(new URL("/api/installation/capabilities", base), {
+      headers: { Authorization: `Bearer ${config.token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok)
+      throw new Error("Coordinator cannot advertise a Docker restart. No request submitted.");
+    const capability = (await response.json()).engineRestart;
+    if (!capability?.available || capability.sha256 !== values["engine-restart-plan"])
+      throw new Error(
+        "Reviewed Docker restart plan is unavailable or changed. No request submitted.",
       );
   }
   if (values["supervisor-plan"]) {
@@ -354,6 +379,9 @@ if (
         ...(values["factory-runtime-recovery-of"]
           ? { factoryRuntimeRecoveryOf: values["factory-runtime-recovery-of"] }
           : {}),
+        ...(values["engine-restart-plan"]
+          ? { engineRestartPlanSha256: values["engine-restart-plan"] }
+          : {}),
         reason: readFileSync(values["reason-file"], "utf8"),
         ...(values.requester ? { requester: values.requester } : {}),
       };
@@ -505,8 +533,10 @@ if (
   if (upload) requestBody = upload;
   else if (body) requestBody = JSON.stringify(body);
   const requestUrl = new URL(resource, base);
-  if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0]))
+  if (["request-restart", "restart-status", "contribution-status"].includes(positionals[0])) {
     requestUrl.searchParams.set("requireOwnerApproval", "1");
+    requestUrl.searchParams.set("engineRestart", "1");
+  }
   const requestOptions = {
     method: body ? "POST" : "GET",
     headers: {

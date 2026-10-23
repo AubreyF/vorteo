@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Added
+
+- The installation coordinator can run a tracked Docker Desktop restart for Dev. A trusted Host request with `--engine-restart-plan` creates a Dev restart bound to the exact configured plan. After the owner or a delegated lead chooses Finish turns and restart Docker, it checks the engine, the pinned Dev and gateway containers and Factory's lock acceptance, restarts Docker once, and verifies that every container returned under its ID, Dev is healthy, a new Dev worker answers and Factory's controller epoch advanced. It is never approved automatically and never retried.
+- Reviewed coordinator plans and renewals accept `engineRestartConfiguration` to set or remove that plan. Clients that do not negotiate the field see it hidden and can only cancel.
+
 ## 0.11.0-beta.3.vorteo.798 - 2026-10-22
 
 ### Maintenance

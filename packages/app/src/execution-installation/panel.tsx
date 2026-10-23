@@ -1534,8 +1534,21 @@ function DevRepairAction({
   );
 }
 
+/** Reviewed plan operations run only after held turns finish, never when idle. */
+function isPlanBound(job: RestartJob): boolean {
+  return Boolean(
+    job.supervisorPlanSha256 || job.factoryRuntimePlanSha256 || job.engineRestartPlanSha256,
+  );
+}
+
 function isPlainHostRestart(job: RestartJob): boolean {
   return job.target === "host" && !job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256;
+}
+
+function finishLabel(job: RestartJob): string {
+  if (job.factoryRuntimePlanSha256) return "Finish turns and adopt Factory startup";
+  if (job.engineRestartPlanSha256) return "Finish turns and restart Docker";
+  return "Finish turns and restart";
 }
 
 export function RestartActions({
@@ -1587,7 +1600,7 @@ export function RestartActions({
       ) : null}
       {pending && !source ? (
         <ActionFooter style={styles.actions}>
-          {!job.supervisorPlanSha256 && !job.factoryRuntimePlanSha256 ? (
+          {!isPlanBound(job) ? (
             <RestartActionButton
               variant="outline"
               disabledReason={restartActionDisabledReason(
@@ -1613,9 +1626,7 @@ export function RestartActions({
             onPress={finish}
             testID={`restart-finish-${job.id}`}
           >
-            {job.factoryRuntimePlanSha256
-              ? "Finish turns and adopt Factory startup"
-              : "Finish turns and restart"}
+            {finishLabel(job)}
           </RestartActionButton>
           {plainHostRestart ? <ForceRestartButton job={job} model={model} busy={busy} /> : null}
           <Button variant="ghost" disabled={busy} onPress={cancel}>
@@ -1638,6 +1649,7 @@ export function RestartActions({
 function restartTargetLabel(job: RestartJob): string {
   if (job.factoryRuntimePlanSha256) return "Factory startup on Dev";
   if (job.supervisorPlanSha256) return "Dev supervisor";
+  if (job.engineRestartPlanSha256) return "Docker for Dev";
   return job.target === "host" ? "Host" : "Dev container";
 }
 
@@ -1670,6 +1682,13 @@ function RestartDetails({ job }: { job: RestartJob }) {
             <Text selectable style={styles.text}>
               Select the reviewed Factory runtime and restart Dev. Existing Factory state is
               retained. Reviewed adoption plan: {job.factoryRuntimePlanSha256}
+            </Text>
+          ) : null}
+          {job.engineRestartPlanSha256 ? (
+            <Text selectable style={styles.text}>
+              Restart Docker Desktop. Dev, its Tailscale and the private-domain gateway stop until
+              Docker returns; each must come back under the same container. Reviewed plan:{" "}
+              {job.engineRestartPlanSha256}
             </Text>
           ) : null}
           {job.factoryRuntimeRecoveryOf ? (
