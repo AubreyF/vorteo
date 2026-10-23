@@ -7,58 +7,38 @@ const STRESS_ROUNDS = 4;
 // React Native Web's document-level pointer listener can retain its last target.
 const MAX_TRANSIENT_DETACHED_PANES = 2;
 
-const SETTINGS_DESTINATIONS = [
-  "General",
-  "Appearance",
-  "Chat",
-  "Terminal",
-  "Browser",
-  "Editor",
-  "Shortcuts",
-  "Integrations",
-  "Notifications",
-  "Permissions",
-  "Diagnostics",
-  "Environments",
-  "Projects",
-  "Connections",
-  "Pair device",
-  "Agents",
-  "Metadata",
-  "Workspaces",
-  "Providers",
-  "Profiles",
-  "Usage",
-  "Terminals",
-  "Plugins",
-];
-
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function openSettingsDestination(page, title) {
+// Settings is one scrolling page (537b619e2). Choosing a sidebar section scrolls to it, so a
+// rotation visits every section the sidebar lists and waits for that section to render.
+async function openSettingsSection(page, sectionId) {
   const sidebar = page.locator('[data-testid="settings-sidebar"]:visible');
-  const button = sidebar.getByRole("button", { name: title, exact: true });
-  await button.waitFor({ state: "visible" });
-  await button.click();
-  await page.waitForFunction(
-    (expectedTitle) =>
-      [...document.querySelectorAll('[data-testid="settings-detail-header-title"]')].some(
-        (element) =>
-          element instanceof HTMLElement &&
-          element.getBoundingClientRect().width > 0 &&
-          element.textContent === expectedTitle,
+  await sidebar.getByTestId(`settings-section-${sectionId}`).click();
+  await page
+    .locator(`[data-testid="settings-page-section-${sectionId}"]:visible`)
+    .first()
+    .waitFor({ state: "visible" });
+}
+
+async function listSettingsSections(page) {
+  const sidebar = page.locator('[data-testid="settings-sidebar"]:visible');
+  const ids = await sidebar
+    .locator('[data-testid^="settings-section-"]')
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("data-testid").slice("settings-section-".length),
       ),
-    title,
-  );
+    );
+  assert(ids.length > 0, "The Settings sidebar listed no sections");
+  return ids;
 }
 
 async function rotateSettings(page) {
   await openSettings(page);
-  await openSettingsDestination(page, "General");
-  for (const title of SETTINGS_DESTINATIONS) {
-    await openSettingsDestination(page, title);
+  for (const sectionId of await listSettingsSections(page)) {
+    await openSettingsSection(page, sectionId);
   }
 
   await page.locator('[data-testid="settings-back-to-workspace"]:visible').click();
