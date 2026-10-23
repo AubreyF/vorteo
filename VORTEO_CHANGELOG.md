@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Maintenance
+
+- Temporary diagnostic: browser test shards in CI run without retries and print each failure as it happens, so a shard that hits its time limit still reports why its tests failed. A later commit restores retries and the list output.
+- Browser test shards upload their results when they hit the time limit, not only when they fail.
+
 ## 0.11.0-beta.3.vorteo.806 - 2026-10-23
 
 ### Maintenance

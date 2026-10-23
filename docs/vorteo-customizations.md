@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-23): CI-only change. Browser test shards upload results after hitting their time limit, and temporarily run without retries with inline failure output for diagnosis. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. Browser test helpers stop using the removed sidebar Hosts control: waiting for a connected host goes through Settings Connections, and the footer check drops the Hosts icon. Functionality is unchanged. README overview and onboarding are unchanged.

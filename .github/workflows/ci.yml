@@ -420,7 +420,7 @@ jobs:
         run: node scripts/npm-retry.mjs install -g @anthropic-ai/claude-code @openai/codex@0.105.0 opencode-ai
 
       - name: Run Playwright E2E tests
-        run: npm run test:e2e --workspace=@getpaseo/app -- --shard=${{ env.PLAYWRIGHT_SHARD }}
+        run: npm run test:e2e --workspace=@getpaseo/app -- --shard=${{ env.PLAYWRIGHT_SHARD }} --reporter=line --retries=0
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Weight file groups by observed duration; raw test counts overload
@@ -429,7 +429,8 @@ jobs:
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
-        if: failure()
+        # A shard that hits its time limit is cancelled, not failed; keep its results too.
+        if: ${{ failure() || cancelled() }}
         with:
           name: playwright-results-${{ env.PLAYWRIGHT_ARTIFACT }}
           path: |
