@@ -72,6 +72,9 @@ export function createPluginWorker(options: {
   const pendingProviderConnections = new Map<string, { tombstoned: boolean }>();
   let cleanup: (() => void | Promise<void>) | null = null;
   let daemonClient: DaemonClient | null = null;
+  // A plugin process serves one daemon. Keep its identity while the client reconnects, when
+  // the client has cleared its last server info.
+  let daemonServerId: string | null = null;
   let paseo: PaseoApi | null = null;
   let stopping = false;
   function send(message: PluginProcessMessage): void {
@@ -495,7 +498,8 @@ export function createPluginWorker(options: {
       .parseAsync(message.input)
       .then((input) => {
         if (!paseo) throw new Error("Plugin Vorteo API is unavailable");
-        const serverId = daemonClient?.getLastServerInfoMessage()?.serverId;
+        daemonServerId = daemonClient?.getLastServerInfoMessage()?.serverId ?? daemonServerId;
+        const serverId = daemonServerId;
         if (!serverId) throw new Error("Plugin daemon identity is unavailable");
         return registered.handler(input, { paseo, serverId });
       })

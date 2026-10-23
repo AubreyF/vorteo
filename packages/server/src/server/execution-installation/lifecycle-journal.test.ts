@@ -1,5 +1,5 @@
 import { assertFrozenCoordinatorIdle } from "./coordinator-bootstrap.js";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { RestartJobSchema } from "@getpaseo/protocol/execution-installation";
 import { InstallationRestarts } from "./restarts.js";
@@ -185,6 +185,8 @@ test("helper dispatch revalidates artifacts and respects cancellation while rech
       }),
   );
   const dispatch = f.queue.drain();
+  // Dispatch reaches validation asynchronously; cancel only once the recheck is in flight.
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
   f.queue.decideHelper(f.decision(job, "cancel"));
   release();
   await dispatch;
@@ -667,6 +669,8 @@ test("canceling rollback during recovery inspection preserves the failed receipt
   );
   queue.decideHelper({ ...f.decision(rollback), operation: rollback.operation });
   const dispatch = queue.drain();
+  // Dispatch reaches validation asynchronously; cancel only once the recheck is in flight.
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
   queue.decideHelper({ ...f.decision(rollback, "cancel"), operation: rollback.operation });
   release();
   await dispatch;

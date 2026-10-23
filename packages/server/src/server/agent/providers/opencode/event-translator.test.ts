@@ -1079,6 +1079,13 @@ describe("translateOpenCodeEvent", () => {
         item: {
           type: "compaction",
           status: "completed",
+          // The saved summary stays inspectable on the compaction row instead.
+          inspection: {
+            summary: {
+              type: "text",
+              text: "## Goal\n- Preserve context while continuing the task.",
+            },
+          },
         },
       },
     ]);

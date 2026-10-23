@@ -130,6 +130,36 @@ Maintenance review (2026-10-22): threads stopped by a Claude or Codex usage limi
 
 Maintenance review (2026-10-22): the installation coordinator stores provider API keys and tokens once (`provider-secrets/state.json`, mode 0600) and delivers them into each bound environment's provider `env`. It withdraws them from excluded or removed environments, adopts a key found in exactly one form on first sync, and reports conflicting values without overwriting them. Owner routes return names, last four characters and status for each environment, never values. Host-owned Claude refresh stays opt-in. Codex sign-ins stay per environment; status reports this. Settings gives each provider its own page, with an API keys sheet on every connection. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-23): Windows server CI skips the whole POSIX-only session host directory and one private file mode test; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): restored an accidentally committed test screenshot; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): macOS-only server tests for native recovery and port allocation were repaired; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): merged main into the CI repair branch; installation account delivery routes, including Host-refreshed Claude sign-in and provider secrets, mount through one provider-neutral function. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): a timing-dependent agent skills test was settled; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): plugin calls keep working while a plugin reconnects to its daemon, and a CLI lock-file test race was settled. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): merged main into the CI repair branch again; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): two server test races and the browser new-workspace helper were repaired; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): test daemons honor `PASEO_SYSTEM_PROJECT=0` again, config reloads ignore provider key order, and CI jobs gained time limits. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): Windows server CI skips suites for POSIX-only Vorteo features through an explicit list and the documented `*.posix.test.ts` rule; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): CLI onboarding stops requesting retired pairing offers, the sidebar no longer re-renders on every status change, plugin dark themes share the built-in status colors, and app, CLI and desktop tests were repaired for CI. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): merged main into the CI repair branch; no feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): installation test suites now pass on Linux CI through private temporary roots, macOS-only gating and a built server; a captured v682 provisioner fixture confirms retained Dev provisioners still verify. No feature changed. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): server test suites were repaired for Linux CI, matching deliberate behaviour changes; installation account delivery routes now mount through one provider-neutral function outside the daemon bootstrap, with no behaviour change. README overview and onboarding are unchanged.
+
+Maintenance review (2026-10-22): the Builds push guard script and test were reformatted for the CI format check; no feature changed.
+
 Maintenance review (2026-10-22): seven stale tests for the coordinator launcher, queued attachments and plugin settings were repaired to match current behaviour on the path to green CI; no feature changed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): one builds coordinator writes main, web publication, installs and approvals. Other threads hand their branches to it; the client's request commands, web builds for publication, publish-main and main pushes refuse elsewhere, while the coordinator's own publication step stays unguarded. README overview and onboarding are unchanged.

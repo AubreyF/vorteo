@@ -94,6 +94,8 @@ export default defineConfig({
     // Bundle the CJS dependencies of the excluded gesture-handler package for the browser.
     include: [
       "react/jsx-runtime",
+      // Discovered mid-run otherwise, which reloads the browser and drops the test file in flight.
+      "react/jsx-dev-runtime",
       "react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle",
       "react-native-web/dist/exports/StyleSheet/preprocess",
       "react-native-gesture-handler > hoist-non-react-statics",

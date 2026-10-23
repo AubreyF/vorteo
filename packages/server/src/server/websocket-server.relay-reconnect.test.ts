@@ -58,6 +58,9 @@ const sessionMock = vi.hoisted(() => {
     handleMessage = vi.fn(async () => {});
     handleBinaryFrame = vi.fn((_frame: unknown) => {});
     supports = vi.fn((capability: string) => this.args.clientCapabilities?.[capability] === true);
+    supportsForSource = vi.fn(
+      (capability: string, _source: object) => this.args.clientCapabilities?.[capability] === true,
+    );
     updateClientCapabilities = vi.fn(
       (capabilities: Record<string, unknown> | null, source: object) => {
         this.args.clientCapabilities = capabilities;
@@ -247,6 +250,7 @@ function createServer(options?: {
 }) {
   const speechReadiness = options?.speechReadiness ?? null;
   const daemonConfigStore = {
+    hasOriginAdmissionOwner: () => false,
     get: () => ({}),
     onApply: vi.fn(() => () => {}),
     onChange: vi.fn(() => () => {}),
@@ -257,6 +261,7 @@ function createServer(options?: {
     createStub<pino.Logger>(logger),
     "srv_test",
     createStub<AgentManager>({
+      supportsRestartContinuation: vi.fn(() => false),
       subscribe: vi.fn(() => () => {}),
       setAgentAttentionCallback: vi.fn(),
       getAgent: vi.fn(() => null),

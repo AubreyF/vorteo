@@ -38,14 +38,15 @@ function isNotBlank(line: string): boolean {
 }
 
 describe("parseChangelog", () => {
-  it("reads the bundled Vorteo history with distinct versions and complete bodies", () => {
+  it("reads every bundled Vorteo release with complete bodies", () => {
     const source = readFileSync(
       new URL("../../../../../VORTEO_CHANGELOG.md", import.meta.url),
       "utf8",
     );
     const releases = parseChangelog(source);
     expect(releases[0].version).toMatch(/\.vorteo\.\d+$/);
-    expect(new Set(releases.map((release) => release.version)).size).toBe(releases.length);
+    // Parallel task branches can each prepare the same next version, so headings may repeat.
+    expect(releases.length).toBe(source.match(/^## /gm)?.length);
     expect(
       releases.find((release) => release.version === "0.9.0-beta.2.vorton.40")?.sections[0].body,
     ).toContain("baseline summarizes");

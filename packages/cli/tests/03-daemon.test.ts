@@ -252,8 +252,7 @@ try {
         },
         (result) =>
           result.statusPayload?.connectedDaemon === "reachable" &&
-          result.statusPayload.relay !== "disabled" &&
-          result.pairingResult.exitCode === 0,
+          result.statusPayload.relay !== "disabled",
         async (result) =>
           [
             "IPC daemon did not expose live relay state",
@@ -272,14 +271,10 @@ try {
         "endpoint status must not invent local PID state",
       );
       assert.notStrictEqual(payload.relay, "disabled", "status should use live relay state");
-      assert.strictEqual(
-        pairing.exitCode,
-        0,
-        `IPC daemon pairing should succeed: ${pairing.stderr}`,
-      );
-      const pairingPayload = JSON.parse(pairing.stdout);
-      assert.strictEqual(pairingPayload.relayEnabled, true, "pairing should use live relay state");
-      assert.match(pairingPayload.url, /#offer=/, "pairing should use the live daemon offer");
+      // Device pairing is retired: a live daemon refuses offers even with relay enabled.
+      assert.strictEqual(pairing.exitCode, 1, "IPC daemon pairing should be refused");
+      assert.match(pairing.stderr, /Device pairing has been retired/);
+      assert(!pairing.stdout.includes("#offer="), "output should not include a pairing offer");
 
       const reloadConfig = JSON.parse(await readFile(configPath, "utf-8"));
       reloadConfig.daemon = {

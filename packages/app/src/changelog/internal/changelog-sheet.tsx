@@ -169,16 +169,21 @@ interface ChangelogBodyProps {
 
 function ChangelogBody({ releases, shownReleases }: ChangelogBodyProps) {
   const appVersion = useMemo(() => resolveAppVersion()?.replace(/^v/i, "") ?? null, []);
-  const visibleReleases = releases.slice(0, shownReleases);
+  const visibleReleases = useMemo(() => {
+    // Parallel branches can publish the same version on the same date; number the repeats.
+    const seen = new Map<string, number>();
+    return releases.slice(0, shownReleases).map((release) => {
+      const base = `${release.source}:${release.version}:${release.date}`;
+      const occurrence = seen.get(base) ?? 0;
+      seen.set(base, occurrence + 1);
+      return { release, key: occurrence === 0 ? base : `${base}:${occurrence}` };
+    });
+  }, [releases, shownReleases]);
 
   return (
     <View style={styles.releaseList}>
-      {visibleReleases.map((release) => (
-        <ReleaseView
-          key={`${release.source}:${release.version}:${release.date}`}
-          release={release}
-          isCurrent={release.version === appVersion}
-        />
+      {visibleReleases.map(({ release, key }) => (
+        <ReleaseView key={key} release={release} isCurrent={release.version === appVersion} />
       ))}
     </View>
   );

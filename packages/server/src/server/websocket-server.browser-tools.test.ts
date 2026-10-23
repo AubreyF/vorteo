@@ -281,6 +281,7 @@ function createVoiceAssistantWebSocketServer(params: {
 }): VoiceAssistantWebSocketServer {
   const { httpServer, broker } = params;
   const agentManager = {
+    supportsRestartContinuation: () => false,
     setAgentAttentionCallback() {},
     subscribe: () => () => {},
     getMetricsSnapshot: () => ({
@@ -291,6 +292,7 @@ function createVoiceAssistantWebSocketServer(params: {
     }),
   };
   const daemonConfigStore = {
+    hasOriginAdmissionOwner: () => false,
     get: () => ({}),
     onApply: () => () => {},
     onChange: () => () => {},
