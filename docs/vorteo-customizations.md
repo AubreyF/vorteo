@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-23): added a Host command that lists, then repairs with backups, git worktree links Dev wrote through its old container path, so a Host `git worktree prune` cannot orphan them. Kept paths such as freed are skipped. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. Browser test helpers stop using the removed sidebar Hosts control: waiting for a connected host goes through Settings Connections, and the footer check drops the Hosts icon. Functionality is unchanged. README overview and onboarding are unchanged.

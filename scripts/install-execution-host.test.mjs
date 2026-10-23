@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
   readFileSync,
+  readdirSync,
   existsSync,
   chmodSync,
   realpathSync,
@@ -27,8 +28,10 @@ import {
   configureWebSource,
   configureSystemSource,
   configureProjectsFolder,
+  repairProjectsFolderWorktreeLinks,
   writeContainerSystemSource,
 } from "./install-execution-host.mjs";
+import { formatWorktreeLinkReport } from "./lib/worktree-links.mjs";
 import {
   mergeProjectsFolderSettings,
   mountsFolderAtIdenticalPath,
@@ -50,7 +53,11 @@ process.env.VORTEO_BUILDS = "1";
 test("Dev bootstrap requires the fixed profile client in both supervisor and worker", () => {
   const expected = "/fixture/.local/share/vorteo-installation-client/client.json";
   expect(() =>
-    assertContainerProfileLauncher({ expected, supervisor: expected, worker: expected }),
+    assertContainerProfileLauncher({
+      expected,
+      supervisor: expected,
+      worker: expected,
+    }),
   ).not.toThrow();
   for (const [supervisor, worker] of [
     [null, null],
@@ -107,7 +114,11 @@ test("installed agent commands return a public approval link without authorizing
   const id = "df99c0d9-7b03-4632-a1e8-1941835be88a";
   const calls = [];
   const server = createServer((req, res) => {
-    calls.push({ method: req.method, url: req.url, token: req.headers.authorization });
+    calls.push({
+      method: req.method,
+      url: req.url,
+      token: req.headers.authorization,
+    });
     req.resume();
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ id, status: "pending", target: "host" }));
@@ -410,7 +421,12 @@ test.skipIf(process.platform !== "linux")(
       home,
       node: process.execPath,
     };
-    const update = { sourceCommit: "a".repeat(40), baseCommit, sha256: "d".repeat(64), bytes: 50 };
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: "d".repeat(64),
+      bytes: 50,
+    };
     const command = (operation, archive) =>
       new Promise((resolve, reject) => {
         const child = execFile(
@@ -485,11 +501,18 @@ test.skipIf(process.platform !== "linux")(
       expect((await command({ action: "inspect" })).release).toBe(previous);
       writeFileSync(workerFile, "process.exit(0)");
       await expect(
-        command({ ...activation, update: { ...update, sha256: "e".repeat(64) } }),
+        command({
+          ...activation,
+          update: { ...update, sha256: "e".repeat(64) },
+        }),
       ).rejects.toThrow("differs from approval");
       await command(activation);
       expect((await command({ action: "inspect" })).sourceCommit).toBe(update.sourceCommit);
-      await command({ action: "restore", previous, release: candidate.release });
+      await command({
+        action: "restore",
+        previous,
+        release: candidate.release,
+      });
       expect((await command({ action: "inspect" })).sourceCommit).toBe(baseCommit);
       expect(existsSync(candidate.release)).toBe(true);
       await expect(
@@ -545,7 +568,11 @@ async function webSourceFixture() {
   const docker = path.join(root, "docker-fixture");
   writeFileSync(
     docker,
-    `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');\nif(process.argv[2] === 'ps') console.log('fixture');\nelse if(process.argv[2] === 'inspect') console.log(JSON.stringify([{Mounts: JSON.parse(fs.readFileSync(${JSON.stringify(mounts)}, 'utf8'))}]));\nelse process.exit(91);\n`,
+    `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(${JSON.stringify(
+      calls,
+    )}, JSON.stringify(process.argv.slice(2)) + '\\n');\nif(process.argv[2] === 'ps') console.log('fixture');\nelse if(process.argv[2] === 'inspect') console.log(JSON.stringify([{Mounts: JSON.parse(fs.readFileSync(${JSON.stringify(
+      mounts,
+    )}, 'utf8'))}]));\nelse process.exit(91);\n`,
     { mode: 0o700 },
   );
   const config = {
@@ -558,9 +585,13 @@ async function webSourceFixture() {
     fixtureUnrelated: "preserve config verbatim",
   };
   const configFile = path.join(root, "coordinator.json");
-  writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n", {
+    mode: 0o600,
+  });
   const plan = path.join(root, "plan.json");
-  writeFileSync(plan, JSON.stringify({ configFile, docker, repository }), { mode: 0o600 });
+  writeFileSync(plan, JSON.stringify({ configFile, docker, repository }), {
+    mode: 0o600,
+  });
   return {
     root,
     repository,
@@ -784,7 +815,10 @@ test("coordinator transport retains a sixteen-minute deadline and cleans up afte
       },
     );
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ id: "retained", status: "pending" });
+    expect(await response.json()).toEqual({
+      id: "retained",
+      status: "pending",
+    });
     expect(requests).toEqual([{ method: "POST", body: '{"id":"retained"}' }]);
     expect(scheduled).toEqual([16 * 60_000]);
     expect(cleared).toEqual([token]);
@@ -975,7 +1009,12 @@ test("session host commands need the advertised capability and send only the ope
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null;
-    calls.push({ method: req.method, url: req.url, token: req.headers.authorization, body });
+    calls.push({
+      method: req.method,
+      url: req.url,
+      token: req.headers.authorization,
+      body,
+    });
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/api/installation/capabilities") {
       res.end(JSON.stringify(capability === undefined ? {} : { sessionHostJob: capability }));
@@ -1037,7 +1076,11 @@ test("session host commands need the advertised capability and send only the ope
     ]);
     expect(calls[1]).toMatchObject({
       token: "Bearer scoped-test-token",
-      body: { id: requested.id, operation: "session-host-install", reason: "Phase 1" },
+      body: {
+        id: requested.id,
+        operation: "session-host-install",
+        reason: "Phase 1",
+      },
     });
     expect(Object.keys(calls[1].body).toSorted()).toEqual(["id", "operation", "reason"]);
 
@@ -1052,7 +1095,11 @@ test("session host commands need the advertised capability and send only the ope
       "does not support session host restarts",
     );
     expect(calls.slice(before).map(({ url }) => url)).toEqual(["/api/installation/capabilities"]);
-    capability = { available: true, ownerApprovalRequired: true, restart: true };
+    capability = {
+      available: true,
+      ownerApprovalRequired: true,
+      restart: true,
+    };
     await client("host-agent", "request-session-host", "--restart", "--reason", "New release");
     expect(calls.at(-1).body).toMatchObject({
       operation: "session-host-restart",
@@ -1060,7 +1107,10 @@ test("session host commands need the advertised capability and send only the ope
     });
     capability = { available: true, ownerApprovalRequired: true };
     expect(JSON.parse((await client("host-agent", "session-host-status")).stdout)).toEqual(status);
-    expect(calls.at(-1)).toMatchObject({ method: "GET", url: "/api/installation/session-host" });
+    expect(calls.at(-1)).toMatchObject({
+      method: "GET",
+      url: "/api/installation/session-host",
+    });
 
     // Refusals happen before any request: ambiguous operation, Dev client, missing capability.
     calls.length = 0;
@@ -1121,7 +1171,10 @@ test("installation removal waits until the session host job is removed", async (
 test("System settings keep operator keys and refuse a damaged file", () => {
   const merged = JSON.parse(
     mergeSystemSource(
-      JSON.stringify({ adopt: { runner: "wks_01" }, source: { repository: "/repo" } }),
+      JSON.stringify({
+        adopt: { runner: "wks_01" },
+        source: { repository: "/repo" },
+      }),
       { checkout: "/src/vorteo", ref: "abc" },
     ),
   );
@@ -1137,7 +1190,10 @@ test("System settings keep operator keys and refuse a damaged file", () => {
 test("Host System settings are written privately and only when they change", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-home-"));
   try {
-    const first = writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" });
+    const first = writeSystemSource({
+      paseoHome: home,
+      checkout: "/src/vorteo",
+    });
     expect(first.changed).toBe(true);
     expect((statSync(first.file).mode & 0o777).toString(8)).toBe("600");
     expect(writeSystemSource({ paseoHome: home, checkout: "/src/vorteo" }).changed).toBe(false);
@@ -1163,7 +1219,10 @@ test("a Host checkout maps into the container through its deepest bind mount", (
 
 test("configure-system-source records the checkout for the Host and the Dev container", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "vorteo-system-root-"));
-  const previous = { inspect: process.env.FAKE_INSPECT, node: process.env.REAL_NODE };
+  const previous = {
+    inspect: process.env.FAKE_INSPECT,
+    node: process.env.REAL_NODE,
+  };
   try {
     const checkout = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-checkout-")));
     mkdirSync(path.join(checkout, ".git"));
@@ -1188,7 +1247,11 @@ test("configure-system-source records the checkout for the Host and the Dev cont
       JSON.stringify([
         {
           Mounts: [
-            { Type: "bind", Source: path.dirname(checkout), Destination: "/Users/guest/tmp" },
+            {
+              Type: "bind",
+              Source: path.dirname(checkout),
+              Destination: "/Users/guest/tmp",
+            },
           ],
         },
       ]),
@@ -1245,7 +1308,11 @@ test("configure-system-source records the checkout for the Host and the Dev cont
 test("Projects folder settings keep operator keys and earlier locations", () => {
   const merged = JSON.parse(
     mergeProjectsFolderSettings(
-      JSON.stringify({ migrateFrom: ["/Users/guest/dev"], aliases: ["/mnt/dev"], note: "kept" }),
+      JSON.stringify({
+        migrateFrom: ["/Users/guest/dev"],
+        aliases: ["/mnt/dev"],
+        note: "kept",
+      }),
       {
         root: "/Users/owner/dev",
         migrateFrom: ["/Users/guest/dev", "/Users/owner/dev"],
@@ -1338,14 +1405,20 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
     );
     writeFileSync(
       path.join(root, "installation.json"),
-      JSON.stringify({ hostHome, configFile, release: path.join(root, "release") }),
+      JSON.stringify({
+        hostHome,
+        configFile,
+        release: path.join(root, "release"),
+      }),
     );
 
     // Without an identical-path mount, only the Host is configured.
     writeFileSync(
       inspect,
       JSON.stringify([
-        { Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }] },
+        {
+          Mounts: [{ Type: "bind", Source: folder, Destination: "/Users/guest/dev" }],
+        },
       ]),
     );
     const unaliased = await configureProjectsFolder(root, {
@@ -1442,5 +1515,157 @@ test("configure-projects-folder writes both daemons and trusts the folder in Dev
       else process.env[key] = previous[key];
     }
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("repair-projects-folder-worktree-links rewrites old Dev links once, with backups", async () => {
+  const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "vorteo-worktree-links-")));
+  // The old container path never exists here, like /Users/<old guest user>/dev on the Host.
+  const old = path.join(base, "missing-guest/dev");
+  const folder = path.join(base, "dev");
+  const outside = path.join(base, "outside");
+  mkdirSync(folder);
+  mkdirSync(outside);
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" });
+  function repository(name) {
+    const directory = path.join(folder, name);
+    mkdirSync(directory);
+    git(directory, "init", "-q", "-b", "main");
+    git(
+      directory,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    );
+    return directory;
+  }
+  function worktree(repo, directory) {
+    git(repo, "worktree", "add", "-q", "-b", path.basename(directory), directory);
+    return {
+      admin: path.join(repo, ".git/worktrees", path.basename(directory), "gitdir"),
+      link: path.join(directory, ".git"),
+    };
+  }
+  // Writes both links as Dev wrote them before the rewrite: through the old container path.
+  function useOldPrefix({ admin, link }) {
+    writeFileSync(admin, readFileSync(admin, "utf8").replace(folder, old));
+    writeFileSync(link, readFileSync(link, "utf8").replace(folder, old));
+  }
+  const snapshot = (files) => files.map((file) => readFileSync(file, "utf8"));
+  const prunable = (repo) => git(repo, "worktree", "list", "--porcelain").includes("prunable");
+  try {
+    const app = repository("app");
+    const legacy = worktree(app, path.join(folder, "app-feature"));
+    useOldPrefix(legacy);
+    const logicalTree = worktree(app, path.join(folder, "app-current"));
+    const away = worktree(app, path.join(outside, "app-away"));
+    const kept = repository("kept");
+    const keptLinks = worktree(kept, path.join(folder, "kept-feature"));
+    useOldPrefix(keptLinks);
+    const files = [legacy, logicalTree, away, keptLinks].flatMap(({ admin, link }) => [
+      admin,
+      link,
+    ]);
+    expect(prunable(app)).toBe(true);
+
+    const options = {
+      folder,
+      from: [old],
+      keepPaths: [path.join(old, "kept")],
+    };
+    const before = snapshot(files);
+    const dryRun = repairProjectsFolderWorktreeLinks(options);
+    expect(dryRun.written).toBeNull();
+    expect(snapshot(files)).toEqual(before);
+    expect(readdirSync(path.dirname(legacy.admin)).some((name) => name.includes(".before-"))).toBe(
+      false,
+    );
+    expect(
+      dryRun.scan.changes.map(({ file, current, next }) => ({
+        file,
+        current,
+        next,
+      })),
+    ).toEqual([
+      {
+        file: legacy.admin,
+        current: `${old}/app-feature/.git\n`,
+        next: `${folder}/app-feature/.git\n`,
+      },
+      {
+        file: legacy.link,
+        current: `gitdir: ${old}/app/.git/worktrees/app-feature\n`,
+        next: `gitdir: ${folder}/app/.git/worktrees/app-feature\n`,
+      },
+    ]);
+    expect(dryRun.scan.skipped).toEqual([
+      {
+        repository: app,
+        worktree: "app-away",
+        link: `${outside}/app-away/.git`,
+        reason: "is outside the Projects folder",
+      },
+      {
+        repository: app,
+        worktree: "app-current",
+        link: `${folder}/app-current/.git`,
+        reason: "already uses the logical path",
+      },
+      { repository: kept, worktree: "1 worktree(s)", reason: "kept path" },
+      {
+        repository: path.join(folder, "kept-feature"),
+        link: `${old}/kept/.git/worktrees/kept-feature`,
+        reason: "kept path",
+      },
+    ]);
+    expect(formatWorktreeLinkReport(dryRun)).toContain("Dry run: nothing was written.");
+
+    const applied = repairProjectsFolderWorktreeLinks({
+      ...options,
+      apply: true,
+    });
+    expect(applied.written.map(({ file }) => file)).toEqual([legacy.admin, legacy.link]);
+    // Both backups sit in the admin directory, so neither shows up in the worktree's status.
+    const adminDirectory = path.dirname(legacy.admin);
+    expect(applied.written.map(({ backup }) => path.relative(adminDirectory, backup))).toEqual([
+      expect.stringMatching(/^gitdir\.before-worktree-link-rewrite-/u),
+      expect.stringMatching(/^worktree-git-file\.before-worktree-link-rewrite-/u),
+    ]);
+    for (const { file, backup } of applied.written)
+      expect(readFileSync(backup, "utf8")).toBe(before[files.indexOf(file)]);
+    expect(snapshot([legacy.admin, legacy.link])).toEqual([
+      `${folder}/app-feature/.git\n`,
+      `gitdir: ${folder}/app/.git/worktrees/app-feature\n`,
+    ]);
+    expect(snapshot(files.slice(2))).toEqual(before.slice(2));
+    expect(prunable(app)).toBe(false);
+    expect(git(legacy.link.replace(/\/\.git$/u, ""), "status", "--short")).toBe("");
+
+    const again = repairProjectsFolderWorktreeLinks({
+      ...options,
+      apply: true,
+    });
+    expect(again.scan.changes).toEqual([]);
+    expect(again.written).toEqual([]);
+
+    // A worktree under an old prefix whose target is gone on the Host is left alone.
+    rmSync(path.join(folder, "app-current"), { recursive: true });
+    writeFileSync(logicalTree.admin, `${old}/app-current/.git\n`);
+    const missing = repairProjectsFolderWorktreeLinks(options);
+    expect(missing.scan.changes).toEqual([]);
+    expect(missing.scan.skipped).toContainEqual({
+      repository: app,
+      worktree: "app-current",
+      link: `${old}/app-current/.git`,
+      reason: "its worktree does not exist under either form",
+    });
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 });
