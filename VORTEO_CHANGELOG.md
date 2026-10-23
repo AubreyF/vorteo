@@ -4,6 +4,39 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.805 - 2026-10-22
+
+### Maintenance
+
+- Merge the two-option Add project flow: Choose a folder in the Projects folder or Clone from GitHub, with a folder browser that creates folders inline
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-22
+
+### Maintenance
+
+- Merge main into the two-option Add project branch. Main contributed the live Projects folder work (aliases, kept paths, git trust, projects in every environment and per-project exclusions) and the settings and provider pages; there were no textual code conflicts. Both sides had added the Projects folder to the stored server info, so the duplicate is dropped, and Add project now reads the folder through main's shared helper and formats folder errors with main's error wording. Both changelog and customization histories are kept in full.
+
+## 0.11.0-beta.3.vorteo.767 - 2026-10-22
+
+### Added
+
+- Clone from GitHub on hosts with a Projects folder clones into Projects/<repository> with one click. Change location opens the same folder browser, whose footer button reads Clone here, and New folder works there too. The clone runs on the installation's Host daemon.
+
+### Maintenance
+
+- Tests cover the default clone destination, changing it in the folder browser, cloning into a nested or new folder, and the earlier methods on hosts without a Projects folder. This supersedes the work-in-progress note in 0.11.0-beta.3.vorteo.766.
+
+### Known limitations
+
+- Not installed. The browser end-to-end checks for this flow have not been run, so layout and keyboard behaviour are unverified in a real browser.
+
+## 0.11.0-beta.3.vorteo.766 - 2026-10-22
+
+### Added
+
+- Add project offers two choices on hosts with a Projects folder: Choose a folder and Clone from GitHub. There is no host step and no Search for directory, New project folder or Choose in Finder option. Hosts without a Projects folder keep the earlier flow.
+- The folder browser starts in the Projects folder with a breadcrumb. Its list only moves between folders; a fixed footer names what it will add, and Add is disabled at the Projects folder itself. New folder creates a folder in place without making it a project and opens it. Git checkouts have an inline Add button, registered projects show a Project badge, and the last folder is remembered per host.
+
 ## 0.11.0-beta.3.vorteo.804 - 2026-10-22
 
 ### Maintenance

@@ -8,7 +8,8 @@ export type AddProjectFlowPage =
   | "github-location"
   | "new-directory-parent"
   | "new-directory-name"
-  | "folder-browser";
+  | "folder-browser"
+  | "clone-destination";
 
 export type AddProjectMethod =
   | "open-folder"
