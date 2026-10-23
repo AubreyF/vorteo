@@ -9,6 +9,8 @@
  */
 export const WINDOWS_EXCLUDED_SUITES = [
   "**/*.posix.test.ts",
+  // Every session host suite is POSIX-only: it runs only on the macOS Host and Linux Dev.
+  "src/server/session-host/**",
   "scripts/build-coordinator-bundle.test.ts",
   "src/server/agent/providers/claude/packaged-cli.test.ts",
   "src/server/agent/providers/claude/setup-token-query.test.ts",
@@ -63,16 +65,6 @@ export const WINDOWS_EXCLUDED_SUITES = [
   "src/server/execution-installation/settings/runtime.test.ts",
   "src/server/execution-installation/supervisor-maintenance.test.ts",
   "src/server/listen-reclaim.test.ts",
-  "src/server/session-host/applied-store.test.ts",
-  "src/server/session-host/host.test.ts",
-  "src/server/session-host/hosted-agent-manager.test.ts",
-  "src/server/session-host/hosted-codex.test.ts",
-  "src/server/session-host/hosted-restart.test.ts",
-  "src/server/session-host/hosted-session.test.ts",
-  "src/server/session-host/launchd.test.ts",
-  "src/server/session-host/provider-children.test.ts",
-  "src/server/session-host/service.test.ts",
-  "src/server/session-host/watchdog.test.ts",
   "src/server/worker-watchdog.test.ts",
   "src/services/provider-login/claude-full-signin.test.ts",
 ];

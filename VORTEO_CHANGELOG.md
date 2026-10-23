@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.802 - 2026-10-23
+
+### Maintenance
+
+- Windows server CI skips the whole session host directory, which is POSIX-only by design, so new session host suites no longer need listing one by one. A provider secret test that checks private file modes is skipped on Windows.
+
 ## 0.11.0-beta.3.vorteo.801 - 2026-10-22
 
 ### Maintenance
