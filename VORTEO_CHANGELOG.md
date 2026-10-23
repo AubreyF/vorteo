@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- The web build pruner no longer stops at the first build it cannot delete. A directory that stays non-empty mid-removal, for example while another cleanup deletes the same tree, is retried with backoff, then reported and skipped while the rest of the prune continues. On 2026-10-23 one such build crashed the whole run.
+
 ## 0.11.0-beta.3.vorteo.798 - 2026-10-22
 
 ### Maintenance

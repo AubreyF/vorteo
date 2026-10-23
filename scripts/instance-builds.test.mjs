@@ -136,3 +136,24 @@ test("the pruning command removes abandoned builds", async (t) => {
   assert.match(stdout, /Removed 1 build directories/);
   assert.deepEqual(await fs.readdir(builds), []);
 });
+
+test("a build that fails to delete does not stop the rest of the prune", async (t) => {
+  const builds = await temporary(t);
+  const now = Date.now();
+  await build(builds, "build-stuck", { owner: 202, age: 2 * HOUR, now });
+  await build(builds, "build-abandoned", { owner: 203, age: 2 * HOUR, now });
+  const errors = [];
+  const removed = await pruneInstanceBuilds(builds, {
+    now,
+    isAlive: () => false,
+    onError: (root, error) => errors.push([path.basename(root), error.code]),
+    remove: async (root) => {
+      if (root.endsWith("build-stuck"))
+        throw Object.assign(new Error("directory not empty"), { code: "ENOTEMPTY" });
+      await fs.rm(root, { recursive: true, force: true });
+    },
+  });
+  assert.deepEqual(removed, ["build-abandoned"]);
+  assert.deepEqual(errors, [["build-stuck", "ENOTEMPTY"]]);
+  assert.deepEqual(await fs.readdir(builds), ["build-stuck"]);
+});
