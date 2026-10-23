@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.809 - 2026-10-22
+
+### Maintenance
+
+- Merge the Host restart check: a Host update whose restarted daemon still runs the previous build fails before publishing, keeps the new release selected and refuses replay
+
+## 0.11.0-beta.3.vorteo.799 - 2026-10-23
+
+### Fixed
+
+- A Host source update no longer reports success when the Host comes back on the previous build. An idle or held restart replaces only the daemon worker, and the running supervisor starts that worker from the release it was launched from, so on 2026-10-21 the update to vorteo.729 succeeded while the daemon still ran 726. After the restart the install now compares the version the Host daemon reports with the new release. On a mismatch it fails before publishing the interface, keeps the new release selected so a full Host restart loads it, and refuses to replay. When the version cannot be read, readiness alone still decides, as before.
+
 ## 0.11.0-beta.3.vorteo.808 - 2026-10-22
 
 ### Maintenance

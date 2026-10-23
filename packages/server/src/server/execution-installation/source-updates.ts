@@ -594,6 +594,8 @@ export class InstallationSourceUpdates {
     job: RestartJob,
     restart: RestartExecutor["restart"],
     beforeSelection?: () => Promise<void>,
+    // Reports the version of the Host daemon that answered after the restart.
+    loadedHostVersion?: () => Promise<string | null | undefined>,
   ): Promise<string> {
     if (job.target !== this.target) throw new Error("Source update target changed");
     const activationDirectory =
@@ -663,6 +665,7 @@ export class InstallationSourceUpdates {
         { cause: error },
       );
     }
+    await assertLoadedHostRelease(prepared.release, loadedHostVersion);
     const ready = {
       previous,
       candidate: prepared.release,
@@ -732,5 +735,34 @@ export class InstallationSourceUpdates {
     if (!this.config.sourceUpdates)
       throw new Error("Source updates require Host installation setup");
     return this.config.sourceUpdates;
+  }
+}
+
+/**
+ * A worker-only restart keeps the running supervisor, which resolved its worker
+ * from the release it started in. It can come back healthy on the previous
+ * build (vorteo.726 and 729), so readiness alone is not success.
+ */
+async function assertLoadedHostRelease(
+  release: string,
+  loadedHostVersion: (() => Promise<string | null | undefined>) | undefined,
+): Promise<void> {
+  const expectedVersion = releaseServerVersion(release);
+  const loadedVersion = await loadedHostVersion?.();
+  if (expectedVersion && loadedVersion && loadedVersion !== expectedVersion)
+    throw new Error(
+      `Host restarted on ${loadedVersion}, not ${expectedVersion}: the running supervisor kept the previous build. The new release stays selected and loads on a full Host restart. Interface not published; do not replay the update.`,
+    );
+}
+
+/** The server package version a release's daemon reports, or null when unreadable. */
+function releaseServerVersion(release: string): string | null {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(release, "packages/server/package.json"), "utf8"),
+    ) as { version?: unknown };
+    return typeof manifest.version === "string" ? manifest.version : null;
+  } catch {
+    return null;
   }
 }

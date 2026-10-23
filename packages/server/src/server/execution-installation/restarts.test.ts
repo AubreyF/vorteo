@@ -1398,6 +1398,97 @@ test("interruption outcome requires the exact installed candidate and published 
   }
 });
 
+// 2026-10-21: an idle Host restart replaced only the worker, which reloaded the
+// old supervisor's build (vorteo.726) while the install reported 729 installed.
+test("a Host install fails when the restarted daemon still runs the previous build", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-version-")));
+  try {
+    const previous = path.join(root, "previous");
+    await mkdir(previous);
+    const baseCommit = "b".repeat(40);
+    await writeFile(
+      path.join(previous, ".installation-source.json"),
+      JSON.stringify({ sourceCommit: baseCommit }),
+    );
+    await writeFile(path.join(root, "release.json"), JSON.stringify({ sourceCommit: baseCommit }));
+    await writeFile(path.join(root, "index.html"), "old interface");
+    const link = path.join(root, "current");
+    await symlink(previous, link);
+    const config = restartTestConfig(
+      root,
+      path.join(link, "packages/server/dist/scripts/supervisor-entrypoint.js"),
+    );
+    config.sourceUpdates = {
+      sourceRepository: root,
+      releaseRoot: root,
+      currentReleaseLink: link,
+      webDirectory: root,
+      toolingDirectory: root,
+      integrationRef: "refs/heads/main",
+    };
+    await writeFile(
+      path.join(root, "prepare-installation-update.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path';
+      const input = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+      const release = path.join(input.work, 'release'); const exported = path.join(release, 'web-export');
+      const scripts = path.join(release, 'packages/server/dist/scripts');
+      await fs.mkdir(scripts, {recursive:true}); await fs.mkdir(exported);
+      await fs.writeFile(path.join(scripts, 'supervisor-entrypoint.js'), 'process.exit(0)');
+      await fs.writeFile(path.join(release, 'packages/server/package.json'), JSON.stringify({version: '1.0.1'}));
+      await fs.writeFile(path.join(release, '.installation-source.json'), JSON.stringify({sourceCommit: input.update.sourceCommit}));
+      await fs.writeFile(input.resultFile, JSON.stringify({release,exported}));`,
+    );
+    await writeFile(
+      path.join(root, "publish-instance-web.mjs"),
+      `import fs from 'node:fs/promises'; import path from 'node:path'; await fs.writeFile(path.join(process.argv[3], 'published'), 'yes');`,
+    );
+    const updates = new InstallationSourceUpdates(config);
+    const bundle = Buffer.from("approved inert source");
+    const update = {
+      sourceCommit: "a".repeat(40),
+      baseCommit,
+      sha256: createHash("sha256").update(bundle).digest("hex"),
+      bytes: bundle.length,
+    };
+    updates.stage(update, bundle);
+    const job = () => ({
+      id: randomUUID(),
+      revision: randomUUID(),
+      target: "host" as const,
+      requestedBy: "host-agent" as const,
+      reason: "Install fixture",
+      createdAt: new Date().toISOString(),
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      status: "approved" as const,
+      detail: "Prepared",
+      update,
+    });
+    const restart = vi.fn(async () => "Replacement worker 2 is ready");
+
+    const stale = job();
+    await expect(updates.install(stale, restart, undefined, async () => "1.0.0")).rejects.toThrow(
+      "Host restarted on 1.0.0, not 1.0.1",
+    );
+    expect(restart).toHaveBeenCalledTimes(1);
+    await expect(readFile(path.join(root, "published"))).rejects.toThrow();
+    expect(
+      JSON.parse(await readFile(path.join(root, stale.id, "activation.json"), "utf8")),
+    ).toMatchObject({ status: "activating", previous });
+    await expect(
+      updates.install({ ...stale, updatePreparation: "prepared" }, restart),
+    ).rejects.toThrow("Activation was already attempted");
+
+    await rm(link);
+    await symlink(previous, link);
+    await expect(
+      updates.install(job(), restart, undefined, async () => "1.0.1"),
+    ).resolves.toContain("Installed source");
+    expect(await readFile(path.join(root, "published"), "utf8")).toBe("yes");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("source builds fail before activation, uncertain dispatch retains selection, and publication follows readiness", async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "source-activation-")));
   try {

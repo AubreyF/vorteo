@@ -56,6 +56,8 @@ Maintenance review (2026-10-23): the web build pruner's per-build decision moved
 
 Maintenance review (2026-10-23): the web build pruner retries and then skips a build it cannot delete instead of stopping. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-23): Host source updates verify that the restarted daemon reports the new release's version and fail before interface publication when an idle or held restart left the previous build running. Making worker-only restarts load the new release needs a separate supervisor change. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-22): closed three Projects folder gaps found after installation. Dev's git now trusts repositories in the folder for each daemon command and records them for agents, workspace membership keys and saved sidebar keys move to the logical path, and `configure-projects-folder` gives the Host the same aliases. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): new Codex threads no longer fail when Codex finishes syncing remote plugin skills after its first listing; only a change to the selected skills breaks a frozen selection. README overview and onboarding are unchanged.
