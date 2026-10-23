@@ -73,20 +73,10 @@ export async function pruneInstanceBuilds(
   for (const name of names) {
     const root = path.join(builds, name);
     if (!name.startsWith("build-") || root === current) continue;
-    const build = await describe(root).catch(() => null);
-    if (!build) continue;
-    if (build.owner && Number.isInteger(build.owner.pid) && isAlive(build.owner.pid)) continue;
-    const age = now - build.mtimeMs;
-    const snapshot = await hasSnapshot(root).catch(() => null);
-    if (snapshot === null) continue; // Removed or changing under us; the next run decides.
-    const finished = build.sealed && !snapshot;
-    if (finished) {
-      exports.push({ name, root, mtimeMs: build.mtimeMs });
-      continue;
-    }
-    // Failed, interrupted or pre-cleanup builds still hold their snapshot.
-    if (age < (build.owner ? HOUR : UNOWNED_HOURS * HOUR)) continue;
-    if (await removeBuild(root, remove, onError)) removed.push(name);
+    const verdict = await classifyBuild(root, { now, isAlive });
+    if (verdict.kind === "export") exports.push({ name, root, mtimeMs: verdict.mtimeMs });
+    else if (verdict.kind === "abandoned" && (await removeBuild(root, remove, onError)))
+      removed.push(name);
   }
   exports.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const [index, { name, root, mtimeMs }] of exports.entries()) {
@@ -94,6 +84,26 @@ export async function pruneInstanceBuilds(
     if (await removeBuild(root, remove, onError)) removed.push(name);
   }
   return removed;
+}
+
+/**
+ * Decide one build's fate without touching it: `keep` (missing, in use, changing
+ * or too recent), `export` (sealed and trimmed; subject to export retention) or
+ * `abandoned` (failed, interrupted or pre-cleanup, and old enough to remove).
+ */
+async function classifyBuild(root, { now, isAlive }) {
+  const build = await describe(root).catch(() => null);
+  if (!build) return { kind: "keep" };
+  if (build.owner && Number.isInteger(build.owner.pid) && isAlive(build.owner.pid))
+    return { kind: "keep" };
+  const snapshot = await hasSnapshot(root).catch(() => null);
+  if (snapshot === null) return { kind: "keep" }; // Removed or changing under us; the next run decides.
+  if (build.sealed && !snapshot) return { kind: "export", mtimeMs: build.mtimeMs };
+  // Failed, interrupted or pre-cleanup builds still hold their snapshot.
+  const age = now - build.mtimeMs;
+  return age < (build.owner ? HOUR : UNOWNED_HOURS * HOUR)
+    ? { kind: "keep" }
+    : { kind: "abandoned" };
 }
 
 function removeTree(root) {
