@@ -4,6 +4,9 @@ import { seedRunningMockAgentWorkspace, openAgentRoute } from "../support/helper
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { expectComposerVisible, fillComposerDraft } from "../support/helpers/composer";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 for (const width of [1280, 390]) {
   test(`queues without restarting a stopped thread at ${width}px`, async ({ page }, testInfo) => {
     test.setTimeout(180_000);

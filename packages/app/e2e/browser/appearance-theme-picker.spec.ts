@@ -14,6 +14,9 @@ import { openSettingsSection } from "../support/helpers/settings";
 import { TerminalE2EHarness } from "../support/helpers/terminal-dsl";
 import { getTerminalBufferText, waitForTerminalContent } from "../support/helpers/terminal-perf";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 test("updates a running terminal across all six themes without replacing its session", async ({
   page,
 }, info) => {

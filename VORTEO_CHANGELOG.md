@@ -4,6 +4,15 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.810 - 2026-10-23
+
+### Maintenance
+
+- Browser tests choose a model by applying a mock profile that pins it, because the composer no longer has a model control.
+- Browser test setup dismisses the "Set up worktree scripts" notice whenever it appears, since it covers the composer's bottom-right actions; specs about the notice opt out.
+- The queueing test helper follows the composer's current default action.
+- Mark four message submission tests that choose steer or interrupt in Settings as known failures: since 471d7f22a the composer ignores the Default send setting. The product fix follows separately.
+
 ## 0.11.0-beta.3.vorteo.809 - 2026-10-23
 
 ### Maintenance

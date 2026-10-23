@@ -2,6 +2,9 @@ import { expect, test } from "../support/fixtures";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { ensureExplorerSidebar } from "../support/helpers/workspace-tabs";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 // The plan card has to pass its own markdown parser. Drop that prop and
 // react-native-markdown-display silently supplies one with `typographer: true`
 // (node_modules/react-native-markdown-display/src/index.js:139-141), which

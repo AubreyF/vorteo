@@ -122,6 +122,8 @@ const test = daemonTest.extend<{
   vortonMode: boolean;
   defaultMockProfile: boolean;
   defaultMockProfileSeed: void;
+  dismissWorktreeSetupCallout: boolean;
+  worktreeSetupCalloutHandler: void;
   paseoE2ESetup: void;
   outdatedDaemon: OutdatedDaemon;
   desktopManagedOutdatedDaemon: OutdatedDaemon;
@@ -131,6 +133,22 @@ const test = daemonTest.extend<{
 }>({
   vortonMode: [false, { option: true }],
   defaultMockProfile: [true, { option: true }],
+  dismissWorktreeSetupCallout: [true, { option: true }],
+  // Seeded git projects have no worktree setup commands, so the "Set up worktree scripts" notice
+  // appears over the composer's bottom-right actions. Dismiss it whenever it shows; specs about
+  // the notice opt out with `dismissWorktreeSetupCallout: false`.
+  worktreeSetupCalloutHandler: [
+    async ({ page, dismissWorktreeSetupCallout }, provide) => {
+      if (dismissWorktreeSetupCallout) {
+        const dismiss = page.getByTestId(/^worktree-setup-callout-.*-dismiss$/).first();
+        await page.addLocatorHandler(dismiss, async () => {
+          await dismiss.click();
+        });
+      }
+      await provide();
+    },
+    { auto: true },
+  ],
   defaultMockProfileSeed: [
     async ({ defaultMockProfile }, provide) => {
       if (!defaultMockProfile) {

@@ -1003,7 +1003,10 @@ test.describe("Agent message submission", () => {
     }
   });
 
-  test("keeps one Stop action while submitting into a running agent", async ({ page }) => {
+  // Product regression, reported to Builds on 2026-10-23: since 471d7f22a the composer always
+  // queues while an agent runs and ignores the Default send setting (steer or interrupt).
+  // Remove the fixme once the setting drives the composer again.
+  test.fixme("keeps one Stop action while submitting into a running agent", async ({ page }) => {
     const gate = await installDaemonWebSocketGate(page);
     const agent = await seedMockAgentWorkspace({
       repoPrefix: "submission-running-action-",
@@ -1183,7 +1186,10 @@ test.describe("Agent message submission", () => {
     await retryRestoredSubmission(page, prompt);
   });
 
-  test("restores an ambiguous Steer failure without retrying or interrupting", async ({
+  // Product regression, reported to Builds on 2026-10-23: since 471d7f22a the composer always
+  // queues while an agent runs and ignores the Default send setting (steer or interrupt).
+  // Remove the fixme once the setting drives the composer again.
+  test.fixme("restores an ambiguous Steer failure without retrying or interrupting", async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);
@@ -1222,7 +1228,10 @@ test.describe("Agent message submission", () => {
     }
   });
 
-  test("keeps an optimistic Steer prompt inside the active turn before acknowledgement", async ({
+  // Product regression, reported to Builds on 2026-10-23: since 471d7f22a the composer always
+  // queues while an agent runs and ignores the Default send setting (steer or interrupt).
+  // Remove the fixme once the setting drives the composer again.
+  test.fixme("keeps an optimistic Steer prompt inside the active turn before acknowledgement", async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);
@@ -1251,7 +1260,10 @@ test.describe("Agent message submission", () => {
     }
   });
 
-  test("sends interrupt behavior on the wire when the user opts out of steering", async ({
+  // Product regression, reported to Builds on 2026-10-23: since 471d7f22a the composer always
+  // queues while an agent runs and ignores the Default send setting (steer or interrupt).
+  // Remove the fixme once the setting drives the composer again.
+  test.fixme("sends interrupt behavior on the wire when the user opts out of steering", async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);

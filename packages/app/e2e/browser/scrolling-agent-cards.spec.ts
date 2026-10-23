@@ -15,6 +15,9 @@ import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-
 import { expectAgentTabActive } from "../support/helpers/launcher";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 async function verifyGoalPauseHelp(page: Page, goalCard: Locator, width: number) {
   const pauseGoal = goalCard.getByRole("button", {
     name: "Pause goal",

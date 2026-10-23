@@ -2,6 +2,9 @@ import { test, expect } from "../support/fixtures";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 
+// This spec handles the "Set up worktree scripts" notice itself.
+test.use({ dismissWorktreeSetupCallout: false });
+
 function expandQuestion(raw: string | Buffer) {
   return JSON.stringify(
     JSON.parse(raw.toString(), (_key, value) => {

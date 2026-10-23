@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { escapeRegex } from "./regex";
+import { chooseMockModelProfile } from "./model-profile";
 
 export const gotoAppShell = async (page: Page) => {
   await page.goto("/");
@@ -361,9 +362,9 @@ export const selectModel = async (page: Page, model: string) => {
     if (await modelButton.isVisible().catch(() => false)) {
       await modelButton.click();
     } else {
-      const modelLabel = page.getByText("MODEL", { exact: true }).first();
-      await expect(modelLabel).toBeVisible();
-      await modelLabel.click();
+      // New chats have no model control; a mock profile that pins the model stands in.
+      await chooseMockModelProfile(page, normalizedModel);
+      return;
     }
   }
 
