@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.816 - 2026-10-22
+
+### Maintenance
+
+- Merge the Dev worktree link repair: a listing-first command rewrites older Dev worktree links from the container path to the Projects folder path, with backups, skipping kept paths
+
+## 0.11.0-beta.3.vorteo.807 - 2026-10-23
+
+### Added
+
+- `install-execution-host.mjs repair-projects-folder-worktree-links` repairs git worktree links that Dev wrote through its old container path before links were rewritten. The Host sees those worktrees as prunable, so a Host `git worktree prune` would orphan them for Dev too. By default it only lists what it would change; `--apply` rewrites each link to the Projects folder's logical path atomically, after a backup beside it. It skips kept paths such as freed, links already in logical form, worktrees outside the Projects folder and links whose worktree is missing, and reports container-only worktrees that a Host prune would orphan. A second run changes nothing.
+
 ## 0.11.0-beta.3.vorteo.815 - 2026-10-22
 
 ### Maintenance
