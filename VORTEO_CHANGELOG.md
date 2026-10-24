@@ -4,6 +4,22 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.815 - 2026-10-22
+
+### Maintenance
+
+- Merge Host release retention and dependency cloning: Host builds clone dependencies from a private integrity-checked cache, and old Host release folders are pruned after each verified install, keeping current, previous, every release a plan or unfinished job names, and the newest three
+
+## 0.11.0-beta.3.vorteo.811 - 2026-10-23
+
+### Changed
+
+- Approved Host builds clone dependencies from a private copy-on-write cache instead of running a full `npm ci`, so releases share their unchanged 2.4 GB of `node_modules`. Only Host builds fill that cache, with an integrity-checked install.
+
+### Fixed
+
+- Old Host releases no longer pile up (43 releases, about 137 GB on 2026-10-23). After each verified Host install, the coordinator removes job folders that no plan or unfinished job references, keeping the selected, previous and three newest releases.
+
 ## 0.11.0-beta.3.vorteo.814 - 2026-10-23
 
 ### Maintenance

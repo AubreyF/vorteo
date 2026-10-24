@@ -295,6 +295,12 @@ The extra container origin admission and generated guest request skill remain af
 
 For a failed setup, inspect the private logs and installation receipt before retrying. Setup refuses to overwrite an existing receipt or reuse credentials automatically. Do not delete state to force a retry. Restoring a previous protected release requires a prepared host deployment and rollback plan; automatic release upgrades are outside this first installer.
 
+### Host release dependencies and retention
+
+Approved Host builds clone dependencies from a private copy-on-write cache at `<releases>/.release-dependency-cache`, next to the configured release root, instead of running a full `npm ci` per release. Only the coordinator's Host build fills that cache, with an integrity-checked `npm ci`, and nothing else clones from it, so a worktree's install never reaches a release. Releases then share the unchanged `node_modules` blocks with the cache. `npm rebuild` and `postinstall` still run in every release. Older tooling that doesn't pass the cache path keeps running `npm ci`.
+
+After each verified Host install, the coordinator removes old job folders from the release root and reports how many in the job detail. It keeps the selected and previous releases, every release named by an open coordinator request or the latest completed one, folders of unfinished jobs, and the three newest. It only considers folders named by a lifecycle job ID, so anything else in the root is never touched, and it removes sealed trees through `removeBootstrapRelease`. A folder it cannot remove is reported and kept. Releases outside the release root, such as older trees directly under `releases/`, are never pruned.
+
 ### Sealed releases
 
 Release seals are off unless both the coordinator and Host services run with `VORTEO_RELEASE_SEALS=enabled`, and they require macOS. With seals on, preparation refuses a release that contains tool caches (`.cache`, `.vite`, `.vitest` and similar) directly under a `node_modules` directory or at its root, or a linked `node_modules`. It also refuses while any process of the account still holds a release file open for writing. It then sets the user-immutable flag on the whole tree, digests it in full and writes `<release>.release-manifest`, `<release>.release-seal.observed` and `<release>.release-seal.json` beside it. The admission receipt binds those seal digests. Approval checks file metadata instead of re-reading bytes. A change falls back to a full byte check, and the refusal names the changed path.
