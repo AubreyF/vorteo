@@ -477,7 +477,8 @@ function expectedBootstrapConfiguration(
   plan: CoordinatorBootstrapPlan,
   current: InstallationConfig,
 ): InstallationConfig {
-  const expected = { ...current, container: { ...current.container } };
+  // Copy each section edited below so the live configuration is never mutated.
+  const expected = { ...current, host: { ...current.host }, container: { ...current.container } };
   if (plan.sourceUpdateTooling === true) {
     if (!current.sourceUpdates)
       throw new BootstrapRequestConflict("Source update tooling requires existing source updates");
@@ -495,6 +496,15 @@ function expectedBootstrapConfiguration(
     expected.previewMonitor = plan.previewMonitorConfiguration;
   if (plan.claudeHostRefreshConfiguration === null) delete expected.claudeHostRefresh;
   else if (plan.claudeHostRefreshConfiguration === true) expected.claudeHostRefresh = true;
+  if (plan.engineRestartConfiguration === null) delete expected.container.engineRestart;
+  else if (plan.engineRestartConfiguration !== undefined)
+    expected.container.engineRestart = plan.engineRestartConfiguration;
+  if (plan.factoryGateConfiguration === null) delete expected.container.factoryGate;
+  else if (plan.factoryGateConfiguration !== undefined)
+    expected.container.factoryGate = plan.factoryGateConfiguration;
+  if (plan.hostLauncherUpdateConfiguration === null) delete expected.host.launcherUpdate;
+  else if (plan.hostLauncherUpdateConfiguration !== undefined)
+    expected.host.launcherUpdate = plan.hostLauncherUpdateConfiguration;
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;

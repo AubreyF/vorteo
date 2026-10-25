@@ -344,6 +344,42 @@ function ClaudeRefreshConfiguration({ plan }: { plan: CoordinatorBootstrapReques
   );
 }
 
+function EngineRestartConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.engineRestartConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {config === null
+        ? "Remove the tracked Docker restart plan."
+        : `Allow a tracked Docker Desktop restart for Dev, which you approve each time. Pinned containers: Dev ${config.containers.dev.slice(0, 12)}, gateway Tailscale ${config.containers.gatewayTailscale.slice(0, 12)}, gateway Caddy ${config.containers.gatewayCaddy.slice(0, 12)}.${config.factoryVerify ? ` Factory lock check ${config.factoryVerify.sha256.slice(0, 12)}, owner mode ${config.factoryVerify.ownerMode}.` : ""}`}
+    </Text>
+  );
+}
+
+function FactoryGateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.factoryGateConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {config === null
+        ? "Stop running Factory's checks around Dev restarts."
+        : `Run Factory's read-only checks before and after every Dev restart. A restart is refused, or reported as failed, if Factory's lock, supervisor, pause state or custody records are wrong. Check ${config.verify.sha256.slice(0, 12)}, owner mode ${config.verify.ownerMode}, Dev ${config.container.slice(0, 12)}.`}
+    </Text>
+  );
+}
+
+function HostLauncherUpdateConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
+  const config = plan.hostLauncherUpdateConfiguration;
+  if (config === undefined) return null;
+  return (
+    <Text selectable style={styles.text}>
+      {config === null
+        ? "Remove the Host launcher update plan."
+        : `Allow a one-time Host launcher update that adds managed release selection, which you approve separately. Candidate launcher ${config.sha256.slice(0, 12)}.`}
+    </Text>
+  );
+}
+
 function SourceUpdateToolingConfiguration({ plan }: { plan: CoordinatorBootstrapRequest["plan"] }) {
   if (plan.sourceUpdateTooling !== true) return null;
   return (
@@ -482,6 +518,9 @@ function BootstrapRequestCard({
           ) : null}
           <MonitorConfiguration plan={request.plan} />
           <ClaudeRefreshConfiguration plan={request.plan} />
+          <EngineRestartConfiguration plan={request.plan} />
+          <FactoryGateConfiguration plan={request.plan} />
+          <HostLauncherUpdateConfiguration plan={request.plan} />
           <FactoryAdoptionConfiguration plan={request.plan} />
           <Text selectable style={styles.text}>
             Source: {request.plan.candidate.sourceCommit}

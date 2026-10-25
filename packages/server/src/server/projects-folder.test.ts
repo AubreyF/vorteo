@@ -9,6 +9,7 @@ import {
   projectsFolderWorktreesRoot,
   resolveProjectsFolderConfig,
   setActiveProjectsFolder,
+  toLogicalProjectKey,
   toLogicalProjectsPath,
   type ProjectsFolderPolicy,
 } from "./projects-folder.js";
@@ -145,6 +146,25 @@ describe("Projects folder", () => {
       expect(toLogicalProjectsPath(folder, "/Users/guest/other")).toBe("/Users/vtn/dev/other");
       expect(toLogicalProjectsPath(folder, "/Users/guest-two/dev")).toBe("/Users/guest-two/dev");
       expect(toLogicalProjectsPath(folder, "/Users/vtn/dev/app")).toBe("/Users/vtn/dev/app");
+    });
+
+    it("maps Windows paths with either separator and any case, keeping the caller's spelling", () => {
+      const folder = { root: "C:\\Users\\vtn\\dev", aliases: ["C:\\Users\\guest\\dev\\"] };
+      expect(toLogicalProjectsPath(folder, "C:\\Users\\guest\\dev")).toBe("C:\\Users\\vtn\\dev");
+      expect(toLogicalProjectsPath(folder, "c:\\users\\GUEST\\dev\\app\\src")).toBe(
+        "C:\\Users\\vtn\\dev\\app\\src",
+      );
+      expect(toLogicalProjectsPath(folder, "C:/Users/guest/dev/app")).toBe(
+        "C:\\Users\\vtn\\dev/app",
+      );
+      expect(toLogicalProjectsPath(folder, "C:\\Users\\guest\\dev-two")).toBe(
+        "C:\\Users\\guest\\dev-two",
+      );
+      // POSIX aliases still compare exactly.
+      expect(toLogicalProjectsPath({ root: "/r", aliases: ["/A"] }, "/a/app")).toBe("/a/app");
+      expect(toLogicalProjectKey(folder, "host:srv_1:C:\\Users\\guest\\dev\\app")).toBe(
+        "host:srv_1:C:\\Users\\vtn\\dev\\app",
+      );
     });
 
     it("leaves exact kept paths alone while paths below them still map", () => {

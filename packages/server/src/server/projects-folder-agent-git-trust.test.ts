@@ -7,13 +7,15 @@ import {
   resetProjectsFolderAgentTrustForTests,
   trustProjectsFolderRepositoryForAgents,
 } from "./projects-folder-agent-git-trust.js";
+import { gitSafeDirectoryValue } from "./projects-folder-git-trust.js";
 
 let base: string;
 let physical: string;
 let logical: string;
 
 beforeEach(() => {
-  base = realpathSync(mkdtempSync(path.join(tmpdir(), "projects-agent-trust-")));
+  // The native resolver expands Windows 8.3 short names, as the module does.
+  base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "projects-agent-trust-")));
   physical = path.join(base, "mount");
   logical = path.join(base, "owner-dev");
   mkdirSync(path.join(physical, "app", ".git"), { recursive: true });
@@ -47,16 +49,17 @@ describe("Projects folder global git trust for agents", () => {
     const { calls, runGit } = fakeGit(listed);
     const config = { root: logical, aliases: [physical] };
     const app = path.join(physical, "app");
+    const entry = gitSafeDirectoryValue(app);
     expect(
       await trustProjectsFolderRepositoryForAgents(path.join(logical, "app"), { config, runGit }),
-    ).toBe(app);
-    expect(calls).toContainEqual(["config", "--global", "--add", "safe.directory", app]);
+    ).toBe(entry);
+    expect(calls).toContainEqual(["config", "--global", "--add", "safe.directory", entry]);
     // Already trusted: no second write, in this process or after a restart.
     expect(await trustProjectsFolderRepositoryForAgents(app, { config, runGit })).toBeNull();
     resetProjectsFolderAgentTrustForTests();
     expect(await trustProjectsFolderRepositoryForAgents(app, { config, runGit })).toBeNull();
     expect(calls.filter((args) => args.includes("--add"))).toHaveLength(1);
-    expect(listed).toEqual(["/somewhere/else", app]);
+    expect(listed).toEqual(["/somewhere/else", entry]);
   });
 
   it("writes nothing where the folder is at its own path, outside it, or without aliases", async () => {

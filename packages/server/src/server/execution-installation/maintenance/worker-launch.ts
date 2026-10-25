@@ -54,6 +54,7 @@ export function workerLaunchRequestCompatible(
     | "supervisorPlanSha256"
     | "factoryRuntimePlanSha256"
     | "factoryRuntimeRecoveryOf"
+    | "engineRestartPlanSha256"
     | "devRepairs"
   >,
 ): boolean {
@@ -65,6 +66,7 @@ export function workerLaunchRequestCompatible(
       !job.supervisorPlanSha256 &&
       !job.factoryRuntimePlanSha256 &&
       !job.factoryRuntimeRecoveryOf &&
+      !job.engineRestartPlanSha256 &&
       !job.devRepairs?.length)
   );
 }
@@ -220,7 +222,8 @@ function admitChild(
     job.target !== "container-daemon" ||
     job.supervisorPlanSha256 ||
     job.factoryRuntimePlanSha256 ||
-    job.factoryRuntimeRecoveryOf
+    job.factoryRuntimeRecoveryOf ||
+    job.engineRestartPlanSha256
   )
     conflict("Worker custody requires an exact Dev worker parent");
   const phase = transitionPhase(before, after);

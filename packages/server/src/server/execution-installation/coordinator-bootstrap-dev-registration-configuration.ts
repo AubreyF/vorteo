@@ -51,20 +51,31 @@ function assertConfigurationScope(input: ConfigurationScopeInput): void {
     throw new BootstrapRequestConflict("Dev registration configuration scope differs");
 }
 
+/** Plan fields that change coordinator policy or other services. */
+const POLICY_FIELDS = [
+  "sourceUpdateTooling",
+  "factoryRuntimeAdoptionConfiguration",
+  "nativeHelperConfiguration",
+  "previewMonitorConfiguration",
+  "claudeHostRefreshConfiguration",
+  "engineRestartConfiguration",
+  "factoryGateConfiguration",
+  "hostLauncherUpdateConfiguration",
+  "supervisionRecovery",
+] as const;
+
+function combinesPolicyChange(plan: RegistrationConfigurationInput["plan"]): boolean {
+  return (
+    plan.hostRequestsAfter !== null || POLICY_FIELDS.some((field) => plan[field] !== undefined)
+  );
+}
+
 /** The approved C1 pin commits its exact script. Decoding that fixed script
  * supplies data to the trusted verifier, never code loaded from the candidate. */
 export function inspectDevRegistrationConfiguration(input: RegistrationConfigurationInput) {
   const retainedInput = structuredClone(input);
   const { plan, current, candidate, currentFile } = retainedInput;
-  if (
-    plan.hostRequestsAfter !== null ||
-    plan.sourceUpdateTooling !== undefined ||
-    plan.factoryRuntimeAdoptionConfiguration !== undefined ||
-    plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
-    plan.claudeHostRefreshConfiguration !== undefined ||
-    plan.supervisionRecovery !== undefined
-  )
+  if (combinesPolicyChange(plan))
     throw new BootstrapRequestConflict("Initial Dev configuration cannot combine policy changes");
   const reference = candidate.container.supervisorMaintenance;
   if (

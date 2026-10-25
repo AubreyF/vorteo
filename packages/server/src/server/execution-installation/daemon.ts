@@ -7,6 +7,20 @@ import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js"
 import { filterArchivedRestartErrors } from "./restart-impact.js";
 import { runSupervisorMaintenance, supervisorPlanDigest } from "./supervisor-maintenance.js";
 import { factoryRuntimePlanDigest, runFactoryRuntimePhase } from "./factory-runtime-adoption.js";
+import {
+  hostLauncherPlanDigest,
+  runHostLauncherUpdate,
+  type HostLauncherTarget,
+} from "./host-launcher-update.js";
+import { homedir } from "node:os";
+import path from "node:path";
+import {
+  awaitEngineReadiness,
+  engineRestartPlanDigest,
+  engineRestartPreflight,
+  restartDockerEngine,
+  verifyFactoryAfterRestart,
+} from "./engine-restart.js";
 import { WebSocket } from "ws";
 import type { Logger } from "pino";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -240,6 +254,23 @@ export function createInstallationRegistrationAdmission(
   };
 }
 
+/** The one-time Host launcher update's target, only when every piece is configured. */
+export function hostLauncherTarget(config: InstallationConfig): HostLauncherTarget | undefined {
+  const update = config.host.launcherUpdate;
+  if (!update || !config.sourceUpdates || !("launchdService" in config.host)) return undefined;
+  const service = config.host.launchdService;
+  const label = service.split("/").at(-1)!;
+  return {
+    domain: service.slice(0, service.length - label.length - 1),
+    label,
+    plist: path.join(homedir(), "Library/LaunchAgents", `${label}.plist`),
+    candidate: { path: update.candidate, sha256: update.sha256 },
+    link: config.sourceUpdates.currentReleaseLink,
+    root: config.sourceUpdates.releaseRoot,
+    stateDir: config.stateDir,
+  };
+}
+
 export function createInstallationRestartExecutor(
   config: InstallationConfig,
   assertRegistrationReadiness?: (target: RestartJob["target"]) => void,
@@ -468,6 +499,54 @@ export function createInstallationRestartExecutor(
         throw new Error("Factory adoption did not replace the worker; inspect retained selection");
       await runFactoryRuntimePhase({ ...phase, phase: "verify", replacementPid });
       return `Factory startup adoption verified on replacement Dev worker ${replacementPid}.`;
+    },
+    hostLauncherPlan: () => hostLauncherPlanDigest(hostLauncherTarget(config)),
+    async updateHostLauncher(job) {
+      const target = hostLauncherTarget(config);
+      if (!target || job.target !== "host" || !job.hostLauncherPlanSha256)
+        throw new Error("Host launcher update plan is unavailable");
+      return runHostLauncherUpdate(
+        target,
+        { jobId: job.id, digest: job.hostLauncherPlanSha256 },
+        {
+          probe: async () => {
+            const client = await connectInstallationDaemon(config, "host");
+            try {
+              const status = await client.getDaemonStatus({ timeout: READINESS_PROBE_TIMEOUT_MS });
+              // A daemon that reports no version cannot prove the selected release.
+              return { pid: status.pid, version: status.version ?? "unknown" };
+            } finally {
+              void client.close().catch(() => {});
+            }
+          },
+        },
+      );
+    },
+    engineRestartPlan: () => engineRestartPlanDigest(config.container.engineRestart),
+    async restartEngine(job) {
+      assertReady("container-daemon");
+      if (config.container.persistentRegistration)
+        throw new Error("Docker restart requires an independently bound Dev operation");
+      const plan = config.container.engineRestart;
+      if (
+        !plan ||
+        job.target !== "container-daemon" ||
+        job.engineRestartPlanSha256 !== engineRestartPlanDigest(plan)
+      )
+        throw new Error("Docker restart plan is unavailable or changed");
+      const previousPid = await probeDaemonPid("container");
+      const preflight = await engineRestartPreflight(plan);
+      assertReady("container-daemon");
+      // The job is durably running before this point, so a lost outcome is never replayed.
+      await restartDockerEngine(plan);
+      const checks = await awaitEngineReadiness(plan, preflight);
+      const replacement = await waitForReplacement("container-daemon", "container", previousPid);
+      const factory = await verifyFactoryAfterRestart(plan, preflight);
+      return [
+        "Docker restarted.",
+        `${[...checks, factory].filter(Boolean).join("; ")}.`,
+        replacement,
+      ].join(" ");
     },
     supervisorPlan: () => supervisorPlanDigest(config.container.supervisorMaintenance),
     async restartSupervisor(job) {
