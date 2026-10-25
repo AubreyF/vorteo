@@ -48,6 +48,9 @@ import {
 import { prepareSourceBatch } from "./source-batches.js";
 import { prepareDevRepairBundle } from "./dev-source-repair.js";
 import { assertReleaseSelectionAllowed } from "./release-selection-guard.js";
+import { pruneHostReleases } from "./host-release-retention.js";
+import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
+import { isCompletedBootstrap, openBootstrapRequests } from "./coordinator-bootstrap.js";
 import { isDeepStrictEqual } from "node:util";
 import type { StandingInterruption } from "@getpaseo/protocol/maintenance-interruption";
 
@@ -448,7 +451,15 @@ export class InstallationSourceUpdates {
     const resultFile = path.join(work, "prepared.json");
     writeFileSync(
       requestFile,
-      JSON.stringify({ ...settings, update, bundle: this.bundlePath(update), work, resultFile }),
+      JSON.stringify({
+        ...settings,
+        update,
+        bundle: this.bundlePath(update),
+        work,
+        resultFile,
+        // Private to approved Host builds; older tooling ignores it and runs npm ci.
+        dependencyCache: path.join(path.dirname(settings.releaseRoot), ".release-dependency-cache"),
+      }),
       { mode: 0o600, flag: "wx" },
     );
     const validation = this.config.host.startupValidation;
@@ -711,7 +722,50 @@ export class InstallationSourceUpdates {
       update,
       status: "succeeded",
     });
-    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}.`;
+    const retention = await this.retainHostReleases(previous);
+    return `Installed source ${update.sourceCommit}. Host replacement identity and readiness verified; interface published. Previous release retained at ${previous}.${retention}`;
+  }
+
+  /**
+   * After a verified install, remove old Host release folders. Keeps the selected and
+   * previous releases, every release an open or the latest completed coordinator plan
+   * names, and folders of unfinished jobs. Never fails the install.
+   */
+  private async retainHostReleases(previous: string): Promise<string> {
+    const settings = this.hostSettings();
+    const failures: string[] = [];
+    try {
+      const journal = new FileBootstrapRequestJournal(this.config.stateDir);
+      const requests = journal.read();
+      const latest = requests.findLast((request) => isCompletedBootstrap(request));
+      const plans = [...openBootstrapRequests(requests), ...(latest ? [latest] : [])].map(
+        (request) => request.plan,
+      );
+      const unfinished = journal
+        .readLifecycle()
+        .filter((job) => ["pending", "approved", "running"].includes(job.status))
+        .map((job) => path.join(settings.releaseRoot, job.id));
+      const removed = await pruneHostReleases({
+        releaseRoot: settings.releaseRoot,
+        referenced: [
+          settings.currentReleaseLink,
+          previous,
+          ...plans.flatMap((plan) =>
+            [plan.previous, plan.candidate, plan.compatibleRecovery]
+              .filter((release) => release !== undefined)
+              .map((release) => release.directory),
+          ),
+          ...unfinished,
+        ],
+        onError: (folder) => failures.push(path.basename(folder)),
+      });
+      const note = removed.length ? ` Removed ${removed.length} old Host releases.` : "";
+      return failures.length
+        ? `${note} Could not remove ${failures.length} old releases; they are kept.`
+        : note;
+    } catch {
+      return " Old Host releases were not pruned this time.";
+    }
   }
 
   private selectRelease(release: string) {

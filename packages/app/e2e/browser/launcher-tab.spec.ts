@@ -180,7 +180,10 @@ test.describe("Tab creation", () => {
     await expect(agent).toBeFocused();
 
     await pressDirectNewTabShortcut(page, "e");
-    await expect(page.getByTestId("workspace-explorer-sidebar")).toBeVisible();
+    // Files is a supporting card since 60f4899a6, 2e2921f79 and 73be0edc5.
+    await expect(
+      page.getByTestId("workspace-supporting-cards").filter({ visible: true }),
+    ).toBeVisible();
     await expect(
       page.getByTestId("file-explorer-tree-scroll").filter({ visible: true }),
     ).toBeVisible();

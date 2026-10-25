@@ -1,17 +1,22 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { Duplex } from "node:stream";
+import { readFileSync } from "node:fs";
 
 interface VitestProject {
   provide: (key: "passwordlessRelayUrl", value: string) => void;
 }
 
 export default async function setup(project: VitestProject): Promise<() => Promise<void>> {
+  const startupHtml = readFileSync(new URL("../../public/index.html", import.meta.url), "utf8");
   const server = createServer((request, response) => {
     if (request.url !== "/cors-restricted-health")
       response.setHeader("Access-Control-Allow-Origin", "*");
     response.setHeader("Content-Type", "application/json");
-    if (request.url === "/api/installation/health")
+    if (request.url === "/startup-fixture") {
+      response.setHeader("Content-Type", "text/html");
+      response.end(startupHtml);
+    } else if (request.url === "/api/installation/health")
       response.end(JSON.stringify({ installationId: "00000000-0000-4000-8000-000000000001" }));
     else if (request.url === "/api/health" || request.url === "/cors-restricted-health")
       response.end(JSON.stringify({ status: "ok" }));

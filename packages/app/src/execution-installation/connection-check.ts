@@ -19,6 +19,7 @@ export interface ConnectionCheckResult {
 export interface ConnectionSession {
   state: "online" | "offline" | "connecting" | "uninitialized" | "idle" | "error";
   authentication: "password_required" | "incorrect_password" | null;
+  directory?: "ready" | "loading" | "failed" | "unknown";
   endpoint: string | null;
 }
 
@@ -136,6 +137,20 @@ export function connectionSessionDescription(session: ConnectionSession | null):
   if (session.state === "online") return "Authenticated app connection is online.";
   if (session.state === "connecting") return "The app connection is still connecting.";
   return "The app connection is offline. A reachable health endpoint does not verify its saved credentials or server identity.";
+}
+
+export function connectionReadinessDescription(session: ConnectionSession | null): string {
+  if (session?.state !== "online") return "Session readiness: unknown until the app connects.";
+  switch (session.directory) {
+    case "ready":
+      return "Thread directory: ready. Selected workspace readiness is not measured by this check.";
+    case "loading":
+      return "Thread directory: loading. Transport and authentication have already connected.";
+    case "failed":
+      return "Thread directory: failed to load. Retry the connection check, then reload if needed.";
+    default:
+      return "Thread directory: unknown. An authenticated connection alone does not prove workspace readiness.";
+  }
 }
 
 export function connectionEndpointLabel(endpoint: string | null | undefined): string | null {

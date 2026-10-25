@@ -258,6 +258,7 @@ export function connectionDiagnosticReport(
           ? {
               state: result.session.state,
               authentication: result.session.authentication,
+              directory: result.session.directory ?? "unknown",
               address: connectionEndpointLabel(result.session.endpoint),
             }
           : null,

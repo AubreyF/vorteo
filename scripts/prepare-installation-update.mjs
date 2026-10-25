@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { writeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
   assertIntegratedSource,
@@ -10,6 +11,7 @@ import {
   snapshotSource,
   sealArtifact,
 } from "./instance-web-artifact.mjs";
+import { installDependencies } from "./lib/dependency-cache.mjs";
 
 const input = JSON.parse(await fs.readFile(process.argv[2], "utf8"));
 const { update, work, sourceRepository, integrationRef } = input;
@@ -68,7 +70,19 @@ try {
     committed: true,
     builds: work,
   });
-  run("npm", ["ci", "--ignore-scripts", "--include=dev", "--no-audit", "--no-fund"], root);
+  const npmCi = ["ci", "--ignore-scripts", "--include=dev", "--no-audit", "--no-fund"];
+  if (input.dependencyCache)
+    // Clone a cached install of this exact lockfile instead of copying 2.4 GB per release.
+    // The cache is private to approved Host builds: only this preparer fills it, with a
+    // full integrity-checked npm ci, so a worktree's install can never reach a release.
+    installDependencies({
+      root,
+      mode: "build",
+      cache: input.dependencyCache,
+      run,
+      log: (message) => writeSync(log.fd, `${message}\n`),
+    });
+  else run("npm", npmCi, root);
   // Dependency install hooks build native addons for this Host after approval.
   run("npm", ["rebuild", "--foreground-scripts"], root);
   run("npm", ["run", "postinstall"], root);

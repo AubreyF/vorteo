@@ -107,7 +107,9 @@ test("composer diff stat reveals Changes, then opens the diff in the configured 
 
     await test.step("Explorer navigation does not replace the side pane", async () => {
       await openFilesPanel(page);
-      await expect(page.getByTestId("workspace-explorer-sidebar")).toContainText("Files");
+      await expect(
+        page.getByTestId("workspace-supporting-cards").filter({ visible: true }),
+      ).toContainText("Files");
 
       await pill.click();
       await expect(sidePane.getByTestId("working-diff-panel")).toBeVisible();
