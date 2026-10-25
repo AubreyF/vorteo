@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- CI Playwright runs drop the temporary `--reporter=line --retries=0` diagnostics. They keep artifact uploads for cancelled shards and the five-minute Metro warm-up limit.
+- Queue tests no longer expect 44px status targets in a narrow mouse-driven window. Since 2cf5e0cbb, rows take 44px targets on touch devices, and touch is detected independently of width.
+- The queue orbit test drops its phone-width tooltip press, a known regression where a press no longer opens explanations, and keeps its other checks.
+
 ## 0.11.0-beta.3.vorteo.851 - 2026-10-25
 
 ### Maintenance

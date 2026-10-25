@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): CI and test-only change. Playwright CI drops temporary diagnostic flags, and queue tests follow touch-based row targets and the known tooltip press regression. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): merge of main through 71925c85e into the test repair branch. Functionality from main is unchanged by the merge. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Composer model and mode tests are retired with the Paseo mode, and New workspace entry tests use the More menu. Functionality is unchanged. README overview and onboarding are unchanged.
