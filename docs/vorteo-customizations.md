@@ -16,6 +16,8 @@ Maintenance review (2026-10-24): the release-note combine step accepts history w
 
 Maintenance review (2026-10-24): combining source contributions skips release notes byte-identical to accepted or repeated ones; repeated version headings with different notes still combine. The agent guide adds the Builds gate marker check before heavy test suites. Not yet installed. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-24): coordinator runner diagnostics record per-phase and per-operation wall time, so slow renewals can be profiled. Behavior is unchanged. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.

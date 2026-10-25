@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.822 - 2026-10-25
+
+### Maintenance
+
+- Merge renewal step timing: the runner diagnostic file records count and duration per phase and executor operation
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Added
+
+- Coordinator runner diagnostics record how long each runner phase and each executor operation (freeze, unload, selection, start, verification and others) took, in a bounded `timings` map in the runner's diagnostic file. A renewal that takes minutes now shows where the time went. Logging only; nothing a renewal does changes.
+
 ## 0.11.0-beta.3.vorteo.821 - 2026-10-25
 
 ### Maintenance
