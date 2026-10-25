@@ -96,6 +96,9 @@ function sha256(bytes: string | Buffer): string {
 
 export async function setReleaseImmutable(files: readonly string[], immutable: boolean) {
   if (files.length === 0) return;
+  // Only macOS can set these flags (sealing refuses elsewhere), so off macOS there is
+  // nothing to clear. Without this, removal fails where /usr/bin/chflags is absent.
+  if (!immutable && process.platform !== "darwin") return;
   await run(CHFLAGS, ["-R", immutable ? "uchg" : "nouchg", ...files]);
 }
 
