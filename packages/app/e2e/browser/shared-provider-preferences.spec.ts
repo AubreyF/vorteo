@@ -1,8 +1,9 @@
 import { getServerId } from "../support/helpers/server-id";
-import { waitForSettledPosition } from "../support/helpers/sheet-layout";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { SharedProviderPreferences } from "@getpaseo/protocol/messages";
 import { expect, test } from "../support/fixtures";
+import { chooseNewTaskForProfile } from "../support/helpers/model-profile";
+import { expectRememberedProfile } from "../support/helpers/model-memory";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import { gotoWorkspace } from "../support/helpers/launcher";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -14,9 +15,7 @@ import {
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 
-test("shared choices survive account changes, reject unavailable reasoning, and protect an open editor", async ({
-  page,
-}) => {
+test("shared choices survive account changes and protect an open editor", async ({ page }) => {
   const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "shared-preferences" });
   const previous = (await client.getDaemonConfig()).config;
   const initial = previous.sharedProviderPreferences!;
@@ -78,24 +77,17 @@ test("shared choices survive account changes, reject unavailable reasoning, and 
     await openAgentRoute(page, workspace);
     await expectComposerVisible(page);
 
+    // Retired 2026-10-25: d6cbd181c removed the picker's per-account reasoning choice and its
+    // unavailable-reasoning message; the picker shows each saved profile's own reasoning.
     await page.getByTestId("agent-preset-selector").click();
     await page.getByTestId("preset-account-shared-one").click();
-    await page.getByTestId("shared-thinking-trigger").click();
-    await page.getByText("High", { exact: true }).last().click();
-    await page.getByTestId("preset-account-shared-two").click();
-    await expect(page.getByTestId("shared-thinking-trigger")).toContainText("High");
-    await page.getByTestId("preset-account-shared-limited").click();
-    await expect(
-      page.getByText(
-        "This reasoning level is unavailable on this account. Select another level or account.",
-      ),
-    ).toBeVisible();
-    await expect(page.getByTestId("preset-use-profile")).toBeDisabled();
-    await page.getByTestId("preset-account-shared-one").click();
     await page.getByTestId("preset-manage-profiles").click();
-    await expect(page.getByTestId("shared-provider-settings")).toContainText(
-      "Applies to all codex accounts",
-    );
+    await expect(page.getByTestId("shared-provider-settings")).toBeVisible();
+    // Preferred choices sit in a collapsed row of Model defaults.
+    await page
+      .getByTestId("shared-provider-settings")
+      .getByText("Preferred models and reasoning", { exact: true })
+      .click();
     await page.getByRole("button", { name: /^Preferred reasoning/ }).click();
     await page.getByRole("button", { name: "High", exact: true }).click();
     await expect
@@ -106,7 +98,10 @@ test("shared choices survive account changes, reject unavailable reasoning, and 
       )
       .toEqual(["medium"]);
     await page.getByRole("button", { name: "Edit defaults", exact: true }).click();
-    await expect(page.getByTestId("agent-profile-edit-modal")).toBeVisible();
+    // The shared scope label moved from the settings section into the defaults editor.
+    await expect(page.getByTestId("agent-profile-edit-modal")).toContainText(
+      /Applies to all codex accounts/i,
+    );
     const current = (await client.getDaemonConfig()).config.sharedProviderPreferences!;
     await client.patchDaemonConfig({
       sharedProviderPreferences: {
@@ -133,21 +128,13 @@ test("shared choices survive account changes, reject unavailable reasoning, and 
     await page.getByTestId("agent-profile-cancel-button").click();
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
+    // Since 58a0cbbc9 the compact picker uses collapsible sections instead of an accounts page
+    // with a back button; account-profile-picker.spec.ts covers their geometry.
     await page.getByTestId("agent-preset-selector").click();
+    await page.getByTestId("preset-section-account").click();
     await page.getByTestId("preset-account-shared-two").click();
-    await expect(page.getByTestId("shared-thinking-trigger")).toContainText("High");
-    await expect(page.getByTestId("preset-accounts-back")).toBeVisible();
-    await waitForSettledPosition(page.getByTestId("preset-choices-shared-two"));
-    await expect
-      .poll(async () =>
-        Math.abs((await page.getByTestId("preset-choices-shared-two").boundingBox())!.x),
-      )
-      .toBeLessThan(1);
-    await expect(page.getByTestId("preset-use-profile")).toBeInViewport();
+    await expect(page.getByTestId("preset-choices-shared-two")).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("shared-preferences-mobile.png") });
-    await page.getByText("Saved profile permissions", { exact: true }).scrollIntoViewIfNeeded();
-    await expect(page.getByTestId("preset-use-profile")).toBeInViewport();
-    await page.getByTestId("preset-accounts-back").click();
     await page.mouse.click(195, 150);
     await expect(page.getByTestId("preset-manage-profiles")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -230,7 +217,7 @@ test("shared launch freezes permissions and recreation uses the updated workflow
       "saved profile uses Approval Test",
     );
     await page.getByTestId("profile-permission-recreate").click();
-    await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
+    await chooseNewTaskForProfile(page);
     await page
       .getByTestId("preset-handoff-context")
       .fill("Continue with the updated shared permissions.");
@@ -273,7 +260,8 @@ test("a new draft keeps the remembered account when another account owns the def
           defaultWorkflowId: "review",
         },
         mock: {
-          defaults: { model: "e2e-fast-stream", modeId: "load-test" },
+          // The picker offers only profiles whose model is selectable, which e2e-fast-stream is not.
+          defaults: { model: "ten-second-stream", modeId: "load-test" },
           preferredModels: [],
           preferredThinkingOptions: [],
           workflows: [{ id: "everyday", name: "Remembered account workflow", provider: "mock" }],
@@ -298,9 +286,9 @@ test("a new draft keeps the remembered account when another account owns the def
     await gotoWorkspace(page, workspace.workspaceId);
     await runWorkspaceActionFromCommandCenter(page, "New agent");
     await waitForDraftComposer(page);
-    await expect(page.getByTestId("agent-preset-selector").filter({ visible: true })).toContainText(
-      "Remembered account workflow",
-    );
+    // Workspace drafts show the profile cards inline; the remembered account's workflow is the
+    // selected row.
+    await expectRememberedProfile(page, { provider: "mock", profileId: "everyday" });
     await submitDraftAgent(page, "Launch with the remembered account workflow");
     await expect
       .poll(async () => {

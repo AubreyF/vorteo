@@ -1,4 +1,5 @@
 import { expect, test } from "../support/fixtures";
+import { chooseNewTaskForProfile } from "../support/helpers/model-profile";
 import { seedAgentProfiles } from "../support/helpers/agent-profiles";
 import { expectComposerVisible } from "../support/helpers/composer";
 import { openAgentRoute } from "../support/helpers/mock-agent";
@@ -46,7 +47,7 @@ test("profile edits warn legacy chats and recreation uses the updated permission
       await page.screenshot({ path: test.info().outputPath("legacy-permission-warning.png") });
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByTestId("profile-permission-recreate").click();
-      await expect(page.getByTestId("preset-handoff-modal")).toBeVisible();
+      await chooseNewTaskForProfile(page);
       await page
         .getByTestId("preset-handoff-context")
         .fill("Continue the existing task with the updated profile permissions.");
@@ -77,9 +78,8 @@ test("profile edits warn legacy chats and recreation uses the updated permission
         model: "e2e-fast-stream",
         modeId: "load-test",
       });
-      await expect(
-        page.getByRole("button", { name: "Select agent mode (Approval test)" }),
-      ).toBeVisible();
+      // The composer's mode control went with the Paseo mode in 471d7f22a; the configuration
+      // checks above cover the successor's permissions.
     } finally {
       await update.restore();
     }

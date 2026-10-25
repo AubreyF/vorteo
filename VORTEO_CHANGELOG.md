@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.833 - 2026-10-25
+
+### Maintenance
+
+- Profile recreation tests go through the switch sheet's new task choice to the handoff modal. 70639f19a added in-place switching first.
+- Retired with their UI, citing the removing commit:
+  - The profile picker's per-account reasoning choice and unavailable-reasoning message (d6cbd181c).
+  - The compact picker's accounts page and back button (58a0cbbc9); collapsible sections replace them.
+  - The composer's mode button (471d7f22a).
+- The shared scope label is checked in the defaults editor, and preferred reasoning is reached through its collapsed row.
+- The remembered-account draft test uses a selectable mock model, since the picker offers only profiles whose model is selectable.
+
 ## 0.11.0-beta.3.vorteo.832 - 2026-10-25
 
 ### Maintenance

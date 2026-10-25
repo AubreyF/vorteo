@@ -107,3 +107,12 @@ export async function chooseProfile(
   // Inline rows apply on click; the selected row gets an accent border.
   await expect(row).not.toHaveCSS("border-top-color", TRANSPARENT);
 }
+
+/**
+ * Since 70639f19a, applying a profile to a running thread first offers to switch it in place.
+ * Recreating it as a new task goes through that sheet's new task choice to the handoff modal.
+ */
+export async function chooseNewTaskForProfile(page: Page): Promise<void> {
+  await page.getByTestId("profile-switch-new-task").click();
+  await expect(page.getByTestId("preset-handoff-modal")).toBeVisible({ timeout: 30_000 });
+}
