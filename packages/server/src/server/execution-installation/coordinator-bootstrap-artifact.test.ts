@@ -537,6 +537,33 @@ test.each(["nearer package", "optional dependency", "package scope metadata"])(
   },
 );
 
+test("initial Host module contract tolerates sibling writes above the release tree", async () => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  // The release's parent stands in for the home folder, whose dotfiles agents rewrite.
+  const sibling = path.join(path.dirname(f.input.candidateRoot), ".agent-state.json");
+  await writeFile(sibling, "first", { mode: 0o600 });
+  await writeFile(`${sibling}.next`, "second", { mode: 0o600 });
+  await rename(`${sibling}.next`, sibling);
+  expect(() => proof.assertCurrent()).not.toThrow();
+  // A lookup appearing above the release tree is still refused, directly.
+  await mkdir(path.join(path.dirname(f.input.candidateRoot), "node_modules"), { mode: 0o700 });
+  expect(() => proof.assertCurrent()).toThrow("lookup became present");
+});
+
+test("initial Host module contract refuses an ancestor whose permissions change", async () => {
+  const f = await moduleContractFixture();
+  const proof = await inspectInitialHostModuleContract(f.input);
+  const parent = path.dirname(f.input.candidateRoot);
+  const mode = nativeFs.statSync(parent).mode & 0o777;
+  await chmod(parent, mode ^ 0o010);
+  try {
+    expect(() => proof.assertCurrent()).toThrow();
+  } finally {
+    await chmod(parent, mode);
+  }
+});
+
 test("initial Host module contract retains absence through the final assertion", async () => {
   const f = await moduleContractFixture();
   const proof = await inspectInitialHostModuleContract(f.input);

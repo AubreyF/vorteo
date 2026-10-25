@@ -4,6 +4,18 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.835 - 2026-10-25
+
+### Maintenance
+
+- Merge Host startup contract ancestor rule: folders above the release root are checked for replacement and permission changes but not timestamps, so ordinary writes in the home folder no longer refuse a bootstrap inspection; a node_modules lookup is still refused directly
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-25
+
+### Fixed
+
+- The Host module contract check no longer refuses a coordinator update because an unrelated file changed in a folder above the release, such as the home folder, where agents rewrite dotfiles. Folders above the release are pinned by device, inode, owner, group and mode, the same as other service custody. Inside the release they keep their full identity. A module lookup appearing anywhere is still refused directly.
+
 ## 0.11.0-beta.3.vorteo.834 - 2026-10-25
 
 ### Maintenance

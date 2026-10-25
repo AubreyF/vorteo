@@ -92,6 +92,18 @@ function identity(stat: BigIntStats): string {
     stat.ctimeNs,
   ].join(":");
 }
+/**
+ * A directory outside a release tree is pinned like service custody pins directories:
+ * by device, inode, owner, group and mode, not by size, link count or timestamps. Those
+ * change whenever any sibling entry is written, which on the Host includes the home
+ * folder's dotfiles. Absence below it is proven directly, before and after.
+ */
+function directoryIdentity(stat: BigIntStats): string {
+  return [stat.dev, stat.ino, stat.uid, stat.gid, stat.mode].join(":");
+}
+function within(root: string, file: string): boolean {
+  return file === root || file.startsWith(root + path.sep);
+}
 function retainTree(tree: ModuleTree): () => void {
   const assertions: Array<() => void> = [];
   const regular = tree.files
@@ -136,7 +148,9 @@ function requireAbsent(file: string): void {
   }
   throw new BootstrapRequestConflict("Initial Host module lookup became present");
 }
-function retainMissing(file: string): () => void {
+/** Prove `file` absent now and at each assertion. The nearest existing ancestor keeps
+ * its full identity inside `root`; above it, only its directory identity. */
+function retainMissing(file: string, root: string): () => void {
   requireAbsent(file);
   let parent = path.dirname(file);
   for (;;) {
@@ -151,16 +165,18 @@ function retainMissing(file: string): () => void {
     }
   }
   const assertParent = retainServiceFiles([parent]);
-  const expected = identity(lstatSync(parent, { bigint: true }));
+  const stat = lstatSync(parent, { bigint: true });
+  const pin = within(root, parent) || !stat.isDirectory() ? identity : directoryIdentity;
+  const expected = pin(stat);
   return () => {
     assertParent();
-    requireMatch(identity(lstatSync(parent, { bigint: true })) === expected);
+    requireMatch(pin(lstatSync(parent, { bigint: true })) === expected);
     requireAbsent(file);
-    requireMatch(identity(lstatSync(parent, { bigint: true })) === expected);
+    requireMatch(pin(lstatSync(parent, { bigint: true })) === expected);
   };
 }
 function retainResolution(root: string, absent: string[], directories: string[]): () => void {
-  const assertions = absent.map((file) => retainMissing(path.join(root, file)));
+  const assertions = absent.map((file) => retainMissing(path.join(root, file), root));
   for (const file of directories) {
     const absolute = path.join(root, file);
     requireMatch(lstatSync(absolute).isDirectory() && realpathSync(absolute) === absolute);
@@ -168,7 +184,7 @@ function retainResolution(root: string, absent: string[], directories: string[])
   }
   let parent = path.dirname(root);
   for (;;) {
-    assertions.push(retainMissing(path.join(parent, "node_modules")));
+    assertions.push(retainMissing(path.join(parent, "node_modules"), root));
     const next = path.dirname(parent);
     if (next === parent) break;
     parent = next;
