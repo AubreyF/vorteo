@@ -217,6 +217,17 @@ function verifyMonitorBootstrapBinding(
     );
 }
 
+/** Source update tooling a Host install runs: the preparer, the publisher and every
+ * module the preparer imports. A selected release must hold each as a protected file. */
+export const SOURCE_UPDATE_TOOLING_FILES = [
+  "prepare-installation-update.mjs",
+  "publish-instance-web.mjs",
+  "instance-web-artifact.mjs",
+  "preload-web-entry.mjs",
+  "lib/web-export.mjs",
+  "lib/dependency-cache.mjs",
+] as const;
+
 /** Tooling is selected only from the reviewed, fully hashed candidate release.
  * Inspect bytes as protected documents without importing or executing them. */
 async function verifySourceUpdateTooling(
@@ -227,11 +238,7 @@ async function verifySourceUpdateTooling(
   const directory = path.join(plan.candidate.directory, "scripts");
   if (realpathSync(directory) !== directory)
     throw new BootstrapRequestConflict("Source update tooling requires a canonical directory");
-  const files = [
-    "prepare-installation-update.mjs",
-    "publish-instance-web.mjs",
-    "instance-web-artifact.mjs",
-  ].map((name) => path.join(directory, name));
+  const files = SOURCE_UPDATE_TOOLING_FILES.map((name) => path.join(directory, name));
   await assertBootstrapPathsProtected([directory, ...files], writableMountRoots);
   for (const file of files) await readProtectedDocument(file);
 }

@@ -44,6 +44,7 @@ import {
   verifyBootstrapConfiguration,
   verifyBootstrapPlan,
   createBootstrapReviewService,
+  SOURCE_UPDATE_TOOLING_FILES,
 } from "./coordinator-bootstrap-host.js";
 import { CoordinatorBootstrapPlanSchema } from "@getpaseo/protocol/coordinator-bootstrap";
 import {
@@ -2745,12 +2746,8 @@ async function sourceToolingAdmissionFixture() {
   const previous = await makeRelease("previous", f.file);
   const candidate = await makeRelease("candidate", "");
   const scripts = path.join(candidate.directory, "scripts");
-  mkdirSync(scripts, { mode: 0o700 });
-  const toolingFiles = [
-    "prepare-installation-update.mjs",
-    "publish-instance-web.mjs",
-    "instance-web-artifact.mjs",
-  ].map((name) => path.join(scripts, name));
+  mkdirSync(path.join(scripts, "lib"), { recursive: true, mode: 0o700 });
+  const toolingFiles = SOURCE_UPDATE_TOOLING_FILES.map((name) => path.join(scripts, name));
   for (const file of toolingFiles)
     writeFileSync(file, "throw new Error('must never execute');", { mode: 0o600 });
   candidate.artifactSha256 = await digestBootstrapArtifact(candidate.directory);

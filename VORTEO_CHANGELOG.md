@@ -4,6 +4,19 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.852 - 2026-10-25
+
+### Maintenance
+
+- Merge installer tooling pins: the coordinator pins all six install tooling files, and icon context paths stay explicitly relative
+
+## 0.11.0-beta.3.vorteo.849 - 2026-10-25
+
+### Fixed
+
+- Selecting Host update tooling from a release now requires every script the installer imports: the preparer, publisher and artifact helper, plus the preload, web export and dependency cache modules. A release that lacks any of them is refused at review.
+- The Lucide import plugin prefixes `./` to any relative path that does not start with `./` or `../`, so a path into a dot-named folder is never emitted as a bare specifier.
+
 ## 0.11.0-beta.3.vorteo.851 - 2026-10-25
 
 ### Fixed
