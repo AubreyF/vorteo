@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.821 - 2026-10-24
+
+### Maintenance
+
+- Mark two more workspace standing tests as known failures: the Standing section's disclosure arrow sits 14px off the workspace status dot column with no recorded design change (geometry drift, owner review), and wide touchscreens may have no way into workspace actions since 2415534c8, pending an owner check on a device.
+
 ## 0.11.0-beta.3.vorteo.820 - 2026-10-24
 
 ### Maintenance
