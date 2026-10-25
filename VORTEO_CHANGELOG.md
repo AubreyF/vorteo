@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.822 - 2026-10-24
+
+### Maintenance
+
+- Mark five command center agent control tests as known failures: since 471d7f22a the command center offers no Mode commands for an agent. The product fix follows separately.
+- Retire the test for the composer's own thinking selector, which 471d7f22a replaced with the profile picker; the command center keeps its Thinking commands.
+
 ## 0.11.0-beta.3.vorteo.821 - 2026-10-24
 
 ### Maintenance
