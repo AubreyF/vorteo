@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { AgentSessionConfig } from "../../agent/agent-sdk-types.js";
 import type {
@@ -7,7 +7,7 @@ import type {
   InstallationSkill,
   SkillInstallation,
 } from "@getpaseo/protocol/skill-library";
-import { inventorySkills, readPackage, SkillLibraryError } from "./inventory.js";
+import { inventorySkills, readPackage, skillRoots, SkillLibraryError } from "./inventory.js";
 
 export function isRestricted(policy: SkillPolicy | undefined): boolean {
   if (!policy) return false;
@@ -187,16 +187,27 @@ export async function verifySkillSnapshot(
   }
   let builtins = snapshot.builtins ?? [];
   if (snapshot.provider === "claude" && (snapshot.skills.length || builtins.length)) {
-    const current = await inventorySkills({ cwd: config.cwd });
+    const current = await inventorySkills({
+      cwd: config.cwd,
+      claudeConfigDir: options.claudeConfigDir,
+    });
     // A package that later claims a built-in name would be enabled by that name, so the
-    // name is turned off instead of admitting an unverified package. The account's own
-    // skill folder is outside the inventory, so its folder names are checked directly.
-    const claimed = new Set(await skillFolderNames(options.claudeConfigDir));
+    // name is turned off instead of admitting an unverified package. Plugin skills claim
+    // their bare name, which Claude's allowlist matches as a ":name" suffix. If any root
+    // could not be read, a claim may be hidden, so no built-ins are kept.
+    const claimed = new Set<string>();
     for (const skill of current.skills)
       if (skill.providers.includes("claude"))
         for (const name of packageNames(skill)) claimed.add(name);
-    builtins = builtins.filter((name) => !claimed.has(name));
-    for (const candidate of current.skills) {
+    const unreadable = current.roots.some((root) => root.status === "error");
+    builtins = unreadable ? [] : builtins.filter((name) => !claimed.has(name));
+    // Config-folder roots join the inventory only to find claims on built-in names; the
+    // package selector check keeps its earlier scope.
+    const baseline = (await skillRoots(os.homedir(), config.cwd)).map((root) => root.path);
+    const packaged = current.skills.filter((skill) =>
+      baseline.some((root) => skill.path.startsWith(root + path.sep)),
+    );
+    for (const candidate of packaged) {
       const selected = snapshot.skills.find((skill) => skill.name === candidate.name);
       if (
         selected &&
@@ -231,14 +242,4 @@ async function bundledSkillNames(
 // Claude's skill allowlist matches a package's frontmatter name or its folder name.
 function packageNames(skill: { name: string; path: string }): string[] {
   return [skill.name, path.basename(skill.path)];
-}
-
-async function skillFolderNames(configDir: string | undefined): Promise<string[]> {
-  if (!configDir) return [];
-  try {
-    return await readdir(path.join(configDir, "skills"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
 }
