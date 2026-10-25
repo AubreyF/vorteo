@@ -61,10 +61,15 @@ function processesNaming(address: string): string[] {
   }
 }
 
+function ignoreReset(): void {}
+
 describe("runGitCommand timeout", () => {
   it("kills the network helper of a timed-out fetch, not only git", async () => {
     const sockets = new Set<Socket>();
-    const server = createServer((socket) => sockets.add(socket));
+    const server = createServer((socket) => {
+      socket.on("error", ignoreReset); // Killing the helper may reset its connection.
+      sockets.add(socket);
+    });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = `127.0.0.1:${(server.address() as AddressInfo).port}`;
     const repo = makeTempRepo();
