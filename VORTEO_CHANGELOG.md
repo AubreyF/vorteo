@@ -4,6 +4,23 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.830 - 2026-10-25
+
+### Maintenance
+
+- Merge batched source contribution git calls: combining a repository-sized batch runs about 430 git processes instead of 1,700, and two timing tests are repaired
+
+## 0.11.0-beta.3.vorteo.818 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions runs a handful of batched git commands instead of several per file. A repository-sized batch spawned about 1,700 git processes and took 26 seconds even on an idle Mac, and over a minute under load; it now spawns about 430 and takes 8 seconds. Release metadata reads every manifest in one git process when the caller supports it.
+
+### Tests
+
+- The Claude zero-token result test no longer fails when the turn outlasts one timer tick. The extra timeline item was the echo of the submitted prompt, not a duplicated assistant reply.
+- Worktree manager tests retry temporary directory cleanup. On Windows, the git HTTP helper left by a timed-out fetch briefly keeps the repository open.
+
 ## 0.11.0-beta.3.vorteo.829 - 2026-10-25
 
 ### Maintenance

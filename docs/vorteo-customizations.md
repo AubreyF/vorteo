@@ -28,6 +28,8 @@ Maintenance review (2026-10-25): release-tree removal skips clearing macOS immut
 
 Maintenance review (2026-10-24): restoring a saved Explorer pane drops drafts with no saved text, attachments, setup or tab state, so a layout holding thousands of empty generated drafts no longer mounts thousands of composer cards and freezes the page. Drafts with content and drafts in ordinary panes are kept. Touch detection and interface zoom share one window listener each. Not yet installed. README overview and onboarding are unchanged.
 
+Maintenance review (2026-10-24): source contribution batches now read and write release files with batched git commands. Results are unchanged; a repository-sized batch takes 8 seconds instead of 26. Two timing-dependent tests were repaired. Not yet installed. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-23): app installation client tests now expect the Docker restart and Host launcher query flags on restart routes. Behavior is unchanged. README overview and onboarding are unchanged.
