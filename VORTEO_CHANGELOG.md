@@ -4,6 +4,34 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.821 - 2026-10-25
+
+### Maintenance
+
+- Merge release-note dedupe: the combine step skips byte-identical incoming notes and accepts branches cut before duplicate copies were removed; AGENTS.md asks threads to wait for Builds' install checks before heavy suites
+
+## 0.11.0-beta.3.vorteo.817 - 2026-10-25
+
+### Documentation
+
+- Keep the agent guide within its 32 KiB budget: the Builds gate marker rule is now one line that links to a new development doc section with the marker's fields, the wait rule and the shell check.
+
+## 0.11.0-beta.3.vorteo.816 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions accepts a side that removed extra byte-identical copies of a release note, as long as one copy remains. A branch cut before a duplicate cleanup still combines, and deleting or editing any note is still refused.
+
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions no longer copies a release note that is byte-identical to one already accepted, or repeated within the contribution. Repeated version headings with different notes still combine. Six exact copies of two vorteo.758 notes reached `main` this way on 2026-10-22, carried in from branch merges.
+
+### Documentation
+
+- The agent guide tells threads to check Builds' install gate marker before a full or heavy test suite, with a one-line shell check.
+
 ## 0.11.0-beta.3.vorteo.820 - 2026-10-25
 
 ### Maintenance

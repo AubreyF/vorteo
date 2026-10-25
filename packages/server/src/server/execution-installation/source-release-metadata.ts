@@ -117,27 +117,30 @@ export function reconcileReleaseNotes(base: string, left: string, right: string)
   const history = blocks(base);
   const accepted = blocks(left);
   const incoming = blocks(right);
+  const historical = new Set(history);
   for (const entries of [accepted, incoming]) {
-    // Compare complete entries, including duplicate counts. Concurrent integration
-    // can interleave intact history without editing or deleting a single note.
-    const remaining = [...entries];
-    for (const entry of history) {
-      const index = remaining.indexOf(entry);
-      if (index < 0) throw new Error("Existing release notes were edited; resolve explicitly");
-      remaining.splice(index, 1);
-    }
-    for (const entry of remaining) {
+    // Compare complete entries. Concurrent integration can interleave intact history
+    // but never edit or delete a note. Dropping an extra byte-identical copy loses
+    // nothing, so a side that removed duplicates still matches older history.
+    const present = new Set(entries);
+    if (history.some((entry) => !present.has(entry)))
+      throw new Error("Existing release notes were edited; resolve explicitly");
+    for (const entry of present) {
+      if (historical.has(entry)) continue;
       // A well-formed heading may stand alone: history holds a few entries with no notes.
       if (!/^## \S+ - \d{4}-\d{2}-\d{2}(?:\n|$)/.test(entry))
         throw new Error("Release-note heading requires review");
     }
   }
-  const remaining = [...accepted];
+  // A byte-identical copy adds nothing, so skip incoming entries that are already
+  // accepted or repeated within the contribution. Repeated headings with different
+  // notes are distinct entries and still combine.
+  const known = new Set(accepted);
   const additions: string[] = [];
   for (const entry of incoming) {
-    const index = remaining.indexOf(entry);
-    if (index < 0) additions.push(entry);
-    else remaining.splice(index, 1);
+    if (known.has(entry)) continue;
+    known.add(entry);
+    additions.push(entry);
   }
   // Keep the accepted document verbatim and prepend only missing incoming entries.
   const added = additions.length ? additions.join("\n\n") + "\n\n" : "";

@@ -2881,7 +2881,7 @@ test("supervisor repair preserves a pending source batch and serializes both app
   expect(queue.list().find((entry) => entry.id === job.id)?.status).toBe("succeeded");
 });
 
-test("release notes preserve interleaved history and reject edits or missing duplicates", async () => {
+test("release notes preserve interleaved history and reject edits or deleted notes", async () => {
   const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
   const prefix = "# Vorteo changelog\n\n";
   const old = "## 0.11.0-beta.3.vorteo.177 - 2026-10-07\n\n- Existing note";
@@ -2903,13 +2903,48 @@ test("release notes preserve interleaved history and reject edits or missing dup
   expect(() => reconcileReleaseNotes(base, accepted, `${prefix}${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
-  const duplicate = `${prefix}${old}\n\n${old}\n`;
-  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n`)).toThrow(
+  const duplicate = `${prefix}${old}\n\n${old}\n\n${older}\n`;
+  expect(() => reconcileReleaseNotes(duplicate, duplicate, `${prefix}${old}\n\n${old}\n`)).toThrow(
     "Existing release notes were edited",
   );
   expect(() =>
     reconcileReleaseNotes(base, accepted, incoming.replace("# Vorteo changelog", "# Changed")),
   ).toThrow("introduction changed");
+});
+
+test("release notes combine a branch cut before duplicate copies were removed", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const added = "## 0.11.0-beta.3.vorteo.816 - 2026-10-24\n\n- New note";
+  // The branch's base still holds three copies; main kept one in a cleanup commit.
+  const base = `${prefix}${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  const cleaned = `${prefix}${note}\n\n${old}\n`;
+  const branch = `${prefix}${added}\n\n${note}\n\n${note}\n\n${note}\n\n${old}\n`;
+  expect(reconcileReleaseNotes(base, cleaned, branch)).toBe(
+    `${prefix}${added}\n\n${cleaned.slice(prefix.length)}`,
+  );
+  // Deleting the last copy is still an edit.
+  expect(() => reconcileReleaseNotes(base, `${prefix}${old}\n`, branch)).toThrow(
+    "Existing release notes were edited",
+  );
+});
+
+test("release notes skip incoming entries identical to accepted or repeated ones", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const sameVersion = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Show Vorteo System";
+  const base = `${prefix}${old}\n`;
+  const accepted = `${prefix}${note}\n\n${old}\n`;
+  // The contribution carries the accepted note three times, as vorteo.758 did on 2026-10-22.
+  const incoming = `${prefix}${sameVersion}\n\n${note}\n\n${note}\n\n${sameVersion}\n\n${note}\n\n${old}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  // One new entry under the repeated heading; no copy of the accepted note.
+  expect(result).toBe(`${prefix}${sameVersion}\n\n${note}\n\n${old}\n`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
 });
 
 test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {

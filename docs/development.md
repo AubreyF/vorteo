@@ -633,6 +633,14 @@ Get the session ID from the agent JSON (`persistence.sessionId`), then:
 ~/.codex/sessions/{YYYY}/{MM}/{DD}/rollout-{timestamp}-{session-id}.jsonl
 ```
 
+## Builds gate marker
+
+While Vorteo :: Builds runs an install gate, it writes `/Users/vtn/.local/share/vorteo-host/state/builds-gate-running.json` with the gate's `tip`, `startedAt` and `pid`. Before a full or heavy test suite, such as the coordinator bootstrap, renewal or restart suites or a whole package suite, check the marker. If it exists and its `pid` is alive, wait for the gate to finish, so your run neither slows the gate nor times out under its load. A marker whose `pid` has exited does not block. Run heavy suites under `nice -n 10` either way.
+
+```sh
+M=/Users/vtn/.local/share/vorteo-host/state/builds-gate-running.json; [ -f "$M" ] && kill -0 "$(/usr/bin/python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["pid"])' "$M")" 2>/dev/null && echo "Builds gate running; wait"
+```
+
 ## Testing with Playwright MCP
 
 Point Playwright MCP at the running Expo web target. For root checkout dev, `npm run dev:app` reserves `http://localhost:8081`. For Vorteo-managed worktree app services, use the service URL or port shown by Vorteo for that worktree.
