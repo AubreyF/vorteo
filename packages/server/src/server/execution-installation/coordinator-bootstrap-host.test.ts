@@ -293,10 +293,12 @@ test.runIf(process.platform === "darwin")(
       const child=spawn('/bin/sleep',['30'],{stdio:'ignore'});
       child.once('spawn',()=>process.stdout.write(String(child.pid)+'\\n'));
       process.on('SIGTERM',()=>{child.kill();child.once('close',()=>process.exit(0));});
+      process.on('disconnect',()=>{child.kill();process.exit(0);});
       setInterval(()=>{},1000);
     `,
       ],
-      { stdio: ["ignore", "pipe", "ignore"] },
+      // The IPC channel ends the fixture if the test worker dies before cleanup.
+      { stdio: ["ignore", "pipe", "ignore", "ipc"] },
     );
     const closed = once(parent, "close");
     const [data] = await once(parent.stdout!, "data");

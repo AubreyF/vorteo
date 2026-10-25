@@ -1589,7 +1589,11 @@ test.runIf(process.platform === "darwin")(
   async () => {
     const f = await fixture();
     const node = realpathSync(process.execPath);
-    f.save(path.join(f.host.directory, workerRelative), "setInterval(() => {}, 1000);", true);
+    f.save(
+      path.join(f.host.directory, workerRelative),
+      'process.on("disconnect", () => process.exit(0)); setInterval(() => {}, 1000);',
+      true,
+    );
     const helperBytes = readFileSync(
       new URL("../../../../../scripts/inspect-coordinator-process.py", import.meta.url),
     );
@@ -1599,7 +1603,8 @@ test.runIf(process.platform === "darwin")(
       true,
     );
     const child = spawn(node, [path.join(f.host.directory, workerRelative)], {
-      stdio: "ignore",
+      // The IPC channel ends the fixture if the test worker dies before cleanup.
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
       env: { PATH: "/usr/bin:/bin" },
     });
     await once(child, "spawn");
