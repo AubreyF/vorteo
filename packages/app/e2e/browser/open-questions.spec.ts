@@ -112,9 +112,11 @@ for (const [label, width] of [
       await page.screenshot({ path: info.outputPath(`open-questions-${label}.png`) });
 
       await page.getByTestId(`open-question-use-recommended-${region}`).click();
-      await expect(first.getByRole("alert")).toHaveText(
-        "The agent withdrew this question; it no longer needs an answer.",
-      );
+      // A refused answer shows as a toast since 68faa7a52, and the question stays for a retry.
+      await expect(
+        page.getByText("The agent withdrew this question; it no longer needs an answer.").first(),
+      ).toBeVisible();
+      await expect(first).toBeVisible();
       await expect(page.getByTestId("open-questions-count")).toHaveText("2");
       await page.getByTestId(`open-question-use-recommended-${region}`).click();
       await expect(first).not.toBeAttached();

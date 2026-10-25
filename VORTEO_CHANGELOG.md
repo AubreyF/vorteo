@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.823 - 2026-10-24
+
+### Maintenance
+
+- Open question tests expect a refused answer as a toast, which 68faa7a52 made the way failed actions are reported, and check that the question stays for a retry.
+
 ## 0.11.0-beta.3.vorteo.822 - 2026-10-24
 
 ### Maintenance
