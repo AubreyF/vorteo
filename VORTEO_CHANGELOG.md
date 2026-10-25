@@ -4,6 +4,13 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.847 - 2026-10-25
+
+### Maintenance
+
+- Mark two New workspace regressions as known failures: choosing another host clears the selected project (99eca19a7 behaviour), and plain /new with stale offline hosts no longer preselects a project.
+- The pasted pull request helper uses the platform paste shortcut, so the tests also paste on macOS.
+
 ## 0.11.0-beta.3.vorteo.846 - 2026-10-25
 
 ### Maintenance

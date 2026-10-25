@@ -475,7 +475,7 @@ export async function pasteGithubPrUrl(
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.evaluate((value) => navigator.clipboard.writeText(value), url);
   await composer.focus();
-  await page.keyboard.press("Control+V");
+  await page.keyboard.press("ControlOrMeta+V");
 }
 
 export async function assertNewWorkspaceSidebarAndHeader(

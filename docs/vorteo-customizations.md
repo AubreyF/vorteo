@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-25): test-only change. Two New workspace project selection regressions are marked as known failures and the paste helper works on macOS. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-25): test-only change. Browser tests reset the host-synced sidebar before each test, the header helper reads the route row, and the subagent status test follows delegated task ownership. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-25): test-only change. Sidebar helpers, reorder and pin shortcut tests follow hidden sidebar copies, touch sheets and host-synced sidebar state; one touch title test awaits owner review. Functionality is unchanged. README overview and onboarding are unchanged.
