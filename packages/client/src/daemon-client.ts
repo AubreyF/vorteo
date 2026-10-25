@@ -10,6 +10,7 @@ import type {
   BootstrapClaimedRecoveryPreparation,
   BootstrapClaimedRecoveryRequestView as BootstrapClaimedRecoveryRequest,
 } from "@getpaseo/protocol/coordinator-bootstrap";
+import { REVIEWED_CONFIGURATION_SETTING_NAMES } from "@getpaseo/protocol/coordinator-configuration-settings";
 import type {
   PluginDirectoryBinding,
   ResolvedPluginSource,
@@ -1310,7 +1311,7 @@ const BOOTSTRAP_REVIEW_FEATURES = [
 ] as const;
 type BootstrapReviewCapabilities = Partial<
   Record<(typeof BOOTSTRAP_REVIEW_FEATURES)[number][1], true>
->;
+> & { configurationSettings?: string[] };
 
 export class DaemonClient {
   private readonly providerSnapshotUpdates = new ProviderSnapshotUpdates({
@@ -3922,6 +3923,10 @@ export class DaemonClient {
     const capabilities: BootstrapReviewCapabilities = {};
     for (const [feature, key] of BOOTSTRAP_REVIEW_FEATURES)
       if (features?.[feature] === true) capabilities[key] = true;
+    // The app describes every registered setting (its description table is exhaustive),
+    // so the client names all of them once the daemon negotiates by name.
+    if (features?.coordinatorBootstrapConfigurationChanges === true)
+      capabilities.configurationSettings = [...REVIEWED_CONFIGURATION_SETTING_NAMES];
     return capabilities;
   }
 
@@ -3965,6 +3970,11 @@ export class DaemonClient {
 
   private assertServiceConfigurationPreparation(input: CoordinatorBootstrapPreparation): void {
     const features = this.lastServerInfoMessage?.features;
+    if (
+      input.plan.configurationChanges !== undefined &&
+      features?.coordinatorBootstrapConfigurationChanges !== true
+    )
+      throw new Error("Update the Host before preparing this configuration change.");
     if (
       input.plan.previewMonitorConfiguration !== undefined &&
       features?.coordinatorBootstrapPreviewMonitor !== true

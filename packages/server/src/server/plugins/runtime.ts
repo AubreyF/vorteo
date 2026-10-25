@@ -36,6 +36,7 @@ import { PluginProcessMessageSchema } from "./plugin-process-protocol.js";
 import { PluginSessionSocket } from "./session-socket.js";
 import { InternalPluginChild } from "./internal-child.js";
 import { evaluateBundle } from "./bundle-evaluator.js";
+import { readPrebuiltBundles, type PluginBundles } from "./builtin/prebuilt.js";
 
 const CLIENT_ENTRY_FILENAMES = ["index.client.ts", "index.client.tsx"] as const;
 const SERVER_ENTRY_FILENAMES = ["index.server.ts", "index.server.tsx"] as const;
@@ -274,7 +275,7 @@ async function findEntry(directory: string, filenames: readonly string[]): Promi
   return null;
 }
 
-async function resolveEntryPaths(directory: string): Promise<{
+export async function resolveEntryPaths(directory: string): Promise<{
   client: string | null;
   server: string | null;
 }> {
@@ -353,7 +354,7 @@ export class PluginRuntime {
       throw new Error(`Built-in plugin ${input.id} has manifest ID ${manifest.id}`);
     }
     assertPluginCompatibility({ ...manifest, version: this.daemonVersion, runtime: "daemon" });
-    const bundles = await compilePlugin(await resolveEntryPaths(directory));
+    const bundles = await this.builtinBundles(input.id, directory);
     if (!bundles.serverBundle) throw new Error(`Built-in plugin ${input.id} needs a server entry`);
     const loaded = await this.launchPlugin({
       pluginId: input.id,
@@ -366,6 +367,22 @@ export class PluginRuntime {
     this.builtinInstances.add(loaded);
     this.plugins.set(input.id, loaded);
     this.appendLog(input.id, "stdout", "[paseo] Plugin ready");
+  }
+
+  /** Uses the release's verified prebuilt bundles, compiling only when they are absent or stale. */
+  private async builtinBundles(pluginId: string, directory: string): Promise<PluginBundles> {
+    const prebuilt = await readPrebuiltBundles(directory, this.daemonVersion);
+    if (prebuilt.status === "loaded") {
+      this.logger.debug({ pluginId }, "Loaded prebuilt built-in plugin");
+      return prebuilt.bundles;
+    }
+    if (prebuilt.status === "stale") {
+      this.logger.warn(
+        { pluginId, reason: prebuilt.reason },
+        "Prebuilt built-in plugin does not match its source; compiling",
+      );
+    }
+    return compilePlugin(await resolveEntryPaths(directory));
   }
 
   async validatePlugin(configuredPath: string): Promise<void> {

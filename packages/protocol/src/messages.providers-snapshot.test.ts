@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { compactProviderSnapshot, expandProviderSnapshot } from "./provider-snapshot-codec.js";
+// Static, so loading the 9.6 MB generated validator happens at import, outside any test timeout.
+import { validateWSOutboundMessage } from "./validation/ws-outbound.js";
 import {
   GetProvidersSnapshotResponseMessageSchema,
   ProviderSnapshotEntrySchema,
@@ -118,8 +120,7 @@ describe("provider snapshot message schemas", () => {
   });
 });
 
-test("accepts a bodyless announcement with separate discovery freshness", async () => {
-  const { validateWSOutboundMessage } = await import("./validation/ws-outbound.js");
+test("accepts a bodyless announcement with separate discovery freshness", () => {
   const message = {
     type: "providers_snapshot_update",
     payload: {

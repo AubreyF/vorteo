@@ -47,9 +47,10 @@ export class BuiltinPluginLoader {
     this.ids = new Set(list);
   }
 
+  /** Starts every built-in plugin concurrently. Each compiles and launches independently, and
+   * the daemon accepts connections only after all have started, so a serial loop added every
+   * plugin's startup to each daemon start. Callers isolate their own failures per plugin. */
   async load(start: (plugin: BuiltinPlugin) => Promise<void>): Promise<void> {
-    for (const id of this.list) {
-      await start({ id, directory: path.join(this.root, id) });
-    }
+    await Promise.all(this.list.map((id) => start({ id, directory: path.join(this.root, id) })));
   }
 }

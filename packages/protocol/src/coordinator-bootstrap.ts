@@ -136,6 +136,15 @@ export const CoordinatorBootstrapPlanSchema = z.strictObject({
   // COMPAT(bootstrapHostLauncherUpdate): added 2026-10-23. Sets the one-time Host launcher
   // update plan in the coordinator configuration; null removes it.
   hostLauncherUpdateConfiguration: HostLauncherUpdateConfigurationSchema.nullable().optional(),
+  // COMPAT(bootstrapConfigurationChanges): added 2026-10-24. Reviewed changes to
+  // registered coordinator settings (coordinator-configuration-settings.ts); a null
+  // value removes one. Names and values stay loose here so a reader that predates a
+  // setting can still parse the plan; the registry decides what is allowed.
+  configurationChanges: z
+    .array(z.strictObject({ setting: z.string().min(1).max(64), value: z.unknown() }))
+    .min(1)
+    .max(16)
+    .optional(),
 });
 export type CoordinatorBootstrapPlan = z.infer<typeof CoordinatorBootstrapPlanSchema>;
 
@@ -359,6 +368,8 @@ export const CoordinatorBootstrapListRequestSchema = z.strictObject({
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
   hostLauncherUpdate: z.literal(true).optional(),
+  // COMPAT(bootstrapConfigurationChanges): the registered settings this client can review.
+  configurationSettings: z.array(z.string().max(64)).max(64).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -378,6 +389,8 @@ export const CoordinatorBootstrapPrepareRequestSchema = z.strictObject({
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
   hostLauncherUpdate: z.literal(true).optional(),
+  // COMPAT(bootstrapConfigurationChanges): the registered settings this client can review.
+  configurationSettings: z.array(z.string().max(64)).max(64).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),
@@ -394,6 +407,8 @@ export const CoordinatorBootstrapDecideRequestSchema = z.strictObject({
   engineRestart: z.literal(true).optional(),
   factoryGate: z.literal(true).optional(),
   hostLauncherUpdate: z.literal(true).optional(),
+  // COMPAT(bootstrapConfigurationChanges): the registered settings this client can review.
+  configurationSettings: z.array(z.string().max(64)).max(64).optional(),
   sourceUpdateTooling: z.literal(true).optional(),
   bootRecovery: z.literal(true).optional(),
   automaticStatus: z.literal(true).optional(),

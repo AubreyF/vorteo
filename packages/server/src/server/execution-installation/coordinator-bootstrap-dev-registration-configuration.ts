@@ -1,3 +1,4 @@
+import { plansConfigurationChange } from "@getpaseo/protocol/coordinator-configuration-settings";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
@@ -54,19 +55,15 @@ function assertConfigurationScope(input: ConfigurationScopeInput): void {
 /** Plan fields that change coordinator policy or other services. */
 const POLICY_FIELDS = [
   "sourceUpdateTooling",
-  "factoryRuntimeAdoptionConfiguration",
   "nativeHelperConfiguration",
-  "previewMonitorConfiguration",
-  "claudeHostRefreshConfiguration",
-  "engineRestartConfiguration",
-  "factoryGateConfiguration",
-  "hostLauncherUpdateConfiguration",
   "supervisionRecovery",
 ] as const;
 
 function combinesPolicyChange(plan: RegistrationConfigurationInput["plan"]): boolean {
   return (
-    plan.hostRequestsAfter !== null || POLICY_FIELDS.some((field) => plan[field] !== undefined)
+    plan.hostRequestsAfter !== null ||
+    plansConfigurationChange(plan) ||
+    POLICY_FIELDS.some((field) => plan[field] !== undefined)
   );
 }
 

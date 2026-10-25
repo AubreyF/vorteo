@@ -79,14 +79,9 @@ test.describe("Agent profiles settings", () => {
     }
   });
 
-  // Product regression, reported to Builds on 2026-10-25: preferences saved before 471d7f22a
-  // carry `vortonMode`, which the strict FormPreferencesSchema no longer accepts. The favourites
-  // migration reads with that schema, so it deletes the whole create-agent preferences entry,
-  // migrates nothing and still marks the host done (471d7f22a). Remove the fixme once the
-  // migration reads legacy-shaped preferences and keeps them.
-  test.fixme("legacy favourites saved beside the old mode setting still migrate", async ({
-    page,
-  }) => {
+  // Preferences saved before 471d7f22a carry `vortonMode`; the migration accepts them since
+  // a6a91bc4a instead of deleting the preferences entry.
+  test("legacy favourites saved beside the old mode setting still migrate", async ({ page }) => {
     const seed = await seedAgentProfiles([]);
     try {
       // The fixture seeds `vortonMode: false`, as upgraded installs stored it.

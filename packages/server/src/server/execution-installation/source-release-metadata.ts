@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export type InertGit = (...args: string[]) => Promise<string>;
+export type InertGit = ((...args: string[]) => Promise<string>) & {
+  /** Optional: reads several `commit:path` blobs in one git process. */
+  readBlobs?: (specs: readonly string[]) => Promise<string[]>;
+};
 const manifestSchema = z
   .object({ name: z.string(), version: z.string(), private: z.boolean().optional() })
   .passthrough();
@@ -30,6 +33,13 @@ function releaseVersion(versions: string[], increment: number) {
 }
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 
+/** Reads `commit:file` texts, in one git process when the caller supports it. */
+function readFiles(git: InertGit, commit: string, files: readonly string[]) {
+  return git.readBlobs
+    ? git.readBlobs(files.map((file) => `${commit}:${file}`))
+    : Promise.all(files.map((file) => git("show", `${commit}:${file}`)));
+}
+
 /** Pinned coordinator implementation of only the repository's generated version fields. */
 export async function releaseMetadata(git: InertGit, commit: string) {
   const root = manifestSchema.parse(JSON.parse(await git("show", `${commit}:package.json`)));
@@ -42,12 +52,14 @@ export async function releaseMetadata(git: InertGit, commit: string) {
       throw new Error("Workspace layout requires explicit integration");
   }
   const manifests = new Map([["package.json", root]]);
-  for (const workspace of workspaces)
-    manifests.set(
-      `${workspace}/package.json`,
-      manifestSchema.parse(JSON.parse(await git("show", `${commit}:${workspace}/package.json`))),
-    );
-  const lock = lockSchema.parse(JSON.parse(await git("show", `${commit}:package-lock.json`)));
+  const files = [
+    ...workspaces.map((workspace) => `${workspace}/package.json`),
+    "package-lock.json",
+  ];
+  const texts = await readFiles(git, commit, files);
+  for (const [index, workspace] of workspaces.entries())
+    manifests.set(`${workspace}/package.json`, manifestSchema.parse(JSON.parse(texts[index]!)));
+  const lock = lockSchema.parse(JSON.parse(texts.at(-1)!));
   const names = new Set([...manifests.values()].map((item) => item.name));
   if (lock.version !== root.version) throw new Error("Root lock version differs from manifest");
   for (const [file, pkg] of manifests) {
@@ -117,27 +129,30 @@ export function reconcileReleaseNotes(base: string, left: string, right: string)
   const history = blocks(base);
   const accepted = blocks(left);
   const incoming = blocks(right);
+  const historical = new Set(history);
   for (const entries of [accepted, incoming]) {
-    // Compare complete entries, including duplicate counts. Concurrent integration
-    // can interleave intact history without editing or deleting a single note.
-    const remaining = [...entries];
-    for (const entry of history) {
-      const index = remaining.indexOf(entry);
-      if (index < 0) throw new Error("Existing release notes were edited; resolve explicitly");
-      remaining.splice(index, 1);
-    }
-    for (const entry of remaining) {
+    // Compare complete entries. Concurrent integration can interleave intact history
+    // but never edit or delete a note. Dropping an extra byte-identical copy loses
+    // nothing, so a side that removed duplicates still matches older history.
+    const present = new Set(entries);
+    if (history.some((entry) => !present.has(entry)))
+      throw new Error("Existing release notes were edited; resolve explicitly");
+    for (const entry of present) {
+      if (historical.has(entry)) continue;
       // A well-formed heading may stand alone: history holds a few entries with no notes.
       if (!/^## \S+ - \d{4}-\d{2}-\d{2}(?:\n|$)/.test(entry))
         throw new Error("Release-note heading requires review");
     }
   }
-  const remaining = [...accepted];
+  // A byte-identical copy adds nothing, so skip incoming entries that are already
+  // accepted or repeated within the contribution. Repeated headings with different
+  // notes are distinct entries and still combine.
+  const known = new Set(accepted);
   const additions: string[] = [];
   for (const entry of incoming) {
-    const index = remaining.indexOf(entry);
-    if (index < 0) additions.push(entry);
-    else remaining.splice(index, 1);
+    if (known.has(entry)) continue;
+    known.add(entry);
+    additions.push(entry);
   }
   // Keep the accepted document verbatim and prepend only missing incoming entries.
   const added = additions.length ? additions.join("\n\n") + "\n\n" : "";

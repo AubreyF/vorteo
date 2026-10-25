@@ -122,10 +122,9 @@ test("visible Explorer does not replace the last ordinary workspace pane", async
   await expectNewLauncher(page);
 });
 
-// Product regression, reported to Builds on 2026-10-24: reloading a workspace whose saved layout
-// has a hidden Explorer with Files and Changes tabs and 2,250 saved drafts now freezes the page;
-// it stays unresponsive for at least 30 seconds. Remove the fixme once it recovers.
-test.fixme("reloading a saved hidden generated Explorer recovers a usable workspace", async ({
+// A saved layout with a hidden Explorer and 2,250 empty drafts froze the page on reload until
+// 9711e1710 dropped empty Explorer drafts during restore.
+test("reloading a saved hidden generated Explorer recovers a usable workspace", async ({
   page,
   withWorkspace,
 }) => {

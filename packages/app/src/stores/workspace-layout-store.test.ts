@@ -1258,6 +1258,95 @@ describe("workspace-layout-store actions", () => {
     },
   );
 
+  it("drops empty drafts from a saved Explorer and keeps the ones with saved content", async () => {
+    const workspaceKey = createWorkspaceKey();
+    const emptyDraftIds = Array.from({ length: 2250 }, (_, index) => `draft_empty_${index}`);
+    const saved = createPane({
+      id: "pane_generated_report_equivalent",
+      hidden: true,
+      tabIds: ["files", "changes_tree", ...emptyDraftIds, "draft_typed", "draft_cleared"],
+      targetsByTabId: {
+        files: { kind: "files" },
+        changes_tree: { kind: "changes_tree" },
+      },
+    });
+    await AsyncStorage.setItem(
+      "paseo-drafts",
+      JSON.stringify({
+        version: 5,
+        state: {
+          drafts: {
+            [`draft:${SERVER_ID}:draft_typed`]: {
+              input: { text: "keep me", attachments: [] },
+              lifecycle: "active",
+              updatedAt: 1,
+              version: 1,
+            },
+            [`draft:${SERVER_ID}:draft_cleared`]: {
+              input: { text: "", attachments: [] },
+              lifecycle: "abandoned",
+              updatedAt: 1,
+              version: 2,
+            },
+          },
+          createModalDraft: null,
+        },
+      }),
+    );
+    await AsyncStorage.setItem(
+      "workspace-layout-state",
+      JSON.stringify({
+        version: 2,
+        state: {
+          layoutByWorkspace: { [workspaceKey]: { root: saved, focusedPaneId: null } },
+          explorerPaneIdByWorkspace: { [workspaceKey]: "pane_generated_report_equivalent" },
+        },
+      }),
+    );
+    try {
+      const restored = createWorkspaceLayoutStore(createDeterministicWorkspaceLayoutIds());
+      await restored.persist.rehydrate();
+      const layout = restored.getState().layoutByWorkspace[workspaceKey];
+      expect(collectAllPanes(layout.root).map((pane) => pane.id)).toEqual(["main"]);
+      expect(findPaneById(layout.root, "pane_generated_report_equivalent")?.tabIds).toEqual([
+        "files",
+        "changes_tree",
+        "draft_typed",
+      ]);
+    } finally {
+      await AsyncStorage.removeItem("paseo-drafts");
+    }
+  });
+
+  it("keeps every saved Explorer draft when saved drafts cannot be read", async () => {
+    const workspaceKey = createWorkspaceKey();
+    const saved = createPane({
+      id: "explorer",
+      hidden: true,
+      tabIds: ["files", "draft_unknown"],
+      targetsByTabId: { files: { kind: "files" } },
+    });
+    await AsyncStorage.setItem("paseo-drafts", "not json");
+    await AsyncStorage.setItem(
+      "workspace-layout-state",
+      JSON.stringify({
+        version: 2,
+        state: {
+          layoutByWorkspace: { [workspaceKey]: { root: saved, focusedPaneId: null } },
+          explorerPaneIdByWorkspace: { [workspaceKey]: "explorer" },
+        },
+      }),
+    );
+    try {
+      const restored = createWorkspaceLayoutStore(createDeterministicWorkspaceLayoutIds());
+      await restored.persist.rehydrate();
+      const layout = restored.getState().layoutByWorkspace[workspaceKey];
+      expect(findPaneById(layout.root, "explorer")?.tabIds).toEqual(["files", "draft_unknown"]);
+    } finally {
+      await AsyncStorage.removeItem("paseo-drafts");
+    }
+  });
+
   it("reveals a saved hidden ordinary pane without replacing its content", async () => {
     const workspaceKey = createWorkspaceKey();
     const saved = createPane({

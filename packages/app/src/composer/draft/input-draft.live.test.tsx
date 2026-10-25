@@ -6,6 +6,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { useDraftStore } from "@/stores/draft-store";
 import type { AttachmentMetadata, ComposerAttachment } from "@/attachments/types";
 import { createWorkspaceFileAttachment } from "@/attachments/workspace-file";
+// Static, so loading the hook's module graph happens at import, not inside a hook timeout.
+// vi.mock calls below are hoisted above it.
+import { useAgentInputDraft } from "./input-draft";
 
 const { asyncStorage } = vi.hoisted(() => ({
   asyncStorage: new Map<string, string>(),
@@ -25,6 +28,13 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
       asyncStorage.delete(key);
     },
   },
+}));
+
+// The draft hooks only ask whether a host client is connected; none is in these tests. The real
+// module pulls in the whole daemon runtime and its protocol validators, about 10 s to transform.
+vi.mock("@/runtime/host-runtime", () => ({
+  useHostRuntimeClient: () => null,
+  useHostRuntimeIsConnected: () => false,
 }));
 
 vi.mock("@/attachments/service", () => ({
@@ -126,16 +136,13 @@ afterEach(async () => {
   });
 });
 
-let useAgentInputDraft: typeof import("./input-draft").useAgentInputDraft;
 type DraftRecordForTest = ReturnType<typeof useDraftStore.getState>["drafts"][string];
 
-beforeAll(async () => {
+beforeAll(() => {
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     value: true,
     configurable: true,
   });
-
-  ({ useAgentInputDraft } = await import("./input-draft"));
 });
 
 describe("useAgentInputDraft live contract", () => {

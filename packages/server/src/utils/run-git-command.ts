@@ -14,6 +14,7 @@ import {
   submitGitCommandTrace,
 } from "./git-command-trace.js";
 import { spawnProcess } from "./spawn.js";
+import { signalProcessTree } from "./tree-kill.js";
 import {
   GitProcessScheduler,
   type GitProcessPriority,
@@ -427,7 +428,9 @@ function executeGitCommand<Output>(
 
       timer = setTimeout(() => {
         timeoutError = new Error(`Git command timed out after ${timeout}ms: ${command}`);
-        child.kill("SIGKILL");
+        // Kill the whole tree: a network command's git-remote-http helper outlives a killed git
+        // and, on Windows, keeps the repository directory open until its remote gives up.
+        void signalProcessTree(child, "SIGKILL");
         settle(() => reject(timeoutError));
         if (processExit) {
           settleTimeoutTrace(processExit.exitCode, processExit.signal);

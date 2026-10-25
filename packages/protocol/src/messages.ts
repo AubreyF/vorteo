@@ -4132,6 +4132,7 @@ export const ServerInfoStatusPayloadSchema = z
         coordinatorBootstrapPreviewMonitor: z.boolean().optional(),
         coordinatorBootstrapClaudeHostRefresh: z.boolean().optional(),
         coordinatorBootstrapEngineRestart: z.boolean().optional(),
+        coordinatorBootstrapConfigurationChanges: z.boolean().optional(),
         coordinatorBootstrapFactoryGate: z.boolean().optional(),
         coordinatorBootstrapHostLauncherUpdate: z.boolean().optional(),
         // COMPAT(sourceUpdateTooling): advertised only with exact candidate/scripts admission.

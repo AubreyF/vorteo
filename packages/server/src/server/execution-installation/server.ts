@@ -3,6 +3,12 @@ import {
   parseWorkerLaunchLookupQuery,
   WorkerLaunchLookupError,
 } from "./maintenance/worker-launch-lookup.js";
+import {
+  legacyOperationReplies,
+  operationFor,
+  reviewedPlanCapabilities,
+  type ReviewedRestartOperation,
+} from "./restart-operations.js";
 import { DaemonAutomation } from "./daemon-automation.js";
 import { createRecoveryAccessStatusReader } from "./maintenance/recovery-access.js";
 import { MaintenanceServiceCancellationSchema } from "@getpaseo/protocol/maintenance-service-status";
@@ -140,56 +146,6 @@ function matchesToken(token: string | null, hash: string): boolean {
   return timingSafeEqual(actual, Buffer.from(hash, "hex"));
 }
 
-// COMPAT(factoryRuntimeAdoption): v285, remove after legacy installation clients are retired.
-function factoryAdoptionReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
-  if (!job.factoryRuntimePlanSha256 || enabled) return job;
-  const {
-    factoryRuntimePlanSha256: _plan,
-    factoryRuntimeRecoveryRequired: _recovery,
-    factoryRuntimeRecoveryOf: _recoveryOf,
-    factoryRuntimeRecoveredBy: _recoveredBy,
-    ...compatible
-  } = job;
-  return {
-    ...compatible,
-    reason: "Factory startup adoption. Reload Vorteo to review the exact operation.",
-    detail: "Reload to review Factory adoption. Cancellation remains available.",
-  };
-}
-
-// COMPAT(engineRestart): added 2026-10-23; remove after 2027-04-23 once all supported
-// clients negotiate Docker restart review. Old clients see a Dev restart they can only cancel.
-function engineRestartReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
-  if (!job.engineRestartPlanSha256 || enabled) return job;
-  const { engineRestartPlanSha256: _plan, ...compatible } = job;
-  return {
-    ...compatible,
-    reason: "Docker restart for Dev. Reload Vorteo to review the exact operation.",
-    detail: "Reload to review the Docker restart. Cancellation remains available.",
-  };
-}
-
-// COMPAT(hostLauncherUpdate): added 2026-10-23; remove after 2027-04-23 once all supported
-// clients negotiate Host launcher review. Old clients see a Host restart they can only cancel.
-function hostLauncherReply(job: RestartJob, enabled: boolean | undefined): RestartJob {
-  if (!job.hostLauncherPlanSha256 || enabled) return job;
-  const { hostLauncherPlanSha256: _plan, ...compatible } = job;
-  return {
-    ...compatible,
-    reason: "Host launcher update. Reload Vorteo to review the exact operation.",
-    detail: "Reload to review the Host launcher update. Cancellation remains available.",
-  };
-}
-
-/** A plan-bound operation that only an owner or delegate approves, advertised by digest. */
-function planCapability(plan: string | undefined, executor: unknown) {
-  return {
-    available: Boolean(plan && executor),
-    ownerApprovalRequired: true,
-    ...(plan ? { sha256: plan } : {}),
-  };
-}
-
 function pendingUpdateDetail(job: RestartJob, pendingDetail: string) {
   return job.status === "pending" ? pendingDetail : job.detail;
 }
@@ -272,9 +228,8 @@ function restartReply(
     ...publicJob
   } = job;
   job = ownerApprovalReply(publicJob, requireOwnerApproval);
-  job = factoryAdoptionReply(job, factoryRuntimeAdoption);
-  job = engineRestartReply(job, engineRestart);
-  job = hostLauncherReply(job, hostLauncherUpdate);
+  // COMPAT projections for reviewed plans; each entry in restart-operations.ts says when.
+  job = legacyOperationReplies(job, { factoryRuntimeAdoption, engineRestart, hostLauncherUpdate });
   if (!hostAutomaticRestarts) {
     const { automaticApproval: _approval, ...compatible } = job;
     job = compatible;
@@ -890,19 +845,13 @@ export function createInstallationServer(
       config.hostAgentTokenHash,
     );
     const devReady = standingRuntime.registrationReadiness().available;
-    const supervisorPlan =
-      host && devReady && !config.container.persistentRegistration
-        ? executor.supervisorPlan?.()
+    // Host plans need only a Host caller; Dev plans also need a ready, unregistered Dev.
+    const advertisedPlan = (operation: ReviewedRestartOperation) =>
+      host &&
+      (operation.target === "host" || (devReady && !config.container.persistentRegistration))
+        ? operation.plan(executor)
         : undefined;
-    const factoryRuntimePlan =
-      host && devReady && !config.container.persistentRegistration
-        ? executor.factoryRuntimePlan?.()
-        : undefined;
-    const hostLauncherPlan = host ? executor.hostLauncherPlan?.() : undefined;
-    const engineRestartPlan =
-      host && devReady && !config.container.persistentRegistration
-        ? executor.engineRestartPlan?.()
-        : undefined;
+    const supervisorPlan = advertisedPlan(operationFor("supervisorPlanSha256"));
     const permissions = daemonAutomation.servicePermissions();
     const automaticSupported = supportsAutomaticMaintenance(executor);
     // COMPAT(hostAutomaticRestarts): per-target permissions added v543; retain
@@ -979,14 +928,8 @@ export function createInstallationServer(
               ),
               ...(supervisorPlan ? { sha256: supervisorPlan } : {}),
             },
-            factoryRuntimeAdoption: planCapability(
-              factoryRuntimePlan,
-              executor.adoptFactoryRuntime,
-            ),
-            // Never automatic: the one-time launcher update restarts every Host agent.
-            hostLauncherUpdate: planCapability(hostLauncherPlan, executor.updateHostLauncher),
-            // Never automatic: a Docker restart interrupts all of Dev and the gateway.
-            engineRestart: planCapability(engineRestartPlan, executor.restartEngine),
+            // Reviewed plans advertise owner approval, as before; supervisor maintenance is above.
+            ...reviewedPlanCapabilities(advertisedPlan, executor),
           }),
         next,
       );

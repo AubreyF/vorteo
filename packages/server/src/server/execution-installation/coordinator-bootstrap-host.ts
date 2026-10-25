@@ -23,6 +23,11 @@ import {
 import { FileBootstrapRequestJournal } from "./coordinator-bootstrap-journal.js";
 import { BootstrapExecutorRecordSchema } from "./coordinator-bootstrap-process.js";
 import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
+import {
+  REVIEWED_CONFIGURATION_SETTINGS,
+  planConfigurationChanges,
+  type ReviewedConfigurationChange,
+} from "@getpaseo/protocol/coordinator-configuration-settings";
 import { InstallationConfigSchema, type InstallationConfig } from "./config.js";
 import { coordinatorAutomaticAuthority } from "./daemon-automation.js";
 import {
@@ -487,30 +492,37 @@ function expectedBootstrapConfiguration(
       toolingDirectory: path.join(plan.candidate.directory, "scripts"),
     };
   }
-  if (plan.factoryRuntimeAdoptionConfiguration === null)
-    delete expected.container.factoryRuntimeAdoption;
-  else if (plan.factoryRuntimeAdoptionConfiguration !== undefined)
-    expected.container.factoryRuntimeAdoption = plan.factoryRuntimeAdoptionConfiguration;
-  if (plan.previewMonitorConfiguration === null) delete expected.previewMonitor;
-  else if (plan.previewMonitorConfiguration !== undefined)
-    expected.previewMonitor = plan.previewMonitorConfiguration;
-  if (plan.claudeHostRefreshConfiguration === null) delete expected.claudeHostRefresh;
-  else if (plan.claudeHostRefreshConfiguration === true) expected.claudeHostRefresh = true;
-  if (plan.engineRestartConfiguration === null) delete expected.container.engineRestart;
-  else if (plan.engineRestartConfiguration !== undefined)
-    expected.container.engineRestart = plan.engineRestartConfiguration;
-  if (plan.factoryGateConfiguration === null) delete expected.container.factoryGate;
-  else if (plan.factoryGateConfiguration !== undefined)
-    expected.container.factoryGate = plan.factoryGateConfiguration;
-  if (plan.hostLauncherUpdateConfiguration === null) delete expected.host.launcherUpdate;
-  else if (plan.hostLauncherUpdateConfiguration !== undefined)
-    expected.host.launcherUpdate = plan.hostLauncherUpdateConfiguration;
+  for (const change of reviewedConfigurationChanges(plan))
+    applyConfigurationChange(expected, change);
   if (plan.nativeHelperConfiguration === null) delete expected.nativeHelper;
   else if (plan.nativeHelperConfiguration !== undefined)
     expected.nativeHelper = plan.nativeHelperConfiguration;
   if (plan.hostRequestsAfter !== null)
     expected.restartApprovalPolicy = { hostRequestsAfter: plan.hostRequestsAfter };
   return expected;
+}
+
+/** The plan's registered setting changes, or a conflict naming why they are refused. */
+export function reviewedConfigurationChanges(
+  plan: CoordinatorBootstrapPlan,
+): ReviewedConfigurationChange[] {
+  const result = planConfigurationChanges(plan);
+  if (!result.ok) throw new BootstrapRequestConflict(result.reason);
+  return result.changes;
+}
+
+/** Set or remove one registered setting. `expected` already copies the host and
+ * container sections, so the live configuration is never mutated. */
+function applyConfigurationChange(
+  expected: InstallationConfig,
+  change: ReviewedConfigurationChange,
+): void {
+  const location = REVIEWED_CONFIGURATION_SETTINGS[change.setting].path;
+  const root = expected as unknown as Record<string, unknown>;
+  const section = location.length === 1 ? root : (root[location[0]] as Record<string, unknown>);
+  const key = location[location.length - 1]!;
+  if (change.value === null) delete section[key];
+  else section[key] = change.value;
 }
 
 interface BootstrapConfigurationInput {

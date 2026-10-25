@@ -31,7 +31,9 @@ import {
   observeBootstrapReadiness,
   verifyBootstrapExecutionRuntime,
   BootstrapRunnerSetupSchema,
+  timeExecutorOperations,
 } from "./coordinator-bootstrap-runner.js";
+import type { BootstrapExecutorOperations } from "./coordinator-bootstrap-executor.js";
 
 interface ReopeningFixture {
   mode: string;
@@ -647,6 +649,43 @@ test("an interrupted runner leaves phase evidence without claiming failure or li
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner evidence records step timings without extra writes or changed sequences", async () => {
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "runner-timing-")));
+  try {
+    const request = { id: randomUUID(), revision: randomUUID(), planSha256: "a".repeat(64) };
+    const evidence = createBootstrapRunnerEvidence({ directory, request, role: "executor" });
+    const calls: unknown[][] = [];
+    const operations = {
+      freeze: async (...args: unknown[]) => {
+        calls.push(args);
+        return "frozen";
+      },
+    } as unknown as BootstrapExecutorOperations;
+    timeExecutorOperations(operations, evidence);
+    await evidence.run("runner", async () => {
+      const before = readFileSync(evidence.file, "utf8");
+      await expect(
+        (operations.freeze as unknown as (value: string) => Promise<string>)("claimed"),
+      ).resolves.toBe("frozen");
+      // Operation timing stays in memory until the next phase event.
+      expect(readFileSync(evidence.file, "utf8")).toBe(before);
+      await evidence.run("renewal-validation", async () => {});
+    });
+    const retained = JSON.parse(readFileSync(evidence.file, "utf8"));
+    expect(calls).toEqual([["claimed"]]);
+    expect(retained.sequence).toBe(2);
+    expect(Object.keys(retained.timings).sort()).toEqual([
+      "operation:freeze",
+      "renewal-validation",
+      "runner",
+    ]);
+    expect(retained.timings.runner).toMatchObject({ count: 1 });
+    expect(retained.timings["operation:freeze"].totalMs).toBeGreaterThanOrEqual(0);
+  } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });

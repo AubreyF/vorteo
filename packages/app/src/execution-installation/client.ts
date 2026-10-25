@@ -53,6 +53,7 @@ import {
 import type { HostRuntimeStore } from "@/runtime/host-runtime";
 import type { HostProfile } from "@/types/host-connection";
 import { normalizeHostPort } from "@getpaseo/protocol/daemon-endpoints";
+import { restartPlanBindings } from "./restart-operations";
 
 export function hasInstallationConnections(
   installation: ExecutionInstallation,
@@ -445,16 +446,7 @@ export class InstallationClient {
         revision: job.revision,
         decision,
         ...(job.update ? { updateSha256: job.update.sha256 } : {}),
-        ...(job.supervisorPlanSha256 ? { supervisorPlanSha256: job.supervisorPlanSha256 } : {}),
-        ...(job.factoryRuntimePlanSha256
-          ? { factoryRuntimePlanSha256: job.factoryRuntimePlanSha256 }
-          : {}),
-        ...(job.engineRestartPlanSha256
-          ? { engineRestartPlanSha256: job.engineRestartPlanSha256 }
-          : {}),
-        ...(job.hostLauncherPlanSha256
-          ? { hostLauncherPlanSha256: job.hostLauncherPlanSha256 }
-          : {}),
+        ...restartPlanBindings(job),
       }),
     );
   }

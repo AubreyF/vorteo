@@ -34,6 +34,7 @@ import type {
 } from "@getpaseo/protocol/execution-installation";
 import { OwnerAccessExpired, type InstallationClient } from "./client";
 import { toErrorMessage } from "@/utils/error-messages";
+import { restartOperationView } from "./restart-operations";
 
 interface InstallationPanelState {
   serviceQueue: MaintenanceServiceQueueStatus | null;
@@ -316,15 +317,7 @@ export class InstallationPanelModel {
       );
       const pending = jobs.toReversed().filter((job) => {
         if (job.status !== "pending") return false;
-        if (
-          job.update ||
-          job.sourceBatch ||
-          job.supervisorPlanSha256 ||
-          job.factoryRuntimePlanSha256 ||
-          job.engineRestartPlanSha256 ||
-          job.hostLauncherPlanSha256
-        )
-          return true;
+        if (job.update || job.sourceBatch || restartOperationView(job)) return true;
         if (targets.has(job.target)) return false;
         targets.add(job.target);
         return true;
@@ -835,10 +828,8 @@ export function restartBannerTitle(job: RestartJob): string {
     if (job.status === "approved") return "Factory startup adoption queued";
     return "Factory startup adoption needs review";
   }
-  let target = job.target === "host" ? "Host daemon" : "Dev daemon";
-  if (job.supervisorPlanSha256) target = "Dev supervisor";
-  if (job.engineRestartPlanSha256) target = "Docker for Dev";
-  if (job.hostLauncherPlanSha256) target = "Host launcher";
+  const target =
+    restartOperationView(job)?.target ?? (job.target === "host" ? "Host daemon" : "Dev daemon");
   if (job.status === "running") {
     return job.update || job.sourceBatch ? `Updating ${target}` : `Restarting ${target}`;
   }

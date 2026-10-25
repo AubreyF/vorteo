@@ -558,6 +558,18 @@ function digestFiles(
 ): Promise<Map<PendingFile, string>> {
   const digests = new Map<PendingFile, string>();
   if (pending.length === 0) return Promise.resolve(digests);
+  // One reader's worth of files: hash on this scan worker rather than starting a
+  // reader thread whose startup costs more than the reads. Still off the Host loop.
+  if (pending.length <= FILES_PER_READER) {
+    try {
+      const buffer = Buffer.alloc(CHUNK_BYTES);
+      for (const item of pending)
+        digests.set(item, digestFile(item.file, item.identity, buffer, deadline));
+      return Promise.resolve(digests);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
   const readers = Math.min(MAX_READERS, Math.ceil(pending.length / FILES_PER_READER));
   return new Promise((resolve, reject) => {
     const workers: Worker[] = [];

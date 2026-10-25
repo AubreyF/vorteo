@@ -1,3 +1,4 @@
+import { plansConfigurationChange } from "@getpaseo/protocol/coordinator-configuration-settings";
 import {
   BootstrapRequestConflict,
   BootstrapAuthenticationRequired,
@@ -286,12 +287,7 @@ function assertSupervisionRecoveryScope(plan: CoordinatorBootstrapPlan): void {
     plan.hostRequestsAfter !== null ||
     plan.sourceUpdateTooling !== undefined ||
     plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
-    plan.claudeHostRefreshConfiguration !== undefined ||
-    plan.engineRestartConfiguration !== undefined ||
-    plan.factoryGateConfiguration !== undefined ||
-    plan.hostLauncherUpdateConfiguration !== undefined ||
-    plan.factoryRuntimeAdoptionConfiguration !== undefined
+    plansConfigurationChange(plan)
   )
     throw new BootstrapRequestConflict(
       "Supervision recovery requires a separate exact compatible runtime without configuration changes",
@@ -373,12 +369,7 @@ function assertAutomaticCoordinatorPlan(
     plan.supervisionRecovery ||
     plan.sourceUpdateTooling ||
     plan.nativeHelperConfiguration !== undefined ||
-    plan.previewMonitorConfiguration !== undefined ||
-    plan.claudeHostRefreshConfiguration !== undefined ||
-    plan.engineRestartConfiguration !== undefined ||
-    plan.factoryGateConfiguration !== undefined ||
-    plan.hostLauncherUpdateConfiguration !== undefined ||
-    plan.factoryRuntimeAdoptionConfiguration !== undefined
+    plansConfigurationChange(plan)
   )
     throw new BootstrapRequestConflict(
       "Coordinator configuration, recovery successors and other service changes require exact owner review",
