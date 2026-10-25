@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): test-only change. Workspace standing tests follow the current menus, badges and touch actions; two are marked as known regressions. Functionality is unchanged. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-24): test-only change. The desktop appearance font size check follows one Theme label. Functionality is unchanged. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-24): test-only change. Plugin sidebar item tests follow the toolbar and footer layout; steps for removed sidebar customization are retired. Functionality is unchanged. README overview and onboarding are unchanged.
