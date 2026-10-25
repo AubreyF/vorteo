@@ -2912,6 +2912,22 @@ test("release notes preserve interleaved history and reject edits or missing dup
   ).toThrow("introduction changed");
 });
 
+test("release notes skip incoming entries identical to accepted or repeated ones", async () => {
+  const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
+  const prefix = "# Vorteo changelog\n\n";
+  const old = "## 0.11.0-beta.3.vorteo.757 - 2026-10-22\n\n- Existing note";
+  const note = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Drag the bottom edge";
+  const sameVersion = "## 0.11.0-beta.3.vorteo.758 - 2026-10-22\n\n- Show Vorteo System";
+  const base = `${prefix}${old}\n`;
+  const accepted = `${prefix}${note}\n\n${old}\n`;
+  // The contribution carries the accepted note three times, as vorteo.758 did on 2026-10-22.
+  const incoming = `${prefix}${sameVersion}\n\n${note}\n\n${note}\n\n${sameVersion}\n\n${note}\n\n${old}\n`;
+  const result = reconcileReleaseNotes(base, accepted, incoming);
+  // One new entry under the repeated heading; no copy of the accepted note.
+  expect(result).toBe(`${prefix}${sameVersion}\n\n${note}\n\n${old}\n`);
+  expect(reconcileReleaseNotes(base, result, incoming)).toBe(result);
+});
+
 test("release notes accept a heading-only entry and still refuse malformed headings or edits", async () => {
   const { reconcileReleaseNotes } = await import("./source-release-metadata.js");
   const prefix = "# Vorteo changelog\n\n";

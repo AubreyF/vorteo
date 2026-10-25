@@ -4,6 +4,16 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- Combining source contributions no longer copies a release note that is byte-identical to one already accepted, or repeated within the contribution. Repeated version headings with different notes still combine. Six exact copies of two vorteo.758 notes reached `main` this way on 2026-10-22, carried in from branch merges.
+
+### Documentation
+
+- The agent guide tells threads to check Builds' install gate marker before a full or heavy test suite, with a one-line shell check.
+
 ## 0.11.0-beta.3.vorteo.814 - 2026-10-23
 
 ### Maintenance

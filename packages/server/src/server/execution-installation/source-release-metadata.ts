@@ -132,12 +132,15 @@ export function reconcileReleaseNotes(base: string, left: string, right: string)
         throw new Error("Release-note heading requires review");
     }
   }
-  const remaining = [...accepted];
+  // A byte-identical copy adds nothing, so skip incoming entries that are already
+  // accepted or repeated within the contribution. Repeated headings with different
+  // notes are distinct entries and still combine.
+  const known = new Set(accepted);
   const additions: string[] = [];
   for (const entry of incoming) {
-    const index = remaining.indexOf(entry);
-    if (index < 0) additions.push(entry);
-    else remaining.splice(index, 1);
+    if (known.has(entry)) continue;
+    known.add(entry);
+    additions.push(entry);
   }
   // Keep the accepted document verbatim and prepend only missing incoming entries.
   const added = additions.length ? additions.join("\n\n") + "\n\n" : "";
