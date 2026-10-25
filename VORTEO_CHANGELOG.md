@@ -4,6 +4,14 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.830 - 2026-10-24
+
+### Maintenance
+
+- The test setup's worktree-setup notice dismissal dispatches its click directly, so an open overlay such as the command center no longer blocks it and times the test out.
+- Sidebar display-preference tests open View preferences from the More menu, where the sidebar toolbar redesign (ab60c1e39) moved it.
+- The label creation failure test expects the toast that replaced inline errors in 68faa7a52.
+
 ## 0.11.0-beta.3.vorteo.829 - 2026-10-24
 
 ### Maintenance

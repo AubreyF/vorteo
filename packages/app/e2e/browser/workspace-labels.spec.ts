@@ -322,9 +322,8 @@ test.describe("Workspace labels", () => {
         await page.getByTestId("workspace-label-picker-create-name").fill("Retry");
         mutationFailure.failNextAssignment();
         await page.getByTestId("workspace-label-picker-create-submit").click();
-        await expect(page.getByTestId("workspace-label-picker-error")).toContainText(
-          "Injected label mutation failure.",
-        );
+        // A failed create shows as a toast since 68faa7a52; the draft stays for a retry.
+        await expect(page.getByText("Injected label mutation failure.").first()).toBeVisible();
         await expect(page.getByTestId("workspace-label-picker-create-name")).toHaveValue("Retry");
 
         await page.getByTestId("workspace-label-picker-create-submit").click();

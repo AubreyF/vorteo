@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { identityForeground, type IdentityColorName } from "@/styles/identity-colors";
 import { openSettings } from "./app";
 import { buildSeededHost } from "./daemon-registry";
+import { openSidebarDisplayPreferences } from "./sidebar";
 import { clickSettingsBackToWorkspace, openHostSection, openSettingsHost } from "./settings";
 
 const REGISTRY_KEY = "@paseo:daemon-registry";
@@ -130,15 +131,10 @@ export async function waitForConnectedHost(
   await expect(page.getByTestId("settings-sidebar")).toHaveCount(0);
 }
 
-export async function openSidebarDisplayPreferences(page: Page): Promise<void> {
-  await page.getByTestId("sidebar-display-preferences-menu").click();
-  await expect(page.getByTestId("sidebar-display-preferences-content")).toBeVisible({
-    timeout: 10_000,
-  });
-}
-
 // Host filters live a page below the display-preferences root, so the filter rows only exist
 // after walking into that branch.
+export { openSidebarDisplayPreferences };
+
 export async function openSidebarHostFilter(page: Page): Promise<void> {
   await openSidebarDisplayPreferences(page);
   await page.getByTestId("sidebar-display-host-filter").click();

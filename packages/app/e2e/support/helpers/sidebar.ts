@@ -175,14 +175,20 @@ export async function expectWorkspaceAbsentFromSidebar(
 // The display-preferences menu is one row per decision, and the options sit a page below that
 // row. Every caller has to walk the same path, so it lives here: when the menu's shape moves
 // again, this is the only place that has to follow.
+/**
+ * Open the display-preferences menu. Since the sidebar toolbar redesign (ab60c1e39) its trigger
+ * is hidden and the More menu's View preferences item opens it.
+ */
+export async function openSidebarDisplayPreferences(page: Page): Promise<void> {
+  await page.locator('[data-testid="sidebar-footer-overflow"]:visible').first().click();
+  await page.getByTestId("sidebar-display-preferences-action").click();
+  await expect(page.getByTestId("sidebar-display-preferences-content")).toBeVisible({
+    timeout: 10_000,
+  });
+}
+
 export async function openSidebarDisplayPage(page: Page, branchTestID: string): Promise<void> {
-  const overflow = page.getByTestId("sidebar-footer-overflow");
-  if (await overflow.isVisible()) {
-    await overflow.click();
-    await page.getByTestId("sidebar-display-preferences-action").click();
-  } else {
-    await page.getByTestId("sidebar-display-preferences-menu").click();
-  }
+  await openSidebarDisplayPreferences(page);
   await page.getByTestId(branchTestID).click();
 }
 

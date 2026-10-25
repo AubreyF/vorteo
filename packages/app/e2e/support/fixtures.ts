@@ -142,7 +142,9 @@ const test = daemonTest.extend<{
       if (dismissWorktreeSetupCallout) {
         const dismiss = page.getByTestId(/^worktree-setup-callout-.*-dismiss$/).first();
         await page.addLocatorHandler(dismiss, async () => {
-          await dismiss.click();
+          // An open overlay, such as the command center, can cover the notice. Dispatching the
+          // click reaches its Pressable without a pointer, so the overlay stays open.
+          await dismiss.dispatchEvent("click");
         });
       }
       await provide();
