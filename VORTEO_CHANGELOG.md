@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.820 - 2026-10-25
+
+### Fixed
+
+- The one-time import of device-local model favourites into host profiles no longer deletes saved new-task preferences. Since 0.11.0-beta.3.vorteo.135 (471d7f22a), preferences saved before Paseo mode was removed still carried `vortonMode`; the import rejected them, removed the whole entry and marked the host done without importing anything. It now reads that shape and keeps the entry. A value it still cannot read is copied to a backup key and the host is retried on a later start, and a host is marked done only after its favourites are imported. Favourites already lost this way have no copy on the device; hosts imported before that change still hold them as `legacy_favorite:` profiles.
+
 ## 0.11.0-beta.3.vorteo.819 - 2026-10-25
 
 ### Fixed
