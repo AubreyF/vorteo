@@ -31,6 +31,7 @@ import {
   type SourceContribution,
 } from "@getpaseo/protocol/execution-installation";
 import type { InstallationConfig } from "./config.js";
+import type { CoordinatorBootstrapPlan } from "@getpaseo/protocol/coordinator-bootstrap";
 import { RestartRequestError, type RestartExecutor } from "./restarts.js";
 
 import { digestBootstrapArtifact, sealBootstrapRelease } from "./coordinator-bootstrap-artifact.js";
@@ -174,6 +175,35 @@ async function verifyPublishedInterruption(input: PublishedInterruption) {
 }
 
 /** Only the protected coordinator turns an approved bundle into executable code. */
+/**
+ * Paths whose release job folders Host retention must keep: the selected and previous
+ * releases, every release a kept coordinator plan names, unfinished jobs, and the
+ * update tooling the live configuration runs. Reviewed tooling selection points
+ * `sourceUpdates.toolingDirectory` into a release's scripts folder, so removing that
+ * release would break every later install at its first step.
+ */
+export function hostRetentionReferences(input: {
+  config: Pick<InstallationConfig, "sourceUpdates" | "containerSourceUpdates">;
+  previous: string;
+  plans: readonly CoordinatorBootstrapPlan[];
+  unfinished: readonly string[];
+}): string[] {
+  const { config } = input;
+  return [
+    ...(config.sourceUpdates
+      ? [config.sourceUpdates.currentReleaseLink, config.sourceUpdates.toolingDirectory]
+      : []),
+    ...(config.containerSourceUpdates ? [config.containerSourceUpdates.toolingDirectory] : []),
+    input.previous,
+    ...input.plans.flatMap((plan) =>
+      [plan.previous, plan.candidate, plan.compatibleRecovery]
+        .filter((release) => release !== undefined)
+        .map((release) => release.directory),
+    ),
+    ...input.unfinished,
+  ];
+}
+
 export class InstallationSourceUpdates {
   private readonly directory: string;
   private readonly candidateEvidence = new Map<
@@ -752,16 +782,7 @@ export class InstallationSourceUpdates {
         .map((job) => path.join(settings.releaseRoot, job.id));
       const removed = await pruneHostReleases({
         releaseRoot: settings.releaseRoot,
-        referenced: [
-          settings.currentReleaseLink,
-          previous,
-          ...plans.flatMap((plan) =>
-            [plan.previous, plan.candidate, plan.compatibleRecovery]
-              .filter((release) => release !== undefined)
-              .map((release) => release.directory),
-          ),
-          ...unfinished,
-        ],
+        referenced: hostRetentionReferences({ config: this.config, previous, plans, unfinished }),
         onError: (folder) => failures.push(path.basename(folder)),
       });
       const note = removed.length ? ` Removed ${removed.length} old Host releases.` : "";

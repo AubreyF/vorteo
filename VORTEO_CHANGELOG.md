@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.840 - 2026-10-25
+
+### Fixed
+
+- Host release cleanup always keeps the releases that hold the coordinator's update tooling. Reviewed tooling selection points the Host updater at an old release's scripts folder, and the first backlog cleanup removed that release, so every later Host install failed at its first step until the folder was restored from git.
+
 ## 0.11.0-beta.3.vorteo.839 - 2026-10-25
 
 ### Fixed

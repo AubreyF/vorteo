@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { setReleaseImmutable } from "./coordinator-bootstrap-release-seal.js";
+import type { InstallationConfig } from "./config.js";
+import { hostRetentionReferences } from "./source-updates.js";
 import {
   hostReleaseRetentionIdle,
   pruneHostReleases,
@@ -161,4 +163,30 @@ test("cleanup runs after the caller returns, one at a time, with a receipt", asy
   expect(read(receipt)).toMatchObject({ status: "failed", error: "disk busy" });
   expect(startHostReleaseRetention(async () => "", skipped)).toBe(true);
   await hostReleaseRetentionIdle();
+});
+
+test("retention keeps the release that holds the live update tooling", async () => {
+  // Reviewed tooling selection points sourceUpdates.toolingDirectory into an old
+  // release's scripts folder; removing it broke every later Host install.
+  const f = fixture(6);
+  const tooling = path.join(f.release(0), "scripts");
+  mkdirSync(tooling);
+  mkdirSync(path.join(f.release(1), "scripts"));
+  const config = {
+    sourceUpdates: { currentReleaseLink: f.current, toolingDirectory: tooling },
+    containerSourceUpdates: { toolingDirectory: path.join(f.release(1), "scripts") },
+  } as unknown as Pick<InstallationConfig, "sourceUpdates" | "containerSourceUpdates">;
+  const removed = await pruneHostReleases({
+    releaseRoot: f.root,
+    referenced: hostRetentionReferences({
+      config,
+      previous: f.release(4),
+      plans: [],
+      unfinished: [],
+    }),
+    keepNewest: 1,
+  });
+  expect(removed.sort()).toEqual([id(2), id(3)]);
+  expect(existsSync(tooling)).toBe(true);
+  expect(existsSync(f.release(1))).toBe(true);
 });
