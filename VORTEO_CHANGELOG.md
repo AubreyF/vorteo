@@ -4,6 +4,12 @@ Vorteo change history, covering features, fixes, documentation, tests, tooling a
 
 The initial baseline is cumulative; older entries do not cover every maintenance commit. Historical version labels are preserved. Paseo release history remains in the [upstream changelog](CHANGELOG.md); the [customizations inventory](docs/vorteo-customizations.md) describes current fork capabilities and limitations.
 
+## 0.11.0-beta.3.vorteo.815 - 2026-10-24
+
+### Fixed
+
+- The pre-commit hook no longer fails typecheck on stale protocol or client declarations after a branch switch. It rebuilds them first, only when their sources are newer than the last successful build, which costs nothing on a clean commit.
+
 ## 0.11.0-beta.3.vorteo.814 - 2026-10-23
 
 ### Maintenance

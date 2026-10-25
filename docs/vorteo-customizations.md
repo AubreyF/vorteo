@@ -1,5 +1,7 @@
 # Vorteo customizations beyond Paseo
 
+Maintenance review (2026-10-24): the pre-commit hook rebuilds stale protocol and client declarations before typecheck. Tooling only. README overview and onboarding are unchanged.
+
 Maintenance review (2026-10-23): automatic coordinator renewals can close a failed automatic update that never reached promotion, proven under the journal lock and bound to the same coordinator process. Owner-reviewed and other failures still need owner review. Not yet installed. README overview and onboarding are unchanged.
 
 Maintenance review (2026-10-22): test-only change. The browser helper that opens Settings waits for the toolbar button before using the overflow menu. Functionality is unchanged. README overview and onboarding are unchanged.
